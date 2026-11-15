@@ -25,7 +25,7 @@ import {
   MinimumDhwVersion,
   OutdatedDhwRefusal,
 } from "./dhw-version";
-import { fieldWithDefault } from "./response-fields";
+import { fieldWithDefault, nullableField } from "./response-fields";
 import { WORKSPACE_SITE_TIME_ZONE } from "./site-time-zone";
 
 export const WORKSPACE_ADMIN_API_VERSION = "v1" as const;
@@ -886,6 +886,8 @@ export const AdministrationInvoiceSort = Schema.Literals([
 export type AdministrationInvoiceSort = typeof AdministrationInvoiceSort.Type;
 
 export const AdministrationInvoiceQuery = Schema.Struct({
+  /** Also list archived (hidden) invoices; the list leaves them out by default. */
+  includeArchived: Schema.optional(Schema.Boolean),
   sort: Schema.optional(AdministrationInvoiceSort),
   direction: Schema.optional(AdministrationReservationSortDirection),
   page: Schema.optional(
@@ -909,6 +911,59 @@ export const AdministrationInvoicePaymentStatus = Schema.Literals([
 ]);
 export type AdministrationInvoicePaymentStatus =
   typeof AdministrationInvoicePaymentStatus.Type;
+
+/** A cancellation notice's state per audience; `not_owed` until one is claimed. */
+const AdministrationInvoiceNoticeState = Schema.Literals([
+  "not_owed",
+  "processing",
+  "accepted",
+  "failed",
+]);
+
+export const AdministrationInvoiceNotices = Schema.Struct({
+  customer: AdministrationInvoiceNoticeState,
+  internal: AdministrationInvoiceNoticeState,
+  needsAttention: Schema.Boolean,
+});
+export type AdministrationInvoiceNotices =
+  typeof AdministrationInvoiceNotices.Type;
+
+/**
+ * Who cancelled an invoice, when, through which channel and why, and the
+ * corrective document (credit note) that reverses it.
+ */
+export const AdministrationInvoiceCancellation = Schema.Struct({
+  cancelledAt: Schema.String,
+  cause: Schema.Literals(["invoice_cancellation", "reservation_cancellation"]),
+  source: Schema.Literals(["admin-ui", "dhw-cli", "assistant"]),
+  /** The administrator's login email when they cancelled. */
+  actor: Schema.String,
+  correctiveDocumentNumber: Schema.String,
+  correctiveDocumentIssuedAt: Schema.String,
+  /** Unprefixed; the proxy opens it in the operator's language. */
+  correctiveDocumentPdfUrl: Schema.String,
+  notices: AdministrationInvoiceNotices,
+});
+export type AdministrationInvoiceCancellation =
+  typeof AdministrationInvoiceCancellation.Type;
+
+/** What cancelling a live invoice would do; the server rechecks it. */
+export const AdministrationInvoiceCancellationPlan = Schema.Struct({
+  /** `owed`: the invoice was sent to the customer, who gets a cancellation notice. */
+  customerNotice: Schema.Literals(["owed", "not_owed"]),
+  /**
+   * `cancels_reservation`: the invoice bills a live reservation, which is
+   * cancelled with it; `cancellation_in_progress` refuses until that ends.
+   */
+  reservation: Schema.Literals([
+    "none",
+    "cancels_reservation",
+    "already_cancelled",
+    "cancellation_in_progress",
+  ]),
+});
+export type AdministrationInvoiceCancellationPlan =
+  typeof AdministrationInvoiceCancellationPlan.Type;
 
 export const AdministrationInvoiceListItem = Schema.Struct({
   id: AdministrationInvoiceId,
@@ -938,6 +993,14 @@ export const AdministrationInvoiceListItem = Schema.Struct({
     internal: AdministrationInvoiceDeliveryState,
   }),
   needsAttention: Schema.Boolean,
+  /** Null while the invoice is live, and from servers that predate cancellation. */
+  cancellation: nullableField(AdministrationInvoiceCancellation),
+  /** When the cancelled invoice was hidden from the Admin UI list. */
+  archivedAt: nullableField(Schema.String),
+  /** The cancelled invoice of the same reservation that this one replaces. */
+  replacesInvoiceId: nullableField(AdministrationInvoiceId),
+  /** The invoice that replaced this cancelled one. */
+  replacedByInvoiceId: nullableField(AdministrationInvoiceId),
 });
 export type AdministrationInvoiceListItem =
   typeof AdministrationInvoiceListItem.Type;
@@ -978,6 +1041,8 @@ export const AdministrationInvoiceDetail = Schema.Struct({
   ),
   buyer: AdministrationInvoiceBuyer,
   pdfUrl: Schema.String,
+  /** Null once the invoice is cancelled, and from servers that predate cancellation. */
+  cancellationPlan: nullableField(AdministrationInvoiceCancellationPlan),
 });
 export type AdministrationInvoiceDetail =
   typeof AdministrationInvoiceDetail.Type;
@@ -998,6 +1063,51 @@ export const AdministrationInvoiceRetryResult = Schema.Struct({
 });
 export type AdministrationInvoiceRetryResult =
   typeof AdministrationInvoiceRetryResult.Type;
+
+/**
+ * Cancels an invoice. `confirmedCustomerNotice` confirms the notice the plan
+ * showed. An invoice billing a live reservation also needs `reservation`: the
+ * fields a reservation cancellation takes, and both are cancelled together.
+ */
+export const AdministrationInvoiceCancellationInput = Schema.Struct({
+  confirmedCustomerNotice: Schema.Boolean,
+  reservation: Schema.optionalKey(
+    Schema.Struct({
+      accessGrantUpdatedAt: Schema.NullOr(Schema.String),
+      providerCredentialRemoved: Schema.Boolean,
+      sendCancellationEmail: Schema.Boolean,
+    })
+  ),
+}).annotate({
+  parseOptions: { errors: "all", onExcessProperty: "error" },
+});
+export type AdministrationInvoiceCancellationInput =
+  typeof AdministrationInvoiceCancellationInput.Type;
+
+export const AdministrationInvoiceCancellationResult = Schema.Struct({
+  invoiceId: AdministrationInvoiceId,
+  outcome: Schema.Literals(["cancelled", "already_cancelled"]),
+  cancellation: AdministrationInvoiceCancellation,
+  /** Set when the invoice's reservation was cancelled with it. */
+  reservation: nullableField(
+    Schema.Struct({
+      reservationId: AdministrationWorkspaceReservationId,
+      outcome: Schema.Literals(["cancelled", "already_cancelled"]),
+      email: Schema.Literals(["not_requested", "sent", "failed"]),
+    })
+  ),
+});
+export type AdministrationInvoiceCancellationResult =
+  typeof AdministrationInvoiceCancellationResult.Type;
+
+export const AdministrationInvoiceArchiveResult = Schema.Struct({
+  invoiceId: AdministrationInvoiceId,
+  archivedAt: Schema.String,
+  /** False when the invoice was already archived. */
+  changed: Schema.Boolean,
+});
+export type AdministrationInvoiceArchiveResult =
+  typeof AdministrationInvoiceArchiveResult.Type;
 
 export const AdministrationInvoicePdf = Schema.Uint8Array.pipe(
   HttpApiSchema.asUint8Array({ contentType: "application/pdf" })
@@ -1665,6 +1775,22 @@ export const AdministrationReservationDetail = Schema.Struct({
   }),
   canCancel: Schema.Boolean,
   requiresProviderCredentialRemoval: Schema.Boolean,
+  /**
+   * The reservation's latest invoice; null without one, and from servers
+   * that predate invoice cancellation.
+   */
+  invoice: nullableField(
+    Schema.Struct({
+      id: AdministrationInvoiceId,
+      invoiceNumber: Schema.String,
+      /** `live` is cancelled with the reservation. */
+      state: Schema.Literals(["live", "cancelled"]),
+      /** Hidden from the Admin UI; it stays readable through the API. */
+      archived: Schema.Boolean,
+      /** `owed`: cancelling emails the customer a cancellation notice. */
+      customerNotice: Schema.Literals(["owed", "not_owed"]),
+    })
+  ),
 });
 export type AdministrationReservationDetail =
   typeof AdministrationReservationDetail.Type;
@@ -1674,6 +1800,17 @@ export const AdministrationReservationCancellationInput = Schema.Struct({
   force: Schema.optionalKey(Schema.Boolean),
   providerCredentialRemoved: Schema.Boolean,
   sendCancellationEmail: Schema.Boolean,
+  /**
+   * The invoice consequences the operator confirmed. When given, the server
+   * refuses a cancellation whose consequences changed since; released `dhw`
+   * binaries omit it.
+   */
+  confirmedConsequences: Schema.optionalKey(
+    Schema.Struct({
+      invoice: Schema.Boolean,
+      customerNotice: Schema.Boolean,
+    })
+  ),
 }).annotate({
   parseOptions: { errors: "all", onExcessProperty: "error" },
 });
@@ -1683,6 +1820,19 @@ export type AdministrationReservationCancellationInput =
 export const AdministrationReservationCancellationResult = Schema.Struct({
   outcome: Schema.Literals(["cancelled", "already_cancelled"]),
   email: Schema.Literals(["not_requested", "sent", "failed"]),
+  /**
+   * The reservation's invoice cancelled with it; null when it had no live
+   * invoice, and from servers that predate invoice cancellation.
+   */
+  invoice: nullableField(
+    Schema.Struct({
+      outcome: Schema.Literals(["cancelled", "already_cancelled"]),
+      invoiceId: AdministrationInvoiceId,
+      invoiceNumber: Schema.String,
+      correctiveDocumentNumber: Schema.String,
+      notices: AdministrationInvoiceNotices,
+    })
+  ),
 });
 export type AdministrationReservationCancellationResult =
   typeof AdministrationReservationCancellationResult.Type;

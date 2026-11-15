@@ -14,7 +14,11 @@ import {
   makeTestManualInvoiceDocument,
 } from "@/features/accounting/invoice.test-utils";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
+import { ReservationAdministrationService } from "@/features/administration/reservation-administration.service";
 import { type Invoice, InvoiceRepository } from "../backend/invoice.repository";
+import { InvoiceArchiveRepository } from "../backend/invoice-archive.repository";
+import { InvoiceCancellationRepository } from "../backend/invoice-cancellation.repository";
+import { InvoiceCancellationService } from "../backend/invoice-cancellation.service";
 import {
   type InvoiceDeliverySummary,
   InvoiceEmailDeliveryRepository,
@@ -28,6 +32,10 @@ import {
   InvoiceAdministrationService,
   sortInvoiceAdministrationItems,
 } from "./invoice-administration.service";
+import {
+  liveInvoiceCancellationFakes,
+  liveInvoiceStanding,
+} from "./invoice-administration.service.test-utils";
 import { ManualInvoiceCreationRequests } from "./manual-invoice-creation-requests.service";
 
 const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
@@ -94,6 +102,7 @@ describe("InvoiceAdministrationService", () => {
       invoiceNumber: document.invoiceNumber,
       issuedAt: Temporal.Instant.from(document.issuedAt),
       document,
+      ...liveInvoiceStanding,
     } satisfies Invoice;
     const failedInternally: InvoiceDeliverySummary = {
       customer: "accepted",
@@ -109,6 +118,7 @@ describe("InvoiceAdministrationService", () => {
       invoiceNumber: manualDocument.invoiceNumber,
       issuedAt: Temporal.Instant.from(manualDocument.issuedAt),
       document: manualDocument,
+      ...liveInvoiceStanding,
     } satisfies Invoice;
     const layer = InvoiceAdministrationService.Default.pipe(
       Layer.provide(
@@ -123,14 +133,18 @@ describe("InvoiceAdministrationService", () => {
           ),
           Layer.mock(InvoiceEmailDeliveryService, {}),
           Layer.mock(ManualInvoiceCreationRequests, {}),
-          Layer.mock(WorkspaceDatabase, {})
+          Layer.mock(WorkspaceDatabase, {}),
+          liveInvoiceCancellationFakes
         )
       )
     );
 
     const result = await Effect.gen(function* () {
       const service = yield* InvoiceAdministrationService;
-      return yield* Effect.all([service.list(), service.get(invoice.id)]);
+      return yield* Effect.all([
+        service.list(),
+        service.get(invoice.id, { includeArchived: true }),
+      ]);
     }).pipe(Effect.provide(layer), Effect.runPromise);
 
     for (const projected of [result[0].items[0], result[1]]) {
@@ -165,7 +179,8 @@ describe("InvoiceAdministrationService", () => {
           Layer.mock(InvoiceEmailDeliveryRepository, {}),
           Layer.mock(InvoiceEmailDeliveryService, {}),
           Layer.mock(ManualInvoiceCreationRequests, {}),
-          Layer.mock(WorkspaceDatabase, {})
+          Layer.mock(WorkspaceDatabase, {}),
+          liveInvoiceCancellationFakes
         )
       )
     );
@@ -220,7 +235,8 @@ describe("InvoiceAdministrationService", () => {
           Layer.mock(InvoiceEmailDeliveryRepository, {}),
           Layer.mock(InvoiceEmailDeliveryService, {}),
           Layer.mock(ManualInvoiceCreationRequests, {}),
-          Layer.mock(WorkspaceDatabase, {})
+          Layer.mock(WorkspaceDatabase, {}),
+          liveInvoiceCancellationFakes
         )
       )
     );
@@ -285,6 +301,7 @@ describe("InvoiceAdministrationService", () => {
       invoiceNumber: stored.invoiceNumber,
       issuedAt: Temporal.Instant.from(stored.issuedAt),
       document: stored,
+      ...liveInvoiceStanding,
     } satisfies Invoice;
 
     const retryWith = (
@@ -303,7 +320,8 @@ describe("InvoiceAdministrationService", () => {
             deliveryLedger(() => summary),
             Layer.mock(InvoiceEmailDeliveryService, { deliverByInvoiceId }),
             Layer.mock(ManualInvoiceCreationRequests, {}),
-            Layer.mock(WorkspaceDatabase, {})
+            Layer.mock(WorkspaceDatabase, {}),
+            liveInvoiceCancellationFakes
           )
         )
       );
@@ -369,7 +387,8 @@ describe("InvoiceAdministrationService", () => {
             deliverByInvoiceId: deliveryMutation,
           }),
           Layer.mock(ManualInvoiceCreationRequests, { claim: claimMutation }),
-          Layer.mock(WorkspaceDatabase, {})
+          Layer.mock(WorkspaceDatabase, {}),
+          liveInvoiceCancellationFakes
         )
       )
     );
@@ -396,6 +415,7 @@ describe("InvoiceAdministrationService", () => {
       invoiceNumber: document.invoiceNumber,
       issuedAt: Temporal.Instant.from(document.issuedAt),
       document,
+      ...liveInvoiceStanding,
     } satisfies Invoice;
     const findById = mock((id: string) =>
       Effect.succeed(id === invoice.id ? invoice : null)
@@ -408,7 +428,8 @@ describe("InvoiceAdministrationService", () => {
           Layer.mock(InvoiceEmailDeliveryRepository, {}),
           Layer.mock(InvoiceEmailDeliveryService, {}),
           Layer.mock(ManualInvoiceCreationRequests, {}),
-          Layer.mock(WorkspaceDatabase, {})
+          Layer.mock(WorkspaceDatabase, {}),
+          liveInvoiceCancellationFakes
         )
       )
     );
@@ -417,8 +438,8 @@ describe("InvoiceAdministrationService", () => {
     const [pdf, missing] = await Effect.gen(function* () {
       const service = yield* InvoiceAdministrationService;
       return yield* Effect.all([
-        service.getPdf(invoice.id),
-        Effect.flip(service.getPdf(missingId)),
+        service.getPdf(invoice.id, { includeArchived: true }),
+        Effect.flip(service.getPdf(missingId, { includeArchived: true })),
       ]);
     }).pipe(Effect.provide(layer), Effect.runPromise);
 
@@ -493,5 +514,349 @@ describe("invoice administration sorting", () => {
         direction: "asc",
       })
     ).toEqual([overdue, paid]);
+  });
+});
+
+describe("InvoiceAdministrationService cancellation", () => {
+  const invoiceId = invoiceIdSchema.make(
+    "01980000-0000-7000-8000-0000000000c1"
+  );
+  const reservationId = "workspace-reservation-c1";
+  const record = {
+    invoiceId,
+    cancelledAt: Temporal.Instant.from("2026-11-15T10:00:00Z"),
+    cause: "invoice_cancellation",
+    correctiveDocumentNumber: "WS-OD-2026-000001",
+    correctiveDocumentIssuedAt: Temporal.Instant.from("2026-11-15T10:00:00Z"),
+    source: "admin-ui",
+    actor: {
+      accountId: issuer.administrator.accountId,
+      email: issuer.administrator.email,
+    },
+    notices: {
+      customer: "not_owed",
+      internal: "accepted",
+      needsAttention: false,
+    },
+  } as const;
+  const planOf = (
+    reservation:
+      | "none"
+      | "cancels_reservation"
+      | "already_cancelled"
+      | "cancellation_in_progress",
+    cancelled = false
+  ) => ({
+    invoice: {
+      id: invoiceId,
+      invoiceNumber: "WS-FV-2026-000009" as never,
+      reservationId: reservation === "none" ? null : (reservationId as never),
+      cancelled,
+    },
+    customerNotice: "owed" as const,
+    reservation,
+  });
+
+  const makeService = (options: {
+    readonly plan: ReturnType<typeof planOf>;
+    readonly invoices?: readonly Invoice[];
+  }) => {
+    const cancelStandalone = mock(() =>
+      Effect.succeed({ outcome: "cancelled" as const, cancellation: record })
+    );
+    const cancelReservation = mock(() =>
+      Effect.succeed({
+        outcome: "cancelled" as const,
+        email: "sent" as const,
+        invoice: {
+          outcome: "cancelled" as const,
+          invoiceId,
+          invoiceNumber: "WS-FV-2026-000009",
+          correctiveDocumentNumber: record.correctiveDocumentNumber,
+          notices: record.notices,
+        },
+      })
+    );
+    const archive = mock(() =>
+      Effect.succeed({
+        changed: true,
+        archive: {
+          invoiceId,
+          archivedAt: Temporal.Instant.from("2026-11-15T11:00:00Z"),
+          source: "admin-ui",
+          actor: record.actor,
+        },
+      })
+    );
+    const retryNotices = mock(() =>
+      Effect.succeed({
+        changed: true,
+        notices: {
+          customer: "accepted",
+          internal: "accepted",
+          needsAttention: false,
+        },
+      })
+    );
+    const deliverByInvoiceId = mock(() => Effect.die("original email resent"));
+    const layer = InvoiceAdministrationService.Default.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(DotyposService, {}),
+          Layer.mock(InvoiceRepository, {
+            findById: (id) =>
+              Effect.succeed(
+                (options.invoices ?? []).find((invoice) => invoice.id === id) ??
+                  null
+              ),
+            list: () => Effect.succeed([...(options.invoices ?? [])]),
+          }),
+          deliveryLedger(),
+          Layer.mock(InvoiceEmailDeliveryService, { deliverByInvoiceId }),
+          Layer.mock(ManualInvoiceCreationRequests, {}),
+          Layer.mock(WorkspaceDatabase, {}),
+          Layer.mock(InvoiceCancellationService, {
+            plan: () => Effect.succeed(options.plan),
+            cancelStandalone,
+            retryNotices,
+          }),
+          Layer.mock(InvoiceCancellationRepository, {
+            find: () => Effect.succeed(record),
+            findMany: (ids) =>
+              Effect.succeed(
+                new Map(
+                  ids
+                    .filter((id) => id === invoiceId)
+                    .map((id) => [id, record] as const)
+                )
+              ),
+          }),
+          Layer.mock(InvoiceArchiveRepository, { archive }),
+          Layer.mock(ReservationAdministrationService, {
+            cancel: cancelReservation,
+          })
+        )
+      )
+    );
+    const run = <A, E>(
+      operation: (
+        service: InvoiceAdministrationService["Service"]
+      ) => Effect.Effect<A, E>
+    ) =>
+      Effect.runPromise(
+        InvoiceAdministrationService.pipe(
+          Effect.flatMap(operation),
+          Effect.provide(layer)
+        )
+      );
+    return {
+      archive,
+      cancelReservation,
+      cancelStandalone,
+      deliverByInvoiceId,
+      retryNotices,
+      run,
+    };
+  };
+  const reservationConfirmation = {
+    accessGrantUpdatedAt: null,
+    providerCredentialRemoved: false,
+    sendCancellationEmail: true,
+  };
+
+  test("cancels a live reservation's invoice only through the reservation's cancellation", async () => {
+    const service = makeService({ plan: planOf("cancels_reservation") });
+
+    const refused = await service.run((administration) =>
+      Effect.flip(
+        administration.cancel({
+          invoiceId,
+          actor: issuer,
+          confirmedCustomerNotice: true,
+        })
+      )
+    );
+    const cancelled = await service.run((administration) =>
+      administration.cancel({
+        invoiceId,
+        actor: issuer,
+        confirmedCustomerNotice: true,
+        reservation: reservationConfirmation,
+      })
+    );
+
+    expect(refused).toMatchObject({
+      code: "reservation_confirmation_required",
+    });
+    expect(service.cancelReservation).toHaveBeenCalledTimes(1);
+    expect(service.cancelReservation).toHaveBeenCalledWith({
+      ...reservationConfirmation,
+      reservationId,
+      actor: issuer,
+      confirmedConsequences: { invoice: true, customerNotice: true },
+    });
+    expect(service.cancelStandalone).not.toHaveBeenCalled();
+    expect(cancelled).toMatchObject({
+      invoiceId,
+      outcome: "cancelled",
+      cancellation: {
+        correctiveDocumentNumber: record.correctiveDocumentNumber,
+        actor: issuer.administrator.email,
+        source: "admin-ui",
+        cause: "invoice_cancellation",
+      },
+      reservation: { reservationId, outcome: "cancelled", email: "sent" },
+    });
+  });
+
+  for (const plan of [
+    planOf("none"),
+    planOf("already_cancelled"),
+    planOf("cancels_reservation", true),
+  ]) {
+    test(`cancels alone when the plan is ${plan.reservation}${plan.invoice.cancelled ? " and the invoice is cancelled" : ""}`, async () => {
+      const service = makeService({ plan });
+
+      const result = await service.run((administration) =>
+        administration.cancel({
+          invoiceId,
+          actor: issuer,
+          confirmedCustomerNotice: false,
+        })
+      );
+
+      expect(service.cancelStandalone).toHaveBeenCalledWith({
+        invoiceId,
+        actor: issuer,
+        confirmedCustomerNotice: false,
+      });
+      expect(service.cancelReservation).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ outcome: "cancelled", reservation: null });
+    });
+  }
+
+  test("refuses while the reservation's cancellation is in progress", async () => {
+    const service = makeService({ plan: planOf("cancellation_in_progress") });
+
+    const refused = await service.run((administration) =>
+      Effect.flip(
+        administration.cancel({
+          invoiceId,
+          actor: issuer,
+          confirmedCustomerNotice: true,
+          reservation: reservationConfirmation,
+        })
+      )
+    );
+
+    expect(refused).toMatchObject({
+      code: "reservation_cancellation_in_progress",
+    });
+    expect(service.cancelReservation).not.toHaveBeenCalled();
+    expect(service.cancelStandalone).not.toHaveBeenCalled();
+  });
+
+  test("lists archived invoices only on request and hides them from Admin UI reads", async () => {
+    const document = makeTestManualInvoiceDocument("en-US");
+    const base = {
+      workspaceReservationId: null,
+      paymentAttemptId: null,
+      dotyposCustomerId: document.dotyposCustomerId,
+      invoiceNumber: document.invoiceNumber,
+      issuedAt: Temporal.Instant.from(document.issuedAt),
+      document,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
+    };
+    const archived = {
+      ...base,
+      id: invoiceId,
+      cancellation: {
+        cancelledAt: record.cancelledAt,
+        cause: record.cause,
+        correctiveDocumentNumber: record.correctiveDocumentNumber as never,
+      },
+      archivedAt: Temporal.Instant.from("2026-11-15T11:00:00Z"),
+    } satisfies Invoice;
+    const live = {
+      ...base,
+      id: invoiceIdSchema.make("01980000-0000-7000-8000-0000000000c2"),
+      cancellation: null,
+      archivedAt: null,
+    } satisfies Invoice;
+    const service = makeService({
+      plan: planOf("none"),
+      invoices: [archived, live],
+    });
+
+    const listed = await service.run((administration) => administration.list());
+    const all = await service.run((administration) =>
+      administration.list({ includeArchived: true })
+    );
+    const hidden = await service.run((administration) =>
+      Effect.flip(administration.get(invoiceId, { includeArchived: false }))
+    );
+    const read = await service.run((administration) =>
+      administration.get(invoiceId, { includeArchived: true })
+    );
+
+    expect(listed.items.map(({ id }) => id)).toEqual([live.id]);
+    expect(all.items.map(({ id }) => id).toSorted()).toEqual(
+      [invoiceId, live.id].toSorted()
+    );
+    expect(hidden._tag).toBe("InvoiceAdministrationNotFoundError");
+    expect(read).toMatchObject({
+      archivedAt: "2026-11-15T11:00:00Z",
+      cancellation: {
+        correctiveDocumentNumber: record.correctiveDocumentNumber,
+      },
+      cancellationPlan: null,
+    });
+  });
+
+  test("archives with the actor and retries a cancelled invoice's notices, never its original email", async () => {
+    const document = makeTestManualInvoiceDocument("en-US");
+    const cancelled = {
+      id: invoiceId,
+      workspaceReservationId: null,
+      paymentAttemptId: null,
+      dotyposCustomerId: document.dotyposCustomerId,
+      invoiceNumber: document.invoiceNumber,
+      issuedAt: Temporal.Instant.from(document.issuedAt),
+      document,
+      cancellation: {
+        cancelledAt: record.cancelledAt,
+        cause: record.cause,
+        correctiveDocumentNumber: record.correctiveDocumentNumber as never,
+      },
+      archivedAt: null,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
+    } satisfies Invoice;
+    const service = makeService({
+      plan: planOf("none"),
+      invoices: [cancelled],
+    });
+
+    const archived = await service.run((administration) =>
+      administration.archive({ invoiceId, actor: issuer })
+    );
+    const retried = await service.run((administration) =>
+      administration.retry(invoiceId)
+    );
+
+    expect(service.archive).toHaveBeenCalledWith({ invoiceId, actor: issuer });
+    expect(archived).toEqual({
+      invoiceId,
+      archivedAt: "2026-11-15T11:00:00Z",
+      changed: true,
+    });
+    expect(service.retryNotices).toHaveBeenCalledWith(invoiceId);
+    expect(service.deliverByInvoiceId).not.toHaveBeenCalled();
+    expect(retried).toEqual({
+      invoiceId,
+      changed: true,
+      needsAttention: false,
+    });
   });
 });

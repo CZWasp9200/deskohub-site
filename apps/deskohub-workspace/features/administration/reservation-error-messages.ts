@@ -26,6 +26,10 @@ export const getReservationCancellationErrorMessage = (
     claim_failed: m.administrationReservationCancellationErrorClaimFailed,
     dotypos_failed: m.administrationReservationCancellationErrorDotyposFailed,
     record_failed: m.administrationReservationCancellationErrorRecordFailed,
+    // Placeholders until the Admin UI adds dedicated invoice copy.
+    invoice_unavailable:
+      m.administrationReservationCancellationErrorDetailsUnavailable,
+    confirmation_stale: m.administrationReservationCancellationErrorChanged,
   })[reason]({}, { locale });
 
 /** The operator-facing reason door access recovery stopped. */

@@ -56,6 +56,10 @@ import {
   ReservationAuthorDirectory,
 } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import {
+  type ReservationInvoiceStanding,
+  readReservationInvoiceStanding,
+} from "@/features/accounting/backend/reservation-invoice-standing";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import {
   getWorkspaceProductByTier,
@@ -465,6 +469,8 @@ export type AdministrationReservationDetail = {
   readonly author: AdministrationReservationAuthor | null;
   readonly canCancel: boolean;
   readonly requiresProviderCredentialRemoval: boolean;
+  /** The reservation's latest invoice; `null` without one. */
+  readonly invoice: ReservationInvoiceStanding | null;
   readonly reservation: AdministrationReservationSummary;
   readonly booking: AdministrationBookingSummary | null;
   readonly lifecycle: ReturnType<typeof getAdministrationReservationLifecycle>;
@@ -2345,6 +2351,7 @@ export class AdministrationService extends Context.Service<
           canCancel: canCancelReservation(row),
           requiresProviderCredentialRemoval:
             requiresProviderCredentialRemoval(accessGrant),
+          invoice: yield* readReservationInvoiceStanding(db, row.id),
         } satisfies AdministrationReservationDetail;
       });
 

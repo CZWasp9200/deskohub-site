@@ -1,7 +1,11 @@
 import { Data } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { CorrectiveDocumentNumber } from "@/features/accounting/corrective-document";
-import type { InvoiceEmailDeliveryState } from "@/features/accounting/invoice-email-delivery";
+import {
+  type InvoiceDeliverySummary,
+  type InvoiceEmailDeliveryState,
+  wasInvoiceSentTo,
+} from "@/features/accounting/invoice-email-delivery";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { AdministrationSource } from "@/features/administrators/administration-source";
 
@@ -54,6 +58,15 @@ export interface InvoiceCancellationRecord extends InvoiceCancellationFact {
   readonly notices: InvoiceNoticeSummary;
 }
 
+/**
+ * Whether cancelling the invoice owes the customer a cancellation notice: its
+ * invoice email was ever accepted for them, or is being delivered to them.
+ */
+export const isCustomerCancellationNoticeOwed = (
+  summary: Pick<InvoiceDeliverySummary, "customer" | "sentTo">
+): boolean =>
+  wasInvoiceSentTo(summary, "customer") || summary.customer === "processing";
+
 export class InvoiceCancellationError extends Data.TaggedError(
   "InvoiceCancellationError"
 )<{
@@ -64,7 +77,8 @@ export class InvoiceCancellationError extends Data.TaggedError(
     | "confirmation_stale"
     | "document_unavailable"
     | "persistence_failed";
-  readonly invoiceId: InvoiceId;
+  /** `null` when a reservation's invoice could not be looked up. */
+  readonly invoiceId: InvoiceId | null;
   readonly message: string;
   readonly cause?: unknown;
 }> {}

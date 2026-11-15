@@ -5065,6 +5065,49 @@
                       },
                       "requiresProviderCredentialRemoval": {
                         "type": "boolean"
+                      },
+                      "invoice": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "$ref": "#/components/schemas/AdministrationInvoiceId"
+                              },
+                              "invoiceNumber": {
+                                "type": "string"
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "live",
+                                  "cancelled"
+                                ]
+                              },
+                              "archived": {
+                                "type": "boolean"
+                              },
+                              "customerNotice": {
+                                "type": "string",
+                                "enum": [
+                                  "owed",
+                                  "not_owed"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "invoiceNumber",
+                              "state",
+                              "archived",
+                              "customerNotice"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -5230,6 +5273,74 @@
                           "sent",
                           "failed"
                         ]
+                      },
+                      "invoice": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "outcome": {
+                                "type": "string",
+                                "enum": [
+                                  "cancelled",
+                                  "already_cancelled"
+                                ]
+                              },
+                              "invoiceId": {
+                                "$ref": "#/components/schemas/AdministrationInvoiceId"
+                              },
+                              "invoiceNumber": {
+                                "type": "string"
+                              },
+                              "correctiveDocumentNumber": {
+                                "type": "string"
+                              },
+                              "notices": {
+                                "type": "object",
+                                "properties": {
+                                  "customer": {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_owed",
+                                      "processing",
+                                      "accepted",
+                                      "failed"
+                                    ]
+                                  },
+                                  "internal": {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_owed",
+                                      "processing",
+                                      "accepted",
+                                      "failed"
+                                    ]
+                                  },
+                                  "needsAttention": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "customer",
+                                  "internal",
+                                  "needsAttention"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "outcome",
+                              "invoiceId",
+                              "invoiceNumber",
+                              "correctiveDocumentNumber",
+                              "notices"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
@@ -5313,6 +5424,22 @@
                     },
                     "sendCancellationEmail": {
                       "type": "boolean"
+                    },
+                    "confirmedConsequences": {
+                      "type": "object",
+                      "properties": {
+                        "invoice": {
+                          "type": "boolean"
+                        },
+                        "customerNotice": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "invoice",
+                        "customerNotice"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -15115,6 +15242,16 @@
             "schema": {
               "type": "object",
               "properties": {
+                "includeArchived": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "sort": {
                   "anyOf": [
                     {
@@ -15198,6 +15335,25 @@
           ],
           "operationId": "administration.listInvoices",
           "parameters": [
+            {
+              "name": "includeArchived",
+              "in": "query",
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "true",
+                      "false"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "required": false
+            },
             {
               "name": "sort",
               "in": "query",
@@ -15378,6 +15534,121 @@
                             },
                             "needsAttention": {
                               "type": "boolean"
+                            },
+                            "cancellation": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "cancelledAt": {
+                                      "type": "string"
+                                    },
+                                    "cause": {
+                                      "type": "string",
+                                      "enum": [
+                                        "invoice_cancellation",
+                                        "reservation_cancellation"
+                                      ]
+                                    },
+                                    "source": {
+                                      "type": "string",
+                                      "enum": [
+                                        "admin-ui",
+                                        "dhw-cli",
+                                        "assistant"
+                                      ]
+                                    },
+                                    "actor": {
+                                      "type": "string"
+                                    },
+                                    "correctiveDocumentNumber": {
+                                      "type": "string"
+                                    },
+                                    "correctiveDocumentIssuedAt": {
+                                      "type": "string"
+                                    },
+                                    "correctiveDocumentPdfUrl": {
+                                      "type": "string"
+                                    },
+                                    "notices": {
+                                      "type": "object",
+                                      "properties": {
+                                        "customer": {
+                                          "type": "string",
+                                          "enum": [
+                                            "not_owed",
+                                            "processing",
+                                            "accepted",
+                                            "failed"
+                                          ]
+                                        },
+                                        "internal": {
+                                          "type": "string",
+                                          "enum": [
+                                            "not_owed",
+                                            "processing",
+                                            "accepted",
+                                            "failed"
+                                          ]
+                                        },
+                                        "needsAttention": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "customer",
+                                        "internal",
+                                        "needsAttention"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": [
+                                    "cancelledAt",
+                                    "cause",
+                                    "source",
+                                    "actor",
+                                    "correctiveDocumentNumber",
+                                    "correctiveDocumentIssuedAt",
+                                    "correctiveDocumentPdfUrl",
+                                    "notices"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "archivedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "replacesInvoiceId": {
+                              "anyOf": [
+                                {
+                                  "$ref": "#/components/schemas/AdministrationInvoiceId"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "replacedByInvoiceId": {
+                              "anyOf": [
+                                {
+                                  "$ref": "#/components/schemas/AdministrationInvoiceId"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -15779,6 +16050,121 @@
                       "needsAttention": {
                         "type": "boolean"
                       },
+                      "cancellation": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "cancelledAt": {
+                                "type": "string"
+                              },
+                              "cause": {
+                                "type": "string",
+                                "enum": [
+                                  "invoice_cancellation",
+                                  "reservation_cancellation"
+                                ]
+                              },
+                              "source": {
+                                "type": "string",
+                                "enum": [
+                                  "admin-ui",
+                                  "dhw-cli",
+                                  "assistant"
+                                ]
+                              },
+                              "actor": {
+                                "type": "string"
+                              },
+                              "correctiveDocumentNumber": {
+                                "type": "string"
+                              },
+                              "correctiveDocumentIssuedAt": {
+                                "type": "string"
+                              },
+                              "correctiveDocumentPdfUrl": {
+                                "type": "string"
+                              },
+                              "notices": {
+                                "type": "object",
+                                "properties": {
+                                  "customer": {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_owed",
+                                      "processing",
+                                      "accepted",
+                                      "failed"
+                                    ]
+                                  },
+                                  "internal": {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_owed",
+                                      "processing",
+                                      "accepted",
+                                      "failed"
+                                    ]
+                                  },
+                                  "needsAttention": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "customer",
+                                  "internal",
+                                  "needsAttention"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "cancelledAt",
+                              "cause",
+                              "source",
+                              "actor",
+                              "correctiveDocumentNumber",
+                              "correctiveDocumentIssuedAt",
+                              "correctiveDocumentPdfUrl",
+                              "notices"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "archivedAt": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "replacesInvoiceId": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/AdministrationInvoiceId"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "replacedByInvoiceId": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/AdministrationInvoiceId"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "locale": {
                         "type": "string",
                         "enum": [
@@ -15978,6 +16364,39 @@
                       },
                       "pdfUrl": {
                         "type": "string"
+                      },
+                      "cancellationPlan": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "customerNotice": {
+                                "type": "string",
+                                "enum": [
+                                  "owed",
+                                  "not_owed"
+                                ]
+                              },
+                              "reservation": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "cancels_reservation",
+                                  "already_cancelled",
+                                  "cancellation_in_progress"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "customerNotice",
+                              "reservation"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [

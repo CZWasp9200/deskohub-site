@@ -2,6 +2,13 @@ import { DotyposService } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { CustomerEmailLocaleService } from "@/features/account";
+import {
+  InvoiceCancellationService,
+  type ReservationInvoiceRecording,
+} from "@/features/accounting/backend/invoice-cancellation.service";
+import type { InvoiceNoticeSummary } from "@/features/accounting/invoice-cancellation";
+import type { InvoiceId } from "@/features/accounting/manual-invoice";
+import type { AdministrationActor } from "@/features/administrators/administration-source";
 import { WorkspaceCheckoutNetworkDetailsService } from "@/features/checkout/backend/fulfillment/network-details.service";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
 import { administrationForcedPaymentCancellationFailureCode } from "@/features/checkout/backend/repositories/payment-lifecycle.repository";
@@ -24,9 +31,20 @@ import {
   canCancelReservation,
 } from "./reservation-status";
 
-type ReservationCancellationResult = {
+/** The reservation's invoice, cancelled with it. */
+export type ReservationInvoiceCancellation = {
+  readonly outcome: "cancelled" | "already_cancelled";
+  readonly invoiceId: InvoiceId;
+  readonly invoiceNumber: string;
+  readonly correctiveDocumentNumber: string;
+  readonly notices: InvoiceNoticeSummary;
+};
+
+export type ReservationCancellationResult = {
   readonly outcome: "cancelled" | "already_cancelled";
   readonly email: "not_requested" | "sent" | "failed";
+  /** `null` when the reservation had no live invoice to cancel. */
+  readonly invoice: ReservationInvoiceCancellation | null;
 };
 
 export type ReservationCancellationFailureReason =
@@ -41,7 +59,9 @@ export type ReservationCancellationFailureReason =
   | "details_unavailable"
   | "claim_failed"
   | "dotypos_failed"
-  | "record_failed";
+  | "record_failed"
+  | "invoice_unavailable"
+  | "confirmation_stale";
 
 export class ReservationAdministrationError extends Data.TaggedError(
   "ReservationAdministrationError"
@@ -53,8 +73,22 @@ export class ReservationAdministrationError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-type ReservationCancellationInput = {
+/**
+ * The invoice consequences the operator saw before confirming. Callers that
+ * predate invoice cancellation (released `dhw` binaries) omit them, and the
+ * check is skipped.
+ */
+export type ReservationCancellationConfirmedConsequences = {
+  /** The reservation's live invoice is cancelled with it. */
+  readonly invoice: boolean;
+  /** The customer is emailed a cancellation notice for that invoice. */
+  readonly customerNotice: boolean;
+};
+
+export type ReservationCancellationInput = {
   readonly accessGrantUpdatedAt: string | null;
+  readonly actor: AdministrationActor;
+  readonly confirmedConsequences?: ReservationCancellationConfirmedConsequences;
   readonly force?: boolean;
   readonly providerCredentialRemoved: boolean;
   readonly reservationId: WorkspaceReservationId;
@@ -77,8 +111,10 @@ export class ReservationAdministrationService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
+      const { transaction } = yield* WorkspaceDatabase;
       const dotypos = yield* DotyposService;
       const emails = yield* WorkspaceReservationEmailService;
+      const invoiceCancellation = yield* InvoiceCancellationService;
       const reservations = yield* WorkspaceReservationRepository;
       const reservationDetails = yield* WorkspaceReservationService;
 
@@ -168,43 +204,115 @@ export class ReservationAdministrationService extends Context.Service<
         );
       });
 
-      /** Records the completed cancellation, or marks the claim failed when that write fails. */
+      /**
+       * Records the completed cancellation and cancels the reservation's live
+       * invoice in one transaction, so both happen or neither does. When that
+       * fails, the claim is marked failed.
+       */
       const recordCancellation = Effect.fnUntraced(function* (
         claimed: WorkspaceReservation,
-        administrationForceCancellation: boolean
+        administrationForceCancellation: boolean,
+        actor: AdministrationActor
       ) {
-        yield* reservations
-          .markAdministrationCancelled({
-            id: claimed.id,
-            cancelledAt: Temporal.Now.instant(),
-            claimedAt: claimed.updatedAt,
-            failureCode: getCancellationFailureCode(
-              administrationForceCancellation,
-              null
-            ),
+        return yield* transaction(
+          Effect.gen(function* () {
+            yield* reservations.markAdministrationCancelled({
+              id: claimed.id,
+              cancelledAt: Temporal.Now.instant(),
+              claimedAt: claimed.updatedAt,
+              failureCode: getCancellationFailureCode(
+                administrationForceCancellation,
+                null
+              ),
+            });
+            return yield* invoiceCancellation.recordForReservation({
+              reservationId: claimed.id,
+              actor,
+            });
           })
+        ).pipe(
+          Effect.tapError(() =>
+            reservations
+              .markAdministrationCancellationFailed({
+                id: claimed.id,
+                claimedAt: claimed.updatedAt,
+                failureCode: getCancellationFailureCode(
+                  administrationForceCancellation,
+                  "admin_local_cancel_failed"
+                ),
+              })
+              .pipe(Effect.ignore)
+          ),
+          Effect.mapError((cause) =>
+            cancellationFailed(
+              "record_failed",
+              "The completed cancellation could not be recorded.",
+              cause
+            )
+          )
+        );
+      });
+
+      /**
+       * Reads what the cancellation will do to the reservation's invoice
+       * before anything is claimed. An unreadable invoice stops it before
+       * the provider call; consequences the operator did not see refuse it.
+       */
+      const checkInvoiceConsequences = Effect.fnUntraced(function* (
+        input: ReservationCancellationInput
+      ) {
+        const plan = yield* invoiceCancellation
+          .planForReservation(input.reservationId)
           .pipe(
-            Effect.tapError(() =>
-              reservations
-                .markAdministrationCancellationFailed({
-                  id: claimed.id,
-                  claimedAt: claimed.updatedAt,
-                  failureCode: getCancellationFailureCode(
-                    administrationForceCancellation,
-                    "admin_local_cancel_failed"
-                  ),
-                })
-                .pipe(Effect.ignore)
-            ),
             Effect.mapError((cause) =>
-              cancellationFailed(
-                "record_failed",
-                "The completed cancellation could not be recorded.",
-                cause
-              )
+              cause.code === "document_unavailable"
+                ? cancellationFailed(
+                    "invoice_unavailable",
+                    "The reservation's invoice could not be read, so it cannot be cancelled with the reservation.",
+                    cause
+                  )
+                : cancellationFailed(
+                    "reservation_unavailable",
+                    "The reservation's invoice could not be loaded.",
+                    cause
+                  )
             )
           );
+        const confirmed = input.confirmedConsequences;
+        if (
+          plan &&
+          confirmed &&
+          (!confirmed.invoice ||
+            (plan.customerNotice === "owed" && !confirmed.customerNotice))
+        ) {
+          return yield* new ReservationAdministrationError({
+            code: "not_cancellable",
+            reason: "confirmation_stale",
+            message:
+              "The reservation's invoice changed since the cancellation was confirmed. Refresh and review the consequences again.",
+          });
+        }
       });
+
+      const deliverInvoiceNotices = (
+        recording: ReservationInvoiceRecording | null
+      ) =>
+        recording
+          ? invoiceCancellation.deliverNotices(recording).pipe(
+              Effect.map(
+                ({ notices }): ReservationInvoiceCancellation => ({
+                  outcome: recording.changed
+                    ? "cancelled"
+                    : "already_cancelled",
+                  invoiceId: recording.record.invoiceId,
+                  invoiceNumber: recording.invoiceNumber,
+                  correctiveDocumentNumber:
+                    recording.record.correctiveDocumentNumber,
+                  notices,
+                })
+              )
+            )
+          : Effect.succeed(null);
 
       return {
         cancel: Effect.fn("ReservationAdministrationService.cancel")(
@@ -231,6 +339,7 @@ export class ReservationAdministrationService extends Context.Service<
               return {
                 outcome: "already_cancelled",
                 email: "not_requested",
+                invoice: null,
               };
             }
             const forcedPendingPayment =
@@ -266,6 +375,7 @@ export class ReservationAdministrationService extends Context.Service<
               forcedPendingPayment
             );
             if (refusal) return yield* refusal;
+            yield* checkInvoiceConsequences(input);
             const claimed = yield* claimCancellation(
               input,
               current,
@@ -281,15 +391,21 @@ export class ReservationAdministrationService extends Context.Service<
               );
             }
 
-            yield* recordCancellation(claimed, administrationForceCancellation);
+            const invoiceRecording = yield* recordCancellation(
+              claimed,
+              administrationForceCancellation,
+              input.actor
+            );
 
+            const email = yield* sendLoadedCancellationEmail({
+              send: input.sendCancellationEmail,
+              details,
+              emails,
+            });
             return {
               outcome: "cancelled",
-              email: yield* sendLoadedCancellationEmail({
-                send: input.sendCancellationEmail,
-                details,
-                emails,
-              }),
+              email,
+              invoice: yield* deliverInvoiceNotices(invoiceRecording),
             };
           }
         ),
@@ -308,6 +424,8 @@ export class ReservationAdministrationService extends Context.Service<
   static perOperationOver = <E, R>(
     shared: Layer.Layer<
       | DotyposService
+      | InvoiceCancellationService
+      | WorkspaceDatabase
       | WorkspaceFeatureFlagService
       | WorkspaceReservationEmailService
       | WorkspaceReservationRepository,
@@ -339,8 +457,9 @@ export class ReservationAdministrationService extends Context.Service<
       ),
       WorkspaceReservationRepository.Default,
       WorkspaceDotyposLayer,
-      WorkspaceFeatureFlagService.Default
-    ).pipe(Layer.provide(WorkspaceDatabase.Default))
+      WorkspaceFeatureFlagService.Default,
+      InvoiceCancellationService.Live
+    ).pipe(Layer.provideMerge(WorkspaceDatabase.Default))
   );
 }
 
