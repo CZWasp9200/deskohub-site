@@ -30,7 +30,7 @@ import { ReferralCode } from "./referral-code";
  * operation: it hasn't completed its profile, its profile needs support, or
  * its deletion is pending.
  */
-export class CustomerAccountLinkRequired extends Schema.TaggedErrorClass<CustomerAccountLinkRequired>()(
+export class CustomerAccountLinkRequired extends Schema.TaggedError<CustomerAccountLinkRequired>()(
   "CustomerAccountLinkRequired",
   {
     reason: Schema.Literals([
@@ -52,7 +52,7 @@ export const CustomerAccountFeature = Schema.Literals([
 export type CustomerAccountFeature = typeof CustomerAccountFeature.Type;
 
 /** The feature isn't released, or its release couldn't be confirmed. */
-export class CustomerFeatureUnavailable extends Schema.TaggedErrorClass<CustomerFeatureUnavailable>()(
+export class CustomerFeatureUnavailable extends Schema.TaggedError<CustomerFeatureUnavailable>()(
   "CustomerFeatureUnavailable",
   { feature: CustomerAccountFeature }
 ) {
@@ -70,7 +70,7 @@ export type CustomerAvatarRejectionReason =
   typeof CustomerAvatarRejectionReason.Type;
 
 /** The uploaded file can't become an avatar; the reason names why. */
-export class CustomerAvatarRejected extends Schema.TaggedErrorClass<CustomerAvatarRejected>()(
+export class CustomerAvatarRejected extends Schema.TaggedError<CustomerAvatarRejected>()(
   "CustomerAvatarRejected",
   { reason: CustomerAvatarRejectionReason }
 ) {
@@ -81,7 +81,7 @@ export class CustomerAvatarRejected extends Schema.TaggedErrorClass<CustomerAvat
  * The marketing preference changed since the client read its `context`;
  * read it again before saving.
  */
-export class CustomerMarketingPreferencesRejected extends Schema.TaggedErrorClass<CustomerMarketingPreferencesRejected>()(
+export class CustomerMarketingPreferencesRejected extends Schema.TaggedError<CustomerMarketingPreferencesRejected>()(
   "CustomerMarketingPreferencesRejected",
   { reason: Schema.Literal("stale-context") }
 ) {

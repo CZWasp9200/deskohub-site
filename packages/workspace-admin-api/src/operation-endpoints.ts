@@ -178,15 +178,29 @@ export type OperationEndpoint<
   Name,
   Route["method"],
   Route["path"],
-  HttpApiEndpoint.StringTree<ParamsOf<Op, Route>>,
-  HttpApiEndpoint.StringTree<QueryOf<Op, Route>>,
+  StringTreeCodec<ParamsOf<Op, Route>>,
+  StringTreeCodec<QueryOf<Op, Route>>,
   Route["method"] extends HttpMethod.HttpMethod.WithBody
-    ? HttpApiEndpoint.Json<PayloadOf<Op, Route>>
-    : HttpApiEndpoint.StringTree<PayloadOf<Op, Route>>,
-  HttpApiEndpoint.StringTree<never>,
-  HttpApiEndpoint.Json<Op["output"]>,
-  HttpApiEndpoint.Json<Errors>
+    ? JsonCodec<PayloadOf<Op, Route>>
+    : StringTreeCodec<PayloadOf<Op, Route>>,
+  never,
+  JsonCodec<Op["output"]>,
+  JsonCodec<Errors>
 >;
+
+/** The string-tree codec `HttpApiEndpoint`'s constructors derive from a schema. */
+type StringTreeCodec<S> = [S] extends [never]
+  ? never
+  : [S] extends [Schema.Constraint]
+    ? Schema.toCodecStringTree<S>
+    : never;
+
+/** The JSON codec `HttpApiEndpoint`'s constructors derive from a schema. */
+type JsonCodec<S> = [S] extends [never]
+  ? never
+  : [S] extends [Schema.Constraint]
+    ? Schema.toCodecJson<S>
+    : never;
 
 type BehaviorProblem<
   Op extends Operation,
@@ -363,7 +377,13 @@ const endpointOf = (
       params:
         paramKeys.length === 0 ? undefined : Struct.pick(fields, paramKeys),
       query: query ? rest() : undefined,
-      payload: bodyValue(body, rest, (name) => fields[name]),
+      payload: bodyValue(body, rest, (name) => {
+        const field = fields[name];
+        if (!Schema.isSchema(field)) {
+          throw new Error(`${operation.name} has no body field ${name}.`);
+        }
+        return field;
+      }),
       success: operation.output,
       error,
     }
@@ -427,7 +447,7 @@ export type OperationInvoke<Ops extends Operations, Failure, Services> = <
  * its middleware and their services, and the handler's own services that
  * the request doesn't provide.
  */
-type ServedRequirements<Endpoint extends HttpApiEndpoint.Any, Services> =
+type ServedRequirements<Endpoint extends HttpApiEndpoint.Constraint, Services> =
   | HttpApiEndpoint.Middleware<Endpoint>
   | HttpApiEndpoint.MiddlewareServices<Endpoint>
   | (HttpApiEndpoint.ExcludeProvided<
@@ -537,7 +557,7 @@ type OutputServices<Outputs> = {
  */
 export const operationGroupHandlers = <
   ApiId extends string,
-  Groups extends HttpApiGroup.Any,
+  Groups extends HttpApiGroup.Constraint,
   Group extends Groups & OperationBinding,
   Failure extends HttpApiEndpoint.Errors<HttpApiGroup.Endpoints<Group>>,
   E,
@@ -567,12 +587,11 @@ export const operationGroupHandlers = <
     ServedRequirements<
       HttpApiGroup.Endpoints<Group>,
       Services | OutputServices<Outputs>
-    >,
-    never
+    >
   >;
   return HttpApiBuilder.group(
     api,
-    group.identifier as HttpApiGroup.Name<Group>,
+    group.identifier as HttpApiGroup.Identifier<Group>,
     (handlers) =>
       Effect.map(invoker, (invoke) =>
         // `HttpApiBuilder` types each `handle` by an endpoint name known at

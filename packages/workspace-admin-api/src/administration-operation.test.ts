@@ -25,15 +25,15 @@ import { WorkspaceAdminApi } from "./workspace-admin-http-api";
 
 type ReflectedEndpoint = {
   readonly reference: string;
-  readonly group: HttpApiGroup.AnyWithProps;
-  readonly endpoint: HttpApiEndpoint.AnyWithProps;
+  readonly group: HttpApiGroup.Top;
+  readonly endpoint: HttpApiEndpoint.Top;
   readonly annotations: Context.Context<never>;
   readonly middleware: ReadonlySet<unknown>;
   readonly outputs: ReadonlyArray<Schema.Top>;
   readonly errors: ReadonlyMap<number, ReadonlyArray<Schema.Top>>;
 };
 
-const reflectEndpoints = <Id extends string, Groups extends HttpApiGroup.Any>(
+const reflectEndpoints = <Id extends string, Groups extends HttpApiGroup.Constraint>(
   api: HttpApi.HttpApi<Id, Groups>
 ) => {
   const endpoints: Array<ReflectedEndpoint> = [];
@@ -48,7 +48,7 @@ const reflectEndpoints = <Id extends string, Groups extends HttpApiGroup.Any>(
       errors,
     }) => {
       endpoints.push({
-        reference: `${group.identifier}.${endpoint.name}`,
+        reference: `${group.identifier}.${endpoint.identifier}`,
         group,
         endpoint,
         annotations: mergedAnnotations,
@@ -70,7 +70,7 @@ const isCliOnly = (endpoint: ReflectedEndpoint) =>
   Option.isSome(Context.getOption(endpoint.annotations, CliOnly));
 
 const payloadProperty = (
-  endpoint: HttpApiEndpoint.AnyWithProps,
+  endpoint: HttpApiEndpoint.Top,
   name: string
 ) =>
   [...endpoint.payload.values()]
@@ -106,7 +106,7 @@ describe("administration operations", () => {
   });
 
   test("refuses an endpoint that declares neither or both", () => {
-    const groupWith = (endpoint: HttpApiEndpoint.Any) =>
+    const groupWith = (endpoint: HttpApiEndpoint.Constraint) =>
       HttpApi.make("test").add(HttpApiGroup.make("test").add(endpoint));
     const bare = groupWith(
       HttpApiEndpoint.get("bare", "/bare", { success: Schema.String })

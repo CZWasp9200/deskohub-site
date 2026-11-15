@@ -125,7 +125,7 @@ const reachableComponents = (
  * declaration order (the last declared runs first), and the annotations
  * `dhw`, the MCP tools and the middleware read.
  */
-const wireContractOf = <Id extends string, Groups extends HttpApiGroup.Any>(
+const wireContractOf = <Id extends string, Groups extends HttpApiGroup.Constraint>(
   api: HttpApi.HttpApi<Id, Groups>
 ) => {
   const spec = OpenApi.fromApi(api);
@@ -136,7 +136,7 @@ const wireContractOf = <Id extends string, Groups extends HttpApiGroup.Any>(
       groups[group.identifier] = {};
     },
     onEndpoint: ({ group, endpoint, mergedAnnotations, middleware }) => {
-      const reference = `${group.identifier}.${endpoint.name}`;
+      const reference = `${group.identifier}.${endpoint.identifier}`;
       const openApiPath = endpoint.path.replace(/:(\w+)\??/g, "{$1}");
       const operation =
         spec.paths[openApiPath]?.[
@@ -146,7 +146,7 @@ const wireContractOf = <Id extends string, Groups extends HttpApiGroup.Any>(
         throw new Error(`${reference} is missing from the OpenAPI document.`);
       }
       operations.push(operation);
-      groups[group.identifier]![endpoint.name] = {
+      groups[group.identifier]![endpoint.identifier] = {
         method: endpoint.method,
         path: endpoint.path,
         parseOptions: {
@@ -558,7 +558,7 @@ const wireFormOf = (contract: RecordedContract) => {
   };
 };
 
-class SampleConflict extends Schema.TaggedErrorClass<SampleConflict>()(
+class SampleConflict extends Schema.TaggedError<SampleConflict>()(
   "SampleConflict",
   { message: Schema.String }
 ) {
@@ -567,7 +567,7 @@ class SampleConflict extends Schema.TaggedErrorClass<SampleConflict>()(
 
 const inProgressFields = { message: Schema.String, requestId: Schema.String };
 
-class SampleInProgress extends Schema.TaggedErrorClass<SampleInProgress>()(
+class SampleInProgress extends Schema.TaggedError<SampleInProgress>()(
   "SampleInProgress",
   inProgressFields
 ) {
@@ -575,20 +575,20 @@ class SampleInProgress extends Schema.TaggedErrorClass<SampleInProgress>()(
 }
 
 /** `SampleInProgress` on the wire, under another schema name. */
-class RenamedInProgress extends Schema.TaggedErrorClass<RenamedInProgress>(
+class RenamedInProgress extends Schema.TaggedError<RenamedInProgress>(
   "RenamedInProgress"
 )("SampleInProgress", inProgressFields) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
 /** `SampleInProgress` with a numeric request ID. */
-class NumberedInProgress extends Schema.TaggedErrorClass<NumberedInProgress>(
+class NumberedInProgress extends Schema.TaggedError<NumberedInProgress>(
   "NumberedInProgress"
 )("SampleInProgress", { message: Schema.String, requestId: Schema.Number }) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-class SampleMissing extends Schema.TaggedErrorClass<SampleMissing>()(
+class SampleMissing extends Schema.TaggedError<SampleMissing>()(
   "SampleMissing",
   { message: Schema.String }
 ) {

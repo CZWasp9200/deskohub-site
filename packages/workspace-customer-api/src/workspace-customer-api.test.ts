@@ -25,7 +25,7 @@ const fixture = new URL(
   import.meta.url
 );
 
-const endpointsOf = <Id extends string, Groups extends HttpApiGroup.Any>(
+const endpointsOf = <Id extends string, Groups extends HttpApiGroup.Constraint>(
   api: HttpApi.HttpApi<Id, Groups>
 ) => {
   const endpoints: Array<{
@@ -38,7 +38,7 @@ const endpointsOf = <Id extends string, Groups extends HttpApiGroup.Any>(
     onGroup: () => {},
     onEndpoint: ({ group, endpoint, middleware }) => {
       endpoints.push({
-        reference: `${group.identifier}.${endpoint.name}`,
+        reference: `${group.identifier}.${endpoint.identifier}`,
         group: group.identifier,
         path: endpoint.path,
         middleware: [...middleware].map((service) => service.key),

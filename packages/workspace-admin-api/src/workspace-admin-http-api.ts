@@ -19,8 +19,8 @@ export const WorkspaceAdminApi = HttpApi.make("workspaceAdminApi")
   .add(AdminCliAutomationsApi)
   .add(AdminCliAdministratorsApi);
 
-type GroupOperationReference<Group> = Group extends HttpApiGroup.Any
-  ? `${HttpApiGroup.Name<Group>}.${HttpApiEndpoint.Name<HttpApiGroup.Endpoints<Group>>}`
+type GroupOperationReference<Group> = Group extends HttpApiGroup.Constraint
+  ? `${HttpApiGroup.Identifier<Group>}.${HttpApiEndpoint.Identifier<HttpApiGroup.Endpoints<Group>>}`
   : never;
 
 type ApiGroups<Api> =

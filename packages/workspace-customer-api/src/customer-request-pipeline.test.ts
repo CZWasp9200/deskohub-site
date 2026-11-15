@@ -37,7 +37,7 @@ import {
  */
 // A group's `endpoints` record is typed loosely; this names each endpoint's
 // declared type.
-type AccountEndpoint<Name extends string> = HttpApiEndpoint.WithName<
+type AccountEndpoint<Name extends string> = HttpApiEndpoint.WithIdentifier<
   HttpApiGroup.Endpoints<typeof CustomerAccountApi>,
   Name
 >;

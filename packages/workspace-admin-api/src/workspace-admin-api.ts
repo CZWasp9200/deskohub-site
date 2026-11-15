@@ -285,21 +285,21 @@ export const GrantedCliSession = Schema.Struct({
 }).pipe(HttpApiSchema.status("Created"));
 export type GrantedCliSession = typeof GrantedCliSession.Type;
 
-export class CliGrantRejected extends Schema.TaggedErrorClass<CliGrantRejected>()(
+export class CliGrantRejected extends Schema.TaggedError<CliGrantRejected>()(
   "CliGrantRejected",
   { message: Schema.String }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Unauthorized"));
 }
 
-export class CliAuthenticationRateLimited extends Schema.TaggedErrorClass<CliAuthenticationRateLimited>()(
+export class CliAuthenticationRateLimited extends Schema.TaggedError<CliAuthenticationRateLimited>()(
   "CliAuthenticationRateLimited",
   { message: Schema.String }
 ) {
   static schema = this.pipe(HttpApiSchema.status("TooManyRequests"));
 }
 
-export class CliSessionUnauthorized extends Schema.TaggedErrorClass<CliSessionUnauthorized>()(
+export class CliSessionUnauthorized extends Schema.TaggedError<CliSessionUnauthorized>()(
   "CliSessionUnauthorized",
   { message: Schema.String }
 ) {
@@ -312,14 +312,14 @@ export class CliSessionUnauthorized extends Schema.TaggedErrorClass<CliSessionUn
  */
 const cliErrorCode = Schema.optionalKey(Schema.String);
 
-export class CliServiceUnavailable extends Schema.TaggedErrorClass<CliServiceUnavailable>()(
+export class CliServiceUnavailable extends Schema.TaggedError<CliServiceUnavailable>()(
   "CliServiceUnavailable",
   { message: Schema.String, code: cliErrorCode }
 ) {
   static schema = this.pipe(HttpApiSchema.status("ServiceUnavailable"));
 }
 
-export class CliResourceNotFound extends Schema.TaggedErrorClass<CliResourceNotFound>()(
+export class CliResourceNotFound extends Schema.TaggedError<CliResourceNotFound>()(
   "CliResourceNotFound",
   { message: Schema.String, code: cliErrorCode }
 ) {
@@ -327,21 +327,21 @@ export class CliResourceNotFound extends Schema.TaggedErrorClass<CliResourceNotF
 }
 
 /** Request content the server can't accept, such as an unparsable body. */
-export class CliInputInvalid extends Schema.TaggedErrorClass<CliInputInvalid>()(
+export class CliInputInvalid extends Schema.TaggedError<CliInputInvalid>()(
   "CliInputInvalid",
   { message: Schema.String, code: cliErrorCode }
 ) {
   static schema = this.pipe(HttpApiSchema.status("BadRequest"));
 }
 
-export class CliMutationRejected extends Schema.TaggedErrorClass<CliMutationRejected>()(
+export class CliMutationRejected extends Schema.TaggedError<CliMutationRejected>()(
   "CliMutationRejected",
   { message: Schema.String, code: cliErrorCode }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliMutationInProgress extends Schema.TaggedErrorClass<CliMutationInProgress>()(
+export class CliMutationInProgress extends Schema.TaggedError<CliMutationInProgress>()(
   "CliMutationInProgress",
   {
     message: Schema.String,
@@ -351,14 +351,14 @@ export class CliMutationInProgress extends Schema.TaggedErrorClass<CliMutationIn
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliMutationUncertain extends Schema.TaggedErrorClass<CliMutationUncertain>()(
+export class CliMutationUncertain extends Schema.TaggedError<CliMutationUncertain>()(
   "CliMutationUncertain",
   { message: Schema.String }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliStandaloneAccessCodeCleanupRequired extends Schema.TaggedErrorClass<CliStandaloneAccessCodeCleanupRequired>()(
+export class CliStandaloneAccessCodeCleanupRequired extends Schema.TaggedError<CliStandaloneAccessCodeCleanupRequired>()(
   "CliStandaloneAccessCodeCleanupRequired",
   {
     message: Schema.String,
@@ -368,7 +368,7 @@ export class CliStandaloneAccessCodeCleanupRequired extends Schema.TaggedErrorCl
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliStandaloneAccessCodeReconciled extends Schema.TaggedErrorClass<CliStandaloneAccessCodeReconciled>()(
+export class CliStandaloneAccessCodeReconciled extends Schema.TaggedError<CliStandaloneAccessCodeReconciled>()(
   "CliStandaloneAccessCodeReconciled",
   { message: Schema.String }
 ) {
@@ -481,10 +481,10 @@ export class AdministrationActionRecord extends HttpApiMiddleware.Service<
  */
 export const requiresDhw =
   (minimum: DhwVersion, refusal?: (typeof OutdatedDhwRefusal)["Service"]) =>
-  <Endpoint extends HttpApiEndpoint.Any>(
+  <Endpoint extends HttpApiEndpoint.Constraint>(
     endpoint: Endpoint
   ): HttpApiEndpoint.AddMiddleware<Endpoint, CliClientCompatibility> => {
-    const required = (endpoint as unknown as HttpApiEndpoint.AnyWithProps)
+    const required = (endpoint as unknown as HttpApiEndpoint.Top)
       .annotate(MinimumDhwVersion, Option.some(minimum))
       .middleware(CliClientCompatibility);
     return (
@@ -526,11 +526,11 @@ export type AdministrationOperationGroup<
  * minimum `dhw`.
  */
 const assertAdministrationOperationEndpoint = (
-  declared: HttpApiGroup.AnyWithProps,
-  endpoint: HttpApiEndpoint.AnyWithProps,
+  declared: HttpApiGroup.Top,
+  endpoint: HttpApiEndpoint.Top,
   checksFirst: boolean
 ) => {
-  const reference = `${declared.identifier}.${endpoint.name}`;
+  const reference = `${declared.identifier}.${endpoint.identifier}`;
   const checksOwn = (endpoint.middlewares as ReadonlySet<unknown>).has(
     CliClientCompatibility
   );
@@ -562,7 +562,7 @@ const assertAdministrationOperationEndpoint = (
  * own in a group that checks every endpoint's first.
  */
 export const administrationOperationGroup = <
-  Group extends HttpApiGroup.Any,
+  Group extends HttpApiGroup.Constraint,
   const Options extends AdministrationOperationGroupOptions = Record<
     never,
     never
@@ -571,7 +571,7 @@ export const administrationOperationGroup = <
   group: Group,
   options?: Options
 ): AdministrationOperationGroup<Group, Options> => {
-  const declared = group as unknown as HttpApiGroup.AnyWithProps;
+  const declared = group as unknown as HttpApiGroup.Top;
   const checksFirst = options?.checkDhwVersionBeforeAuthentication ?? false;
   for (const endpoint of Object.values(declared.endpoints)) {
     assertAdministrationOperationEndpoint(declared, endpoint, checksFirst);
@@ -587,7 +587,7 @@ export const administrationOperationGroup = <
   return middleware
     .reduce(
       (served, service) =>
-        served.middleware(service) as unknown as HttpApiGroup.AnyWithProps,
+        served.middleware(service) as unknown as HttpApiGroup.Top,
       declared
     )
     .prefix("/api/v1/cli") as never;

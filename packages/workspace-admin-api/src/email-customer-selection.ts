@@ -88,7 +88,7 @@ export const EmailCustomerField: Schema.Codec<EmailCustomerField> =
 export const emailCustomerFieldCatalogue: EmailCustomerField =
   describeEmailCustomerField(AdministrationCustomerDetail.ast);
 
-export class EmailCustomerSelectionInvalid extends Schema.TaggedErrorClass<EmailCustomerSelectionInvalid>()(
+export class EmailCustomerSelectionInvalid extends Schema.TaggedError<EmailCustomerSelectionInvalid>()(
   "EmailCustomerSelectionInvalid",
   {
     path: Schema.Array(Schema.String),

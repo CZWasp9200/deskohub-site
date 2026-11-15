@@ -1160,7 +1160,7 @@ describe("administration operation groups", () => {
   test("refuses a minimum nothing checks, a check after a first one, and a CLI-only endpoint", () => {
     const declare =
       (
-        group: HttpApiGroup.Any,
+        group: HttpApiGroup.Constraint,
         options?: { readonly checkDhwVersionBeforeAuthentication: true }
       ) =>
       () =>

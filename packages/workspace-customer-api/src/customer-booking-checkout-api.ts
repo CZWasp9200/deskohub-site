@@ -23,7 +23,7 @@ import { ReferralCode } from "./referral-code";
  * (`availability_changed`), or another submission of the same checkout
  * holds it (`checkout_conflict`). Quote again and start a new checkout.
  */
-export class CustomerSelectionUnavailable extends Schema.TaggedErrorClass<CustomerSelectionUnavailable>()(
+export class CustomerSelectionUnavailable extends Schema.TaggedError<CustomerSelectionUnavailable>()(
   "CustomerSelectionUnavailable",
   { reason: Schema.Literals(["availability_changed", "checkout_conflict"]) }
 ) {
@@ -34,7 +34,7 @@ export class CustomerSelectionUnavailable extends Schema.TaggedErrorClass<Custom
  * The quote's `advertisedPriceToken` expired, or doesn't match the
  * selection. Quote again.
  */
-export class CustomerQuoteExpired extends Schema.TaggedErrorClass<CustomerQuoteExpired>()(
+export class CustomerQuoteExpired extends Schema.TaggedError<CustomerQuoteExpired>()(
   "CustomerQuoteExpired",
   {}
 ) {
@@ -46,7 +46,7 @@ export class CustomerQuoteExpired extends Schema.TaggedErrorClass<CustomerQuoteE
  * `field` names the first one, such as `contact.email` or
  * `billing.address.postalCode`.
  */
-export class CustomerCheckoutDetailsInvalid extends Schema.TaggedErrorClass<CustomerCheckoutDetailsInvalid>()(
+export class CustomerCheckoutDetailsInvalid extends Schema.TaggedError<CustomerCheckoutDetailsInvalid>()(
   "CustomerCheckoutDetailsInvalid",
   { field: Schema.optionalKey(Schema.String) }
 ) {
@@ -57,7 +57,7 @@ export class CustomerCheckoutDetailsInvalid extends Schema.TaggedErrorClass<Cust
  * The signed-in customer started no checkout with this `payStateToken`.
  * The answer doesn't tell whether the order exists.
  */
-export class CustomerCheckoutNotFound extends Schema.TaggedErrorClass<CustomerCheckoutNotFound>()(
+export class CustomerCheckoutNotFound extends Schema.TaggedError<CustomerCheckoutNotFound>()(
   "CustomerCheckoutNotFound",
   {}
 ) {
@@ -80,7 +80,7 @@ export type CustomerCheckoutUnavailableReason =
   typeof CustomerCheckoutUnavailableReason.Type;
 
 /** The checkout can't take this step; `reason` names what to do instead. */
-export class CustomerCheckoutUnavailable extends Schema.TaggedErrorClass<CustomerCheckoutUnavailable>()(
+export class CustomerCheckoutUnavailable extends Schema.TaggedError<CustomerCheckoutUnavailable>()(
   "CustomerCheckoutUnavailable",
   { reason: CustomerCheckoutUnavailableReason }
 ) {
@@ -96,7 +96,7 @@ const isoInstant = Schema.String.annotate({
  * a replacement that keeps the attempted code, `payStateToken` and
  * `expiresAt` carry it and replace the client's token.
  */
-export class CustomerDiscountCodeRejected extends Schema.TaggedErrorClass<CustomerDiscountCodeRejected>()(
+export class CustomerDiscountCodeRejected extends Schema.TaggedError<CustomerDiscountCodeRejected>()(
   "CustomerDiscountCodeRejected",
   {
     reason: Schema.Literals([
@@ -116,7 +116,7 @@ export class CustomerDiscountCodeRejected extends Schema.TaggedErrorClass<Custom
  * The legal documents changed since the client read them: list them again
  * and ask for consent again.
  */
-export class CustomerLegalDocumentsChanged extends Schema.TaggedErrorClass<CustomerLegalDocumentsChanged>()(
+export class CustomerLegalDocumentsChanged extends Schema.TaggedError<CustomerLegalDocumentsChanged>()(
   "CustomerLegalDocumentsChanged",
   {}
 ) {
@@ -128,7 +128,7 @@ export class CustomerLegalDocumentsChanged extends Schema.TaggedErrorClass<Custo
  * (`legal`), or the request to start the service before the withdrawal
  * period ends (`early_performance`).
  */
-export class CustomerConsentRequired extends Schema.TaggedErrorClass<CustomerConsentRequired>()(
+export class CustomerConsentRequired extends Schema.TaggedError<CustomerConsentRequired>()(
   "CustomerConsentRequired",
   { consent: Schema.Literals(["legal", "early_performance"]) }
 ) {

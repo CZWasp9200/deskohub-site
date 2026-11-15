@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, JsonSchema, Schema } from "effect";
+import { Effect, JsonPointer, Schema } from "effect";
 import {
   type EmailCustomerField,
   EmailCustomerSelection,
@@ -63,10 +63,9 @@ function customerContractPaths(schema: Schema.Top): Set<string> {
     constraintOnly = false
   ): void {
     if (node.$ref) {
-      const referenced = JsonSchema.resolve$ref(
-        node.$ref,
-        document.definitions
-      );
+      const name = JsonPointer.parseUriFragment(node.$ref)?.at(-1);
+      const referenced =
+        name === undefined ? undefined : document.definitions[name];
       if (!referenced)
         throw new Error(`Unresolved customer reference ${node.$ref}`);
       visit(Schema.decodeUnknownSync(customerContractNode)(referenced), path);

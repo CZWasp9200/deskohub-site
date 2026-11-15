@@ -14,7 +14,7 @@ import { responseHeaders } from "./openapi-response-headers";
  * No order with this ID that the signed-in account may see: it doesn't
  * exist, or it belongs to someone else.
  */
-export class CustomerReservationNotFound extends Schema.TaggedErrorClass<CustomerReservationNotFound>()(
+export class CustomerReservationNotFound extends Schema.TaggedError<CustomerReservationNotFound>()(
   "CustomerReservationNotFound",
   {}
 ) {
@@ -25,7 +25,7 @@ export class CustomerReservationNotFound extends Schema.TaggedErrorClass<Custome
  * The order has no door code to show: it isn't paid and confirmed yet, or
  * it has ended. Asking again later can succeed only once its status changes.
  */
-export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<CustomerAccessCodeUnavailable>()(
+export class CustomerAccessCodeUnavailable extends Schema.TaggedError<CustomerAccessCodeUnavailable>()(
   "CustomerAccessCodeUnavailable",
   {}
 ) {
@@ -36,7 +36,7 @@ export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<Custo
  * The order has no issued invoice: it isn't paid and confirmed yet, or it
  * needs none. Asking again can succeed only once its status changes.
  */
-export class CustomerInvoiceNotIssued extends Schema.TaggedErrorClass<CustomerInvoiceNotIssued>()(
+export class CustomerInvoiceNotIssued extends Schema.TaggedError<CustomerInvoiceNotIssued>()(
   "CustomerInvoiceNotIssued",
   {}
 ) {

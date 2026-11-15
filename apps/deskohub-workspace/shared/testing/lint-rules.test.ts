@@ -739,10 +739,10 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ],
       [
         "rejects a multi-line generic schema tag",
-        `export class ${["Network", "Error"].join("")} extends Schema.TaggedErrorClass<${["Network", "Error"].join("")}>()(\n  "${["Network", "Error"].join("")}",\n  {}\n) {}\n`,
+        `export class ${["Network", "Error"].join("")} extends Schema.TaggedError<${["Network", "Error"].join("")}>()(\n  "${["Network", "Error"].join("")}",\n  {}\n) {}\n`,
         true,
       ],
-      ["permits a prefixed outcome tag", 'export class DotyposRejected extends Schema.TaggedErrorClass<DotyposRejected>()("DotyposRejected", {}) {}\n', false],
+      ["permits a prefixed outcome tag", 'export class DotyposRejected extends Schema.TaggedError<DotyposRejected>()("DotyposRejected", {}) {}\n', false],
       [
         "permits the generic tag while Nexi is excluded",
         `export class ${["ExternalAPI", "Error"].join("")} extends Data.TaggedError("${["ExternalAPI", "Error"].join("")}")<{}> {}\n`,
