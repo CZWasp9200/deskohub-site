@@ -5,7 +5,16 @@ import {
   DotyposService,
   type RestoreCancelledReservationResult,
 } from "@deskohub/dotypos";
-import { Context, Data, Effect, Layer, Match, Option, Predicate } from "effect";
+import {
+  Context,
+  Data,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Predicate,
+  Result,
+} from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
@@ -21,6 +30,7 @@ import {
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
+  type WorkspaceReservationSessionTakenError,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
   getDotyposReservationAccessTiming,
@@ -85,6 +95,18 @@ class RestorationRecordChanged extends Data.TaggedError(
 )<{
   readonly reservationId: WorkspaceReservationId;
 }> {}
+
+/** Why the restore's transaction rolled back after its Dotypos write. */
+type FinalizeRefusal =
+  | ReservationAdministrationError
+  | RestorationRecordChanged
+  | WorkspaceReservationSessionTakenError;
+
+/** The reservation as the restore reread it after its rollback, or why it couldn't. */
+type RereadReservation = Result.Result<
+  WorkspaceReservation,
+  ReservationAdministrationError
+>;
 
 /** The cancellation a restore undoes. */
 type RestorableCancellation = {
@@ -509,63 +531,170 @@ export class ReservationRestorationService extends Context.Service<
         );
 
       /**
-       * Another reservation took the checkout session after Dotypos
-       * confirmed this one again. When this restore made that write, it
-       * cancels the reservation there again, so Dotypos holds only the
-       * session's active reservation; a confirmation it found already made
-       * is left for an operator. Either way the restore is refused.
+       * A reread reservation a concurrent restore finished, which the
+       * replay checks confirm Dotypos holds: the restore reports it as
+       * already confirmed instead of its own refusal.
        */
-      const refuseSupersededRestore = (input: {
-        readonly dotyposRestore: RestoreCancelledReservationResult;
-        readonly dotyposReservationId: DotyposReservationId;
-        readonly cause: unknown;
-      }) =>
-        Match.valueTags(input.dotyposRestore, {
-          Restored: () =>
-            dotypos
-              .cancelReservation(input.dotyposReservationId)
-              .pipe(
-                Effect.catch((cancelCause) =>
-                  Effect.logError(
-                    "A superseded restore left its reservation confirmed in Dotypos while Workspace keeps it cancelled; an operator must cancel it in Dotypos.",
-                    cancelCause
-                  )
-                )
-              ),
-          AlreadyConfirmed: () =>
-            Effect.logError(
-              "Workspace keeps a superseded reservation cancelled while Dotypos holds it CONFIRMED; an operator must reconcile it in Dotypos."
-            ),
-        }).pipe(
-          Effect.annotateLogs({
-            dotyposReservationId: input.dotyposReservationId,
-          }),
-          Effect.andThen(
-            Effect.fail(restorationError("superseded", input.cause))
-          )
+      const findFinishedRestore = (reread: RereadReservation) =>
+        Option.match(
+          Option.filter(
+            Result.getSuccess(reread),
+            ({ reservationState }) => reservationState === "confirmed"
+          ),
+          {
+            onNone: () => Effect.succeedNone,
+            onSome: (reservation) =>
+              Effect.option(settleRestoredReservation({ reservation })),
+          }
         );
 
       /**
-       * The restore's reservation write found the reservation changed since
-       * it was read: an earlier restore finished it, or it is refused as it
-       * now stands.
+       * Whether the reread reservation is still the cancellation the restore
+       * read while another reservation of its checkout session is active:
+       * only then is the Dotypos confirmation still this restore's own
+       * write, not a later restore's booking.
        */
-      const settleChangedReservation = (
-        reservationId: WorkspaceReservationId
-      ) =>
-        loadReservation(reservationId).pipe(
-          Effect.flatMap((reservation) =>
-            Match.value(reservation.reservationState).pipe(
-              Match.when("confirmed", () =>
-                Effect.succeed(RestorationRecording.AlreadyRestored())
+      const isStillSuperseded = ({
+        reread,
+        cancellation,
+      }: {
+        readonly reread: RereadReservation;
+        readonly cancellation: RestorableCancellation;
+      }) =>
+        Option.match(
+          Option.filter(
+            Result.getSuccess(reread),
+            ({ reservationState, reservationCancelledAt }) =>
+              reservationState === "cancelled" &&
+              reservationCancelledAt?.equals(cancellation.cancelledAt) === true
+          ),
+          {
+            onNone: () => Effect.succeed(false),
+            onSome: (reservation) =>
+              hasActiveSuccessor(reservation).pipe(
+                Effect.orElseSucceed(() => false)
               ),
-              Match.orElse(() =>
-                getRestorableCancellation({ reservation }).pipe(
-                  Effect.andThen(Effect.fail(restorationError("invalid_state")))
-                )
+          }
+        );
+
+      /**
+       * Cancels this restore's own Dotypos write again after another
+       * reservation took the checkout session, so Dotypos holds only the
+       * session's active reservation. A confirmation the restore found
+       * already made isn't its own to undo. Whether it compensated.
+       */
+      const compensateSupersededRestore = ({
+        dotyposRestore,
+        cancellation,
+        reread,
+      }: {
+        readonly dotyposRestore: RestoreCancelledReservationResult;
+        readonly cancellation: RestorableCancellation;
+        readonly reread: RereadReservation;
+      }) =>
+        Match.valueTags(dotyposRestore, {
+          AlreadyConfirmed: () => Effect.succeed(false),
+          Restored: () =>
+            isStillSuperseded({ reread, cancellation }).pipe(
+              Effect.flatMap((superseded) =>
+                superseded
+                  ? dotypos
+                      .cancelReservation(cancellation.dotyposReservationId)
+                      .pipe(
+                        Effect.catch((cancelCause) =>
+                          Effect.logError(
+                            "A superseded restore left its reservation confirmed in Dotypos while Workspace keeps it cancelled; an operator must cancel it in Dotypos.",
+                            cancelCause
+                          )
+                        ),
+                        Effect.as(true)
+                      )
+                  : Effect.succeed(false)
+              )
+            ),
+        });
+
+      /** The refusal a rolled-back restore reports, given the reservation as it was reread. */
+      const getFinalizeRefusal = ({
+        refusal,
+        reread,
+      }: {
+        readonly refusal: FinalizeRefusal;
+        readonly reread: RereadReservation;
+      }) =>
+        Match.valueTags(refusal, {
+          ReservationAdministrationError: (error) => Effect.succeed(error),
+          WorkspaceReservationSessionTakenError: (cause) =>
+            Effect.succeed(restorationError("superseded", cause)),
+          // The reservation write lost to another change: refused as the
+          // reservation now stands.
+          RestorationRecordChanged: () =>
+            Effect.fromResult(reread).pipe(
+              Effect.flatMap((reservation) =>
+                getRestorableCancellation({ reservation })
+              ),
+              Effect.andThen(Effect.fail(restorationError("invalid_state"))),
+              Effect.flip
+            ),
+        });
+
+      /**
+       * Refuses a restore after its Dotypos write. Dotypos then holds the
+       * reservation CONFIRMED while Workspace keeps it cancelled, unless a
+       * superseded restore cancelled its own write again, so that mismatch
+       * is logged for an operator.
+       */
+      const refuseRestoration = (input: {
+        readonly cancellation: RestorableCancellation;
+        readonly dotyposRestore: RestoreCancelledReservationResult;
+        readonly refusal: FinalizeRefusal;
+        readonly reread: RereadReservation;
+      }) =>
+        Effect.all({
+          error: getFinalizeRefusal(input),
+          compensated:
+            input.refusal._tag === "WorkspaceReservationSessionTakenError"
+              ? compensateSupersededRestore(input)
+              : Effect.succeed(false),
+        }).pipe(
+          Effect.tap(({ error, compensated }) =>
+            compensated
+              ? Effect.void
+              : Effect.logError(
+                  "A refused restore leaves Dotypos confirmed, Workspace cancelled; an operator must reconcile the reservation."
+                ).pipe(Effect.annotateLogs({ reason: error.reason }))
+          ),
+          Effect.flatMap(({ error }) => Effect.fail(error))
+        );
+
+      /**
+       * Settles a restore whose transaction rolled back after Dotypos
+       * confirmed the reservation: it rereads the reservation, reports one
+       * a concurrent restore finished as already confirmed, and refuses
+       * anything else.
+       */
+      const settleRefusedRestoration = (input: {
+        readonly reservation: WorkspaceReservation;
+        readonly cancellation: RestorableCancellation;
+        readonly dotyposRestore: RestoreCancelledReservationResult;
+        readonly refusal: FinalizeRefusal;
+      }) =>
+        Effect.result(loadReservation(input.reservation.id)).pipe(
+          Effect.flatMap((reread) =>
+            findFinishedRestore(reread).pipe(
+              Effect.flatMap(
+                Option.match({
+                  onSome: () =>
+                    Effect.succeed(RestorationRecording.AlreadyRestored()),
+                  onNone: () => refuseRestoration({ ...input, reread }),
+                })
               )
             )
-          )
+          ),
+          Effect.annotateLogs({
+            reservationId: input.reservation.id,
+            dotyposReservationId: input.cancellation.dotyposReservationId,
+          })
         );
 
       const finalizeRestoration = ({
@@ -591,16 +720,14 @@ export class ReservationRestorationService extends Context.Service<
           acknowledgeRefundedPayment,
           now,
         }).pipe(
-          Effect.catchTags({
-            WorkspaceReservationSessionTakenError: (cause) =>
-              refuseSupersededRestore({
-                dotyposRestore,
-                dotyposReservationId: cancellation.dotyposReservationId,
-                cause,
-              }),
-            RestorationRecordChanged: () =>
-              settleChangedReservation(reservation.id),
-          })
+          Effect.catch((refusal) =>
+            settleRefusedRestoration({
+              reservation,
+              cancellation,
+              dotyposRestore,
+              refusal,
+            })
+          )
         );
 
       const issueAccess = ({
