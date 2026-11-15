@@ -71,6 +71,13 @@ describe("dhw global flags", () => {
     ]);
   });
 
+  test("lists the inherited --json flag first among a subcommand's flags", async () => {
+    const { output } = await runDhw(["reservations", "list", "--help"]);
+
+    expect(output.split("\n")).not.toContain("INHERITED FLAGS");
+    expect(sectionFlags(output, "FLAGS")[0]).toBe("--json");
+  });
+
   test("refuses the wizard flag", async () => {
     const { exit } = await runDhw(["--wizard"]);
 
