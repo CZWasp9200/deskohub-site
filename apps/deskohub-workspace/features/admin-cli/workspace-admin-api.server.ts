@@ -195,9 +195,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle("cancelReservation", ({ params, payload }) =>
         reservationAdministration
           .cancel({
-            accessGrantUpdatedAt: payload.accessGrantUpdatedAt,
             force: payload.force ?? false,
-            providerCredentialRemoved: payload.providerCredentialRemoved,
             reservationId: params.reservationId,
             sendCancellationEmail: payload.sendCancellationEmail,
           })
