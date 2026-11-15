@@ -77,6 +77,11 @@ export interface IWorkspaceReservationEmailService {
    */
   readonly sendRestorationEmail: (input: {
     readonly reservation: WorkspaceReservationDetails;
+    /**
+     * Whether the restoration issued a new access code in place of one whose
+     * removal was confirmed; the email then tells the customer that the
+     * earlier code no longer works.
+     */
     readonly accessReissued: boolean;
   }) => Effect.Effect<void, EmailSendError>;
 }
