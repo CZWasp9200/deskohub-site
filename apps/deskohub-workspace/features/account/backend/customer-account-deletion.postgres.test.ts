@@ -12,7 +12,7 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { customerAccounts } from "@/db/schema";
 import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import { manualInvoiceInputSchema } from "@/features/accounting/manual-invoice";
@@ -482,7 +482,7 @@ describe.skipIf(!invoiceDatabase)(
         CustomerAccountRepository.Default,
         ReviewAccounts.Default,
         InvoiceRepository.Default.pipe(
-          Layer.provide(AccountingDocumentSnapshotRepository.Default)
+          Layer.provide(AccountingDocumentSnapshots.Default)
         )
       ).pipe(Layer.provideMerge(storage));
       return Layer.mergeAll(
@@ -611,11 +611,9 @@ describe.skipIf(!invoiceDatabase)(
           )
         )
       );
-      expect(denied).toEqual([
-        new CustomerInvoicesUnavailableError(),
-        new CustomerInvoicesUnavailableError(),
-        new CustomerInvoicesUnavailableError(),
-      ]);
+      expect(
+        denied.map((error) => error instanceof CustomerInvoicesUnavailableError)
+      ).toEqual([true, true, true]);
     });
   }
 );

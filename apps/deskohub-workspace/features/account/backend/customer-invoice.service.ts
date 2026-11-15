@@ -14,6 +14,7 @@ import { workspaceSiteConstants } from "@/shared/utils";
 import type { CsvColumn } from "@/shared/utils/csv";
 import { currentPlainDate, type PlainDate } from "@/shared/utils/temporal";
 import {
+  type CustomerAccountAccessError,
   isCustomerAccountAccessDenial,
   type LinkedCustomerAccount,
 } from "../customer-account";
@@ -25,10 +26,13 @@ import { requireLinkedCustomerAccount } from "./linked-customer-account";
 /**
  * The session has no active account whose invoices it may see: signed out,
  * no linked Dotypos customer, a review account, or deletion pending.
+ * `account` is the refusal, for callers that say why.
  */
 export class CustomerInvoicesUnavailableError extends Data.TaggedError(
   "CustomerInvoicesUnavailableError"
-) {}
+)<{
+  readonly account: CustomerAccountAccessError;
+}> {}
 
 /** No invoice of the account's customer has this id. */
 export class CustomerInvoiceNotFoundError extends Data.TaggedError(
@@ -119,7 +123,9 @@ export class CustomerInvoiceService extends Context.Service<
             CustomerInvoicesUnavailableError | CustomerInvoicesLoadError
           > =>
             isCustomerAccountAccessDenial(error)
-              ? Effect.fail(new CustomerInvoicesUnavailableError())
+              ? Effect.fail(
+                  new CustomerInvoicesUnavailableError({ account: error })
+                )
               : failLoad("account.authority")
         )
       );
@@ -184,14 +190,18 @@ export class CustomerInvoiceService extends Context.Service<
     })
   );
 
-  static Live = this.Default.pipe(
+  /**
+   * For the account the caller's `CurrentCustomerAccount` reads, such as one
+   * built from a customer API request's own authentication.
+   */
+  static ForCurrentAccount = this.Default.pipe(
     Layer.provide(
-      Layer.mergeAll(
-        CurrentCustomerAccount.Live,
-        CustomerAccountLinkRepository.Live,
-        InvoiceRepository.Live
-      )
+      Layer.mergeAll(CustomerAccountLinkRepository.Live, InvoiceRepository.Live)
     )
+  );
+
+  static Live = this.ForCurrentAccount.pipe(
+    Layer.provide(CurrentCustomerAccount.Live)
   );
 }
 
