@@ -15,7 +15,7 @@ const layout = (props: Partial<Parameters<typeof AppSignInLayout>[0]> = {}) =>
     })
   );
 
-const grows = (props: { readonly style?: unknown }) =>
+const grows = (props: Readonly<Record<string, unknown>>) =>
   (
     StyleSheet.flatten(props.style as never) as
       | { flexGrow?: number }

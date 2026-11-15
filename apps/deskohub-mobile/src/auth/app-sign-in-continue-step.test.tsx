@@ -42,7 +42,10 @@ describe("AppSignInContinueStep", () => {
       shownTree(AppSignInContinueStep, defaults),
       "Text"
     ).map(textOf);
-    expect(texts).toContain(defaults.email);
+    // The address may carry a break opportunity before the @.
+    expect(texts.map((text) => text.replaceAll("\u200B", ""))).toContain(
+      defaults.email
+    );
     expect(texts).toContain(emailInitials(defaults.email));
   });
 

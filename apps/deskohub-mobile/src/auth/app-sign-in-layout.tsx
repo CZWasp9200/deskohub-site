@@ -38,9 +38,9 @@ export function AppSignInLayout({
     <SafeAreaView
       style={[
         styles.page,
+        // Fills the page, but no further down than the keyboard leaves visible.
         viewport && {
-          flex: 0,
-          height: viewport.height,
+          maxHeight: viewport.height,
           transform: [{ translateY: viewport.offsetTop }],
         },
       ]}

@@ -62,7 +62,8 @@ export function AppSignInContinueStep({
         </View>
         <View style={styles.identity}>
           <Text variant="bodyStrong" style={styles.email}>
-            {email}
+            {/* A long address wraps before the @, not inside a word. */}
+            {email.replace("@", "\u200B@")}
           </Text>
           <Text variant="bodySmall">
             {m.signin_signed_in_on_browser({}, { locale })}

@@ -1,6 +1,5 @@
 import {
   Children,
-  createElement,
   isValidElement,
   type ReactElement,
   type ReactNode,
@@ -13,11 +12,12 @@ import {
 } from "../../ui/testing/element-tree";
 
 /** Places a component under the app's locale, as the sign-in page has it. */
-export const inEnglish = (component: ReactElement) =>
-  createElement(AppLocaleProvider, { locale: "en-US" }, component);
+export const inEnglish = (component: ReactElement) => (
+  <AppLocaleProvider locale="en-US">{component}</AppLocaleProvider>
+);
 
 /** The host elements `component` renders for `props`, in English. */
-export const shownTree = <Props>(
+export const shownTree = <Props,>(
   component: (props: Props) => ReactNode,
   props: Props
 ): ReactNode => hostTree(elementTree(component, props, inEnglish), inEnglish);

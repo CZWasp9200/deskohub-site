@@ -341,11 +341,13 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
         />
       );
     }
+    const exhausted = verifyFailure?.reason === "too-many-attempts";
     if (step === "code") {
       return (
         <AppSignInCodeStep
           email={sent?.email ?? ""}
-          code={code}
+          // A code that can no longer work leaves the boxes empty.
+          code={exhausted ? "" : code}
           onCodeChange={setCode}
           onSubmit={verifyCode}
           checking={
@@ -357,7 +359,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
             verifyFailure?.reason === "wrong-code" ||
             verifyFailure?.reason === "expired-code"
           }
-          exhausted={verifyFailure?.reason === "too-many-attempts"}
+          exhausted={exhausted}
           notice={notice}
           resendAvailableAt={resendAvailableAt}
           onResend={resendEmail}

@@ -34,13 +34,15 @@ export function SignInStepMessage({
     <View nativeID={id}>
       <View style={notice ? styles.line : styles.idle}>
         {notice && (
-          <Icon
-            icon={notice.tone === "error" ? CircleAlert : CircleCheck}
-            size={16}
-            color={
-              notice.tone === "error" ? color.dangerInk : color.positiveInk
-            }
-          />
+          <View style={styles.icon}>
+            <Icon
+              icon={notice.tone === "error" ? CircleAlert : CircleCheck}
+              size={16}
+              color={
+                notice.tone === "error" ? color.dangerInk : color.positiveInk
+              }
+            />
+          </View>
         )}
         <Text
           role="alert"
@@ -75,6 +77,8 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
   },
   idle: { height: 0, overflow: "hidden" },
+  // Long messages wrap beside the icon instead of shrinking it.
+  icon: { flexShrink: 0, marginTop: 1 },
   // The message weight of the boards' field messages.
   text: {
     flexShrink: 1,

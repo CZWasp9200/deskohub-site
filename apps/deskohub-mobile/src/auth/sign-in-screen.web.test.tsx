@@ -223,6 +223,8 @@ describe("the web SignInScreen", () => {
     codeAnswers.push(refused({ status: 403, code: "TOO_MANY_ATTEMPTS" }));
     await runInPage(() => shownStep(AppSignInCodeStep).onSubmit("000000"));
     await settle(() => shownStep(AppSignInCodeStep).exhausted);
+    // The dead code leaves the boxes empty.
+    expect(shownStep(AppSignInCodeStep).code).toBe("");
 
     const serverAt = Date.now() + 10 * 60_000;
     emailAnswers.push(
