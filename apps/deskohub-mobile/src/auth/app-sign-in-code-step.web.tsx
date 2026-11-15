@@ -1,10 +1,13 @@
+import { brandFontVariation } from "@deskohub/brand-tokens";
+import Interpolate from "@doist/react-interpolate";
 import Mail from "lucide-react-native/icons/mail";
 import { useId } from "react";
 import { StyleSheet, View } from "react-native";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
 import { Button } from "../ui/controls";
-import { space } from "../ui/tokens";
+import { Text } from "../ui/text";
+import { color, space } from "../ui/tokens";
 import { AppSignInLayout } from "./app-sign-in-layout";
 import { SignInCodeInput, signInCodeLength } from "./sign-in-code-input.web";
 import { SignInResend, useResendSecondsLeft } from "./sign-in-resend";
@@ -77,7 +80,19 @@ export function AppSignInCodeStep({
   return (
     <AppSignInLayout
       title={m.signin_sent_title({}, { locale })}
-      instructions={m.signin_sent_code_body({ email }, { locale })}
+      instructions={
+        <Interpolate
+          string={m.signin_code_body({}, { locale })}
+          mapping={{
+            email: (
+              <Text style={styles.email}>
+                {/* A long address wraps before the @, not inside a word. */}
+                {email.replace("@", "\u200B@")}
+              </Text>
+            ),
+          }}
+        />
+      }
       onUseDifferentEmail={onUseDifferentEmail}
       useDifferentEmailDisabled={busy}
       action={action}
@@ -110,4 +125,9 @@ export function AppSignInCodeStep({
 
 const styles = StyleSheet.create({
   resend: { marginTop: space.md },
+  email: {
+    color: color.navy,
+    fontVariationSettings: brandFontVariation(600),
+    fontWeight: "600",
+  },
 });

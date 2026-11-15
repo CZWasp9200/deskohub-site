@@ -46,12 +46,14 @@ export function AppSignInEmailStep({
       <View style={styles.field}>
         {illustration}
         <TextField
-          label={m.signin_email_label({}, { locale })}
+          label={m.signin_email_field_label({}, { locale })}
+          placeholder={m.signin_email_placeholder({}, { locale })}
           value={email.value}
           onChangeText={email.onChange}
           onSubmitEditing={onSubmit}
           error={error}
-          editable={!busy && !email.locked}
+          readOnly={email.locked}
+          disabled={busy}
           autoFocus={!email.locked}
           autoComplete="email"
           inputMode="email"

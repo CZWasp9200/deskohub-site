@@ -23,7 +23,8 @@ export function AppSignInLayout({
   action,
 }: {
   readonly title: string;
-  readonly instructions?: string;
+  /** Text, or text with emphasised parts such as the address. */
+  readonly instructions?: ReactNode;
   /** Starts over with another address; without it the link isn't shown. */
   readonly onUseDifferentEmail?: () => void;
   readonly useDifferentEmailDisabled?: boolean;

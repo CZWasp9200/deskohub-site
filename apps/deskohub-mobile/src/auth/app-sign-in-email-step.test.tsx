@@ -34,7 +34,9 @@ describe("AppSignInEmailStep", () => {
   test("the email field is focused on load, with the submit action at the bottom", () => {
     const { layout, field, action } = step();
     expect(field?.autoFocus).toBe(true);
-    expect(field?.editable).toBe(true);
+    expect(field?.disabled).toBe(false);
+    expect(field?.readOnly).toBe(false);
+    expect(field?.placeholder).toBeDefined();
     expect(field?.inputMode).toBe("email");
     expect(action.type).toBe(Button);
     expect(action.props?.label).toBe("submit");
@@ -59,7 +61,7 @@ describe("AppSignInEmailStep", () => {
   test("while it sends, the action shows progress and the field takes no input", () => {
     const { field, action } = step({ busy: true });
     expect(action.props?.busy).toBe(true);
-    expect(field?.editable).toBe(false);
+    expect(field?.disabled).toBe(true);
   });
 
   test("an error shows at the field", () => {
@@ -75,7 +77,7 @@ describe("AppSignInEmailStep", () => {
       },
     });
     expect(field?.value).toBe(testEmailAddress("locked"));
-    expect(field?.editable).toBe(false);
+    expect(field?.readOnly).toBe(true);
     expect(field?.autoFocus).toBe(false);
   });
 

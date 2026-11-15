@@ -382,7 +382,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     }
     return (
       <AppSignInEmailStep
-        title={m.signin_title({}, { locale })}
+        title={m.signin_create_title({}, { locale })}
         body={
           reauthenticate
             ? m.signin_reauthenticate_body({}, { locale })
@@ -399,7 +399,9 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
         submitLabel={m.signin_send_code({}, { locale })}
         onSubmit={submitEmail}
         busy={resending || finishing}
-        error={alert}
+        error={
+          invalidEmail ? m.signin_error_email_format({}, { locale }) : alert
+        }
       />
     );
   }
