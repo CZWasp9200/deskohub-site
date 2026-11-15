@@ -13,6 +13,7 @@ import {
   DiscountAffirmationUnavailableError,
   DiscountProviderError,
   discountIdSchema,
+  PromotionCodeUnavailableError,
 } from "@/features/discounts";
 import { calendarSaleDiscountServiceLayer } from "@/features/discounts/calendar-sale.test-utils";
 import {
@@ -421,6 +422,13 @@ describe("clearDiscountCodeFromPayState", () => {
         new DiscountAffirmationUnavailableError({
           message: "Calendar was unavailable.",
           discountIds: [submittedCodeDiscountId],
+        }),
+      ],
+      [
+        "the discounts answer with a code verdict",
+        new PromotionCodeUnavailableError({
+          reason: "unknown_code",
+          message: "The submitted promotion code does not exist.",
         }),
       ],
       [

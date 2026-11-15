@@ -581,6 +581,25 @@ describe("CheckoutDiscountCodeForm", () => {
       expect(applyDiscountCodeForm).not.toHaveBeenCalled();
     });
 
+    test("shows the field error beside the applied code when a removal failed", async () => {
+      const { CheckoutDiscountCodeForm } = await import(
+        "./checkout-discount-code-form"
+      );
+      const view = render(
+        <CheckoutDiscountCodeForm
+          appliedAdjustment={{ kind: "percentage", basisPoints: 2000 }}
+          enabled={false}
+          locale="en-US"
+          payStateToken="signed-state"
+          rejection="unavailable"
+          rejectionId="rejection-id"
+        />
+      );
+
+      expect(removeControl(view.container)).not.toBeNull();
+      expect(view.getByRole("alert")).toBeTruthy();
+    });
+
     test.each([
       ["open code entry", true],
       ["closed code entry", false],

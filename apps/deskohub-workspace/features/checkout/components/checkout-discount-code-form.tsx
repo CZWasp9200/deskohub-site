@@ -98,6 +98,15 @@ export function CheckoutDiscountCodeForm({
         >
           <CheckoutDiscountCodeRemoveButton locale={locale} />
         </form>
+        {rejection && (
+          <div className="basis-full">
+            <DiscountCodeRejectionMessage
+              locale={locale}
+              rejection={rejection}
+              rejectionId={rejectionId}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -144,24 +153,43 @@ export function CheckoutDiscountCodeForm({
           />
         </div>
         {rejection && (
-          <>
-            <DiscountRejectionAnalytics key={rejectionId} />
-            <p
-              className="flex items-start gap-2 rounded-2xl border border-burned-orange/20 bg-burned-orange/8 px-4 py-3 text-sm leading-6 text-burned-orange-ink"
-              id="checkout-discount-code-error"
-              role="alert"
-            >
-              <AlertTriangle
-                aria-hidden="true"
-                className="mt-0.5 size-4 shrink-0 text-burned-orange"
-              />
-              <span className="min-w-0">
-                {getDiscountCodeRejectionMessage(rejection, locale)}
-              </span>
-            </p>
-          </>
+          <DiscountCodeRejectionMessage
+            locale={locale}
+            rejection={rejection}
+            rejectionId={rejectionId}
+          />
         )}
       </form>
+    </>
+  );
+}
+
+/** The field error for a code change the server refused. */
+function DiscountCodeRejectionMessage({
+  locale,
+  rejection,
+  rejectionId,
+}: {
+  readonly locale: Locale;
+  readonly rejection: DiscountCodeRejection;
+  readonly rejectionId?: string;
+}) {
+  return (
+    <>
+      <DiscountRejectionAnalytics key={rejectionId} />
+      <p
+        className="flex items-start gap-2 rounded-2xl border border-burned-orange/20 bg-burned-orange/8 px-4 py-3 text-sm leading-6 text-burned-orange-ink"
+        id="checkout-discount-code-error"
+        role="alert"
+      >
+        <AlertTriangle
+          aria-hidden="true"
+          className="mt-0.5 size-4 shrink-0 text-burned-orange"
+        />
+        <span className="min-w-0">
+          {getDiscountCodeRejectionMessage(rejection, locale)}
+        </span>
+      </p>
     </>
   );
 }

@@ -56,33 +56,33 @@ export const getDiscountCodeChangeDeadline = (
 ) => getCalendarActionDeadline(deploymentEnvironment, 1);
 
 /**
- * Why a code was not applied. The site shows one generic unavailable field
- * error for every reason; other callers tell a retry from a correction.
+ * Why a code change, entering or removing one, left the Pay state as it was,
+ * whatever the code. `provider`: pricing, discounts or referrals were
+ * unreachable, so a retry can work. `price_review_pending`: the customer must
+ * first review a price change. `checkout`: the reservation can't be paid now,
+ * or a payment already started.
  */
-export type DiscountCodeUnavailable =
+export type DiscountCodeChangeUnavailable =
+  | { readonly status: "unavailable"; readonly reason: "provider" }
+  | { readonly status: "unavailable"; readonly reason: "price_review_pending" }
   | {
       readonly status: "unavailable";
-      /**
-       * `code`: the code is invalid, unknown or can't be used here.
-       * `provider`: pricing, discounts or referrals were unreachable, so a
-       * retry can work. `price_review_pending`: the customer must first
-       * review a price change. `code_already_applied`: the order already
-       * carries a code.
-       */
-      readonly reason:
-        | "code"
-        | "provider"
-        | "price_review_pending"
-        | "code_already_applied";
-    }
-  | {
-      readonly status: "unavailable";
-      /** The reservation can't be paid now, or a payment already started. */
       readonly reason: "checkout";
       readonly checkoutReason:
         | "payment_in_progress"
         | PayableReservationUnavailableError["reason"];
     };
+
+/**
+ * Why a code was not applied. The site shows one generic unavailable field
+ * error for every reason; other callers tell a retry from a correction.
+ * `code`: the code is invalid, unknown or can't be used here.
+ * `code_already_applied`: the order already carries a code.
+ */
+export type DiscountCodeUnavailable =
+  | DiscountCodeChangeUnavailable
+  | { readonly status: "unavailable"; readonly reason: "code" }
+  | { readonly status: "unavailable"; readonly reason: "code_already_applied" };
 
 /**
  * A rejection's replacement Pay state, when it has one, carries the attempted
@@ -224,26 +224,23 @@ const priceBetweenPayableGuards = <A, E, R>(
 /**
  * A code change that could not be made leaves the existing summary payable:
  * unaffirmed discounts and unreachable providers allow a retry, and an order
- * that can't be paid says why.
+ * that can't be paid says why. For `Effect.catchTags`.
  */
-const recoverUnavailableCodeChange = <A, E, R>(
-  effect: Effect.Effect<A, E, R>
-) =>
-  effect.pipe(
-    Effect.catchTags({
-      DiscountAffirmationUnavailableError: () =>
-        Effect.succeed(providerUnavailable),
-      DiscountProviderError: () => Effect.succeed(providerUnavailable),
-      PayableReservationUnavailableError: (error) =>
-        Effect.succeed(
-          unavailableBecause({
-            status: "unavailable",
-            reason: "checkout",
-            checkoutReason: error.reason,
-          })
-        ),
-    })
-  );
+const codeChangeUnavailable = {
+  DiscountAffirmationUnavailableError: () =>
+    Effect.succeed(providerUnavailable),
+  DiscountProviderError: () => Effect.succeed(providerUnavailable),
+  PayableReservationUnavailableError: (
+    error: PayableReservationUnavailableError
+  ) =>
+    Effect.succeed(
+      unavailableBecause({
+        status: "unavailable",
+        reason: "checkout",
+        checkoutReason: error.reason,
+      })
+    ),
+};
 
 /**
  * Accepts a referral code through the checkout referral flow, which signs its
@@ -424,53 +421,47 @@ const applyPromotionCode = Effect.fnUntraced(function* (
 
 export const applyDiscountCodeToPayState = Effect.fn(
   "checkout.applyDiscountCodeToPayState"
-)(function* (input: ApplyDiscountCodeInput) {
-  const referrals = yield* ReferralService;
+)(
+  function* (input: ApplyDiscountCodeInput) {
+    const referrals = yield* ReferralService;
 
-  const state = yield* openPayStateForLocale(input);
+    const state = yield* openPayStateForLocale(input);
 
-  if (state.changedKeys) return priceReviewPending;
-  if (state.submittedCode) {
-    return unavailableBecause({
-      status: "unavailable",
-      reason: "code_already_applied",
-    });
-  }
+    if (state.changedKeys) return priceReviewPending;
+    if (state.submittedCode) {
+      return unavailableBecause({
+        status: "unavailable",
+        reason: "code_already_applied",
+      });
+    }
 
-  // A non-canonical attempt cannot be sealed as intent, so syntax failures
-  // keep the plain unavailable result.
-  const submittedCode = yield* normalizeSubmittedPromotionCode({
-    submittedCode: input.submittedCode,
-  }).pipe(
-    Effect.map(Option.getOrUndefined),
-    Effect.catchTag("PromotionCodeUnavailableError", () =>
-      Effect.succeed(undefined)
-    )
-  );
-  if (submittedCode === undefined) {
-    return unavailableBecause({ status: "unavailable", reason: "code" });
-  }
+    // A non-canonical attempt cannot be sealed as intent, so syntax failures
+    // keep the plain unavailable result.
+    const submittedCode = yield* normalizeSubmittedPromotionCode({
+      submittedCode: input.submittedCode,
+    }).pipe(
+      Effect.map(Option.getOrUndefined),
+      Effect.catchTag("PromotionCodeUnavailableError", () =>
+        Effect.succeed(undefined)
+      )
+    );
+    if (submittedCode === undefined) {
+      return unavailableBecause({ status: "unavailable", reason: "code" });
+    }
 
-  // A registry that can't classify the code applies nothing; a retry can
-  // still work.
-  const codeKind = yield* referrals
-    .lookupCodeKind({ code: submittedCode })
-    .pipe(Effect.orElseSucceed(() => undefined));
-  if (codeKind === undefined) return providerUnavailable;
-  const entry = { input, state, submittedCode };
-  return yield* codeKind.kind === "referral"
-    ? acceptReferralCode(entry)
-    : applyPromotionCode(entry);
-}, recoverUnavailableCodeChange);
-
-/**
- * Why a code change, entering or removing one, left the Pay state as it was,
- * whatever the code.
- */
-export type DiscountCodeChangeUnavailable = Exclude<
-  DiscountCodeUnavailable,
-  { readonly reason: "code" | "code_already_applied" }
->;
+    // A registry that can't classify the code applies nothing; a retry can
+    // still work.
+    const codeKind = yield* referrals
+      .lookupCodeKind({ code: submittedCode })
+      .pipe(Effect.orElseSucceed(() => undefined));
+    if (codeKind === undefined) return providerUnavailable;
+    const entry = { input, state, submittedCode };
+    return yield* codeKind.kind === "referral"
+      ? acceptReferralCode(entry)
+      : applyPromotionCode(entry);
+  },
+  (effect) => effect.pipe(Effect.catchTags(codeChangeUnavailable))
+);
 
 export type ClearDiscountCodeResult =
   /**
@@ -496,28 +487,44 @@ export type ClearDiscountCodeResult =
  */
 export const clearDiscountCodeFromPayState = Effect.fn(
   "checkout.clearDiscountCodeFromPayState"
-)(function* (input: ClearDiscountCodeInput) {
-  const state = yield* openPayStateForLocale(input);
+)(
+  function* (input: ClearDiscountCodeInput) {
+    const state = yield* openPayStateForLocale(input);
 
-  const { submittedCodeDiscountId } = state;
-  if (submittedCodeDiscountId === undefined) {
-    if (state.requestedDiscountCode === undefined) {
-      const unchanged: ClearDiscountCodeResult = {
-        status: "unchanged",
-        freshPayUrl: buildCheckoutPayPathFromToken(
-          input.locale,
-          input.payStateToken
-        ),
-        freshPayStateToken: input.payStateToken,
-        expiresAt: getPayStateExpiresAt(state),
-      };
-      return unchanged;
+    const { submittedCodeDiscountId } = state;
+    if (submittedCodeDiscountId === undefined) {
+      if (state.requestedDiscountCode === undefined) {
+        const unchanged: ClearDiscountCodeResult = {
+          status: "unchanged",
+          freshPayUrl: buildCheckoutPayPathFromToken(
+            input.locale,
+            input.payStateToken
+          ),
+          freshPayStateToken: input.payStateToken,
+          expiresAt: getPayStateExpiresAt(state),
+        };
+        return unchanged;
+      }
+      return yield* clearRequestedDiscountCode(input, state);
     }
-    return yield* clearRequestedDiscountCode(input, state);
-  }
-  if (state.changedKeys) return priceReviewPending;
-  return yield* clearAppliedDiscountCode(input, state, submittedCodeDiscountId);
-}, recoverUnavailableCodeChange);
+    if (state.changedKeys) return priceReviewPending;
+    return yield* clearAppliedDiscountCode(
+      input,
+      state,
+      submittedCodeDiscountId
+    );
+  },
+  (effect) =>
+    effect.pipe(
+      Effect.catchTags({
+        ...codeChangeUnavailable,
+        // Removing a code resolves no entered code, so a code verdict can
+        // only mean the kept discounts could not be resolved.
+        PromotionCodeUnavailableError: () =>
+          Effect.succeed(providerUnavailable),
+      })
+    )
+);
 
 /**
  * Drops a code the customer intended but never applied. Nothing is
