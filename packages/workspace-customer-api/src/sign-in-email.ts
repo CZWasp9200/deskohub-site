@@ -25,6 +25,16 @@ export const NextSignInEmailAt = Schema.DateTimeUtcFromString.annotate({
 });
 export type NextSignInEmailAt = typeof NextSignInEmailAt.Type;
 
+/**
+ * `NextSignInEmailAt` as a Better Auth client hands it over: its JSON parser
+ * revives ISO 8601 strings into `Date`s, so a client answer carries either
+ * the wire string or a `Date`. Decodes both to the same instant.
+ */
+export const NextSignInEmailAtFromClient = Schema.Union([
+  NextSignInEmailAt,
+  Schema.DateTimeUtcFromDate,
+]).annotate({ identifier: "NextSignInEmailAtFromClient" });
+
 const secondsUntil = (availableAt: number, now: number) =>
   Math.max(0, Math.ceil((availableAt - now) / 1000));
 
