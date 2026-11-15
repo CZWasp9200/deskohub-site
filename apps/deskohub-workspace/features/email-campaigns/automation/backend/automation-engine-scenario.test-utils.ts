@@ -14,8 +14,8 @@ import { EmailConfigTag, EmailServiceTag } from "@deskohub/email";
 import { makeEmailProviderFake } from "@deskohub/email/testing";
 import { testEmailAddress } from "@deskohub/test-email";
 import { emailAutomationTickMinutes } from "@deskohub/workspace-admin-api";
-import { eq } from "drizzle-orm";
-import { Effect, Fiber, Layer, Result, Struct } from "effect";
+import { eq, sql } from "drizzle-orm";
+import { Deferred, Effect, Fiber, Layer, Result, Struct } from "effect";
 import { TestClock } from "effect/testing";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
@@ -34,7 +34,10 @@ import type {
   CustomerEventKind,
 } from "@/shared/backend/customer-events/customer-event";
 import { CustomerEventReconciler } from "@/shared/backend/customer-events/customer-event-reconciler";
-import { retractCancellationEvent } from "@/shared/backend/customer-events/customer-event-retraction";
+import {
+  type CancellationEventRetraction,
+  retractCancellationEvent,
+} from "@/shared/backend/customer-events/customer-event-retraction";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import type {
   WorkspacePostgresSuiteDatabase,
@@ -628,6 +631,22 @@ export const makeEngineFixtures = (
    * restore does: confirmed and no longer cancelled, with the undone
    * cancellation's event retracted in the same transaction.
    */
+  const restoreReservation = (
+    id: WorkspaceReservationId,
+    cancelledAt: Temporal.Instant,
+    at: Temporal.Instant
+  ) =>
+    Effect.flatMap(WorkspaceTransaction, ({ db }) =>
+      db
+        .update(workspaceReservations)
+        .set({ reservationState: "confirmed", reservationCancelledAt: null })
+        .where(eq(workspaceReservations.id, id))
+    ).pipe(
+      Effect.andThen(
+        retractCancellationEvent({ reservationId: id, cancelledAt, at })
+      )
+    );
+
   const restoreInWorkspace = (
     id: WorkspaceReservationId,
     cancelledAt: Temporal.Instant,
@@ -635,23 +654,60 @@ export const makeEngineFixtures = (
   ) =>
     Effect.runPromise(
       Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
-        transaction(
-          Effect.flatMap(WorkspaceTransaction, ({ db }) =>
-            db
-              .update(workspaceReservations)
-              .set({
-                reservationState: "confirmed",
-                reservationCancelledAt: null,
-              })
-              .where(eq(workspaceReservations.id, id))
-          ).pipe(
-            Effect.andThen(
-              retractCancellationEvent({ reservationId: id, cancelledAt, at })
-            )
-          )
-        )
+        transaction(restoreReservation(id, cancelledAt, at))
       ).pipe(Effect.provide(database.layer))
     );
+
+  /**
+   * Runs `restoreInWorkspace` up to its commit and holds the transaction
+   * open, with the reservation row locked, until `commit`, which resolves
+   * once it committed. `pid` identifies the restore for `pg_blocking_pids`.
+   */
+  const holdRestoreInWorkspace = async (
+    id: WorkspaceReservationId,
+    cancelledAt: Temporal.Instant,
+    at: Temporal.Instant
+  ) => {
+    const committing = Deferred.makeUnsafe<void>();
+    const opened = Deferred.makeUnsafe<
+      {
+        readonly pid: number;
+        readonly retraction: CancellationEventRetraction;
+      },
+      unknown
+    >();
+    const restore = Effect.runFork(
+      Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+        transaction(
+          Effect.gen(function* () {
+            const { db } = yield* WorkspaceTransaction;
+            const [held] = yield* db
+              .select({ pid: sql<number>`pg_backend_pid()` })
+              .from(workspaceReservations)
+              .where(eq(workspaceReservations.id, id));
+            const backend = yield* Effect.fromNullishOr(held);
+            const retraction = yield* restoreReservation(id, cancelledAt, at);
+            yield* Deferred.succeed(opened, { pid: backend.pid, retraction });
+            yield* Deferred.await(committing);
+          })
+        )
+      ).pipe(
+        Effect.onError((cause) => Deferred.failCause(opened, cause)),
+        Effect.provide(database.layer)
+      )
+    );
+    const { pid, retraction } = await Effect.runPromise(Deferred.await(opened));
+    return {
+      pid,
+      retraction,
+      commit: () =>
+        Effect.runPromise(
+          Deferred.succeed(committing, undefined).pipe(
+            Effect.andThen(Fiber.join(restore))
+          )
+        ),
+    };
+  };
 
   const recordEvent = async (input: {
     readonly kind: CustomerEventKind;
@@ -735,6 +791,7 @@ export const makeEngineFixtures = (
     deleteVisit,
     cancelInWorkspace,
     restoreInWorkspace,
+    holdRestoreInWorkspace,
     recordEvent,
     cleanup,
     created,

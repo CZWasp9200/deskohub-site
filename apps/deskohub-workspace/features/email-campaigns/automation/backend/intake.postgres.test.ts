@@ -441,6 +441,158 @@ describe.skipIf(!database)("intake units on Postgres", () => {
     expect(await runsOf(campaignId)).toEqual([]);
   });
 
+  test("withdraws a cancellation event a restore undid while intake's commit waited on the reservation", async () => {
+    const campaignId = await automation({
+      flow: triggeredBy({ _tag: "ReservationCancelled" }),
+    });
+    const customer = await fixtures.addCustomer("restored-mid-commit");
+    const startsAt = now.add({ hours: 24 });
+    const reservationId = await fixtures.book({
+      label: "restored-mid-commit",
+      customer,
+      startsAt,
+      endsAt: startsAt.add({ hours: 2 }),
+    });
+    const cancelledAt = now.subtract({ minutes: 30 });
+    await fixtures.cancelInWorkspace(reservationId, cancelledAt);
+    // Dotypos still shows the cancellation, so only intake's reservation
+    // recheck can withdraw the event.
+    fixtures.cancelVisit(reservationId);
+    const event = await fixtures.recordEvent({
+      kind: "reservation-cancelled",
+      customer,
+      reservationId,
+      occurredAt: cancelledAt,
+    });
+    const { queue, layer } = await engine();
+    await runEngineAt(
+      Effect.flatMap(AutomationPlanner, (planner) => planner.plan),
+      layer,
+      now
+    );
+
+    // The restore holds the reservation row until it commits.
+    const restore = await fixtures.holdRestoreInWorkspace(
+      reservationId,
+      cancelledAt,
+      now
+    );
+    expect(restore.retraction).toBe("in_intake");
+    const unit = runEngineAt(drainAutomationUnitQueue(queue), layer, now);
+    try {
+      await waitForPostgresLockWaiter(pool, {
+        condition: "$1::int = any(pg_blocking_pids(pid))",
+        values: [restore.pid],
+        description: "the intake commit waiting for the restored reservation",
+      });
+      const {
+        rows: [restoring],
+      } = await pool.query(
+        "select cardinality(pg_blocking_pids($1)) as blockers",
+        [restore.pid]
+      );
+      expect(restoring.blockers).toBe(0);
+    } finally {
+      await restore.commit();
+    }
+    await unit;
+
+    expect(await processed([event])).toBe(true);
+    expect(await receipts(campaignId)).toEqual([
+      {
+        key: `reservation-cancelled:${reservationId}`,
+        disposition: "withdrawn",
+        run: false,
+      },
+    ]);
+    expect(await runsOf(campaignId)).toEqual([]);
+  });
+
+  test("a restore waiting for intake's commit leaves the run intake started to the next planner pass", async () => {
+    const campaignId = await automation({
+      flow: triggeredBy({ _tag: "ReservationCancelled" }),
+    });
+    const customer = await fixtures.addCustomer("restored-after-commit");
+    const startsAt = now.add({ hours: 24 });
+    const reservationId = await fixtures.book({
+      label: "restored-after-commit",
+      customer,
+      startsAt,
+      endsAt: startsAt.add({ hours: 2 }),
+    });
+    const cancelledAt = now.subtract({ minutes: 30 });
+    await fixtures.cancelInWorkspace(reservationId, cancelledAt);
+    fixtures.cancelVisit(reservationId);
+    const event = await fixtures.recordEvent({
+      kind: "reservation-cancelled",
+      customer,
+      reservationId,
+      occurredAt: cancelledAt,
+    });
+    const { queue, layer } = await engine();
+    const plan = (at: Temporal.Instant) =>
+      runEngineAt(
+        Effect.flatMap(AutomationPlanner, (planner) => planner.plan),
+        layer,
+        at
+      );
+    await plan(now);
+    const runStates = async () =>
+      (
+        await pool.query(
+          "select status, outcome from email_campaign_automation_runs where campaign_id = $1",
+          [campaignId]
+        )
+      ).rows.map(({ status, outcome }) => [status, outcome]);
+
+    // Holding the event row stops intake's commit as it settles its
+    // events, after it locked the reservation.
+    const settling = await holdPostgresTransaction(
+      pool,
+      "select 1 from customer_events where id = $1 for update",
+      [event]
+    );
+    const unit = runEngineAt(drainAutomationUnitQueue(queue), layer, now);
+    let restore: ReturnType<typeof fixtures.restoreInWorkspace> | undefined;
+    try {
+      await waitForPostgresLockWaiter(pool, {
+        condition: "$1::int = any(pg_blocking_pids(pid))",
+        values: [settling.pid],
+        description: "the intake commit settling its events",
+      });
+      const {
+        rows: [intake],
+      } = await pool.query(
+        "select pid from pg_locks where not granted and $1::int = any(pg_blocking_pids(pid))",
+        [settling.pid]
+      );
+      restore = fixtures.restoreInWorkspace(reservationId, cancelledAt, now);
+      await waitForPostgresLockWaiter(pool, {
+        condition: "$1::int = any(pg_blocking_pids(pid))",
+        values: [intake.pid],
+        description: "the restore waiting for intake's reservation lock",
+      });
+    } finally {
+      await settling.commit();
+    }
+    await unit;
+
+    expect(await restore).toBe("processed");
+    expect(await processed([event])).toBe(true);
+    expect(await receipts(campaignId)).toEqual([
+      {
+        key: `reservation-cancelled:${reservationId}`,
+        disposition: "started",
+        run: true,
+      },
+    ]);
+    expect(await runStates()).toEqual([["active", null]]);
+
+    await plan(now.add({ minutes: 1 }));
+
+    expect(await runStates()).toEqual([["ended", "withdrawn"]]);
+  });
+
   test("withdraws an event whose visit Dotypos cancelled or no longer returns (D28)", async () => {
     const campaignId = await automation();
     const cancelled = await finishedVisit({
