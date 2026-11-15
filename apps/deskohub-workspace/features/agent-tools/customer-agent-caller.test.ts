@@ -170,26 +170,60 @@ const readAccountServices = Effect.all({
   ),
 });
 
-let observed: Effect.Success<typeof readAccountServices> | undefined;
-
-/** A signed-in tool that records how its account services read the customer. */
-const readAccountsTool = defineSignedInAgentTool({
-  name: "read_accounts",
-  title: "read_accounts",
-  description: "read_accounts",
-  scope: "reservations:create",
-  readOnly: true,
-  unavailableCode: "reservations_unavailable",
-  input: Schema.Struct({ locale: agentToolLocaleField }),
-  output: Schema.Struct({}),
-  run: () =>
-    readAccountServices.pipe(
-      Effect.map((reads) => {
-        observed = reads;
-        return {};
+/**
+ * What a booking's account section reads, as `start_reservation`'s booking
+ * does (`reservation-booking.service.ts`): the section's account is the
+ * hold's author, and the booking contact names the customer it books for.
+ */
+const readBookingSection = CustomerAccountSections.pipe(
+  Effect.flatMap((sections) =>
+    sections.withOptionalAccount((author) =>
+      Effect.all({
+        author: Effect.succeed(author),
+        held: Effect.serviceOption(HeldCustomerAccount).pipe(
+          Effect.map((held) =>
+            held._tag === "Some" ? held.value.accountId : null
+          )
+        ),
+        customer: CustomerAccountContactService.pipe(
+          Effect.flatMap((contacts) => contacts.current),
+          Effect.map((contact) => ({
+            accountId: contact?.accountId,
+            dotyposCustomerId: contact?.dotyposCustomerId,
+          }))
+        ),
       })
-    ),
-});
+    )
+  )
+);
+
+let observed: unknown;
+
+/** A signed-in tool that records what `effect` read. */
+const recordingTool = <A, E, R>(name: string, effect: Effect.Effect<A, E, R>) =>
+  defineSignedInAgentTool({
+    name,
+    title: name,
+    description: name,
+    scope: "reservations:create",
+    readOnly: true,
+    unavailableCode: "reservations_unavailable",
+    input: Schema.Struct({ locale: agentToolLocaleField }),
+    output: Schema.Struct({}),
+    run: () =>
+      effect.pipe(
+        Effect.orDie,
+        Effect.map((reads) => {
+          observed = reads;
+          return {};
+        })
+      ),
+  });
+
+const tools = [
+  recordingTool("read_accounts", readAccountServices),
+  recordingTool("book_section", readBookingSection),
+];
 
 /**
  * Answers one MCP request the way the MCP route does: the route's customer
@@ -201,7 +235,7 @@ const answer = (request: Request) =>
   readMcpRequest(request).pipe(
     Effect.flatMap((mcpRequest) =>
       answerAgentToolMcpRequest({
-        tools: [readAccountsTool],
+        tools,
         instructions: "Synthetic instructions.",
         client: "other",
         request: mcpRequest,
@@ -226,18 +260,13 @@ const answer = (request: Request) =>
     Effect.runPromise
   );
 
-const callTool = {
-  jsonrpc: "2.0",
-  id: 1,
-  method: "tools/call",
-  params: { name: "read_accounts", arguments: {} },
-};
+type ToolName = "read_accounts" | "book_section";
 
 /**
  * Calls the tool as a 2025-era client does: the response streams as soon as
  * the call starts.
  */
-const callStreamed = async () => {
+const callStreamed = async (name: ToolName) => {
   const response = await answer(
     new Request(resource, {
       method: "POST",
@@ -247,14 +276,19 @@ const callStreamed = async () => {
         accept: "application/json, text/event-stream",
         "mcp-protocol-version": "2025-11-25",
       },
-      body: JSON.stringify(callTool),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name, arguments: {} },
+      }),
     })
   );
   await response.text();
 };
 
 /** Calls the tool as a 2026-era client does: the response is JSON. */
-const callAnswered = async () => {
+const callAnswered = async (name: ToolName) => {
   const client = new Client(
     { name: "agent-caller-test", version: "1.0.0" },
     { versionNegotiation: { mode: "auto" } }
@@ -268,16 +302,19 @@ const callAnswered = async () => {
       },
     })
   );
-  await client.callTool({ name: "read_accounts", arguments: {} });
+  await client.callTool({ name, arguments: {} });
   await client.close();
 };
 
-const callAsAgent = async (call: () => Promise<void>) => {
+const callAsAgent = async (
+  call: (name: ToolName) => Promise<void>,
+  name: ToolName = "read_accounts"
+) => {
   observed = undefined;
   stores.lockedAccounts.length = 0;
   stores.profileUpdates.length = 0;
   stores.browserSessionReads.length = 0;
-  await call();
+  await call(name);
   return observed;
 };
 
@@ -295,9 +332,7 @@ describe.each([
   ["a 2025-era call", callStreamed],
   ["a 2026-era call", callAnswered],
 ])("%s to a signed-in tool on the MCP route", (_era, call) => {
-  // Fails until the agent's account services stop reusing the sections the
-  // route's booking services built over the browser session.
-  test.failing("reads every account service through the token without a browser session", async () => {
+  test("reads every account service through the token without a browser session", async () => {
     stores.signInBrowser(null);
 
     expect(await callAsAgent(call)).toEqual(readsAsAgent);
@@ -306,12 +341,27 @@ describe.each([
     expect(new Set(stores.lockedAccounts)).toEqual(new Set([agentAccountId]));
   });
 
-  test.failing("reads every account service through the token while the browser is another account's", async () => {
+  test("reads every account service through the token while the browser is another account's", async () => {
     stores.signInBrowser(browserAccountId);
 
     expect(await callAsAgent(call)).toEqual(readsAsAgent);
     expect(stores.browserSessionReads).toEqual([]);
     expect(stores.profileUpdates).toEqual([agentCustomerId]);
     expect(new Set(stores.lockedAccounts)).toEqual(new Set([agentAccountId]));
+  });
+
+  test("books as the token's account while the browser is another account's", async () => {
+    stores.signInBrowser(browserAccountId);
+
+    expect(await callAsAgent(call, "book_section")).toEqual({
+      author: agentAccountId,
+      held: agentAccountId,
+      customer: {
+        accountId: agentAccountId,
+        dotyposCustomerId: agentCustomerId,
+      },
+    });
+    expect(stores.lockedAccounts).toEqual([agentAccountId]);
+    expect(stores.browserSessionReads).toEqual([]);
   });
 });
