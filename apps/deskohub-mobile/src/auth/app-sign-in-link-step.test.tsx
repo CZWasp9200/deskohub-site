@@ -35,14 +35,14 @@ describe("AppSignInLinkStep", () => {
     expect(layout.instructions).toBeDefined();
     expect(layout.onUseDifferentEmail).toBeDefined();
     expect(
-      find(layout.children as ReactNode, SignInResend)?.props.what
+      find(<>{layout.children as ReactNode}</>, SignInResend)?.props.what
     ).toBe("link");
   });
 
   test("a new link sent, or a refused one, shows in place", () => {
     const notice = { tone: "positive", text: "sent" } as const;
     expect(
-      find(step({ notice }).children as ReactNode, SignInStepMessage)?.props
+      find(<>{step({ notice }).children as ReactNode}</>, SignInStepMessage)?.props
         .notice
     ).toEqual(notice);
   });

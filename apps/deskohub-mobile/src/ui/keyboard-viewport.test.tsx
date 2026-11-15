@@ -15,13 +15,22 @@ function Probe() {
 }
 
 /** A visual viewport the test moves, as a keyboard or a zoom would. */
-class FakeVisualViewport extends EventTarget {
+class FakeVisualViewport {
   height = 800;
   offsetTop = 0;
   scale = 1;
-  move(change: Partial<Pick<FakeVisualViewport, "height" | "offsetTop" | "scale">>) {
+  private readonly listeners = new Set<() => void>();
+  addEventListener(_type: string, listener: () => void) {
+    this.listeners.add(listener);
+  }
+  removeEventListener(_type: string, listener: () => void) {
+    this.listeners.delete(listener);
+  }
+  move(
+    change: Partial<Pick<FakeVisualViewport, "height" | "offsetTop" | "scale">>
+  ) {
     Object.assign(this, change);
-    this.dispatchEvent(new Event("resize"));
+    for (const listener of this.listeners) listener();
   }
 }
 

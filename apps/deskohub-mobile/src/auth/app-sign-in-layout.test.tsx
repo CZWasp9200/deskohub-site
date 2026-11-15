@@ -18,8 +18,8 @@ const layout = (
   );
 
 const grows = (props: { readonly style?: unknown }) =>
-  (StyleSheet.flatten(props.style as never) as { flexGrow?: number })
-    .flexGrow === 1;
+  (StyleSheet.flatten(props.style as never) as { flexGrow?: number } | undefined)
+    ?.flexGrow === 1;
 
 describe("AppSignInLayout", () => {
   test("puts the heading, instructions and link on top, the field in the middle and the action at the bottom, above the footnote", () => {

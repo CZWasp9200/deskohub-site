@@ -36,7 +36,7 @@ const step = (props: Partial<Props> = {}) => {
     inEnglish
   ) as ReactElement<Parameters<typeof AppSignInLayout>[0]>;
   expect(layout.type).toBe(AppSignInLayout);
-  const middle = layout.props.children as ReactNode;
+  const middle = <>{layout.props.children as ReactNode}</>;
   const action = layout.props.action as ReactElement<
     Parameters<typeof Button>[0]
   >;
