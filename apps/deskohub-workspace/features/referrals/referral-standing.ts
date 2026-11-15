@@ -117,7 +117,7 @@ export const makeReferralStandingReads = Effect.gen(function* () {
           findLocalReservations(dotyposCustomerId),
           listDotyposReservations(dotyposCustomerId),
         ],
-        { concurrency: "inherit" }
+        { concurrency: "unbounded" }
       ).pipe(
         Effect.map((reads) =>
           summarizeCustomerHistory(dotyposCustomerId, reads)
@@ -266,7 +266,7 @@ export const makeReferralStandingReads = Effect.gen(function* () {
           )
           .limit(1),
       ],
-      { concurrency: "inherit" }
+      { concurrency: "unbounded" }
     ).pipe(
       Effect.map(([history, activeClaims]): InvitationWindow => {
         if (history.hasPreviousPaidBooking) return "closed";
@@ -299,7 +299,7 @@ export const makeReferralStandingReads = Effect.gen(function* () {
         ),
         findSavings(input.referrerDotyposCustomerId),
       ],
-      { concurrency: "inherit" }
+      { concurrency: "unbounded" }
     ).pipe(
       Effect.map(
         ([code, invitees, savings]): ReferralAccountSummary => ({

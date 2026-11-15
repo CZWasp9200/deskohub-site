@@ -205,7 +205,7 @@ const implementation = Effect.gen(function* () {
             }),
             loadExpiredHoldDotyposReservationIds(),
           ],
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         );
       const replacementReservationId =
         input.occupancyExclusion?.dotyposReservationId;

@@ -279,7 +279,7 @@ export class DiscountService extends Context.Service<
                 resolve: () => code.revalidate(input.quoteInput),
               }),
             ],
-            { concurrency: "inherit" }
+            { concurrency: "unbounded" }
           ).pipe(
             Effect.map((candidatesByProvider) => candidatesByProvider.flat())
           )
@@ -341,7 +341,7 @@ export class DiscountService extends Context.Service<
                     .pipe(Effect.map(toCompleteResolution)),
               }),
             ],
-            { concurrency: "inherit" }
+            { concurrency: "unbounded" }
           ).pipe(
             Effect.flatMap((resolutions) =>
               selectAffirmedCandidates({

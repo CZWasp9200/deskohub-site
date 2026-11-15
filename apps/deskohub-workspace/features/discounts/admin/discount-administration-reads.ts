@@ -406,7 +406,7 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
         customer: loadActiveCustomer(input.customerId),
         discounts: loadDiscounts(),
       },
-      { concurrency: "inherit" }
+      { concurrency: "unbounded" }
     ).pipe(
       Effect.map(({ customer, discounts }) => ({
         customer: toAdminDotyposCustomer(customer),

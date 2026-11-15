@@ -133,7 +133,7 @@ export class WorkspaceReservationService extends Context.Service<
               .pipe(Effect.flatMap(Effect.fromOption)),
             dotypos.getTables(),
           ],
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         ).pipe(
           Effect.map(([dotyposReservationDetails, tables]) => ({
             dotyposReservationId,

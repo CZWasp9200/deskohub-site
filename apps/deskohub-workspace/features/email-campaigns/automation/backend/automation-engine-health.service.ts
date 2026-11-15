@@ -173,7 +173,7 @@ const readHealth = (db: WorkspaceDatabaseClient, now: Temporal.Instant) =>
         .pipe(Effect.map(([row]) => row?.misses ?? 0)),
       largestCustomerBookedCount: largestCustomerBookedCount(db),
     },
-    { concurrency: "inherit" }
+    { concurrency: "unbounded" }
   );
 
 type HealthReads = Effect.Success<ReturnType<typeof readHealth>>;

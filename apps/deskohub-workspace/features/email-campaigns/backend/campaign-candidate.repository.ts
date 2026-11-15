@@ -26,6 +26,7 @@ import { Context, Effect, Layer } from "effect";
 import {
   WorkspaceDatabase,
   type WorkspaceDatabaseClient,
+  workspaceStatementConcurrency,
 } from "@/db/database.service";
 import {
   customerAccounts,
@@ -333,10 +334,12 @@ export class CampaignCandidateRepository extends Context.Service<
       return {
         listCandidates: Effect.fn("CampaignCandidateRepository.listCandidates")(
           function* ({ purpose, ids }) {
+            // One at a time inside a dry run's transaction, at once elsewhere.
+            const concurrency = yield* workspaceStatementConcurrency;
             const [reservationRows, accountRows, consentRows] =
               yield* Effect.all(
                 [latestReservations(ids), accounts(ids), consents(ids)],
-                { concurrency: "inherit" }
+                { concurrency }
               );
             const reservationsById = new Map(
               reservationRows.map((row) => [row.dotyposCustomerId, row])

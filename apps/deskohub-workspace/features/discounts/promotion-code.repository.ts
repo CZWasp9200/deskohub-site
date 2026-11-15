@@ -114,7 +114,7 @@ export class PromotionCodeRepository extends Context.Service<
             buildPromotionAudienceQuery({ db, ...input }),
             buildDiscountCodeAvailabilityQuery({ db, ...input }),
           ],
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         );
         return yield* Schema.decodeUnknownEffect(
           discountCodeAvailabilitySchema,
@@ -163,7 +163,7 @@ export class PromotionCodeRepository extends Context.Service<
             buildPromotionAudienceQuery({ db, ...input }),
             buildVoucherAvailabilityQuery({ db, ...input }),
           ],
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         );
         return yield* Schema.decodeUnknownEffect(voucherAvailabilitySchema, {
           errors: "all",

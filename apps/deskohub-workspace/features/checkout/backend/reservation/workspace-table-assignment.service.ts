@@ -175,7 +175,7 @@ export class WorkspaceTableAssignmentService extends Context.Service<
                 Effect.orElseSucceed((): readonly DotyposReservationId[] => [])
               ),
           },
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         )
       );
 

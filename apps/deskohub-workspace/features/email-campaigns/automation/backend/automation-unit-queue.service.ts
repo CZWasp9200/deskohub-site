@@ -46,7 +46,7 @@ export class AutomationUnitQueue extends Context.Service<
                 .publish(unit)
                 .pipe(Effect.provideService(QueuePublisher, publisher))
             ),
-            { concurrency: "inherit", discard: true }
+            { concurrency: "unbounded", discard: true }
           );
         }),
       };

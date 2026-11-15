@@ -45,7 +45,7 @@ export const readReservationSnapshotGroups = <E>(
   ) => Effect.Effect<readonly ReservationRecord[], E>
 ) =>
   Effect.forEach(Arr.chunksOf([...new Set(ids)].toSorted(), 50), readBatch, {
-    concurrency: "inherit",
+    concurrency: "unbounded",
   }).pipe(Effect.map((batches) => batches.flat()));
 
 /** Reads every reservation record live from Dotypos. */

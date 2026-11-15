@@ -392,7 +392,7 @@ const implementation = Effect.gen(function* () {
         ),
         seatingMap.isOpen,
       ],
-      { concurrency: "inherit" }
+      { concurrency: "unbounded" }
     );
 
   const reconstructSummary = Effect.fn(
@@ -726,7 +726,7 @@ const implementation = Effect.gen(function* () {
           ),
           loadOfferedRetrySelection(reservation),
         ],
-        { concurrency: "inherit" }
+        { concurrency: "unbounded" }
       );
 
       const resultBase: CheckoutReservationStatusViewModelBase = {

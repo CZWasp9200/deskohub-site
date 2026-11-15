@@ -81,7 +81,7 @@ const loadOfferings = <A, E, R, OE, OR>(
       })
     ),
     Effect.bind("offerings", ({ listings }) =>
-      Effect.forEach(listings, advertise, { concurrency: "inherit" })
+      Effect.forEach(listings, advertise, { concurrency: "unbounded" })
     ),
     Effect.map(({ advertisedOn, offerings }) => ({ advertisedOn, offerings }))
   );

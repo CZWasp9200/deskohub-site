@@ -122,7 +122,7 @@ export const makeInvoiceReads = Effect.gen(function* () {
     // repository path; add SQL pagination when the ledger is measurably large.
     const loaded = yield* Effect.all(
       rows.map(({ id }) => findById(id)),
-      { concurrency: "inherit" }
+      { concurrency: "unbounded" }
     );
     return loaded.filter((invoice) => invoice !== null);
   });
@@ -136,7 +136,7 @@ export const makeInvoiceReads = Effect.gen(function* () {
       .where(isNull(invoices.workspaceReservationId));
     const loaded = yield* Effect.all(
       rows.map(({ id }) => findById(id)),
-      { concurrency: "inherit" }
+      { concurrency: "unbounded" }
     );
     return loaded.flatMap((invoice) =>
       invoice && isManualInvoiceDocument(invoice.document)
@@ -178,7 +178,7 @@ export const makeInvoiceReads = Effect.gen(function* () {
         rows.map(({ id }) =>
           loadCustomerInvoice(dotyposCustomerId, invoiceIdSchema.make(id))
         ),
-        { concurrency: "inherit" }
+        { concurrency: "unbounded" }
       );
       return loaded.filter((invoice) => invoice !== null);
     }
