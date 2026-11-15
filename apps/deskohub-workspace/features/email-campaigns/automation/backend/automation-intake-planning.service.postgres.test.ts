@@ -8,6 +8,10 @@ import {
   emailCampaignAutomationRuns as runs,
 } from "@/db/schema";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
+import {
+  holdPostgresTransaction,
+  waitForPostgresLockWaiter,
+} from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   deleteAutomatedCampaigns,
@@ -275,6 +279,57 @@ describe.skipIf(!database)("AutomationIntakePlanning on Postgres", () => {
       planned: false,
       processed: true,
     });
+  });
+
+  test("an eager withdrawal waiting for the lifecycle lock leaves the runs of a reservation restored meanwhile", async () => {
+    const { campaignId, versionId } = await automation({
+      flow: flowOf({ _tag: "ReservationBooked" }),
+    });
+    const customer = await fixtures.addCustomer("restored-meanwhile");
+    const reservationId = await fixtures.book({
+      label: "restored-meanwhile",
+      customer,
+      startsAt: now.add({ hours: 24 }),
+      endsAt: now.add({ hours: 26 }),
+    });
+    const booked = await insertRun({
+      campaignId,
+      versionId: versionId as AutomationVersionId,
+      customer,
+      triggerKind: "reservation-booked",
+      triggerAt: now.subtract({ hours: 1 }),
+      reservationId,
+    });
+    const cancelledAt = now.subtract({ minutes: 5 });
+    await fixtures.cancelInWorkspace(reservationId, cancelledAt);
+    await fixtures.recordEvent({
+      kind: "reservation-cancelled",
+      customer,
+      reservationId,
+      occurredAt: cancelledAt,
+    });
+    // Holding the lifecycle lock stops the withdrawal after its select.
+    const lifecycle = await holdPostgresTransaction(
+      pool,
+      "select 1 from email_campaign_automations where campaign_id = $1 for update",
+      [campaignId]
+    );
+    const planning = plan();
+    try {
+      await waitForPostgresLockWaiter(pool, {
+        condition: "$1::int = any(pg_blocking_pids(pid))",
+        values: [lifecycle.pid],
+        description: "the withdrawal waiting for the lifecycle lock",
+      });
+      expect(
+        await fixtures.restoreInWorkspace(reservationId, cancelledAt, now)
+      ).toBe("retracted");
+    } finally {
+      await lifecycle.commit();
+    }
+
+    expect((await planning).withdrawnRuns).toBe(0);
+    expect(await runStates([booked])).toEqual({ [booked]: ["active", null] });
   });
 
   test("ends the active runs a restore's undone cancellation started, leaving sending and ended runs", async () => {
