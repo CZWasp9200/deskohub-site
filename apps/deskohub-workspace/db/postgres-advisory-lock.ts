@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { Context, Effect, Layer, Scope, Semaphore } from "effect";
-import { SqlClient, type SqlConnection, SqlError } from "effect/sql";
+import { SqlClient, SqlError } from "effect/sql";
 import type { DatabasePool } from "./database-client";
 import { boundStatement, statementTimeoutOf } from "./statement-timeout";
 
