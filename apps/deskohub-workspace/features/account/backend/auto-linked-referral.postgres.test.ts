@@ -131,7 +131,9 @@ const signIn = (input: {
     WorkspaceDatabase,
     WorkspaceDatabase.make(testDatabase!.db)
   );
-  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
+  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  );
   const linksLayer = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)
   );

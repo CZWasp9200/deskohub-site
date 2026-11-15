@@ -15,7 +15,7 @@ const suiteDatabase = await createWorkspacePostgresSuiteDatabase(
 );
 const db =
   suiteDatabase &&
-  (await Effect.runPromise(makeDatabaseClient(suiteDatabase.pool)));
+  (await Effect.runPromise(makeDatabaseClient(suiteDatabase.databasePool)));
 
 describe.skipIf(!suiteDatabase)(
   "Workspace lock ledger key order on disposable Postgres",

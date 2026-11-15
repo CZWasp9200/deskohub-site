@@ -8,6 +8,7 @@ import { workspaceReservationIdSchema } from "@/features/reservation/persistence
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   connectWorkspacePostgresTestDatabase,
+  holdDatabaseConnection,
   withHeldTransaction,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 
@@ -78,14 +79,14 @@ const reserveClaim = (
 const withClaimTargets = async (
   scenario: (client: PoolClient) => Promise<void>
 ) => {
-  const client = await postgresDatabase!.pool.connect();
+  const client = await holdDatabaseConnection(postgresDatabase!);
   try {
     await client.query("begin");
     await seedClaimTargets(client);
     await scenario(client);
   } finally {
     await client.query("rollback").catch(() => {});
-    client.release();
+    await client.release();
   }
 };
 

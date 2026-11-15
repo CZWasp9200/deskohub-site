@@ -213,7 +213,7 @@ const makeLayer = () => {
       Layer.mergeAll(
         authentication,
         links,
-        WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase.pool)
+        WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase.databasePool)
       )
     )
   );

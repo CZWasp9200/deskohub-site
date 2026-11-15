@@ -36,6 +36,7 @@ import {
 } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   connectWorkspacePostgresTestDatabase,
+  holdDatabaseConnection,
   type WorkspacePostgresTestDatabase,
   withHeldTransaction,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -368,7 +369,7 @@ describe.skipIf(!postgresDatabase)(
       // A writer that skips the draft lock keeps its row uncommitted until the
       // draft's insert waits on it, so the draft's lookups ran before the row
       // existed.
-      const writer = await postgres.pool.connect();
+      const writer = await holdDatabaseConnection(postgres);
       let pendingDraft: Promise<unknown> | undefined;
       try {
         await writer.query("begin");
@@ -400,7 +401,7 @@ describe.skipIf(!postgresDatabase)(
         expect((await draft).id).toBe(writerId);
       } finally {
         await writer.query("rollback").catch(() => {});
-        writer.release();
+        await writer.release();
         // A draft that never waited on the other writer stores its own
         // row, so let it finish and register every row for cleanup.
         await pendingDraft?.catch(() => {});

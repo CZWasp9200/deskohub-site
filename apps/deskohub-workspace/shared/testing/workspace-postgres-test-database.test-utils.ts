@@ -1,25 +1,23 @@
 import { fileURLToPath } from "node:url";
-import * as PgClient from "@effect/sql-pg/PgClient";
-import { make } from "drizzle-orm/effect-postgres";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { Effect, Layer } from "effect";
-import { Client, type Pool, type PoolClient } from "pg";
+import { Context, Effect, Exit, Layer, Scope } from "effect";
+import { SqlClient, type SqlConnection } from "effect/sql";
+import type { Pool } from "pg";
 import { WorkspaceDatabase } from "@/db/database.service";
-import {
-  databaseClientServices,
-  makeDatabaseClient,
-  makeDatabasePool,
-  type RootDatabaseClient,
-} from "@/db/database-client";
+import { type DatabasePool, makeDatabaseClient, makeDatabasePool, type RootDatabaseClient } from "@/db/database-client";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
-import { relations } from "@/db/relations";
 import { createScratchPostgresDatabase } from "./postgres-scratch-database.test-utils";
 import { fixtureReservationAuthorId } from "./workspace-fixtures.test-utils";
 
 export interface WorkspacePostgresTestDatabase {
+  /** Over `databasePool`, as production's client is over its native pool. */
   readonly db: RootDatabaseClient;
   readonly layer: Layer.Layer<WorkspaceDatabase>;
+  /** The native pool the Workspace client runs on. */
+  readonly databasePool: DatabasePool;
+  /** A node-postgres pool for the test's own raw setup and assertions. */
   readonly pool: Pool;
   readonly close: () => Promise<void>;
 }
@@ -63,13 +61,24 @@ const connectWorkspacePostgres = async (
     [fixtureReservationAuthorId]
   );
 
-  const db = await Effect.runPromise(makeDatabaseClient(pool));
+  const databasePool = await openDatabasePool({
+    connectionString: databaseUrl,
+    maxConnections: 10,
+  });
+  const db = await Effect.runPromise(makeDatabaseClient(databasePool));
 
   return {
     db,
     layer: Layer.succeed(WorkspaceDatabase, WorkspaceDatabase.make(db)),
+    databasePool,
     pool,
-    close: () => pool.end(),
+    close: async () => {
+      try {
+        await databasePool.close();
+      } finally {
+        await pool.end();
+      }
+    },
   };
 };
 
@@ -127,40 +136,68 @@ export const createWorkspacePostgresSuiteDatabase = async (
 };
 
 /**
+ * One connection of the database's native pool, held by the test, which runs
+ * its own `begin`, `commit` or `rollback` through `query`. `query` answers as
+ * node-postgres does (`rows`, `rowCount`), with the native driver's values.
+ */
+export interface HeldDatabaseConnection {
+  readonly pool: DatabasePool;
+  readonly connection: SqlConnection.Connection;
+  readonly query: <Row>(
+    sql: string,
+    params?: ReadonlyArray<unknown>
+  ) => Promise<{ readonly rows: Row[]; readonly rowCount: number | null }>;
+  /** Hands the connection back; the driver retires it mid-transaction. */
+  readonly release: () => Promise<void>;
+}
+
+type NativeResult = {
+  readonly rows: ReadonlyArray<unknown>;
+  readonly rowCount: number | null;
+};
+
+export const holdDatabaseConnection = (database: {
+  readonly databasePool: DatabasePool;
+}): Promise<HeldDatabaseConnection> =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const pool = database.databasePool;
+      const scope = yield* Scope.make();
+      const connection = yield* Scope.provide(
+        Context.get(pool.postgres, SqlClient.SqlClient).reserve,
+        scope
+      );
+      return {
+        pool,
+        connection,
+        query: <Row>(sql: string, params: ReadonlyArray<unknown> = []) =>
+          Effect.runPromise(connection.executeRaw(sql, params)).then(
+            (result) => {
+              const { rows, rowCount } = result as NativeResult;
+              return { rows: [...rows] as Row[], rowCount };
+            }
+          ),
+        release: () => Effect.runPromise(Scope.close(scope, Exit.void)),
+      };
+    })
+  );
+
+/**
  * Runs `use` with a database client that writes inside the transaction the
- * connection holds open, such as one a test began with `begin` to keep its
- * rows uncommitted. The client's own transactions become savepoints named
+ * held connection has open, such as one a test began with `begin` to keep
+ * its rows uncommitted. The client's own transactions become savepoints named
  * `effect_sql_<depth>`, so the test's commit or rollback decides every write.
  * Run its transactions one after another: concurrent ones share a savepoint
  * name. The test keeps owning the connection and its transaction, and
  * releases it.
  */
 export const withHeldTransaction = <A, E, R>(
-  connection: PoolClient,
+  held: HeldDatabaseConnection,
   use: (db: RootDatabaseClient) => Effect.Effect<A, E, R>
 ) =>
-  Effect.gen(function* () {
-    const db = yield* make({ relations });
-    const held = yield* db.$client.reserve;
-    return yield* use(db).pipe(
-      Effect.provideService(db.$client.transactionService, [held, 0])
-    );
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(
-      databaseClientServices(
-        PgClient.layerFrom(
-          PgClient.fromClient({
-            // A pool's connections are `pg` Clients; `PoolClient` only hides
-            // the connection settings PgClient reads.
-            acquire:
-              connection instanceof Client
-                ? Effect.succeed(connection)
-                : Effect.die(new TypeError("Expected a pg Client connection")),
-            acquireForStream: false,
-          })
-        )
-      )
+  Effect.flatMap(makeDatabaseClient(held.pool), (db) =>
+    use(db).pipe(
+      Effect.provideService(db.$client.transactionService, [held.connection, 0])
     )
   );
 

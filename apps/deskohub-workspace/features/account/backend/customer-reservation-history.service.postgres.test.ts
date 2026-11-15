@@ -276,7 +276,9 @@ const makeHistoryLayer = (
                 WorkspaceDatabase,
                 WorkspaceDatabase.make(testDatabase!.db)
               ),
-              WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+              WorkspaceDatabaseAdvisoryLock.makeLayer(
+                testDatabase!.databasePool
+              )
             )
           )
         )

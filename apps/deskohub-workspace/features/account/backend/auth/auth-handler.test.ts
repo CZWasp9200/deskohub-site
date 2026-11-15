@@ -114,7 +114,9 @@ const makeTestDeletionLayers = (
             Layer.mergeAll(
               links,
               Layer.mock(CustomerAuthentication, {}),
-              WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+              WorkspaceDatabaseAdvisoryLock.makeLayer(
+                testDatabase!.databasePool
+              )
             )
           )
         ),

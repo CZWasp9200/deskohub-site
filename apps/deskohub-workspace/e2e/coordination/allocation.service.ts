@@ -37,13 +37,13 @@ export class AllocationService extends Context.Service<
       const terminalOwners = Effect.fn("AllocationService.terminalOwners")(
         function* () {
           const owners = yield* repository.listOwners;
-          const terminal = yield* Effect.all(
-            owners.map((owner) =>
+          const terminal = yield* Effect.forEach(
+            owners,
+            (owner) =>
               runStatus
                 .isTerminal(owner)
-                .pipe(Effect.map((isTerminal) => ({ isTerminal, owner })))
-            ),
-            { concurrency: "inherit" }
+                .pipe(Effect.map((isTerminal) => ({ isTerminal, owner }))),
+            { concurrency: "unbounded" }
           );
           return terminal.flatMap(({ isTerminal, owner }) =>
             isTerminal ? [owner] : []
@@ -95,6 +95,12 @@ export class AllocationService extends Context.Service<
                 ),
             })
           );
+          // The repeat ends only on a shard; Effect 4.1 no longer narrows it.
+          if (shard === undefined) {
+            return yield* Effect.die(
+              new Error("Workspace E2E allocation repeat ended without a shard")
+            );
+          }
           return shard;
         },
         Effect.mapError((cause) =>

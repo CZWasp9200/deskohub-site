@@ -7,7 +7,8 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Effect } from "effect";
 import type { Pool } from "pg";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
+import { type DatabasePool, makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { createScratchPostgresDatabase } from "@/shared/testing/postgres-scratch-database.test-utils";
 import {
   fixtureReservationAuthorId,
@@ -63,6 +64,7 @@ const beforeMigration = async (
     "payment_order_mirror"
   );
   const pool = makeDatabasePool({ connectionString: scratch.url, max: 4 });
+  let databasePool: DatabasePool | undefined;
   try {
     await migrate(drizzle({ client: pool }), {
       migrationsFolder: earlierMigrations,
@@ -70,8 +72,12 @@ const beforeMigration = async (
     await pool.query("insert into customer_accounts (id) values ($1)", [
       fixtureReservationAuthorId,
     ]);
+    databasePool = await openDatabasePool({
+      connectionString: scratch.url,
+      maxConnections: 4,
+    });
     const fixtures = workspaceFixtures(
-      await Effect.runPromise(makeDatabaseClient(pool))
+      await Effect.runPromise(makeDatabaseClient(databasePool))
     );
     await run({
       pool,
@@ -83,6 +89,7 @@ const beforeMigration = async (
         }),
     });
   } finally {
+    await databasePool?.close();
     await pool.end();
     await scratch.drop();
     await rm(earlierMigrations, { recursive: true, force: true });

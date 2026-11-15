@@ -10,6 +10,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import { Effect, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import type { AgentToolClient } from "@/features/agent-tools/agent-tool-client";
 import { m } from "@/features/i18n";
 import type { AgentTrafficEvent } from "@/shared/backend/agent-traffic/agent-traffic-events";
@@ -89,7 +90,14 @@ mock.module("@/db/database-provider.server", () => ({
     WorkspaceDatabase,
     WorkspaceDatabase.make({} as never)
   ),
-  workspaceDatabasePool: { options: { max: 4 } },
+  workspaceDatabaseAdvisoryLockLayer: Layer.succeed(
+    WorkspaceDatabaseAdvisoryLock,
+    WorkspaceDatabaseAdvisoryLock.make({
+      client: {} as never,
+      maxConnections: 4,
+    })
+  ),
+  authDatabasePool: {},
 }));
 
 const requestBudget = await import(

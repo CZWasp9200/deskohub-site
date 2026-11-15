@@ -210,7 +210,9 @@ const completionLayer = (options: {
   const featureFlag =
     options.featureFlag ??
     ReferralReleaseGate.fromDecision(options.referralsEnabled ?? true);
-  const lock = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
+  const lock = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  );
   const links = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(database)
   );

@@ -147,7 +147,9 @@ const makeReferralLayer = (
     WorkspaceDatabase,
     WorkspaceDatabase.make(testDatabase!.db)
   );
-  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
+  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  );
   const accountLinksLayer = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)
   );
@@ -2266,7 +2268,9 @@ const makeAccountPrerequisiteLayer = (input: {
     WorkspaceDatabase,
     WorkspaceDatabase.make(testDatabase!.db)
   );
-  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
+  const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(
+    testDatabase!.databasePool
+  );
   const healthyLinks = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(databaseLayer)
   );

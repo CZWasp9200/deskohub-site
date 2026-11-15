@@ -9,13 +9,17 @@ file($name, $body) where {
   $name <: r".*apps/deskohub-workspace/.*\.(?:ts|tsx)$",
   not $name <: r".*apps/deskohub-workspace/(?:db|e2e|scripts)/.*",
   not $name <: r".*\.(?:test|test-utils)\.(?:ts|tsx)$",
-  $body <: r"(?s).*(?:Pool|drizzle|PgClient|makeDatabase).*",
+  $body <: r"(?s).*(?:Pool|drizzle|PgClient|makeDatabase|databasePostgresLayer|databaseClient).*",
   $body <: contains bubble or {
     `new Pool($...)`,
     `drizzle($...)`,
     `PgClient.$constructor($...)`,
     `makeDatabasePool($...)`,
-    `makeDatabaseClient($...)`
+    `makeDatabaseClient($...)`,
+    `openDatabasePool($...)`,
+    `databasePostgresLayer($...)`,
+    `Effect.provideContext(databaseClient, $...)`,
+    `Effect.provideService(databaseClient, $...)`
   } as $span where {
     register_diagnostic(
       span = $span,

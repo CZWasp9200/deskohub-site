@@ -532,7 +532,7 @@ describe.skipIf(!suiteDatabase)(
           expect(failure.cause?.code).toBe("account-link.lock");
           expect(ran).toBe(false);
         } finally {
-          await unreachable.pool.end();
+          await unreachable.pool.close();
         }
       });
 

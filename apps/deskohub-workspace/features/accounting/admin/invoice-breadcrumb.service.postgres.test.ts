@@ -7,6 +7,7 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import { invoices } from "@/db/schema";
 import {
   connectWorkspacePostgresTestDatabase,
+  holdDatabaseConnection,
   withHeldTransaction,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { InvoiceBreadcrumbService } from "./invoice-breadcrumb.service";
@@ -20,7 +21,7 @@ describe.skipIf(!testDatabase)(
       const invoiceNumber = `synthetic-breadcrumb-${crypto.randomUUID()}`;
       // Invoices are never deleted, so the row stays in a transaction that
       // rolls back.
-      const connection = await testDatabase!.pool.connect();
+      const connection = await holdDatabaseConnection(testDatabase!);
       try {
         await connection.query("begin");
         const labels = await Effect.runPromise(
@@ -64,7 +65,7 @@ describe.skipIf(!testDatabase)(
         expect(labels).toEqual({ stored: invoiceNumber, unknown: null });
       } finally {
         await connection.query("rollback");
-        connection.release();
+        await connection.release();
       }
     });
   }

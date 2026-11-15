@@ -148,7 +148,9 @@ const inAccountGuard = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   WorkspaceLockSections.customerAccount(
     customerAccountIdSchema.make(`account-${uniqueId()}`)
   )(effect).pipe(
-    Effect.provide(WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool))
+    Effect.provide(
+      WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.databasePool)
+    )
   );
 
 const makeReferralService = async (input?: {
