@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.1](https://github.com/totalolage/deskohub-site/compare/mobile-v0.1.0...mobile-v0.1.1) (2026-11-10)
+## [0.1.1](https://github.com/totalolage/deskohub-site/compare/mobile-v0.1.0...mobile-v0.1.1) (2026-11-15)
 
 
 ### Features
