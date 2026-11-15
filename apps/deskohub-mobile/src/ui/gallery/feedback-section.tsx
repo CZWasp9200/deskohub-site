@@ -1,4 +1,11 @@
-/** Gallery section "Feedback": filled in by the stream that builds these components. */
+import { EmptyAndSkeletonCases } from "./empty-skeleton-cases";
+import { GallerySection } from "./gallery-kit";
+
+/** Boards 00 and 00e: toasts, empty states, skeletons and loading. */
 export function FeedbackSection() {
-  return null;
+  return (
+    <GallerySection title="Toast, empty states, skeletons, loading">
+      <EmptyAndSkeletonCases />
+    </GallerySection>
+  );
 }
