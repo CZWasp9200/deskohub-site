@@ -169,6 +169,23 @@ describe("listInvoices", () => {
     expect(reads).toEqual([`list:${testLinkedAccount.dotyposCustomerId}`]);
   });
 
+  test("lists a large manual total as plain decimal text", async () => {
+    stored = [
+      {
+        ...manualInvoice,
+        document: makeTestManualInvoiceDocument("en-US", "10000000000000000"),
+      },
+    ];
+    const api = makeCustomerApiTestServer({ services: invoiceStore() });
+
+    const response = await api.handle(customerApiRequest(listInvoices));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      invoices: [{ total: { amount: "10000000000000000" } }],
+    });
+  });
+
   test("lists none for an account without invoices", async () => {
     stored = [foreignInvoice];
     const api = makeCustomerApiTestServer({ services: invoiceStore() });

@@ -69,6 +69,12 @@ describe("customer invoice summary", () => {
     expect(summary.workspaceReservationId).toBeNull();
   });
 
+  test("writes a large manual total as plain decimal text", () => {
+    const large = makeTestManualInvoiceDocument("en-US", "10000000000000000");
+
+    expect(summarize(large).total.amount).toBe("10000000000000000");
+  });
+
   test.each([
     ["2026-08-31", "issued"],
     ["2026-09-01", "due"],
