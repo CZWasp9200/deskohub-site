@@ -755,6 +755,75 @@ describe.skipIf(!testDatabase)(
         expect(await readEvents(unconfirmed)).toEqual([]);
       });
 
+      test("records a new cancelled event when a restored booking is cancelled again", async () => {
+        const id = await insertReservation(
+          {
+            reservation: "cancelling",
+            payment: "paid",
+            fulfillment: "fulfilled",
+          },
+          { updatedAt: at(5), reservationConfirmedAt: at(1) }
+        );
+        const cancel = (
+          cancelledAt: Temporal.Instant,
+          claimedAt: Temporal.Instant
+        ) =>
+          run((repository) =>
+            repository.markAdministrationCancelled({
+              id,
+              cancelledAt,
+              claimedAt,
+              failureCode: "operator_cancelled",
+            })
+          );
+        await cancel(at(6), at(5));
+        // A restore confirms the booking again; a second cancellation
+        // claims it anew.
+        await Effect.runPromise(
+          testDatabase.db
+            .update(workspaceReservations)
+            .set({
+              reservationState: "cancelling",
+              reservationCancelledAt: null,
+              updatedAt: at(8),
+            })
+            .where(eq(workspaceReservations.id, id))
+        );
+        await cancel(at(9), at(8));
+        const customerId = (await readReservation(id))!.dotyposCustomerId;
+        // A retried write of the second cancellation records nothing more.
+        await Effect.runPromise(
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(
+              recordCustomerEvent({
+                kind: "reservation-cancelled",
+                occurredAt: at(9),
+                dotyposCustomerId: customerId,
+                workspaceReservationId: id,
+              })
+            )
+          ).pipe(Effect.provide(testDatabase.layer))
+        );
+
+        const events = await readEvents(id);
+        expect(
+          events.sort((left, right) =>
+            Temporal.Instant.compare(left.occurredAt, right.occurredAt)
+          )
+        ).toEqual([
+          {
+            kind: "reservation-cancelled",
+            occurredAt: at(6),
+            dotyposCustomerId: customerId,
+          },
+          {
+            kind: "reservation-cancelled",
+            occurredAt: at(9),
+            dotyposCustomerId: customerId,
+          },
+        ]);
+      });
+
       test("rolls the administration cancellation back with a failed event write", async () => {
         const claimedAt = at(5);
         const id = await insertReservation(
