@@ -75,9 +75,9 @@ import {
 } from "@/features/discounts/promotion-availability";
 import { getPromotionTiming } from "@/features/discounts/promotion-code";
 import {
-  buildDiscountCodeAvailabilityQuery,
-  buildPromotionAudienceQuery,
-  buildVoucherAvailabilityQuery,
+  readDiscountCodeUses,
+  readPromotionAudience,
+  readVoucherUses,
 } from "@/features/discounts/promotion-code.repository-query";
 import type { DiscountClaimInstruction } from "@/features/discounts/provider";
 import type { Locale } from "@/features/i18n";
@@ -1700,29 +1700,12 @@ const reserveCodeClaim = Effect.fn("PaymentLifecycle.reserveCodeClaim")(
 
     const claimedAt = Temporal.Now.instant();
     yield* requireCurrentHold(input, claimedAt);
-    const audience = yield* readPromotionAudience(
-      stored.promotion.id,
-      input.claim.dotyposCustomerId
-    );
-    yield* Match.value(stored).pipe(
-      Match.discriminatorsExhaustive("kind")({
-        discount_code: ({ claim, code, promotion }) =>
-          requireClaimAvailable(claim, "admissionDiscountCodeSchedule", {
-            at: claimedAt,
-            audience,
-            discountCode: code,
-            firstServiceDate: input.firstServiceDate,
-            promotion,
-          }),
-        voucher: ({ claim, promotion }) =>
-          requireClaimAvailable(claim, "admissionVoucherSchedule", {
-            at: claimedAt,
-            audience,
-            promotion,
-          }),
-      })
-    );
-
+    const { db } = yield* WorkspaceTransaction;
+    const audience = yield* readPromotionAudience({
+      db,
+      promotionCodeId: stored.promotion.id,
+      dotyposCustomerId: input.claim.dotyposCustomerId,
+    });
     yield* Match.value(stored).pipe(
       Match.discriminatorsExhaustive("kind")({
         discount_code: Effect.fnUntraced(function* ({
@@ -1730,22 +1713,35 @@ const reserveCodeClaim = Effect.fn("PaymentLifecycle.reserveCodeClaim")(
           code,
           promotion,
         }) {
+          yield* requireClaimAvailable(claim, "admissionDiscountCodeSchedule", {
+            at: claimedAt,
+            audience,
+            discountCode: code,
+            firstServiceDate: input.firstServiceDate,
+            promotion,
+          });
           yield* validateStoredDiscountClaim({
             ...input,
             claim,
             code,
             promotion,
           });
-          const uses = yield* readDiscountCodeUses(
-            code.id,
-            input.claim.dotyposCustomerId
-          );
+          const uses = yield* readDiscountCodeUses({
+            db,
+            codeId: code.id,
+            dotyposCustomerId: claim.dotyposCustomerId,
+          });
           yield* requireClaimAvailable(claim, "admissionDiscountCodeUses", {
             discountCode: code,
             uses,
           });
         }),
         voucher: Effect.fnUntraced(function* ({ claim, voucher, promotion }) {
+          yield* requireClaimAvailable(claim, "admissionVoucherSchedule", {
+            at: claimedAt,
+            audience,
+            promotion,
+          });
           const voucherUses = yield* validateVoucherClaim({
             ...input,
             claim,
@@ -1894,65 +1890,9 @@ const requireClaimAvailable = <Stage extends AdmissionStage>(
     onSuccess: () => Effect.void,
     onFailure: ({ reason, rule }) =>
       Effect.fail(
-        claimError(
-          "reserve",
-          reason,
-          admissionUnavailableMessages[rule],
-          claim
-        )
+        claimError("reserve", reason, admissionUnavailableMessages[rule], claim)
       ),
   });
-
-/** The promotion's allowlist facts for the customer, read on the transaction. */
-const readPromotionAudience = Effect.fnUntraced(function* (
-  promotionCodeId: PromotionCodeId,
-  dotyposCustomerId: DotyposCustomerId
-) {
-  const { db } = yield* WorkspaceTransaction;
-  const [audience] = yield* buildPromotionAudienceQuery({
-    db,
-    promotionCodeId,
-    dotyposCustomerId,
-  });
-  return {
-    allowlistSize: audience?.allowlistSize ?? 0,
-    customerAllowed: audience?.customerAllowed ?? false,
-  };
-});
-
-/** A discount code's active uses in total and by the customer. */
-const readDiscountCodeUses = Effect.fnUntraced(function* (
-  codeId: DiscountCodeId,
-  dotyposCustomerId: DotyposCustomerId
-) {
-  const { db } = yield* WorkspaceTransaction;
-  const [uses] = yield* buildDiscountCodeAvailabilityQuery({
-    db,
-    codeId,
-    dotyposCustomerId,
-  });
-  return {
-    activeUseCount: uses?.activeUseCount ?? 0,
-    customerActiveUseCount: uses?.customerActiveUseCount ?? 0,
-  };
-});
-
-/** A voucher's credit used by active claims and the customer's reserved claim. */
-const readVoucherUses = Effect.fnUntraced(function* (
-  voucherId: VoucherId,
-  dotyposCustomerId: DotyposCustomerId
-) {
-  const { db } = yield* WorkspaceTransaction;
-  const [uses] = yield* buildVoucherAvailabilityQuery({
-    db,
-    voucherId,
-    dotyposCustomerId,
-  });
-  return {
-    customerHasReserved: uses?.customerHasReserved ?? false,
-    usedValue: uses?.usedValue ?? 0,
-  };
-});
 
 const getVoucherIssuedAmount = (
   voucher: typeof vouchers.$inferSelect
@@ -2102,10 +2042,12 @@ const validateVoucherClaim = Effect.fn("PaymentLifecycle.validateVoucherClaim")(
     readonly application: AppliedDiscount;
     readonly locale: Locale;
   }) {
-    const voucherUses = yield* readVoucherUses(
-      input.claim.voucherId,
-      input.claim.dotyposCustomerId
-    );
+    const { db } = yield* WorkspaceTransaction;
+    const voucherUses = yield* readVoucherUses({
+      db,
+      voucherId: input.claim.voucherId,
+      dotyposCustomerId: input.claim.dotyposCustomerId,
+    });
     const availableAmount = getAvailableVoucherCredit(
       getVoucherIssuedAmount(input.voucher),
       voucherUses.usedValue
@@ -2217,7 +2159,11 @@ const requireReleasedCodeRedeemable = Effect.fnUntraced(function* (claim: {
     });
   }
 
-  const uses = yield* readDiscountCodeUses(claim.id, claim.dotyposCustomerId);
+  const uses = yield* readDiscountCodeUses({
+    db,
+    codeId: claim.id,
+    dotyposCustomerId: claim.dotyposCustomerId,
+  });
   yield* Result.match(
     evaluatePromotionAvailability("readmissionDiscountCodeUses", {
       discountCode: code,
@@ -2279,7 +2225,11 @@ const requireReleasedVoucherRedeemable = Effect.fnUntraced(function* (claim: {
       .from(discountApplications)
       .where(eq(discountApplications.id, claim.applicationId))
       .limit(1),
-    readVoucherUses(claim.id, claim.dotyposCustomerId),
+    readVoucherUses({
+      db,
+      voucherId: claim.id,
+      dotyposCustomerId: claim.dotyposCustomerId,
+    }),
   ]);
   if (
     !application ||
