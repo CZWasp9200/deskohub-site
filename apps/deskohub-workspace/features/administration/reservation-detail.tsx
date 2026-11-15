@@ -187,6 +187,7 @@ function ReservationSummarySection({
           <ReservationCancellation
             accessGrantUpdatedAt={detail.accessGrant?.updatedAt ?? null}
             canCancel={detail.canCancel}
+            invoice={detail.invoice}
             requiresProviderCredentialRemoval={
               detail.requiresProviderCredentialRemoval
             }

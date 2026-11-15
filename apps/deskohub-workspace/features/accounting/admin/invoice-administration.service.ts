@@ -1009,9 +1009,10 @@ const toCancellation = (
   actor: record.actor.email,
   correctiveDocumentNumber: record.correctiveDocumentNumber,
   correctiveDocumentIssuedAt: record.correctiveDocumentIssuedAt.toString(),
-  // The Admin UI route for the corrective document PDF is added with the
-  // invoice cancellation screens; build it with `administrationHref` then.
-  correctiveDocumentPdfUrl: `/admin/invoices/${encodeURIComponent(record.invoiceId)}/corrective-document`,
+  correctiveDocumentPdfUrl: administrationHref(
+    "/[locale]/admin/invoices/[invoiceId]/corrective-document",
+    { invoiceId: record.invoiceId }
+  ),
   notices: record.notices,
 });
 
