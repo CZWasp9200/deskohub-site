@@ -39,10 +39,17 @@ import {
   type ReservationInvoice,
 } from "./invoice.repository";
 import {
+  type IInvoiceCancellationNotices,
+  InvoiceCancellationNotices,
+} from "./invoice-cancellation-notices";
+import {
   type IInvoiceEmailDeliveryRepository,
   InvoiceEmailDeliveryRepository,
 } from "./invoice-email-delivery.repository";
-import { InvoiceEmailDeliveryService } from "./invoice-email-delivery.service";
+import {
+  InvoiceEmailDeliveryError,
+  InvoiceEmailDeliveryService,
+} from "./invoice-email-delivery.service";
 import * as invoicePdf from "./invoice-pdf";
 
 const frozenRecipientEmail = testEmailAddress("frozen-recipient");
@@ -202,6 +209,62 @@ describe("invoice email delivery", () => {
     expect(harness.markAccepted).toHaveBeenCalledTimes(2);
     expect(harness.markFailed).not.toHaveBeenCalled();
     expect(renderInvoicePdf).toHaveBeenCalledTimes(1);
+  });
+
+  test("claims an owed cancellation notice once the customer's email is accepted", async () => {
+    const sentMessages: EmailMessage[] = [];
+    const acceptedBeforeClaim: string[][] = [];
+    const harness = makeHarness({
+      sentMessages,
+      ensureOwed: () =>
+        Effect.sync(() => {
+          acceptedBeforeClaim.push(
+            harness.markAccepted.mock.calls.map(([input]) => input.audience)
+          );
+        }),
+    });
+
+    await runDelivery(harness);
+    await runCustomerResend(harness);
+
+    expect(harness.ensureOwed.mock.calls).toEqual([[invoice.id], [invoice.id]]);
+    expect(acceptedBeforeClaim).toEqual([
+      ["customer"],
+      ["customer", "internal", "customer"],
+    ]);
+  });
+
+  test("keeps the accepted invoice email when its owed notice cannot be sent", async () => {
+    const sentMessages: EmailMessage[] = [];
+    const harness = makeHarness({
+      sentMessages,
+      ensureOwed: () =>
+        Effect.fail(
+          new InvoiceEmailDeliveryError({
+            code: "email_delivery_failed",
+            paymentAttemptId: invoice.id,
+            message: "synthetic notice failure",
+          })
+        ),
+    });
+
+    const result = await runDelivery(harness);
+
+    expect(result).toEqual({ status: "delivered", changed: true });
+    expect(sentMessages).toHaveLength(2);
+  });
+
+  test("looks for an owed notice only after a customer email is accepted", async () => {
+    const sentMessages: EmailMessage[] = [];
+    const harness = makeHarness({
+      sentMessages,
+      send: () => Effect.fail(new EmailServiceError("synthetic send failure")),
+    });
+
+    await expect(runDelivery(harness)).rejects.toMatchObject({
+      code: "email_delivery_failed",
+    });
+    expect(harness.ensureOwed).not.toHaveBeenCalled();
   });
 
   test("renders nothing when every audience was already delivered", async () => {
@@ -467,31 +530,30 @@ describe("invoice email delivery", () => {
   });
 });
 
+const harnessLayer = (harness: ReturnType<typeof makeHarness>) =>
+  InvoiceEmailDeliveryService.Default.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.succeed(InvoiceRepository, harness.invoices),
+        Layer.succeed(
+          AccountingDocumentSnapshotRepository,
+          harness.accountingSnapshots
+        ),
+        Layer.succeed(InvoiceEmailDeliveryRepository, harness.deliveries),
+        Layer.succeed(InvoiceCancellationNotices, harness.notices),
+        Layer.succeed(EmailServiceTag, harness.emailService),
+        Layer.succeed(EmailConfigTag, emailConfig)
+      )
+    )
+  );
+
 const runDelivery = (harness: ReturnType<typeof makeHarness>) =>
   Effect.gen(function* () {
     const service = yield* InvoiceEmailDeliveryService;
     return yield* service.deliverByPaymentAttemptId({
       paymentAttemptId: document.paymentAttemptId,
     });
-  }).pipe(
-    Effect.provide(
-      InvoiceEmailDeliveryService.Default.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            Layer.succeed(InvoiceRepository, harness.invoices),
-            Layer.succeed(
-              AccountingDocumentSnapshotRepository,
-              harness.accountingSnapshots
-            ),
-            Layer.succeed(InvoiceEmailDeliveryRepository, harness.deliveries),
-            Layer.succeed(EmailServiceTag, harness.emailService),
-            Layer.succeed(EmailConfigTag, emailConfig)
-          )
-        )
-      )
-    ),
-    Effect.runPromise
-  );
+  }).pipe(Effect.provide(harnessLayer(harness)), Effect.runPromise);
 
 const runCustomerResend = (harness: ReturnType<typeof makeHarness>) =>
   Effect.gen(function* () {
@@ -499,25 +561,7 @@ const runCustomerResend = (harness: ReturnType<typeof makeHarness>) =>
     return yield* service.resendCustomerByPaymentAttemptId({
       paymentAttemptId: document.paymentAttemptId,
     });
-  }).pipe(
-    Effect.provide(
-      InvoiceEmailDeliveryService.Default.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            Layer.succeed(InvoiceRepository, harness.invoices),
-            Layer.succeed(
-              AccountingDocumentSnapshotRepository,
-              harness.accountingSnapshots
-            ),
-            Layer.succeed(InvoiceEmailDeliveryRepository, harness.deliveries),
-            Layer.succeed(EmailServiceTag, harness.emailService),
-            Layer.succeed(EmailConfigTag, emailConfig)
-          )
-        )
-      )
-    ),
-    Effect.runPromise
-  );
+  }).pipe(Effect.provide(harnessLayer(harness)), Effect.runPromise);
 
 const runDeliveryByInvoiceId = (
   harness: ReturnType<typeof makeHarness>,
@@ -526,25 +570,7 @@ const runDeliveryByInvoiceId = (
   Effect.gen(function* () {
     const service = yield* InvoiceEmailDeliveryService;
     return yield* service.deliverByInvoiceId({ invoiceId });
-  }).pipe(
-    Effect.provide(
-      InvoiceEmailDeliveryService.Default.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            Layer.succeed(InvoiceRepository, harness.invoices),
-            Layer.succeed(
-              AccountingDocumentSnapshotRepository,
-              harness.accountingSnapshots
-            ),
-            Layer.succeed(InvoiceEmailDeliveryRepository, harness.deliveries),
-            Layer.succeed(EmailServiceTag, harness.emailService),
-            Layer.succeed(EmailConfigTag, emailConfig)
-          )
-        )
-      )
-    ),
-    Effect.runPromise
-  );
+  }).pipe(Effect.provide(harnessLayer(harness)), Effect.runPromise);
 
 const makeHarness = (options: {
   readonly sentMessages: EmailMessage[];
@@ -552,6 +578,7 @@ const makeHarness = (options: {
   readonly source?: AccountingDocumentSnapshot;
   readonly send?: EmailService["send"];
   readonly resendClaimed?: boolean;
+  readonly ensureOwed?: IInvoiceCancellationNotices["ensureOwed"];
 }) => {
   const states = new Map<InvoiceEmailDeliveryAudience, "accepted" | "failed">();
   const attempts = new Map<InvoiceEmailDeliveryAudience, number>();
@@ -623,15 +650,24 @@ const makeHarness = (options: {
     sendBatch: () => Effect.die("Invoice delivery tests do not send batches."),
   };
 
+  const ensureOwed = mock(options.ensureOwed ?? (() => Effect.void));
+  const notices: IInvoiceCancellationNotices = {
+    deliver: () =>
+      Effect.die("notice delivery is not part of invoice delivery"),
+    ensureOwed,
+  };
+
   return {
     accountingSnapshots,
     claim,
     claimResend,
     deliveries,
     emailService,
+    ensureOwed,
     invoices,
     markAccepted,
     markFailed,
+    notices,
   };
 };
 
