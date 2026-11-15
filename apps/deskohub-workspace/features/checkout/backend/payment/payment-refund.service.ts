@@ -47,7 +47,6 @@ export class PaymentRefundReconciliationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-
 export interface IPaymentRefundService {
   /**
    * Reads the attempt's Nexi order and records any successful refund on the
