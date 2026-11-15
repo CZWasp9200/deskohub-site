@@ -23,18 +23,12 @@ import {
   type CheckoutSummaryChangedKeys,
   getCheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
-import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
-import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
-import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
-import type { LegalEvidenceMap } from "@/features/checkout/legal-evidence";
 import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
 import {
   isWorkspaceCoworkCurrentProductTier,
   type WorkspaceCoworkProductTier,
 } from "@/features/checkout/product-catalog";
-import { getCoworkCheckoutDetails } from "@/features/checkout/schemas/checkout-details-cowork";
-import { getMeetingRoomCheckoutDetails } from "@/features/checkout/schemas/checkout-details-meeting-room";
-import { getOfficeCheckoutDetails } from "@/features/checkout/schemas/checkout-details-office";
+import { getCheckoutDetails } from "@/features/checkout/schemas/checkout-details";
 import type { DiscountCommitment } from "@/features/discounts";
 import { defaultPhoneRegion, type Locale } from "@/features/i18n";
 import { isEarlyPerformanceRequestRequired } from "@/features/legal/early-performance";
@@ -97,6 +91,7 @@ import {
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
+import type { PriceVerdict } from "./price-verdict";
 import { getReservationStatusPath } from "./reservation-status-url";
 import { appendVercelPreviewProtectionBypass } from "./vercel-preview-protection-bypass";
 
@@ -325,37 +320,6 @@ const getNotificationUrl: Effect.Effect<string, CheckoutError> = Effect.gen(
 ).pipe(Effect.catchTag("WorkspaceUrlConfigError", toCheckoutUrlError));
 
 const toNexiAmount = Schema.encodeEffect(NexiAmountFromWorkspaceMoney);
-
-const getCheckoutDetails = (
-  prepared: PaymentPriceAffirmation,
-  locale: Locale,
-  legalEvidence: LegalEvidenceMap
-) =>
-  Match.value(prepared).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: ({ quote, reservation }) =>
-        getCoworkCheckoutDetails({
-          locale,
-          reservation,
-          quote,
-          legalEvidence,
-        }),
-      "meeting-room": ({ quote, reservation }) =>
-        getMeetingRoomCheckoutDetails({
-          locale,
-          reservation,
-          quote,
-          legalEvidence,
-        }),
-      office: ({ quote, reservation }) =>
-        getOfficeCheckoutDetails({
-          locale,
-          reservation,
-          quote,
-          legalEvidence,
-        }),
-    })
-  );
 
 const openFinalPayState: (
   payStateToken: string,
@@ -981,54 +945,36 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
               })
           )
         );
-        const prepared = yield* pricing.affirmForPayment({
+        const verdict = yield* pricing.affirmForPayment({
           ...state,
           bookedAt: getSignedPayStateBookedAt(state),
           dotyposCustomerId,
           locale,
         });
-        const acceptedSummary = getSignedPayStateCheckoutSummary(state);
-        const freshSummary = Match.value(prepared).pipe(
-          Match.discriminatorsExhaustive("kind")({
-            cowork: ({ quote, reservation }) =>
-              getCoworkCheckoutSummary(reservation, quote),
-            "meeting-room": ({ quote }) => getMeetingRoomCheckoutSummary(quote),
-            office: ({ quote }) => getOfficeCheckoutSummary(quote),
-          })
-        );
         yield* Effect.annotateLogsScoped({
-          quoteFingerprint: prepared.quote.fingerprint,
+          quoteFingerprint: verdict.priced.quote.fingerprint,
         });
         yield* Effect.logDebug("Hosted payment checkout quote built");
         yield* Effect.logDebug(
           "Hosted payment checkout quote comparison started"
         );
-        return { dotyposCustomerId, prepared, acceptedSummary, freshSummary };
+        return { dotyposCustomerId, verdict };
       });
 
       /**
-       * A fresh Pay state to review when re-pricing changed the quote or the
-       * signed total; `undefined` when the signed price still holds.
+       * A fresh Pay state to review when the payment verdict says the signed
+       * price changed; `undefined` when it still holds.
        */
       const findRepricedResult = Effect.fnUntraced(function* (input: {
         readonly state: SignedPayState;
         readonly locale: Locale;
         readonly reservation: WorkspaceReservation;
-        readonly prepared: PaymentPriceAffirmation;
-        readonly acceptedSummary: CheckoutSummary;
-        readonly freshSummary: CheckoutSummary;
+        readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
       }) {
-        const { state, prepared, acceptedSummary, freshSummary } = input;
-        if (
-          prepared.quote.fingerprint === state.quote.fingerprint &&
-          moneyEquals(freshSummary.total, state.acceptedTotal)
-        ) {
-          return undefined;
-        }
-        const changedKeys = getCheckoutSummaryChangedKeys(
-          acceptedSummary,
-          freshSummary
-        );
+        const { state, verdict } = input;
+        if (verdict.status === "affirmed") return undefined;
+        const { changedKeys, priced: prepared } = verdict;
+        const freshSummary = prepared.summary;
         yield* Effect.annotateLogsScoped({
           changedSectionKeys: changedKeys.sectionKeys.join(","),
           changedItemKeys: changedKeys.itemKeys.join(","),
@@ -1129,22 +1075,20 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
               });
             }
 
-            const {
-              dotyposCustomerId,
-              prepared,
-              acceptedSummary,
-              freshSummary,
-            } = yield* affirmSignedPricing({ state, locale, reservation });
+            const { dotyposCustomerId, verdict } = yield* affirmSignedPricing({
+              state,
+              locale,
+              reservation,
+            });
 
             const repricedResult = yield* findRepricedResult({
               state,
               locale,
               reservation,
-              prepared,
-              acceptedSummary,
-              freshSummary,
+              verdict,
             });
             if (repricedResult) return repricedResult;
+            const prepared = verdict.priced;
             yield* Effect.logDebug(
               "Hosted payment checkout quote comparison passed"
             );
@@ -1191,11 +1135,11 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                     acceptedAt: contractAt.toString(),
                     earlyPerformanceConsent: earlyPerformanceRequired,
                   });
-                  const checkoutDetails = getCheckoutDetails(
-                    prepared,
+                  const checkoutDetails = getCheckoutDetails({
                     locale,
-                    legalEvidence
-                  );
+                    priced: prepared,
+                    legalEvidence,
+                  });
                   yield* Effect.annotateLogsScoped({
                     acceptedDocumentCount: Object.keys(legalEvidence).length,
                     earlyPerformanceRequested: earlyPerformanceRequired,
@@ -1289,31 +1233,25 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                             discountErrorReason: cause.reason,
                           }
                         );
-                        const refreshed = yield* pricing.affirmForPayment({
+                        // The claim moved the price after it was affirmed, so
+                        // the customer reviews the re-priced order whatever
+                        // it compares to: no verdict, only the changed keys.
+                        const refreshed = yield* pricing.repriceForPayment({
                           ...state,
                           bookedAt: getSignedPayStateBookedAt(state),
                           dotyposCustomerId,
                           locale,
                         });
-                        const refreshedSummary = Match.value(refreshed).pipe(
-                          Match.discriminatorsExhaustive("kind")({
-                            cowork: ({ quote, reservation }) =>
-                              getCoworkCheckoutSummary(reservation, quote),
-                            "meeting-room": ({ quote }) =>
-                              getMeetingRoomCheckoutSummary(quote),
-                            office: ({ quote }) =>
-                              getOfficeCheckoutSummary(quote),
-                          })
-                        );
+                        const refreshedSummary = refreshed.summary;
                         const changedKeys = getCheckoutSummaryChangedKeys(
-                          acceptedSummary,
+                          getSignedPayStateCheckoutSummary(state),
                           refreshedSummary
                         );
-                        const refreshedCheckoutDetails = getCheckoutDetails(
-                          refreshed,
+                        const refreshedCheckoutDetails = getCheckoutDetails({
                           locale,
-                          legalEvidence
-                        );
+                          priced: refreshed,
+                          legalEvidence,
+                        });
                         yield* dotypos.updateReservation({
                           reservationId: dotyposReservationId,
                           note: formatWorkspaceReservationNote({

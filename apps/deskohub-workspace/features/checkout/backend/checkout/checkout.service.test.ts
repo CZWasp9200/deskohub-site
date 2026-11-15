@@ -65,7 +65,10 @@ import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { instantStringSchema } from "@/shared/utils/temporal";
 import type { PaymentAttemptRepository as PaymentAttemptRepositoryType } from "../repositories/payment-attempt.repository";
 import type { IPaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
-import { CheckoutPricingServiceMock } from "./checkout-pricing.service.mock";
+import {
+  CheckoutPricingServiceMock,
+  paymentPricingFrom,
+} from "./checkout-pricing.service.mock";
 import { getCheckoutSubmitDeadline } from "./checkout-submit-deadline";
 import {
   buildSignedPayState,
@@ -693,14 +696,9 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
         commitment: emptyCommitment,
       })
     );
-  const affirmForPayment = (pricingInput: Parameters<typeof affirm>[0]) =>
-    affirm(pricingInput).pipe(
-      Effect.map((result) => ({
-        kind: pricingInput.reservation.kind,
-        reservation: pricingInput.reservation,
-        ...result,
-      }))
-    );
+  const paymentPricing = paymentPricingFrom(
+    (pricingInput) => affirm(pricingInput) as never
+  );
 
   const accountAuthority = makeCustomerAccountSections(
     options.accountAuthority ?? { session: null }
@@ -733,9 +731,7 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
         Layer.provide(
           Layer.mergeAll(
             accountAuthority.layer,
-            CheckoutPricingServiceMock({
-              affirmForPayment: affirmForPayment as never,
-            }),
+            CheckoutPricingServiceMock(paymentPricing),
             Layer.mock(DotyposService, dotypos),
             Layer.mock(NexiService, nexi),
             Layer.mock(WorkspaceReservationRepository, reservations),

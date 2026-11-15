@@ -11,10 +11,12 @@ import type {
   DiscountResolutionError,
 } from "@/features/discounts";
 import {
+  getOfficeAdvertisedPriceReservation,
   getOfficeReservationProductIdentity,
   type NormalizedOfficeReservationOrder,
   type OfficeAdvertisedPriceReservation,
   type OfficeReservationPricingInput,
+  officeAdvertisedPriceReservationEquals,
 } from "@/features/reservation/office-reservation";
 import {
   type ReservationAdvertisementAffirmation,
@@ -26,6 +28,7 @@ import {
   type ReservationDiscountCodePriceResult,
   type ReservationPaymentPriceAffirmation,
   type ReservationPaymentPriceAffirmationInput,
+  type ReservationPaymentRepricingInput,
   type ReservationPreparedCustomerQuote,
   reservationCheckoutPricing,
 } from "./reservation-checkout-pricing";
@@ -38,6 +41,7 @@ export type OfficeAdvertisementQuoteInput =
 export type OfficeAdvertisementAffirmationInput =
   ReservationAdvertisementAffirmationInput<
     OfficeAdvertisedPriceReservation,
+    NormalizedOfficeReservationOrder,
     OfficeReservationQuote
   >;
 export type OfficeCustomerQuoteInput =
@@ -47,6 +51,11 @@ export type OfficePaymentPriceAffirmationInput =
     NormalizedOfficeReservationOrder,
     OfficeReservationQuote
   >;
+
+export type OfficePaymentRepricingInput = ReservationPaymentRepricingInput<
+  NormalizedOfficeReservationOrder,
+  OfficeReservationQuote
+>;
 export type OfficeDiscountCodePriceInput = ReservationDiscountCodePriceInput<
   NormalizedOfficeReservationOrder,
   OfficeReservationQuote
@@ -57,7 +66,7 @@ export type OfficeAdvertisementQuote = ReservationAdvertisementQuote<
 >;
 export type OfficeAdvertisementAffirmation =
   ReservationAdvertisementAffirmation<
-    OfficeAdvertisedPriceReservation,
+    NormalizedOfficeReservationOrder,
     OfficeReservationQuote
   >;
 export type OfficeCustomerQuote = ReservationPreparedCustomerQuote<
@@ -113,6 +122,10 @@ export const officeCheckoutPricing = reservationCheckoutPricing<
   never,
   never
 >({
+  advertised: {
+    project: getOfficeAdvertisedPriceReservation,
+    equals: officeAdvertisedPriceReservationEquals,
+  },
   getPricingContext: getOfficePricingContext,
   buildQuote: buildOfficeQuote,
   getCheckoutSummary: ({ quote }) => getOfficeCheckoutSummary(quote),

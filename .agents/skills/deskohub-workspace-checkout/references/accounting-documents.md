@@ -38,7 +38,7 @@ Render the PDF on demand from the issued JSON. Never persist the PDF or read cur
 
 `CustomerInvoiceService` (`features/account/backend/customer-invoice.service.ts`) is the only customer-facing reader of issued invoices.
 
-- Every operation re-authorizes: `CustomerAccountResolver.resolve`, then `requireAccountActivity` against the database, never cookies or a cached result. A refused session (signed out, unverified, not linked, a review account, deletion pending, login gone) is `CustomerInvoicesUnavailableError`; an unreadable session or link is a load failure.
+- Every operation re-authorizes: `requireLinkedCustomerAccount` (over `CurrentCustomerAccount.resolve`), then `requireAccountActivity` against the database, never cookies or a cached result. A refused session (signed out, unverified, not linked, a review account, deletion pending, login gone) is `CustomerInvoicesUnavailableError`; an unreadable session or link is a load failure.
 - Ownership is in SQL: read through `InvoiceRepository.listForCustomer` and `findForCustomer` with the resolved Dotypos customer, so another customer's invoice is never decrypted. An unknown, foreign, or malformed id is the same not-found.
 - Project with `getCustomerInvoiceSummary` (`features/accounting/customer-invoice.ts`) on the Prague date from `currentPlainDate`; totals, settlement, and due dates come only from `invoice-settlement.ts`. Render PDFs with `renderInvoicePdfFile` and export CSV with `getCustomerInvoiceCsvColumns` through `createCsvDownloadResponse`. Customer reads never touch the email delivery ledger.
 - `CustomerInvoicesLoadError` keeps a fixed `code` and logs only it, never an id, email, or a database, decryption, or renderer cause. Routes answer every refusal with one indistinguishable private 404 and a load failure with a private 500 (account skill, account domain and routes).
@@ -73,7 +73,6 @@ To rotate:
 
 ## SQL logging
 
-- Mark snapshot plaintext and every key with `sensitiveDatabaseParameter` (see `features/accounting/backend/accounting-snapshot-sql.ts`). Don't blanket-redact unrelated parameters.
-- Encryption and decryption queries disable tracing and map failures straight to stable accounting errors without the raw driver cause or the parameter-bearing Drizzle message.
+- Seal and open snapshots and invoice documents only through `sealedAccountingJson` (`features/accounting/backend/sealed-accounting-json.ts`), declared once per record kind (`sealedAccountingDocumentSnapshots`, `sealedInvoiceDocuments`). It picks the key (active to seal, the row's `key_id` to open), marks plaintext and every key with `sensitiveDatabaseParameter`, runs the encrypting and decrypting statements untraced, decodes strictly, and fails with one `AccountingRecordUnavailable` whose `reference` names the kind of id and whose cause is censored. Don't blanket-redact unrelated parameters, and don't call `pgp_sym_encrypt` or `pgp_sym_decrypt` elsewhere.
 - Extend the shared structured-log censor (`shared/backend/logging/censorship.ts`) and its nested request and error tests before carrying a new billing field through provider calls.
 - PostgreSQL server logging sits outside the application censor. Before relying on encryption in a new database, confirm statement and duration logging don't record bind values and that `log_parameter_max_length` and `log_parameter_max_length_on_error` are `0`. Treat an unknown managed-Postgres policy as a blocker.

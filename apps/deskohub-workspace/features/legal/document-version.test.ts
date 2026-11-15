@@ -26,7 +26,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "en-US",
     documentKey: "privacy-policy",
-    version: "53e796ba06229ee4d8e9500c3045178a27113df99b1d708dd59c11a3134fb7e5",
+    version: "7b339938e2868abeea712d671e613cfbcf2001ab9201e1dffb93eaf4057f6cdc",
   },
   {
     locale: "en-US",
@@ -51,7 +51,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "cs-CZ",
     documentKey: "privacy-policy",
-    version: "8a2a8f97a98f550859993a6c0884422796d86310d054b85198c2cea5aaaf7597",
+    version: "a446f7a772884a6d288700ae7287470360df7271a4c6ecc00b0d2395158268fc",
   },
   {
     locale: "cs-CZ",
@@ -76,7 +76,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "de-DE",
     documentKey: "privacy-policy",
-    version: "d219cb484f33adc57361b289f7f4c009420caef00b51894d73aff55af2c85c0f",
+    version: "8fedd49f42cc022e7bf4317508d776a2043f6619834ebff905dd95d0770da463",
   },
   {
     locale: "de-DE",
@@ -101,7 +101,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "uk-UA",
     documentKey: "privacy-policy",
-    version: "f4fa60c6d8dff580e3cd048c64badeeb1f390344fc2f48d1fb90e5440e910daa",
+    version: "89f47c0619e1c209a05240b14b89100b540f041913f8918c2dd5c353741d168c",
   },
   {
     locale: "uk-UA",
@@ -126,7 +126,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "sk-SK",
     documentKey: "privacy-policy",
-    version: "7e12903683052ab508bbbb50228988cf06dacc872431f21506f8b6a4c8e5f3fb",
+    version: "d873f58604993617ca23cd843d95aa573187d8dcbd03192c088e5a5723aa297b",
   },
   {
     locale: "sk-SK",
@@ -151,7 +151,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "vi-VN",
     documentKey: "privacy-policy",
-    version: "89898a2e9b0b8ff9873d44e48c0d13c5dade1d79f91f9dc58de79bd46b918795",
+    version: "1f5b58cfd318791b24a8c36517ec04bee3a09141bf5f433844860c403437b204",
   },
   {
     locale: "vi-VN",
@@ -176,7 +176,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "hi-IN",
     documentKey: "privacy-policy",
-    version: "db35770c2e282d1d15ce49251eebfba87b6d75e6b2b7d838e4882c5c62960c13",
+    version: "404eeaedb1e762bf12af9dd6c03925b499c3493953a9026f4f9384300fb7d2cc",
   },
   {
     locale: "hi-IN",

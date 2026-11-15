@@ -10,11 +10,13 @@ import type {
   DiscountQuote,
   DiscountResolutionError,
 } from "@/features/discounts";
-import type {
-  CoworkAdvertisedPriceDetails,
-  CoworkAdvertisedPriceReservation,
-  CoworkReservationDetails,
-  NormalizedCoworkReservationOrder,
+import {
+  type CoworkAdvertisedPriceDetails,
+  type CoworkAdvertisedPriceReservation,
+  type CoworkReservationDetails,
+  coworkAdvertisedPriceReservationEquals,
+  getCoworkAdvertisedPriceReservation,
+  type NormalizedCoworkReservationOrder,
 } from "@/features/reservation/cowork-reservation";
 import type { MoneyUnitMismatch } from "@/shared/money/money";
 import {
@@ -27,6 +29,7 @@ import {
   type ReservationDiscountCodePriceResult,
   type ReservationPaymentPriceAffirmation,
   type ReservationPaymentPriceAffirmationInput,
+  type ReservationPaymentRepricingInput,
   type ReservationPreparedCustomerQuote,
   reservationCheckoutPricing,
 } from "./reservation-checkout-pricing";
@@ -42,6 +45,7 @@ export type CoworkAdvertisementQuoteInput =
 export type CoworkAdvertisementAffirmationInput =
   ReservationAdvertisementAffirmationInput<
     CoworkAdvertisedPriceReservation,
+    NormalizedCoworkReservationOrder,
     CoworkReservationQuote
   >;
 
@@ -53,6 +57,11 @@ export type CoworkPaymentPriceAffirmationInput =
     NormalizedCoworkReservationOrder,
     CoworkReservationQuote
   >;
+
+export type CoworkPaymentRepricingInput = ReservationPaymentRepricingInput<
+  NormalizedCoworkReservationOrder,
+  CoworkReservationQuote
+>;
 
 export type CoworkDiscountCodePriceInput = ReservationDiscountCodePriceInput<
   NormalizedCoworkReservationOrder,
@@ -66,7 +75,7 @@ export type CoworkAdvertisementQuote = ReservationAdvertisementQuote<
 
 export type CoworkAdvertisementAffirmation =
   ReservationAdvertisementAffirmation<
-    CoworkAdvertisedPriceReservation,
+    NormalizedCoworkReservationOrder,
     CoworkReservationQuote
   >;
 
@@ -133,6 +142,10 @@ export const coworkCheckoutPricing = reservationCheckoutPricing<
   never,
   MoneyUnitMismatch
 >({
+  advertised: {
+    project: getCoworkAdvertisedPriceReservation,
+    equals: coworkAdvertisedPriceReservationEquals,
+  },
   getPricingContext: getCoworkPricingContext,
   buildQuote: buildCoworkQuote,
   getCheckoutSummary: ({ quote, reservation }) =>
