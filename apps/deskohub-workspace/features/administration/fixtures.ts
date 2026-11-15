@@ -349,6 +349,7 @@ export const loadFixtureReservation = (
     .toString();
   return {
     author: null,
+    invoice: null,
     reservation,
     operatorNotice: null,
     canCancel: true,

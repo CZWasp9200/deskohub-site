@@ -77,9 +77,10 @@ export const readReservationInvoiceStanding = (
           ? {
               id: row.id as InvoiceId,
               invoiceNumber: row.invoiceNumber,
-              state: row.cancelled ? "cancelled" : "live",
-              archived: row.archived,
-              customerNotice: row.customerNoticeOwed ? "owed" : "not_owed",
+              state: row.cancelled === true ? "cancelled" : "live",
+              archived: row.archived === true,
+              customerNotice:
+                row.customerNoticeOwed === true ? "owed" : "not_owed",
             }
           : null
       )

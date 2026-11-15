@@ -1,4 +1,6 @@
 import { Effect, Layer } from "effect";
+import type { InvoiceCancellationRecord } from "@/features/accounting/invoice-cancellation";
+import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import { ReservationAdministrationService } from "@/features/administration/reservation-administration.service";
 import { InvoiceArchiveRepository } from "../backend/invoice-archive.repository";
 import { InvoiceCancellationRepository } from "../backend/invoice-cancellation.repository";
@@ -32,7 +34,8 @@ export const liveInvoiceCancellationFakes = Layer.mergeAll(
   }),
   Layer.mock(InvoiceCancellationRepository, {
     find: () => Effect.succeed(null),
-    findMany: () => Effect.succeed(new Map()),
+    findMany: () =>
+      Effect.succeed(new Map<InvoiceId, InvoiceCancellationRecord>()),
   }),
   Layer.mock(InvoiceArchiveRepository, {}),
   Layer.mock(ReservationAdministrationService, {})

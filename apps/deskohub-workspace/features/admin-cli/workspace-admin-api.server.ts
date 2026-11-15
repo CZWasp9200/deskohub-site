@@ -2,6 +2,7 @@ import {
   AdministrationAuthentication,
   type AdministrationChannel,
   AdministrationDiscountMutationResult,
+  AdministrationInvoiceId,
   AdministrationReservationAccessGrant,
   CliAuthenticationRateLimited,
   CliBearerAuthentication,
@@ -185,7 +186,13 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
           mapServiceFailure,
           Effect.flatMap((detail) =>
             detail
-              ? Effect.succeed(detail)
+              ? Effect.succeed({
+                  ...detail,
+                  invoice: detail.invoice && {
+                    ...detail.invoice,
+                    id: AdministrationInvoiceId.make(detail.invoice.id),
+                  },
+                })
               : new CliResourceNotFound({
                   message: "The reservation was not found.",
                 })
@@ -212,6 +219,13 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
               sendCancellationEmail: payload.sendCancellationEmail,
             })
             .pipe(
+              Effect.map(({ invoice, ...result }) => ({
+                ...result,
+                invoice: invoice && {
+                  ...invoice,
+                  invoiceId: AdministrationInvoiceId.make(invoice.invoiceId),
+                },
+              })),
               mapAdministrationApiFailure(mapReservationCancellationFailure)
             );
         })

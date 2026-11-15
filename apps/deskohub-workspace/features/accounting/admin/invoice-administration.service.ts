@@ -606,7 +606,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     if (!stored)
       return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
     if (stored.cancellation) {
-      const delivery = yield* cancellation.retryNotices(id);
+      const delivery = yield* cancellation.retryNotices(stored.id);
       return {
         invoiceId: AdministrationInvoiceId.make(id),
         changed: delivery.changed,
@@ -640,7 +640,9 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   const cancel = Effect.fn("InvoiceAdministrationService.cancel")(function* (
     input: InvoiceAdministrationCancelInput
   ) {
-    const id = yield* decodeInvoiceAdministrationId(input.invoiceId);
+    const id = invoiceIdSchema.make(
+      yield* decodeInvoiceAdministrationId(input.invoiceId)
+    );
     const plan = yield* cancellation.plan(id).pipe(
       Effect.catchIf(
         (cause) => cause.code === "not_found",
@@ -727,7 +729,9 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
       readonly invoiceId: string;
       readonly actor: AdministrationActor;
     }) {
-      const id = yield* decodeInvoiceAdministrationId(input.invoiceId);
+      const id = invoiceIdSchema.make(
+        yield* decodeInvoiceAdministrationId(input.invoiceId)
+      );
       const archived = yield* archives
         .archive({ invoiceId: id, actor: input.actor })
         .pipe(
