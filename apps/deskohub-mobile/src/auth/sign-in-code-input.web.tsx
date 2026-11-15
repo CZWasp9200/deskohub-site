@@ -1,5 +1,5 @@
 import { OTPInput, REGEXP_ONLY_DIGITS, type SlotProps } from "input-otp";
-import type { CSSProperties } from "react";
+import { type CSSProperties, useEffect, useRef } from "react";
 import { color, radius, space, typeScale } from "../ui/tokens";
 
 /** How many digits a sign-in code has. */
@@ -11,8 +11,9 @@ export const signInCodeLength = 6;
  * one-time-code suggestion, so the code fills in from the email or message.
  * It takes digits only. `invalid` rings every box in the error colour;
  * `disabled` greys them out and takes no input, as while the code is checked
- * or once it can no longer work. `onComplete` runs when the sixth digit
- * arrives.
+ * or once it can no longer work; the boxes take focus again when they
+ * re-enable, for another try or a new code. `onComplete` runs when the sixth
+ * digit arrives.
  */
 export function SignInCodeInput({
   value,
@@ -33,8 +34,13 @@ export function SignInCodeInput({
   /** The id of the message that describes the code's state. */
   readonly describedBy?: string;
 }) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!disabled) input.current?.focus();
+  }, [disabled]);
   return (
     <OTPInput
+      ref={input}
       autoFocus
       maxLength={signInCodeLength}
       pattern={REGEXP_ONLY_DIGITS}

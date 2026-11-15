@@ -39,19 +39,32 @@ export const elementTree = <Props>(
  * a test reads a composite's host elements down to its leaves. Each
  * component runs as in `elementTree`, a `forwardRef` component included. A
  * class component, such as a native player, stays a leaf: it can't be called
- * as a function.
+ * as a function. `within` places every component under providers, as in
+ * `elementTree`.
  */
-export const hostTree = (node: ReactNode): ReactNode => {
+export const hostTree = (
+  node: ReactNode,
+  within: (component: ReactElement) => ReactElement = (inner) => inner
+): ReactNode => {
   if (!isValidElement<HostProps>(node)) return node;
+  const descend = (child: ReactNode) => hostTree(child, within);
   if (typeof node.type === "function" && !isClassComponent(node.type)) {
-    return hostTree(
-      elementTree(node.type as (props: HostProps) => ReactNode, node.props)
+    return descend(
+      elementTree(
+        node.type as (props: HostProps) => ReactNode,
+        node.props,
+        within
+      )
     );
   }
   const forwarded = forwardRefRender(node.type);
   if (forwarded) {
-    return hostTree(
-      elementTree((props: HostProps) => forwarded(props, null), node.props)
+    return descend(
+      elementTree(
+        (props: HostProps) => forwarded(props, null),
+        node.props,
+        within
+      )
     );
   }
   return node.props.children === undefined
@@ -59,7 +72,7 @@ export const hostTree = (node: ReactNode): ReactNode => {
     : cloneElement(
         node,
         undefined,
-        ...(Children.map(node.props.children, hostTree) ?? [])
+        ...(Children.map(node.props.children, descend) ?? [])
       );
 };
 

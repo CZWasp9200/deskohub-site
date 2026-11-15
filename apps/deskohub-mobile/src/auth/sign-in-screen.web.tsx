@@ -267,6 +267,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
   // the new code starts a fresh entry.
   const resendEmail = () => {
     if (busy || sent === undefined) return;
+    setResent(false);
     void send.start(sent.email, accountExpectation()).then((exit) => {
       const sentEmail = Option.flatMap(exit, Exit.getSuccess);
       if (Option.isNone(sentEmail)) return;
