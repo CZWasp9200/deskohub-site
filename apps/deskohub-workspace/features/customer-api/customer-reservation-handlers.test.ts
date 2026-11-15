@@ -435,6 +435,7 @@ describe("reopenPaymentPage", () => {
   const reopenPaymentPage: CustomerApiCall = {
     method: "POST",
     path: `/reservations/${orderId}/payment-page`,
+    body: {},
   };
 
   const paymentPageServices = (
@@ -468,6 +469,28 @@ describe("reopenPaymentPage", () => {
     });
     // The session alone authorizes it: no access cookie or link token.
     expect(reopen).toHaveBeenCalledWith({ orderId, locale: "en-US" });
+  });
+
+  test("returns the reopened page's payment where the app asks", async () => {
+    const reopen = mock(() =>
+      Effect.succeed<PaymentPageReopening>({ state: "not_found" })
+    );
+    const api = makeCustomerApiTestServer({
+      reservations: paymentPageServices(reopen),
+    });
+
+    await api.handle(
+      customerApiRequest({
+        ...reopenPaymentPage,
+        body: { returnTarget: "native-app" },
+      })
+    );
+
+    expect(reopen).toHaveBeenCalledWith({
+      orderId,
+      locale: "en-US",
+      returnTarget: "native-app",
+    });
   });
 
   test("hands the payment page service the authorization read through the session", async () => {

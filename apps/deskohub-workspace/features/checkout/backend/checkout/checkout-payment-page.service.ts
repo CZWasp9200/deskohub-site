@@ -1,9 +1,13 @@
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
 import { getPaymentAttemptAbandonmentCutoff } from "@/features/checkout/provider-order-abandonment";
 import type { Locale } from "@/features/i18n";
-import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
+import {
+  ReservationAuthorizationService,
+  type ReservationAuthorizationUnavailableError,
+} from "@/features/reservation/backend/reservation-authorization.service";
 import type { WorkspaceReservationDetailsMalformedError } from "@/features/reservation/backend/stored-reservation-details.server";
 import {
   type WorkspaceReservation,
@@ -43,19 +47,29 @@ export type PaymentPageReopeningInput = {
   /** The locale an emailed capability link was issued for. */
   readonly locale: Locale;
   readonly accessCookie?: string;
+  /**
+   * Where the page's payment returns the customer; absent for the site's
+   * status page. Recorded when the page opens, as a checkout submission
+   * records it: the last request that hands out the page decides.
+   */
+  readonly returnTarget?: PaymentReturnTarget;
 };
 
 type PaymentPageReopeningError =
   | EffectDrizzleQueryError
+  | ReservationAuthorizationUnavailableError
   | WorkspaceReservationDetailsMalformedError;
 
 export interface ICheckoutPaymentPageService {
   /**
    * The payment page the order's unpaid payment attempt already opened, for
-   * a visitor who closed it. Reads only: it never starts a payment attempt
-   * or contacts the provider, so it can't charge twice. The page is offered
-   * while the reservation stays held for it, which the provider order keeps
-   * up to its local abandonment window, past the hold's own expiry.
+   * a visitor who closed it. It never starts a payment attempt or contacts
+   * the provider; it only records where the page's payment returns. The page
+   * is offered while the reservation stays held for it, which the provider
+   * order keeps up to its local abandonment window, past the hold's own
+   * expiry. The state can change after the answer, as for any page already
+   * open: a payment that settles after its attempt ended is reconciled by
+   * late-payment recovery.
    */
   readonly reopen: (
     input: PaymentPageReopeningInput
@@ -103,7 +117,8 @@ const implementation = Effect.gen(function* () {
 
   const reopen = Effect.fn("CheckoutPaymentPageService.reopen")(
     function* (input: PaymentPageReopeningInput) {
-      const authorized = yield* authorization.isAuthorized({
+      // A failed read fails rather than denies, so the visitor can retry.
+      const authorized = yield* authorization.authorize({
         accessCookie: input.accessCookie,
         locale: input.locale,
         orderId: input.orderId,
@@ -130,11 +145,18 @@ const implementation = Effect.gen(function* () {
       const attempt = yield* paymentAttempts.findById(
         reservation.activePaymentAttemptId
       );
-      return decideReopening({
+      const result = decideReopening({
         reservation,
         attempt,
         now: yield* currentInstant,
       });
+      if (result.state === "opened") {
+        yield* reservations.recordPaymentReturnTarget({
+          id: reservation.id,
+          paymentReturnTarget: input.returnTarget,
+        });
+      }
+      return result;
     },
     (effect, input) =>
       effect.pipe(

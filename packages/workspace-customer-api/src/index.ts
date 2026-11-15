@@ -138,6 +138,7 @@ export {
   CustomerReservationStatus,
   CustomerReservationSummary,
   CustomerReservationsApi,
+  ReopenCustomerPaymentPage,
 } from "./customer-reservations-api";
 export {
   CurrentCustomerSession,

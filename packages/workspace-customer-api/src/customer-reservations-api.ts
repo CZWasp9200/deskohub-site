@@ -5,6 +5,8 @@ import {
   HttpApiSchema,
 } from "effect/unstable/httpapi";
 import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
+import { CustomerCheckoutReturnTarget } from "./customer-booking-checkout-api";
+import { customerInputParseOptions } from "./customer-profile";
 import { CustomerServiceUnavailable } from "./customer-session";
 import { responseHeaders } from "./openapi-response-headers";
 
@@ -277,9 +279,22 @@ export const CustomerInvoicePdf = Schema.Uint8Array.pipe(
 const OrderParams = { orderId: CustomerReservationOrderId } as const;
 
 /**
+ * Where the reopened page's payment returns the customer. Like a checkout
+ * submission, the last request that hands out the order's payment page
+ * decides.
+ */
+export const ReopenCustomerPaymentPage = Schema.Struct({
+  /** Absent: the payment returns to the Workspace site's status page. */
+  returnTarget: Schema.optionalKey(CustomerCheckoutReturnTarget),
+}).annotate({
+  identifier: "ReopenCustomerPaymentPage",
+  parseOptions: customerInputParseOptions,
+});
+
+/**
  * The payment provider's page of the order's unpaid payment, opened again
- * for a customer who left it. It is the page the payment already opened, so
- * paying there settles that payment and never starts another.
+ * for a customer who left it. It is the page the payment already opened:
+ * opening it starts no new payment.
  */
 export const CustomerPaymentPage = Schema.Struct({
   url: Schema.NonEmptyString.annotate({
@@ -318,6 +333,7 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
   .add(
     HttpApiEndpoint.post("reopenPaymentPage", "/:orderId/payment-page", {
       params: OrderParams,
+      payload: ReopenCustomerPaymentPage,
       success: CustomerPaymentPage,
       error: [
         CustomerReservationNotFound.schema,

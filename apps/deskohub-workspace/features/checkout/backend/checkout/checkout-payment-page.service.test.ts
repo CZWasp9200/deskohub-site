@@ -8,6 +8,7 @@ import type { LatePaymentRecovery } from "@/db/schema";
 import {
   type IReservationAuthorizationService,
   ReservationAuthorizationService,
+  ReservationAuthorizationUnavailableError,
 } from "@/features/reservation/backend/reservation-authorization.service";
 import {
   type WorkspaceReservation,
@@ -67,7 +68,8 @@ const lateRecovery = (overrides: Partial<LatePaymentRecovery> = {}) =>
   }) as LatePaymentRecovery;
 
 type Harness = {
-  readonly authorized?: boolean;
+  /** The authorization's answer, or `"unavailable"` when its read fails. */
+  readonly authorized?: boolean | "unavailable";
   readonly reservation?: WorkspaceReservation | null;
   readonly attempt?: PaymentAttempt | null;
   readonly latePaymentRecovery?: LatePaymentRecovery | null;
@@ -75,14 +77,22 @@ type Harness = {
 };
 
 /**
- * The service over read-only fakes. It is given no payment lifecycle, Nexi,
- * or reservation writer, so reopening can't create an attempt or call the
- * provider; the fakes record every read.
+ * The service over fakes that record every call. It is given no payment
+ * lifecycle or Nexi, and its reservation repository writes only the return
+ * target, so reopening can't create an attempt or call the provider.
  */
 const createHarness = (harness: Harness = {}) => {
-  const isAuthorized = mock<IReservationAuthorizationService["isAuthorized"]>(
-    () => Effect.succeed(harness.authorized ?? true)
+  const authorize = mock<IReservationAuthorizationService["authorize"]>(() =>
+    harness.authorized === "unavailable"
+      ? Effect.fail(
+          new ReservationAuthorizationUnavailableError({
+            orderId: input.orderId,
+            cause: new Error("read failed") as never,
+          })
+        )
+      : Effect.succeed(harness.authorized ?? true)
   );
+  const recordPaymentReturnTarget = mock(() => Effect.void);
   const findReservation = mock(() =>
     Effect.succeed(
       harness.reservation === undefined
@@ -102,11 +112,13 @@ const createHarness = (harness: Harness = {}) => {
     Layer.provide(
       Layer.mergeAll(
         Layer.succeed(ReservationAuthorizationService, {
-          isAuthorized,
-          authorize: () => Effect.die("reopening must not use authorize"),
+          isAuthorized: () =>
+            Effect.die("reopening must report a failed read, not deny"),
+          authorize,
         }),
         Layer.mock(WorkspaceReservationRepository, {
           findById: findReservation,
+          recordPaymentReturnTarget,
         }),
         Layer.mock(PaymentAttemptRepository, { findById: findAttempt }),
         Layer.mock(LatePaymentRecoveryRepository, {
@@ -115,14 +127,14 @@ const createHarness = (harness: Harness = {}) => {
       )
     )
   );
-  const reopen = () =>
+  const reopen = (overrides: Partial<PaymentPageReopeningInput> = {}) =>
     Effect.runPromise(
       Effect.gen(function* () {
         yield* TestClock.setTime(
           (harness.now ?? instant("2026-06-01T10:20:00Z")).epochMilliseconds
         );
         const service = yield* CheckoutPaymentPageService;
-        return yield* service.reopen(input);
+        return yield* service.reopen({ ...input, ...overrides });
       }).pipe(Effect.provide(Layer.merge(layer, TestClock.layer())))
     );
 
@@ -130,7 +142,8 @@ const createHarness = (harness: Harness = {}) => {
     findAttempt,
     findLatePaymentRecovery,
     findReservation,
-    isAuthorized,
+    authorize,
+    recordPaymentReturnTarget,
     reopen,
   };
 };
@@ -144,13 +157,42 @@ describe("CheckoutPaymentPageService.reopen", () => {
 
     expect(first).toEqual({ state: "opened", providerRedirectUrl });
     expect(second).toEqual(first);
-    expect(harness.isAuthorized).toHaveBeenCalledWith({
+    expect(harness.authorize).toHaveBeenCalledWith({
       accessCookie: input.accessCookie,
       locale: input.locale,
       orderId: input.orderId,
       permission: "open-payment-page",
     });
     expect(harness.findAttempt).toHaveBeenCalledWith("attempt-reopen");
+  });
+
+  test("records where the reopened page's payment returns, as the request asks", async () => {
+    const harness = createHarness();
+
+    await harness.reopen({ returnTarget: "native-app" });
+    await harness.reopen();
+
+    expect(harness.recordPaymentReturnTarget.mock.calls).toEqual([
+      [{ id: "reservation-reopen", paymentReturnTarget: "native-app" }],
+      [{ id: "reservation-reopen", paymentReturnTarget: undefined }],
+    ]);
+  });
+
+  test("records no return for a page it doesn't open", async () => {
+    const harness = createHarness({ now: instant("2026-06-01T10:30:00Z") });
+
+    await harness.reopen({ returnTarget: "native-app" });
+
+    expect(harness.recordPaymentReturnTarget).not.toHaveBeenCalled();
+  });
+
+  test("fails without reading the order when whether the visitor may open it can't be read", async () => {
+    const harness = createHarness({ authorized: "unavailable" });
+
+    await expect(harness.reopen()).rejects.toMatchObject({
+      _tag: "ReservationAuthorizationUnavailableError",
+    });
+    expect(harness.findReservation).not.toHaveBeenCalled();
   });
 
   test("opens a page stored on a created attempt", async () => {

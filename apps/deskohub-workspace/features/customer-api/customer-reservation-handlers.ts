@@ -103,9 +103,15 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
             Effect.flatMap(answerOrderState)
           )
         )
-        .handle("reopenPaymentPage", ({ params: { orderId } }) =>
+        .handle("reopenPaymentPage", ({ params: { orderId }, payload }) =>
           Effect.flatMap(CheckoutPaymentPageService, (paymentPages) =>
-            paymentPages.reopen({ orderId, locale: defaultLocale })
+            paymentPages.reopen({
+              orderId,
+              locale: defaultLocale,
+              ...(payload.returnTarget !== undefined && {
+                returnTarget: payload.returnTarget,
+              }),
+            })
           ).pipe(
             Effect.provide(reservations.paymentPage(authorization)),
             answerSessionApiFailure("customerApi.reopenPaymentPage"),

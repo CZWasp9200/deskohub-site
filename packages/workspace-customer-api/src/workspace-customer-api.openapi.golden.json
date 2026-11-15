@@ -1694,6 +1694,16 @@
               }
             }
           }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReopenCustomerPaymentPage"
+              }
+            }
+          },
+          "required": true
         }
       }
     },
@@ -5115,6 +5125,19 @@
         "required": ["_tag"],
         "additionalProperties": false
       },
+      "CustomerCheckoutReturnTarget": {
+        "type": "string",
+        "enum": ["native-app", "web-app"]
+      },
+      "ReopenCustomerPaymentPage": {
+        "type": "object",
+        "properties": {
+          "returnTarget": {
+            "$ref": "#/components/schemas/CustomerCheckoutReturnTarget"
+          }
+        },
+        "additionalProperties": false
+      },
       "CustomerPaymentPage": {
         "type": "object",
         "properties": {
@@ -6369,10 +6392,6 @@
         },
         "required": ["locale", "payStateToken"],
         "additionalProperties": false
-      },
-      "CustomerCheckoutReturnTarget": {
-        "type": "string",
-        "enum": ["native-app", "web-app"]
       },
       "SubmitCustomerCheckout": {
         "type": "object",
