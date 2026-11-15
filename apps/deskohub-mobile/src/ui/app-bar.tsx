@@ -10,7 +10,9 @@ import { color, space, touchTarget } from "./tokens";
 /**
  * The top bar of a sub-screen on the paper canvas: a back arrow when
  * `onBack` is given, the screen's title, and `actions` at the end. The
- * title wraps to a second line at large font sizes before it truncates.
+ * title keeps at least half the bar and wraps rather than truncating; when
+ * the actions no longer fit beside it, as at large font sizes, they move to
+ * a line of their own under it, at the end.
  * `raised` draws a hairline under the bar once content scrolls beneath it.
  */
 export function AppBar({
@@ -39,12 +41,7 @@ export function AppBar({
       ) : (
         <View style={styles.lead} />
       )}
-      <Text
-        variant="title"
-        role="heading"
-        numberOfLines={2}
-        style={styles.title}
-      >
+      <Text variant="title" role="heading" style={styles.title}>
         {title}
       </Text>
       {actions !== undefined && <View style={styles.actions}>{actions}</View>}
@@ -60,6 +57,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
     borderBottomWidth: 1,
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: space.xs,
     minHeight: 64,
     paddingLeft: space.xs,
@@ -76,13 +74,21 @@ const styles = StyleSheet.create({
   },
   pressed: { backgroundColor: color.sunken },
   lead: { width: space.md },
-  title: { flex: 1, minWidth: 0, paddingLeft: space.xs },
-  // Actions keep to half the bar and stack, so a long action label wraps
-  // inside the bar at large font sizes instead of pushing past its edge.
+  title: {
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: "50%",
+    paddingLeft: space.xs,
+  },
+  // Wraps under the title when the title's half and the actions can't share
+  // the line; a long action label then wraps within the bar's width.
   actions: {
-    alignItems: "flex-end",
+    alignItems: "center",
+    flexDirection: "row",
     flexShrink: 1,
     gap: space.xs,
-    maxWidth: "50%",
+    marginLeft: "auto",
+    maxWidth: "100%",
   },
 });

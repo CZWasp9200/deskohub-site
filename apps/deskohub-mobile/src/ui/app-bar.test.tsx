@@ -3,7 +3,7 @@ import { createElement, type ReactElement } from "react";
 import { Pressable } from "react-native";
 import { AppLocaleProvider } from "../i18n/locale-context";
 import { AppBar } from "./app-bar";
-import { elementTree, find, flatStyle } from "./testing/element-tree";
+import { elementTree, find, findAll, flatStyle } from "./testing/element-tree";
 import { Text } from "./text";
 import { color, touchTarget } from "./tokens";
 
@@ -13,7 +13,7 @@ const bar = (props: Parameters<typeof AppBar>[0]) =>
   )) as ReactElement<{ style: unknown }>;
 
 describe("AppBar", () => {
-  test("is at least 64 tall on the paper canvas, its title a heading that wraps to two lines", () => {
+  test("is at least 64 tall on the paper canvas, its title a heading that wraps rather than truncates", () => {
     const tree = bar({ title: "title" });
     expect(flatStyle(tree.props.style)).toMatchObject({
       minHeight: 64,
@@ -22,7 +22,27 @@ describe("AppBar", () => {
     const title = find(tree, Text)?.props;
     expect(title?.role).toBe("heading");
     expect(title?.variant).toBe("title");
-    expect(title?.numberOfLines).toBe(2);
+    expect(title?.numberOfLines).toBeUndefined();
+  });
+
+  test("keeps half the bar for the title and moves the actions under it when they can't share the line", () => {
+    const tree = bar({ title: "title", actions: "action" });
+    expect(flatStyle(tree.props.style)).toMatchObject({
+      flexDirection: "row",
+      flexWrap: "wrap",
+    });
+    expect(flatStyle(find(tree, Text)?.props.style)).toMatchObject({
+      flexBasis: 0,
+      flexGrow: 1,
+      minWidth: "50%",
+    });
+    const actions = findAll(tree, "View").find(
+      (view) => view.props.children === "action"
+    );
+    expect(flatStyle(actions?.props.style)).toMatchObject({
+      marginLeft: "auto",
+      maxWidth: "100%",
+    });
   });
 
   test("the back button is a named 48 dp round button that goes back", () => {
