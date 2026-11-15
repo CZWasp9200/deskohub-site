@@ -806,22 +806,30 @@ describe("fake booking hold and code removal", () => {
         );
         const cleared = yield* clearing(api, applied.payStateToken);
         const again = yield* clearing(api, cleared.payStateToken);
+        const resent = yield* clearing(api, applied.payStateToken);
         const accepted = yield* api.acceptCheckoutPriceChange({
           payload: { locale: "en-US", payStateToken: cleared.payStateToken },
         });
-        return { created, applied, cleared, again, accepted };
+        return { created, applied, cleared, again, resent, accepted };
       })
     );
     if (result._tag !== "Success") throw new Error("expected the flow to run");
-    const { created, applied, cleared, again, accepted } = result.success;
+    const { created, applied, cleared, again, resent, accepted } =
+      result.success;
     expect(cleared.status).toBe("price_review");
     expect(cleared.priceReview).toBeDefined();
     expect(cleared.appliedDiscountCode).toBeUndefined();
     expect(cleared.payStateToken).not.toBe(applied.payStateToken);
     expect(cleared.summary.total).toEqual(created.summary.total);
-    // Nothing is entered any more: a second removal (a retry after a lost
-    // answer) gets the checkout back as it is.
+    // Nothing is entered on the new token, so removing again returns it as is.
     expect(again).toEqual(cleared);
+    // A resend after a lost answer carries the old token, and clears again.
+    expect(resent).toMatchObject({
+      status: "price_review",
+      holdExpiresAt: applied.holdExpiresAt,
+      summary: cleared.summary,
+    });
+    expect(resent.appliedDiscountCode).toBeUndefined();
     expect(accepted.status).toBe("ready");
     expect(accepted.appliedDiscountCode).toBeUndefined();
   });
