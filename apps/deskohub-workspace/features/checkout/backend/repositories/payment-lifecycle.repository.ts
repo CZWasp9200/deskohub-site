@@ -4,9 +4,18 @@ import type {
   NexiOrderId,
   NexiWebhookEventId,
 } from "@deskohub/nexi";
-import { and, count, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Data, Duration, Effect, Layer, Match, Option } from "effect";
+import {
+  Context,
+  Data,
+  Duration,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Result,
+} from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
@@ -17,7 +26,6 @@ import {
   discounts,
   type PaymentAttemptState,
   paymentAttempts,
-  promotionCodeCustomers,
   promotionCodes,
   referralAttributions,
   referralInvitationClaims,
@@ -58,9 +66,20 @@ import type {
   VoucherId,
 } from "@/features/discounts/persistence-contracts";
 import { getWorkspaceProductTargetsCovering } from "@/features/discounts/product-target";
+import {
+  evaluatePromotionAvailability,
+  getAvailableVoucherCredit,
+  type PromotionAvailabilityFacts,
+  type PromotionAvailabilityStage,
+  type PromotionUnavailable,
+} from "@/features/discounts/promotion-availability";
 import { getPromotionTiming } from "@/features/discounts/promotion-code";
+import {
+  buildDiscountCodeAvailabilityQuery,
+  buildPromotionAudienceQuery,
+  buildVoucherAvailabilityQuery,
+} from "@/features/discounts/promotion-code.repository-query";
 import type { DiscountClaimInstruction } from "@/features/discounts/provider";
-import { isFirstServiceDateEligible } from "@/features/discounts/service-date-eligibility";
 import type { Locale } from "@/features/i18n";
 import { evaluateReferralAttribution } from "@/features/referrals/attribution";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -1671,30 +1690,34 @@ const reserveCodeClaim = Effect.fn("PaymentLifecycle.reserveCodeClaim")(
       );
     }
 
-    const stored = yield* requireEnabledPromotion(
+    const stored = yield* requireStoredPromotion(
       yield* lockClaimedPromotion(input.claim),
       input.claim
     );
+    yield* requireClaimAvailable(input.claim, "admissionEnabled", {
+      promotion: stored.promotion,
+    });
 
     const claimedAt = Temporal.Now.instant();
-    yield* requirePromotionWindow(input, stored.promotion, claimedAt);
-    yield* requireServiceDateEligible(stored, input.firstServiceDate);
-    yield* requireAllowlistedCustomer(stored.promotion.id, input.claim);
-
+    yield* requireCurrentHold(input, claimedAt);
+    const audience = yield* readPromotionAudience(
+      stored.promotion.id,
+      input.claim.dotyposCustomerId
+    );
     yield* Match.value(stored).pipe(
       Match.discriminatorsExhaustive("kind")({
         discount_code: ({ claim, code, promotion }) =>
-          validateStoredDiscountClaim({
-            ...input,
-            claim,
-            code,
+          requireClaimAvailable(claim, "admissionDiscountCodeSchedule", {
+            at: claimedAt,
+            audience,
+            discountCode: code,
+            firstServiceDate: input.firstServiceDate,
             promotion,
           }),
-        voucher: ({ claim, voucher, promotion }) =>
-          validateVoucherClaim({
-            ...input,
-            claim,
-            voucher,
+        voucher: ({ claim, promotion }) =>
+          requireClaimAvailable(claim, "admissionVoucherSchedule", {
+            at: claimedAt,
+            audience,
             promotion,
           }),
       })
@@ -1702,10 +1725,37 @@ const reserveCodeClaim = Effect.fn("PaymentLifecycle.reserveCodeClaim")(
 
     yield* Match.value(stored).pipe(
       Match.discriminatorsExhaustive("kind")({
-        discount_code: ({ code }) =>
-          requireDiscountCodeUsesRemaining(code, input.claim),
-        voucher: ({ voucher }) =>
-          requireNoActiveVoucherClaim(voucher, input.claim),
+        discount_code: Effect.fnUntraced(function* ({
+          claim,
+          code,
+          promotion,
+        }) {
+          yield* validateStoredDiscountClaim({
+            ...input,
+            claim,
+            code,
+            promotion,
+          });
+          const uses = yield* readDiscountCodeUses(
+            code.id,
+            input.claim.dotyposCustomerId
+          );
+          yield* requireClaimAvailable(claim, "admissionDiscountCodeUses", {
+            discountCode: code,
+            uses,
+          });
+        }),
+        voucher: Effect.fnUntraced(function* ({ claim, voucher, promotion }) {
+          const voucherUses = yield* validateVoucherClaim({
+            ...input,
+            claim,
+            voucher,
+            promotion,
+          });
+          yield* requireClaimAvailable(claim, "admissionVoucherUses", {
+            voucherUses,
+          });
+        }),
       })
     );
 
@@ -1783,216 +1833,133 @@ const lockClaimedPromotion = Effect.fnUntraced(function* (
   );
 });
 
-/** The claimed promotion still exists, grants the accepted benefit, and is on. */
-const requireEnabledPromotion = (
+/** The claimed promotion still exists and grants the accepted benefit. */
+const requireStoredPromotion = (
   stored: StoredPromotion | undefined,
   claim: OrdinaryPromotionClaim
-): Effect.Effect<StoredPromotion, DiscountClaimError> => {
-  if (
-    !stored ||
-    (stored.kind === "discount_code" &&
-      stored.code.discountId !== stored.claim.storedDiscountId)
-  ) {
-    return Effect.fail(
-      claimError(
-        "reserve",
-        "unknown_code",
-        "The accepted promotion no longer exists.",
-        claim
-      )
-    );
-  }
-  if (!stored.promotion.enabled) {
-    return Effect.fail(
-      claimError(
-        "reserve",
-        "inactive",
-        "The accepted promotion is inactive.",
-        claim
-      )
-    );
-  }
-  return Effect.succeed(stored);
-};
-
-/** The hold and the promotion are both current when the claim is made. */
-/** A discount code's current service dates still cover the reservation. */
-const requireServiceDateEligible = (
-  stored: StoredPromotion,
-  firstServiceDate: string
-): Effect.Effect<void, DiscountClaimError> =>
-  stored.kind === "discount_code" &&
-  !isFirstServiceDateEligible(stored.code, firstServiceDate)
+): Effect.Effect<StoredPromotion, DiscountClaimError> =>
+  !stored ||
+  (stored.kind === "discount_code" &&
+    stored.code.discountId !== stored.claim.storedDiscountId)
     ? Effect.fail(
         claimError(
           "reserve",
-          "service_date_ineligible",
-          "The accepted discount code no longer covers the reservation start date.",
-          stored.claim
+          "unknown_code",
+          "The accepted promotion no longer exists.",
+          claim
+        )
+      )
+    : Effect.succeed(stored);
+
+/** The hold is still current when the claim is made. */
+const requireCurrentHold = (
+  input: {
+    readonly paymentAttemptId: PaymentAttemptId;
+    readonly reservationExpiresAt: Temporal.Instant;
+  },
+  claimedAt: Temporal.Instant
+): Effect.Effect<void, PaymentLifecycleStateError> =>
+  Temporal.Instant.compare(input.reservationExpiresAt, claimedAt) <= 0
+    ? Effect.fail(
+        lifecycleStateError(
+          "reserveCodeClaim",
+          { type: "paymentAttemptId", id: input.paymentAttemptId },
+          "Discount claims can only be reserved for a current held reservation."
         )
       )
     : Effect.void;
 
-const requirePromotionWindow = (
-  input: {
-    readonly claim: OrdinaryPromotionClaim;
-    readonly paymentAttemptId: PaymentAttemptId;
-    readonly reservationExpiresAt: Temporal.Instant;
-  },
-  promotion: typeof promotionCodes.$inferSelect,
-  claimedAt: Temporal.Instant
-): Effect.Effect<void, DiscountClaimError | PaymentLifecycleStateError> => {
-  if (Temporal.Instant.compare(input.reservationExpiresAt, claimedAt) <= 0) {
-    return Effect.fail(
-      lifecycleStateError(
-        "reserveCodeClaim",
-        { type: "paymentAttemptId", id: input.paymentAttemptId },
-        "Discount claims can only be reserved for a current held reservation."
-      )
-    );
-  }
-  if (
-    promotion.validFrom &&
-    Temporal.Instant.compare(claimedAt, promotion.validFrom) < 0
-  ) {
-    return Effect.fail(
-      claimError(
-        "reserve",
-        "not_started",
-        "The accepted promotion is not valid yet.",
-        input.claim
-      )
-    );
-  }
-  if (
-    promotion.validUntil &&
-    Temporal.Instant.compare(claimedAt, promotion.validUntil) >= 0
-  ) {
-    return Effect.fail(
-      claimError(
-        "reserve",
-        "expired",
-        "The accepted promotion has expired.",
-        input.claim
-      )
-    );
-  }
-  return Effect.void;
-};
+type AdmissionStage = Extract<PromotionAvailabilityStage, `admission${string}`>;
 
-/** A promotion with an allowlist admits only the customers on it. */
-const requireAllowlistedCustomer = Effect.fnUntraced(function* (
-  promotionId: (typeof promotionCodes.$inferSelect)["id"],
-  claim: OrdinaryPromotionClaim
-) {
-  const { db } = yield* WorkspaceTransaction;
-  const [allowlist] = yield* db
-    .select({ count: count() })
-    .from(promotionCodeCustomers)
-    .where(eq(promotionCodeCustomers.promotionCodeId, promotionId));
-  if ((allowlist?.count ?? 0) > 0) {
-    const [customer] = yield* db
-      .select({ promotionCodeId: promotionCodeCustomers.promotionCodeId })
-      .from(promotionCodeCustomers)
-      .where(
-        and(
-          eq(promotionCodeCustomers.promotionCodeId, promotionId),
-          eq(promotionCodeCustomers.dotyposCustomerId, claim.dotyposCustomerId)
+const admissionUnavailableMessages = {
+  enabled: "The accepted promotion is inactive.",
+  started: "The accepted promotion is not valid yet.",
+  unexpired: "The accepted promotion has expired.",
+  serviceDates:
+    "The accepted discount code no longer covers the reservation start date.",
+  audience: "The customer is no longer eligible for the accepted promotion.",
+  customerUses: "The customer has no remaining uses for this discount code.",
+  totalUses: "The accepted discount code has no remaining uses.",
+  voucherUnclaimed:
+    "The customer already has an active claim for this voucher.",
+} satisfies Record<PromotionUnavailable<AdmissionStage>["rule"], string>;
+
+/** The claimed promotion is still available to the claim's customer. */
+const requireClaimAvailable = <Stage extends AdmissionStage>(
+  claim: OrdinaryPromotionClaim,
+  stage: Stage,
+  facts: PromotionAvailabilityFacts<Stage>
+): Effect.Effect<void, DiscountClaimError> =>
+  Result.match(evaluatePromotionAvailability(stage, facts), {
+    onSuccess: () => Effect.void,
+    onFailure: ({ reason, rule }) =>
+      Effect.fail(
+        claimError(
+          "reserve",
+          reason,
+          admissionUnavailableMessages[rule],
+          claim
         )
-      )
-      .limit(1);
-    if (!customer) {
-      return yield* claimError(
-        "reserve",
-        "customer_ineligible",
-        "The customer is no longer eligible for the accepted promotion.",
-        claim
-      );
-    }
-  }
-});
+      ),
+  });
 
-/** The customer's and then every customer's active uses stay within limits. */
-const requireDiscountCodeUsesRemaining = Effect.fnUntraced(function* (
-  code: typeof discountCodes.$inferSelect,
-  claim: OrdinaryPromotionClaim
+/** The promotion's allowlist facts for the customer, read on the transaction. */
+const readPromotionAudience = Effect.fnUntraced(function* (
+  promotionCodeId: PromotionCodeId,
+  dotyposCustomerId: DotyposCustomerId
 ) {
   const { db } = yield* WorkspaceTransaction;
-  const [customerUses] = yield* db
-    .select({ count: count() })
-    .from(discountCodeRedemptions)
-    .where(
-      and(
-        eq(discountCodeRedemptions.codeId, code.id),
-        eq(discountCodeRedemptions.dotyposCustomerId, claim.dotyposCustomerId),
-        inArray(discountCodeRedemptions.state, ["reserved", "redeemed"])
-      )
-    );
-  if (
-    code.maxUsesPerCustomer !== null &&
-    (customerUses?.count ?? 0) >= code.maxUsesPerCustomer
-  ) {
-    return yield* claimError(
-      "reserve",
-      "usage_limit_reached",
-      "The customer has no remaining uses for this discount code.",
-      claim
-    );
-  }
-  yield* requireDiscountCodeTotalUsesRemaining(code, claim);
+  const [audience] = yield* buildPromotionAudienceQuery({
+    db,
+    promotionCodeId,
+    dotyposCustomerId,
+  });
+  return {
+    allowlistSize: audience?.allowlistSize ?? 0,
+    customerAllowed: audience?.customerAllowed ?? false,
+  };
 });
 
-const requireDiscountCodeTotalUsesRemaining = Effect.fnUntraced(function* (
-  code: typeof discountCodes.$inferSelect,
-  claim: OrdinaryPromotionClaim
+/** A discount code's active uses in total and by the customer. */
+const readDiscountCodeUses = Effect.fnUntraced(function* (
+  codeId: DiscountCodeId,
+  dotyposCustomerId: DotyposCustomerId
 ) {
-  if (code.maxUses === null) return;
   const { db } = yield* WorkspaceTransaction;
-  const [uses] = yield* db
-    .select({ count: count() })
-    .from(discountCodeRedemptions)
-    .where(
-      and(
-        eq(discountCodeRedemptions.codeId, code.id),
-        inArray(discountCodeRedemptions.state, ["reserved", "redeemed"])
-      )
-    );
-
-  if ((uses?.count ?? 0) >= code.maxUses) {
-    return yield* claimError(
-      "reserve",
-      "usage_limit_reached",
-      "The accepted discount code has no remaining uses.",
-      claim
-    );
-  }
+  const [uses] = yield* buildDiscountCodeAvailabilityQuery({
+    db,
+    codeId,
+    dotyposCustomerId,
+  });
+  return {
+    activeUseCount: uses?.activeUseCount ?? 0,
+    customerActiveUseCount: uses?.customerActiveUseCount ?? 0,
+  };
 });
 
-/** A customer holds at most one reserved claim on a voucher. */
-const requireNoActiveVoucherClaim = Effect.fnUntraced(function* (
-  voucher: typeof vouchers.$inferSelect,
-  claim: OrdinaryPromotionClaim
+/** A voucher's credit used by active claims and the customer's reserved claim. */
+const readVoucherUses = Effect.fnUntraced(function* (
+  voucherId: VoucherId,
+  dotyposCustomerId: DotyposCustomerId
 ) {
   const { db } = yield* WorkspaceTransaction;
-  const [customerUse] = yield* db
-    .select({ state: voucherRedemptions.state })
-    .from(voucherRedemptions)
-    .where(
-      and(
-        eq(voucherRedemptions.voucherId, voucher.id),
-        eq(voucherRedemptions.dotyposCustomerId, claim.dotyposCustomerId),
-        eq(voucherRedemptions.state, "reserved")
-      )
-    )
-    .limit(1);
-  if (customerUse) {
-    return yield* claimError(
-      "reserve",
-      "claim_conflict",
-      "The customer already has an active claim for this voucher.",
-      claim
-    );
-  }
+  const [uses] = yield* buildVoucherAvailabilityQuery({
+    db,
+    voucherId,
+    dotyposCustomerId,
+  });
+  return {
+    customerHasReserved: uses?.customerHasReserved ?? false,
+    usedValue: uses?.usedValue ?? 0,
+  };
+});
+
+const getVoucherIssuedAmount = (
+  voucher: typeof vouchers.$inferSelect
+): Money => ({
+  value: voucher.issuedAmountValue,
+  exponent: voucher.issuedAmountExponent,
+  currency: voucher.issuedAmountCurrency,
 });
 
 const insertPromotionClaim = Effect.fnUntraced(function* (
@@ -2135,27 +2102,14 @@ const validateVoucherClaim = Effect.fn("PaymentLifecycle.validateVoucherClaim")(
     readonly application: AppliedDiscount;
     readonly locale: Locale;
   }) {
-    const { db } = yield* WorkspaceTransaction;
-    const [usage] = yield* db
-      .select({
-        value: sql<number>`coalesce(sum(${discountApplications.appliedAmountValue}), 0)::integer`,
-      })
-      .from(voucherRedemptions)
-      .innerJoin(
-        discountApplications,
-        eq(discountApplications.id, voucherRedemptions.applicationId)
-      )
-      .where(
-        and(
-          eq(voucherRedemptions.voucherId, input.claim.voucherId),
-          inArray(voucherRedemptions.state, ["reserved", "redeemed"])
-        )
-      );
-    const availableAmount = {
-      value: input.voucher.issuedAmountValue - (usage?.value ?? 0),
-      exponent: input.voucher.issuedAmountExponent,
-      currency: input.voucher.issuedAmountCurrency,
-    };
+    const voucherUses = yield* readVoucherUses(
+      input.claim.voucherId,
+      input.claim.dotyposCustomerId
+    );
+    const availableAmount = getAvailableVoucherCredit(
+      getVoucherIssuedAmount(input.voucher),
+      voucherUses.usedValue
+    );
     const timing = getPromotionTiming(input.promotion.validUntil);
     if (
       voucherCreditChanged({ ...input, availableAmount }) ||
@@ -2168,6 +2122,7 @@ const validateVoucherClaim = Effect.fn("PaymentLifecycle.validateVoucherClaim")(
         input.claim
       );
     }
+    return voucherUses;
   }
 );
 
@@ -2226,6 +2181,7 @@ const lockAttemptPromotionClaim = Effect.fnUntraced(function* (
     db
       .select({
         applicationId: voucherRedemptions.applicationId,
+        dotyposCustomerId: voucherRedemptions.dotyposCustomerId,
         id: voucherRedemptions.voucherId,
         state: voucherRedemptions.state,
       })
@@ -2261,72 +2217,40 @@ const requireReleasedCodeRedeemable = Effect.fnUntraced(function* (claim: {
     });
   }
 
-  yield* requireCustomerRedemptionsRemaining(claim, code.maxUsesPerCustomer);
-  yield* requireCodeRedemptionsRemaining(claim, code.maxUses);
+  const uses = yield* readDiscountCodeUses(claim.id, claim.dotyposCustomerId);
+  yield* Result.match(
+    evaluatePromotionAvailability("readmissionDiscountCodeUses", {
+      discountCode: code,
+      uses,
+    }),
+    {
+      onSuccess: () => Effect.void,
+      onFailure: ({ reason, rule }) =>
+        Effect.fail(
+          new DiscountClaimError({
+            operation: "redeem",
+            reason,
+            message: readmissionUnavailableMessages[rule],
+            codeId: claim.id,
+          })
+        ),
+    }
+  );
 });
 
-/**
- * Mirror admission: only the configured per-customer limit (null is
- * unlimited) restricts how many active uses one customer may hold.
- */
-const requireCustomerRedemptionsRemaining = Effect.fnUntraced(function* (
-  claim: {
-    readonly id: DiscountCodeId;
-    readonly dotyposCustomerId: DotyposCustomerId;
-  },
-  maxUsesPerCustomer: number | null
-) {
-  if (maxUsesPerCustomer === null) return;
-  const { db } = yield* WorkspaceTransaction;
-  const [customerUses] = yield* db
-    .select({ count: count() })
-    .from(discountCodeRedemptions)
-    .where(
-      and(
-        eq(discountCodeRedemptions.codeId, claim.id),
-        eq(discountCodeRedemptions.dotyposCustomerId, claim.dotyposCustomerId),
-        inArray(discountCodeRedemptions.state, ["reserved", "redeemed"])
-      )
-    );
-  if ((customerUses?.count ?? 0) >= maxUsesPerCustomer) {
-    return yield* new DiscountClaimError({
-      operation: "redeem",
-      reason: "usage_limit_reached",
-      message: "The customer has no remaining uses for this code.",
-      codeId: claim.id,
-    });
-  }
-});
-
-const requireCodeRedemptionsRemaining = Effect.fnUntraced(function* (
-  claim: { readonly id: DiscountCodeId },
-  maxUses: number | null
-) {
-  if (maxUses === null) return;
-  const { db } = yield* WorkspaceTransaction;
-  const [uses] = yield* db
-    .select({ count: count() })
-    .from(discountCodeRedemptions)
-    .where(
-      and(
-        eq(discountCodeRedemptions.codeId, claim.id),
-        inArray(discountCodeRedemptions.state, ["reserved", "redeemed"])
-      )
-    );
-  if ((uses?.count ?? 0) >= maxUses) {
-    return yield* new DiscountClaimError({
-      operation: "redeem",
-      reason: "usage_limit_reached",
-      message: "The accepted discount code has no remaining uses.",
-      codeId: claim.id,
-    });
-  }
-});
+const readmissionUnavailableMessages = {
+  customerUses: "The customer has no remaining uses for this code.",
+  totalUses: "The accepted discount code has no remaining uses.",
+} satisfies Record<
+  PromotionUnavailable<"readmissionDiscountCodeUses">["rule"],
+  string
+>;
 
 /** A released voucher claim redeems again only while the credit lasts. */
 const requireReleasedVoucherRedeemable = Effect.fnUntraced(function* (claim: {
   readonly id: VoucherId;
   readonly applicationId: DiscountApplicationId;
+  readonly dotyposCustomerId: DotyposCustomerId;
 }) {
   const { db } = yield* WorkspaceTransaction;
   const [voucher] = yield* db
@@ -2344,7 +2268,8 @@ const requireReleasedVoucherRedeemable = Effect.fnUntraced(function* (claim: {
     });
   }
 
-  const [[application], [usage]] = yield* Effect.all([
+  const issuedAmount = getVoucherIssuedAmount(voucher);
+  const [[application], voucherUses] = yield* Effect.all([
     db
       .select({
         currency: discountApplications.appliedAmountCurrency,
@@ -2354,29 +2279,13 @@ const requireReleasedVoucherRedeemable = Effect.fnUntraced(function* (claim: {
       .from(discountApplications)
       .where(eq(discountApplications.id, claim.applicationId))
       .limit(1),
-    db
-      .select({
-        value: sql<number>`coalesce(sum(${discountApplications.appliedAmountValue}), 0)::integer`,
-      })
-      .from(voucherRedemptions)
-      .innerJoin(
-        discountApplications,
-        eq(discountApplications.id, voucherRedemptions.applicationId)
-      )
-      .where(
-        and(
-          eq(voucherRedemptions.voucherId, claim.id),
-          inArray(voucherRedemptions.state, ["reserved", "redeemed"])
-        )
-      ),
+    readVoucherUses(claim.id, claim.dotyposCustomerId),
   ]);
   if (
     !application ||
-    !sameMoneyUnit(application, {
-      currency: voucher.issuedAmountCurrency,
-      exponent: voucher.issuedAmountExponent,
-    }) ||
-    application.value > voucher.issuedAmountValue - (usage?.value ?? 0)
+    !sameMoneyUnit(application, issuedAmount) ||
+    application.value >
+      getAvailableVoucherCredit(issuedAmount, voucherUses.usedValue).value
   ) {
     return yield* new DiscountClaimError({
       operation: "redeem",
