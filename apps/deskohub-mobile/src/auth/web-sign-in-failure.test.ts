@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { webSignInFailureReason } from "./web-sign-in-failure";
+import { DateTime } from "effect";
+import {
+  WebSignInFailure,
+  webSignInFailureReason,
+} from "./web-sign-in-failure";
 
 test("maps each operation's Better Auth errors to a reason", () => {
   const cases: ReadonlyArray<
@@ -49,5 +53,31 @@ test("maps each operation's Better Auth errors to a reason", () => {
       error,
       webSignInFailureReason(operation, error),
     ]).toEqual([operation, error, reason]);
+  }
+});
+
+test("only an address-limit failure keeps the server's next send", () => {
+  const nextSignInEmailAt = "2026-11-15T20:41:07.123Z";
+  const limited = WebSignInFailure.fromAnswer("send-email")({
+    status: 429,
+    code: "SIGN_IN_EMAIL_LIMIT_REACHED",
+    nextSignInEmailAt,
+  });
+  expect(
+    limited.nextSignInEmailAt === undefined
+      ? undefined
+      : DateTime.toEpochMillis(limited.nextSignInEmailAt)
+  ).toBe(Date.parse(nextSignInEmailAt));
+  for (const [operation, answer] of [
+    ["send-email", { status: 429, nextSignInEmailAt }],
+    ["verify-code", { status: 429, nextSignInEmailAt }],
+    ["send-email", { status: 429, code: "SIGN_IN_EMAIL_LIMIT_REACHED" }],
+  ] as const) {
+    expect(
+      Object.hasOwn(
+        WebSignInFailure.fromAnswer(operation)(answer),
+        "nextSignInEmailAt"
+      )
+    ).toBe(false);
   }
 });
