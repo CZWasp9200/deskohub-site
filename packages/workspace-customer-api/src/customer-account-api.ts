@@ -21,6 +21,7 @@ import {
   CustomerServiceUnavailable,
   customerReferralCodeHeader,
 } from "./customer-session";
+import { responseHeaders } from "./openapi-response-headers";
 import { ReferralCode } from "./referral-code";
 
 // Errors
@@ -86,6 +87,18 @@ export class CustomerMarketingPreferencesRejected extends Schema.TaggedErrorClas
   { reason: Schema.Literal("stale-context") }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+/**
+ * The session's account can't download its data archive: it has no linked
+ * Dotypos customer, it is a review account, or its deletion is pending. The
+ * website refuses the same sessions.
+ */
+export class CustomerDataExportUnavailable extends Schema.TaggedErrorClass<CustomerDataExportUnavailable>()(
+  "CustomerDataExportUnavailable",
+  {}
+) {
+  static schema = this.pipe(HttpApiSchema.status("NotFound"));
 }
 
 // Account state
@@ -264,6 +277,17 @@ export const CustomerAccountState = Schema.Union([
   accountState("deletion-pending", {}),
 ]).annotate({ identifier: "CustomerAccountState" });
 export type CustomerAccountState = typeof CustomerAccountState.Type;
+
+/**
+ * The account's data archive as a ZIP file, served as an attachment named by
+ * the day it was made.
+ */
+export const CustomerAccountDataExport = Schema.Uint8Array.pipe(
+  HttpApiSchema.asUint8Array({ contentType: "application/zip" })
+).annotate({
+  identifier: "CustomerAccountDataExport",
+  description: "The account's data archive as a ZIP file.",
+});
 
 // Mutations
 
@@ -665,6 +689,26 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
           CustomerServiceUnavailable.schema,
         ],
       }
+    )
+  )
+  .add(
+    /**
+     * The website's self-service data archive. It is assembled for this
+     * request only and never stored.
+     */
+    HttpApiEndpoint.get("getDataExport", "/data-export", {
+      success: CustomerAccountDataExport,
+      error: [
+        CustomerDataExportUnavailable.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    }).annotateMerge(
+      responseHeaders(200, {
+        "Content-Disposition": {
+          description:
+            'Serves the archive as an attachment named by the day it was made, as `attachment; filename="deskohub-account-data-<YYYY-MM-DD>.zip"`.',
+        },
+      })
     )
   )
   .add(

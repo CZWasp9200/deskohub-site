@@ -8,6 +8,7 @@ import {
   type CustomerAnalyticsConsentSync,
   type CustomerAnalyticsPreference,
   type CustomerAnalyticsPreferenceSaved,
+  CustomerDataExportUnavailable,
   CustomerMarketingPreferencesRejected,
   CustomerServiceUnavailable,
   type CustomerSession,
@@ -19,6 +20,7 @@ import {
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Match, Option } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import { loadAccountState } from "@/features/account/backend/account-state";
 import { accountStateCapabilitiesForRun } from "@/features/account/backend/account-state-capabilities";
 import { CustomerAgentConnections } from "@/features/account/backend/auth/customer-agent-connections.service";
@@ -64,6 +66,7 @@ import {
   answerUnavailable,
 } from "./customer-api-failure";
 import { customerAvatarUploadHandler } from "./customer-avatar-upload";
+import { answerFileDownload } from "./customer-file-download";
 
 /**
  * The account group's handlers. Each endpoint builds its operation's Layers
@@ -322,6 +325,30 @@ export const CustomerAccountApiHandlers = HttpApiBuilder.group(
             ),
             answerCustomerApiFailure("customerApi.acknowledgeSignupReferral"),
             Effect.asVoid
+          )
+        )
+        // The website's archive download over the request's session. The
+        // archive is read for this request only, so it stops with the client.
+        .handle("getDataExport", () =>
+          Effect.flatMap(
+            AccountDataExportService,
+            (exports) => exports.download
+          ).pipe(
+            Effect.provide(
+              services.dataExport.pipe(Layer.provide(authentication))
+            ),
+            Effect.catchTags(
+              {
+                AccountDataExportUnavailableError: () =>
+                  Effect.fail(new CustomerDataExportUnavailable()),
+              },
+              // The service already logged a load failure's fixed code.
+              (failure) =>
+                answerSessionApiFailure("customerApi.getDataExport")(
+                  Effect.fail(failure)
+                )
+            ),
+            Effect.map(answerFileDownload("application/zip"))
           )
         )
         // Every deletion outcome is a result the client words, as the
