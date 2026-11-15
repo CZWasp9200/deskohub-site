@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import * as PgClient from "@effect/sql-pg/PgClient";
 import { sql } from "drizzle-orm";
 import { Cause, Context, Effect, Exit, Fiber, Option } from "effect";
 import { SqlClient, SqlError } from "effect/sql";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { WorkspaceDatabase } from "./database.service";
 import { makeDatabaseClient } from "./database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 
 const postgresDatabase = await connectWorkspacePostgresTestDatabase();
 const databaseUrl = process.env.WORKSPACE_TEST_DATABASE_URL ?? "";
@@ -92,6 +93,33 @@ describe.skipIf(!postgresDatabase)("Database statement timeout", () => {
       expect(reason?._tag).toBe("StatementTimeoutError");
       expect(reason?.isRetryable).toBe(true);
       expect(elapsed).toBeLessThan(1_500);
+      expect(await activeSleeps()).toBe(0);
+    } finally {
+      await pool.close();
+    }
+  });
+
+  test("bounds Drizzle's row, value and raw reads on the client while the server bound is long", async () => {
+    const pool = await openDatabasePool({
+      connectionString: databaseUrl,
+      maxConnections: 2,
+      applicationName,
+      statementTimeout: "300 millis",
+      startupParameters: { statement_timeout: "30000" },
+    });
+    try {
+      const client = Context.get(pool.postgres, PgClient.PgClient);
+      const sleep = () => client.unsafe("select pg_sleep(3)");
+      for (const read of [
+        sleep().values,
+        sleep().withoutTransform,
+        sleep().raw,
+      ]) {
+        const started = Date.now();
+        const exit = await Effect.runPromiseExit(read);
+        expect(sqlErrorReason(exit)?._tag).toBe("StatementTimeoutError");
+        expect(Date.now() - started).toBeLessThan(1_500);
+      }
       expect(await activeSleeps()).toBe(0);
     } finally {
       await pool.close();

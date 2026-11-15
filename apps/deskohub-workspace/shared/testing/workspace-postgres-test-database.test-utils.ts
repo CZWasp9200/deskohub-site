@@ -10,7 +10,6 @@ import {
   Exit,
   Fiber,
   Layer,
-  Option,
 } from "effect";
 import { SqlClient, type SqlConnection } from "effect/sql";
 import type { Pool } from "pg";
@@ -203,17 +202,31 @@ export const holdDatabaseConnection = async (database: {
       })
     )
   );
+  // A transaction that fails to open ends the fiber before `opened`.
   const { connection, context } = await Effect.runPromise(
-    Deferred.await(opened)
+    Effect.raceFirst(
+      Deferred.await(opened),
+      Effect.flatMap(Fiber.await(held), (exit) =>
+        Effect.die(
+          Exit.isFailure(exit)
+            ? Cause.squash(exit.cause)
+            : new Error("The held transaction ended before it opened")
+        )
+      )
+    )
   );
   const end = async (outcome: "commit" | "rollback") => {
     await Effect.runPromise(Deferred.succeed(ending, outcome));
     const exit = await Effect.runPromise(Fiber.await(held));
-    if (Exit.isFailure(exit)) {
-      const failure = Cause.findErrorOption(exit.cause);
-      if (!(Option.isSome(failure) && failure.value instanceof HeldRollback)) {
-        throw Cause.squash(exit.cause);
-      }
+    // Only the requested rollback is expected; any other reason is not.
+    if (
+      Exit.isFailure(exit) &&
+      !exit.cause.reasons.every(
+        (reason) =>
+          Cause.isFailReason(reason) && reason.error instanceof HeldRollback
+      )
+    ) {
+      throw Cause.squash(exit.cause);
     }
   };
   return {

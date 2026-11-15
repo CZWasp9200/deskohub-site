@@ -12,8 +12,8 @@ import {
 } from "effect";
 import { SqlClient, type SqlConnection, SqlError } from "effect/sql";
 import type { CustomerAccountId } from "@/features/account/customer-account";
-import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
+import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   type PostgresAdvisoryLockConnections,
   type PostgresAdvisoryLockKey,
@@ -382,6 +382,33 @@ describe("Postgres advisory lock helper", () => {
     expect(interruption._tag).toBe("Failure");
     expect(fake.queries).toHaveLength(3);
     expect(fake.queries[2]).toBe("rollback");
+    expect(fake.released).toHaveLength(1);
+  });
+
+  test("rolls back a BEGIN that the server finishes after its section was interrupted", async () => {
+    const queries: string[] = [];
+    const fake = makeFakeConnections({
+      query: () => (text) => {
+        queries.push(text);
+        // The server runs BEGIN to its end whatever happens to the caller.
+        return text === "begin"
+          ? new Promise((resolve) => setTimeout(resolve, 50))
+          : Promise.resolve({ rows: [] });
+      },
+    });
+
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const section = yield* Effect.forkChild(
+          withPostgresAdvisoryLock(fake.client, key, Effect.never)
+        );
+        yield* Effect.sleep("10 millis");
+        yield* Fiber.interrupt(section);
+      })
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(queries).toEqual(["begin", "rollback"]);
     expect(fake.released).toHaveLength(1);
   });
 

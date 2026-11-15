@@ -31,21 +31,21 @@ const rollbackSql = "rollback";
  * Opens the section's transaction and takes its locks on a reserved
  * connection, and rolls it back when the scope closes. The driver retires a
  * reserved connection that it gets back in a failed transaction, with a
- * statement still in flight, or dead, so a connection whose transaction did
- * not open or end cleanly is never reused, and no lock outlives the scope.
+ * statement still in flight, or dead, but not one with its transaction still
+ * open, so the rollback is registered before BEGIN: an interrupted BEGIN can
+ * still finish while the driver drains it. A rollback without a transaction
+ * only draws a warning. No lock outlives the scope.
  */
 const holdTransactionLocks = Effect.fnUntraced(function* (
   connections: PostgresAdvisoryLockConnections,
   keys: readonly PostgresAdvisoryLockKey[]
 ) {
-    const connection = yield* connections.reserve;
-    const bounded = boundStatement(statementTimeoutOf(connections));
-    const run = (statement: string, params: ReadonlyArray<unknown> = []) =>
-      bounded(connection.executeUnprepared(statement, params, undefined));
-    yield* run(beginSql);
-    // Registered once the transaction is open; a failure before leaves the
-    // connection in a failed transaction, which the driver retires.
-    yield* Effect.addFinalizer(() => Effect.ignore(run(rollbackSql)));
+  const connection = yield* connections.reserve;
+  const bounded = boundStatement(statementTimeoutOf(connections));
+  const run = (statement: string, params: ReadonlyArray<unknown> = []) =>
+    bounded(connection.executeUnprepared(statement, params, undefined));
+  yield* Effect.addFinalizer(() => Effect.ignore(run(rollbackSql)));
+  yield* run(beginSql);
   for (const key of keys) {
     yield* run(lockSql, key);
   }

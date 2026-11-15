@@ -436,6 +436,39 @@ describe.skipIf(!suiteDatabase)(
       }
     });
 
+    test("runs afterCommit callbacks once, after the outer COMMIT, and drops those of rolled-back levels", async () => {
+      const ran: Array<string> = [];
+      const after = (label: string) =>
+        db.$client.afterCommit(Effect.sync(() => ran.push(label)));
+      const ranBeforeCommit = await Effect.runPromise(
+        transaction(
+          Effect.gen(function* () {
+            yield* transaction(after("nested"));
+            yield* transaction(
+              after("rolled-back-savepoint").pipe(
+                Effect.andThen(Effect.fail("inner" as const))
+              )
+            ).pipe(Effect.catch(() => Effect.void));
+            yield* after("outer");
+            return [...ran];
+          })
+        )
+      );
+      expect(ranBeforeCommit).toEqual([]);
+      expect(ran).toEqual(["nested", "outer"]);
+
+      ran.length = 0;
+      const rolledBack = await Effect.runPromiseExit(
+        transaction(
+          transaction(after("inside-rolled-back")).pipe(
+            Effect.andThen(Effect.fail("abort" as const))
+          )
+        )
+      );
+      expect(rolledBack).toStrictEqual(Exit.fail("abort"));
+      expect(ran).toEqual([]);
+    });
+
     test("refuses a streamed query before it reaches the connection", async () => {
       const prefix = `stream-${crypto.randomUUID()}`;
       const { streamed, visible } = await Effect.runPromise(
