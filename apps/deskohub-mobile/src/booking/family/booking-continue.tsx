@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import { theme } from "../../theme";
 import { Button } from "../../ui/controls";
 import { Notice } from "../../ui/notice";
@@ -14,7 +15,6 @@ import {
   type CheckoutRequest,
   checkoutRequestAtom,
 } from "../checkout/checkout-flow";
-import { formatMoney } from "../ui/money";
 import { bookingQueryMessage } from "./booking-family-copy";
 import {
   type BookingRead,

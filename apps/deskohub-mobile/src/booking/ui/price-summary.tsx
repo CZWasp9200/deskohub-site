@@ -3,9 +3,9 @@ import { Option } from "effect";
 import { StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import { theme } from "../../theme";
 import { Text } from "../../ui/text";
-import { formatMoney } from "./money";
 
 /** What a summary line is, from its key (`CustomerCheckoutSummaryItem.key`). */
 export type SummaryLineKind =
