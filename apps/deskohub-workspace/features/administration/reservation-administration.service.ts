@@ -1,10 +1,14 @@
 import { DotyposService } from "@deskohub/dotypos";
-import { Context, Data, Effect, Layer, Option } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { CustomerEmailLocaleService } from "@/features/account";
+import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
 import { WorkspaceCheckoutNetworkDetailsService } from "@/features/checkout/backend/fulfillment/network-details.service";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
+import { PaymentRefundService } from "@/features/checkout/backend/payment/payment-refund.service";
 import { administrationForcedPaymentCancellationFailureCode } from "@/features/checkout/backend/repositories/payment-lifecycle.repository";
+import { WorkspaceTableAssignmentService } from "@/features/checkout/backend/reservation/workspace-table-assignment.service";
 import { WorkspaceFeatureFlagService } from "@/features/feature-flags/backend/workspace-feature-flag.service";
 import { SeatingMapReleaseGate } from "@/features/reservation/backend/seating-map-release-gate";
 import {
@@ -16,9 +20,19 @@ import {
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { ReservationAccessService } from "@/features/reservation-access";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { WorkspaceEmailLayer } from "@/shared/backend/config/email.config";
 import { servicePerOperation } from "@/shared/backend/service-per-operation";
+import {
+  ReservationAdministrationError,
+  type ReservationCancellationFailureReason,
+} from "./reservation-administration-error";
+import {
+  type ReservationRestorationInput,
+  type ReservationRestorationResult,
+  ReservationRestorationService,
+} from "./reservation-restoration.service";
 import {
   ADMINISTRATION_CANCELLATION_RETRY_AFTER_MS,
   canCancelReservation,
@@ -29,29 +43,15 @@ type ReservationCancellationResult = {
   readonly email: "not_requested" | "sent" | "failed";
 };
 
-export type ReservationCancellationFailureReason =
-  | "not_found"
-  | "delivery_in_progress"
-  | "confirmation_in_progress"
-  | "invalid_state"
-  | "cancelled_in_dotypos"
-  | "pending_payment"
-  | "changed"
-  | "reservation_unavailable"
-  | "details_unavailable"
-  | "claim_failed"
-  | "dotypos_failed"
-  | "record_failed";
-
-export class ReservationAdministrationError extends Data.TaggedError(
-  "ReservationAdministrationError"
-)<{
-  readonly code: "not_found" | "not_cancellable" | "cancellation_failed";
-  /** Why the cancellation stopped, so the Admin UI can explain it in the operator's language. */
-  readonly reason: ReservationCancellationFailureReason;
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+export {
+  ReservationAdministrationError,
+  type ReservationCancellationFailureReason,
+  type ReservationRestorationFailureReason,
+} from "./reservation-administration-error";
+export type {
+  ReservationRestorationInput,
+  ReservationRestorationResult,
+} from "./reservation-restoration.service";
 
 type ReservationCancellationInput = {
   readonly accessGrantUpdatedAt: string | null;
@@ -68,6 +68,12 @@ interface IReservationAdministrationService {
     ReservationCancellationResult,
     ReservationAdministrationError
   >;
+  readonly restore: (
+    input: ReservationRestorationInput
+  ) => Effect.Effect<
+    ReservationRestorationResult,
+    ReservationAdministrationError
+  >;
 }
 
 export class ReservationAdministrationService extends Context.Service<
@@ -81,6 +87,7 @@ export class ReservationAdministrationService extends Context.Service<
       const emails = yield* WorkspaceReservationEmailService;
       const reservations = yield* WorkspaceReservationRepository;
       const reservationDetails = yield* WorkspaceReservationService;
+      const restoration = yield* ReservationRestorationService;
 
       const claimCancellation = Effect.fnUntraced(function* (
         input: ReservationCancellationInput,
@@ -168,15 +175,19 @@ export class ReservationAdministrationService extends Context.Service<
         );
       });
 
-      /** Records the completed cancellation, or marks the claim failed when that write fails. */
+      /**
+       * Records the completed cancellation, or marks the claim failed when
+       * that write fails. Returns when the reservation was cancelled.
+       */
       const recordCancellation = Effect.fnUntraced(function* (
         claimed: WorkspaceReservation,
         administrationForceCancellation: boolean
       ) {
+        const cancelledAt = Temporal.Now.instant();
         yield* reservations
           .markAdministrationCancelled({
             id: claimed.id,
-            cancelledAt: Temporal.Now.instant(),
+            cancelledAt,
             claimedAt: claimed.updatedAt,
             failureCode: getCancellationFailureCode(
               administrationForceCancellation,
@@ -204,7 +215,38 @@ export class ReservationAdministrationService extends Context.Service<
               )
             )
           );
+        return cancelledAt;
       });
+
+      /**
+       * Records that the customer was told about the cancellation, so a
+       * restore can tell them in turn. The email went out either way, so a
+       * failed record only logs.
+       */
+      const recordCancellationEmail = (input: {
+        readonly id: WorkspaceReservationId;
+        readonly cancelledAt: Temporal.Instant;
+      }) =>
+        reservations
+          .recordCancellationEmailSent({
+            ...input,
+            sentAt: Temporal.Now.instant(),
+          })
+          .pipe(
+            Effect.flatMap((recorded) =>
+              recorded
+                ? Effect.void
+                : Effect.logWarning(
+                    "The cancellation email was sent after the reservation changed, so it was not recorded."
+                  )
+            ),
+            Effect.catch((cause) =>
+              Effect.logWarning(
+                "The sent cancellation email could not be recorded.",
+                cause
+              )
+            )
+          );
 
       return {
         cancel: Effect.fn("ReservationAdministrationService.cancel")(
@@ -281,44 +323,55 @@ export class ReservationAdministrationService extends Context.Service<
               );
             }
 
-            yield* recordCancellation(claimed, administrationForceCancellation);
+            const cancelledAt = yield* recordCancellation(
+              claimed,
+              administrationForceCancellation
+            );
 
-            return {
-              outcome: "cancelled",
-              email: yield* sendLoadedCancellationEmail({
-                send: input.sendCancellationEmail,
-                details,
-                emails,
-              }),
-            };
+            const email = yield* sendLoadedCancellationEmail({
+              send: input.sendCancellationEmail,
+              details,
+              emails,
+            });
+            if (email === "sent") {
+              yield* recordCancellationEmail({ id: claimed.id, cancelledAt });
+            }
+            return { outcome: "cancelled", email };
           }
         ),
+        restore: restoration.restore,
       } satisfies IReservationAdministrationService;
     })
   );
 
   /**
    * The service as an administration API serves it. An administration API
-   * builds its services once per process, so each cancellation builds its
-   * own seating-map release decision and the reservation details read over
-   * it, which would otherwise reach every later request. `shared` holds no
-   * request state: it builds once with the returned Layer, and every
-   * cancellation takes that instance.
+   * builds its services once per process, so each cancellation and restore
+   * builds its own seating-map release decision and the reservation details
+   * read over it, which would otherwise reach every later request. `shared`
+   * holds no request state: it builds once with the returned Layer, and
+   * every operation takes that instance.
    */
   static perOperationOver = <E, R>(
     shared: Layer.Layer<
+      | AccountingDocumentSnapshotRepository
       | DotyposService
+      | PaymentRefundService
+      | ReservationAccessService
+      | WorkspaceDatabase
       | WorkspaceFeatureFlagService
       | WorkspaceReservationEmailService
-      | WorkspaceReservationRepository,
+      | WorkspaceReservationRepository
+      | WorkspaceTableAssignmentService,
       E,
       R
     >
   ) =>
     servicePerOperation(
       this,
-      { cancel: true },
+      { cancel: true, restore: true },
       this.Default.pipe(
+        Layer.provide(ReservationRestorationService.Default),
         Layer.provide(WorkspaceReservationService.Default),
         Layer.provide(SeatingMapReleaseGate.Default)
       )
@@ -339,8 +392,17 @@ export class ReservationAdministrationService extends Context.Service<
       ),
       WorkspaceReservationRepository.Default,
       WorkspaceDotyposLayer,
-      WorkspaceFeatureFlagService.Default
-    ).pipe(Layer.provide(WorkspaceDatabase.Default))
+      WorkspaceFeatureFlagService.Default,
+      PaymentRefundService.Live,
+      AccountingDocumentSnapshotRepository.Default.pipe(
+        Layer.provide(AccountingSnapshotKeyService.Default)
+      ),
+      ReservationAccessService.Live,
+      WorkspaceTableAssignmentService.Default.pipe(
+        Layer.provide(WorkspaceReservationRepository.Default),
+        Layer.provide(WorkspaceDotyposLayer)
+      )
+    ).pipe(Layer.provideMerge(WorkspaceDatabase.Default))
   );
 }
 
