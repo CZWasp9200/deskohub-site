@@ -34,6 +34,7 @@ import {
   CheckoutCommand,
   CheckoutEvent,
   type CheckoutOperationId,
+  type ClearDiscountCodeCommand,
   type CreateCheckoutCommand,
   type OpenPaymentCommand,
   type SubmitCheckoutCommand,
@@ -69,6 +70,7 @@ export const runCheckoutCommand = (
         answerOf(operationId)
       ),
     ApplyDiscountCode: applyDiscountCode,
+    ClearDiscountCode: clearDiscountCode,
     AcceptPriceChange: acceptPriceChange,
     SubmitCheckout: submitCheckout,
     OpenPayment: openPayment,
@@ -141,6 +143,21 @@ const applyDiscountCode = ({
     ),
     customerWrite,
     Effect.map((result) => CheckoutEvent.CodeApplied({ operationId, result })),
+    answerOf(operationId)
+  );
+
+const clearDiscountCode = ({
+  operationId,
+  request,
+}: ClearDiscountCodeCommand) =>
+  bookingApi.pipe(
+    Effect.flatMap((booking) =>
+      booking.clearCheckoutDiscountCode({ payload: request })
+    ),
+    customerWrite,
+    Effect.map((checkout) =>
+      CheckoutEvent.CodeCleared({ operationId, checkout })
+    ),
     answerOf(operationId)
   );
 

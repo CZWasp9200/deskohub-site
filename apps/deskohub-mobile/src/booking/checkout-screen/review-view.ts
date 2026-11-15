@@ -5,10 +5,11 @@ import type {
   Money,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
-import { canPay } from "../checkout/checkout-machine";
+import { canClearCode, canPay } from "../checkout/checkout-machine";
 import type {
   CodeStatus,
   HeldCheckout,
+  ReviewMutation,
   ReviewState,
 } from "../checkout/checkout-state";
 import type {
@@ -34,17 +35,28 @@ export type ChangedKeys = Option.Option<
 
 const totalKey = "total:final";
 
+/** The applied entered code, as `HeldCheckout` keeps it. */
+export type AppliedCode = Option.Option.Value<
+  HeldCheckout["appliedDiscountCode"]
+>;
+
 const lineView = (
   item: CustomerCheckoutSummaryItem,
-  changed: (key: string) => boolean
+  changed: (key: string) => boolean,
+  appliedCode: Option.Option<AppliedCode>
 ): SummaryLineView => ({
   key: item.key,
   kind: summaryLineKind(item.key),
   amount: item.amount,
   originalAmount: Option.fromUndefinedOr(item.originalAmount),
   discounts: (item.discounts ?? []).map(({ discount, amount }) => ({
+    id: discount.id,
     label: discount.label,
     amount,
+    enteredCode: Option.exists(
+      appliedCode,
+      ({ discountId }) => discountId === discount.id
+    ),
   })),
   office: Option.all({
     dayCount: Option.fromUndefinedOr(item.dayCount),
@@ -68,11 +80,13 @@ const lineView = (
  * a price review changed marked. A line is marked when its own key changed
  * (a section changes when its total does, which says nothing about its
  * other lines, as on the site); the total is marked when its section or the
- * final total line changed.
+ * final total line changed. The applied entered code's discount line is
+ * marked so it can remove the code.
  */
 export const summaryView = (
   summary: CustomerCheckoutSummary,
-  changedKeys: ChangedKeys
+  changedKeys: ChangedKeys,
+  appliedCode: Option.Option<AppliedCode>
 ): SummaryView => {
   const changed = Option.getOrElse(changedKeys, () => ({
     sectionKeys: [] as ReadonlyArray<string>,
@@ -81,7 +95,9 @@ export const summaryView = (
   const lines = summary.sections.flatMap((section) =>
     section.items
       .filter((item) => item.key !== totalKey)
-      .map((item) => lineView(item, (key) => changed.itemKeys.includes(key)))
+      .map((item) =>
+        lineView(item, (key) => changed.itemKeys.includes(key), appliedCode)
+      )
   );
   return {
     lines,
@@ -139,6 +155,14 @@ export interface CodeFieldView {
   readonly editable: boolean;
   readonly canApply: boolean;
   readonly message: CodeMessage;
+  /**
+   * The entered code the price includes; its summary line is the discount
+   * marked `enteredCode`. `ClearCode` removes it.
+   */
+  readonly applied: Option.Option<AppliedCode>;
+  readonly canClear: boolean;
+  /** The code's removal runs. */
+  readonly clearing: boolean;
 }
 
 export type LegalView =
@@ -172,17 +196,19 @@ export interface ReviewView {
   readonly holdSecondsLeft: number;
 }
 
-const pendingIs =
-  (review: ReviewState) =>
-  (tag: "ApplyDiscountCode" | "AcceptPriceChange" | "SubmitCheckout") =>
-    Option.exists(review.pending, (pending) => pending._tag === tag);
+const pendingIs = (review: ReviewState) => (tag: ReviewMutation["_tag"]) =>
+  Option.exists(review.pending, (pending) => pending._tag === tag);
 
 export const reviewView = (review: ReviewState, now: number): ReviewView => {
   const idle = Option.isNone(review.pending);
   const pending = pendingIs(review);
   const { checkout, code, legal } = review;
   return {
-    summary: summaryView(checkout.summary, checkout.priceReview),
+    summary: summaryView(
+      checkout.summary,
+      checkout.priceReview,
+      checkout.appliedDiscountCode
+    ),
     priceReview: Option.isSome(checkout.priceReview),
     acceptingPrice: pending("AcceptPriceChange"),
     code: {
@@ -190,6 +216,9 @@ export const reviewView = (review: ReviewState, now: number): ReviewView => {
       editable: idle,
       canApply: idle && code.input.trim() !== "",
       message: codeMessage(code.status),
+      applied: checkout.appliedDiscountCode,
+      canClear: canClearCode(review),
+      clearing: pending("ClearDiscountCode"),
     },
     consent: {
       legal,
@@ -200,10 +229,10 @@ export const reviewView = (review: ReviewState, now: number): ReviewView => {
     canPay: canPay(review),
     busy: !idle,
     submitting: pending("SubmitCheckout"),
-    holdSecondsLeft: holdSecondsLeft(Date.parse(checkout.expiresAt), now),
+    holdSecondsLeft: holdSecondsLeft(Date.parse(checkout.holdExpiresAt), now),
   };
 };
 
 /** Whole seconds left on the hold at `now` (epoch ms), never below zero. */
-export const holdSecondsLeft = (expiresAt: number, now: number): number =>
-  Math.max(0, Math.ceil((expiresAt - now) / 1000));
+export const holdSecondsLeft = (holdExpiresAt: number, now: number): number =>
+  Math.max(0, Math.ceil((holdExpiresAt - now) / 1000));

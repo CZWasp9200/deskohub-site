@@ -32,7 +32,9 @@ const held = (overrides: Partial<CustomerCheckout> = {}): CustomerCheckout => ({
   status: "ready",
   orderId: "order-1",
   payStateToken: "token-1",
-  expiresAt: "2026-11-20T09:10:00.000Z",
+  // The token outlives the hold here, so the countdown proves which it uses.
+  expiresAt: "2026-11-20T09:20:00.000Z",
+  holdExpiresAt: "2026-11-20T09:10:00.000Z",
   summary,
   earlyPerformanceConsent: {
     required: false,
@@ -138,6 +140,7 @@ describe("summaryView", () => {
           },
         ],
       },
+      Option.none(),
       Option.none()
     );
     expect(view.lines.map((line) => line.key)).toEqual(
@@ -152,13 +155,15 @@ describe("summaryView", () => {
     const [first, second] = pricedLines(selection);
     const byItem = summaryView(
       summary,
-      Option.some({ sectionKeys: [], itemKeys: [first?.key ?? ""] })
+      Option.some({ sectionKeys: [], itemKeys: [first?.key ?? ""] }),
+      Option.none()
     );
     expect(byItem.lines.map((line) => line.changed)).toEqual([true, false]);
     expect(byItem.totalChanged).toBe(false);
     const bySection = summaryView(
       summary,
-      Option.some({ sectionKeys: ["order", "total"], itemKeys: [] })
+      Option.some({ sectionKeys: ["order", "total"], itemKeys: [] }),
+      Option.none()
     );
     expect(bySection.lines.map((line) => line.changed)).toEqual([false, false]);
     expect(bySection.totalChanged).toBe(true);
@@ -177,13 +182,49 @@ describe("summaryView", () => {
       discountShare: 0.15,
       discountLabel: "Referral",
     });
-    const [line] = summaryView(office, Option.none()).lines;
+    const [line] = summaryView(office, Option.none(), Option.none()).lines;
     expect(line?.kind).toEqual({ _tag: "Product", product: "office" });
     expect(
       Option.map(line?.office ?? Option.none(), (o) => [o.dayCount, o.seats])
     ).toEqual(Option.some([3, 2]));
     expect(Option.isSome(line?.originalAmount ?? Option.none())).toBe(true);
     expect(line?.discounts.length).toBe(1);
+  });
+
+  test("marks only the applied entered code's discount line", () => {
+    const discounted = sampleSummary({
+      lines: pricedLines(selection),
+      discountShare: 0.1,
+      discountLabel: "SAVE10",
+    });
+    const discountsOf = (view: ReturnType<typeof summaryView>) =>
+      view.lines.flatMap((line) => line.discounts);
+    const [discount] = discountsOf(
+      summaryView(discounted, Option.none(), Option.none())
+    );
+    if (discount === undefined) throw new Error("no discount line");
+    expect(discount.enteredCode).toBe(false);
+
+    const entered = discountsOf(
+      summaryView(
+        discounted,
+        Option.none(),
+        Option.some({ code: "SAVE10", discountId: discount.id })
+      )
+    );
+    expect(entered.map((line) => line.enteredCode)).toEqual(
+      entered.map((line) => line.id === discount.id)
+    );
+    expect(entered.some((line) => line.enteredCode)).toBe(true);
+
+    const otherCode = discountsOf(
+      summaryView(
+        discounted,
+        Option.none(),
+        Option.some({ code: "OTHER", discountId: "another-discount" })
+      )
+    );
+    expect(otherCode.every((line) => !line.enteredCode)).toBe(true);
   });
 });
 
@@ -328,9 +369,29 @@ describe("reviewView", () => {
       reason: "ineligible",
     });
   });
+
+  test("an applied entered code can be removed; removing holds the review still", () => {
+    const appliedDiscountCode = { code: "SAVE10", discountId: "sample-code" };
+    const loaded = reviewWith(held({ appliedDiscountCode }));
+    const idle = reviewView(asReview(loaded.state), now);
+    expect(idle.code.applied).toEqual(Option.some(appliedDiscountCode));
+    expect(idle.code.canClear).toBe(true);
+    expect(idle.code.clearing).toBe(false);
+
+    const clearing = run(loaded.state, CheckoutEvent.ClearCode());
+    const pending = reviewView(asReview(clearing.state), now);
+    expect(pending.code.clearing).toBe(true);
+    expect(pending.code.canClear).toBe(false);
+    expect(pending.busy).toBe(true);
+    expect(pending.canPay).toBe(false);
+
+    const none = reviewView(asReview(reviewWith(held()).state), now);
+    expect(none.code.applied).toEqual(Option.none());
+    expect(none.code.canClear).toBe(false);
+  });
 });
 
-test("reviewView counts the hold down from the flow clock's tick", () => {
+test("reviewView counts the hold, not the token, down from the flow clock's tick", () => {
   const loaded = reviewWith(held());
   expect(reviewView(asReview(loaded.state), now).holdSecondsLeft).toBe(300);
   expect(reviewView(asReview(loaded.state), now).busy).toBe(false);
