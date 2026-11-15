@@ -27,13 +27,22 @@ Any change to price facts accepted at the previous boundary returns `pricing_cha
 
 ### Discount-code entry
 
-The summary page's code form is an independent action (`features/checkout/actions/apply-discount-code.ts`). It never resubmits the reservation or the order.
+The summary page's code form is an independent action (`features/checkout/actions/apply-discount-code.ts`, with `clear-discount-code.ts` for its Remove control). Both are thin adapters, like the customer API's handlers, over the shared Pay-state operations `applyDiscountCodeToPayState` and `clearDiscountCodeFromPayState` in `features/checkout/backend/checkout/pay-state-discount-code.ts`. They never resubmit the reservation or the order.
 
 1. Affirm every displayed discount. A change returns `pricing_changed`.
 2. An invalid or unavailable code returns a field error and leaves the current summary payable.
 3. A valid code returns a new signed summary. It creates no payment attempt, persists no application, and reserves no capacity.
 4. Ordinary and referral codes are priced between two live payable-reservation guards. An active payment attempt at either guard returns `payment_in_progress` and signs no repriced summary.
 5. A referral verdict (inactive, unknown, self-referral and the like) is a code failure. A referral store or Dotypos outage reaches no verdict and is a provider failure the customer can retry, never an unavailable code.
+
+Removing an entered code (`clearDiscountCodeFromPayState`) shares entry's live guards (`priceBetweenPayableGuards`), unavailable mapping, signed `bookedAt` and deadline:
+
+1. No `submittedCode` and no `requestedDiscountCode`: return the caller's token as `unchanged`. It signs nothing and reads no reservation, like accepting a price that needs no review, so a retry after a lost response is safe; payment checks the reservation again.
+2. Only a `requestedDiscountCode`: after one live payable guard, reissue without it. No repricing; a pending `changedKeys` review stays.
+3. An applied code with `changedKeys` pending: `price_review_pending`.
+4. An applied code: `CheckoutPricingService.clearDiscountCode` affirms every displayed discount except `submittedCodeDiscountId` through `affirmDisplayedDiscounts`, so `selectAffirmedCandidates` decides as at payment and the kept discounts are stacked afresh, never by taking the code's amount back off. The referral benefit is affirmed with them through `referralCode`. Reissue without `submittedCode`, `submittedCodeDiscountId` and `requestedDiscountCode`, with the new quote (and so its `acceptedTotal`) and `changedKeys` from the signed summary to the new one, so the customer accepts the price before paying. A code that changed no summary key signs no review.
+
+Every reissue keeps `holdExpiresAt` through `getPayStateHoldExpiresAt`/`withPayStateHoldExpiry`; neither operation moves the hold.
 
 Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. Every reservation family quotes and affirms through its own canonical product identity; dispatch family-owned quote, summary, persistence, and checkout-details projections exhaustively, with no implicit cowork default.
 
@@ -55,7 +64,7 @@ A displayed or advertised discount is **gone** only when every provider resolved
 When a provider fails or resolves incompletely (Calendar `complete: false`) and a displayed discount is unmatched, the discount is **unknown**. `selectAffirmedCandidates` in `features/discounts/discount.service.ts` fails with `DiscountAffirmationUnavailableError`:
 
 - Reservation submission, order submission, and the post-identity query-code check surface it as a retryable `PublicSafeActionError`. The customer retries the unchanged summary.
-- Discount-code entry treats it as an unavailable code and leaves the summary payable.
+- Discount-code entry and removal treat it as a provider failure the customer can retry and leave the summary payable.
 - Never answer it with `pricing_changed`, a re-signed summary, or a payment attempt.
 - Never fall back to an earlier Calendar read. Affirmation (`CalendarDiscountProvider.revalidate`) always reads Google Calendar directly. Only advertisement discovery uses the shared cache.
 
@@ -82,7 +91,7 @@ An action that awaits Calendar in sequence with other work adds one worst-case l
 | Action | Deadline getter | Calendar loads |
 | --- | --- | --- |
 | Reservation submission | `getPreparePayStateDeadline` | 2 (sales affirmation, then availability limitations) |
-| Discount-code entry | `getApplyDiscountCodeDeadline` | 1, through `getCalendarActionDeadline` |
+| Discount-code entry and removal | `getDiscountCodeChangeDeadline` | 1, through `getCalendarActionDeadline` |
 | Pay submit | `getCheckoutSubmitDeadline` | 1, plus one Dotypos and one Nexi request |
 
 Count a Calendar load that runs in parallel with other work unless that work is reliably slower. The added budget covers one Calendar retry, not every provider being slow at once; that case ends in the retryable timeout error.

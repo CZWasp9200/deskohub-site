@@ -708,6 +708,7 @@
   "checkoutDiscountCodePlaceholder": "Введіть код",
   "checkoutDiscountCodeApply": "Застосувати код",
   "checkoutDiscountCodeApplying": "Застосовуємо…",
+  "checkoutDiscountCodeRemove": "Видалити код",
   "checkoutDiscountCodeUnavailable": "Цей код знижки, код запрошення або ваучер недоступний. Перевірте його й спробуйте ще раз або продовжте з поточною ціною.",
   "checkoutVoucherLabel": "Ваучер",
   "checkoutDiscountCodeApplied": "Код застосовано: знижка {discount} 🎉",

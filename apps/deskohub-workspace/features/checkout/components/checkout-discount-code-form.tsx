@@ -6,6 +6,7 @@ import { AlertTriangle } from "lucide-react";
 import { type FormEvent, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { applyDiscountCodeForm } from "@/features/checkout/actions/apply-discount-code";
+import { clearDiscountCodeForm } from "@/features/checkout/actions/clear-discount-code";
 import {
   type DiscountCodeRejection,
   getDiscountCodeRejectionMessage,
@@ -16,6 +17,7 @@ import { type Locale, m } from "@/features/i18n";
 import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
+import { CheckoutDiscountCodeRemoveButton } from "./checkout-discount-code-remove-button";
 import { CheckoutDiscountCodeSubmitButton } from "./checkout-discount-code-submit-button";
 import { DiscountRejectionAnalytics } from "./discount-rejection-analytics";
 
@@ -81,14 +83,22 @@ export function CheckoutDiscountCodeForm({
 
   if (appliedAdjustment) {
     return (
-      <output className="block rounded-2xl border border-aquamarine-green/40 bg-aquamarine-green/12 px-4 py-3 text-sm font-semibold text-aquamarine-ink ring-1 ring-aquamarine-green/10">
-        {m.checkoutDiscountCodeApplied(
-          {
-            discount: formatDiscountAdjustment(appliedAdjustment, locale),
-          },
-          { locale }
-        )}
-      </output>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl border border-aquamarine-green/40 bg-aquamarine-green/12 px-4 py-3 text-sm font-semibold text-aquamarine-ink ring-1 ring-aquamarine-green/10">
+        <output>
+          {m.checkoutDiscountCodeApplied(
+            {
+              discount: formatDiscountAdjustment(appliedAdjustment, locale),
+            },
+            { locale }
+          )}
+        </output>
+        <form
+          action={clearDiscountCodeForm.bind(null, locale, payStateToken)}
+          data-checkout-discount-code-remove
+        >
+          <CheckoutDiscountCodeRemoveButton locale={locale} />
+        </form>
+      </div>
     );
   }
 

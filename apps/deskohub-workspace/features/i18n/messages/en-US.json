@@ -700,6 +700,7 @@
   "checkoutDiscountCodePlaceholder": "Enter code",
   "checkoutDiscountCodeApply": "Apply code",
   "checkoutDiscountCodeApplying": "Applying...",
+  "checkoutDiscountCodeRemove": "Remove code",
   "checkoutDiscountCodeUnavailable": "That discount, voucher, or referral code isn’t available. Check it and try again, or continue with the current price.",
   "checkoutVoucherLabel": "Voucher",
   "checkoutDiscountCodeApplied": "Promotion applied: {discount} off 🎉",

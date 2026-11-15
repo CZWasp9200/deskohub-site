@@ -700,6 +700,7 @@
   "checkoutDiscountCodePlaceholder": "Code eingeben",
   "checkoutDiscountCodeApply": "Code einlösen",
   "checkoutDiscountCodeApplying": "Wird eingelöst …",
+  "checkoutDiscountCodeRemove": "Code entfernen",
   "checkoutDiscountCodeUnavailable": "Dieser Rabattcode, Empfehlungscode oder Gutschein ist nicht verfügbar. Prüf ihn und versuch es noch einmal, oder fahre mit dem aktuellen Preis fort.",
   "checkoutVoucherLabel": "Gutschein",
   "checkoutDiscountCodeApplied": "Code eingelöst: {discount} Rabatt 🎉",
