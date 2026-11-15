@@ -101,6 +101,7 @@
   "booking_checkout_blocked_account_unavailable": "Không thể tải tài khoản của bạn. Hãy thử lại sau giây lát; nếu vẫn không được, hãy đăng xuất rồi đăng nhập lại.",
   "booking_checkout_blocked_payment_disabled": "Bạn đang đặt bằng tài khoản xét duyệt. Đặt chỗ chỉ là mô phỏng và thanh toán đã tắt, nên không có gì được đặt hoặc thanh toán.",
   "account_dev_smoke_link": "Chạy kiểm tra môi trường thực thi",
+  "account_dev_design_system_link": "Thư viện hệ thống thiết kế",
   "smoke_title": "Kiểm tra môi trường thực thi",
   "smoke_running": "Đang kiểm tra…",
   "smoke_finished": "Đã kiểm tra xong.",
@@ -557,5 +558,6 @@
   "booking_restart_availability_changed": "Lựa chọn của bạn không còn khả dụng, nên chúng tôi bắt đầu lại. Hãy chọn thời gian khác.",
   "booking_restart_price_changed": "Lựa chọn đã thay đổi trong lúc này, nên chúng tôi bắt đầu lại với giá hiện tại.",
   "booking_restart_selection_unavailable": "Không thể đặt lựa chọn của bạn ở dạng này, nên chúng tôi bắt đầu lại. Hãy điều chỉnh và tiếp tục.",
-  "booking_restart_checkout_not_found": "Không còn tìm thấy đặt chỗ đang thực hiện của bạn, nên chúng tôi bắt đầu lại."
+  "booking_restart_checkout_not_found": "Không còn tìm thấy đặt chỗ đang thực hiện của bạn, nên chúng tôi bắt đầu lại.",
+  "navigation_back": "Quay lại"
 }

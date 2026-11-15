@@ -58,6 +58,14 @@ Paths are relative to `apps/deskohub-workspace` unless they start with
   `CustomerAccountContactService.current` or the standing with
   `CurrentCustomerAccount.peek`, and never resolve through
   `CurrentCustomerAccount.resolve` or `requireLinkedCustomerAccount`.
+- Supply a channel's `CustomerAuthentication` to the account services in
+  one place: agents through `customerAgentAccountServices`, customer API
+  handlers to Layer seams, site callers through `Live` or one
+  `CustomerAuthentication.Default` over `ForProvidedAuthentication` Layers
+  (see [authentication supply](references/account-domain-and-routes.md#authentication-supply)).
+  A signed-in agent tool call builds its account services in its own memo
+  map (`local: true` in `defineSignedInAgentTool`); never take a caller's
+  account service from the MCP route's services, which are browser-backed.
 - Keep Drizzle as the only migration authority. Never run Better Auth runtime
   migrations.
 - Prefer Better Auth, Effect, and Next built-in APIs over hand-rolled
@@ -77,7 +85,8 @@ Paths are relative to `apps/deskohub-workspace` unless they start with
 Read the reference that matches your change before editing:
 
 - [Account domain and routes](references/account-domain-and-routes.md):
-  account standing (`CurrentCustomerAccount`), customer resolution, link claims, the durable customer account and
+  account standing (`CurrentCustomerAccount`), customer resolution, how each
+  channel supplies the account services' authentication, link claims, the durable customer account and
   reservation authors, the public error contract, account pages
   and modals, the `/account/legal` preferences (account analytics
   preference, opt-out, cross-device withdrawal), header sign-in state,

@@ -802,6 +802,7 @@ export {
   RenameCliSession,
   type RenameCliSession as RenameCliSessionType,
   reservationAccessMutationOperations,
+  reservationsMinimumDhwVersion,
   StartCliAuthentication,
   type StartCliAuthentication as StartCliAuthenticationType,
   StartedCliAuthentication,
