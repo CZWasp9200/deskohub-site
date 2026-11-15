@@ -14,7 +14,10 @@ import { getReservationCancellationErrorMessage } from "@/features/administratio
 import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
-import { InvoiceAdministrationService } from "./invoice-administration.service";
+import {
+  type InvoiceAdministrationCancelResult,
+  InvoiceAdministrationService,
+} from "./invoice-administration.service";
 import { readInvoiceCancellationPreview } from "./invoice-cancellation-preview";
 import {
   getInvoiceArchiveErrorMessage,
@@ -165,6 +168,19 @@ const previewInvoiceCancellationAction = defineAdministrationAction(
   })
 );
 
+type CancelledReservation = NonNullable<
+  InvoiceAdministrationCancelResult["reservation"]
+>;
+
+/** What the cancel dialog reports once the invoice is cancelled. */
+type InvoiceCancellationActionResult = {
+  readonly outcome: InvoiceAdministrationCancelResult["outcome"];
+  readonly correctiveDocumentNumber: string;
+  /** Set when the invoice's reservation was cancelled with it. */
+  readonly reservationId: CancelledReservation["reservationId"] | null;
+  readonly reservationEmail: CancelledReservation["email"] | null;
+};
+
 const cancelInvoiceAction = defineAdministrationAction(
   {
     operation: "invoice-administration.cancel",
@@ -189,7 +205,7 @@ const cancelInvoiceAction = defineAdministrationAction(
       ),
     revalidates: (
       { invoiceId },
-      { reservationId }: { readonly reservationId: string | null }
+      { reservationId }: InvoiceCancellationActionResult
     ) => [
       ...invoicePaths(invoiceId),
       ...(reservationId
@@ -209,12 +225,13 @@ const cancelInvoiceAction = defineAdministrationAction(
       invoiceId,
       actor: { source: "admin-ui", administrator },
     });
-    return {
+    const outcome: InvoiceCancellationActionResult = {
       outcome: result.outcome,
       correctiveDocumentNumber: result.cancellation.correctiveDocumentNumber,
       reservationId: result.reservation?.reservationId ?? null,
       reservationEmail: result.reservation?.email ?? null,
     };
+    return outcome;
   })
 );
 
