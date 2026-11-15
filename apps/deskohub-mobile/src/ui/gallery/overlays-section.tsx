@@ -1,9 +1,12 @@
+import Check from "lucide-react-native/icons/check";
 import { useEffect, useState } from "react";
 import { BottomSheet } from "../bottom-sheet";
 import { ConfirmDialog } from "../confirm-dialog";
 import { Button } from "../controls";
 import { Dialog } from "../dialog";
+import { Icon } from "../icon";
 import { ListGroup, ListRow } from "../list";
+import { color } from "../tokens";
 import { ToastCases } from "./feedback-section";
 import { GalleryCase, GallerySection, useSample } from "./gallery-kit";
 
@@ -92,7 +95,11 @@ export function OverlaysSection() {
               key={name}
               kind="action"
               label={sample(name)}
-              value={name === country ? "✓" : undefined}
+              trailing={
+                name === country ? (
+                  <Icon icon={Check} size={20} color={color.action} />
+                ) : undefined
+              }
               onPress={() => {
                 setCountry(name);
                 close();
