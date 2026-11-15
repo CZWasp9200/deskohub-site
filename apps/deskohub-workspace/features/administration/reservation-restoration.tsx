@@ -39,6 +39,13 @@ import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import { m } from "./i18n";
 import { AdministrationAlert } from "./notice";
 
+/** Money already returned to the customer, which restoring doesn't charge again. */
+export type RefundedReservationPayment = {
+  /** The total refunded. */
+  readonly amount: AdministrationMoney;
+  readonly coverage: "full" | "partial";
+};
+
 /** What restoring the reservation would do, from the reservation detail. */
 export type ReservationRestorationPreview = {
   /** A cancellation email was sent, so a restoration email can be offered. */
@@ -47,11 +54,7 @@ export type ReservationRestorationPreview = {
   readonly issuesNewAccess: boolean;
   /** A payment marked as needing a refund no longer will be. */
   readonly clearsRefundRequirement: boolean;
-  /** Money already returned to the customer, which restoring doesn't charge again. */
-  readonly refundedPayment: {
-    readonly amount: AdministrationMoney;
-    readonly coverage: "full" | "partial";
-  } | null;
+  readonly refundedPayment: RefundedReservationPayment | null;
 };
 
 /** What the operator asks for when restoring a reservation. */
@@ -201,6 +204,7 @@ export function ReservationRestoration({
     onSuccess: ({ data }) => {
       if (!data) return;
       setOpen(false);
+      form.reset(reservationRestorationFormDefaults);
       setNotices(getReservationRestorationNotices(data, locale));
       router.refresh();
     },
@@ -218,7 +222,7 @@ export function ReservationRestoration({
   if (!restoration && notices.length === 0) return null;
 
   return (
-    <div className="space-y-2">
+    <div>
       {restoration && (
         <ReservationRestorationDialog
           error={error}
@@ -245,15 +249,13 @@ export function ReservationRestoration({
           restoration={restoration}
         />
       )}
-      {notices.map((notice) => (
-        <AdministrationAlert
-          key={notice.message}
-          role="status"
-          status={notice.status}
-        >
-          {notice.message}
-        </AdministrationAlert>
-      ))}
+      <div className="mt-2 space-y-2 empty:mt-0" role="status">
+        {notices.map((notice) => (
+          <AdministrationAlert key={notice.message} status={notice.status}>
+            {notice.message}
+          </AdministrationAlert>
+        ))}
+      </div>
     </div>
   );
 }
@@ -405,11 +407,13 @@ function ReservationRestorationDialog({
                 )}
               />
             )}
-            {error && (
-              <AdministrationAlert role="alert" status="error">
-                {error}
-              </AdministrationAlert>
-            )}
+            <div role="alert">
+              {error && (
+                <AdministrationAlert status="error">
+                  {error}
+                </AdministrationAlert>
+              )}
+            </div>
             <DialogFooter>
               <DialogClose asChild>
                 <Button

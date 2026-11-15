@@ -1,7 +1,9 @@
 import type { Locale } from "@/features/i18n";
+import { formatMoney } from "@/shared/money/money";
 import { m } from "./i18n";
 import type { ReservationAccessAdministrationError } from "./reservation-access-administration.service";
 import type { ReservationCancellationFailureReason } from "./reservation-administration.service";
+import type { RefundedReservationPayment } from "./reservation-restoration";
 
 /** The operator-facing reason a reservation cancellation stopped. */
 export const getReservationCancellationErrorMessage = (
@@ -62,8 +64,21 @@ const reservationRestorationErrorMessages = {
   record_failed: m.administrationReservationRestorationErrorRecordFailed,
 };
 
-/** The operator-facing reason a reservation restoration stopped. */
+/**
+ * The operator-facing reason a reservation restoration stopped. A refusal to
+ * restore over a refund names the refunded amount when the service reports it.
+ */
 export const getReservationRestorationErrorMessage = (
   reason: keyof typeof reservationRestorationErrorMessages,
-  locale: Locale
-) => reservationRestorationErrorMessages[reason]({}, { locale });
+  locale: Locale,
+  refundedPayment?: RefundedReservationPayment
+) =>
+  reason === "refund_acknowledgement_required" && refundedPayment
+    ? {
+        full: m.administrationReservationRestorationErrorRefundedFull,
+        partial: m.administrationReservationRestorationErrorRefundedPartial,
+      }[refundedPayment.coverage](
+        { amount: formatMoney(refundedPayment.amount, locale) },
+        { locale }
+      )
+    : reservationRestorationErrorMessages[reason]({}, { locale });

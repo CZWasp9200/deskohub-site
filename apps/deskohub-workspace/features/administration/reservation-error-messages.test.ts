@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { baseLocale, supportedLocales } from "@deskohub/i18n/locale-registry";
+import { formatMoney } from "@/shared/money/money";
 import { getReservationRestorationErrorMessage } from "./reservation-error-messages";
 
 type RestorationRefusal = Parameters<
@@ -42,6 +43,30 @@ describe("getReservationRestorationErrorMessage", () => {
           getReservationRestorationErrorMessage(reason, baseLocale)
         );
       }
+    }
+  );
+
+  test.each(supportedLocales)(
+    "names the refunded amount, full or partial, when a refund blocks restoration in %s",
+    (locale) => {
+      const amount = { value: 25_000, exponent: 2, currency: "CZK" };
+      const withoutAmount = getReservationRestorationErrorMessage(
+        "refund_acknowledgement_required",
+        locale
+      );
+      const [full, partial] = (["full", "partial"] as const).map((coverage) =>
+        getReservationRestorationErrorMessage(
+          "refund_acknowledgement_required",
+          locale,
+          { amount, coverage }
+        )
+      );
+
+      for (const message of [full, partial]) {
+        expect(message).toContain(formatMoney(amount, locale));
+        expect(message).not.toBe(withoutAmount);
+      }
+      expect(full).not.toBe(partial);
     }
   );
 });

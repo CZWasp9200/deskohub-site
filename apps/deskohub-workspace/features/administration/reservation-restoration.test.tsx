@@ -164,6 +164,15 @@ const submitDialog = async (
   });
 };
 
+/**
+ * The outcome notices, read from the one status region that announces them.
+ * The open modal dialog hides it from the accessibility tree.
+ */
+const statusMessages = (view: ReturnType<typeof render>) =>
+  Array.from(view.getByRole("status", { hidden: true }).children).map(
+    (notice) => notice.textContent
+  );
+
 const submittedRequest = () =>
   execute.mock.calls[0]?.[0] as ReservationRestorationRequest | undefined;
 
@@ -348,9 +357,7 @@ describe("ReservationRestoration", () => {
         });
       });
 
-      expect(
-        view.getAllByRole("status").map((node) => node.textContent)
-      ).toEqual([message({}, { locale: "en-US" })]);
+      expect(statusMessages(view)).toEqual([message({}, { locale: "en-US" })]);
       expect(view.queryByRole("dialog")).toBeNull();
       expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
     }
@@ -382,18 +389,16 @@ describe("ReservationRestoration", () => {
       </RouteLocaleProvider>
     );
 
-    expect(view.getAllByRole("status").map((node) => node.textContent)).toEqual(
-      [
-        m.administrationReservationRestorationAlreadyRestored(
-          {},
-          { locale: "en-US" }
-        ),
-        m.administrationReservationRestorationAccessIssued(
-          {},
-          { locale: "en-US" }
-        ),
-      ]
-    );
+    expect(statusMessages(view)).toEqual([
+      m.administrationReservationRestorationAlreadyRestored(
+        {},
+        { locale: "en-US" }
+      ),
+      m.administrationReservationRestorationAccessIssued(
+        {},
+        { locale: "en-US" }
+      ),
+    ]);
     expect(
       view.queryByRole("button", {
         name: m.administrationReservationRestorationOpen(
@@ -402,6 +407,31 @@ describe("ReservationRestoration", () => {
         ),
       })
     ).toBeNull();
+  });
+
+  test("starts the next restoration with the refund unacknowledged", async () => {
+    const refunded = {
+      ...restorableReservation,
+      refundedPayment: { amount: refundedAmount, coverage: "partial" },
+    } satisfies ReservationRestorationPreview;
+    const view = await renderRestoration(refunded);
+    const dialog = await openDialog(view);
+    const checkbox = acknowledgementCheckbox(dialog);
+    if (!checkbox) throw new Error("The acknowledgement checkbox is missing.");
+    fireEvent.click(checkbox);
+    await submitDialog(dialog);
+    act(() => {
+      actionOptions?.onSuccess({
+        data: { outcome: "restored", email: "sent", access: "not_needed" },
+      });
+    });
+
+    const reopened = await openDialog(view);
+
+    expect(
+      acknowledgementCheckbox(reopened)?.getAttribute("aria-checked")
+    ).toBe("false");
+    expect(submitButton(reopened).hasAttribute("disabled")).toBe(true);
   });
 
   test("warns when the new access code could not be issued", async () => {
@@ -417,8 +447,8 @@ describe("ReservationRestoration", () => {
       });
     });
 
-    const [, accessNotice] = view.getAllByRole("status");
-    expect(accessNotice?.textContent).toBe(
+    const [, accessNotice] = statusMessages(view);
+    expect(accessNotice).toBe(
       m.administrationReservationRestorationAccessFailed(
         {},
         { locale: "en-US" }
@@ -458,7 +488,7 @@ describe("ReservationRestoration", () => {
       actionOptions?.onSuccess({});
     });
     expect(view.getByRole("dialog")).toBeDefined();
-    expect(view.queryByRole("status")).toBeNull();
+    expect(statusMessages(view)).toEqual([]);
     expect(workspaceRouterRefresh).not.toHaveBeenCalled();
   });
 
