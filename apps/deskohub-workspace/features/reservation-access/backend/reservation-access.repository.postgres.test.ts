@@ -7,8 +7,9 @@ import {
   IgloohomePinIdSchema,
 } from "@deskohub/igloohome";
 import { NodeCrypto } from "@effect/platform-node";
+import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
-import { reservationAccessGrants } from "@/db/schema";
+import { reservationAccessGrants, workspaceReservations } from "@/db/schema";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -88,7 +89,7 @@ describe.skipIf(!testDatabase)(
             startedAt,
           })
         )
-      ).toBe(true);
+      ).toBe("claimed");
       await run((repository) =>
         repository.markIssued({
           id: grant.id,
@@ -100,6 +101,43 @@ describe.skipIf(!testDatabase)(
       );
       return { accessCode, grant };
     };
+
+    test.each(["cancelling", "cancelled", "held"] as const)(
+      "leaves the grant of a %s reservation unclaimed",
+      async (state) => {
+        const reservationId = await insertReservation();
+        const grant = await run((repository) =>
+          repository.ensure({ reservationId, ...target, replacingIssued: null })
+        );
+        await Effect.runPromise(
+          testDatabase.db
+            .update(workspaceReservations)
+            .set({ reservationState: state })
+            .where(eq(workspaceReservations.id, reservationId))
+        );
+
+        expect(
+          await run((repository) =>
+            repository.claim({
+              id: grant.id,
+              reservationId,
+              scheduledAccessStartsAt: target.scheduledAccessStartsAt,
+              accessStartsAt: target.accessStartsAt,
+              accessEndsAt: target.accessEndsAt,
+              accessName: `Deskohub ${grant.id}`,
+              startedAt: Temporal.Now.instant(),
+            })
+          )
+        ).toBe("not_issuable");
+        expect(
+          (
+            await run((repository) =>
+              repository.findByReservationId(reservationId)
+            )
+          )?.state
+        ).toBe("pending");
+      }
+    );
 
     test("keeps a grant created before names were stored unnamed until its next request", async () => {
       const reservationId = await insertReservation();
@@ -436,15 +474,15 @@ describe.skipIf(!testDatabase)(
         ...moved,
         accessStartsAt: Temporal.Instant.from("2030-03-04T11:00:00Z"),
       };
-      expect(await claimFor(staleStart)).toBe(false);
-      expect(await claimFor(staleEnd)).toBe(false);
-      expect(await claimFor(laterAccessStart)).toBe(false);
+      expect(await claimFor(staleStart)).toBe("taken");
+      expect(await claimFor(staleEnd)).toBe("taken");
+      expect(await claimFor(laterAccessStart)).toBe("taken");
       const [staleClaimed, currentClaimed] = await Promise.all([
         claimFor(target),
         claimFor(moved),
       ]);
-      expect(staleClaimed).toBe(false);
-      expect(currentClaimed).toBe(true);
+      expect(staleClaimed).toBe("taken");
+      expect(currentClaimed).toBe("claimed");
 
       const accessCode = AlgoPinSchema.make("987654321");
       await run((repository) =>

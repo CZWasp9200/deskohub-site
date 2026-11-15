@@ -13,6 +13,7 @@ import { Deferred, Effect, Fiber, Layer, Option, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { reservationAccessGrants } from "@/db/schema";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -453,6 +454,75 @@ describe.skipIf(!testDatabase)(
           expect((await loadGrant(reservationId))?.state).toBe(state);
         }
       );
+
+      test("stops a restored issuance in flight once an administrator claims the reservation's cancellation", async () => {
+        const reservationId = await insertReservation();
+        await insertGrant(reservationId, "expired");
+        expect(await prepare(reservationId)).toBe("issue");
+        const igloohome = igloohomeIssuing(
+          Effect.die("Igloohome must not be called")
+        );
+
+        await Effect.gen(function* () {
+          const reached = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          // Issuance has read and prepared the grant when it reaches its
+          // claim; the cancellation is claimed before the claim runs.
+          const gatedRepository = Layer.effect(
+            ReservationAccessRepository,
+            Effect.map(ReservationAccessRepository, (repository) =>
+              ReservationAccessRepository.of({
+                ...repository,
+                claim: (input) =>
+                  Deferred.succeed(reached, undefined).pipe(
+                    Effect.andThen(Deferred.await(release)),
+                    Effect.andThen(repository.claim(input))
+                  ),
+              })
+            )
+          ).pipe(Layer.provide(ReservationAccessRepository.Default));
+          const issuance = yield* Effect.forkChild(
+            Effect.flatMap(ReservationAccessService, (service) =>
+              service.issueRestoredAccess({ reservationId, ...upcoming })
+            ).pipe(
+              Effect.provide(
+                ReservationAccessService.Default.pipe(
+                  Layer.provide(
+                    Layer.mergeAll(gatedRepository, igloohome.layer)
+                  ),
+                  Layer.provide(NodeCrypto.layer),
+                  Layer.provide(testDatabase.layer)
+                )
+              )
+            )
+          );
+          yield* Deferred.await(reached);
+
+          const cancelling = yield* Effect.flatMap(
+            WorkspaceReservationRepository,
+            (reservations) =>
+              reservations.claimAdministrationCancellation({
+                id: reservationId,
+                providerCredentialRemoved: false,
+                accessGrantUpdatedAt: null,
+                staleCancellingBefore: restoredAt,
+              })
+          ).pipe(
+            Effect.provide(WorkspaceReservationRepository.Default),
+            Effect.provide(testDatabase.layer)
+          );
+          expect(cancelling?.reservationState).toBe("cancelling");
+          yield* Deferred.succeed(release, undefined);
+
+          expect(yield* Fiber.join(issuance)).toBe("failed");
+        }).pipe(Effect.runPromise);
+
+        expect(igloohome.issueHourlyAlgoPin).not.toHaveBeenCalled();
+        expect(await loadGrant(reservationId)).toMatchObject({
+          state: "pending",
+          provisioningStartedAt: null,
+        });
+      });
 
       test.each([
         { name: "a reopened", grant: "expired" },
