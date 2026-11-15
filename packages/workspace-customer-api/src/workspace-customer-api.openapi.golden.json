@@ -1281,6 +1281,93 @@
         }
       }
     },
+    "/api/customer/account/data-export": {
+      "get": {
+        "tags": ["account"],
+        "operationId": "account.getDataExport",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The account's data archive as a ZIP file.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "description": "Serves the archive as an attachment named by the day it was made, as `attachment; filename=\"deskohub-account-data-<YYYY-MM-DD>.zip\"`.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CustomerDataExportUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDataExportUnavailable"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/customer/account/deletion": {
       "post": {
         "tags": ["account"],
@@ -4514,6 +4601,17 @@
           }
         },
         "required": ["granted", "decidedAt"],
+        "additionalProperties": false
+      },
+      "CustomerDataExportUnavailable": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["CustomerDataExportUnavailable"]
+          }
+        },
+        "required": ["_tag"],
         "additionalProperties": false
       },
       "RequestCustomerAccountDeletion": {

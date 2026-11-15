@@ -64,7 +64,10 @@ import {
 import { CurrentCustomerAccount } from "./current-customer-account";
 import { requireAccountActivity } from "./customer-account-activity";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import type { CustomerAccountSession } from "./customer-authentication.service";
+import {
+  type CustomerAccountSession,
+  CustomerAuthentication,
+} from "./customer-authentication.service";
 import { CustomerDotyposAdapter } from "./customer-dotypos-adapter.service";
 import { requireLinkedCustomerAccount } from "./linked-customer-account";
 
@@ -446,10 +449,15 @@ export class AccountDataExportService extends Context.Service<
     })
   );
 
-  static Live = this.Default.pipe(
+  /**
+   * The archive of the session the `CustomerAuthentication` the caller
+   * provides later reads, such as a customer API request's.
+   */
+  static ForProvidedAuthentication = this.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
-        accountDataExportAuthorityLive,
+        CurrentCustomerAccount.ForProvidedAuthentication,
+        CustomerAccountLinkRepository.Live,
         CustomerDotyposAdapter.Live,
         CustomerBookedReservations.Live,
         WorkspaceReservationRepository.Live,
@@ -466,6 +474,14 @@ export class AccountDataExportService extends Context.Service<
       )
     )
   );
+
+  /** The archive of the session this authentication reads. */
+  static withAuthentication = <E, R>(
+    authentication: Layer.Layer<CustomerAuthentication, E, R>
+  ) => this.ForProvidedAuthentication.pipe(Layer.provide(authentication));
+
+  /** The archive of the browser session's account, as the website serves it. */
+  static Live = this.withAuthentication(CustomerAuthentication.Default);
 }
 
 /**

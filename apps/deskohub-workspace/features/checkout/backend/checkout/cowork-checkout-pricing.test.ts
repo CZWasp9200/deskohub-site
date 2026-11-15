@@ -597,6 +597,7 @@ describe("cowork checkout pricing", () => {
           bookedAt,
           dotyposCustomerId,
           quote: customerQuote.quote,
+          acceptedTotal: money(55_000),
         });
       }),
       DiscountServiceMock({ affirmDisplayedDiscounts })
@@ -613,10 +614,13 @@ describe("cowork checkout pricing", () => {
       submittedCode: undefined,
       displayedDiscountIds: [],
     });
-    expect(payment.reservation).toBe(profiOrder);
-    expect(payment.commitment).toBe(commitment);
-    expect(payment.quote.fingerprint).toBe(customerQuote.quote.fingerprint);
-    expect(payment.quote.payment.expectedPrice).toEqual(money(55_000));
+    expect(payment.status).toBe("affirmed");
+    expect(payment.priced.reservation).toBe(profiOrder);
+    expect(payment.priced.commitment).toBe(commitment);
+    expect(payment.priced.quote.fingerprint).toBe(
+      customerQuote.quote.fingerprint
+    );
+    expect(payment.priced.quote.payment.expectedPrice).toEqual(money(55_000));
   });
 
   test("prices workstation presence from the advertised reserved-desk selection", async () => {

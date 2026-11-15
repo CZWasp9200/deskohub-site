@@ -19,6 +19,7 @@ import {
   type CoworkDiscountCodePriceResult,
   type CoworkPaymentPriceAffirmation,
   type CoworkPaymentPriceAffirmationInput,
+  type CoworkPaymentRepricingInput,
   coworkCheckoutPricing,
 } from "./cowork-checkout-pricing";
 import {
@@ -33,6 +34,7 @@ import {
   type MeetingRoomDiscountCodePriceResult,
   type MeetingRoomPaymentPriceAffirmation,
   type MeetingRoomPaymentPriceAffirmationInput,
+  type MeetingRoomPaymentRepricingInput,
   meetingRoomCheckoutPricing,
 } from "./meeting-room-checkout-pricing";
 import {
@@ -47,6 +49,7 @@ import {
   type OfficeDiscountCodePriceResult,
   type OfficePaymentPriceAffirmation,
   type OfficePaymentPriceAffirmationInput,
+  type OfficePaymentRepricingInput,
   officeCheckoutPricing,
 } from "./office-checkout-pricing";
 import type { PriceVerdict } from "./price-verdict";
@@ -76,7 +79,12 @@ export type PreparedCustomerQuote =
   | MeetingRoomCustomerQuote
   | OfficeCustomerQuote;
 
-type PaymentPriceAffirmationInput =
+export type PaymentRepricingInput =
+  | CoworkPaymentRepricingInput
+  | MeetingRoomPaymentRepricingInput
+  | OfficePaymentRepricingInput;
+
+export type PaymentPriceAffirmationInput =
   | CoworkPaymentPriceAffirmationInput
   | MeetingRoomPaymentPriceAffirmationInput
   | OfficePaymentPriceAffirmationInput;
@@ -135,9 +143,24 @@ export interface ICheckoutPricingService {
   readonly quoteForCustomer: (
     input: CustomerQuoteInput
   ) => Effect.Effect<PreparedCustomerQuote, CheckoutPricingError>;
+  /**
+   * Re-prices a signed order for its payment without judging the signed
+   * price, as claim-admission recovery does.
+   */
+  readonly repriceForPayment: (
+    input: PaymentRepricingInput
+  ) => Effect.Effect<PaymentPriceAffirmation, CheckoutPricingError>;
+  /**
+   * Affirms the signed price before payment. The price changed when the
+   * re-priced quote's fingerprint differs from the signed one or its total
+   * from the accepted total. An unanswered discount provider fails.
+   */
   readonly affirmForPayment: (
     input: PaymentPriceAffirmationInput
-  ) => Effect.Effect<PaymentPriceAffirmation, CheckoutPricingError>;
+  ) => Effect.Effect<
+    PriceVerdict<PaymentPriceAffirmation>,
+    CheckoutPricingError
+  >;
   readonly applyDiscountCode: (
     input: DiscountCodePriceInput
   ) => Effect.Effect<DiscountCodePriceResult, CheckoutPricingError>;
@@ -236,6 +259,25 @@ export class CheckoutPricingService extends Context.Service<
         )
       );
 
+      const repriceForPayment = Effect.fn(
+        "CheckoutPricingService.repriceForPayment"
+      )((input: PaymentRepricingInput) =>
+        Match.value(input).pipe(
+          Match.when({ reservation: { kind: "cowork" } }, (coworkInput) =>
+            cowork.repriceForPayment(coworkInput)
+          ),
+          Match.when(
+            { reservation: { kind: "meeting-room" } },
+            (meetingRoomInput) =>
+              meetingRoom.repriceForPayment(meetingRoomInput)
+          ),
+          Match.when({ reservation: { kind: "office" } }, (officeInput) =>
+            office.repriceForPayment(officeInput)
+          ),
+          Match.exhaustive
+        )
+      );
+
       const affirmForPayment = Effect.fn(
         "CheckoutPricingService.affirmForPayment"
       )((input: PaymentPriceAffirmationInput) =>
@@ -277,6 +319,7 @@ export class CheckoutPricingService extends Context.Service<
         quoteAdvertisement,
         affirmAdvertisement,
         quoteForCustomer,
+        repriceForPayment,
         affirmForPayment,
         applyDiscountCode,
       } satisfies ICheckoutPricingService;

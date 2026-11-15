@@ -141,6 +141,7 @@ describe("meeting-room checkout pricing", () => {
           bookedAt: Temporal.Now.instant(),
           dotyposCustomerId,
           quote: advertised.quote,
+          acceptedTotal: advertised.quote.payment.expectedPrice,
         });
         return { advertised, payment };
       }).pipe(Effect.provide(calendarSaleDiscounts), Effect.runPromise);
@@ -148,7 +149,8 @@ describe("meeting-room checkout pricing", () => {
       expect(result.advertised.quote.payment.discounts).toHaveLength(
         expectedDiscounts
       );
-      expect(result.payment.quote.payment.discounts).toHaveLength(
+      expect(result.payment.status).toBe("affirmed");
+      expect(result.payment.priced.quote.payment.discounts).toHaveLength(
         expectedDiscounts
       );
     }
@@ -201,6 +203,7 @@ describe("meeting-room checkout pricing", () => {
             bookedAt: Temporal.Now.instant(),
             dotyposCustomerId,
             quote: advertised.quote,
+            acceptedTotal: advertised.quote.payment.expectedPrice,
           })
           .pipe(Effect.result);
         return { advertised, payment };
@@ -230,10 +233,13 @@ describe("meeting-room checkout pricing", () => {
       );
 
       expect(advertised.quote.payment.discounts).toHaveLength(1);
-      expect(payment).toMatchObject({ _tag: "Success" });
+      expect(payment).toMatchObject({
+        _tag: "Success",
+        success: { status: "pricing_changed" },
+      });
       if (payment._tag === "Success") {
-        expect(payment.success.quote.payment.discounts).toEqual([]);
-        expect(payment.success.quote.fingerprint).not.toBe(
+        expect(payment.success.priced.quote.payment.discounts).toEqual([]);
+        expect(payment.success.priced.quote.fingerprint).not.toBe(
           advertised.quote.fingerprint
         );
       }

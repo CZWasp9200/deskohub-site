@@ -23,9 +23,6 @@ import {
   type CheckoutSummaryChangedKeys,
   getCheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
-import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
-import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
-import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
 import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
 import {
   isWorkspaceCoworkCurrentProductTier,
@@ -94,6 +91,7 @@ import {
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
+import type { PriceVerdict } from "./price-verdict";
 import { getReservationStatusPath } from "./reservation-status-url";
 import { appendVercelPreviewProtectionBypass } from "./vercel-preview-protection-bypass";
 
@@ -502,14 +500,13 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           readonly returnTarget: PaymentReturnTarget | undefined;
         }) {
           yield* Effect.annotateLogsScoped({
-            providerSessionInput: {
-              workspaceReservationId: input.workspaceReservationId,
-              correlationId: input.correlationId,
-              checkoutSessionId: input.checkoutSessionId,
-              locale: input.locale,
-              total: input.total,
-              hasCustomer: true,
-            },
+            reservationId: input.workspaceReservationId,
+            correlationId: input.correlationId,
+            checkoutSessionId: input.checkoutSessionId,
+            locale: input.locale,
+            totalValue: input.total.value,
+            totalCurrency: input.total.currency,
+            hasCustomer: true,
           });
           yield* Effect.logInfo("Checkout provider session start requested");
 
@@ -541,7 +538,10 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
             input.workspaceReservationId,
             "cancelled"
           );
-          yield* Effect.annotateLogsScoped({ nexiAmount });
+          yield* Effect.annotateLogsScoped({
+            nexiAmount: nexiAmount.amount,
+            nexiCurrency: nexiAmount.currency,
+          });
           yield* Effect.logDebug("Checkout provider session inputs prepared");
 
           yield* ensureReservationHasNotEnded(input.reservation);
@@ -945,60 +945,43 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
               })
           )
         );
-        const prepared = yield* pricing.affirmForPayment({
+        const verdict = yield* pricing.affirmForPayment({
           ...state,
           bookedAt: getSignedPayStateBookedAt(state),
           dotyposCustomerId,
           locale,
         });
-        const acceptedSummary = getSignedPayStateCheckoutSummary(state);
-        const freshSummary = Match.value(prepared).pipe(
-          Match.discriminatorsExhaustive("kind")({
-            cowork: ({ quote, reservation }) =>
-              getCoworkCheckoutSummary(reservation, quote),
-            "meeting-room": ({ quote }) => getMeetingRoomCheckoutSummary(quote),
-            office: ({ quote }) => getOfficeCheckoutSummary(quote),
-          })
-        );
         yield* Effect.annotateLogsScoped({
-          quoteFingerprint: prepared.quote.fingerprint,
+          quoteFingerprint: verdict.priced.quote.fingerprint,
         });
         yield* Effect.logDebug("Hosted payment checkout quote built");
         yield* Effect.logDebug(
           "Hosted payment checkout quote comparison started"
         );
-        return { dotyposCustomerId, prepared, acceptedSummary, freshSummary };
+        return { dotyposCustomerId, verdict };
       });
 
       /**
-       * A fresh Pay state to review when re-pricing changed the quote or the
-       * signed total; `undefined` when the signed price still holds.
+       * A fresh Pay state to review when the payment verdict says the signed
+       * price changed; `undefined` when it still holds.
        */
       const findRepricedResult = Effect.fnUntraced(function* (input: {
         readonly state: SignedPayState;
         readonly locale: Locale;
         readonly reservation: WorkspaceReservation;
-        readonly prepared: PaymentPriceAffirmation;
-        readonly acceptedSummary: CheckoutSummary;
-        readonly freshSummary: CheckoutSummary;
+        readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
       }) {
-        const { state, prepared, acceptedSummary, freshSummary } = input;
-        if (
-          prepared.quote.fingerprint === state.quote.fingerprint &&
-          moneyEquals(freshSummary.total, state.acceptedTotal)
-        ) {
-          return undefined;
-        }
-        const changedKeys = getCheckoutSummaryChangedKeys(
-          acceptedSummary,
-          freshSummary
-        );
+        const { state, verdict } = input;
+        if (verdict.status === "affirmed") return undefined;
+        const { changedKeys, priced: prepared } = verdict;
+        const freshSummary = prepared.summary;
         yield* Effect.annotateLogsScoped({
-          changedKeys,
+          changedSectionKeys: changedKeys.sectionKeys.join(","),
+          changedItemKeys: changedKeys.itemKeys.join(","),
           acceptedQuoteFingerprint: state.quote.fingerprint,
-          acceptedTotal: state.acceptedTotal,
+          acceptedTotalValue: state.acceptedTotal.value,
           freshQuoteFingerprint: prepared.quote.fingerprint,
-          freshTotal: freshSummary.total,
+          freshTotalValue: freshSummary.total.value,
         });
         yield* Effect.logInfo(
           "Hosted payment checkout returned pricing_changed"
@@ -1092,22 +1075,20 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
               });
             }
 
-            const {
-              dotyposCustomerId,
-              prepared,
-              acceptedSummary,
-              freshSummary,
-            } = yield* affirmSignedPricing({ state, locale, reservation });
+            const { dotyposCustomerId, verdict } = yield* affirmSignedPricing({
+              state,
+              locale,
+              reservation,
+            });
 
             const repricedResult = yield* findRepricedResult({
               state,
               locale,
               reservation,
-              prepared,
-              acceptedSummary,
-              freshSummary,
+              verdict,
             });
             if (repricedResult) return repricedResult;
+            const prepared = verdict.priced;
             yield* Effect.logDebug(
               "Hosted payment checkout quote comparison passed"
             );
@@ -1252,24 +1233,18 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                             discountErrorReason: cause.reason,
                           }
                         );
-                        const refreshed = yield* pricing.affirmForPayment({
+                        // The claim moved the price after it was affirmed, so
+                        // the customer reviews the re-priced order whatever
+                        // it compares to: no verdict, only the changed keys.
+                        const refreshed = yield* pricing.repriceForPayment({
                           ...state,
                           bookedAt: getSignedPayStateBookedAt(state),
                           dotyposCustomerId,
                           locale,
                         });
-                        const refreshedSummary = Match.value(refreshed).pipe(
-                          Match.discriminatorsExhaustive("kind")({
-                            cowork: ({ quote, reservation }) =>
-                              getCoworkCheckoutSummary(reservation, quote),
-                            "meeting-room": ({ quote }) =>
-                              getMeetingRoomCheckoutSummary(quote),
-                            office: ({ quote }) =>
-                              getOfficeCheckoutSummary(quote),
-                          })
-                        );
+                        const refreshedSummary = refreshed.summary;
                         const changedKeys = getCheckoutSummaryChangedKeys(
-                          acceptedSummary,
+                          getSignedPayStateCheckoutSummary(state),
                           refreshedSummary
                         );
                         const refreshedCheckoutDetails = getCheckoutDetails({
