@@ -463,8 +463,11 @@ export const applyDiscountCodeToPayState = Effect.fn(
     : applyPromotionCode(entry);
 }, recoverUnavailableCodeChange);
 
-/** Why an entered code was not removed; the existing summary stays as is. */
-export type ClearDiscountCodeUnavailable = Exclude<
+/**
+ * Why a code change, entering or removing one, left the Pay state as it was,
+ * whatever the code.
+ */
+export type DiscountCodeChangeUnavailable = Exclude<
   DiscountCodeUnavailable,
   { readonly reason: "code" | "code_already_applied" }
 >;
@@ -478,7 +481,7 @@ export type ClearDiscountCodeResult =
   | ({ readonly status: "cleared" } & FreshPayState)
   /** The Pay state carried no code; its own token is returned as is. */
   | ({ readonly status: "unchanged" } & FreshPayState)
-  | (ClearDiscountCodeUnavailable & NoFreshPayState);
+  | (DiscountCodeChangeUnavailable & NoFreshPayState);
 
 /**
  * Removes the entered code from a Pay state. Its other displayed discounts,

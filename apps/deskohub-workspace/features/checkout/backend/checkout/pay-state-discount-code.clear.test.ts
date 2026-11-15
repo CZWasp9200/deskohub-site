@@ -2,8 +2,10 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import type { GoogleCalendarEvent } from "@deskohub/google-calendar";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Layer, Schema } from "effect";
+import { type Duration, Effect, Layer, Schema } from "effect";
+import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
@@ -12,13 +14,20 @@ import {
   DiscountProviderError,
   discountIdSchema,
 } from "@/features/discounts";
+import { calendarSaleDiscountServiceLayer } from "@/features/discounts/calendar-sale.test-utils";
 import {
   type CanonicalPromotionCode,
   canonicalPromotionCodeSchema,
 } from "@/features/discounts/contracts";
 import type { Locale } from "@/features/i18n";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
+import {
+  withActionDeadline,
+  workspaceActionDeadline,
+} from "@/shared/backend/workspace-action";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
 import {
   buildSignedPayState,
@@ -29,6 +38,7 @@ import {
 import {
   type ClearDiscountCodeResult,
   clearDiscountCodeFromPayState,
+  getDiscountCodeChangeDeadline,
 } from "./pay-state-discount-code";
 import {
   PayableReservationService,
@@ -148,6 +158,10 @@ const makeAppliedCodeToken = (
 
 type ClearInput = {
   readonly payStateToken: string;
+  /** Replaces the pricing stub, for example with real pricing. */
+  readonly pricing?: Layer.Layer<CheckoutPricingService>;
+  /** How long each live payable-reservation guard takes. */
+  readonly requireCurrentDuration?: Duration.Input;
   readonly locale?: Locale;
   /** Replaces the pricing stub's `clearDiscountCode`. */
   readonly clearDiscountCode?: ReturnType<typeof mock>;
@@ -160,9 +174,9 @@ type ClearInput = {
   };
 };
 
-const runClear = async (input: ClearInput) => {
+const prepareClear = (input: ClearInput) => {
   let guardReads = 0;
-  const requireCurrent = mock(() => {
+  const readGuard = () => {
     guardReads += 1;
     if (input.payableReservationUnavailable?.at === guardReads) {
       return Effect.fail(
@@ -183,7 +197,12 @@ const runClear = async (input: ClearInput) => {
             null)
           : (input.activePaymentAttemptId ?? null),
     } as never);
-  });
+  };
+  const requireCurrent = mock(() =>
+    Effect.sleep(input.requireCurrentDuration ?? 0).pipe(
+      Effect.andThen(readGuard)
+    )
+  );
   const clearDiscountCode =
     input.clearDiscountCode ??
     mock(() =>
@@ -196,23 +215,35 @@ const runClear = async (input: ClearInput) => {
     );
   const findById = mock(() => Effect.die("must not read the reservation"));
 
-  const exit = await clearDiscountCodeFromPayState({
+  const effect = clearDiscountCodeFromPayState({
     locale: input.locale ?? "en-US",
     payStateToken: input.payStateToken,
   }).pipe(
     Effect.provide(
       Layer.mergeAll(
-        CheckoutPricingServiceMock({ clearDiscountCode }),
+        input.pricing ?? CheckoutPricingServiceMock({ clearDiscountCode }),
         Layer.succeed(PayableReservationService, { requireCurrent }),
         Layer.mock(WorkspaceReservationRepository, { findById }),
         TestSealedStateKeys
       )
-    ),
+    )
+  );
+  return { effect, requireCurrent, clearDiscountCode, findById };
+};
+
+const runClear = async (input: ClearInput) => {
+  const { effect, ...scenario } = prepareClear(input);
+  return { ...scenario, exit: await Effect.runPromise(Effect.exit(effect)) };
+};
+
+/** Runs a removal under an action deadline on an instant test clock. */
+const runClearWithinDeadline = (deadline: Duration.Input, input: ClearInput) =>
+  prepareClear(input).effect.pipe(
+    withActionDeadline(deadline),
     Effect.exit,
+    withInstantSleeps,
     Effect.runPromise
   );
-  return { exit, requireCurrent, clearDiscountCode, findById };
-};
 
 const clearSucceeds = async (input: ClearInput) => {
   const { exit, ...scenario } = await runClear(input);
@@ -233,6 +264,70 @@ const openFresh = (result: ClearDiscountCodeResult) => {
 };
 
 describe("clearDiscountCodeFromPayState", () => {
+  describe.each([
+    // A slow successful Calendar retry between live guards that are slow but
+    // well within the Dotypos timeout; together they just outlast the
+    // ordinary 45-second deadline.
+    ["production", "18 seconds"],
+    ["preview", "8 seconds"],
+  ] as const)(
+    "in %s, with a Calendar load that succeeds on its retry",
+    (deploymentEnvironment, liveGuardDuration) => {
+      const removal = async () => {
+        const listEvents = mock((saleEvents: readonly GoogleCalendarEvent[]) =>
+          Effect.sleep(
+            getSlowestSuccessfulCalendarLoad(deploymentEnvironment)
+          ).pipe(Effect.as(saleEvents))
+        );
+        return {
+          listEvents,
+          input: {
+            payStateToken: await makeAppliedCodeToken(),
+            requireCurrentDuration: liveGuardDuration,
+            pricing: CheckoutPricingService.Default.pipe(
+              Layer.provide(
+                calendarSaleDiscountServiceLayer({
+                  calendarId: `clear-code-deadline-${deploymentEnvironment}`,
+                  firstDay: Temporal.PlainDate.from("2026-05-01"),
+                  lastDay: Temporal.PlainDate.from("2026-09-30"),
+                  labels: { "en-US": "Summer sale", "cs-CZ": "Letní sleva" },
+                  products: [{ kind: "cowork" }],
+                  listEvents,
+                })
+              )
+            ),
+          } satisfies ClearInput,
+        };
+      };
+
+      test("completes the removal within the discount-code change deadline", async () => {
+        const { input, listEvents } = await removal();
+
+        const exit = await runClearWithinDeadline(
+          getDiscountCodeChangeDeadline(deploymentEnvironment),
+          input
+        );
+
+        expect(listEvents).toHaveBeenCalledTimes(1);
+        expect(exit._tag).toBe("Success");
+      });
+
+      test("would be interrupted under the ordinary action deadline", async () => {
+        const exit = await runClearWithinDeadline(
+          workspaceActionDeadline,
+          (await removal()).input
+        );
+
+        expect(exit).toMatchObject({
+          _tag: "Failure",
+          cause: {
+            reasons: [{ error: { _tag: "WorkspaceActionTimeout" } }],
+          },
+        });
+      });
+    }
+  );
+
   describe("an applied code", () => {
     test("signs the price without it for review, dropping the intended code too", async () => {
       const payStateToken = await makeAppliedCodeToken();
