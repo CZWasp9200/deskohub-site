@@ -380,6 +380,7 @@ describe.skipIf(!database)(
           ),
           Effect.provide(
             AdministrationService.Default.pipe(
+              Layer.provide(WorkspaceReservationRepository.Default),
               Layer.provide(
                 Layer.mergeAll(
                   database.layer,

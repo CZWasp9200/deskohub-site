@@ -91,6 +91,15 @@ The payment-attempt refund state is the single refund work queue, shared with la
 
 Derive every payment summary's status from `getAdministrationPaymentStatus` and render amounts through `PaymentAmount`. Add the "Refund recorded" timeline item from the stored refund only when live Nexi details are unavailable, so a refund never appears twice. Customer revenue sums paid attempts minus recorded refunds.
 
+## Restore fields on the reservation detail
+
+The detail (`AdministrationService.loadReservation`, contract `AdministrationReservationDetail`) carries `canRestore` and `restoration`, which the restore dialog, the API and `dhw` read. The restore service re-checks the same facts under lock; the detail only predicts them.
+
+- `canRestore` is `canRestoreReservation(row, { hasActiveSuccessor })` (`reservation-status.ts`), and the Dotypos booking must be readable with a valid span. Look the successor up with `WorkspaceReservationRepository.findCurrentByCheckoutSessionKey` only for a row that already passes the predicate. Never write a second successor query. A booking Dotypos can't read now reports `false`, because the restore would fail with `details_unavailable`.
+- `restoration` is null unless `canRestore`. `cancellationEmailRecorded` is `cancellation_email_sent_at` being set, which the cancel flow stamps only after the cancellation email sends. `clearsRefundRequirement` and `refundedPayment` (the total Nexi refunded, `full` or `partial`) come from `getRestorationRefund` over every payment attempt. The restore's `refund_acknowledgement_required` refusal uses the same helper.
+- `issuesNewAccess` means the access span hasn't ended: `getRestoredReservationAccess(grant, { reservedUntil }, now) !== "not_needed"`. `reservedUntil` comes from `getDotyposReservationAccessTiming` over `decodeBookedReservation(Dotypos record, stored details)`, the held span the restore uses, so both sides decide "ended" the same way. The grant state never changes this value. An uncertain grant makes the restore refuse rather than skip access.
+- Both contract fields carry decoding defaults (`false`, `null`), so a newer `dhw` reads an older server's detail.
+
 ## Reservation access recovery
 
 - Retry automatically only from `failed`, a definitive provider rejection.

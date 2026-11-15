@@ -5063,6 +5063,149 @@
                       "canCancel": {
                         "type": "boolean"
                       },
+                      "canRestore": {
+                        "type": "boolean"
+                      },
+                      "restoration": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "cancellationEmailRecorded": {
+                                "type": "boolean"
+                              },
+                              "issuesNewAccess": {
+                                "type": "boolean"
+                              },
+                              "clearsRefundRequirement": {
+                                "type": "boolean"
+                              },
+                              "refundedPayment": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "amount": {
+                                        "type": "object",
+                                        "properties": {
+                                          "value": {
+                                            "anyOf": [
+                                              {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "NaN"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "Infinity"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "-Infinity"
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "Infinity",
+                                                  "-Infinity",
+                                                  "NaN"
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          "exponent": {
+                                            "anyOf": [
+                                              {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "NaN"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "Infinity"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "-Infinity"
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "Infinity",
+                                                  "-Infinity",
+                                                  "NaN"
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          "currency": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "value",
+                                          "exponent",
+                                          "currency"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      "coverage": {
+                                        "type": "string",
+                                        "enum": [
+                                          "full",
+                                          "partial"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "amount",
+                                      "coverage"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "cancellationEmailRecorded",
+                              "issuesNewAccess",
+                              "clearsRefundRequirement",
+                              "refundedPayment"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "requiresProviderCredentialRemoval": {
                         "type": "boolean"
                       }
