@@ -386,10 +386,8 @@ export class WorkspaceReservationEmailService extends Context.Service<
         const locale = yield* resolveCustomerEmailLocale(reservation);
         const customerEmail = reservation.customer.email?.trim();
         if (!customerEmail) {
-          return yield* Effect.fail(
-            new EmailServiceError(
-              "Workspace reservation customer email is missing."
-            )
+          return yield* new EmailServiceError(
+            "Workspace reservation customer email is missing."
           );
         }
         const rendered = yield* input.render(locale);
