@@ -56,10 +56,12 @@ import { type Instant, instantStringSchema } from "@/shared/utils/temporal";
 import { getPayStateExpiresAt } from "./checkout-pay-url";
 import {
   CheckoutPricingService,
-  type PaymentPriceAffirmation,
   type PaymentPriceAffirmationInput,
 } from "./checkout-pricing.service";
-import { paymentPricingFrom } from "./checkout-pricing.service.mock";
+import {
+  paymentPricingFrom,
+  type RepricedPayment,
+} from "./checkout-pricing.service.mock";
 import {
   type CheckoutReferralResult,
   CheckoutReferralService,
@@ -344,7 +346,7 @@ const tokenForOrder = (input: TestPayStateInput, orderId: string) =>
   );
 
 const makeServiceLayer = (input: {
-  readonly affirmation: PaymentPriceAffirmation;
+  readonly affirmation: RepricedPayment;
   readonly evaluateCheckoutReferral: (input: {
     readonly code: unknown;
     readonly dotyposCustomerId: typeof dotyposCustomerId;
@@ -445,7 +447,7 @@ const openFreshPayState = (result: CheckoutReferralResult) => {
 
 const expectAcceptedThenIdempotentRetry = async (input: {
   readonly payStateToken: string;
-  readonly affirmation: PaymentPriceAffirmation;
+  readonly affirmation: RepricedPayment;
   readonly family: "cowork" | "meeting-room" | "office";
 }) => {
   let acceptanceCount = 0;
@@ -549,8 +551,6 @@ describe("CheckoutReferralService", () => {
         bookedAt: payStateBookedAt,
       }),
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote: freshQuote,
         commitment: makeCommitment(coworkProduct, freshApplications),
       },
@@ -563,8 +563,6 @@ describe("CheckoutReferralService", () => {
     const signedOrderId = `signed-referral-order-${crypto.randomUUID()}`;
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
@@ -627,8 +625,6 @@ describe("CheckoutReferralService", () => {
         bookedAt: payStateBookedAt,
       }),
       affirmation: {
-        kind: "meeting-room",
-        reservation: meetingRoomReservation,
         quote: freshQuote,
         commitment: makeCommitment(product, freshApplications),
       },
@@ -674,8 +670,6 @@ describe("CheckoutReferralService", () => {
         bookedAt: payStateBookedAt,
       }),
       affirmation: {
-        kind: "office",
-        reservation: officeReservation,
         quote: freshQuote,
         commitment: makeCommitment(product, freshApplications),
       },
@@ -724,8 +718,6 @@ describe("CheckoutReferralService", () => {
     );
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote: freshQuote,
         commitment: makeCommitment(coworkProduct, freshApplications),
       },
@@ -753,8 +745,6 @@ describe("CheckoutReferralService", () => {
     const evaluatedCustomers: unknown[] = [];
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
@@ -782,8 +772,6 @@ describe("CheckoutReferralService", () => {
     let evaluationCount = 0;
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
@@ -811,8 +799,6 @@ describe("CheckoutReferralService", () => {
     let evaluationCount = 0;
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
@@ -837,9 +823,7 @@ describe("CheckoutReferralService", () => {
 
   test("keeps an unreadable pay-state token and a pricing failure unavailable", async () => {
     const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
-    const affirmation: PaymentPriceAffirmation = {
-      kind: "cowork",
-      reservation,
+    const affirmation: RepricedPayment = {
       quote,
       commitment: makeCommitment(coworkProduct, []),
     };
@@ -899,8 +883,6 @@ describe("CheckoutReferralService", () => {
     const affirmationInputs: PaymentPriceAffirmationInput[] = [];
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote: freshQuote,
         commitment: makeCommitment(coworkProduct, freshApplications),
       },
@@ -937,8 +919,6 @@ describe("CheckoutReferralService", () => {
     const affirmationInputs: PaymentPriceAffirmationInput[] = [];
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
@@ -1004,8 +984,6 @@ describe("CheckoutReferralService", () => {
       let pricingAffirmationCount = 0;
       const layer = makeServiceLayer({
         affirmation: {
-          kind: "cowork",
-          reservation,
           quote,
           commitment: makeCommitment(coworkProduct, []),
         },
@@ -1043,8 +1021,6 @@ describe("CheckoutReferralService", () => {
       let pricingAffirmationCount = 0;
       const layer = makeServiceLayer({
         affirmation: {
-          kind: "cowork",
-          reservation,
           quote,
           commitment: makeCommitment(coworkProduct, []),
         },
@@ -1070,8 +1046,6 @@ describe("CheckoutReferralService", () => {
     let evaluationCount = 0;
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
@@ -1100,8 +1074,6 @@ describe("CheckoutReferralService", () => {
       runAcceptCode(
         makeServiceLayer({
           affirmation: {
-            kind: "cowork",
-            reservation,
             quote,
             commitment: makeCommitment(coworkProduct, []),
           },
@@ -1123,8 +1095,6 @@ describe("CheckoutReferralService", () => {
     let evaluationCount = 0;
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
@@ -1153,8 +1123,6 @@ describe("CheckoutReferralService", () => {
       const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
       const layer = makeServiceLayer({
         affirmation: {
-          kind: "cowork",
-          reservation,
           quote,
           commitment: makeCommitment(coworkProduct, []),
         },
@@ -1188,8 +1156,6 @@ describe("CheckoutReferralService", () => {
     let pricingAffirmationCount = 0;
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
@@ -1226,8 +1192,6 @@ describe("CheckoutReferralService", () => {
     let payableReservationReadCount = 0;
     const layer = makeServiceLayer({
       affirmation: {
-        kind: "cowork",
-        reservation,
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
@@ -1263,8 +1227,6 @@ describe("CheckoutReferralService", () => {
       const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
       const layer = makeServiceLayer({
         affirmation: {
-          kind: "cowork",
-          reservation,
           quote,
           commitment: makeCommitment(coworkProduct, []),
         },
