@@ -256,21 +256,20 @@ export class InvoiceCancellationNotices extends Context.Service<
       const ensureOwed: IInvoiceCancellationNotices["ensureOwed"] = Effect.fn(
         "InvoiceCancellationNotices.ensureOwed"
       )(function* (invoiceId: InvoiceId) {
-        const persistenceFailed = (cause: unknown) =>
-          deliveryError({
-            code: "persistence_failed",
-            paymentAttemptId: invoiceId,
-            message: "Owed cancellation notice could not be claimed.",
-            cause,
-          });
-        const cancellation = yield* cancellations
-          .find(invoiceId)
-          .pipe(Effect.mapError(persistenceFailed));
-        if (!cancellation) return;
-
+        // The claim waits for a cancellation being recorded and is null when
+        // the invoice isn't cancelled or the customer is owed nothing new.
         const claim = yield* cancellations
           .claimNotice({ invoiceId, audience: "customer" })
-          .pipe(Effect.mapError(persistenceFailed));
+          .pipe(
+            Effect.mapError((cause) =>
+              deliveryError({
+                code: "persistence_failed",
+                paymentAttemptId: invoiceId,
+                message: "Owed cancellation notice could not be claimed.",
+                cause,
+              })
+            )
+          );
         if (!claim) return;
 
         yield* deliver({ invoiceId, claims: [claim] });
