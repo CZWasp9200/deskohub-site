@@ -12,7 +12,7 @@ import { CustomerInvoiceService } from "@/features/account/backend/customer-invo
 import type { CustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
 import { CustomerAccountLayers } from "./customer-account-layers";
 import { answerCustomerApiFailure } from "./customer-api-failure";
-import { answerInvoicePdf } from "./customer-invoice-pdf-response";
+import { answerFileDownload } from "./customer-file-download";
 
 /**
  * The invoices group's handlers, over the account's `CustomerInvoiceService`
@@ -69,7 +69,7 @@ export const CustomerInvoicesApiHandlers = HttpApiBuilder.group(
                 Effect.fail(failure)
               )
           ),
-          Effect.map(answerInvoicePdf)
+          Effect.map(answerFileDownload("application/pdf"))
         )
       );
   })

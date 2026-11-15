@@ -1,6 +1,7 @@
 export {
   AccountPasskey,
   CustomerAccountApi,
+  CustomerAccountDataExport,
   CustomerAccountDeletionResult,
   CustomerAccountFeature,
   CustomerAccountLinkRequired,
@@ -15,6 +16,7 @@ export {
   CustomerAvatarRejected,
   CustomerAvatarRejectionReason,
   CustomerAvatarUpload,
+  CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
   CustomerLocaleUpdated,
   CustomerMarketingConsentStatus,

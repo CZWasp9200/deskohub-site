@@ -15,6 +15,7 @@ import {
   CustomerAccountLinkRequired,
   type CustomerAccountState,
   type CustomerAnalyticsConsentSync,
+  CustomerDataExportUnavailable,
 } from "./customer-account-api";
 import { CustomerAuthRejected } from "./customer-auth-api";
 import {
@@ -320,6 +321,35 @@ describe("makeWorkspaceCustomerApiClient", () => {
       `${baseUrl}/api/customer/invoices`,
       `${baseUrl}/api/customer/invoices/${invoiceId}/pdf`,
       `${baseUrl}/api/customer/invoices/${invoiceId}/pdf`,
+    ]);
+  });
+
+  test("decodes the data archive as its bytes, and a refusal as its tagged error", async () => {
+    // A ZIP's local file header signature.
+    const archive = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+    const { client, requests } = recordingClient(() =>
+      requests.length === 1
+        ? new Response(archive, {
+            headers: {
+              "content-type": "application/zip",
+              "content-disposition":
+                'attachment; filename="deskohub-account-data-2026-11-15.zip"',
+            },
+          })
+        : json({ _tag: "CustomerDataExportUnavailable" }, 404)
+    );
+    const download = Effect.flatMap(
+      makeWorkspaceCustomerApiClient({ baseUrl }),
+      (api) => api.account.getDataExport()
+    );
+
+    expect(await run(download, client)).toEqual(Result.succeed(archive));
+    expect(await run(download, client)).toEqual(
+      Result.fail(new CustomerDataExportUnavailable())
+    );
+    expect(requests.map((request) => request.url)).toEqual([
+      `${baseUrl}/api/customer/account/data-export`,
+      `${baseUrl}/api/customer/account/data-export`,
     ]);
   });
 

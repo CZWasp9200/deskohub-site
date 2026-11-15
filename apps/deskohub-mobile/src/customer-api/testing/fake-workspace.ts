@@ -10,6 +10,7 @@ import {
   CustomerAuthApi as CustomerAuthHttpApi,
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
+  CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
   CustomerInvoiceNotFound,
   CustomerInvoiceNotIssued,
@@ -331,6 +332,15 @@ const accountView = (data: FakeWorkspaceData): CustomerAccountState => ({
     : { assistants: [...data.assistants] }),
 });
 
+/** A ZIP archive with no entries: its end-of-central-directory record. */
+const emptyZipArchive = Uint8Array.of(
+  0x50,
+  0x4b,
+  0x05,
+  0x06,
+  ...new Array<number>(18).fill(0)
+);
+
 const serverLayer = (workspace: FakeWorkspace) => {
   const linkedAccount = Effect.suspend(() => {
     const { account } = workspace.data;
@@ -572,6 +582,15 @@ const serverLayer = (workspace: FakeWorkspace) => {
         .handle("acknowledgeSignupReferral", () =>
           Effect.flatMap(linkedAccount, ({ signupReferral: _, ...current }) =>
             update((data) => ({ ...data, account: current }))
+          )
+        )
+        // The server serves the archive to the sessions whose account is
+        // linked; this one is an empty ZIP.
+        .handle("getDataExport", () =>
+          Effect.suspend(() =>
+            workspace.data.account.kind === "linked"
+              ? Effect.succeed(emptyZipArchive)
+              : Effect.fail(new CustomerDataExportUnavailable())
           )
         )
         .handle("requestDeletion", () =>

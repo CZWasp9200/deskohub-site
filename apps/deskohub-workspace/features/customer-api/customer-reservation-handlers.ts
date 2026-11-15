@@ -37,7 +37,7 @@ import {
   answerSessionApiFailure,
   answerUnavailable,
 } from "./customer-api-failure";
-import { answerInvoicePdf } from "./customer-invoice-pdf-response";
+import { answerFileDownload } from "./customer-file-download";
 import { CustomerReservationLayers } from "./customer-reservation-layers";
 
 /**
@@ -126,7 +126,7 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
                   Effect.fail(failure)
                 )
             ),
-            Effect.map(answerInvoicePdf)
+            Effect.map(answerFileDownload("application/pdf"))
           )
         )
     );

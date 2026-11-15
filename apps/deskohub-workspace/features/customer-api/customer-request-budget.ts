@@ -78,6 +78,8 @@ export const customerRequestBudgetClasses = {
     // Referral standing and savings follow the account's Dotypos customer.
     getReferrals: "dotypos-read",
     acknowledgeSignupReferral: "dotypos-mutation",
+    // The archive reads the Dotypos profile and pages the reservations.
+    getDataExport: "dotypos-read",
     // Deletion expires the Dotypos customer.
     requestDeletion: "dotypos-mutation",
     // The analytics consent ledger and Better Auth; a withdrawal's PostHog
