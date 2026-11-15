@@ -9,6 +9,7 @@ import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import { retryDatabaseRead } from "@/db/retry-database-read";
 import {
+  type PaymentAttemptRow,
   paymentAttempts,
   reservationAccessGrants,
   type WorkspaceReservationRow,
@@ -78,6 +79,28 @@ export class WorkspaceReservationStateError extends Data.TaggedError(
   readonly reservationId: WorkspaceReservationId;
   readonly message: string;
 }> {}
+
+/**
+ * Restoring the reservation would give its checkout session a second active
+ * reservation: another one took the session since it was cancelled.
+ */
+export class WorkspaceReservationSessionTakenError extends Data.TaggedError(
+  "WorkspaceReservationSessionTakenError"
+)<{
+  readonly reservationId: WorkspaceReservationId;
+  readonly message: string;
+}> {}
+
+/** The payment facts of a restored reservation, read in its restore. */
+export type RestoredReservationPaymentAttempt = Pick<
+  PaymentAttemptRow,
+  | "amountExponent"
+  | "amountValue"
+  | "currency"
+  | "refundState"
+  | "refundedAmountValue"
+  | "state"
+>;
 
 export interface CreateWorkspaceReservationInput {
   readonly checkoutSessionKey: CheckoutSessionKey;
@@ -269,6 +292,44 @@ export interface IWorkspaceReservationRepository {
     void,
     EffectDrizzleQueryError | SqlError.SqlError | WorkspaceReservationStateError
   >;
+  /**
+   * Confirms an administrator-cancelled reservation again, in the restore's
+   * transaction, once Dotypos confirmed it. Applies only while the row is
+   * still the cancellation the restore read (`cancelledAt`) and still meets
+   * the restore predicate; returns null otherwise. Clears the cancellation
+   * and its email record, keeps confirmation and fulfillment, and moves its
+   * attempts still awaiting a refund to `not_required`; refund facts stay.
+   * Returns the restored row and its payment attempts as they now stand.
+   * Fails with `WorkspaceReservationSessionTakenError` when another
+   * reservation of its checkout session is active.
+   */
+  readonly markAdministrationRestored: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly cancelledAt: Temporal.Instant;
+    readonly restoredAt: Temporal.Instant;
+  }) => Effect.Effect<
+    {
+      readonly reservation: WorkspaceReservation;
+      readonly paymentAttempts: readonly RestoredReservationPaymentAttempt[];
+    } | null,
+    | EffectDrizzleQueryError
+    | WorkspaceReservationDetailsMalformedError
+    | WorkspaceReservationSessionTakenError,
+    WorkspaceTransaction
+  >;
+  /**
+   * Records that the cancellation email of the cancellation at `cancelledAt`
+   * was sent. False when the reservation is no longer that cancellation.
+   */
+  readonly recordCancellationEmailSent: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly cancelledAt: Temporal.Instant;
+    readonly sentAt: Temporal.Instant;
+  }) => Effect.Effect<boolean, EffectDrizzleQueryError>;
+  /** Whether the reservation was ever cancelled as a booked reservation. */
+  readonly hasRecordedCancellation: (
+    id: WorkspaceReservationId
+  ) => Effect.Effect<boolean, EffectDrizzleQueryError>;
   readonly completeSupersessionAndCreateDraft: (input: {
     readonly cancelledReservationId: WorkspaceReservationId;
     readonly cancelledAt: Temporal.Instant;
@@ -1253,6 +1314,12 @@ export class WorkspaceReservationRepository extends Context.Service<
             "Workspace reservation was not found."
           );
         }),
+        markAdministrationRestored: () =>
+          Effect.die("markAdministrationRestored is not implemented yet"),
+        recordCancellationEmailSent: () =>
+          Effect.die("recordCancellationEmailSent is not implemented yet"),
+        hasRecordedCancellation: () =>
+          Effect.die("hasRecordedCancellation is not implemented yet"),
         markAdministrationCancellationFailed: Effect.fn(
           "workspaceReservations.markAdministrationCancellationFailed"
         )(function* (input) {

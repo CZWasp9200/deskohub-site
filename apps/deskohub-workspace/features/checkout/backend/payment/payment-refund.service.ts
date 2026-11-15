@@ -15,6 +15,8 @@ import {
 import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
+import type { PaymentAttemptRow } from "@/db/schema";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
 import { parseInstant } from "@/shared/utils/temporal";
 import {
@@ -45,6 +47,17 @@ export class PaymentRefundReconciliationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+/** A reservation's payment attempt as its refund facts stand. */
+export type ReservationRefundAttempt = Pick<
+  PaymentAttemptRow,
+  | "amountExponent"
+  | "amountValue"
+  | "currency"
+  | "refundState"
+  | "refundedAmountValue"
+  | "state"
+>;
+
 export interface IPaymentRefundService {
   /**
    * Reads the attempt's Nexi order and records any successful refund on the
@@ -72,6 +85,18 @@ export interface IPaymentRefundService {
    * `refundBatchOverrunWorstCase`. One attempt's provider failure is logged
    * and does not stop the rest of the batch.
    */
+  /**
+   * Reconciles, one after another, each of the reservation's Nexi attempts
+   * still awaiting a refund (`reconcileAttempt`), then returns all its
+   * payment attempts as stored. Calls Nexi, so run it outside every
+   * database transaction.
+   */
+  readonly reconcileReservationRefunds: (
+    reservationId: WorkspaceReservationId
+  ) => Effect.Effect<
+    readonly ReservationRefundAttempt[],
+    PaymentRefundReconciliationError
+  >;
   readonly reconcileRefunds: (input: {
     readonly limit: number;
     readonly budget: Duration.Input;
@@ -324,6 +349,8 @@ export class PaymentRefundService extends Context.Service<
 
       return PaymentRefundService.of({
         reconcileAttempt,
+        reconcileReservationRefunds: () =>
+          Effect.die("reconcileReservationRefunds is not implemented yet"),
         reconcileRefunds,
       });
     })
