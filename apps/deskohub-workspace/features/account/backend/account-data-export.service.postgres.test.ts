@@ -40,10 +40,9 @@ import {
   accountingSnapshotKeyIdSchema,
   makeAccountingDocumentSnapshot,
 } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { recordAccountingDocumentSnapshot } from "@/features/accounting/backend/accounting-document-snapshots.test-utils";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
-import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { InvoiceEmailDeliveryRepository } from "@/features/accounting/backend/invoice-email-delivery.repository";
 import { invoiceNumberSchema } from "@/features/accounting/invoice";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
@@ -381,17 +380,16 @@ const seedSourceSnapshot = (
     )
   ).pipe(
     Effect.provide(
-      AccountingDocumentSnapshots.Default.pipe(
-        Layer.provideMerge(
-          Layer.merge(
-            postgres!.layer,
-            Layer.succeed(
-              AccountingSnapshotKeyService,
-              AccountingSnapshotKeyService.of({
-                getActive: Effect.succeed(key),
-                getById: () => Effect.succeed(key),
-              })
-            )
+      Layer.merge(
+        postgres!.layer,
+        testAccountingStorage(
+          postgres!.layer,
+          Layer.succeed(
+            AccountingSnapshotKeyService,
+            AccountingSnapshotKeyService.of({
+              getActive: Effect.succeed(key),
+              getById: () => Effect.succeed(key),
+            })
           )
         )
       )
@@ -571,8 +569,9 @@ const exportService = (
     LatePaymentRecoveryRepository.Default,
     DiscountApplicationRepository.Default,
     LegalEvidenceEventRepository.Default,
-    InvoiceRepository.Default.pipe(
-      Layer.provide(AccountingDocumentSnapshots.Default)
+    testAccountingStorage(
+      postgres!.layer,
+      AccountingSnapshotKeyService.Default
     ),
     InvoiceEmailDeliveryRepository.Default,
     MarketingConsentLedger.Default,

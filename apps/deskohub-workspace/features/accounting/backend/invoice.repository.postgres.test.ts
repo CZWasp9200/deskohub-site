@@ -47,7 +47,6 @@ import {
   type WorkspacePostgresSuiteDatabase,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
-import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { recordAccountingDocumentSnapshot } from "./accounting-document-snapshots.test-utils";
 import {
   type AccountingSnapshotKey,
@@ -55,6 +54,7 @@ import {
   AccountingSnapshotKeyService,
   type IAccountingSnapshotKeyService,
 } from "./accounting-snapshot-key.service";
+import { testAccountingStorage } from "./accounting-storage.test-utils";
 import {
   type IInvoiceRepository,
   InvoiceRepository,
@@ -128,19 +128,11 @@ const runRepository = <A, E>(
   operation: (repository: IInvoiceRepository) => Effect.Effect<A, E>,
   keys: IAccountingSnapshotKeyService = makeKeyService()
 ): Promise<A> => {
-  const baseLayer = Layer.merge(
+  const repositoryLayer = testAccountingStorage(
     testDatabase!.layer,
     Layer.succeed(
       AccountingSnapshotKeyService,
       AccountingSnapshotKeyService.of(keys)
-    )
-  );
-  const repositoryLayer = InvoiceRepository.Default.pipe(
-    Layer.provide(
-      Layer.merge(
-        baseLayer,
-        AccountingDocumentSnapshots.Default.pipe(Layer.provide(baseLayer))
-      )
     )
   );
 
@@ -160,15 +152,11 @@ const insertSourceSnapshot = (input: {
 }) =>
   recordAccountingDocumentSnapshot(input).pipe(
     Effect.provide(
-      AccountingDocumentSnapshots.Default.pipe(
-        Layer.provide(
-          Layer.merge(
-            testDatabase!.layer,
-            Layer.succeed(
-              AccountingSnapshotKeyService,
-              AccountingSnapshotKeyService.of(makeKeyService())
-            )
-          )
+      testAccountingStorage(
+        testDatabase!.layer,
+        Layer.succeed(
+          AccountingSnapshotKeyService,
+          AccountingSnapshotKeyService.of(makeKeyService())
         )
       )
     )

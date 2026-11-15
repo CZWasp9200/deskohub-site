@@ -40,6 +40,7 @@ import {
   AccountingDocumentSnapshots,
   type AccountingRecordUnavailable,
 } from "@/features/accounting/backend/accounting-document-snapshots";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
 import {
@@ -863,8 +864,11 @@ export class PaymentLifecycleRepository extends Context.Service<
     })
   );
 
+  /** `Default` over the accounting storage and the Workspace database. */
   static Live = this.Default.pipe(
-    Layer.provide(AccountingDocumentSnapshots.Live)
+    Layer.provide(
+      Layer.merge(AccountingStorage.Live, WorkspaceDatabase.Default)
+    )
   );
 }
 

@@ -45,7 +45,6 @@ import type { WorkspaceReservationId } from "@/features/reservation/persistence-
 import type { ReadLimitExceededError } from "@/shared/backend/read-limit";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
 import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
 import { isFulfilledReservation } from "./invoice-eligibility";
 import { makeInvoiceReads, sealedInvoiceDocuments } from "./invoice-reads";
 import {
@@ -223,11 +222,6 @@ interface InvoiceNumbering {
   readonly numberingSequence: number;
   readonly invoiceNumber: InvoiceNumber;
 }
-
-const invoiceStorage = Layer.merge(
-  WorkspaceDatabase.Default,
-  AccountingSnapshotKeyService.Default
-);
 
 export class InvoiceRepository extends Context.Service<
   InvoiceRepository,
@@ -620,15 +614,6 @@ export class InvoiceRepository extends Context.Service<
         getSuggestedVariableSymbol,
       } satisfies IInvoiceRepository;
     })
-  );
-
-  static Live = this.Default.pipe(
-    Layer.provide(
-      Layer.merge(
-        invoiceStorage,
-        AccountingDocumentSnapshots.Default.pipe(Layer.provide(invoiceStorage))
-      )
-    )
   );
 }
 

@@ -16,11 +16,11 @@ import {
   vouchers,
 } from "@/db/schema";
 import { makeAccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import {
   AccountingSnapshotKeyError,
   AccountingSnapshotKeyService,
 } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
@@ -135,39 +135,45 @@ describe.skipIf(!testDatabase)(
       );
     });
 
-    const repositoryLayer = PaymentLifecycleRepository.Live.pipe(
-      Layer.provide(testDatabase.layer)
+    const repositoryLayer = PaymentLifecycleRepository.Default.pipe(
+      Layer.provide(
+        Layer.merge(
+          testDatabase.layer,
+          testAccountingStorage(
+            testDatabase.layer,
+            AccountingSnapshotKeyService.Default
+          )
+        )
+      )
     );
     // The same repository with no active accounting snapshot key.
     const keylessRepositoryLayer = PaymentLifecycleRepository.Default.pipe(
       Layer.provide(
-        AccountingDocumentSnapshots.Default.pipe(
-          Layer.provide(
-            Layer.merge(
-              testDatabase.layer,
-              Layer.succeed(
-                AccountingSnapshotKeyService,
-                AccountingSnapshotKeyService.of({
-                  getActive: Effect.fail(
+        Layer.merge(
+          testDatabase.layer,
+          testAccountingStorage(
+            testDatabase.layer,
+            Layer.succeed(
+              AccountingSnapshotKeyService,
+              AccountingSnapshotKeyService.of({
+                getActive: Effect.fail(
+                  new AccountingSnapshotKeyError({
+                    keyId: "K209901",
+                    message: "Synthetic key is unavailable.",
+                  })
+                ),
+                getById: (keyId) =>
+                  Effect.fail(
                     new AccountingSnapshotKeyError({
-                      keyId: "K209901",
+                      keyId,
                       message: "Synthetic key is unavailable.",
                     })
                   ),
-                  getById: (keyId) =>
-                    Effect.fail(
-                      new AccountingSnapshotKeyError({
-                        keyId,
-                        message: "Synthetic key is unavailable.",
-                      })
-                    ),
-                })
-              )
+              })
             )
           )
         )
-      ),
-      Layer.provide(testDatabase.layer)
+      )
     );
     const lateRecoveryLayer = LatePaymentRecoveryRepository.Default.pipe(
       Layer.provide(testDatabase.layer)

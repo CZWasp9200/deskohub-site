@@ -1,4 +1,5 @@
 import { Context, Data, Effect, Layer } from "effect";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import {
   type InvoicePdfFile,
@@ -196,7 +197,7 @@ export class CustomerInvoiceService extends Context.Service<
    */
   static ForCurrentAccount = this.Default.pipe(
     Layer.provide(
-      Layer.mergeAll(CustomerAccountLinkRepository.Live, InvoiceRepository.Live)
+      Layer.mergeAll(CustomerAccountLinkRepository.Live, AccountingStorage.Live)
     )
   );
 

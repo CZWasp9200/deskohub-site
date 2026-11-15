@@ -36,6 +36,7 @@ import {
   AccountingSnapshotKeyService,
   type IAccountingSnapshotKeyService,
 } from "./accounting-snapshot-key.service";
+import { testAccountingStorage } from "./accounting-storage.test-utils";
 
 // The suite owns its database: paid snapshots it records can't be deleted.
 const testDatabase = await createWorkspacePostgresSuiteDatabase(
@@ -63,14 +64,13 @@ const run = <A, E>(
   Effect.runPromise(
     effect.pipe(
       Effect.provide(
-        AccountingDocumentSnapshots.Default.pipe(
-          Layer.provideMerge(
-            Layer.merge(
-              testDatabase!.layer,
-              Layer.succeed(
-                AccountingSnapshotKeyService,
-                AccountingSnapshotKeyService.of(keys)
-              )
+        Layer.merge(
+          testDatabase!.layer,
+          testAccountingStorage(
+            testDatabase!.layer,
+            Layer.succeed(
+              AccountingSnapshotKeyService,
+              AccountingSnapshotKeyService.of(keys)
             )
           )
         )
