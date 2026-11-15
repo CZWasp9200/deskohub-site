@@ -52,16 +52,16 @@ import {
 import type { DiscountClaimInstruction } from "@/features/discounts/provider";
 import type { Locale } from "@/features/i18n";
 import { evaluateReferralAttribution } from "@/features/referrals/attribution";
+import {
+  isAttributedToAnotherReferral,
+  referralInvitationBenefitChanged,
+} from "@/features/referrals/referral-invitation-claim-benefits";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { type Money, moneyEquals, moneyWithValue } from "@/shared/money/money";
 import {
   type PaymentAttempt,
   toPaymentAttempt,
 } from "./payment-attempt.repository";
-import {
-  isAttributedToAnotherReferral,
-  referralInvitationBenefitChanged,
-} from "./payment-claim-benefits";
 
 export type PaymentLifecycleReference =
   | { readonly type: "paymentAttemptId"; readonly id: PaymentAttemptId }
