@@ -1,10 +1,16 @@
 import { Button } from "../controls";
 import { useToast } from "../toast";
+import { EmptyAndSkeletonCases } from "./empty-skeleton-cases";
 import { GalleryCase, GallerySection, useSample } from "./gallery-kit";
 
-/** Board 00d (Toast, empty states, skeletons, loading). */
+/** Boards 00 and 00e: toasts, empty states, skeletons and loading. */
 export function FeedbackSection() {
-  return <ToastCases />;
+  return (
+    <GallerySection title="Toast, empty states, skeletons, loading">
+      <ToastCases />
+      <EmptyAndSkeletonCases />
+    </GallerySection>
+  );
 }
 
 /**
@@ -15,7 +21,7 @@ export function ToastCases() {
   const sample = useSample();
   const { show } = useToast();
   return (
-    <GallerySection title="Toast">
+    <>
       <GalleryCase label="Confirmation">
         <Button
           label="Show a confirmation"
@@ -39,6 +45,6 @@ export function ToastCases() {
           }
         />
       </GalleryCase>
-    </GallerySection>
+    </>
   );
 }

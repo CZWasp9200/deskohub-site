@@ -49,7 +49,9 @@ export function OverlaysSection() {
           {opener("sheet", `Pick a country (${country})`)}
         </GalleryCase>
       </GallerySection>
-      <ToastCases />
+      <GallerySection title="Toast">
+        <ToastCases />
+      </GallerySection>
       <Dialog
         visible={open === "guard"}
         title={sample("Discard your changes?")}
