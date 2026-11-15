@@ -28,7 +28,8 @@ const decodeAttemptId = Schema.decodeUnknownSync(
   AdministrationStandaloneAccessCodeAttemptId
 );
 const decodeRequest = Schema.decodeUnknownSync(
-  AdministrationStandaloneAccessCodeCreateInput
+  AdministrationStandaloneAccessCodeCreateInput,
+  { errors: "all", onExcessProperty: "error" }
 );
 const attemptId = decodeAttemptId("01980000-0000-7000-8000-000000000042");
 const priorAttemptId = decodeAttemptId("01980000-0000-7000-8000-000000000044");
