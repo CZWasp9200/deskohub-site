@@ -4,6 +4,7 @@ import { Effect, type Layer } from "effect";
 import { cache } from "react";
 import {
   type CustomerInvoiceSummary,
+  getCustomerInvoiceStatus,
   getCustomerInvoiceStatusLabel,
 } from "@/features/accounting/customer-invoice";
 import { formatInvoiceTotal } from "@/features/accounting/invoice-settlement";
@@ -19,6 +20,7 @@ import type {
   CustomerInvoiceHistoryItem,
 } from "./contracts";
 import {
+  getAccountCorrectiveDocumentPdfPath,
   getAccountInvoiceExportPath,
   getAccountInvoicePdfPath,
 } from "./routes";
@@ -88,9 +90,13 @@ const toHistoryItem = (
       locale,
     }),
     total: formatInvoiceTotal(invoice.total, locale),
-    status: getCustomerInvoiceStatusLabel(invoice.paymentStatus, locale),
+    status: getCustomerInvoiceStatusLabel(
+      getCustomerInvoiceStatus(invoice),
+      locale
+    ),
+    // A cancelled invoice asks for no payment, so it shows no due date.
     dueDate:
-      invoice.dueDate === null
+      invoice.dueDate === null || invoice.cancellation !== null
         ? null
         : formatPlainDate({
             date: Temporal.PlainDate.from(invoice.dueDate),
@@ -98,6 +104,10 @@ const toHistoryItem = (
           }),
   },
   pdfPath: getAccountInvoicePdfPath(locale, invoice.id),
+  correctiveDocument: invoice.cancellation && {
+    documentNumber: invoice.cancellation.correctiveDocumentNumber,
+    pdfPath: getAccountCorrectiveDocumentPdfPath(locale, invoice.id),
+  },
 });
 
 /** Degrades a defect or a failed build to `failed`, logging a fixed code. */

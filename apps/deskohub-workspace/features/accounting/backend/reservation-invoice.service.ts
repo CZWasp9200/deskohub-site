@@ -51,7 +51,16 @@ class PostOrderInvoiceUnavailableError extends Data.TaggedError(
   "PostOrderInvoiceUnavailableError"
 )<{ readonly message: string }> {}
 
-export type PostOrderInvoiceState = "create" | "issued" | "unavailable";
+/**
+ * What the post-order page offers: creating the invoice, resending the live
+ * one, nothing because the reservation's latest invoice was cancelled and no
+ * new one can be created here, or nothing at all.
+ */
+export type PostOrderInvoiceState =
+  | "create"
+  | "issued"
+  | "cancelled"
+  | "unavailable";
 
 interface PostOrderInvoiceAccess {
   readonly orderId: WorkspaceReservationId;
@@ -140,7 +149,12 @@ export class ReservationInvoiceService extends Context.Service<
 
         const reservation = yield* reservations.findById(input.orderId);
         if (!isPostOrderInvoiceableReservation(reservation, input.locale)) {
-          return { state: "unavailable" as const };
+          // Cancelling a reservation's invoice cancels the reservation too, so
+          // its link still says what happened to the invoice.
+          return reservation?.locale === input.locale &&
+            (yield* hasCancelledLatestInvoice(reservation))
+            ? { state: "cancelled" as const }
+            : { state: "unavailable" as const };
         }
 
         const paymentAttemptId = reservation.activePaymentAttemptId;
@@ -155,12 +169,23 @@ export class ReservationInvoiceService extends Context.Service<
         if (invoice) {
           return { state: "issued" as const, paymentAttemptId };
         }
+        // Only a reservation that asked for no invoice creates one here, a
+        // replacement of a cancelled one included; issuance refuses it for a
+        // reservation that is being cancelled.
         if (!isUnrequestedPersonalInvoice(reservation, source)) {
-          return { state: "unavailable" as const };
+          return (yield* hasCancelledLatestInvoice(reservation))
+            ? { state: "cancelled" as const }
+            : { state: "unavailable" as const };
         }
 
         return { state: "create" as const, paymentAttemptId, source };
       });
+
+      /** The reservation has no live invoice and its latest one is cancelled. */
+      const hasCancelledLatestInvoice = (reservation: WorkspaceReservation) =>
+        invoices
+          .findLatestByReservationId(reservation.id)
+          .pipe(Effect.map((latest) => Boolean(latest?.cancellation)));
 
       return ReservationInvoiceService.of({
         processByPaymentAttemptId: Effect.fn(

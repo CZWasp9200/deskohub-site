@@ -338,7 +338,7 @@ export const makeInvoiceReads = Effect.gen(function* () {
     readonly dotyposCustomerId: DotyposCustomerId;
     readonly limit: number;
   }) {
-    const rows: readonly InvoiceMetadata[] = yield* db
+    const rows = yield* db
       .select({
         invoiceNumber: invoices.invoiceNumber,
         issuedAt: invoices.issuedAt,
@@ -347,6 +347,10 @@ export const makeInvoiceReads = Effect.gen(function* () {
         workspaceReservationId: invoices.workspaceReservationId,
         paymentAttemptId: invoices.paymentAttemptId,
         documentSnapshotRecordedAt: accountingDocumentSnapshots.createdAt,
+        cancelledAt: invoiceCancellations.cancelledAt,
+        cancellationCause: invoiceCancellations.cause,
+        correctiveDocumentNumber: correctiveDocuments.documentNumber,
+        archivedAt: invoiceArchives.archivedAt,
       })
       .from(invoices)
       .leftJoin(
@@ -356,10 +360,32 @@ export const makeInvoiceReads = Effect.gen(function* () {
           invoices.paymentAttemptId
         )
       )
+      .leftJoin(
+        invoiceCancellations,
+        eq(invoiceCancellations.invoiceId, invoices.id)
+      )
+      .leftJoin(
+        correctiveDocuments,
+        eq(correctiveDocuments.cancelledInvoiceId, invoices.id)
+      )
+      .leftJoin(invoiceArchives, eq(invoiceArchives.invoiceId, invoices.id))
       .where(eq(invoices.dotyposCustomerId, input.dotyposCustomerId))
       .orderBy(asc(invoices.issuedAt), asc(invoices.id))
       .limit(readLimitSentinel(input.limit));
-    return yield* requireWithinReadLimit(rows, input.limit);
+    const bounded = yield* requireWithinReadLimit(rows, input.limit);
+    return yield* Effect.forEach(
+      bounded,
+      ({
+        cancelledAt,
+        cancellationCause,
+        correctiveDocumentNumber,
+        ...row
+      }): Effect.Effect<InvoiceMetadata, InvoiceStorageError> =>
+        toCancellationFact(
+          { cancelledAt, cancellationCause, correctiveDocumentNumber },
+          row.invoiceNumber
+        ).pipe(Effect.map((cancellation) => ({ ...row, cancellation })))
+    );
   });
 
   /**

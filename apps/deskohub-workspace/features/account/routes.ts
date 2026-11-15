@@ -67,6 +67,17 @@ export const getAccountInvoicePdfPath = (locale: Locale, invoiceId: string) =>
     invoiceId,
   });
 
+/** Downloads the corrective document that cancelled one of the signed-in customer's invoices. */
+export const getAccountCorrectiveDocumentPdfPath = (
+  locale: Locale,
+  invoiceId: string
+) =>
+  getLocalizedPagePath(
+    locale,
+    "/[locale]/account/invoices/[invoiceId]/corrective-document",
+    { invoiceId }
+  );
+
 /** Downloads the signed-in customer's invoices as CSV. */
 export const getAccountInvoiceExportPath = (locale: Locale) =>
   getLocalizedPagePath(locale, "/[locale]/account/invoices/export");
