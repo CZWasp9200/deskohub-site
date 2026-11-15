@@ -3292,21 +3292,25 @@ describe("DotyposService reservation restore", () => {
       expectedIfMatch: ['"reservation-v1"', '"reservation-v1"'],
     },
     {
-      label: "a NEW reread is refused as not cancelled",
+      label: "a NEW reread stays uncertain, since the replay may have landed",
       reads: [{ status: "CANCELLED" }, { status: "NEW" }],
       patches: [503, 412],
       expected: {
         _tag: "Failure",
         failure: {
-          _tag: "DotyposReservationNotRestorable",
-          reason: "not-cancelled",
+          _tag: "DotyposUncertain",
+          reason: "conflict-after-replay",
+          operation: "restoreCancelledReservation",
+          request: "reservation.patch",
+          httpStatus: 412,
         },
       },
       expectedReads: 2,
       expectedIfMatch: ['"reservation-v1"', '"reservation-v1"'],
     },
     {
-      label: "a reread that books another table is refused as changed",
+      label:
+        "a reread that books another table stays uncertain, since the replay may have landed",
       reads: [
         { status: "CANCELLED" },
         { status: "CONFIRMED", _tableId: "other-table" },
@@ -3315,9 +3319,10 @@ describe("DotyposService reservation restore", () => {
       expected: {
         _tag: "Failure",
         failure: {
-          _tag: "DotyposReservationNotRestorable",
-          reason: "booking-changed",
-          changedFields: ["table"],
+          _tag: "DotyposUncertain",
+          reason: "conflict-after-replay",
+          request: "reservation.patch",
+          httpStatus: 412,
         },
       },
       expectedReads: 2,

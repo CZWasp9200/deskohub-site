@@ -1053,7 +1053,8 @@ export interface IDotyposService {
    * is safe. A booking that differs fails DotyposReservationNotRestorable{booking-changed}, a matching NEW reservation
    * DotyposReservationNotRestorable{not-cancelled}, and a vanished reservation DotyposRejected{not-found}. Replays settle
    * as confirmReservation's do: a CONFIRMED reread on the settling rerun is Restored, a CANCELLED one patches under the
-   * fresh ETag, and a CANCELLED reread under the replayed ETag stays DotyposUncertain. A plain 412 on the first PATCH is
+   * fresh ETag, and a CANCELLED reread under the replayed ETag stays DotyposUncertain. A refusing reread on the settling
+   * rerun stays DotyposUncertain too, since the replayed PATCH may have landed before the change. A plain 412 on the first PATCH is
    * DotyposVersionConflict.
    */
   readonly restoreCancelledReservation: (
@@ -1473,7 +1474,8 @@ const makeDotyposService: Effect.Effect<
   /**
    * Moves a reservation to CONFIRMED with one ETag read and an If-Match
    * PATCH. `settle` judges the read reservation: it returns the result, fails,
-   * or asks for the PATCH with none. `rerun` is true on the settling rerun.
+   * or asks for the PATCH with none. On the settling rerun it also gets the
+   * uncertainty of the replayed PATCH, which may have landed.
    *
    * The If-Match ETag makes `settle`'s check and the PATCH one atomic
    * transition: a change after the read fails the PATCH instead of being
@@ -1490,7 +1492,7 @@ const makeDotyposService: Effect.Effect<
     readonly operation: "confirmReservation" | "restoreCancelledReservation";
     readonly settle: (
       reservation: DotyposReservation,
-      rerun: boolean
+      replayed: Option.Option<DotyposUncertain>
     ) => Effect.Effect<Option.Option<A>, E>;
     readonly patched: (reservation: DotyposReservation) => A;
   }): Effect.Effect<A, E | DotyposConditionalWriteFailure> =>
@@ -1518,7 +1520,7 @@ const makeDotyposService: Effect.Effect<
         ).pipe(Effect.mapError(stayUncertain));
         const settled = yield* input.settle(
           current.reservation,
-          Option.isSome(earlier)
+          Option.map(earlier, ({ uncertain }) => uncertain)
         );
         if (Option.isSome(settled)) return settled.value;
         if (
@@ -1637,13 +1639,22 @@ const makeDotyposService: Effect.Effect<
       const restored = yield* confirmReservationVersion({
         reservationId: id,
         operation: "restoreCancelledReservation",
-        settle: (current, rerun) =>
+        settle: (current, replayed) =>
           restorableReservationStatus(current, expectedBooking).pipe(
+            // A refusal on the settling rerun can't show that nothing was
+            // applied: the replayed PATCH may have landed before the change.
+            Effect.mapError((refusal) =>
+              Option.getOrElse(
+                replayed,
+                (): DotyposReservationNotRestorable | DotyposUncertain =>
+                  refusal
+              )
+            ),
             Effect.map((status) =>
               status === "CANCELLED"
                 ? Option.none()
                 : Option.some(
-                    rerun
+                    Option.isSome(replayed)
                       ? RestoreCancelledReservationResult.Restored({
                           reservation: current,
                         })

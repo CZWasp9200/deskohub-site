@@ -8,7 +8,6 @@ import {
 } from "../errors";
 import { formatDotyposTimestamp } from "../timestamp";
 import {
-  type CreateDotyposReservationInput,
   type DotyposBranchId,
   DotyposBranchIdSchema,
   type DotyposCloudId,
@@ -23,7 +22,6 @@ import {
   DotyposReservationIdSchema,
   type DotyposReservationInterval,
   type DotyposTable,
-  DotyposTableIdSchema,
 } from "../types";
 import {
   dotyposInvalidRequest,
@@ -389,10 +387,12 @@ export const makeInMemoryDotypos = (
       ),
 
     createReservation: (input) =>
-      validateCreateReservation(input).pipe(
+      normalizeReservationBooking(input, "createReservation").pipe(
         Effect.tap(() => request("createReservation")),
-        Effect.andThen(nextVersion),
-        Effect.map((version) => {
+        Effect.flatMap((booking) =>
+          nextVersion.pipe(Effect.map((version) => ({ booking, version })))
+        ),
+        Effect.map(({ booking, version }) => {
           let id = DotyposReservationIdSchema.make(
             String(nextReservationNumber++)
           );
@@ -406,8 +406,8 @@ export const makeInMemoryDotypos = (
             id,
             _branchId: branchId,
             _cloudId: cloudId,
-            _customerId: DotyposCustomerIdSchema.make(input.customerId.trim()),
-            _tableId: DotyposTableIdSchema.make(input.tableId.trim()),
+            _customerId: booking.customerId,
+            _tableId: booking.tableId,
             startDate: input.startDate.toISOString(),
             endDate: input.endDate.toISOString(),
             seats: String(input.seats),
@@ -583,28 +583,6 @@ const unsupported = (operation: DotyposOperation) => () =>
       `The in-memory Dotypos does not model ${operation}. Override it with DotyposServiceMock({ ...dotypos.service, ${operation}: ... }).`
     )
   );
-
-const validateCreateReservation = (input: CreateDotyposReservationInput) =>
-  Effect.gen(function* () {
-    for (const [value, label] of [
-      [input.customerId, "Customer ID"],
-      [input.tableId, "Table ID"],
-    ] as const) {
-      if (!value.trim()) {
-        return yield* dotyposInvalidRequest(
-          "createReservation",
-          `${label} is required`
-        );
-      }
-    }
-    if (!Number.isInteger(input.seats) || input.seats <= 0) {
-      return yield* dotyposInvalidRequest(
-        "createReservation",
-        "Reservation seats must be a positive integer"
-      );
-    }
-    yield* validateReservationInterval(input, "createReservation");
-  });
 
 const pageOf = (
   selected: readonly DotyposReservation[],
