@@ -1559,8 +1559,6 @@ describe("customer and reservation administration endpoints", () => {
             .cancelReservation({
               params: { reservationId },
               payload: {
-                accessGrantUpdatedAt: null,
-                providerCredentialRemoved: false,
                 sendCancellationEmail: true,
               },
             })
@@ -1571,9 +1569,7 @@ describe("customer and reservation administration endpoints", () => {
 
     expect(cancellations).toHaveLength(3);
     expect(cancellations[0]).toEqual({
-      accessGrantUpdatedAt: null,
       force: false,
-      providerCredentialRemoved: false,
       reservationId,
       sendCancellationEmail: true,
     });
@@ -1754,8 +1750,6 @@ describe("customer and reservation administration endpoints", () => {
               "content-type": "application/json",
             },
             body: JSON.stringify({
-              accessGrantUpdatedAt: null,
-              providerCredentialRemoved: false,
               sendCancellationEmail: true,
             }),
           }
