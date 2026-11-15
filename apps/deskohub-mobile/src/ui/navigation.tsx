@@ -3,6 +3,7 @@ import type {
   NativeStackHeaderProps,
   NativeStackNavigationOptions,
 } from "expo-router";
+import { getHeaderTitle } from "expo-router/react-navigation";
 import type { BottomTabNavigationOptions } from "expo-router/tabs";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,15 +19,6 @@ import { color } from "./tokens";
 // whose Text follows the locale; the tab bar draws its own labels, out of
 // reach of the app's Text, so its options carry the locale's font (see
 // `localeTextStyle`).
-
-/** The title a screen's options give it, falling back to its route's name. */
-const headerTitle = (
-  options: NativeStackNavigationOptions,
-  routeName: string
-): string =>
-  typeof options.headerTitle === "string"
-    ? options.headerTitle
-    : (options.title ?? routeName);
 
 /**
  * A stack screen's header: the app bar below the top safe area, with a
@@ -47,7 +39,7 @@ export function StackHeader({
     <View style={[styles.header, { paddingTop: insets.top }]}>
       <FocusedStatusBar style="dark" />
       <AppBar
-        title={headerTitle(options, route.name)}
+        title={getHeaderTitle(options, route.name)}
         onBack={
           canGoBack && options.headerBackVisible !== false
             ? () => navigation.goBack()

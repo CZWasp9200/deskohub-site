@@ -6,6 +6,17 @@ import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 import { expoRouterStandIn } from "../testing/expo-router-stand-in";
 
 mock.module("expo-router", () => expoRouterStandIn());
+// Bun can't load expo-router's bundled React Navigation; its title rule is
+// the string `headerTitle`, then `title`, then the route's name.
+mock.module("expo-router/react-navigation", () => ({
+  getHeaderTitle: (
+    options: { readonly title?: string; readonly headerTitle?: unknown },
+    fallback: string
+  ) =>
+    typeof options.headerTitle === "string"
+      ? options.headerTitle
+      : (options.title ?? fallback),
+}));
 
 const { AppBar } = await import("./app-bar");
 const { FocusedStatusBar } = await import("./focused-status-bar");
