@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.1](https://github.com/totalolage/deskohub-site/compare/mobile-v0.1.0...mobile-v0.1.1) (2026-11-15)
+
+
+### Features
+
+* **mobile:** speak Vietnamese and Hindi, following the device or account language
+
+
+### Bug Fixes
+
+* **mobile:** generate the Paraglide catalogs before the release's over-the-air export, so a release publishes its update to installed apps
+
 ## 0.1.0 (2026-11-10)
 
 
