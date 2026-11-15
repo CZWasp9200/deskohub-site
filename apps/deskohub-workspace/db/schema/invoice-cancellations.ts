@@ -1,6 +1,7 @@
 import type { EmailDeliveryId } from "@deskohub/email";
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bytea,
   check,
   index,
@@ -49,7 +50,8 @@ export const invoiceCancellations = pgTable(
     invoiceId: text("invoice_id")
       .primaryKey()
       .$type<InvoiceId>()
-      .references(() => invoices.id),
+      // Annotated: `invoices.replaces_invoice_id` references this table back.
+      .references((): AnyPgColumn => invoices.id),
     cancelledAt: instant("cancelled_at").notNull(),
     cause: text("cause").notNull().$type<InvoiceCancellationCause>(),
     actorAccountId: text("actor_account_id")
