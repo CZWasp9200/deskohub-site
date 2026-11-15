@@ -62,120 +62,135 @@ export const makeInvoiceReads = Effect.gen(function* () {
   const { db } = yield* WorkspaceDatabase;
   const keys = yield* AccountingSnapshotKeyService;
 
-  const loadInvoice = Effect.fn("InvoiceRepository.loadInvoice")(
-    function* (input: { readonly where: SQL; readonly lookupId: string }) {
-      const [metadata] = yield* db
-        .select({ id: invoices.id, keyId: invoices.keyId })
-        .from(invoices)
-        .where(input.where)
-        .limit(1);
+  /**
+   * Reads the key of the first matching invoice, then decrypts that row in a
+   * statement that applies the selector again. `moved` when the row stopped
+   * matching in between, as when a live invoice is cancelled.
+   */
+  const loadMatchingInvoice = Effect.fn(
+    "InvoiceRepository.loadMatchingInvoice"
+  )(function* (input: { readonly where: SQL; readonly lookupId: string }) {
+    const [metadata] = yield* db
+      .select({ id: invoices.id, keyId: invoices.keyId })
+      .from(invoices)
+      .where(input.where)
+      .limit(1);
 
-      if (!metadata) return null;
+    if (!metadata) return null;
 
-      const key = yield* keys.getById(metadata.keyId).pipe(
+    const key = yield* keys.getById(metadata.keyId).pipe(
+      Effect.mapError(
+        (cause) =>
+          new InvoiceStorageError({
+            operation: "decrypt",
+            paymentAttemptId: input.lookupId,
+            message: "Invoice decryption key is unavailable.",
+            cause: censorLogValue(cause),
+          })
+      )
+    );
+
+    const [row] = yield* db
+      .select({
+        id: invoices.id,
+        workspaceReservationId: invoices.workspaceReservationId,
+        paymentAttemptId: invoices.paymentAttemptId,
+        dotyposCustomerId: invoices.dotyposCustomerId,
+        invoiceNumber: invoices.invoiceNumber,
+        issuedAt: invoices.issuedAt,
+        replacesInvoiceId: invoices.replacesInvoiceId,
+        replacedByInvoiceId: successor.id,
+        cancelledAt: invoiceCancellations.cancelledAt,
+        cancellationCause: invoiceCancellations.cause,
+        correctiveDocumentNumber: correctiveDocuments.documentNumber,
+        archivedAt: invoiceArchives.archivedAt,
+        documentJson: decryptAccountingSnapshot(
+          invoices.encryptedDocument,
+          key.secret
+        ),
+      })
+      .from(invoices)
+      .leftJoin(
+        invoiceCancellations,
+        eq(invoiceCancellations.invoiceId, invoices.id)
+      )
+      .leftJoin(
+        correctiveDocuments,
+        eq(correctiveDocuments.cancelledInvoiceId, invoices.id)
+      )
+      .leftJoin(invoiceArchives, eq(invoiceArchives.invoiceId, invoices.id))
+      .leftJoin(successor, eq(successor.replacesInvoiceId, invoices.id))
+      // The row whose key was read, while it still matches: by now the
+      // selector could match another row, encrypted under another key, or
+      // none. One statement reads the row, its cancellation and its links.
+      .where(and(eq(invoices.id, metadata.id), input.where))
+      .limit(1)
+      .pipe(
+        Effect.withTracerEnabled(false),
         Effect.mapError(
           (cause) =>
             new InvoiceStorageError({
               operation: "decrypt",
               paymentAttemptId: input.lookupId,
-              message: "Invoice decryption key is unavailable.",
+              message: "Invoice could not be decrypted.",
               cause: censorLogValue(cause),
             })
         )
       );
 
-      const [row] = yield* db
-        .select({
-          id: invoices.id,
-          workspaceReservationId: invoices.workspaceReservationId,
-          paymentAttemptId: invoices.paymentAttemptId,
-          dotyposCustomerId: invoices.dotyposCustomerId,
-          invoiceNumber: invoices.invoiceNumber,
-          issuedAt: invoices.issuedAt,
-          replacesInvoiceId: invoices.replacesInvoiceId,
-          replacedByInvoiceId: successor.id,
-          cancelledAt: invoiceCancellations.cancelledAt,
-          cancellationCause: invoiceCancellations.cause,
-          correctiveDocumentNumber: correctiveDocuments.documentNumber,
-          archivedAt: invoiceArchives.archivedAt,
-          documentJson: decryptAccountingSnapshot(
-            invoices.encryptedDocument,
-            key.secret
-          ),
-        })
-        .from(invoices)
-        .leftJoin(
-          invoiceCancellations,
-          eq(invoiceCancellations.invoiceId, invoices.id)
-        )
-        .leftJoin(
-          correctiveDocuments,
-          eq(correctiveDocuments.cancelledInvoiceId, invoices.id)
-        )
-        .leftJoin(invoiceArchives, eq(invoiceArchives.invoiceId, invoices.id))
-        .leftJoin(successor, eq(successor.replacesInvoiceId, invoices.id))
-        // The row whose key was read: a selector could match another row
-        // by now, encrypted under another key.
-        .where(eq(invoices.id, metadata.id))
-        .limit(1)
-        .pipe(
-          Effect.withTracerEnabled(false),
-          Effect.mapError(
-            (cause) =>
-              new InvoiceStorageError({
-                operation: "decrypt",
-                paymentAttemptId: input.lookupId,
-                message: "Invoice could not be decrypted.",
-                cause: censorLogValue(cause),
-              })
-          )
-        );
+    // Invoices are never deleted, so the row stopped matching.
+    if (!row) return "moved" as const;
 
-      if (!row) {
-        return yield* new InvoiceStorageError({
-          operation: "load",
+    const encoded = yield* Effect.try({
+      try: () => JSON.parse(row.documentJson) as unknown,
+      catch: () =>
+        new InvoiceStorageError({
+          operation: "parse",
           paymentAttemptId: input.lookupId,
-          message: "Invoice disappeared while loading.",
-        });
-      }
-
-      const encoded = yield* Effect.try({
-        try: () => JSON.parse(row.documentJson) as unknown,
-        catch: () =>
+          message: "Invoice JSON is invalid.",
+        }),
+    });
+    const document = yield* decodeInvoiceDocument(encoded).pipe(
+      Effect.mapError(
+        () =>
           new InvoiceStorageError({
             operation: "parse",
             paymentAttemptId: input.lookupId,
-            message: "Invoice JSON is invalid.",
-          }),
-      });
-      const document = yield* decodeInvoiceDocument(encoded).pipe(
-        Effect.mapError(
-          () =>
-            new InvoiceStorageError({
-              operation: "parse",
-              paymentAttemptId: input.lookupId,
-              message: "Invoice schema is invalid.",
-            })
-        )
-      );
+            message: "Invoice schema is invalid.",
+          })
+      )
+    );
 
-      yield* validateStoredInvoice({ row, document });
+    yield* validateStoredInvoice({ row, document });
 
-      return {
-        id: invoiceIdSchema.make(row.id),
-        workspaceReservationId: row.workspaceReservationId,
-        paymentAttemptId: row.paymentAttemptId,
-        dotyposCustomerId: row.dotyposCustomerId,
-        invoiceNumber: document.invoiceNumber,
-        issuedAt: row.issuedAt,
-        document,
-        cancellation: yield* toCancellationFact(row, input.lookupId),
-        archivedAt: row.archivedAt,
-        replacesInvoiceId: row.replacesInvoiceId,
-        replacedByInvoiceId: row.replacedByInvoiceId
-          ? invoiceIdSchema.make(row.replacedByInvoiceId)
-          : null,
-      } satisfies Invoice;
+    return {
+      id: invoiceIdSchema.make(row.id),
+      workspaceReservationId: row.workspaceReservationId,
+      paymentAttemptId: row.paymentAttemptId,
+      dotyposCustomerId: row.dotyposCustomerId,
+      invoiceNumber: document.invoiceNumber,
+      issuedAt: row.issuedAt,
+      document,
+      cancellation: yield* toCancellationFact(row, input.lookupId),
+      archivedAt: row.archivedAt,
+      replacesInvoiceId: row.replacesInvoiceId,
+      replacedByInvoiceId: row.replacedByInvoiceId
+        ? invoiceIdSchema.make(row.replacedByInvoiceId)
+        : null,
+    } satisfies Invoice;
+  });
+
+  /**
+   * The invoice the selector matches, read consistently: its cancellation,
+   * archive and chain links are those of the matching row. A row that stops
+   * matching while it loads is looked up once more, then reads as `null`.
+   */
+  const loadInvoice = Effect.fn("InvoiceRepository.loadInvoice")(
+    function* (input: { readonly where: SQL; readonly lookupId: string }) {
+      const first = yield* loadMatchingInvoice(input);
+      if (first !== "moved") return first;
+      const second = yield* loadMatchingInvoice(input);
+      return second === "moved" ? null : second;
     }
   );
 

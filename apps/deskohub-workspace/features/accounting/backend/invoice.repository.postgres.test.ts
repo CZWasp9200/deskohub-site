@@ -1188,5 +1188,87 @@ describe.skipIf(!testDatabase)(
         replacement.invoice.id,
       ]);
     });
+
+    // The invoice's key is read between the lookup and the decrypting read,
+    // so a key service that commits a change there races the two reads.
+    const keysChangingBetweenReads = (change: () => Promise<unknown>) => {
+      const keys = makeKeyService();
+      let changed = false;
+      return {
+        ...keys,
+        getById: (keyId) =>
+          Effect.promise(async () => {
+            if (changed) return;
+            changed = true;
+            await change();
+          }).pipe(Effect.andThen(keys.getById(keyId))),
+      } satisfies IAccountingSnapshotKeyService;
+    };
+
+    test.each([
+      [
+        "findLiveByPaymentAttemptId",
+        (fixture: PaidFixture) => (repository: IInvoiceRepository) =>
+          repository.findLiveByPaymentAttemptId(fixture.paymentAttemptId),
+      ],
+      [
+        "findLiveByReservationId",
+        (fixture: PaidFixture) => (repository: IInvoiceRepository) =>
+          repository.findLiveByReservationId(fixture.reservationId),
+      ],
+    ] as const)(
+      "%s reads an invoice cancelled while it loads as no live invoice",
+      async (_finder, find) => {
+        const fixture = await createPaidFixture();
+        const original = await issue(fixture.paymentAttemptId);
+
+        const read = await runRepository(
+          find(fixture),
+          keysChangingBetweenReads(() =>
+            cancelIssuedInvoice(original.invoice.id)
+          )
+        );
+
+        expect(read).toBeNull();
+        expect(
+          await runRepository((repository) =>
+            repository.findById(original.invoice.id)
+          )
+        ).toMatchObject({
+          cancellation: { cause: "reservation_cancellation" },
+        });
+      }
+    );
+
+    test.each([
+      [
+        "findLatestByPaymentAttemptId",
+        (fixture: PaidFixture) => (repository: IInvoiceRepository) =>
+          repository.findLatestByPaymentAttemptId(fixture.paymentAttemptId),
+      ],
+      [
+        "findLatestByReservationId",
+        (fixture: PaidFixture) => (repository: IInvoiceRepository) =>
+          repository.findLatestByReservationId(fixture.reservationId),
+      ],
+    ] as const)(
+      "%s follows a replacement issued while it loads",
+      async (_finder, find) => {
+        const fixture = await createPaidFixture();
+        const original = await issue(fixture.paymentAttemptId);
+        await cancelIssuedInvoice(original.invoice.id);
+        let replacementId: string | undefined;
+
+        const read = await runRepository(
+          find(fixture),
+          keysChangingBetweenReads(async () => {
+            replacementId = (await issue(fixture.paymentAttemptId)).invoice.id;
+          })
+        );
+
+        expect(read?.id).toBe(replacementId!);
+        expect(read?.replacesInvoiceId).toBe(original.invoice.id);
+      }
+    );
   }
 );
