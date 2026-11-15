@@ -252,6 +252,25 @@ describe("analytics behind the gate", () => {
     await Effect.runPromise(eventually(() => clients.length === 1));
   });
 
+  test("starts a client once a late stored answer takes the carried grant", async () => {
+    const { gate, load } = openedByApp(undecided, granted, true);
+    const clients = connect(gate);
+    await Effect.runPromise(quietly);
+    expect(clients).toHaveLength(0);
+    load();
+    await Effect.runPromise(eventually(() => clients.length === 1));
+  });
+
+  test("stops notifying a listener removed before the answer applies", async () => {
+    const { gate, load } = openedByApp(undecided, granted, true);
+    let calls = 0;
+    const unsubscribe = gate.subscribe(() => calls++);
+    unsubscribe();
+    load();
+    await settled(gate);
+    expect(calls).toBe(0);
+  });
+
   test("starts no client over the site's grant the app withdrew", async () => {
     const { gate } = openedByApp(siteGrant, denied);
     const clients = connect(gate);

@@ -25,29 +25,31 @@ const removeStoredRequest = Option.liftThrowable(() =>
 );
 
 /**
- * The request this page load saved while storage refused it. The page still
- * continues it, and still treats itself as opened by the app, though another
- * tab can't.
+ * The request this page load saved while storage refused it. Until it is
+ * cleared it is this page's request, over anything storage still holds, so
+ * the page still continues it and still treats itself as opened by the app,
+ * though another tab can't.
  */
 let unsavedRequest: string | undefined;
 
 export const loadNativeHandoffRequest = (
   now: number
 ): Option.Option<NativeHandoffRequest> =>
-  readStoredRequest().pipe(
-    Option.flatMap(Option.fromNullishOr),
-    Option.orElse(() => Option.fromNullishOr(unsavedRequest)),
-    Option.flatMap((raw) => restoreNativeHandoffRequest(raw, now))
-  );
+  unsavedRequest === undefined
+    ? readStoredRequest().pipe(
+        Option.flatMap((raw) => restoreNativeHandoffRequest(raw, now))
+      )
+    : restoreNativeHandoffRequest(unsavedRequest, now);
 
 export const saveNativeHandoffRequest = (
   request: NativeHandoffRequest,
   now: number
 ): void => {
   const serialized = serializeNativeHandoffRequest(request, now);
-  unsavedRequest = Option.isNone(writeStoredRequest(serialized))
-    ? serialized
-    : undefined;
+  const saved = Option.isSome(writeStoredRequest(serialized));
+  unsavedRequest = saved ? undefined : serialized;
+  // Another tab mustn't continue an older request this one replaced.
+  if (!saved) removeStoredRequest();
 };
 
 export const clearNativeHandoffRequest = (): void => {
