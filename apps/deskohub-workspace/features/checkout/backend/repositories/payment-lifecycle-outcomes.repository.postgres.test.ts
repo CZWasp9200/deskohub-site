@@ -211,7 +211,6 @@ describe.skipIf(!testDatabase)(
         _tag: "AccountingRecordUnavailable",
         operation: "encrypt",
         reference,
-        message: "Accounting snapshot encryption key is unavailable.",
       },
     });
 

@@ -16,6 +16,7 @@ import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers"
 import type { Locale } from "@/features/i18n";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { type Money, moneyEquals, sameMoneyUnit } from "@/shared/money/money";
+import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
 import {
   type AccountingRecordReference,
   AccountingRecordUnavailable,
@@ -28,7 +29,7 @@ export type {
 } from "./sealed-accounting-json";
 
 /** A snapshot accepted for a payment attempt that is about to be inserted. */
-export interface PreparedAccountingDocumentSnapshot {
+interface PreparedAccountingDocumentSnapshot {
   /** The snapshot as decoded strictly. */
   readonly snapshot: AccountingDocumentSnapshot;
   /**
@@ -169,6 +170,11 @@ export class AccountingDocumentSnapshots extends Context.Service<
       const service: IAccountingDocumentSnapshots = { find, prepare };
       return service;
     })
+  );
+
+  /** `Default` with the snapshot keys from the environment. */
+  static Live = this.Default.pipe(
+    Layer.provide(AccountingSnapshotKeyService.Default)
   );
 }
 

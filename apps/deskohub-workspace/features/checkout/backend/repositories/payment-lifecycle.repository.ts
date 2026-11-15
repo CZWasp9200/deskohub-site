@@ -40,7 +40,6 @@ import {
   AccountingDocumentSnapshots,
   type AccountingRecordUnavailable,
 } from "@/features/accounting/backend/accounting-document-snapshots";
-import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
 import {
@@ -865,11 +864,7 @@ export class PaymentLifecycleRepository extends Context.Service<
   );
 
   static Live = this.Default.pipe(
-    Layer.provide(
-      AccountingDocumentSnapshots.Default.pipe(
-        Layer.provide(AccountingSnapshotKeyService.Default)
-      )
-    )
+    Layer.provide(AccountingDocumentSnapshots.Live)
   );
 }
 

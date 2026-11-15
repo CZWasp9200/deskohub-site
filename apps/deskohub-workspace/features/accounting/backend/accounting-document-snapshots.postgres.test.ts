@@ -242,33 +242,28 @@ describe("AccountingDocumentSnapshots.prepare", () => {
 
   const mismatches: readonly {
     readonly name: string;
-    readonly message: string;
     readonly change: (
       snapshot: AccountingDocumentSnapshot
     ) => Parameters<typeof prepareFor>[2];
   }[] = [
     {
       name: "a snapshot with a property its schema doesn't declare",
-      message: "Accounting snapshot schema is invalid.",
       change: (snapshot) => ({
         snapshot: { ...snapshot, unexpected: true } as never,
       }),
     },
     {
       name: "another reservation's snapshot",
-      message: "Accounting snapshot does not match the payment attempt.",
       change: () => ({
         workspaceReservationId: workspaceReservationIdSchema.make(randomUUID()),
       }),
     },
     {
       name: "a snapshot in another locale",
-      message: "Accounting snapshot does not match the payment attempt.",
       change: () => ({ locale: "cs-CZ" }),
     },
     {
       name: "a snapshot for another amount",
-      message: "Accounting snapshot does not match the payment attempt.",
       change: (snapshot) => ({
         amount: moneyWithValue(
           snapshot.quote.payment.expectedPrice.value + 1,
@@ -278,7 +273,6 @@ describe("AccountingDocumentSnapshots.prepare", () => {
     },
     {
       name: "a snapshot whose items don't add up to its price",
-      message: "Accounting snapshot does not match the payment attempt.",
       change: (snapshot) => {
         const [first, ...rest] = snapshot.quote.items;
         return {
@@ -303,7 +297,6 @@ describe("AccountingDocumentSnapshots.prepare", () => {
     },
     {
       name: "a snapshot priced in another currency than its items",
-      message: "Accounting snapshot does not match the payment attempt.",
       change: (snapshot) => ({
         snapshot: {
           ...snapshot,
@@ -338,7 +331,6 @@ describe("AccountingDocumentSnapshots.prepare", () => {
           _tag: "AccountingRecordUnavailable",
           operation: "validate",
           reference,
-          message: mismatch.message,
         })
       );
       expect(failure.cause).toBeUndefined();
@@ -392,7 +384,6 @@ describe("AccountingDocumentSnapshots.record", () => {
           _tag: "AccountingRecordUnavailable",
           operation: "validate",
           reference,
-          message: "Accounting snapshot provider identity is inconsistent.",
         })
       );
       expect(await storedRows(reservationId)).toEqual({
@@ -437,7 +428,6 @@ describe("AccountingDocumentSnapshots.record", () => {
       _tag: "AccountingRecordUnavailable",
       operation: "encrypt",
       reference,
-      message: "Accounting snapshot encryption key is unavailable.",
     });
     expect(JSON.stringify(failure)).not.toContain(testKey.secret);
     expect(await storedRows(reservationId)).toEqual({
@@ -505,7 +495,6 @@ describe("AccountingDocumentSnapshots.record", () => {
       _tag: "AccountingRecordUnavailable",
       operation: "encrypt",
       reference: { type: "paymentAttemptId", id: paymentAttemptId },
-      message: "Accounting snapshot could not be encrypted.",
     });
     const serialized = JSON.stringify(failure);
     expect(serialized).not.toContain(testKey.secret);
