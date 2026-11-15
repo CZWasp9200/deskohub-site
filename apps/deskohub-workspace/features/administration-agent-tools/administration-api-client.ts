@@ -83,7 +83,7 @@ export class AdministrationApiClient extends Context.Service<
   IAdministrationApiClient
 >()("@deskohub-workspace/administration-agent-tools/AdministrationApiClient") {
   /** A client of `api`, served by the transport. */
-  static forApi = <Id extends string, Groups extends HttpApiGroup.Any>(
+  static forApi = <Id extends string, Groups extends HttpApiGroup.Constraint>(
     api: HttpApi.HttpApi<Id, Groups>
   ) =>
     Layer.effect(

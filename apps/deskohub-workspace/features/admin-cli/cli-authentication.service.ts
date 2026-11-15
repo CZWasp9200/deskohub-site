@@ -24,7 +24,6 @@ import { and, desc, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import {
   Context,
-  Crypto,
   Data,
   Effect,
   Layer,
@@ -32,6 +31,7 @@ import {
   type PlatformError,
   Schema,
 } from "effect";
+import { Digest, SecureRandom } from "effect/crypto";
 import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
@@ -158,17 +158,18 @@ export class CliAuthentication extends Context.Service<
     Effect.gen(function* () {
       const database = yield* WorkspaceDatabase;
       const { db, transaction } = yield* WorkspaceDatabase;
-      const crypto = yield* Crypto.Crypto;
+      const random = yield* SecureRandom.SecureRandom;
+      const digest = yield* Digest.Digest;
       const roleGrants = yield* AccountRoleGrants;
       const holdsAdministratorRole = (accountId: CustomerAccountId) =>
         roleGrants.has({ accountId, role: "administrator" });
       const makeSecret = () =>
         makeCliAuthenticationSecret().pipe(
-          Effect.provideService(Crypto.Crypto, crypto)
+          Effect.provideService(SecureRandom.SecureRandom, random)
         );
       const digestSecret = (secret: string) =>
         digestCliAuthenticationSecret(secret).pipe(
-          Effect.provideService(Crypto.Crypto, crypto)
+          Effect.provideService(Digest.Digest, digest)
         );
 
       const loadRequest = Effect.fn("CliAuthentication.loadRequest")(function* (
@@ -370,7 +371,7 @@ export class CliAuthentication extends Context.Service<
 
         const accessToken = CliAccessToken.make(yield* makeSecret());
         const tokenHash = yield* digestSecret(accessToken);
-        const sessionId = CliSessionId.make(yield* crypto.randomUUIDv7);
+        const sessionId = CliSessionId.make(yield* random.uuidV7());
 
         const session = yield* transaction(
           Effect.gen(function* () {

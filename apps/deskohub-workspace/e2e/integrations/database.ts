@@ -512,7 +512,7 @@ export const assertNoDiscountPaymentState = (
               )
               .where(eq(discountApplications.workspaceReservationId, orderId)),
           ],
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         )
       );
 
@@ -930,7 +930,7 @@ export const readCleanupCheckoutRows = (
     return yield* Effect.forEach(
       reservations,
       ({ id }) => readCheckoutRowFromDatabase(db, id),
-      { concurrency: "inherit" }
+      { concurrency: "unbounded" }
     ).pipe(
       Effect.map((rows) =>
         rows.filter(
@@ -1943,7 +1943,7 @@ const assertNoLocalPii = (
               )
             ),
         ],
-        { concurrency: "inherit" }
+        { concurrency: "unbounded" }
       )
     );
 

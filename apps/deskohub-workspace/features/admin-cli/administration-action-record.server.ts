@@ -98,14 +98,14 @@ export const AdministrationActionRecordLive = Layer.effect(
  * the endpoint.
  */
 const recordedOperation = (
-  group: HttpApiGroup.AnyWithProps,
-  endpoint: HttpApiEndpoint.AnyWithProps
+  group: HttpApiGroup.Top,
+  endpoint: HttpApiEndpoint.Top
 ): Effect.Effect<
   Option.Option<AdministrationOperationReference>,
   never,
   HttpServerRequest.HttpServerRequest
 > => {
-  const reference: AdministrationOperationReference = `${group.identifier}.${endpoint.name}`;
+  const reference: AdministrationOperationReference = `${group.identifier}.${endpoint.identifier}`;
   const declaration = administrationOperationDeclaration(
     Context.merge(group.annotations, endpoint.annotations)
   );
@@ -175,7 +175,7 @@ const requestBody = HttpServerRequest.HttpServerRequest.pipe(
  * payload schema the endpoint picks for the request's JSON media type. A
  * body that doesn't decode is no dry run; the endpoint rejects it.
  */
-const requestsDryRun = (endpoint: HttpApiEndpoint.AnyWithProps) =>
+const requestsDryRun = (endpoint: HttpApiEndpoint.Top) =>
   HttpServerRequest.HttpServerRequest.pipe(
     Effect.flatMap((request) =>
       Option.fromNullishOr(endpoint.payload.get(mediaTypeOf(request))).pipe(

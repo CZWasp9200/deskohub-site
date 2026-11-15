@@ -45,7 +45,8 @@ export const releaseGateForRun = <Self>(
         Effect.suspend(() =>
           Layer.buildWithMemoMap(
             gate.Live,
-            Layer.CurrentMemoMap.getOrCreate(context),
+            Context.getOrUndefined(context, Layer.CurrentMemoMap) ??
+              Layer.makeMemoMapUnsafe(),
             Context.get(context, Scope.Scope)
           )
         )

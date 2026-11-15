@@ -58,7 +58,7 @@ const priceQuoteSelection = ({
         selection.reservationSelection
       ),
     },
-    { concurrency: "inherit" }
+    { concurrency: "unbounded" }
   ).pipe(Effect.mapError(AgentToolError.unavailable("quote_unavailable")));
 
 const toQuoteResult = ({

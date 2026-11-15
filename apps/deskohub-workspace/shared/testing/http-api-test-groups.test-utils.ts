@@ -20,7 +20,7 @@ interface UntypedHandlers {
  */
 export const unhandledHttpApiGroups = <
   ApiId extends string,
-  Groups extends HttpApiGroup.Any,
+  Groups extends HttpApiGroup.Constraint,
 >(
   api: HttpApi.HttpApi<ApiId, Groups>,
   handled: ReadonlyArray<string>
@@ -33,9 +33,9 @@ export const unhandledHttpApiGroups = <
       Layer.empty
     );
 
-const unhandledGroup = <ApiId extends string, Groups extends HttpApiGroup.Any>(
+const unhandledGroup = <ApiId extends string, Groups extends HttpApiGroup.Constraint>(
   api: HttpApi.HttpApi<ApiId, Groups>,
-  [name, group]: readonly [string, HttpApiGroup.Any]
+  [name, group]: readonly [string, HttpApiGroup.Constraint]
 ): Layer.Layer<never> =>
   HttpApiBuilder.group(api, name as never, (handlers) => {
     let builder: UntypedHandlers = handlers as never;

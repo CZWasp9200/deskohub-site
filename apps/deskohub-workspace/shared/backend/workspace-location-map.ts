@@ -25,8 +25,11 @@ const attributionFont = {
 export const generateWorkspaceLocationMapImage = (
   options: StaticMapImageOptions = workspaceLocationMapImageOptions
 ) =>
-  generateStaticMapImage({ attributionFont, ...options }).pipe(
-    Effect.withConcurrency(workspaceLocationMapTileConcurrency),
+  generateStaticMapImage({
+    attributionFont,
+    ...options,
+    tileConcurrency: workspaceLocationMapTileConcurrency,
+  }).pipe(
     Effect.provide(FetchHttpClient.layer),
     Effect.provideService(FetchHttpClient.RequestInit, {
       cache: "force-cache",

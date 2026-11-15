@@ -206,7 +206,7 @@ describe("dhw client version", () => {
           mergedAnnotations,
           MinimumDhwVersion
         );
-        const reference = `${group.identifier}.${endpoint.name}`;
+        const reference = `${group.identifier}.${endpoint.identifier}`;
         const expectedMinimum =
           endpointMinimums[reference] ?? groupMinimums[group.identifier];
         if (expectedMinimum !== undefined) {

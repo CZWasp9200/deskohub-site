@@ -50,7 +50,7 @@ HttpApi.reflect(WorkspaceAdminApi, {
       .flatMap(({ schemas }) => schemas)
       .flatMap(changeKeyPaths)
       .flatMap((path) => (path.length === 1 ? path : []));
-    payloadChangeKeys.set(`${group.identifier}.${endpoint.name}`, keys);
+    payloadChangeKeys.set(`${group.identifier}.${endpoint.identifier}`, keys);
   },
 });
 
@@ -173,9 +173,9 @@ describe("administration agent tools", () => {
 
 describe("administration agent tool derivation", () => {
   const Secret = Schema.String.annotate({ credential: true });
-  const apiWith = (group: HttpApiGroup.Any) =>
+  const apiWith = (group: HttpApiGroup.Constraint) =>
     HttpApi.make("testApi").add(group);
-  const authenticated = <Group extends HttpApiGroup.Any>(group: Group) =>
+  const authenticated = <Group extends HttpApiGroup.Constraint>(group: Group) =>
     group.middleware(AdministrationAuthentication);
 
   test("refuses an operation that returns a credential", () => {

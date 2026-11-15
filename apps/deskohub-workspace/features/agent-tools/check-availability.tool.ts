@@ -190,7 +190,7 @@ const loadCoworkTierAvailability = ({
           ]
         : [];
     }),
-    { concurrency: "inherit" }
+    { concurrency: "unbounded" }
   );
 
 const toCoworkDays = ({
@@ -238,7 +238,7 @@ const checkMeetingRoom = Effect.fn("agentTools.checkMeetingRoomAvailability")(
             ),
             earlySetupAvailable: loadEarlySetupAvailability(meetingRoom),
           },
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         )
       ),
       Effect.let("available", ({ checks }) =>
@@ -355,5 +355,5 @@ const loadOfficeAvailability = (today: Temporal.PlainDate) =>
         Effect.mapError(AgentToolError.unavailable("availability_unavailable"))
       ),
     },
-    { concurrency: "inherit" }
+    { concurrency: "unbounded" }
   );

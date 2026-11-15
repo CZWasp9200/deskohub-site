@@ -11,7 +11,6 @@ import {
 import {
   Context,
   Effect,
-  Encoding,
   Match,
   Option,
   Predicate,
@@ -19,6 +18,7 @@ import {
   Schema,
   SchemaAST,
 } from "effect";
+import { Base64 } from "effect/encoding";
 import {
   HttpApi,
   type HttpApiEndpoint,
@@ -354,8 +354,8 @@ const outputSchema = ({
 };
 
 interface EndpointReflection {
-  readonly group: HttpApiGroup.AnyWithProps;
-  readonly endpoint: HttpApiEndpoint.AnyWithProps;
+  readonly group: HttpApiGroup.Top;
+  readonly endpoint: HttpApiEndpoint.Top;
   readonly mergedAnnotations: Context.Context<never>;
   readonly successes: ReadonlyMap<
     number,
@@ -368,7 +368,7 @@ interface EndpointReflection {
 }
 
 const payloadOf = (
-  endpoint: HttpApiEndpoint.AnyWithProps,
+  endpoint: HttpApiEndpoint.Top,
   reference: string
 ) => {
   const [payload, ...others] = [...endpoint.payload.values()].flatMap(
@@ -394,7 +394,7 @@ const deriveEndpointTools = ({
   successes,
   errors,
 }: EndpointReflection): ReadonlyArray<AdministrationOperationTool> => {
-  const operation: AdministrationOperationReference = `${group.identifier}.${endpoint.name}`;
+  const operation: AdministrationOperationReference = `${group.identifier}.${endpoint.identifier}`;
   const declaration = administrationOperationDeclaration(mergedAnnotations);
   if (Option.isNone(declaration)) {
     throw new Error(`${operation} declares no administration operation.`);
@@ -495,7 +495,7 @@ const deriveEndpointTools = ({
     };
   };
 
-  const title = capitalize(toWords(endpoint.name));
+  const title = capitalize(toWords(endpoint.identifier));
 
   if (Option.isSome(variants)) {
     const { field, discriminator, operations } = variants.value;
@@ -512,7 +512,7 @@ const deriveEndpointTools = ({
     const outer = payloadProperties.filter(
       (property) => nameOf(property) !== field
     );
-    const subject = endpoint.name.replace(/^mutate/, "");
+    const subject = endpoint.identifier.replace(/^mutate/, "");
     return Object.entries(operations).map(([variant, behavior]) => {
       const member = Option.getOrThrowWith(
         variantMember(union.type, discriminator, variant),
@@ -547,7 +547,7 @@ const deriveEndpointTools = ({
   }
   const behavior = declaration.value.behavior;
   const reference = operation;
-  const name = `admin_${toSnakeCase(endpoint.name)}`;
+  const name = `admin_${toSnakeCase(endpoint.identifier)}`;
   if (payload === undefined) {
     return [
       makeTool({
@@ -676,7 +676,7 @@ const assertPreviewServed = (
 /** Derives one tool per administration operation the contract serves. */
 export const deriveAdministrationOperationTools = <
   Id extends string,
-  Groups extends HttpApiGroup.Any,
+  Groups extends HttpApiGroup.Constraint,
 >(
   api: HttpApi.HttpApi<Id, Groups>
 ): ReadonlyArray<AdministrationOperationTool> => {
@@ -783,7 +783,7 @@ const toAttachmentOutcome = ({
   );
   return {
     result: { uri, mimeType, byteLength: bytes.byteLength },
-    attachments: [{ uri, mimeType, blob: Encoding.encodeBase64(bytes) }],
+    attachments: [{ uri, mimeType, blob: Base64.encode(bytes) }],
   };
 };
 

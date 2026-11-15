@@ -16,7 +16,7 @@ type CustomerApiGroups =
  * a `Handlers` value over these.
  */
 export type CustomerBookingEndpoint<Name extends string = string> =
-  HttpApiEndpoint.WithName<
-    HttpApiGroup.EndpointsWithName<CustomerApiGroups, "booking">,
+  HttpApiEndpoint.WithIdentifier<
+    HttpApiGroup.EndpointsWithIdentifier<CustomerApiGroups, "booking">,
     Name
   >;

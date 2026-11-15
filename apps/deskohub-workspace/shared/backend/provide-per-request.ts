@@ -21,7 +21,7 @@ export const providePerRequest =
       Effect.contextWith((context: Context.Context<never>) =>
         Layer.buildWithMemoMap(
           layer,
-          Layer.forkMemoMapUnsafe(Layer.CurrentMemoMap.getOrCreate(context)),
+          Layer.CurrentMemoMap.forkOrCreate(context),
           scope
         )
       ).pipe(

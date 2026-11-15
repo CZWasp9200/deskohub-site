@@ -443,7 +443,7 @@ export class CustomerReservationHistoryService extends Context.Service<
               )
             ),
           },
-          { concurrency: "inherit" }
+          { concurrency: "unbounded" }
         );
 
       const readPartyNames = ({

@@ -70,8 +70,8 @@ const pollSchedule = ({
   const spaced = Schedule.spaced(`${intervalMs} millis`);
   return initialIntervalMs === undefined || initialIntervalMs >= intervalMs
     ? spaced
-    : Schedule.either(
+    : Schedule.min([
         Schedule.exponential(`${initialIntervalMs} millis`),
-        spaced
-      );
+        spaced,
+      ]);
 };
