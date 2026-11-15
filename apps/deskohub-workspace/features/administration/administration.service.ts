@@ -56,7 +56,10 @@ import {
   ReservationAuthorDirectory,
 } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
-import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
+import type {
+  CheckoutSessionKey,
+  PaymentAttemptId,
+} from "@/features/checkout/checkout-identifiers";
 import {
   getWorkspaceProductByTier,
   type WorkspaceCoworkProductTier,
@@ -71,10 +74,13 @@ import {
   StoredReservationDetails,
   type WorkspaceReservationDetailsMalformedError,
 } from "@/features/reservation/backend/stored-reservation-details.server";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import { getDotyposReservationAccessTiming } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import { getReservationAccessName } from "@/features/reservation-access";
+import { getRestoredReservationAccess } from "@/features/reservation-access/reservation-access";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import type { Money } from "@/shared/money/money";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -138,8 +144,13 @@ import {
   getAdministrationReservationProduct,
 } from "./reservation-product";
 import {
+  getRestorationRefund,
+  type RestorationRefundedPayment,
+} from "./reservation-restoration-refund";
+import {
   type AdministrationReservationStatusNote,
   canCancelReservation,
+  canRestoreReservation,
   getAdministrationReservationLifecycle,
   getAdministrationReservationStatus,
   getAdministrationReservationStatusNoteFields,
@@ -460,10 +471,25 @@ type AdministrationReservationAuthor =
   | { readonly kind: "deleted" }
   | { readonly kind: "unavailable" };
 
+/** What restoring a cancelled reservation would do, for the operator to confirm. */
+export type AdministrationReservationRestoration = {
+  /** The cancellation email reached the customer, so a restoration email can follow. */
+  readonly cancellationEmailRecorded: boolean;
+  /** The reservation hasn't ended, so restoring issues a new access code. */
+  readonly issuesNewAccess: boolean;
+  /** Restoring clears a refund still awaiting Nexi; it is no longer owed. */
+  readonly clearsRefundRequirement: boolean;
+  /** What Nexi already refunded. The refund stays; the operator acknowledges it. */
+  readonly refundedPayment: RestorationRefundedPayment | null;
+};
+
 export type AdministrationReservationDetail = {
   /** Absent when the reservation is authorless or the customer booked it. */
   readonly author: AdministrationReservationAuthor | null;
   readonly canCancel: boolean;
+  readonly canRestore: boolean;
+  /** Null unless `canRestore`. */
+  readonly restoration: AdministrationReservationRestoration | null;
   readonly requiresProviderCredentialRemoval: boolean;
   readonly reservation: AdministrationReservationSummary;
   readonly booking: AdministrationBookingSummary | null;
@@ -1451,6 +1477,7 @@ export class AdministrationService extends Context.Service<
       const reservationHistory = yield* PostHogReservationHistory;
       const paymentAdministration = yield* PaymentAdministrationService;
       const reservationAuthors = yield* ReservationAuthorDirectory;
+      const reservations = yield* WorkspaceReservationRepository;
 
       const loadLiveReservation = Effect.fn(
         "AdministrationService.loadLiveReservation"
@@ -2151,6 +2178,56 @@ export class AdministrationService extends Context.Service<
           .pipe(Effect.flatMap(StoredReservationDetails.decodeRows));
       });
 
+      /**
+       * What restoring the reservation would do, or null when it can't be
+       * restored. The restore decides from the same facts under lock: the
+       * access span ends where Dotypos holds the booking until, so a booking
+       * Dotypos can't read now can't be restored now either.
+       */
+      const loadRestoration = Effect.fn(
+        "AdministrationService.loadRestoration"
+      )(function* (input: {
+        readonly accessGrant: Pick<
+          StoredReservationAccessGrant,
+          "state"
+        > | null;
+        readonly attemptRows: readonly SafePaymentAttemptRow[];
+        readonly cancellationEmailSentAt: Temporal.Instant | null;
+        readonly checkoutSessionKey: CheckoutSessionKey;
+        readonly live: LiveReservationDetails;
+        readonly row: SafeReservationRow;
+      }) {
+        // Only a reservation that is otherwise restorable needs its successor.
+        if (
+          !canRestoreReservation(input.row, { hasActiveSuccessor: false }) ||
+          !input.live.reservation
+        ) {
+          return null;
+        }
+        const access = yield* getDotyposReservationAccessTiming({
+          reservationId: input.row.id,
+          reservation: decodeBookedReservation(
+            input.live.reservation,
+            input.row.reservationDetails
+          ),
+        }).pipe(Effect.option);
+        if (Option.isNone(access)) return null;
+        const successor = yield* reservations.findCurrentByCheckoutSessionKey(
+          input.checkoutSessionKey
+        );
+        if (successor) return null;
+        return {
+          cancellationEmailRecorded: input.cancellationEmailSentAt !== null,
+          issuesNewAccess:
+            getRestoredReservationAccess(
+              input.accessGrant,
+              access.value,
+              Temporal.Now.instant()
+            ) !== "not_needed",
+          ...getRestorationRefund(input.attemptRows),
+        } satisfies AdministrationReservationRestoration;
+      });
+
       const loadReservation = Effect.fn(
         "AdministrationService.loadReservation"
       )(function* (id: WorkspaceReservationId) {
@@ -2158,13 +2235,21 @@ export class AdministrationService extends Context.Service<
           .select({
             ...safeReservationSelection,
             authorAccountId: workspaceReservations.authorAccountId,
+            cancellationEmailSentAt:
+              workspaceReservations.cancellationEmailSentAt,
+            checkoutSessionKey: workspaceReservations.checkoutSessionKey,
           })
           .from(workspaceReservations)
           .where(eq(workspaceReservations.id, id))
           .limit(1)
           .pipe(Effect.flatMap(StoredReservationDetails.decodeRows));
         if (!reservationRow) return null;
-        const { authorAccountId, ...row } = reservationRow;
+        const {
+          authorAccountId,
+          cancellationEmailSentAt,
+          checkoutSessionKey,
+          ...row
+        } = reservationRow;
 
         const {
           accessRows,
@@ -2281,6 +2366,14 @@ export class AdministrationService extends Context.Service<
           latePaymentRows
         );
         const accessGrant = accessRows[0] ?? null;
+        const restoration = yield* loadRestoration({
+          accessGrant,
+          attemptRows,
+          cancellationEmailSentAt,
+          checkoutSessionKey,
+          live,
+          row,
+        });
 
         return {
           author,
@@ -2343,6 +2436,8 @@ export class AdministrationService extends Context.Service<
             customerId: row.dotyposCustomerId,
           },
           canCancel: canCancelReservation(row),
+          canRestore: restoration !== null,
+          restoration,
           requiresProviderCredentialRemoval:
             requiresProviderCredentialRemoval(accessGrant),
         } satisfies AdministrationReservationDetail;
@@ -3369,6 +3464,7 @@ export class AdministrationService extends Context.Service<
       Layer.mergeAll(
         WorkspaceDatabase.Default,
         WorkspaceDotyposLayer,
+        WorkspaceReservationRepository.Live,
         PaymentAdministrationService.Live,
         PostHogReservationHistory.Live,
         ReservationAuthorDirectory.Live

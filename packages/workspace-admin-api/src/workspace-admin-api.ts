@@ -1640,6 +1640,25 @@ export const AdministrationReservationAuthor = Schema.Union([
 export type AdministrationReservationAuthor =
   typeof AdministrationReservationAuthor.Type;
 
+/** What restoring a cancelled reservation would do. */
+export const AdministrationReservationRestoration = Schema.Struct({
+  /** The cancellation email reached the customer; a restoration email can follow. */
+  cancellationEmailRecorded: Schema.Boolean,
+  /** The reservation hasn't ended, so restoring issues a new access code. */
+  issuesNewAccess: Schema.Boolean,
+  /** Some payment awaits a refund Nexi hasn't recorded; restoring clears it. */
+  clearsRefundRequirement: Schema.Boolean,
+  /** What Nexi already refunded, in total; null when nothing was refunded. */
+  refundedPayment: Schema.NullOr(
+    Schema.Struct({
+      amount: AdministrationMoney,
+      coverage: Schema.Literals(["full", "partial"]),
+    })
+  ),
+});
+export type AdministrationReservationRestoration =
+  typeof AdministrationReservationRestoration.Type;
+
 export const AdministrationReservationDetail = Schema.Struct({
   /**
    * Null when the reservation is authorless or its customer booked it, and
@@ -1664,6 +1683,14 @@ export const AdministrationReservationDetail = Schema.Struct({
     customerId: AdministrationDotyposCustomerId,
   }),
   canCancel: Schema.Boolean,
+  /** False from servers that predate restoring reservations. */
+  canRestore: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(false))
+  ),
+  /** Null when `canRestore` is false. */
+  restoration: Schema.NullOr(AdministrationReservationRestoration).pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(null))
+  ),
   requiresProviderCredentialRemoval: Schema.Boolean,
 });
 export type AdministrationReservationDetail =

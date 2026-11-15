@@ -694,6 +694,8 @@ export {
   type AdministrationReservationProductDetailsUnresolvedReason as AdministrationReservationProductDetailsUnresolvedReasonType,
   AdministrationReservationQuery,
   type AdministrationReservationQuery as AdministrationReservationQueryType,
+  AdministrationReservationRestoration,
+  type AdministrationReservationRestoration as AdministrationReservationRestorationType,
   AdministrationReservationSort,
   type AdministrationReservationSort as AdministrationReservationSortType,
   AdministrationReservationSortDirection,
