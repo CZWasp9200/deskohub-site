@@ -1,7 +1,9 @@
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AppBar } from "../../src/ui/app-bar";
 import { Button } from "../../src/ui/controls";
+import { FocusedStatusBar } from "../../src/ui/focused-status-bar";
 import { LongTextProvider } from "../../src/ui/gallery/gallery-kit";
 import { gallerySections } from "../../src/ui/gallery/sections";
 import { ListGroup, ListRow } from "../../src/ui/list";
@@ -33,24 +35,18 @@ function DesignSystemGallery() {
       edges={["top"]}
       style={{ flex: 1, backgroundColor: color.paper }}
     >
+      <FocusedStatusBar style="dark" />
+      <AppBar
+        title={open ? open.title : "Design system"}
+        onBack={galleryBack(open !== undefined)}
+      />
       <LongTextProvider value={longText}>
         <ScrollScreen>
-          <Text variant="title" role="heading">
-            {open ? open.title : "Design system"}
-          </Text>
           <Text variant="hint">
             {`${Math.round(width)} dp wide, font ${Math.round(fontScale * 100)}%, ${longText ? "text +30%" : "text as written"}`}
           </Text>
           {open ? (
-            <>
-              <Button
-                label="All sections"
-                variant="quiet"
-                width="content"
-                onPress={() => router.setParams({ section: undefined })}
-              />
-              <open.Section />
-            </>
+            <open.Section />
           ) : (
             <>
               <Button
@@ -78,3 +74,9 @@ function DesignSystemGallery() {
     </SafeAreaView>
   );
 }
+
+/** Back from a section goes to the gallery's index; from the index, to where the gallery was opened from. */
+const galleryBack = (sectionOpen: boolean) => {
+  if (sectionOpen) return () => router.setParams({ section: undefined });
+  return router.canGoBack() ? () => router.back() : undefined;
+};

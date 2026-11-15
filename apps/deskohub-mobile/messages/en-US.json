@@ -558,5 +558,6 @@
   "booking_restart_availability_changed": "Your selection is no longer available, so the booking started over. Please choose another time or date.",
   "booking_restart_price_changed": "The offer changed in the meantime, so the booking started over with the current price.",
   "booking_restart_selection_unavailable": "Your selection can't be booked as it is, so the booking started over. Change it and continue again.",
-  "booking_restart_checkout_not_found": "We couldn't find your checkout any more, so the booking started over."
+  "booking_restart_checkout_not_found": "We couldn't find your checkout any more, so the booking started over.",
+  "navigation_back": "Back"
 }
