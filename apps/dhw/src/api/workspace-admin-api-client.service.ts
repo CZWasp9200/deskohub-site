@@ -46,6 +46,9 @@ import {
   type AdministrationDiscountMutationType,
   type AdministrationDotyposCustomerIdType,
   type AdministrationDotyposReservationIdType,
+  type AdministrationInvoiceArchiveResultType,
+  type AdministrationInvoiceCancellationInputType,
+  type AdministrationInvoiceCancellationResultType,
   type AdministrationInvoiceCreateInputType,
   type AdministrationInvoiceCreateResultType,
   type AdministrationInvoiceCreationDefaultsType,
@@ -421,6 +424,16 @@ interface IWorkspaceAdminApiClient {
     | CliSessionUnauthorized
     | CliServiceUnavailable
   >;
+  readonly getInvoiceCorrectiveDocumentPdf: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    invoiceId: AdministrationInvoiceIdType
+  ) => Effect.Effect<
+    Uint8Array,
+    | CliApiRequestError
+    | CliResourceNotFound
+    | CliSessionUnauthorized
+    | CliServiceUnavailable
+  >;
   readonly getInvoiceCreationDefaults: (
     accessToken: Redacted.Redacted<CliAccessTokenType>
   ) => Effect.Effect<
@@ -453,6 +466,29 @@ interface IWorkspaceAdminApiClient {
     invoiceId: AdministrationInvoiceIdType
   ) => Effect.Effect<
     AdministrationInvoiceRetryResultType,
+    | CliApiRequestError
+    | CliMutationRejected
+    | CliResourceNotFound
+    | CliSessionUnauthorized
+    | CliServiceUnavailable
+  >;
+  readonly cancelInvoice: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    invoiceId: AdministrationInvoiceIdType,
+    input: AdministrationInvoiceCancellationInputType
+  ) => Effect.Effect<
+    AdministrationInvoiceCancellationResultType,
+    | CliApiRequestError
+    | CliMutationRejected
+    | CliResourceNotFound
+    | CliSessionUnauthorized
+    | CliServiceUnavailable
+  >;
+  readonly archiveInvoice: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    invoiceId: AdministrationInvoiceIdType
+  ) => Effect.Effect<
+    AdministrationInvoiceArchiveResultType,
     | CliApiRequestError
     | CliMutationRejected
     | CliResourceNotFound
@@ -1159,6 +1195,22 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           Effect.mapError(sanitizeResourceError)
         )
     ),
+    getInvoiceCorrectiveDocumentPdf: Effect.fn(
+      "WorkspaceAdminApiClient.getInvoiceCorrectiveDocumentPdf"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        invoiceId: AdministrationInvoiceIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administration.getInvoiceCorrectiveDocumentPdf({
+              params: { invoiceId },
+            })
+          ),
+          Effect.mapError(sanitizeResourceError)
+        )
+    ),
     getInvoiceCreationDefaults: Effect.fn(
       "WorkspaceAdminApiClient.getInvoiceCreationDefaults"
     )((accessToken: Redacted.Redacted<CliAccessTokenType>) =>
@@ -1193,6 +1245,33 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
         makeClient(accessToken).pipe(
           Effect.flatMap((authorized) =>
             authorized.administration.resendInvoice({
+              params: { invoiceId },
+            })
+          ),
+          Effect.mapError(sanitizeRejectedResourceError)
+        )
+    ),
+    cancelInvoice: Effect.fn("WorkspaceAdminApiClient.cancelInvoice")(
+      (
+        accessToken,
+        invoiceId: AdministrationInvoiceIdType,
+        input: AdministrationInvoiceCancellationInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administration.cancelInvoice({
+              params: { invoiceId },
+              payload: input,
+            })
+          ),
+          Effect.mapError(sanitizeRejectedResourceError)
+        )
+    ),
+    archiveInvoice: Effect.fn("WorkspaceAdminApiClient.archiveInvoice")(
+      (accessToken, invoiceId: AdministrationInvoiceIdType) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administration.archiveInvoice({
               params: { invoiceId },
             })
           ),

@@ -14,6 +14,7 @@ import {
   type CliMutationRequestIdType,
   CliMutationUncertain,
   CliResourceNotFound,
+  CliServiceUnavailable,
   CliSessionUnauthorized,
   CliStandaloneAccessCodeCleanupRequired,
   CliStandaloneAccessCodeReconciled,
@@ -30,6 +31,8 @@ import {
 } from "@/features/access-codes";
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/invoice-administration-identifier";
+import type { InvoiceArchiveError } from "@/features/accounting/invoice-archive";
+import type { InvoiceCancellationError } from "@/features/accounting/invoice-cancellation";
 import { AdministrationService } from "@/features/administration/administration.service";
 import {
   getAdministrationOperationFilters,
@@ -420,6 +423,14 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
           mapAdministrationApiFailure(mapInvoiceReadFailure)
         )
       )
+      .handle("getInvoiceCorrectiveDocumentPdf", ({ params }) =>
+        invoices
+          .getCorrectiveDocumentPdf(params.invoiceId, { includeArchived: true })
+          .pipe(
+            Effect.map(({ bytes }) => bytes),
+            mapAdministrationApiFailure(mapCorrectiveDocumentReadFailure)
+          )
+      )
       .handle("getInvoiceCreationDefaults", () =>
         invoices.getCreationDefaults().pipe(mapServiceFailure)
       )
@@ -491,6 +502,38 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
               : makeServiceUnavailable()
           )
         )
+      )
+      .handle(
+        "cancelInvoice",
+        Effect.fn(function* ({ params, payload }) {
+          const { actor, channel } = yield* CurrentAdministrationCaller;
+          return yield* invoices
+            .cancel({
+              invoiceId: params.invoiceId,
+              actor: {
+                source: provenanceSourceOf(channel),
+                administrator: actor,
+              },
+              confirmedCustomerNotice: payload.confirmedCustomerNotice,
+              ...(payload.reservation && { reservation: payload.reservation }),
+            })
+            .pipe(mapAdministrationApiFailure(mapInvoiceCancellationFailure));
+        })
+      )
+      .handle(
+        "archiveInvoice",
+        Effect.fn(function* ({ params }) {
+          const { actor, channel } = yield* CurrentAdministrationCaller;
+          return yield* invoices
+            .archive({
+              invoiceId: params.invoiceId,
+              actor: {
+                source: provenanceSourceOf(channel),
+                administrator: actor,
+              },
+            })
+            .pipe(mapAdministrationApiFailure(mapInvoiceArchiveFailure));
+        })
       )
       .handle(
         "listSessions",
@@ -649,6 +692,81 @@ const mapInvoiceReadFailure = (
     Match.orElse(makeServiceUnavailable)
   );
 
+const invoiceNotFound = () =>
+  new CliResourceNotFound({ message: "The invoice was not found." });
+
+/**
+ * The invoice's documents can't be read, so nothing was changed; the code
+ * tells it apart from an unavailable API.
+ */
+const invoiceDocumentUnavailable = () =>
+  new CliServiceUnavailable({
+    code: "document_unavailable",
+    message:
+      "The invoice's documents can't be read right now. Nothing was changed; try again later.",
+  });
+
+const mapInvoiceCancellationError = ({
+  code,
+  message,
+}: InvoiceCancellationError) => {
+  switch (code) {
+    case "not_found":
+      return invoiceNotFound();
+    case "reservation_confirmation_required":
+    case "confirmation_stale":
+    case "reservation_cancellation_in_progress":
+      return new CliMutationRejected({ code, message });
+    case "document_unavailable":
+      return invoiceDocumentUnavailable();
+    case "persistence_failed":
+      return makeServiceUnavailable();
+  }
+};
+
+const mapInvoiceCancellationFailure = (
+  cause: Effect.Error<ReturnType<InvoiceAdministration["cancel"]>>
+) =>
+  Match.value(cause).pipe(
+    Match.tag("InvoiceAdministrationNotFoundError", invoiceNotFound),
+    Match.tag("InvoiceCancellationError", mapInvoiceCancellationError),
+    Match.tag(
+      "ReservationAdministrationError",
+      mapReservationCancellationFailure
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
+const mapInvoiceArchiveFailure = (
+  cause: Effect.Error<ReturnType<InvoiceAdministration["archive"]>>
+) =>
+  Match.value(cause).pipe(
+    Match.tag("InvoiceAdministrationNotFoundError", invoiceNotFound),
+    Match.tag(
+      "InvoiceArchiveError",
+      ({ code, message }: InvoiceArchiveError) =>
+        code === "not_cancelled"
+          ? new CliMutationRejected({ code, message })
+          : invoiceNotFound()
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
+const mapCorrectiveDocumentReadFailure = (
+  cause: Effect.Error<
+    ReturnType<InvoiceAdministration["getCorrectiveDocumentPdf"]>
+  >
+) =>
+  Match.value(cause).pipe(
+    Match.tag("InvoiceAdministrationNotFoundError", invoiceNotFound),
+    Match.tag("InvoiceCancellationError", ({ code }) =>
+      code === "document_unavailable"
+        ? invoiceDocumentUnavailable()
+        : makeServiceUnavailable()
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
 const mapInvoicePreviewFailure = (
   cause: Effect.Error<ReturnType<InvoiceAdministration["preview"]>>
 ) =>
@@ -738,7 +856,10 @@ const mapReservationCancellationFailure = (
     return new CliResourceNotFound({ message: cause.message });
   }
   if (cause.code === "not_cancellable") {
-    return new CliMutationRejected({ message: cause.message });
+    return new CliMutationRejected({
+      message: cause.message,
+      ...(cause.reason === "confirmation_stale" && { code: cause.reason }),
+    });
   }
   return makeServiceUnavailable();
 };
