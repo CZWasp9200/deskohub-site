@@ -1,8 +1,7 @@
-import { and, eq, notExists } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
-  invoiceCancellations,
   invoices,
   type ReservationState,
   workspaceReservations,
@@ -174,22 +173,24 @@ export class InvoiceCancellationService extends Context.Service<
 
       // Reading the invoice decrypts it, so an unreadable document stops a
       // workflow here, before anything is claimed or cancelled.
-      const documentUnavailable =
-        (invoiceId: InvoiceId) =>
-        (cause: unknown): InvoiceCancellationError =>
-          new InvoiceCancellationError({
-            code: "document_unavailable",
-            invoiceId,
-            message: "The invoice document could not be read.",
-            cause,
-          });
+      const readFailed =
+        (invoiceId: InvoiceId | null) =>
+        (cause: { readonly _tag: string }): InvoiceCancellationError =>
+          cause._tag === "InvoiceStorageError"
+            ? new InvoiceCancellationError({
+                code: "document_unavailable",
+                invoiceId,
+                message: "The invoice document could not be read.",
+                cause,
+              })
+            : persistenceFailed(invoiceId)(cause);
 
       const plan = Effect.fn("InvoiceCancellationService.plan")(function* (
         invoiceId: InvoiceId
       ) {
         const invoice = yield* invoiceRepository
           .findById(invoiceId)
-          .pipe(Effect.mapError(documentUnavailable(invoiceId)));
+          .pipe(Effect.mapError(readFailed(invoiceId)));
         if (!invoice) {
           return yield* new InvoiceCancellationError({
             code: "not_found",
@@ -203,13 +204,9 @@ export class InvoiceCancellationService extends Context.Service<
       const planForReservation = Effect.fn(
         "InvoiceCancellationService.planForReservation"
       )(function* (reservationId: WorkspaceReservationId) {
-        const live = yield* findLiveInvoice(db, reservationId).pipe(
-          Effect.mapError(persistenceFailed(null))
-        );
-        if (!live) return null;
         const invoice = yield* invoiceRepository
-          .findById(live.id)
-          .pipe(Effect.mapError(documentUnavailable(live.id)));
+          .findLiveByReservationId(reservationId)
+          .pipe(Effect.mapError(readFailed(null)));
         return invoice ? yield* planFor(invoice) : null;
       });
 
@@ -322,10 +319,11 @@ export class InvoiceCancellationService extends Context.Service<
         readonly reservationId: WorkspaceReservationId;
         readonly actor: AdministrationActor;
       }) {
-        const { db } = yield* WorkspaceTransaction;
-        const live = yield* findLiveInvoice(db, input.reservationId).pipe(
-          Effect.mapError(persistenceFailed(null))
-        );
+        // Under the reservation's row lock, which the caller's completion
+        // took, no invoice can be issued for it meanwhile.
+        const live = yield* invoiceRepository
+          .findLiveByReservationId(input.reservationId)
+          .pipe(Effect.mapError(readFailed(null)));
         if (!live) return null;
         const recording = yield* cancellations
           .record({
@@ -388,37 +386,6 @@ export class InvoiceCancellationService extends Context.Service<
     )
   );
 }
-
-/** The reservation's live invoice: the one that isn't cancelled. */
-const findLiveInvoice = (
-  db: Context.Service.Shape<typeof WorkspaceDatabase>["db"],
-  reservationId: WorkspaceReservationId
-) =>
-  db
-    .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber })
-    .from(invoices)
-    .where(
-      and(
-        eq(invoices.workspaceReservationId, reservationId),
-        notExists(
-          db
-            .select({ invoiceId: invoiceCancellations.invoiceId })
-            .from(invoiceCancellations)
-            .where(eq(invoiceCancellations.invoiceId, invoices.id))
-        )
-      )
-    )
-    .limit(1)
-    .pipe(
-      Effect.map(([row]) =>
-        row
-          ? {
-              id: row.id as InvoiceId,
-              invoiceNumber: row.invoiceNumber as InvoiceNumber,
-            }
-          : null
-      )
-    );
 
 const toCustomerNotice = (
   summary: Parameters<typeof isCustomerCancellationNoticeOwed>[0] | undefined
