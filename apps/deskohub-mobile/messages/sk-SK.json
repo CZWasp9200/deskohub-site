@@ -101,6 +101,7 @@
   "booking_checkout_blocked_account_unavailable": "Nepodarilo sa načítať tvoj účet. O chvíľu to skús znova; ak to nepôjde, odhlás sa a znova sa prihlás.",
   "booking_checkout_blocked_payment_disabled": "Rezervuješ s recenzným účtom. Rezervácia je len simulovaná a platba je vypnutá, takže sa nič nezarezervovalo ani nezaplatilo.",
   "account_dev_smoke_link": "Spustiť kontroly behového prostredia",
+  "account_dev_design_system_link": "Galéria dizajnového systému",
   "smoke_title": "Kontroly behového prostredia",
   "smoke_running": "Prebiehajú kontroly…",
   "smoke_finished": "Kontroly dokončené.",

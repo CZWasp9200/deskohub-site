@@ -1,17 +1,9 @@
 import {
-  brandColors,
-  brandFontFamilies,
   brandFonts,
   brandFontVariation,
   brandRadius,
 } from "@deskohub/brand-tokens";
-import { Platform } from "react-native";
-
-/** The brand face's family name on this platform. */
-export const brandFontFamily = Platform.select({
-  web: brandFontFamilies.web,
-  default: brandFontFamilies.native,
-});
+import { brandFontFamily, color } from "./ui/tokens";
 
 type BrandWeight = (typeof brandFonts.weights)[keyof typeof brandFonts.weights];
 
@@ -22,31 +14,33 @@ const brandText = (weight: BrandWeight) => ({
 });
 
 /**
- * The app's colour, radius and type values, named for their role on screen
- * and taken from the shared brand tokens. Text uses the brand face, which
- * native builds embed and the web loads before the first screen renders.
+ * Legacy role names for screens the design system (`ui/tokens.ts`) hasn't
+ * restyled yet. The colours point at the design tokens, so those screens sit
+ * on the light paper canvas with navy text; the type keeps its old sizes
+ * without line heights. New code uses `ui/tokens.ts` and the `ui/`
+ * components; the last screen that stops using a name here removes it.
  */
 export const theme = {
   colors: {
-    background: brandColors.navyBlue,
-    text: "#ffffff",
-    textMuted: brandColors.silver,
-    accent: brandColors.sunsetYellow,
+    background: color.paper,
+    text: color.navy,
+    textMuted: color.ink2,
+    accent: color.action,
     /** A raised area on the background, such as a group of list rows. */
-    surface: "rgba(255, 255, 255, 0.06)",
-    surfacePressed: "rgba(255, 255, 255, 0.12)",
-    /** Hairlines between rows and around raised areas (silver, translucent). */
-    border: "rgba(216, 216, 216, 0.24)",
+    surface: color.surface,
+    surfacePressed: color.pressed,
+    /** Hairlines between rows and around raised areas. */
+    border: color.line,
     /** Dims the screen behind a dialog. */
-    scrim: "rgba(0, 0, 0, 0.6)",
-    danger: brandColors.chileanFire,
-    warning: brandColors.sunsetYellow,
-    info: brandColors.silver,
+    scrim: color.scrim,
+    danger: color.danger,
+    warning: color.warningInk,
+    info: color.ink2,
   },
   radius: brandRadius.px,
   spacing: { xs: 4, sm: 8, md: 16, lg: 24 },
   /** The smallest tappable size, in points. */
-  touchTarget: 44,
+  touchTarget: 48,
   type: {
     title: { fontSize: 36, ...brandText(brandFonts.weights.heading) },
     heading: { fontSize: 22, ...brandText(brandFonts.weights.emphasis) },

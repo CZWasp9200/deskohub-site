@@ -37,14 +37,21 @@ export const elementTree = <Props>(
 /**
  * `node` with every function component replaced by the tree it returns, so
  * a test reads a composite's host elements down to its leaves. Each
- * component runs as in `elementTree`. A class component, such as a native
- * player, stays a leaf: it can't be called as a function.
+ * component runs as in `elementTree`, a `forwardRef` component included. A
+ * class component, such as a native player, stays a leaf: it can't be called
+ * as a function.
  */
 export const hostTree = (node: ReactNode): ReactNode => {
   if (!isValidElement<HostProps>(node)) return node;
   if (typeof node.type === "function" && !isClassComponent(node.type)) {
     return hostTree(
       elementTree(node.type as (props: HostProps) => ReactNode, node.props)
+    );
+  }
+  const forwarded = forwardRefRender(node.type);
+  if (forwarded) {
+    return hostTree(
+      elementTree((props: HostProps) => forwarded(props, null), node.props)
     );
   }
   return node.props.children === undefined
@@ -55,6 +62,18 @@ export const hostTree = (node: ReactNode): ReactNode => {
         ...(Children.map(node.props.children, hostTree) ?? [])
       );
 };
+
+// A `forwardRef` component, such as a Lucide icon, is an object holding its
+// render function.
+const forwardRefRender = (
+  type: unknown
+): ((props: HostProps, ref: null) => ReactNode) | undefined =>
+  typeof type === "object" &&
+  type !== null &&
+  "render" in type &&
+  typeof type.render === "function"
+    ? (type.render as (props: HostProps, ref: null) => ReactNode)
+    : undefined;
 
 const isClassComponent = (type: JSXElementConstructor<never>): boolean =>
   (type.prototype as { isReactComponent?: unknown } | undefined)
