@@ -35,13 +35,22 @@ export const makeInvoiceCancellationTestKit = (
     secret: "synthetic corrective document secret!",
   };
 
+  // Runs before the active key is handed out. `record` reads it after its
+  // delivery read, under its invoice row lock, so a test can pause it there.
+  let beforeActiveKey: (() => Promise<void>) | undefined;
+  const pauseBeforeActiveKey = (hook: (() => Promise<void>) | undefined) => {
+    beforeActiveKey = hook;
+  };
+
   const layer = () => {
     const base = Layer.merge(
       database.layer,
       Layer.succeed(
         AccountingSnapshotKeyService,
         AccountingSnapshotKeyService.of({
-          getActive: Effect.succeed(testKey),
+          getActive: Effect.promise(() =>
+            beforeActiveKey ? beforeActiveKey() : Promise.resolve()
+          ).pipe(Effect.as(testKey)),
           getById: () => Effect.succeed(testKey),
         })
       )
@@ -168,6 +177,7 @@ export const makeInvoiceCancellationTestKit = (
     cancel,
     issueManualInvoice,
     makeActor,
+    pauseBeforeActiveKey,
     query,
     run,
   };
