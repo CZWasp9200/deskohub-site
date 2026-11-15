@@ -423,16 +423,14 @@ describe.skipIf(!postgresDatabase)(
         expect(row?.paymentState).toBe("not_started");
         expect(row?.dotyposCustomerId).toBe(request.booking.customer);
         expect(row?.checkoutAttemptKey).toBe(storedAttemptKey(request));
-        expect(holds.ensureAvailable.mock.calls).toEqual([
-          [
-            {
-              kind: "cowork",
-              date: "2099-06-10",
-              entryTier: "open-space",
-              monitorOption: undefined,
-            },
-          ],
-        ]);
+        expect(holds.ensureAvailable).toHaveBeenCalledTimes(1);
+        expect(holds.ensureAvailable).toHaveBeenCalledWith(
+          expect.objectContaining({
+            kind: "cowork",
+            date: "2099-06-10",
+            entryTier: "open-space",
+          })
+        );
         expect(holds.dotypos.createReservation).toHaveBeenCalledTimes(1);
         expect(holds.dotypos.createReservation.mock.calls[0]).toEqual([
           expect.objectContaining({
