@@ -2808,6 +2808,189 @@
           "required": true
         }
       }
+    },
+    "/api/customer/invoices": {
+      "get": {
+        "tags": ["invoices"],
+        "operationId": "invoices.listInvoices",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerInvoiceList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerInvoiceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CustomerAccountLinkRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerAccountLinkRequired"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/customer/invoices/{invoiceId}/pdf": {
+      "get": {
+        "tags": ["invoices"],
+        "operationId": "invoices.getInvoicePdf",
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerInvoiceId"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The issued invoice as a PDF document.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "description": "Serves the PDF as an attachment named by the invoice number, as `attachment; filename=\"<invoice number>.pdf\"`.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CustomerInvoiceNotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerInvoiceNotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CustomerAccountLinkRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerAccountLinkRequired"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6261,6 +6444,90 @@
         },
         "required": ["_tag"],
         "additionalProperties": false
+      },
+      "CustomerInvoiceId": {
+        "type": "string",
+        "allOf": [
+          {
+            "minLength": 1,
+            "description": "Opaque identifier of an issued invoice."
+          }
+        ]
+      },
+      "CustomerInvoiceTotal": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^-?\\d+(?:\\.\\d+)?$",
+                "description": "Exact decimal amount in currency units, such as \"258.80\" or \"280\"; never rounded."
+              }
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^[A-Z]{3}$"
+              }
+            ]
+          }
+        },
+        "required": ["amount", "currency"],
+        "additionalProperties": false
+      },
+      "CustomerInvoice": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/CustomerInvoiceId"
+          },
+          "invoiceNumber": {
+            "type": "string",
+            "allOf": [
+              {
+                "minLength": 1
+              }
+            ]
+          },
+          "issuedOn": {
+            "$ref": "#/components/schemas/CustomerPlainDate"
+          },
+          "total": {
+            "$ref": "#/components/schemas/CustomerInvoiceTotal"
+          },
+          "orderId": {
+            "$ref": "#/components/schemas/CustomerReservationOrderId"
+          }
+        },
+        "required": ["id", "invoiceNumber", "issuedOn", "total"],
+        "additionalProperties": false
+      },
+      "CustomerInvoiceList": {
+        "type": "object",
+        "properties": {
+          "invoices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerInvoice"
+            }
+          }
+        },
+        "required": ["invoices"],
+        "additionalProperties": false
+      },
+      "CustomerInvoiceNotFound": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["CustomerInvoiceNotFound"]
+          }
+        },
+        "required": ["_tag"],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {}
@@ -6275,6 +6542,9 @@
     },
     {
       "name": "booking"
+    },
+    {
+      "name": "invoices"
     }
   ]
 }

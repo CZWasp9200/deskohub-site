@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { serializeCsv } from "@/shared/utils/csv";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import {
@@ -24,8 +25,19 @@ const date = plainDateStringSchema.make;
 const invoiceId = invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb31");
 const issuedAt = Temporal.Instant.from("2026-08-20T10:00:00Z");
 
-const summarize = (document: InvoiceDocument, today = date("2026-08-25")) =>
-  getCustomerInvoiceSummary({ id: invoiceId, issuedAt, document }, today);
+const reservationId = workspaceReservationIdSchema.make(
+  "019edbcf-5026-7ecc-821b-eda46998eaaa"
+);
+
+const summarize = (
+  document: InvoiceDocument,
+  today = date("2026-08-25"),
+  workspaceReservationId: string | null = null
+) =>
+  getCustomerInvoiceSummary(
+    { id: invoiceId, workspaceReservationId, issuedAt, document },
+    today
+  );
 
 const dueManual = makeTestManualInvoiceDocument("en-US", "450.50", {
   status: "due",
@@ -36,9 +48,10 @@ describe("customer invoice summary", () => {
   test("reads a reservation invoice as paid at its quoted total", () => {
     const document = makeCoworkInvoiceDocument("en-US");
 
-    expect(summarize(document)).toEqual({
+    expect(summarize(document, date("2026-08-25"), reservationId)).toEqual({
       id: invoiceId,
       invoiceNumber: document.invoiceNumber,
+      workspaceReservationId: reservationId,
       issuedOn: date("2026-08-20"),
       total: getInvoiceTotal(document),
       paymentStatus: "paid",
@@ -46,11 +59,14 @@ describe("customer invoice summary", () => {
     });
   });
 
-  test("keeps the exact total of a manual invoice", () => {
-    expect(summarize(dueManual).total).toEqual({
+  test("keeps the exact total of a manual invoice, which invoices no reservation", () => {
+    const summary = summarize(dueManual);
+
+    expect(summary.total).toEqual({
       amount: dueManual.total,
       currency: dueManual.currency,
     });
+    expect(summary.workspaceReservationId).toBeNull();
   });
 
   test.each([
@@ -91,6 +107,7 @@ describe("customer invoice summary", () => {
     const summary = getCustomerInvoiceSummary(
       {
         id: invoiceId,
+        workspaceReservationId: null,
         issuedAt: Temporal.Instant.from("2026-08-31T22:30:00Z"),
         document: dueManual,
       },

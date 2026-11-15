@@ -99,6 +99,14 @@ export {
   CustomerCheckoutSummaryDiscount,
   CustomerCheckoutSummaryItem,
 } from "./customer-checkout-summary";
+export {
+  CustomerInvoice,
+  CustomerInvoiceId,
+  CustomerInvoiceList,
+  CustomerInvoiceNotFound,
+  CustomerInvoicesApi,
+  CustomerInvoiceTotal,
+} from "./customer-invoices-api";
 export { CustomerLocale, customerSignInLocaleHeader } from "./customer-locale";
 export {
   accountPhoneRegion,

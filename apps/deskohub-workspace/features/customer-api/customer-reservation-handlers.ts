@@ -14,7 +14,6 @@ import {
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Match } from "effect";
-import { HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   CustomerReservationHistoryService,
@@ -23,7 +22,6 @@ import {
   type CustomerReservationSummary as ReservationSummaryRecord,
 } from "@/features/account";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
-import type { InvoicePdfFile } from "@/features/accounting/backend/invoice-pdf";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { loadAuthorizedCheckoutStatus } from "@/features/checkout/backend/checkout/authorized-checkout-status";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout/checkout-status.service";
@@ -39,6 +37,7 @@ import {
   answerSessionApiFailure,
   answerUnavailable,
 } from "./customer-api-failure";
+import { answerInvoicePdf } from "./customer-invoice-pdf-response";
 import { CustomerReservationLayers } from "./customer-reservation-layers";
 
 /**
@@ -258,14 +257,3 @@ const answerReservationAccess = (access: ReservationAccessViewModel) =>
         ),
     })
   );
-
-/**
- * The invoice as a download named by its number. The contract declares the
- * bytes; the file name travels in `Content-Disposition`, which the
- * contract's success can't carry and its OpenAPI annotation describes.
- */
-const answerInvoicePdf = ({ bytes, fileName }: InvoicePdfFile) =>
-  HttpServerResponse.uint8Array(bytes, {
-    contentType: "application/pdf",
-    headers: { "content-disposition": `attachment; filename="${fileName}"` },
-  });

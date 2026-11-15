@@ -7,7 +7,9 @@ import {
 } from "@/features/account/backend/account-state-capabilities";
 import { AnalyticsPersonAnonymisation } from "@/features/account/backend/analytics-person-anonymisation";
 import { CustomerAccountDeletionEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
+import type { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import type { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
 import { CustomerLocalePreference } from "@/features/account/backend/customer-locale-preference.service";
 import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
 import { MarketingConsentLedger } from "@/features/legal/backend/marketing-consent-ledger";
@@ -42,6 +44,12 @@ export type CustomerAccountServiceLayers = Omit<
   readonly analyticsPersonAnonymisation: Layer.Layer<
     AnalyticsPersonAnonymisation,
     Layer.Error<typeof AnalyticsPersonAnonymisation.Live>
+  >;
+  /** The account's issued invoices, under the request's account standing. */
+  readonly invoices: Layer.Layer<
+    CustomerInvoiceService,
+    Layer.Error<typeof CustomerInvoiceService.ForCurrentAccount>,
+    CurrentCustomerAccount
   >;
   /** The account's locale preference, under the request's authentication. */
   readonly localePreference: Layer.Layer<
@@ -80,6 +88,7 @@ export class CustomerAccountLayers extends Context.Service<
       analyticsConsentLedger: AnalyticsConsentLedger.Live,
       analyticsPersonAnonymisation: AnalyticsPersonAnonymisation.Live,
       localePreference: CustomerLocalePreference.Live,
+      invoices: CustomerInvoiceService.ForCurrentAccount,
     },
     releases: runAccountReleaseLayers,
   });
