@@ -2,6 +2,7 @@ import "server-only";
 
 import { join } from "node:path";
 import {
+  type DocumentProps,
   Font,
   renderToBuffer,
   StyleSheet,
@@ -35,7 +36,7 @@ Font.registerHyphenationCallback((word) => [word]);
  * content reaches spans; a renderer failure becomes the caller's error.
  */
 export const renderAccountingDocumentPdf = <E,>(
-  document: ReactElement,
+  document: ReactElement<DocumentProps>,
   onFailure: () => E
 ): Effect.Effect<Buffer, E> =>
   Effect.tryPromise({
