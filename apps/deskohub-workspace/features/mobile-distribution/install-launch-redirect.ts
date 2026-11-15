@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { browserInstallEnvironment } from "./install-environment";
 
 /** Where the installed web app lives; its manifest's start URL and scope. */
-export const webAppPath = "/app/";
+const webAppPath = "/app/";
 
 export type InstallLaunchSignals = {
   readonly standalone: boolean;
@@ -31,7 +31,7 @@ export const isMisplacedInstallLaunch = ({
   !pathname.startsWith(webAppPath);
 
 /** Sends a misplaced Home Screen launch on to the installed web app. */
-export const useInstallLaunchRedirect = (): void => {
+const useInstallLaunchRedirect = (): void => {
   useEffect(() => {
     const misplaced = isMisplacedInstallLaunch({
       standalone:
