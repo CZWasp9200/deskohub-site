@@ -23,6 +23,7 @@ import {
   CliAuthenticationChallenge,
   CliAuthenticationCode,
   CliBearerAuthentication,
+  CliClientCompatibility,
   CliMutationInProgress,
   CliMutationRejected,
   CliMutationRequestId,
@@ -35,6 +36,8 @@ import {
   CliStandaloneAccessCodeReconciled,
   CurrentAdministrationCaller,
   CurrentCliSession,
+  dhwVersionHeader,
+  reservationsMinimumDhwVersion,
   toAdministrationActorName,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
@@ -217,6 +220,15 @@ const ActorAuthorizedCliRequest = Layer.mergeAll(
       }),
   })
 );
+/**
+ * Lets every operation through: the in-memory client can't send the `dhw`
+ * version, and `cli-client-version.server.test.ts` covers the version check.
+ */
+const UncheckedCliClientVersion = Layer.succeed(
+  CliClientCompatibility,
+  (httpEffect) => httpEffect
+);
+
 const administrationClient = HttpApiTest.groups(WorkspaceAdminApi, [
   "administration",
 ]).pipe(Effect.map((client) => client.administration));
@@ -246,7 +258,7 @@ const callAdministrationApi = <A, E>(
     Effect.provide(SessionAdministratorAuthentication),
     Effect.provide(services.administration ?? UnusedAdministrationService),
     Effect.provide(UnusedReservationAccessAdministration),
-    Effect.provide(CliClientCompatibilityLive),
+    Effect.provide(UncheckedCliClientVersion),
     Effect.provide(UnrecordedAdministrationActions),
     Effect.provide(NodeHttpServer.layerHttpServices),
     Effect.scoped,
@@ -1748,6 +1760,7 @@ describe("customer and reservation administration endpoints", () => {
             headers: {
               authorization: `Bearer ${cohort}`,
               "content-type": "application/json",
+              [dhwVersionHeader]: reservationsMinimumDhwVersion,
             },
             body: JSON.stringify({
               sendCancellationEmail: true,
