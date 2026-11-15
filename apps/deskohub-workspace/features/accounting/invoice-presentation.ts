@@ -163,18 +163,18 @@ export const getInvoicePresentation = (
       [
         {
           label: copy.issueDate,
-          value: formatWorkspaceInstantDate(document.issuedAt, locale),
+          value: formatDocumentInstant(document.issuedAt, locale),
         },
         document.fulfilledAt
           ? {
               label: copy.serviceDate,
-              value: formatWorkspaceInstantDate(document.fulfilledAt, locale),
+              value: formatDocumentInstant(document.fulfilledAt, locale),
             }
           : null,
         document.paidAt
           ? {
               label: copy.paymentDate,
-              value: formatWorkspaceInstantDate(document.paidAt, locale),
+              value: formatDocumentInstant(document.paidAt, locale),
             }
           : null,
       ],
@@ -218,7 +218,7 @@ const getManualInvoicePresentation = (
       [
         {
           label: copy.issueDate,
-          value: formatWorkspaceInstantDate(document.issuedAt, document.locale),
+          value: formatDocumentInstant(document.issuedAt, document.locale),
         },
         {
           label: copy.serviceDate,
@@ -234,14 +234,14 @@ const getManualInvoicePresentation = (
     lines: document.lines.map((line) => ({
       kind: "item" as const,
       description: line.description,
-      amount: formatManualMoney({
+      amount: formatDecimalAmount({
         amount: line.price,
         currency: document.currency,
       }),
     })),
     status: settlement.status,
     totalLabel: settlement.totalLabel,
-    total: formatManualMoney(getInvoiceTotal(document)),
+    total: formatDecimalAmount(getInvoiceTotal(document)),
     nonVatStatement: copy.nonVatPayer,
     footer: `${document.supplier.legalName} · ${document.supplier.contactEmail}`,
   };
@@ -295,8 +295,31 @@ const getSettlementPresentation = (
   );
 };
 
+/** The issued parties an accounting document prints, in its own locale. */
+type AccountingDocumentParties = Pick<
+  InvoiceDocument,
+  "buyer" | "locale" | "supplier"
+>;
+
+/**
+ * The supplier and buyer blocks of an accounting document, from its stored
+ * parties; an invoice and its corrective document print the same blocks.
+ */
+export const getAccountingDocumentPartiesPresentation = (
+  document: AccountingDocumentParties
+): {
+  readonly supplier: InvoicePresentationParty;
+  readonly buyer: InvoicePresentationParty;
+} => {
+  const copy = getInvoiceCopy(document.locale);
+  return {
+    supplier: getSupplierPresentation(document, copy),
+    buyer: getBuyerPresentation(document, copy),
+  };
+};
+
 const getBuyerPresentation = (
-  document: InvoiceDocument,
+  document: AccountingDocumentParties,
   copy: InvoiceCopy
 ): InvoicePresentationParty => {
   const { buyer, locale } = document;
@@ -321,7 +344,7 @@ const getBuyerPresentation = (
 };
 
 const getSupplierPresentation = (
-  document: InvoiceDocument,
+  document: AccountingDocumentParties,
   copy: InvoiceCopy
 ): InvoicePresentationParty => ({
   heading: copy.supplier,
@@ -416,7 +439,8 @@ const getItemLines = (
       )
   );
 
-const formatWorkspaceInstantDate = (value: string, locale: Locale) =>
+/** An issued instant as its Prague calendar date in the document locale. */
+export const formatDocumentInstant = (value: string, locale: Locale) =>
   formatInstantDate({
     instant: Temporal.Instant.from(value),
     locale,
@@ -438,8 +462,11 @@ const formatCountry = (country: string, locale: Locale) =>
 const formatInvoicePlainDate = (value: string, locale: Locale) =>
   formatPlainDate({ date: Temporal.PlainDate.from(value), locale });
 
-/** Manual invoices print plain decimal text and the code, such as "1234.50 CZK". */
-const formatManualMoney = ({ amount, currency }: InvoiceTotal) => {
+/**
+ * Exact decimal amounts print as plain decimal text and the code, such as
+ * "1234.50 CZK"; manual invoices and corrective documents state them so.
+ */
+export const formatDecimalAmount = ({ amount, currency }: InvoiceTotal) => {
   const exponent = findWorkspaceCurrencyDefinition(currency)?.exponent ?? 0;
   const [integer, fraction = ""] = amount.split(".");
   return `${integer}${exponent > 0 ? `.${fraction.padEnd(exponent, "0")}` : ""} ${currency}`;
