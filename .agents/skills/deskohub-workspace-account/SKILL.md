@@ -63,6 +63,9 @@ Paths are relative to `apps/deskohub-workspace` unless they start with
   handlers to Layer seams, site callers through `Live` or one
   `CustomerAuthentication.Default` over `ForProvidedAuthentication` Layers
   (see [authentication supply](references/account-domain-and-routes.md#authentication-supply)).
+  A signed-in agent tool call builds its account services in its own memo
+  map (`local: true` in `defineSignedInAgentTool`); never take a caller's
+  account service from the MCP route's services, which are browser-backed.
 - Keep Drizzle as the only migration authority. Never run Better Auth runtime
   migrations.
 - Prefer Better Auth, Effect, and Next built-in APIs over hand-rolled
