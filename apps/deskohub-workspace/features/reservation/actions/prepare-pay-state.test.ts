@@ -41,7 +41,10 @@ import {
   customerAccountUnavailable,
 } from "@/features/account/customer-account";
 import type { ICheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
-import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
+import {
+  CheckoutPricingServiceMock,
+  customerQuotePricingFrom,
+} from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import { WorkspaceTableAssignmentServiceMock } from "@/features/checkout/backend/reservation/workspace-table-assignment.service.mock";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import { getWorkspaceMeetingRoomPriceForDuration } from "@/features/checkout/product-catalog";
@@ -373,6 +376,14 @@ type AdvertisementAffirmationCall = Parameters<
   ICheckoutPricingService["affirmAdvertisement"]
 >[0];
 
+type CustomerQuoteCall = Parameters<
+  ICheckoutPricingService["quoteForCustomer"]
+>[0];
+
+/** The customer quote of the advertisement's affirmed discounts alone. */
+const quoteAdvertisedDiscounts = ({ advertisement }: CustomerQuoteCall) =>
+  buildQuoteFromAdvertisement(advertisement.priced.discountQuote);
+
 /**
  * The pricing service's verdict on a snapshot whose discounts re-evaluate to
  * `discountQuote`: the price changed when the re-evaluated quote's
@@ -656,18 +667,8 @@ const runReusableReservationScenario = async (input: {
     );
   const quoteForCustomer =
     input.quoteForCustomer ??
-    mock(({ affirmedAdvertisement }) =>
-      Effect.succeed(buildQuoteFromAdvertisement(affirmedAdvertisement))
-    );
-  const quoteForCustomerResult = (
-    pricingInput: Parameters<typeof quoteForCustomer>[0]
-  ) =>
-    quoteForCustomer(pricingInput).pipe(
-      Effect.map((quote) => ({
-        kind: pricingInput.reservation.kind,
-        reservation: pricingInput.reservation,
-        quote,
-      }))
+    mock((quoteCall: CustomerQuoteCall) =>
+      Effect.succeed(quoteAdvertisedDiscounts(quoteCall))
     );
   const findOrCreateCustomer =
     input.findOrCreateCustomer ??
@@ -750,7 +751,7 @@ const runReusableReservationScenario = async (input: {
     ),
     CheckoutPricingServiceMock({
       affirmAdvertisement: affirmAdvertisement as never,
-      quoteForCustomer: quoteForCustomerResult as never,
+      ...customerQuotePricingFrom(quoteForCustomer as never),
     }),
     EmailRecipientDomainServiceMock({ check: checkContactEmailDomain }),
     Layer.mock(WorkspaceAvailabilityService, {
@@ -1418,22 +1419,12 @@ describe("prepareWorkspacePayState", () => {
           return advertisementVerdict(affirmation);
         })
     );
-    const quoteForCustomer = mock(({ affirmedAdvertisement }) =>
+    const quoteForCustomer = mock((quoteCall: CustomerQuoteCall) =>
       Effect.sync(() => {
         eventOrder.push("quote");
-        return buildQuoteFromAdvertisement(affirmedAdvertisement);
+        return quoteAdvertisedDiscounts(quoteCall);
       })
     );
-    const quoteForCustomerResult = (
-      pricingInput: Parameters<typeof quoteForCustomer>[0]
-    ) =>
-      quoteForCustomer(pricingInput).pipe(
-        Effect.map((quote) => ({
-          kind: pricingInput.reservation.kind,
-          reservation: pricingInput.reservation,
-          quote,
-        }))
-      );
     const { layer: accountAuthorityLayer } = await accountAuthorityFixture();
     const testLayer = Layer.mergeAll(
       TestSealedStateKeys,
@@ -1441,7 +1432,7 @@ describe("prepareWorkspacePayState", () => {
       inertRememberedReferral(),
       CheckoutPricingServiceMock({
         affirmAdvertisement: affirmAdvertisement as never,
-        quoteForCustomer: quoteForCustomerResult as never,
+        ...customerQuotePricingFrom(quoteForCustomer),
       }),
       BotProtectionServiceMock({ verifyHuman }),
       EmailRecipientDomainServiceMock({
@@ -1585,10 +1576,10 @@ describe("prepareWorkspacePayState", () => {
         })
       ),
       serverCaller: true,
-      quoteForCustomer: mock(({ affirmedAdvertisement, dotyposCustomerId }) =>
-        dotyposCustomerId === "conflict-customer-id"
+      quoteForCustomer: mock((quoteCall: CustomerQuoteCall) =>
+        quoteCall.dotyposCustomerId === "conflict-customer-id"
           ? Effect.fail(repricingFailure)
-          : Effect.succeed(buildQuoteFromAdvertisement(affirmedAdvertisement))
+          : Effect.succeed(quoteAdvertisedDiscounts(quoteCall))
       ),
     });
 
@@ -3195,7 +3186,8 @@ describe("prepareWorkspacePayState", () => {
 
       expect(scenario.result?.status).toBe("ready");
       expect(
-        scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
+        scenario.quoteForCustomer.mock.calls[0]?.[0].advertisement.priced
+          .reservation
       ).toMatchObject({
         name: "Grace Hopper",
         email: testEmailAddressForGrace,
@@ -3435,15 +3427,11 @@ describe("prepareWorkspacePayState", () => {
             linkedAccount: linkedAccount(),
             rememberedReferralCode: "RFL12345",
             evaluateCheckoutReferral,
-            quoteForCustomer: mock(
-              ({ affirmedAdvertisement, referralCode }) => {
-                order.push("quote");
-                quotedReferralCodes.push(referralCode);
-                return Effect.succeed(
-                  buildQuoteFromAdvertisement(affirmedAdvertisement)
-                );
-              }
-            ),
+            quoteForCustomer: mock((quoteCall: CustomerQuoteCall) => {
+              order.push("quote");
+              quotedReferralCodes.push(quoteCall.referralCode);
+              return Effect.succeed(quoteAdvertisedDiscounts(quoteCall));
+            }),
           });
 
           expect(scenario.result?.status).toBe("ready");
@@ -3893,7 +3881,8 @@ describe("prepareWorkspacePayState", () => {
         dotyposCustomerId: "customer-id",
       });
       expect(
-        scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
+        scenario.quoteForCustomer.mock.calls[0]?.[0].advertisement.priced
+          .reservation
       ).toMatchObject({ name: reservation.name, email: reservation.email });
     });
   });
