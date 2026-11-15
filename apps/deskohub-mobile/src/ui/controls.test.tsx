@@ -129,6 +129,18 @@ describe("ButtonRow", () => {
     });
     expect(findAll(row, Button)).toHaveLength(2);
   });
+
+  test("each button's share grows with the font size, so large text stacks them", () => {
+    // The test window is 360 wide at the default font size.
+    const row = elementTree(ButtonRow, {
+      children: [<Button key="a" label="a" onPress={() => undefined} />],
+    });
+    const item = findAll(row, "View")[1];
+    expect(StyleSheet.flatten(item?.props.style as never)).toMatchObject({
+      flexBasis: 136,
+      flexGrow: 1,
+    });
+  });
 });
 
 const flat = (style: unknown) =>

@@ -5,6 +5,7 @@ import {
   StyleSheet,
   type TextInputInstance,
   type TextInputProps,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -199,14 +200,21 @@ export function Button({
  * stack instead.
  */
 export function ButtonRow({ children }: { readonly children: ReactNode }) {
+  // A button's label grows with the system font size, so the width at which
+  // two buttons still share a row grows with it too.
+  const { fontScale } = useWindowDimensions();
+  const item = { flexBasis: buttonRowItemWidth * fontScale, flexGrow: 1 };
   return (
     <View style={buttonStyles.row}>
       {Children.map(children, (child) =>
-        child ? <View style={buttonStyles.rowItem}>{child}</View> : null
+        child ? <View style={item}>{child}</View> : null
       )}
     </View>
   );
 }
+
+/** The narrowest a button in a row gets at the default font size. */
+const buttonRowItemWidth = 136;
 
 const buttonStyles = StyleSheet.create({
   base: {
@@ -248,7 +256,6 @@ const buttonStyles = StyleSheet.create({
   reason: { textAlign: "center" },
   reasonHidden: { display: "none" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  rowItem: { flexBasis: 136, flexGrow: 1 },
 });
 
 const buttonShadow: Partial<Record<ButtonVariant, object>> = {
