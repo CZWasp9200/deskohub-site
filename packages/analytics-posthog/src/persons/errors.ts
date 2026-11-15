@@ -28,7 +28,7 @@ const PostHogPersonsFailureBase = Schema.Struct({
 });
 
 /** PostHog could not serve the request. Nothing was applied, and the package's retries are spent. */
-export class PostHogPersonsUnavailable extends Schema.TaggedErrorClass<PostHogPersonsUnavailable>()(
+export class PostHogPersonsUnavailable extends Schema.TaggedError<PostHogPersonsUnavailable>()(
   "PostHogPersonsUnavailable",
   {
     ...PostHogPersonsFailureBase.fields,
@@ -37,7 +37,7 @@ export class PostHogPersonsUnavailable extends Schema.TaggedErrorClass<PostHogPe
 ) {}
 
 /** PostHog refused the request in a way a retry would repeat. Nothing was applied. */
-export class PostHogPersonsRejected extends Schema.TaggedErrorClass<PostHogPersonsRejected>()(
+export class PostHogPersonsRejected extends Schema.TaggedError<PostHogPersonsRejected>()(
   "PostHogPersonsRejected",
   {
     ...PostHogPersonsFailureBase.fields,
@@ -46,7 +46,7 @@ export class PostHogPersonsRejected extends Schema.TaggedErrorClass<PostHogPerso
 ) {}
 
 /** The deletion may have been applied. Settle it before acting. Reads never raise it. */
-export class PostHogPersonsUncertain extends Schema.TaggedErrorClass<PostHogPersonsUncertain>()(
+export class PostHogPersonsUncertain extends Schema.TaggedError<PostHogPersonsUncertain>()(
   "PostHogPersonsUncertain",
   {
     ...PostHogPersonsFailureBase.fields,

@@ -123,10 +123,7 @@ const makeNexiGeneratedClient = Effect.gen(function* () {
       ),
     getOrder: ({ correlationId, orderId }) =>
       runNexiRequest(
-        clientFor(correlationId).getOrder(
-          encodeURIComponent(orderId),
-          undefined
-        ),
+        clientFor(correlationId).getOrder(orderId, undefined),
         "Get order"
       ),
     listOrders: ({ correlationId, ...options }) =>
@@ -136,10 +133,7 @@ const makeNexiGeneratedClient = Effect.gen(function* () {
       ),
     getOperation: ({ correlationId, operationId }) =>
       runNexiRequest(
-        clientFor(correlationId).getOperation(
-          encodeURIComponent(operationId),
-          undefined
-        ),
+        clientFor(correlationId).getOperation(operationId, undefined),
         "Get operation"
       ),
     listOperations: ({ correlationId, ...options }) =>
