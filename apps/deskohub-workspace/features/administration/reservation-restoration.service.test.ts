@@ -134,6 +134,18 @@ type FailureFields = {
 const failure = (tag: string, fields: FailureFields = {}) =>
   Effect.fail({ _tag: tag, ...fields } as never);
 
+const sessionTaken = () =>
+  failure("WorkspaceReservationSessionTakenError", { reservationId: id });
+
+/** No other active reservation at the preflight, then a successor holding the checkout session on every later read. */
+const successorAfterPreflight = () => {
+  let reads = 0;
+  return () =>
+    Effect.succeed(
+      reads++ === 0 ? null : { ...cancelledReservation, id: otherId }
+    );
+};
+
 type Fakes = {
   readonly reservations: readonly Partial<WorkspaceReservation>[];
   readonly findById: () => Effect.Effect<unknown, unknown>;
@@ -497,8 +509,8 @@ test("refuses a reservation another one of its checkout superseded without touch
 
 test("a successor that took the checkout after this restore's Dotypos write gets that write cancelled again", async () => {
   const run = await refused({
-    markAdministrationRestored: () =>
-      failure("WorkspaceReservationSessionTakenError", { reservationId: id }),
+    markAdministrationRestored: sessionTaken,
+    findCurrentByCheckoutSessionKey: successorAfterPreflight(),
   });
 
   expect(run).toMatchObject({ code: "not_restorable", reason: "superseded" });
@@ -519,8 +531,8 @@ test("a successor that took the checkout after this restore's Dotypos write gets
 
 test("a failed compensating cancel is logged for an operator and still refuses", async () => {
   const run = await refused({
-    markAdministrationRestored: () =>
-      failure("WorkspaceReservationSessionTakenError", { reservationId: id }),
+    markAdministrationRestored: sessionTaken,
+    findCurrentByCheckoutSessionKey: successorAfterPreflight(),
     cancelReservation: () =>
       failure("DotyposUnavailable", { reason: "server" }),
   });
@@ -534,6 +546,68 @@ test("a failed compensating cancel is logged for an operator and still refuses",
   );
 });
 
+// The compensating cancel targets the reservation by id, so the restore
+// rereads it first: another restore may have finished it since the rollback.
+test("a superseded restore cancels its Dotypos write only while the reservation is still its cancellation with a successor", async () => {
+  const finishedMeanwhile = await restored({
+    reservations: [cancelledReservation, confirmedReservation],
+    getReservationWithoutCustomer: () =>
+      Effect.succeed(dotyposReservation({ status: "CONFIRMED" })),
+    markAdministrationRestored: sessionTaken,
+    findCurrentByCheckoutSessionKey: successorAfterPreflight(),
+  });
+  const cancelledAgain = await refused({
+    reservations: [
+      cancelledReservation,
+      {
+        ...cancelledReservation,
+        reservationCancelledAt: Temporal.Instant.from("2026-08-12T10:00:00Z"),
+      },
+    ],
+    markAdministrationRestored: sessionTaken,
+    findCurrentByCheckoutSessionKey: successorAfterPreflight(),
+  });
+  const noSuccessor = await refused({
+    markAdministrationRestored: sessionTaken,
+  });
+  const rereadFailed = await refused({
+    findById: (() => {
+      let reads = 0;
+      return () =>
+        reads++ === 0
+          ? Effect.succeed(cancelledReservation)
+          : failure("EffectDrizzleQueryError");
+    })(),
+    markAdministrationRestored: sessionTaken,
+    findCurrentByCheckoutSessionKey: successorAfterPreflight(),
+  });
+
+  expect(finishedMeanwhile.value).toEqual({
+    outcome: "already_confirmed",
+    email: "not_requested",
+    access: "not_needed",
+  });
+  expect(finishedMeanwhile.calls.issueRestoredAccess).not.toHaveBeenCalled();
+  expect(finishedMeanwhile.calls.sendRestorationEmail).not.toHaveBeenCalled();
+  for (const run of [cancelledAgain, noSuccessor, rereadFailed]) {
+    expect(run).toMatchObject({ code: "not_restorable", reason: "superseded" });
+    expect(run.logs).toContainEqual(
+      expect.objectContaining({
+        level: "Error",
+        annotations: expect.objectContaining({ reservationId: id }),
+      })
+    );
+  }
+  for (const run of [
+    finishedMeanwhile,
+    cancelledAgain,
+    noSuccessor,
+    rereadFailed,
+  ]) {
+    expect(run.calls.cancelReservation).not.toHaveBeenCalled();
+  }
+});
+
 test("a successor of a restore Dotypos had already confirmed is only logged, never cancelled in Dotypos", async () => {
   const run = await refused({
     getReservationWithoutCustomer: () =>
@@ -544,8 +618,8 @@ test("a successor of a restore Dotypos had already confirmed is only logged, nev
           reservation: dotyposReservation({ status: "CONFIRMED" }),
         })
       ),
-    markAdministrationRestored: () =>
-      failure("WorkspaceReservationSessionTakenError", { reservationId: id }),
+    markAdministrationRestored: sessionTaken,
+    findCurrentByCheckoutSessionKey: successorAfterPreflight(),
   });
 
   expect(run).toMatchObject({ code: "not_restorable", reason: "superseded" });
@@ -624,6 +698,47 @@ test("a refund Nexi recorded between the check and the write refuses the restore
   });
   expect(run.calls.issueRestoredAccess).not.toHaveBeenCalled();
   expect(run.calls.sendRestorationEmail).not.toHaveBeenCalled();
+});
+
+// The refusal leaves Dotypos confirmed while Workspace keeps the reservation
+// cancelled; the acknowledged retry finds Dotypos already confirmed and
+// completes the restore.
+test("a refund recorded after the Dotypos write recovers through an acknowledged retry", async () => {
+  const refundedSince = {
+    markAdministrationRestored: () =>
+      Effect.succeed({
+        reservation: confirmedReservation,
+        paymentAttempts: [refundedAttempt(45_000)],
+      }),
+  };
+  const refusal = await refused(refundedSince);
+  const retry = await restored({
+    ...refundedSince,
+    acknowledgeRefundedPayment: true,
+    reconcileReservationRefunds: () =>
+      Effect.succeed([refundedAttempt(45_000)]),
+    getReservationWithoutCustomer: () =>
+      Effect.succeed(dotyposReservation({ status: "CONFIRMED" })),
+    restoreCancelledReservation: () =>
+      Effect.succeed(
+        RestoreCancelledReservationResult.AlreadyConfirmed({
+          reservation: dotyposReservation({ status: "CONFIRMED" }),
+        })
+      ),
+  });
+
+  expect(refusal).toMatchObject({
+    reason: "refund_acknowledgement_required",
+    committed: false,
+  });
+  expect(refusal.calls.restoreCancelledReservation).toHaveBeenCalledTimes(1);
+  expect(refusal.calls.cancelReservation).not.toHaveBeenCalled();
+  expect(retry.value).toEqual({
+    outcome: "restored",
+    email: "sent",
+    access: "issued",
+  });
+  expect(retry.committed).toBe(true);
 });
 
 test("refuses a restore Dotypos, the refunds, the table or the access grant can't support", async () => {
@@ -817,6 +932,12 @@ test("a reservation write that lost to a concurrent change settles from the rese
   const finished = await restored({
     ...lost,
     reservations: [cancelledReservation, confirmedReservation],
+    getReservationWithoutCustomer: () =>
+      Effect.succeed(dotyposReservation({ status: "CONFIRMED" })),
+  });
+  const notInDotypos = await refused({
+    ...lost,
+    reservations: [cancelledReservation, confirmedReservation],
   });
   const cancelling = await refused({
     ...lost,
@@ -834,10 +955,35 @@ test("a reservation write that lost to a concurrent change settles from the rese
   expect(finished.rolledBack).toBe(true);
   expect(finished.calls.issueRestoredAccess).not.toHaveBeenCalled();
   expect(finished.calls.sendRestorationEmail).not.toHaveBeenCalled();
+  expect(notInDotypos).toMatchObject({
+    code: "not_restorable",
+    reason: "invalid_state",
+  });
   expect(cancelling).toMatchObject({
     code: "not_restorable",
     reason: "cancellation_in_progress",
   });
+});
+
+// The losing restore planned access before the winner's grant committed, so
+// it sees that grant as uncertain; the reread shows the restore finished.
+test("a refusal of a restore another one finished meanwhile reports it already confirmed", async () => {
+  const run = await restored({
+    reservations: [cancelledReservation, confirmedReservation],
+    getReservationWithoutCustomer: () =>
+      Effect.succeed(dotyposReservation({ status: "CONFIRMED" })),
+    prepareRestoredAccess: () => Effect.succeed("uncertain"),
+  });
+
+  expect(run.value).toEqual({
+    outcome: "already_confirmed",
+    email: "not_requested",
+    access: "not_needed",
+  });
+  expect(run.rolledBack).toBe(true);
+  expect(run.calls.issueRestoredAccess).not.toHaveBeenCalled();
+  expect(run.calls.sendRestorationEmail).not.toHaveBeenCalled();
+  expect(run.calls.cancelReservation).not.toHaveBeenCalled();
 });
 
 test("tells the customer only when asked and when they were told about the cancellation", async () => {
