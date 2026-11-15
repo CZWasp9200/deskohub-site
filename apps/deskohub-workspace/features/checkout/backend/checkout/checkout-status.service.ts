@@ -9,7 +9,7 @@ import { Clock, Context, Duration, Effect, Layer, Match, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { FulfillmentState, PaymentState } from "@/db/schema";
 import { checkoutStatusTraits } from "@/features/checkout/checkout-status-kind";
-import { getProviderOrderAbandonmentCutoff } from "@/features/checkout/provider-order-abandonment";
+import { getPaymentAttemptAbandonmentCutoff } from "@/features/checkout/provider-order-abandonment";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { SharedAvailabilityInventoryLive } from "@/features/reservation/backend/availability-inventory-cache.server";
 import {
@@ -642,9 +642,7 @@ const implementation = Effect.gen(function* () {
     return (
       Temporal.Instant.compare(
         now,
-        getProviderOrderAbandonmentCutoff(
-          attempt.providerOrderCreatedAt ?? attempt.createdAt
-        )
+        getPaymentAttemptAbandonmentCutoff(attempt)
       ) >= 0
     );
   });

@@ -43,6 +43,34 @@ export class CustomerInvoiceNotIssued extends Schema.TaggedErrorClass<CustomerIn
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
+/**
+ * Why the order has no payment page to open again: it is `paid`, a
+ * `late_payment` of it is being checked, its hold was `released`, it has
+ * `no_active_attempt` whose page is still open (it ended or never opened
+ * one), or the page's `window_elapsed`. The order's status shows what to do
+ * next.
+ */
+export const CustomerPaymentPageClosedReason = Schema.Literals([
+  "paid",
+  "late_payment",
+  "released",
+  "no_active_attempt",
+  "window_elapsed",
+]).annotate({ identifier: "CustomerPaymentPageClosedReason" });
+export type CustomerPaymentPageClosedReason =
+  typeof CustomerPaymentPageClosedReason.Type;
+
+/**
+ * The order's payment page can't be opened again, for `reason`. Asking again
+ * can succeed only once a new payment opens a page.
+ */
+export class CustomerPaymentPageClosed extends Schema.TaggedErrorClass<CustomerPaymentPageClosed>()(
+  "CustomerPaymentPageClosed",
+  { reason: CustomerPaymentPageClosedReason }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
 // Reservations
 
 const isoInstant = Schema.String.annotate({
@@ -249,8 +277,21 @@ export const CustomerInvoicePdf = Schema.Uint8Array.pipe(
 const OrderParams = { orderId: CustomerReservationOrderId } as const;
 
 /**
+ * The payment provider's page of the order's unpaid payment, opened again
+ * for a customer who left it. It is the page the payment already opened, so
+ * paying there settles that payment and never starts another.
+ */
+export const CustomerPaymentPage = Schema.Struct({
+  url: Schema.NonEmptyString.annotate({
+    description: "The payment provider's page to open in a browser.",
+  }),
+}).annotate({ identifier: "CustomerPaymentPage" });
+export type CustomerPaymentPage = typeof CustomerPaymentPage.Type;
+
+/**
  * The signed-in customer's reservations: the history, and the status, door
- * code and invoice of an order the account booked or whose customer it is.
+ * code and invoice of an order the account booked or whose customer it is,
+ * and the payment page of one it hasn't paid yet.
  * The status and door code reads refresh the order, as the website's pages
  * do, and the door code and invoice only the order's customer sees.
  */
@@ -270,6 +311,17 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
       success: CustomerOrderState,
       error: [
         CustomerReservationNotFound.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    })
+  )
+  .add(
+    HttpApiEndpoint.post("reopenPaymentPage", "/:orderId/payment-page", {
+      params: OrderParams,
+      success: CustomerPaymentPage,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerPaymentPageClosed.schema,
         CustomerServiceUnavailable.schema,
       ],
     })

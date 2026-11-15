@@ -3,6 +3,7 @@ import { CustomerReservationHistoryService } from "@/features/account";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import type { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
+import { CheckoutPaymentPageService } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
 import { CheckoutStatusService } from "@/features/checkout/backend/checkout/checkout-status.service";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
@@ -42,6 +43,16 @@ export type CustomerReservationServiceLayers = {
     CheckoutStatusService,
     Layer.Error<typeof CheckoutStatusService.Live>
   >;
+  /** Unpaid payment pages, opened again for whom `authorization` lets. */
+  readonly paymentPage: (
+    authorization: Layer.Layer<
+      ReservationAuthorizationService,
+      AuthorizationLayerError
+    >
+  ) => Layer.Layer<
+    CheckoutPaymentPageService,
+    Layer.Error<typeof CheckoutPaymentPageService.Live>
+  >;
   /** Door codes, shown to whom `authorization` lets see them. */
   readonly access: (
     authorization: Layer.Layer<
@@ -78,6 +89,7 @@ export class CustomerReservationLayers extends Context.Service<
     history: CustomerReservationHistoryService.Live,
     authorization: ReservationAuthorizationService.withAuthentication,
     checkoutStatus: CheckoutStatusService.Live,
+    paymentPage: CheckoutPaymentPageService.withAuthorization,
     access: ReservationAccessService.withAuthorization,
     invoice: ReservationInvoicePdfService.withAuthorization,
   });

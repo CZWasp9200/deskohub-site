@@ -14,6 +14,11 @@ export {
   PayStateIssueError,
 } from "./checkout-pay-url";
 export {
+  CheckoutPaymentPageService,
+  type PaymentPageClosedReason,
+  type PaymentPageReopening,
+} from "./checkout-payment-page.service";
+export {
   type AdvertisementAffirmation,
   CheckoutPricingService,
   type PreparedCustomerQuote,

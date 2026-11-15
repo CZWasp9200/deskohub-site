@@ -38,6 +38,7 @@ import {
 } from "@/features/account/customer-account";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { CheckoutService } from "@/features/checkout/backend/checkout";
+import { CheckoutPaymentPageService } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { CheckoutStatusService } from "@/features/checkout/backend/checkout/checkout-status.service";
 import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
@@ -240,6 +241,7 @@ const unusedReservationServices: CustomerReservationServiceLayers = {
   history: Layer.mock(CustomerReservationHistoryService, {}),
   authorization: () => Layer.mock(ReservationAuthorizationService, {}),
   checkoutStatus: Layer.mock(CheckoutStatusService, {}),
+  paymentPage: () => Layer.mock(CheckoutPaymentPageService, {}),
   access: () => Layer.mock(ReservationAccessService, {}),
   invoice: () => Layer.mock(ReservationInvoicePdfService, {}),
 };
