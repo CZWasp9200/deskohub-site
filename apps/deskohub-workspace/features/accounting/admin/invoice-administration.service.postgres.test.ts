@@ -33,6 +33,10 @@ import {
   InvoiceEmailDeliveryService,
 } from "../backend/invoice-email-delivery.service";
 import { InvoiceAdministrationService } from "./invoice-administration.service";
+import {
+  liveInvoiceCancellationFakes,
+  liveInvoiceStanding,
+} from "./invoice-administration.service.test-utils";
 import { ManualInvoiceCreationRequests } from "./manual-invoice-creation-requests.service";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
@@ -116,6 +120,7 @@ describe.skipIf(!testDatabase)(
               invoiceNumber: document.invoiceNumber,
               issuedAt: Temporal.Instant.from(document.issuedAt),
               document,
+              ...liveInvoiceStanding,
             };
             return { invoice: stored, changed } as ManualInvoiceIssuance;
           })
@@ -152,6 +157,7 @@ describe.skipIf(!testDatabase)(
                   completed = true;
                 }),
             } as never),
+            liveInvoiceCancellationFakes,
             testDatabase!.layer
           )
         )
@@ -237,6 +243,7 @@ describe.skipIf(!testDatabase)(
                     invoiceNumber: document.invoiceNumber,
                     issuedAt: Temporal.Instant.from(document.issuedAt),
                     document,
+                    ...liveInvoiceStanding,
                   } satisfies Invoice;
                   stored.set(invoice.id, invoice);
                   return {
@@ -262,6 +269,7 @@ describe.skipIf(!testDatabase)(
               claim: () => Effect.succeed({ kind: "claimed" } as const),
               complete: () => Effect.void,
             } as never),
+            liveInvoiceCancellationFakes,
             testDatabase!.layer
           )
         )
@@ -357,6 +365,7 @@ describe.skipIf(!testDatabase)(
                 claim: () => Effect.succeed({ kind: claim } as const),
                 complete: calls.complete,
               } as never),
+              liveInvoiceCancellationFakes,
               testDatabase!.layer
             )
           )

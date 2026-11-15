@@ -1,4 +1,4 @@
-import { Context, type Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { InvoiceNoticeSummary } from "@/features/accounting/invoice-cancellation";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { InvoiceNoticeClaim } from "./invoice-cancellation.repository";
@@ -32,4 +32,19 @@ export interface IInvoiceCancellationNotices {
 export class InvoiceCancellationNotices extends Context.Service<
   InvoiceCancellationNotices,
   IInvoiceCancellationNotices
->()("@deskohub-workspace/accounting/InvoiceCancellationNotices") {}
+>()("@deskohub-workspace/accounting/InvoiceCancellationNotices") {
+  /**
+   * PLACEHOLDER until the notice email lands: stream P2 replaces this line
+   * with the real layer at integration. Every notice operation is a defect,
+   * so a missed replacement cannot pass silently.
+   */
+  static Live = Layer.succeed(
+    this,
+    this.of({
+      deliver: () =>
+        Effect.die(new Error("Invoice cancellation notices are not wired.")),
+      ensureOwed: () =>
+        Effect.die(new Error("Invoice cancellation notices are not wired.")),
+    })
+  );
+}

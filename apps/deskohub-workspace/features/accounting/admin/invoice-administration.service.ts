@@ -652,14 +652,15 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
           )
       )
     );
-    const cancelAlone = cancellation
-      .cancelStandalone({
-        invoiceId: id,
-        actor: input.actor,
-        confirmedCustomerNotice: input.confirmedCustomerNotice,
-      })
-      .pipe(Effect.map((outcome) => toCancelResult(outcome, null)));
-    if (plan.invoice.cancelled) return yield* cancelAlone;
+    const cancelAlone = () =>
+      cancellation
+        .cancelStandalone({
+          invoiceId: id,
+          actor: input.actor,
+          confirmedCustomerNotice: input.confirmedCustomerNotice,
+        })
+        .pipe(Effect.map((outcome) => toCancelResult(outcome, null)));
+    if (plan.invoice.cancelled) return yield* cancelAlone();
     if (plan.reservation === "cancellation_in_progress") {
       return yield* new InvoiceCancellationError({
         code: "reservation_cancellation_in_progress",
@@ -672,7 +673,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
       plan.reservation !== "cancels_reservation" ||
       !plan.invoice.reservationId
     )
-      return yield* cancelAlone;
+      return yield* cancelAlone();
     if (!input.reservation) {
       return yield* new InvoiceCancellationError({
         code: "reservation_confirmation_required",
@@ -700,7 +701,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     // The reservation was cancelled meanwhile without this invoice, as a
     // legacy cancellation left it: it is cancelled alone now.
     if (!record) {
-      return yield* cancelAlone.pipe(
+      return yield* cancelAlone().pipe(
         Effect.map((result) => ({ ...result, reservation }))
       );
     }

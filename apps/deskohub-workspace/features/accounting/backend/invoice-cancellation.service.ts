@@ -23,7 +23,6 @@ import {
   InvoiceCancellationRepository,
   type InvoiceNoticeClaim,
 } from "./invoice-cancellation.repository";
-import { InvoiceCancellationNoticesLive } from "./invoice-cancellation-notice-delivery";
 import { InvoiceCancellationNotices } from "./invoice-cancellation-notices";
 import { InvoiceEmailDeliveryRepository } from "./invoice-email-delivery.repository";
 
@@ -384,7 +383,7 @@ export class InvoiceCancellationService extends Context.Service<
         InvoiceRepository.Live,
         InvoiceEmailDeliveryRepository.Live,
         InvoiceCancellationRepository.Live,
-        InvoiceCancellationNoticesLive
+        InvoiceCancellationNotices.Live
       )
     )
   );

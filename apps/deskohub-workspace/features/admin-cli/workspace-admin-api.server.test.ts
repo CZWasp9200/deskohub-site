@@ -60,6 +60,7 @@ import {
   InvoiceAdministrationInProgressError,
   InvoiceAdministrationService,
 } from "@/features/accounting/admin/invoice-administration.service";
+import { InvoiceCancellationService } from "@/features/accounting/backend/invoice-cancellation.service";
 import { ManualInvoiceValidationError } from "@/features/accounting/manual-invoice";
 import { AdministrationService } from "@/features/administration/administration.service";
 import {
@@ -98,6 +99,7 @@ import { WorkspaceReservationRepository } from "@/features/reservation/backend/w
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { toWorkspaceWebHandler } from "@/shared/backend/workspace-effect";
 import { makeMeetingPoint } from "@/shared/testing/overlapping-requests.test-utils";
+import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import {
   discountMutationRecovery,
@@ -1409,6 +1411,10 @@ describe("Workspace Admin API", () => {
   });
 });
 
+// Reservation cancellations complete in a transaction; no statement reaches
+// Postgres.
+const recordingDatabase = await makeRecordingWorkspaceDatabase();
+
 describe("customer and reservation administration endpoints", () => {
   const instant = (value: string) => Temporal.Instant.from(value);
 
@@ -1572,6 +1578,13 @@ describe("customer and reservation administration endpoints", () => {
     expect(cancellations).toHaveLength(3);
     expect(cancellations[0]).toEqual({
       accessGrantUpdatedAt: null,
+      actor: {
+        source: "dhw-cli",
+        administrator: {
+          accountId: "cli-administrator-account",
+          email: "cli-administrator@deskohub.test",
+        },
+      },
       force: false,
       providerCredentialRemoved: false,
       reservationId,
@@ -1651,6 +1664,11 @@ describe("customer and reservation administration endpoints", () => {
         updatedAt: Temporal.Now.instant(),
       }) as never;
     const shared = Layer.mergeAll(
+      recordingDatabase.layer,
+      Layer.mock(InvoiceCancellationService, {
+        planForReservation: () => Effect.succeed(null),
+        recordForReservation: () => Effect.succeed(null),
+      }),
       counted(
         "dotypos",
         Layer.mock(DotyposService, {

@@ -16,6 +16,7 @@ import {
 import { InvoiceCancellationService } from "./invoice-cancellation.service";
 import { makeInvoiceCancellationTestKit } from "./invoice-cancellation.test-utils";
 import { InvoiceCancellationNotices } from "./invoice-cancellation-notices";
+import { InvoiceEmailDeliveryRepository } from "./invoice-email-delivery.repository";
 import { InvoiceEmailDeliveryError } from "./invoice-email-delivery.service";
 
 // The suite counts corrective document numbers, so it owns its database.
@@ -305,6 +306,60 @@ describe.skipIf(!testDatabase)(
       expect(
         await run((service) => service.planForReservation(reservation.id))
       ).toBeNull();
+    });
+
+    test("retries the customer notice owed after a late acceptance of the invoice email", async () => {
+      const actor = await kit.makeActor("service-late");
+      const invoice = await kit.issueManualInvoice(actor);
+      // The customer's invoice email is in flight when the invoice is
+      // cancelled, and the provider accepts it afterwards.
+      const inFlight = await kit.run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          deliveries.claim({ invoiceId: invoice.id, audience: "customer" })
+        )
+      );
+      const { run } = makeService();
+      const cancelled = await run((service) =>
+        service.cancelStandalone({
+          invoiceId: invoice.id,
+          actor,
+          confirmedCustomerNotice: true,
+        })
+      );
+      if (inFlight === null || inFlight === "cancelled") {
+        throw new Error("The invoice email fixture could not be claimed.");
+      }
+      await kit.run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          deliveries.markAccepted({
+            invoiceId: invoice.id,
+            audience: "customer",
+            attemptNumber: inFlight.attemptNumber,
+            providerDeliveryId: EmailDeliveryIdSchema.make(
+              `email-${randomUUID()}`
+            ),
+            acceptedAt: Temporal.Now.instant(),
+          })
+        )
+      );
+      const retry = makeService();
+
+      const retried = await retry.run((service) =>
+        service.retryNotices(invoice.id)
+      );
+
+      expect(cancelled.cancellation.notices.customer).toBe("not_owed");
+      expect(retry.delivered).toEqual([
+        {
+          invoiceId: invoice.id,
+          claims: [{ audience: "customer", attemptNumber: 1 }],
+        },
+      ]);
+      expect(retried.notices).toMatchObject({
+        customer: "accepted",
+        internal: "accepted",
+        needsAttention: false,
+      });
     });
 
     test("retries a failed notice of a cancelled invoice and never sends an accepted one again", async () => {

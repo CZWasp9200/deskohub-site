@@ -56,10 +56,10 @@ import {
   ReservationAuthorDirectory,
 } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
-import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
-import { InvoiceEmailDeliveryRepository } from "@/features/accounting/backend/invoice-email-delivery.repository";
-import { isCustomerCancellationNoticeOwed } from "@/features/accounting/invoice-cancellation";
-import type { InvoiceId } from "@/features/accounting/manual-invoice";
+import {
+  type ReservationInvoiceStanding,
+  readReservationInvoiceStanding,
+} from "@/features/accounting/backend/reservation-invoice-standing";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import {
   getWorkspaceProductByTier,
@@ -464,26 +464,13 @@ type AdministrationReservationAuthor =
   | { readonly kind: "deleted" }
   | { readonly kind: "unavailable" };
 
-/**
- * The reservation's latest invoice, for the cancellation dialog: a live one
- * is cancelled with the reservation, and its notice owed to the customer.
- */
-export type AdministrationReservationInvoice = {
-  readonly id: InvoiceId;
-  readonly invoiceNumber: string;
-  readonly state: "live" | "cancelled";
-  /** Hidden from the Admin UI, which then shows no link to it. */
-  readonly archived: boolean;
-  readonly customerNotice: "owed" | "not_owed";
-};
-
 export type AdministrationReservationDetail = {
   /** Absent when the reservation is authorless or the customer booked it. */
   readonly author: AdministrationReservationAuthor | null;
   readonly canCancel: boolean;
   readonly requiresProviderCredentialRemoval: boolean;
   /** The reservation's latest invoice; `null` without one. */
-  readonly invoice: AdministrationReservationInvoice | null;
+  readonly invoice: ReservationInvoiceStanding | null;
   readonly reservation: AdministrationReservationSummary;
   readonly booking: AdministrationBookingSummary | null;
   readonly lifecycle: ReturnType<typeof getAdministrationReservationLifecycle>;
@@ -1470,42 +1457,6 @@ export class AdministrationService extends Context.Service<
       const reservationHistory = yield* PostHogReservationHistory;
       const paymentAdministration = yield* PaymentAdministrationService;
       const reservationAuthors = yield* ReservationAuthorDirectory;
-      const invoiceRepository = yield* InvoiceRepository;
-      const invoiceDeliveries = yield* InvoiceEmailDeliveryRepository;
-
-      /**
-       * The reservation's latest invoice. One whose document can't be read
-       * shows as none: cancelling the reservation then stops before the
-       * provider call, so nothing goes unwarned.
-       */
-      const loadReservationInvoice = Effect.fn(
-        "AdministrationService.loadReservationInvoice"
-      )(function* (reservationId: WorkspaceReservationId) {
-        const invoice = yield* invoiceRepository
-          .findLatestByReservationId(reservationId)
-          .pipe(
-            Effect.catchTag("InvoiceStorageError", (cause) =>
-              Effect.logWarning("Reservation invoice unavailable", {
-                cause,
-                workspaceReservationId: reservationId,
-              }).pipe(Effect.as(null))
-            )
-          );
-        if (!invoice) return null;
-        const delivery = (yield* invoiceDeliveries.status([invoice.id])).get(
-          invoice.id
-        );
-        return {
-          id: invoice.id,
-          invoiceNumber: invoice.invoiceNumber,
-          state: invoice.cancellation ? "cancelled" : "live",
-          archived: invoice.archivedAt !== null,
-          customerNotice:
-            delivery && isCustomerCancellationNoticeOwed(delivery)
-              ? "owed"
-              : "not_owed",
-        } satisfies AdministrationReservationInvoice;
-      });
 
       const loadLiveReservation = Effect.fn(
         "AdministrationService.loadLiveReservation"
@@ -2400,7 +2351,7 @@ export class AdministrationService extends Context.Service<
           canCancel: canCancelReservation(row),
           requiresProviderCredentialRemoval:
             requiresProviderCredentialRemoval(accessGrant),
-          invoice: yield* loadReservationInvoice(row.id),
+          invoice: yield* readReservationInvoiceStanding(db, row.id),
         } satisfies AdministrationReservationDetail;
       });
 
@@ -3427,9 +3378,7 @@ export class AdministrationService extends Context.Service<
         WorkspaceDotyposLayer,
         PaymentAdministrationService.Live,
         PostHogReservationHistory.Live,
-        ReservationAuthorDirectory.Live,
-        InvoiceRepository.Live,
-        InvoiceEmailDeliveryRepository.Live
+        ReservationAuthorDirectory.Live
       )
     )
   );

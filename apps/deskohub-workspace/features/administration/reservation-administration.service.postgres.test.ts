@@ -259,9 +259,11 @@ describe.skipIf(!testDatabase)(
       let issuedId: string | undefined;
       const { cancel } = makeCancellation({
         beforeClaim: paid.issueInvoice().pipe(
-          Effect.map(({ invoice }) => {
-            issuedId = invoice.id;
-          }),
+          Effect.flatMap(({ invoice }) =>
+            Effect.sync(() => {
+              issuedId = invoice.id;
+            })
+          ),
           Effect.orDie
         ),
       });
@@ -285,9 +287,11 @@ describe.skipIf(!testDatabase)(
       let refusal: unknown;
       const { cancel } = makeCancellation({
         duringProviderCancel: Effect.flip(paid.issueInvoice()).pipe(
-          Effect.map((error) => {
-            refusal = error;
-          }),
+          Effect.flatMap((error) =>
+            Effect.sync(() => {
+              refusal = error;
+            })
+          ),
           Effect.orDie
         ),
       });
