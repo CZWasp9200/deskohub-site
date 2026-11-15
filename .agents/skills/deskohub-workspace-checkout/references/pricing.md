@@ -48,6 +48,8 @@ The pricing module owns that comparison: `CheckoutPricingService.affirmForPaymen
 
 Persist discount applications and admit code or voucher claims in the payment-attempt creation transaction. Redeem in the paid transaction; release in every failed, cancelled, or expired transaction. Any application or claim error is fatal to its owning transition. Never convert it to an empty discount result or `not_pending`. Voucher admission locks the voucher row and rechecks the exact available amount in that transaction.
 
+Promotion availability rules (enabled, validity window, service dates, allowlist, use limits, a voucher's reserved claim and remaining credit) live once, in `evaluatePromotionAvailability` (`features/discounts/promotion-availability.ts`). It is pure: callers pass the facts, including the instant. `PromotionCodeProvider`, claim admission (`reserveCodeClaim`) and late-recovery readmission of a released code claim each run named stages from `promotionAvailabilityPrecedence`, which fixes their rule order and so which reason wins when several rules fail; pricing and admission order the rules differently on purpose. Admission and readmission read allowlist, use-count and used-credit facts with the `promotion-code.repository-query.ts` builders on the transaction, after taking their row locks. Product targeting, the hold deadline, the stored-benefit and accepted-credit comparisons, and the claim-customer match stay in the caller.
+
 ## Unknown discounts
 
 A displayed or advertised discount is **gone** only when every provider resolved completely and none returned it. `PromotionCodeUnavailableError` and a disabled release gate are complete answers.
