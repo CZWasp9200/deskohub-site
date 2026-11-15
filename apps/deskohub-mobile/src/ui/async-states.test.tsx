@@ -7,7 +7,6 @@ import { Button } from "./controls";
 import { EmptyState } from "./empty-state";
 import { LoadingIndicator } from "./loading-indicator";
 import { elementTree, find, findAll, hostTree } from "./testing/element-tree";
-import { color } from "./tokens";
 
 /** The component's live region: its only Text with a role. */
 const liveRegion = <Props,>(
@@ -26,17 +25,14 @@ describe("loading indicators", () => {
     ).toEqual({ size: "section", tone: "brand", label: "loading" });
   });
 
-  test("a refresh shows a muted inline die that its status line announces", () => {
-    const indicator = (refreshing: boolean) =>
-      find(
-        elementTree(RefreshingIndicator, { refreshing, label: "refreshing" }),
-        LoadingIndicator
-      )?.props;
-    expect(indicator(true)).toEqual({
-      size: "inline",
-      tone: { color: color.ink2 },
-    });
-    expect(indicator(false)).toBeUndefined();
+  test("a refresh draws no die of its own, only its status line", () => {
+    for (const refreshing of [false, true]) {
+      const tree = hostTree(
+        elementTree(RefreshingIndicator, { refreshing, label: "refreshing" })
+      );
+      expect(find(tree, LoadingIndicator)).toBeUndefined();
+      expect(find(tree, "Svg")).toBeUndefined();
+    }
   });
 });
 

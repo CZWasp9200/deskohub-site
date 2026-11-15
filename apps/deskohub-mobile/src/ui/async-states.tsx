@@ -7,7 +7,7 @@ import { EmptyState } from "./empty-state";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { LoadingIndicator } from "./loading-indicator";
 import { Text } from "./text";
-import { color, space } from "./tokens";
+import { space } from "./tokens";
 
 /**
  * Fills the screen while its content first loads. The indicator carries
@@ -56,9 +56,10 @@ export function ErrorState({
 }
 
 /**
- * A quiet line shown while content already on screen is refreshed in the
- * background. It stays mounted as a status region and shows the indicator and
- * `label` only while `refreshing`.
+ * A quiet status line that says content already on screen is being
+ * refreshed. It stays mounted as a status region and shows `label` only
+ * while `refreshing`. It draws no indicator of its own: the screen's
+ * `ScrollScreen` shows the one loading indicator at the top.
  */
 export function RefreshingIndicator({
   refreshing,
@@ -70,21 +71,17 @@ export function RefreshingIndicator({
   const message = refreshing ? label : undefined;
   useLiveRegionAnnouncement(message, "polite");
   return (
-    <View style={styles.refreshing}>
-      {refreshing && (
-        <LoadingIndicator size="inline" tone={{ color: color.ink2 }} />
-      )}
-      <Text
-        role="status"
-        aria-live="polite"
-        // Text doesn't map `aria-live` to Android's live region; View does.
-        accessibilityLiveRegion="polite"
-        variant="caption"
-        tone="muted"
-      >
-        {message ?? ""}
-      </Text>
-    </View>
+    <Text
+      role="status"
+      aria-live="polite"
+      // Text doesn't map `aria-live` to Android's live region; View does.
+      accessibilityLiveRegion="polite"
+      variant="caption"
+      tone="muted"
+      style={styles.refreshing}
+    >
+      {message ?? ""}
+    </Text>
   );
 }
 
@@ -96,10 +93,5 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   centeredAcross: { alignItems: "center" },
-  refreshing: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: space.sm,
-    justifyContent: "center",
-  },
+  refreshing: { textAlign: "center" },
 });
