@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { ComponentProps } from "react";
 import { StyleSheet } from "react-native";
 import { Checkbox, CheckboxRow } from "./checkbox";
+import { listRowLayout } from "./list-row-layout";
 import {
   elementTree,
   find,
@@ -88,7 +89,7 @@ describe("CheckboxRow", () => {
     expect(pressable.disabled).toBe(true);
   });
 
-  test("matches a list row's metrics, the box on the label's first line", () => {
+  test("shares the list row layout, the box on the label's first line", () => {
     const { pressable } = row();
     const style = flat(
       (pressable.style as (state: { pressed: boolean }) => unknown)({
@@ -96,10 +97,7 @@ describe("CheckboxRow", () => {
       })
     );
     expect(style).toMatchObject({
-      minHeight: 56,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      gap: 14,
+      ...flat(listRowLayout.row),
       alignItems: "flex-start",
     });
   });

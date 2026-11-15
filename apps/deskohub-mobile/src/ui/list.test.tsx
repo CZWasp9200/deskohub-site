@@ -5,9 +5,11 @@ import Mail from "lucide-react-native/icons/mail";
 import type { ReactElement } from "react";
 import { StyleSheet } from "react-native";
 import { Badge } from "./badge";
+import { CheckboxRow } from "./checkbox";
 import { Icon } from "./icon";
 import { ListGroup, ListRow, SectionHeader } from "./list";
 import { listDividerInset } from "./list-row-layout";
+import { SwitchRow } from "./switch";
 import {
   elementTree,
   find,
@@ -114,6 +116,37 @@ describe("ListGroup", () => {
     });
     expect(dividers(tree).map((d) => style(d.props).marginStart)).toEqual([
       listDividerInset({ above: true, below: false }),
+    ]);
+  });
+
+  test("divides list, switch and checkbox rows by their icons: 70 next to an icon, 16 otherwise", () => {
+    const tree = elementTree(ListGroup, {
+      children: [
+        <ListRow key="list" label="l" icon={Mail} />,
+        <SwitchRow
+          key="switch"
+          label="s"
+          icon={Mail}
+          value={false}
+          onValueChange={ignore}
+        />,
+        <CheckboxRow
+          key="checkbox"
+          label="c"
+          checked={false}
+          onChange={ignore}
+        />,
+        <SwitchRow
+          key="plain-switch"
+          label="p"
+          value={false}
+          onValueChange={ignore}
+        />,
+        <ListRow key="plain-list" label="q" />,
+      ],
+    });
+    expect(dividers(tree).map((d) => style(d.props).marginStart)).toEqual([
+      70, 70, 16, 16,
     ]);
   });
 });

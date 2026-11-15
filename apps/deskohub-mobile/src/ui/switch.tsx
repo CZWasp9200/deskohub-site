@@ -2,6 +2,7 @@ import Check from "lucide-react-native/icons/check";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, type IconComponent } from "./icon";
+import { listRowLayout } from "./list-row-layout";
 import { LoadingIndicator } from "./loading-indicator";
 import { ToggleRow } from "./toggle-row";
 import { color, radius, space } from "./tokens";
@@ -145,7 +146,7 @@ export function SwitchRow({
       align="center"
       leading={
         icon && (
-          <View style={styles.iconTile}>
+          <View style={listRowLayout.iconTile}>
             <Icon
               icon={icon}
               size={20}
@@ -215,12 +216,4 @@ const styles = StyleSheet.create({
   busyThumbOn: thumb(largeThumb, largeEnd, color.white),
   disabledThumbOff: thumb(smallThumb, smallInset, color.outline),
   disabledThumbOn: thumb(largeThumb, largeEnd, color.white),
-  iconTile: {
-    alignItems: "center",
-    backgroundColor: color.sunken,
-    borderRadius: radius.tile,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
 });

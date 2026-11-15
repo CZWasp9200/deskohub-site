@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import { listRowLayout } from "./list-row-layout";
 import { Text } from "./text";
-import { color, space } from "./tokens";
+import { color } from "./tokens";
 
 /**
  * A list row that is one toggle: the whole row is the `switch` or `checkbox`
  * and its text names it, so the drawn control inside is only its picture.
- * Its metrics match `ListRow`, so it sits in a `ListGroup` beside them.
+ * It shares `ListRow`'s layout, so it sits in a `ListGroup` beside them.
  */
 export function ToggleRow({
   role,
@@ -45,13 +46,14 @@ export function ToggleRow({
       disabled={disabled}
       onPress={busy ? undefined : () => onToggle(!checked)}
       style={({ pressed }) => [
-        styles.row,
+        listRowLayout.row,
+        description !== undefined && listRowLayout.withDescription,
         align === "top" && styles.top,
         pressed && !disabled && !busy && styles.pressed,
       ]}
     >
       {leading}
-      <View style={styles.text}>
+      <View style={listRowLayout.text}>
         <Text
           variant={labelWeight === "strong" ? "bodyStrong" : "body"}
           style={textTone}
@@ -70,15 +72,6 @@ export function ToggleRow({
 }
 
 const styles = StyleSheet.create({
-  row: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 14,
-    minHeight: 56,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-  },
   top: { alignItems: "flex-start" },
   pressed: { backgroundColor: color.pressed },
-  text: { flex: 1, minWidth: 0 },
 });

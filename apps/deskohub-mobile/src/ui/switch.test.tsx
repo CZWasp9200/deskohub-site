@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import Bell from "lucide-react-native/icons/bell";
 import type { ComponentProps } from "react";
 import { StyleSheet } from "react-native";
+import { listRowLayout } from "./list-row-layout";
 import { LoadingIndicator } from "./loading-indicator";
 import { Switch, SwitchRow, SwitchTrack, switchLook } from "./switch";
 import {
@@ -163,18 +164,18 @@ describe("SwitchRow", () => {
     expect(find(switchRow().tree, "Svg")).toBeUndefined();
   });
 
-  test("matches a list row's metrics, centred", () => {
-    const style = flat(
-      (switchRow().pressable.style as (state: { pressed: boolean }) => unknown)(
-        { pressed: false }
-      )
+  test("shares the list row layout, centred, taller with a description", () => {
+    const rowStyle = (props: Partial<ComponentProps<typeof SwitchRow>>) =>
+      flat(
+        (
+          switchRow(props).pressable.style as (state: {
+            pressed: boolean;
+          }) => unknown
+        )({ pressed: false })
+      );
+    expect(rowStyle({})).toEqual(flat(listRowLayout.row));
+    expect(rowStyle({ description: "more" })).toEqual(
+      flat([listRowLayout.row, listRowLayout.withDescription])
     );
-    expect(style).toMatchObject({
-      minHeight: 56,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      gap: 14,
-      alignItems: "center",
-    });
   });
 });
