@@ -108,6 +108,13 @@ type HarnessOptions = {
   > | null;
   readonly providerFails?: boolean;
   readonly resolver?: WorkspaceCheckoutAccessCodeServiceType["resolveCustomerAccessCode"];
+  /**
+   * Asks with this live provider record through `getAccessWithLiveRecord`
+   * instead of letting `getAccess` read Dotypos.
+   */
+  readonly liveRecord?: ReturnType<
+    typeof makeProviderReservation
+  >["reservation"];
 };
 
 const runAccess = async (options: HarnessOptions = {}) => {
@@ -153,11 +160,17 @@ const runAccess = async (options: HarnessOptions = {}) => {
 
   const access = await Effect.gen(function* () {
     const service = yield* ReservationAccessService;
-    return yield* service.getAccess({
+    const request = {
       orderId,
       locale: options.inputLocale ?? "en-US",
       accessToken: options.accessToken,
-    });
+    } as const;
+    return yield* options.liveRecord
+      ? service.getAccessWithLiveRecord({
+          ...request,
+          record: options.liveRecord,
+        })
+      : service.getAccess(request);
   }).pipe(
     Effect.provide(ReservationAccessService.Default),
     Effect.provide(
@@ -374,6 +387,108 @@ describe("ReservationAccessService", () => {
     expect(result.access).toEqual({
       state: "unavailable",
       reason: "lookup-failed",
+    });
+  });
+
+  describe("with a live record", () => {
+    const liveRecord = (overrides: ProviderReservationOverrides = {}) =>
+      makeProviderReservation(overrides).reservation;
+
+    test("resolves the code over the record's span without reading Dotypos", async () => {
+      const accessToken = await createAccessToken();
+      const result = await runAccess({ accessToken, liveRecord: liveRecord() });
+
+      expect(result.access).toEqual({ state: "available", ...resolvedAccess });
+      expect(result.getReservation).not.toHaveBeenCalled();
+      expect(result.resolveCustomerAccessCode).toHaveBeenCalledWith({
+        reservationId: orderId,
+        dotyposReservationId: "provider-reservation-id",
+        reservedFrom: Temporal.Instant.from("2026-06-20T08:15:00Z"),
+        reservedUntil: Temporal.Instant.from("2026-06-20T09:00:00Z"),
+      });
+    });
+
+    test("answers an order the requester may not see as an invalid link, as for a review sandbox order", async () => {
+      const result = await runAccess({
+        authorized: false,
+        liveRecord: liveRecord(),
+      });
+
+      expect(result.access).toEqual({ state: "invalid_link" });
+      expect(result.isAuthorized).toHaveBeenCalledWith(
+        expect.objectContaining({ orderId, permission: "view-access-code" })
+      );
+      expect(result.findById).not.toHaveBeenCalled();
+      expect(result.resolveCustomerAccessCode).not.toHaveBeenCalled();
+    });
+
+    test("shows no code for an order that isn't paid and confirmed, or a record that isn't confirmed", async () => {
+      const accessToken = await createAccessToken();
+      const cases: readonly HarnessOptions[] = [
+        {
+          accessToken,
+          reservation: makeReservation({ paymentState: "pending" }),
+          liveRecord: liveRecord(),
+        },
+        {
+          accessToken,
+          reservation: makeReservation({ reservationState: "held" }),
+          liveRecord: liveRecord(),
+        },
+        {
+          accessToken,
+          reservation: makeReservation({ dotyposReservationId: null }),
+          liveRecord: liveRecord(),
+        },
+        { accessToken, liveRecord: liveRecord({ status: "NEW" }) },
+        { accessToken, liveRecord: liveRecord({ status: "CANCELLED" }) },
+      ];
+
+      for (const options of cases) {
+        const result = await runAccess(options);
+        expect(result.access).toEqual({
+          state: "unavailable",
+          reason: "reservation-state",
+        });
+        expect(result.getReservation).not.toHaveBeenCalled();
+        expect(result.resolveCustomerAccessCode).not.toHaveBeenCalled();
+      }
+    });
+
+    test("blames the reservation once issuance refuses it as ended", async () => {
+      const accessToken = await createAccessToken();
+      const result = await runAccess({
+        accessToken,
+        liveRecord: liveRecord(),
+        resolver: () =>
+          Effect.fail(
+            new ReservationAccessIssuanceError({
+              reservationId: orderId,
+              outcome: "rejected",
+              message: "refused",
+              refusal: "reservation-ended",
+            })
+          ),
+      });
+
+      expect(result.access).toEqual({
+        state: "unavailable",
+        reason: "reservation-state",
+      });
+    });
+
+    test("never takes another reservation's record for the order's", async () => {
+      const accessToken = await createAccessToken();
+      const result = await runAccess({
+        accessToken,
+        liveRecord: { ...liveRecord(), id: "other-provider-reservation-id" },
+      });
+
+      expect(result.access).toEqual({
+        state: "unavailable",
+        reason: "lookup-failed",
+      });
+      expect(result.resolveCustomerAccessCode).not.toHaveBeenCalled();
     });
   });
 });

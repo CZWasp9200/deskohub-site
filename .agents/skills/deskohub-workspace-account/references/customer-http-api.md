@@ -276,6 +276,53 @@ out answers 503. Handler tests fake `CustomerCheckoutOperations` and
 `CheckoutService` through the `bookingCheckout` option of
 `makeCustomerApiTestServer`.
 
+## Reservation list, status and door codes
+
+The reservations group's handlers (`customer-reservation-handlers.ts`) only
+project what the reservation services return.
+
+- `listReservations` loads `CustomerReservationHistoryWithAccessService`
+  (`features/account/backend/customer-reservation-history-with-access.service.ts`),
+  the account history the account page shows, built by the same
+  `makeCustomerReservationHistory`. Its optional `?locale` (`CustomerLocale`,
+  the default locale when absent) names `productName` with
+  `getReservationProductName` (`features/account/reservation-product-name.ts`),
+  the website history's own names. Typed clients call it with
+  `{ query: {} }` at least: the client types accept `{}`, but Effect's
+  `HttpApiClient` then encodes an absent query as `undefined` and fails
+  before sending (a request without a query string still decodes on the
+  server, so older apps keep working). A website order carries
+  `accessStartsAt`/`accessEndsAt`, the span Dotypos holds (early setup
+  included), from which issuance derives the code's window. An entry whose
+  stored product can still be booked carries `bookedSelection`
+  (`{ selection: CustomerBookingSelection, earlySetup? }`, what
+  `createCheckout` takes), from `getStoredRebookingSelection`
+  (`features/reservation/backend/booking-selection.ts`) over
+  `getBookedSelection` (`features/reservation/booked-selection.ts`), which the
+  status page's retry link also uses. A review account's sandbox entries get
+  names and selections too.
+- Today's door code: a confirmed order whose access span starts by today's
+  Prague date and hasn't ended carries `todayAccess` (the access endpoint's
+  `CustomerReservationAccess`). The history resolves it with
+  `ReservationAccessService.getAccessWithLiveRecord`, the same authorization,
+  paid-and-confirmed check, `CONFIRMED` check and issuance as `getAccess`,
+  but from the Dotypos record the history just listed, so the list reads
+  Dotypos no more than before. The variant builds its records from
+  `ReservationRecords.Provider` itself, so it never sees the shared
+  snapshots customers' AI agents read; keep it that way, since a snapshot can
+  predate a cancellation. A code that can't be shown now leaves the entry
+  without one and never fails the list; the app asks the access endpoint,
+  which answers why. A review account never gets one. Resolution can issue
+  a code at the lock provider and store it, so the handler runs to
+  completion. The list stays one `account-read`.
+- `getReservationStatus` carries the same `bookedSelection`, computed from
+  the stored details and the Dotypos reservation the summary already read,
+  while the summary is known.
+- `getEstablishment` (`GET /reservations/establishment`, `workspace-only`)
+  answers the space's name, address, coordinates and Google Maps links from
+  `workspaceSiteConstants.location` and `shared/utils/workspace-location-map.ts`;
+  never restate them.
+
 ## Tests
 
 Each endpoint gets colocated tests through `makeCustomerApiTestServer`
