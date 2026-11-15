@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { ReactElement, ReactNode } from "react";
+import {
+  Children,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { m } from "../../i18n/messages";
 import {
   elementTree,
@@ -47,9 +52,23 @@ const calendar = (props: Partial<CalendarProps> = {}) => {
   return { tree, pressed };
 };
 
+/**
+ * The calendar's buttons (days and paging), found by their props rather than
+ * by element type: which `Pressable` react-native exports in a run depends on
+ * the stand-ins other test files registered before this module loaded.
+ */
+const buttons = (node: ReactNode): ReadonlyArray<DayButton> => {
+  if (!isValidElement<Partial<DayButton["props"]>>(node)) return [];
+  const nested = Children.toArray(node.props.children).flatMap(buttons);
+  return typeof node.props.onPress === "function" &&
+    typeof node.props["aria-label"] === "string"
+    ? [node as DayButton, ...nested]
+    : nested;
+};
+
 // "Friday, November 20" in en-US.
 const dayButton = (tree: ReactNode, day: number) =>
-  findAll<DayButton["props"]>(tree, "Pressable").find((button) =>
+  buttons(tree).find((button) =>
     button.props["aria-label"]?.includes(`November ${day}`)
   ) as DayButton | undefined;
 
@@ -142,11 +161,7 @@ describe("MonthCalendar", () => {
       disabled: true,
       onUnavailablePress: () => undefined,
     });
-    expect(
-      findAll<DayButton["props"]>(tree, "Pressable").every(
-        (button) => button.props.disabled
-      )
-    ).toBe(true);
+    expect(buttons(tree).every((button) => button.props.disabled)).toBe(true);
   });
 
   /** A day's drawing: its band (when in a range), disc and number, as host views. */
