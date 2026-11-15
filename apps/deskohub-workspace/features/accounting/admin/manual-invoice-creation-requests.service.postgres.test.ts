@@ -189,7 +189,10 @@ describe.skipIf(!testDatabase)(
     test("stores a claim without the customer contact details it binds", async () => {
       const requests = await getRequests();
       const invoiceId = uniqueInvoiceId();
-      const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
+      const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput, {
+        errors: "all",
+        onExcessProperty: "error",
+      })({
         invoiceId,
         customer: { kind: "new", details: customerDetails },
         locale: "en-US",

@@ -50,7 +50,7 @@ function Host({
   readonly onForm: (form: DraftForm) => void;
 }) {
   const form = useForm<EmailDraftFormValues, unknown, EmailDraft>({
-    resolver: effectSchemaResolver(EmailDraft),
+    resolver: effectSchemaResolver(EmailDraft, { onExcessProperty: "error" }),
     defaultValues,
   });
   onForm(form);

@@ -23,7 +23,11 @@ const EmailDraftPreviewInput = Schema.Struct({
 const previewEmailDraftAction = defineAdministrationAction(
   {
     operation: "emails.admin.preview-draft",
-    schema: Schema.toStandardSchemaV1(EmailDraftPreviewInput),
+    // `EmailDraft` rejects unknown keys; Effect 4.1 applies that only as
+    // parser options, so they cover the whole input.
+    schema: Schema.toStandardSchemaV1(EmailDraftPreviewInput, {
+      parseOptions: { errors: "all", onExcessProperty: "error" },
+    }),
     failureCopy: emailsEditorActionFailureCopy,
     capabilities: Layer.empty,
   },

@@ -165,7 +165,10 @@ test("omits blank optional business contact names", () => {
   expect(input.customer.details).not.toHaveProperty("lastName");
   expect(input.variableSymbol).toBe("2026000001");
   expect(() =>
-    Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)(input)
+    Schema.decodeUnknownSync(AdministrationInvoiceCreateInput, {
+      errors: "all",
+      onExcessProperty: "error",
+    })(input)
   ).not.toThrow();
 });
 

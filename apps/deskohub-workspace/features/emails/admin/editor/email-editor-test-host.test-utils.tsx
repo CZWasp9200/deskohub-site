@@ -33,7 +33,7 @@ export function EmailEditorTestHost({
   readonly onForm?: (form: EmailEditorTestForm) => void;
 }) {
   const form = useForm<EmailDraftFormValues, unknown, EmailDraft>({
-    resolver: effectSchemaResolver(EmailDraft),
+    resolver: effectSchemaResolver(EmailDraft, { onExcessProperty: "error" }),
     defaultValues,
   });
   onForm?.(form);

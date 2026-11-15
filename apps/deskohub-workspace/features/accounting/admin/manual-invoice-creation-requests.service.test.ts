@@ -6,6 +6,7 @@ import { getManualInvoiceCreationRequestJson } from "./invoice-administration.se
 import { getManualInvoiceCreationRequestDigest } from "./manual-invoice-creation-requests.service";
 
 const decodeInput = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput, {
+  errors: "all",
   onExcessProperty: "error",
 });
 

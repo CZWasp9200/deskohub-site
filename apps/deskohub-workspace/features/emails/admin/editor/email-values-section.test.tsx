@@ -37,7 +37,7 @@ function Host({
   readonly defaultValues: EmailDraftFormValues;
 }) {
   const host = useForm<EmailDraftFormValues, unknown, EmailDraft>({
-    resolver: effectSchemaResolver(EmailDraft),
+    resolver: effectSchemaResolver(EmailDraft, { onExcessProperty: "error" }),
     defaultValues,
   });
   useEffect(() => {

@@ -26,7 +26,10 @@ const mountPoint = document.getElementById("editor-root");
 if (!mountPoint) throw new Error("The editor harness root is missing.");
 const locale = mountPoint.dataset.locale as Locale;
 const initialDraft: EmailDraftFormValues = mountPoint.dataset.draft
-  ? Schema.decodeUnknownSync(EmailDraft)(JSON.parse(mountPoint.dataset.draft))
+  ? Schema.decodeUnknownSync(EmailDraft, {
+      errors: "all",
+      onExcessProperty: "error",
+    })(JSON.parse(mountPoint.dataset.draft))
   : fixtureDraft;
 
 /** Synthetic sample values the host supplies; the rest show by name. */
@@ -105,7 +108,7 @@ const editorProps: EmailEditorProps = {
 
 function EmailEditorHarness() {
   const form = useForm<EmailDraftFormValues, unknown, EmailDraft>({
-    resolver: effectSchemaResolver(EmailDraft),
+    resolver: effectSchemaResolver(EmailDraft, { onExcessProperty: "error" }),
     defaultValues: initialDraft,
   });
   const [saved, setSaved] = useState<string>("");

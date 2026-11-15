@@ -76,7 +76,7 @@ const renderSection = (defaultValues: Draft = {}) => {
   let read: () => Draft = () => defaultValues;
   function Host() {
     const form = useForm<Draft, unknown, EmailDraft>({
-      resolver: effectSchemaResolver(EmailDraft),
+      resolver: effectSchemaResolver(EmailDraft, { onExcessProperty: "error" }),
       defaultValues,
     });
     read = () => form.getValues();
