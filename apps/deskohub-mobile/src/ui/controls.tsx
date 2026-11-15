@@ -149,6 +149,9 @@ export function Button({
         textOnly && buttonStyles.textOnly,
         width === "full" ? buttonStyles.fullWidth : buttonStyles.contentWidth,
         buttonStyles[variant],
+        // The raised lighting of a filled button goes while it is pressed or
+        // disabled; a later style can't unset a shadow, so it is added only here.
+        !(pressed || disabled) && buttonShadow[variant],
         pressed && !disabled && !busy && buttonPressedStyles[variant],
         disabled && !textOnly && buttonDisabledStyle(variant),
         focused && buttonStyles.focused,
@@ -222,18 +225,18 @@ const buttonStyles = StyleSheet.create({
   fullWidth: { alignSelf: "stretch" },
   contentWidth: { alignSelf: "flex-start" },
   label: { flexShrink: 1, textAlign: "center" },
-  primary: { backgroundColor: color.action, ...shadow.primary },
+  primary: { backgroundColor: color.action },
   secondary: {
     backgroundColor: color.surface,
     borderColor: color.outline,
     borderWidth: 1,
   },
-  danger: { backgroundColor: color.danger, ...shadow.danger },
+  danger: { backgroundColor: color.danger },
   text: { backgroundColor: "transparent" },
   quiet: { backgroundColor: "transparent" },
   dangerText: { backgroundColor: "transparent" },
   inverse: { backgroundColor: color.surface },
-  disabled: { backgroundColor: color.disabled, boxShadow: undefined },
+  disabled: { backgroundColor: color.disabled },
   secondaryDisabled: { borderColor: color.disabled },
   focused: {
     outlineColor: color.action,
@@ -248,6 +251,11 @@ const buttonStyles = StyleSheet.create({
   rowItem: { flexBasis: 136, flexGrow: 1 },
 });
 
+const buttonShadow: Partial<Record<ButtonVariant, object>> = {
+  primary: shadow.primary,
+  danger: shadow.danger,
+};
+
 const buttonDisabledStyle = (variant: ButtonVariant) =>
   variant === "secondary"
     ? buttonStyles.secondaryDisabled
@@ -258,13 +266,11 @@ const textPressed = { backgroundColor: "rgba(0, 2, 79, 0.06)" } as const;
 const buttonPressedStyles = StyleSheet.create({
   primary: {
     backgroundColor: color.actionPressed,
-    boxShadow: undefined,
     transform: [{ translateY: 1 }],
   },
   secondary: { backgroundColor: color.sunken },
   danger: {
     backgroundColor: color.dangerInk,
-    boxShadow: undefined,
     transform: [{ translateY: 1 }],
   },
   text: textPressed,
