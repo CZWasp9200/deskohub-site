@@ -14,7 +14,7 @@ import {
   workspaceEmailRecipient,
 } from "@/shared/backend/email/workspace-email-recipients";
 import { censorLogValue } from "@/shared/backend/logging/censorship";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
 import { type Invoice, InvoiceRepository } from "./invoice.repository";
 import { renderInvoiceDeliveryEmail } from "./invoice-delivery-email";
@@ -67,7 +67,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
+      const accountingSnapshots = yield* AccountingDocumentSnapshots;
       const deliveries = yield* InvoiceEmailDeliveryRepository;
       const emailConfig = yield* EmailConfigTag;
       const emailService = yield* EmailServiceTag;
@@ -256,7 +256,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         const paymentAttemptId = invoice.paymentAttemptId;
 
         const source = yield* accountingSnapshots
-          .findByPaymentAttemptId(paymentAttemptIdSchema.make(paymentAttemptId))
+          .find(paymentAttemptIdSchema.make(paymentAttemptId))
           .pipe(
             Effect.mapError((cause) =>
               deliveryError({
@@ -384,7 +384,7 @@ function getInvoiceEmailDeliveryDependencies() {
     WorkspaceDatabase.Default,
     AccountingSnapshotKeyService.Default
   );
-  const accountingSnapshots = AccountingDocumentSnapshotRepository.Default.pipe(
+  const accountingSnapshots = AccountingDocumentSnapshots.Default.pipe(
     Layer.provide(accountingStorage)
   );
   const invoices = InvoiceRepository.Default.pipe(

@@ -20,7 +20,7 @@ import {
 } from "@/db/schema";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import {
   type AccountingSnapshotKey,
   AccountingSnapshotKeyService,
@@ -63,9 +63,7 @@ const makeLayer = (database: Layer.Layer<WorkspaceDatabase>) => {
     Layer.provide(
       Layer.merge(
         storage,
-        AccountingDocumentSnapshotRepository.Default.pipe(
-          Layer.provide(storage)
-        )
+        AccountingDocumentSnapshots.Default.pipe(Layer.provide(storage))
       )
     )
   );
