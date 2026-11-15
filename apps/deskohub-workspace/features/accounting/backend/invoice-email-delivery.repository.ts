@@ -21,7 +21,10 @@ import type {
   InvoiceEmailDeliveryFailureCode,
   InvoiceEmailDeliveryState,
 } from "@/features/accounting/invoice-email-delivery";
-import type { InvoiceId } from "@/features/accounting/manual-invoice";
+import {
+  type InvoiceId,
+  invoiceIdSchema,
+} from "@/features/accounting/manual-invoice";
 import {
   type ReadLimitExceededError,
   readLimitSentinel,
@@ -211,13 +214,18 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
               .where(eq(invoices.id, invoiceId))
               .limit(1)
               .for("share");
-            const [cancellation] = invoice
-              ? yield* db
-                  .select({ invoiceId: invoiceCancellations.invoiceId })
-                  .from(invoiceCancellations)
-                  .where(eq(invoiceCancellations.invoiceId, invoiceId))
-                  .limit(1)
-              : [];
+            // An unknown invoice fails the claim's foreign key.
+            if (!invoice) return yield* claim;
+            const [cancellation] = yield* db
+              .select({ invoiceId: invoiceCancellations.invoiceId })
+              .from(invoiceCancellations)
+              .where(
+                eq(
+                  invoiceCancellations.invoiceId,
+                  invoiceIdSchema.make(invoiceId)
+                )
+              )
+              .limit(1);
             if (cancellation) return "cancelled" as const;
             return yield* claim;
           })

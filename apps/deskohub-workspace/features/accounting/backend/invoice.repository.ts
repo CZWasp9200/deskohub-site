@@ -30,6 +30,7 @@ import {
 import type { InvoiceCancellationFact } from "@/features/accounting/invoice-cancellation";
 import {
   type InvoiceId,
+  invoiceIdSchema,
   isInvoiceCurrencyPayable,
   type ManualInvoiceInput,
   type ManualInvoiceProvenance,
@@ -540,7 +541,9 @@ export class InvoiceRepository extends Context.Service<
                 paymentAttemptId,
                 dotyposCustomerId: locked.dotyposCustomerId,
                 // A cancelled tail is replaced; the root has no predecessor.
-                replacesInvoiceId: latest?.id ?? null,
+                replacesInvoiceId: latest
+                  ? invoiceIdSchema.make(latest.id)
+                  : null,
               },
               numbering,
               document,

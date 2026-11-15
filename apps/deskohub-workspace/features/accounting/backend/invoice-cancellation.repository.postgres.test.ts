@@ -9,6 +9,7 @@ import {
   type InvoiceId,
   invoiceIdSchema,
 } from "@/features/accounting/manual-invoice";
+import { waitForPostgresLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import {
   createWorkspacePostgresSuiteDatabase,
   type WorkspacePostgresSuiteDatabase,
@@ -30,6 +31,7 @@ const {
   cancel,
   issueManualInvoice,
   makeActor,
+  pauseBeforeActiveKey,
   query,
   run,
 } = makeInvoiceCancellationTestKit(testDatabase!);
@@ -402,10 +404,128 @@ describe.skipIf(!testDatabase)(
             invoiceId: live.id,
             audience: "internal",
           })
-        ).pipe(Effect.flip)
+        )
       );
-      expect(refused).toBeDefined();
+      expect(refused).toBeNull();
       expect(await readNotices(live.id)).toEqual([]);
+    });
+
+    test("claims the customer notice of an acceptance that lands while the cancellation is being recorded", async () => {
+      const actor = await makeActor("cancellation-acceptance-race");
+      const invoice = await issueManualInvoice(actor);
+      const inFlight = await run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          deliveries.claim({ invoiceId: invoice.id, audience: "customer" })
+        )
+      );
+      let paused!: () => void;
+      const recordPaused = new Promise<void>((resolve) => {
+        paused = resolve;
+      });
+      let resume!: () => void;
+      const recordResumes = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      pauseBeforeActiveKey(() => {
+        pauseBeforeActiveKey(undefined);
+        paused();
+        return recordResumes;
+      });
+
+      // The cancellation has read the customer's email as in flight and holds
+      // the invoice row when the original sender records the acceptance.
+      const cancellation = run(
+        cancel({ invoiceId: invoice.id, actor, confirmedCustomerNotice: true })
+      );
+      await recordPaused;
+      await run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          deliveries.markAccepted({
+            invoiceId: invoice.id,
+            audience: "customer",
+            attemptNumber: (inFlight as { attemptNumber: number })
+              .attemptNumber,
+            providerDeliveryId: EmailDeliveryIdSchema.make("racing-original"),
+            acceptedAt: Temporal.Now.instant(),
+          })
+        )
+      );
+      const lateClaim = run(
+        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+          cancellations.claimNotice({
+            invoiceId: invoice.id,
+            audience: "customer",
+          })
+        )
+      );
+      await waitForPostgresLockWaiter(testDatabase!.pool, {
+        condition: "locktype = 'transactionid'",
+        description: "the late notice claim waiting for the cancellation",
+      });
+      resume();
+
+      expect((await cancellation).claims).toEqual([
+        { audience: "internal", attemptNumber: 1 },
+      ]);
+      expect(await lateClaim).toEqual({
+        audience: "customer",
+        attemptNumber: 1,
+      });
+    });
+
+    test("reports a customer notice owed but never claimed as failed", async () => {
+      const actor = await makeActor("cancellation-owed-unclaimed");
+      const invoice = await issueManualInvoice(actor);
+      const inFlight = await run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          deliveries.claim({ invoiceId: invoice.id, audience: "customer" })
+        )
+      );
+      await run(
+        cancel({ invoiceId: invoice.id, actor, confirmedCustomerNotice: true })
+      );
+      // The original email is accepted after the cancellation, and its late
+      // notice claim never ran.
+      await run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          deliveries.markAccepted({
+            invoiceId: invoice.id,
+            audience: "customer",
+            attemptNumber: (inFlight as { attemptNumber: number })
+              .attemptNumber,
+            providerDeliveryId: EmailDeliveryIdSchema.make("late-unclaimed"),
+            acceptedAt: Temporal.Now.instant(),
+          })
+        )
+      );
+
+      const summaries = await run(
+        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+          Effect.gen(function* () {
+            const owed = yield* cancellations.find(invoice.id);
+            const retry = yield* cancellations.claimNotice({
+              invoiceId: invoice.id,
+              audience: "customer",
+            });
+            const retried = yield* cancellations.find(invoice.id);
+            return { owed: owed?.notices, retry, retried: retried?.notices };
+          })
+        )
+      );
+
+      expect(summaries).toEqual({
+        owed: {
+          customer: "failed",
+          internal: "processing",
+          needsAttention: true,
+        },
+        retry: { audience: "customer", attemptNumber: 1 },
+        retried: {
+          customer: "processing",
+          internal: "processing",
+          needsAttention: false,
+        },
+      });
     });
 
     test("refuses original invoice email claims once the invoice is cancelled", async () => {

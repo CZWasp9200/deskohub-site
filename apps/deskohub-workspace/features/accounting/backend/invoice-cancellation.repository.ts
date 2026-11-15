@@ -1,7 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import type { EmailDeliveryId } from "@deskohub/email";
-import { and, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or, type SQL, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
@@ -96,9 +96,10 @@ export interface IInvoiceCancellationRepository {
   /**
    * Claims the audience's notice of a cancelled invoice: a first claim when
    * none exists, or another attempt after a failure or an expired lease.
-   * `null` when it was accepted, another worker holds it, or it isn't owed:
-   * a customer notice is first claimed only once the customer's invoice
-   * email was accepted, as when that acceptance lands after the cancellation.
+   * `null` when it was accepted, another worker holds it, the invoice isn't
+   * cancelled, or it isn't owed: a customer notice is first claimed only once
+   * the customer's invoice email was accepted, as when that acceptance lands
+   * after the cancellation. It waits for a cancellation being recorded.
    */
   readonly claimNotice: (input: {
     readonly invoiceId: InvoiceId;
@@ -126,7 +127,7 @@ export class InvoiceCancellationRepository extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const { db } = yield* WorkspaceDatabase;
+      const { db, transaction } = yield* WorkspaceDatabase;
       const keys = yield* AccountingSnapshotKeyService;
       const reads = yield* makeInvoiceReads;
 
@@ -173,6 +174,25 @@ export class InvoiceCancellationRepository extends Context.Service<
                       rows.map(({ invoiceId }) => invoiceId)
                     )
                   );
+          const sentToCustomer =
+            rows.length === 0
+              ? []
+              : yield* db
+                  .select({ invoiceId: invoiceEmailDeliveries.invoiceId })
+                  .from(invoiceEmailDeliveries)
+                  .where(
+                    and(
+                      inArray(
+                        invoiceEmailDeliveries.invoiceId,
+                        rows.map(({ invoiceId }) => invoiceId)
+                      ),
+                      eq(invoiceEmailDeliveries.audience, "customer"),
+                      isNotNull(invoiceEmailDeliveries.acceptedAt)
+                    )
+                  );
+          const customerNoticeOwed = new Set(
+            sentToCustomer.map(({ invoiceId }) => invoiceId)
+          );
           const noticesByInvoice = Map.groupBy(
             notices,
             ({ invoiceId }) => invoiceId
@@ -192,7 +212,8 @@ export class InvoiceCancellationRepository extends Context.Service<
                   email: row.actorAccountEmail,
                 },
                 notices: summarizeNotices(
-                  noticesByInvoice.get(row.invoiceId) ?? []
+                  noticesByInvoice.get(row.invoiceId) ?? [],
+                  customerNoticeOwed.has(row.invoiceId)
                 ),
               },
             ])
@@ -485,20 +506,10 @@ export class InvoiceCancellationRepository extends Context.Service<
         return delivery?.acceptedAt != null;
       });
 
-      const claimNotice = Effect.fn(
-        "InvoiceCancellationRepository.claimNotice"
-      )(function* ({
+      const insertNoticeClaim = Effect.fnUntraced(function* ({
         invoiceId,
         audience,
       }: Parameters<IInvoiceCancellationRepository["claimNotice"]>[0]) {
-        // The customer is owed a notice only once their invoice email was
-        // accepted; an owed notice is retried whatever happens later.
-        if (
-          audience === "customer" &&
-          !(yield* isCustomerNoticeOwed(invoiceId))
-        ) {
-          return null;
-        }
         const now = Temporal.Now.instant();
         const [claimed] = yield* db
           .insert(invoiceCancellationNoticeDeliveries)
@@ -531,6 +542,42 @@ export class InvoiceCancellationRepository extends Context.Service<
             attemptNumber: invoiceCancellationNoticeDeliveries.attemptCount,
           });
         return claimed ?? null;
+      });
+
+      const claimNotice = Effect.fn(
+        "InvoiceCancellationRepository.claimNotice"
+      )(function* ({
+        invoiceId,
+        audience,
+      }: Parameters<IInvoiceCancellationRepository["claimNotice"]>[0]) {
+        return yield* transaction(
+          Effect.gen(function* () {
+            // The share lock waits for a cancellation recording on the
+            // invoice row, so a late acceptance never misses it.
+            const [invoice] = yield* db
+              .select({ id: invoices.id })
+              .from(invoices)
+              .where(eq(invoices.id, invoiceId))
+              .limit(1)
+              .for("share");
+            if (!invoice) return null;
+            const [cancellation] = yield* db
+              .select({ invoiceId: invoiceCancellations.invoiceId })
+              .from(invoiceCancellations)
+              .where(eq(invoiceCancellations.invoiceId, invoiceId))
+              .limit(1);
+            if (!cancellation) return null;
+            // The customer is owed a notice only once their invoice email
+            // was accepted; an owed notice is retried whatever happens later.
+            if (
+              audience === "customer" &&
+              !(yield* isCustomerNoticeOwed(invoiceId))
+            ) {
+              return null;
+            }
+            return yield* insertNoticeClaim({ invoiceId, audience });
+          })
+        );
       });
 
       const matchesClaim = (input: {
@@ -598,20 +645,29 @@ export class InvoiceCancellationRepository extends Context.Service<
 const isStaleNotice = (): SQL =>
   isStaleDeliveryClaim(invoiceCancellationNoticeDeliveries);
 
+/**
+ * The notice state per audience. A customer notice owed (the customer's
+ * invoice email was accepted) but never claimed reads as failed, so it is
+ * retried rather than reported as not owed.
+ */
 const summarizeNotices = (
   notices: readonly {
     readonly audience: InvoiceEmailDeliveryAudience;
     readonly state: InvoiceNoticeStatus;
     readonly stale: boolean;
-  }[]
+  }[],
+  customerNoticeOwed: boolean
 ): InvoiceNoticeSummary => {
   const statusOf = (audience: InvoiceEmailDeliveryAudience) =>
-    notices.find((notice) => notice.audience === audience)?.state ?? "not_owed";
+    notices.find((notice) => notice.audience === audience)?.state;
+  const customer =
+    statusOf("customer") ?? (customerNoticeOwed ? "failed" : "not_owed");
+  const internal = statusOf("internal") ?? "not_owed";
   return {
-    customer: statusOf("customer"),
-    internal: statusOf("internal"),
-    needsAttention: notices.some(
-      ({ stale, state }) => stale || state === "failed"
-    ),
+    customer,
+    internal,
+    needsAttention:
+      customer === "failed" ||
+      notices.some(({ stale, state }) => stale || state === "failed"),
   };
 };
