@@ -19,7 +19,9 @@ import { StatusBadge } from "@/shared/components/ui/status-badge";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import { retryAdministrationInvoice } from "./actions";
 import type { InvoiceAdministrationListItem } from "./invoice-administration.service";
-import { InvoicePaymentStatusBadge } from "./invoice-detail";
+import { InvoiceArchive } from "./invoice-archive";
+import { InvoiceCancellation } from "./invoice-cancellation-dialog";
+import { InvoiceStatusBadges } from "./invoice-detail";
 import { getInvoiceSourceLabel } from "./invoice-display";
 import { type InvoiceListQuery, invoiceListQuery } from "./invoice-list-query";
 
@@ -68,9 +70,7 @@ const getInvoiceColumns = (
   {
     accessorKey: "paymentStatus",
     header: m.accountingInvoiceColumnPayment({}, { locale }),
-    cell: ({ row }) => (
-      <InvoicePaymentStatusBadge status={row.original.paymentStatus} />
-    ),
+    cell: ({ row }) => <InvoiceStatusBadges invoice={row.original} />,
   },
   {
     accessorKey: "source",
@@ -158,7 +158,7 @@ export function InvoiceAdministrationTable({
                     {invoice.customerName}
                   </p>
                 </div>
-                <InvoicePaymentStatusBadge status={invoice.paymentStatus} />
+                <InvoiceStatusBadges invoice={invoice} />
               </div>
               <p className="mt-3 font-mono text-sm font-semibold tabular-nums">
                 {invoice.totalLabel}
@@ -190,6 +190,7 @@ function InvoiceRowActions({
   const router = useRouter();
   const locale = useRouteLocale();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const { execute, isExecuting } = useWorkspaceAction(
     retryAdministrationInvoice,
     {
@@ -231,7 +232,9 @@ function InvoiceRowActions({
         </Button>
         {invoice.needsAttention && (
           <Button
-            aria-label={m.accountingInvoiceRetryDeliveryLabel(
+            aria-label={(invoice.cancellation
+              ? m.accountingInvoiceCancellationNoticesRetryLabel
+              : m.accountingInvoiceRetryDeliveryLabel)(
               { invoiceNumber: invoice.invoiceNumber },
               { locale }
             )}
@@ -246,6 +249,30 @@ function InvoiceRowActions({
           >
             <RotateCw aria-hidden className="size-4" />
           </Button>
+        )}
+        {invoice.cancellation ? (
+          <InvoiceArchive
+            invoiceId={invoice.id}
+            invoiceNumber={invoice.invoiceNumber}
+            placement="row"
+          />
+        ) : (
+          <InvoiceCancellation
+            invoiceId={invoice.id}
+            invoiceNumber={invoice.invoiceNumber}
+            onCancelled={setNotice}
+            placement="row"
+          />
+        )}
+      </div>
+      <div role="status">
+        {notice && (
+          <AdministrationAlert
+            className="max-w-56 text-left text-xs"
+            status="success"
+          >
+            {notice}
+          </AdministrationAlert>
         )}
       </div>
       {error && (

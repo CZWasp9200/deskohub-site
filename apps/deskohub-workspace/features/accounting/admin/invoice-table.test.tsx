@@ -1,9 +1,11 @@
 import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationDotyposCustomerId,
   AdministrationInvoiceId,
 } from "@deskohub/workspace-admin-api";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, within } from "@testing-library/react";
+import { m } from "@/features/administration/i18n";
 import { RouteLocaleProvider } from "@/features/i18n/route-locale";
 import { workspaceUseAction } from "@/shared/testing/workspace-component-module-mocks";
 import {
@@ -14,6 +16,9 @@ import type { InvoiceAdministrationTableRow } from "./invoice-table";
 
 mock.module("./actions", () => ({
   retryAdministrationInvoice: async () => ({}),
+  previewAdministrationInvoiceCancellation: async () => ({}),
+  cancelAdministrationInvoice: async () => ({}),
+  archiveAdministrationInvoice: async () => ({}),
 }));
 
 let InvoiceAdministrationTable: typeof import("./invoice-table").InvoiceAdministrationTable;
@@ -41,6 +46,33 @@ const invoice: InvoiceAdministrationTableRow = {
   actor: null,
   delivery: { customer: "failed", internal: "accepted" },
   needsAttention: true,
+  cancellation: null,
+  archivedAt: null,
+  replacesInvoiceId: null,
+  replacedByInvoiceId: null,
+};
+
+const cancelledInvoice: InvoiceAdministrationTableRow = {
+  ...invoice,
+  id: AdministrationInvoiceId.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb22"),
+  invoiceNumber: "2026000002",
+  delivery: { customer: "accepted", internal: "accepted" },
+  needsAttention: false,
+  cancellation: {
+    cancelledAt: "2026-08-20T10:00:00Z",
+    cause: "invoice_cancellation",
+    source: "admin-ui",
+    actor: testEmailAddress("invoice-table-operator"),
+    correctiveDocumentNumber: "WS-OD-2026-000001",
+    correctiveDocumentIssuedAt: "2026-08-20T10:00:00Z",
+    correctiveDocumentPdfUrl:
+      "/admin/invoices/018f47d2-8f7c-7c5e-9f9a-6ef21f90cb22/corrective-document" as never,
+    notices: {
+      customer: "accepted",
+      internal: "accepted",
+      needsAttention: false,
+    },
+  },
 };
 
 test("renders the invoice table in Czech on a Czech route", () => {
@@ -64,4 +96,56 @@ test("renders the invoice table in Czech on a Czech route", () => {
   expect(
     view.getAllByRole("button", { name: "Znovu odeslat 2026000001" }).length
   ).toBeGreaterThan(0);
+});
+
+test("marks only cancelled rows, which offer hiding instead of cancelling", () => {
+  workspaceUseAction.mockImplementation(
+    () => ({ execute: mock(), isExecuting: false }) as never
+  );
+  const locale = "en-US";
+  const view = render(
+    <RouteLocaleProvider locale={locale}>
+      <InvoiceAdministrationTable
+        items={[invoice, cancelledInvoice]}
+        query={{}}
+      />
+    </RouteLocaleProvider>
+  );
+  const table = within(view.getByRole("table"));
+  const rowOf = (invoiceNumber: string) =>
+    within(
+      table
+        .getByRole("link", { name: invoiceNumber })
+        .closest("tr") as HTMLElement
+    );
+  const badge = m.accountingInvoiceCancelledBadge({}, { locale });
+  const cancel = (invoiceNumber: string) =>
+    m.accountingInvoiceCancelLabel({ invoiceNumber }, { locale });
+  const hide = (invoiceNumber: string) =>
+    m.accountingInvoiceHideLabel({ invoiceNumber }, { locale });
+
+  const live = rowOf(invoice.invoiceNumber);
+  expect(live.queryByText(badge)).toBeNull();
+  expect(
+    live.getByRole("button", { name: cancel(invoice.invoiceNumber) })
+  ).toBeTruthy();
+  expect(
+    live.queryByRole("button", { name: hide(invoice.invoiceNumber) })
+  ).toBeNull();
+
+  const cancelled = rowOf(cancelledInvoice.invoiceNumber);
+  expect(cancelled.getByText(badge)).toBeTruthy();
+  expect(
+    cancelled.getByText(m.accountingInvoicePaymentOverdue({}, { locale }))
+  ).toBeTruthy();
+  expect(
+    cancelled.getByRole("button", {
+      name: hide(cancelledInvoice.invoiceNumber),
+    })
+  ).toBeTruthy();
+  expect(
+    cancelled.queryByRole("button", {
+      name: cancel(cancelledInvoice.invoiceNumber),
+    })
+  ).toBeNull();
 });

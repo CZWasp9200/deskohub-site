@@ -297,6 +297,13 @@ describe("administration entry points without the administrator grant", () => {
       () => accounting.loadInvoiceAdministrationDetail("invoice-id"),
       () => accounting.loadInvoiceAdministrationPdf("invoice-id"),
       () =>
+        accounting.loadInvoiceAdministrationCorrectiveDocumentPdf("invoice-id"),
+      () =>
+        accounting.loadInvoiceAdministrationChainLinks({
+          replacesInvoiceId: null,
+          replacedByInvoiceId: null,
+        }),
+      () =>
         invoiceBreadcrumb.loadInvoiceAdministrationBreadcrumbLabel(
           "invoice-id"
         ),

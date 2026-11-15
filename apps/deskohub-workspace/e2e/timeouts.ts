@@ -23,6 +23,10 @@ export const workspaceE2ETimeouts = {
   // issuance with its email delivery), then the profile's seeded account
   // downloads the PDF and the CSV export.
   administratorInvoiceDownloadCase: 5 * MINUTE,
+  // The download case's issuance, then the cancellation with its credit note
+  // and notices, the customer's billing row and credit note download, and
+  // hiding the invoice from the list.
+  administratorInvoiceCancellationCase: 7 * MINUTE,
   artifactCapture: 60 * SECOND,
   // Each wait ticks the planner and lets the queue drain the units it
   // published: a dry run over 30 days of events, or one booked run through
@@ -185,6 +189,11 @@ export const workspaceE2EAdministratorAgentToolsPlaywrightTimeout =
 // finalizer closes the context the same way.
 export const workspaceE2EAdministratorInvoiceDownloadPlaywrightTimeout =
   workspaceE2ETimeouts.administratorInvoiceDownloadCase +
+  workspaceE2ETimeouts.browserAction;
+
+// The invoice cancellation case shares that project too.
+export const workspaceE2EAdministratorInvoiceCancellationPlaywrightTimeout =
+  workspaceE2ETimeouts.administratorInvoiceCancellationCase +
   workspaceE2ETimeouts.browserAction;
 
 // Agent evals give each agent a task budget; the harness gets SIGTERM a grace

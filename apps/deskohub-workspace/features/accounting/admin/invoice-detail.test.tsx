@@ -28,10 +28,14 @@ type RetryActionOptions = {
 
 // The real request-locale module reads the route locale from next/root-params.
 mock.module("next/root-params", () => ({ locale: async () => locale }));
+const retryAdministrationInvoice = mock();
 const invoiceActions = await import("./actions");
 mock.module("./actions", () => ({
   ...invoiceActions,
-  retryAdministrationInvoice: mock(),
+  retryAdministrationInvoice,
+  previewAdministrationInvoiceCancellation: mock(),
+  cancelAdministrationInvoice: mock(),
+  archiveAdministrationInvoice: mock(),
 }));
 
 const { act, cleanup, fireEvent, render } = await import(
@@ -64,7 +68,10 @@ describe("InvoiceDetailActions", () => {
     retryOptions = undefined;
     execute.mockClear();
     workspaceRouterRefresh.mockClear();
-    workspaceUseAction.mockImplementation((_action, options) => {
+    workspaceUseAction.mockImplementation((action, options) => {
+      if (action !== retryAdministrationInvoice) {
+        return { execute: mock(), isExecuting: false } as never;
+      }
       retryOptions = options as RetryActionOptions;
       return { execute, isExecuting } as never;
     });
@@ -85,8 +92,8 @@ describe("InvoiceDetailActions", () => {
       `/cs-CZ/admin/invoices/${invoiceAdministrationDetail().id}/pdf`
     );
     expect(download.hasAttribute("download")).toBe(true);
-    expect(view.queryByRole("button")).toBeNull();
-    expect(view.queryByRole("alert")).toBeNull();
+    expect(view.queryByRole("button", { name: retryButtonName() })).toBeNull();
+    expect(view.getByRole("alert").textContent).toBe("");
   });
 
   test("retries the delivery and refreshes the page once it succeeds", async () => {
@@ -99,7 +106,7 @@ describe("InvoiceDetailActions", () => {
     });
     await act(async () => retryOptions?.onSuccess());
     expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
-    expect(view.queryByRole("alert")).toBeNull();
+    expect(view.getByRole("alert").textContent).toBe("");
   });
 
   test("shows the retry as pending while it runs", () => {
@@ -126,7 +133,7 @@ describe("InvoiceDetailActions", () => {
     );
 
     fireEvent.click(view.getByRole("button", { name: retryButtonName() }));
-    expect(view.queryByRole("alert")).toBeNull();
+    expect(view.getByRole("alert").textContent).toBe("");
     expect(workspaceRouterRefresh).not.toHaveBeenCalled();
   });
 
