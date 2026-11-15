@@ -19,7 +19,6 @@ import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace
 import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
 import { InvoiceCancellationRepository } from "./invoice-cancellation.repository";
 import { makeInvoiceCancellationTestKit } from "./invoice-cancellation.test-utils";
-import { InvoiceCancellationNoticesLayer } from "./invoice-cancellation-notice-delivery";
 import {
   type IInvoiceCancellationNotices,
   InvoiceCancellationNotices,
@@ -94,7 +93,7 @@ const unusedSnapshots = Layer.succeed(AccountingDocumentSnapshotRepository, {
 } as never);
 
 const noticesLayer = (mailbox: ReturnType<typeof makeMailbox>) =>
-  InvoiceCancellationNoticesLayer.pipe(
+  InvoiceCancellationNotices.Default.pipe(
     Layer.provide(Layer.mergeAll(mailbox.layer, unusedSnapshots))
   );
 

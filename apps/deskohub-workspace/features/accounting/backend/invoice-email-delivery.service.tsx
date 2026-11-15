@@ -3,7 +3,6 @@ import { Context, Effect, Layer } from "effect";
 import { internalWorkspaceEmailRecipientFor } from "@/shared/backend/email/workspace-email-recipients";
 import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
 import { type Invoice, InvoiceRepository } from "./invoice.repository";
-import { InvoiceCancellationNoticesLive } from "./invoice-cancellation-notice-delivery";
 import { InvoiceCancellationNotices } from "./invoice-cancellation-notices";
 import { renderInvoiceDeliveryEmail } from "./invoice-delivery-email";
 import { InvoiceEmailDeliveryRepository } from "./invoice-email-delivery.repository";
@@ -286,7 +285,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
       Layer.mergeAll(
         invoiceEmailDependencies(),
         InvoiceEmailDeliveryRepository.Live,
-        InvoiceCancellationNoticesLive
+        InvoiceCancellationNotices.Live
       )
     )
   );
