@@ -263,10 +263,15 @@ export const makeInvoiceCancellationTestKit = (
     Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
       Effect.gen(function* () {
         const claim = yield* deliveries.claim({ invoiceId, audience });
+        if (claim === null || claim === "cancelled") {
+          return yield* Effect.die(
+            new Error("The invoice email fixture could not be claimed.")
+          );
+        }
         yield* deliveries.markAccepted({
           invoiceId,
           audience,
-          attemptNumber: claim!.attemptNumber,
+          attemptNumber: claim.attemptNumber,
           providerDeliveryId: EmailDeliveryIdSchema.make(
             `email-${randomUUID()}`
           ),
