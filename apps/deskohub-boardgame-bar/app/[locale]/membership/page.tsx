@@ -95,6 +95,13 @@ export default async function MembershipPage({ params }: RouteProps_locale) {
             </section>
           ) : (
             <>
+              <section className="max-w-3xl space-y-3">
+                <h2 className="text-2xl font-semibold text-white">
+                  {m["membership.intro.heading"]()}
+                </h2>
+                <p className="text-gray-300">{m["membership.intro.entry"]()}</p>
+                <p className="text-gray-300">{m["membership.intro.perks"]()}</p>
+              </section>
               <ul className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {plans.map((plan) => (
                   <li

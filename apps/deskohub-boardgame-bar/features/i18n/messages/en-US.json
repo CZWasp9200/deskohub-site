@@ -1250,9 +1250,9 @@
   },
   "membership": {
     "pageTitle": "Membership - Deskohub",
-    "pageDescription": "Become a member of the Deskohub board game bar and enjoy member benefits.",
+    "pageDescription": "Become a Deskohub PATŘOŇ: play without an entry fee for a month, half a year or a year, with discounts on paid events.",
     "title": "Membership",
-    "subtitle": "Become a Deskohub member and enjoy member benefits on every visit.",
+    "subtitle": "Become a PATŘOŇ. You belong with us and you're our patron, a board-game regular.",
     "empty": {
       "title": "Membership plans are on the way",
       "hint": "Plans and their benefits will appear here soon."
@@ -1266,7 +1266,7 @@
     "signInToRequest": "Sign in and request",
     "paymentNote": "Membership is paid in person at the bar. After you send a request, pay the staff on your next visit and we activate your membership right away. It ends on its own when the chosen period is over.",
     "current": {
-      "title": "You're a member",
+      "title": "You're a PATŘOŇ",
       "body": "{plan} is valid until {date}.",
       "extendHint": "You can renew now; the new period starts when the current one ends."
     },
@@ -1301,6 +1301,11 @@
         "note": "Want to continue? Choose a new membership in your account and pay for it at the bar. The new period follows the current one, so you don't lose a day.",
         "button": "Renew membership"
       }
+    },
+    "intro": {
+      "heading": "Play without an entry fee",
+      "entry": "Normally you leave fifty crowns every time you come. As a PATŘOŇ you don't think about it at all: bring your group or come on your own and play as much as you like.",
+      "perks": "Every member also gets a special membership card. We design a brand-new one every year, so you can build up a nice collection. And so you don't miss anything, we'll send you our newsletter – you'll be the first to hear which new board games just landed on our shelves and what else is coming up at the club."
     }
   }
 }

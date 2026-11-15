@@ -1272,9 +1272,9 @@
   },
   "membership": {
     "pageTitle": "Členství - Deskohub",
-    "pageDescription": "Staňte se členem Deskohub baru s deskovými hrami a využívejte členské výhody.",
+    "pageDescription": "Staň se PATŘONĚM Deskohubu: celý měsíc, půl roku nebo rok hraješ bez vstupného a máš slevy na placené akce.",
     "title": "Členství",
-    "subtitle": "Staňte se členem Deskohubu a využívejte členské výhody při každé návštěvě.",
+    "subtitle": "Staň se PATŘONĚM. Patříš k nám a jsi náš „patron“ neboli deskoherní štamgast.",
     "empty": {
       "title": "Nabídku členství připravujeme",
       "hint": "Brzy tu najdete tarify a jejich výhody."
@@ -1286,15 +1286,15 @@
     "request": "Chci toto členství",
     "requesting": "Odesílám…",
     "signInToRequest": "Přihlásit se a požádat",
-    "paymentNote": "Členství se platí osobně na baru. Po odeslání žádosti stačí při návštěvě zaplatit u obsluhy a členství vám hned aktivujeme. Po uplynutí zvoleného období členství samo skončí.",
+    "paymentNote": "Členství se platí osobně na baru. Po odeslání žádosti stačí při návštěvě zaplatit u obsluhy a členství ti hned aktivujeme. Po uplynutí zvoleného období samo skončí.",
     "current": {
-      "title": "Jste členem",
+      "title": "Jsi PATŘOŇ",
       "body": "{plan} platí do {date}.",
-      "extendHint": "Členství si můžete prodloužit už teď, nové období naváže na to stávající."
+      "extendHint": "Členství si můžeš prodloužit už teď, nové období naváže na to stávající."
     },
     "pending": {
-      "title": "Žádost čeká na úhradu",
-      "body": "Požádali jste o {plan} za {price} Kč. Zaplaťte prosím osobně na baru; jakmile platbu potvrdíme, členství začne platit.",
+      "title": "Žádost čeká na zaplacení",
+      "body": "Požádal(a) jsi o {plan} za {price} Kč. Zaplať prosím osobně na baru; jakmile platbu potvrdíme, členství začne platit.",
       "cancel": "Zrušit žádost"
     },
     "outcome": {
@@ -1323,6 +1323,11 @@
         "note": "Chcete pokračovat? Vyberte si ve svém účtu nové členství a zaplaťte ho na baru. Nové období naváže na to současné, o žádný den nepřijdete.",
         "button": "Prodloužit členství"
       }
+    },
+    "intro": {
+      "heading": "Hraj bez vstupného",
+      "entry": "Normálně u nás necháš padesátku pokaždé, když přijdeš. Jako PATŘOŇ už tohle vůbec neřešíš, prostě vezmeš partu nebo přijdeš sám a hraješ celý měsíc, jak je libo.",
+      "perks": "Každý náš člen od nás navíc dostane svou speciální členskou kartu. Každý rok vymyslíme úplně nový design, takže si z nich postupně můžeš udělat pěknou sbírku. A aby ti nic neuteklo, budeme ti posílat náš newsletter – dozvíš se v něm jako první, jaké nové deskovky nám zrovna přistály v poličkách a co dalšího v klubu chystáme."
     }
   }
 }
