@@ -1,6 +1,7 @@
 import type { Money } from "@deskohub/workspace-customer-api";
 import ChevronDown from "lucide-react-native/icons/chevron-down";
 import ChevronUp from "lucide-react-native/icons/chevron-up";
+import CircleAlert from "lucide-react-native/icons/circle-alert";
 import Info from "lucide-react-native/icons/info";
 import { useRef, useState } from "react";
 import {
@@ -119,6 +120,7 @@ export function BookingBar({
   summary,
   action,
   reason,
+  reasonTone = "info",
   locale,
   initiallyOpen = false,
 }: {
@@ -126,6 +128,12 @@ export function BookingBar({
   readonly action: BookingBarAction;
   /** Why the action is off, under it; announced when it changes. */
   readonly reason?: string;
+  /**
+   * How the reason reads: `info` (grey, info icon; why the action is off),
+   * `plain` (grey, no icon; a note such as how long the spot is held) or
+   * `error` (crimson, alert icon; what to fix before continuing).
+   */
+  readonly reasonTone?: BookingBarReasonTone;
   readonly locale: AppLocale;
   /** Draws the breakdown open at first; for the gallery and captures. */
   readonly initiallyOpen?: boolean;
@@ -244,7 +252,7 @@ export function BookingBar({
         busy={action.busy}
         icon={action.icon}
       />
-      <Reason reason={reason} />
+      <Reason reason={reason} tone={reasonTone} />
     </View>
   );
 }
@@ -342,8 +350,21 @@ function Was({
   );
 }
 
-/** Why the action is off (`.bk-why`), in a live region that stays mounted. */
-function Reason({ reason }: { readonly reason: string | undefined }) {
+/** How the line under the action reads; see `BookingBar`'s `reasonTone`. */
+export type BookingBarReasonTone = "info" | "plain" | "error";
+
+const reasonIcon = { info: Info, plain: undefined, error: CircleAlert };
+
+/** The line under the action (`.bk-why`), in a live region that stays mounted. */
+function Reason({
+  reason,
+  tone,
+}: {
+  readonly reason: string | undefined;
+  readonly tone: BookingBarReasonTone;
+}) {
+  const icon = reasonIcon[tone];
+  const ink = tone === "error" ? color.dangerInk : color.ink2;
   const shown = reason !== undefined && reason !== "";
   useLiveRegionAnnouncement(shown ? reason : undefined, "polite");
   return (
@@ -353,8 +374,10 @@ function Reason({ reason }: { readonly reason: string | undefined }) {
       accessibilityLiveRegion="polite"
       style={shown ? styles.reason : idleLiveRegionLayout}
     >
-      {shown && <Icon icon={Info} size={16} color={color.ink2} />}
-      <Text style={styles.reasonText}>{shown ? reason : ""}</Text>
+      {shown && icon && <Icon icon={icon} size={16} color={ink} />}
+      <Text style={[styles.reasonText, tone === "error" && styles.reasonError]}>
+        {shown ? reason : ""}
+      </Text>
     </View>
   );
 }
@@ -429,4 +452,6 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     textAlign: "center",
   },
+  // Board 31: the details step's "Fix 2 fields" note, danger ink at 500.
+  reasonError: { ...typeScale.hintStrong, color: color.dangerInk },
 });

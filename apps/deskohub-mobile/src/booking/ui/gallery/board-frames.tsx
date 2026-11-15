@@ -618,6 +618,7 @@ function Details({
           }}
           action={next(sample("Continue to review"))}
           reason={errors ? sample("Fix 2 fields to continue") : undefined}
+          reasonTone="error"
         />
       }
     >

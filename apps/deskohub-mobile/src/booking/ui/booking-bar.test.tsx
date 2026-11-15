@@ -22,7 +22,12 @@ const { idleLiveRegionLayout } = await import("../../ui/notice-presentation");
 const { elementTree, find, findAll, flatStyle, hostTree, textOf } =
   await import("../../ui/testing/element-tree");
 const { ToastProvider } = await import("../../ui/toast");
-const { touchTarget } = await import("../../ui/tokens");
+const { color, touchTarget } = await import("../../ui/tokens");
+const { Icon } = await import("../../ui/icon");
+const { default: Info } = await import("lucide-react-native/icons/info");
+const { default: CircleAlert } = await import(
+  "lucide-react-native/icons/circle-alert"
+);
 const { czk } = await import("../testing/sample-booking-catalog");
 const { BookingBar, claimsSwipe, swipeIntent } = await import("./booking-bar");
 const { priceBreakdown } = await import("./price-breakdown");
@@ -229,6 +234,41 @@ describe("BookingBar", () => {
     expect(parts.findIndex((part) => part.type === Button)).toBe(
       parts.length - 2
     );
+  });
+
+  test("the reason's tone picks its icon and ink", () => {
+    // The bar's last part is the reason; render it one level deep, so its
+    // icon is still the Icon element.
+    const iconsOf = (tone: "info" | "plain" | "error") => {
+      const parts = Children.toArray(
+        (
+          elementTree(
+            BookingBar,
+            props({ reason: "why", reasonTone: tone }),
+            withToasts
+          ) as ReactElement<{ children: ReactNode }>
+        ).props.children
+      ) as ReadonlyArray<ReactElement<Record<string, unknown>>>;
+      const reason = parts.at(-1);
+      if (reason === undefined || typeof reason.type !== "function") return [];
+      const shallow = elementTree(
+        reason.type as (props: Record<string, unknown>) => ReactNode,
+        reason.props
+      );
+      return findAll(shallow, Icon).map(
+        (icon) => (icon.props as { icon: unknown }).icon
+      );
+    };
+    expect(iconsOf("info")).toEqual([Info]);
+    expect(iconsOf("plain")).toEqual([]);
+    expect(iconsOf("error")).toEqual([CircleAlert]);
+    const errorText = findAll(
+      reasonOf(bar({ reason: "why", reasonTone: "error" })),
+      "Text"
+    )[0];
+    expect(flatStyle(errorText?.props.style)).toMatchObject({
+      color: color.dangerInk,
+    });
   });
 
   test("without a reason the region stays mounted, out of the layout", () => {
