@@ -414,15 +414,14 @@ const sentinelKeysOf = (schema: Json) => {
 
 /**
  * A union's alternatives, sorted only where decoding cannot depend on their
- * order. Effect narrows a union to its candidates by the input's runtime type,
- * or by the first sentinel (a required literal property or tuple element) the
- * input holds, trying sentinel keys in member order, and then decodes with
- * the first candidate that accepts the input. So the order is dropped only
+ * order. Effect narrows a union to its candidates by the input's runtime type
+ * and the sentinels (required literal properties or tuple elements) it holds,
+ * then tries the candidates in declaration order and decodes with the first
+ * that accepts the input. So the order is dropped only
  * when each pair of alternatives excludes each other and all of them share at
  * most one sentinel key, as `_tag`-discriminated errors and nullable values
  * do. A repeated alternative is dropped because it can never be the first to
- * accept an input. Nested unions stay nested: Effect does not narrow into
- * them.
+ * accept an input.
  */
 const unionAlternatives = (alternatives: ReadonlyArray<Json>) => {
   const distinct = [
@@ -715,8 +714,9 @@ describe("administration wire contract", () => {
     ).not.toEqual(
       wireFormOf(sampleContract({ errors, payload: [bTagged, aTagged] }))
     );
-    // `{ _tag: "A", a: "a", note: "n" }` decodes as `note` first when `aTagged`
-    // sits in a nested union, whose sentinels Effect does not narrow on.
+    // `{ _tag: "A", a: "a", note: "n" }` decodes as `note` either way: Effect
+    // tries a union's candidates in declaration order, nested or not, so a
+    // nested union changes nothing on the wire.
     expect(
       wireFormOf(
         sampleContract({
@@ -724,7 +724,7 @@ describe("administration wire contract", () => {
           success: Schema.Union([note, Schema.Union([aTagged])]),
         })
       )
-    ).not.toEqual(
+    ).toEqual(
       wireFormOf(
         sampleContract({ errors, success: Schema.Union([note, aTagged]) })
       )
