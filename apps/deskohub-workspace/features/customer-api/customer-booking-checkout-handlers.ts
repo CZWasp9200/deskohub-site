@@ -32,7 +32,6 @@ import {
   Schema,
   type SchemaIssue,
 } from "effect";
-import type { HttpApiBuilder } from "effect/http-api";
 import { env } from "@/env";
 import { getApplyDiscountCodeDeadline } from "@/features/checkout/actions/apply-discount-code-to-pay-state";
 import {
@@ -60,7 +59,7 @@ import {
   answerUnavailable,
 } from "./customer-api-failure";
 import { CustomerBookingCheckoutLayers } from "./customer-booking-checkout-layers";
-import type { CustomerBookingEndpoint } from "./customer-booking-endpoint";
+import type { CustomerBookingHandlers } from "./customer-booking-endpoint";
 import {
   answerBookingSelectionFailure,
   toBookingSelectionInput,
@@ -103,7 +102,7 @@ type CheckoutSubmissionFailure = Effect.Error<
  * with a fixed public error.
  */
 export const handleCustomerBookingCheckout = <R>(
-  handlers: HttpApiBuilder.Handlers<R, CustomerBookingEndpoint>
+  handlers: CustomerBookingHandlers<R>
 ) =>
   Effect.gen(function* () {
     const { operations, checkout, inventory, releases } =
