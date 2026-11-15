@@ -4,6 +4,7 @@ import {
   customerApiPathPrefix,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer } from "effect";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   testCustomerSession,
   testLinkedAccount,
@@ -231,6 +232,7 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
   analyticsConsentLedger: Layer.mock(AnalyticsConsentLedger, {}),
   analyticsPersonAnonymisation: Layer.mock(AnalyticsPersonAnonymisation, {}),
   localePreference: Layer.mock(CustomerLocalePreference, {}),
+  dataExport: Layer.mock(AccountDataExportService, {}),
 };
 
 const unusedReservationServices: CustomerReservationServiceLayers = {
