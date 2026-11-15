@@ -59,15 +59,13 @@ export function InstallGuideDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
         className={cn(
-          "right-2.5 left-2.5 mx-auto flex max-h-[calc(100dvh-1.5rem)] w-auto max-w-md translate-x-0 flex-col gap-2.5 overflow-y-auto overscroll-contain rounded-[20px] border-0 px-3.5 pt-3 pb-4 shadow-[0_18px_40px_-12px_rgba(0,2,79,0.6)]",
+          "right-2.5 left-2.5 mx-auto flex max-h-[calc(100dvh-24px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-auto max-w-md translate-x-0 flex-col gap-2.5 overflow-y-auto overscroll-contain rounded-[20px] border-0 px-3.5 pt-3 pb-4 shadow-[0_18px_40px_-12px_rgba(0,2,79,0.6)]",
           {
             // Above the arrow pointing down at the bottom toolbar.
-            "bottom-center":
-              "top-auto bottom-[calc(52px+env(safe-area-inset-bottom))] max-h-[calc(100dvh-4rem)] translate-y-0",
-            "bottom-right":
-              "top-auto bottom-[calc(52px+env(safe-area-inset-bottom))] max-h-[calc(100dvh-4rem)] translate-y-0",
+            "bottom-center": `top-auto bottom-[calc(52px+env(safe-area-inset-bottom))] ${clearOfArrow}`,
+            "bottom-right": `top-auto bottom-[calc(52px+env(safe-area-inset-bottom))] ${clearOfArrow}`,
             // Below the arrow pointing up at the top toolbar.
-            "top-right": "top-[52px] max-h-[calc(100dvh-4rem)] translate-y-0",
+            "top-right": `top-[52px] ${clearOfArrow}`,
             // No arrow: at the bottom on a phone held upright, else centred.
             none:
               orientation === "portrait"
@@ -122,6 +120,10 @@ export function InstallGuideDialog({
     </Dialog>
   );
 }
+
+/** The sheet's height cap beside an arrow: 52px for the arrow, 12px opposite. */
+const clearOfArrow =
+  "max-h-[calc(100dvh-64px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] translate-y-0";
 
 type GuideStep = {
   readonly key: string;
@@ -210,10 +212,7 @@ const guideSteps = (
           text: m.installGuideStepShareAddressBar({}, { locale }),
           picture: <ChromeAddressBarPicture host={host} />,
         },
-        {
-          ...addToHomeScreen,
-          text: m.installGuideStepChromeAddToHomeScreen({}, { locale }),
-        },
+        addToHomeScreen,
         add,
       ];
     case "ios-other":
