@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { idleLiveRegionLayout } from "./notice-presentation";
 import { Text } from "./text";
+import { useToastObstruction } from "./toast";
 import { color, space } from "./tokens";
 
 /** How a footer's message reads: neutral status, or a crimson error. */
@@ -15,6 +16,7 @@ export type ActionFooterMessageTone = "neutral" | "error";
  * fields to fix, sits centred above them. The message shows in a live
  * region that stays mounted, so each new message is announced. For one
  * button's own reason use `Button`'s `disabledReason` instead, never both.
+ * Toasts rise above the footer while its screen has focus.
  */
 export function ActionFooter({
   message,
@@ -26,10 +28,15 @@ export function ActionFooter({
   readonly children: ReactNode;
 }) {
   const { bottom } = useSafeAreaInsets();
+  const [height, setHeight] = useState(0);
+  useToastObstruction(height);
   const shown = message !== undefined && message !== "";
   useLiveRegionAnnouncement(shown ? message : undefined, "polite");
   return (
-    <View style={[styles.footer, { paddingBottom: space.md + bottom }]}>
+    <View
+      onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
+      style={[styles.footer, { paddingBottom: space.md + bottom }]}
+    >
       <Text
         role="status"
         aria-live="polite"

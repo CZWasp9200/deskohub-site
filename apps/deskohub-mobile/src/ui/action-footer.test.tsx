@@ -1,20 +1,35 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import type { ComponentProps } from "react";
 import { StyleSheet } from "react-native";
-import { ActionFooter } from "./action-footer";
-import { Button } from "./controls";
-import { idleLiveRegionLayout } from "./notice-presentation";
-import { elementTree, find, findAll, hostTree } from "./testing/element-tree";
-import { color } from "./tokens";
+import { expoRouterStandIn } from "../testing/expo-router-stand-in";
+
+// The footer registers its height with the toasts while its screen has
+// focus; outside a navigator the focus effect does nothing.
+mock.module("expo-router", () =>
+  expoRouterStandIn({ useFocusEffect: () => undefined })
+);
+
+const { ActionFooter } = await import("./action-footer");
+const { Button } = await import("./controls");
+const { idleLiveRegionLayout } = await import("./notice-presentation");
+const { elementTree, find, findAll, hostTree } = await import(
+  "./testing/element-tree"
+);
+const { color } = await import("./tokens");
+const { ToastProvider } = await import("./toast");
 
 const flat = (style: unknown) =>
   (StyleSheet.flatten(style as never) ?? {}) as Record<string, unknown>;
 
 const footer = (props: Partial<ComponentProps<typeof ActionFooter>> = {}) => {
-  const tree = elementTree(ActionFooter, {
-    children: <Button label="b" onPress={() => undefined} />,
-    ...props,
-  });
+  const tree = elementTree(
+    ActionFooter,
+    {
+      children: <Button label="b" onPress={() => undefined} />,
+      ...props,
+    },
+    (node) => <ToastProvider>{node}</ToastProvider>
+  );
   const host = hostTree(tree);
   return {
     tree,
