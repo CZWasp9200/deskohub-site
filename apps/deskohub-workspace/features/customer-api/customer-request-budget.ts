@@ -78,6 +78,8 @@ export const customerRequestBudgetClasses = {
     // Referral standing and savings follow the account's Dotypos customer.
     getReferrals: "dotypos-read",
     acknowledgeSignupReferral: "dotypos-mutation",
+    // The archive reads the Dotypos profile and pages the reservations.
+    getDataExport: "dotypos-read",
     // Deletion expires the Dotypos customer.
     requestDeletion: "dotypos-mutation",
     // The analytics consent ledger and Better Auth; a withdrawal's PostHog
@@ -94,6 +96,12 @@ export const customerRequestBudgetClasses = {
     getReservationAccess: "account-read",
     // Authorizing the invoice can resolve the account's Dotypos customer.
     getReservationInvoice: "dotypos-read",
+  },
+  invoices: {
+    // Authorizing either read can resolve the account's Dotypos customer;
+    // the app reads them when the customer opens or downloads an invoice.
+    listInvoices: "dotypos-read",
+    getInvoicePdf: "dotypos-read",
   },
   booking: {
     // The office's seat maximum reads the shared table snapshot, which

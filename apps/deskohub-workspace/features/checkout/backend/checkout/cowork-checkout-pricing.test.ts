@@ -473,9 +473,11 @@ describe("cowork checkout pricing", () => {
       submittedCode,
     });
     expect(result).toMatchObject({
-      status: "applied",
-      submittedCodeDiscountId: codeApplication.discount.id,
-      quote: { payment: { expectedPrice: money(19_000) } },
+      status: "affirmed",
+      priced: {
+        submittedCodeDiscountId: codeApplication.discount.id,
+        quote: { payment: { expectedPrice: money(19_000) } },
+      },
     });
   });
 
@@ -561,18 +563,27 @@ describe("cowork checkout pricing", () => {
       buildCoworkReservationQuote(profiOrder, { discountQuote: profiQuote })
     );
 
-    const customerQuote = await runWithDiscounts(
+    const customerVerdict = await runWithDiscounts(
       Effect.gen(function* () {
         const pricing = yield* coworkCheckoutPricing;
         return yield* pricing.quoteForCustomer({
-          reservation: profiOrder,
+          advertisement: {
+            status: "affirmed",
+            priced: {
+              kind: profiOrder.kind,
+              reservation: profiOrder,
+              advertisedQuote: expectedQuote,
+              discountQuote: profiAffirmedAdvertisement,
+            },
+          },
           locale: "en-US",
           dotyposCustomerId,
-          affirmedAdvertisement: profiAffirmedAdvertisement,
         });
       }),
       DiscountServiceMock({ applyCustomerDiscount })
     );
+    expect(customerVerdict.status).toBe("affirmed");
+    const customerQuote = customerVerdict.priced;
 
     expect(applyCustomerDiscount).toHaveBeenCalledWith({
       affirmedAdvertisement: profiAffirmedAdvertisement,
@@ -597,6 +608,7 @@ describe("cowork checkout pricing", () => {
           bookedAt,
           dotyposCustomerId,
           quote: customerQuote.quote,
+          acceptedTotal: money(55_000),
         });
       }),
       DiscountServiceMock({ affirmDisplayedDiscounts })
@@ -613,10 +625,13 @@ describe("cowork checkout pricing", () => {
       submittedCode: undefined,
       displayedDiscountIds: [],
     });
-    expect(payment.reservation).toBe(profiOrder);
-    expect(payment.commitment).toBe(commitment);
-    expect(payment.quote.fingerprint).toBe(customerQuote.quote.fingerprint);
-    expect(payment.quote.payment.expectedPrice).toEqual(money(55_000));
+    expect(payment.status).toBe("affirmed");
+    expect(payment.priced.reservation).toBe(profiOrder);
+    expect(payment.priced.commitment).toBe(commitment);
+    expect(payment.priced.quote.fingerprint).toBe(
+      customerQuote.quote.fingerprint
+    );
+    expect(payment.priced.quote.payment.expectedPrice).toEqual(money(55_000));
   });
 
   test("prices workstation presence from the advertised reserved-desk selection", async () => {

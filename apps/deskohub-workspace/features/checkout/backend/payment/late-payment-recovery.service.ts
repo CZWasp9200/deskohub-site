@@ -8,7 +8,7 @@ import {
 import { Context, Data, Effect, Layer, Predicate } from "effect";
 import type { LatePaymentRecovery } from "@/db/schema";
 import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
 import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
@@ -221,7 +221,7 @@ export class LatePaymentRecoveryService extends Context.Service<
     Effect.gen(function* () {
       const recoveries = yield* LatePaymentRecoveryRepository;
       const reservations = yield* WorkspaceReservationRepository;
-      const snapshots = yield* AccountingDocumentSnapshotRepository;
+      const snapshots = yield* AccountingDocumentSnapshots;
       const availability = yield* WorkspaceAvailabilityService;
       const dotypos = yield* DotyposService;
       const holdRelease = yield* UnpaidHoldRelease;
@@ -331,9 +331,7 @@ export class LatePaymentRecoveryService extends Context.Service<
         readonly paymentAttemptId: PaymentAttemptId;
         readonly reservation: WorkspaceReservation;
       }) {
-        const snapshot = yield* snapshots.findByPaymentAttemptId(
-          input.paymentAttemptId
-        );
+        const snapshot = yield* snapshots.find(input.paymentAttemptId);
         return snapshot
           ? reconstructReservation(input.reservation, snapshot)
           : null;

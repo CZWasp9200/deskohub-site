@@ -40,6 +40,8 @@ import {
   accountingDocumentSnapshotSchema,
   makeAccountingDocumentSnapshot,
 } from "@/features/accounting/accounting-document-snapshot";
+import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { makeCoworkInvoiceDocument } from "@/features/accounting/invoice.test-utils";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { LatePaymentRecoveryRepository } from "@/features/checkout/backend/repositories/late-payment-recovery.repository";
@@ -138,7 +140,17 @@ const makeRepository = async (
       return yield* PaymentLifecycleRepository;
     }).pipe(
       Effect.provide(
-        PaymentLifecycleRepository.Default.pipe(Layer.provide(databaseLayer))
+        PaymentLifecycleRepository.Default.pipe(
+          Layer.provide(
+            Layer.merge(
+              databaseLayer,
+              testAccountingStorage(
+                databaseLayer,
+                AccountingSnapshotKeyService.Default
+              )
+            )
+          )
+        )
       )
     )
   );
@@ -2541,7 +2553,19 @@ describe.skipIf(!testDatabase)(
         Effect.gen(function* () {
           return yield* operation(yield* PaymentLifecycleRepository);
         }).pipe(
-          Effect.provide(PaymentLifecycleRepository.Default),
+          Effect.provide(
+            PaymentLifecycleRepository.Default.pipe(
+              Layer.provide(
+                Layer.merge(
+                  testDatabase.layer,
+                  testAccountingStorage(
+                    testDatabase.layer,
+                    AccountingSnapshotKeyService.Default
+                  )
+                )
+              )
+            )
+          ),
           Effect.provide(testDatabase.layer),
           Effect.provide(referralFeatureFlag(true)),
           Effect.result

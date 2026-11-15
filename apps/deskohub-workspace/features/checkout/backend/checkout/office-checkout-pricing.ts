@@ -25,9 +25,10 @@ import {
   type ReservationAdvertisementQuoteInput,
   type ReservationCustomerQuoteInput,
   type ReservationDiscountCodePriceInput,
-  type ReservationDiscountCodePriceResult,
+  type ReservationDiscountCodeVerdict,
   type ReservationPaymentPriceAffirmation,
   type ReservationPaymentPriceAffirmationInput,
+  type ReservationPaymentRepricingInput,
   type ReservationPreparedCustomerQuote,
   reservationCheckoutPricing,
 } from "./reservation-checkout-pricing";
@@ -43,13 +44,20 @@ export type OfficeAdvertisementAffirmationInput =
     NormalizedOfficeReservationOrder,
     OfficeReservationQuote
   >;
-export type OfficeCustomerQuoteInput =
-  ReservationCustomerQuoteInput<NormalizedOfficeReservationOrder>;
+export type OfficeCustomerQuoteInput = ReservationCustomerQuoteInput<
+  NormalizedOfficeReservationOrder,
+  OfficeReservationQuote
+>;
 export type OfficePaymentPriceAffirmationInput =
   ReservationPaymentPriceAffirmationInput<
     NormalizedOfficeReservationOrder,
     OfficeReservationQuote
   >;
+
+export type OfficePaymentRepricingInput = ReservationPaymentRepricingInput<
+  NormalizedOfficeReservationOrder,
+  OfficeReservationQuote
+>;
 export type OfficeDiscountCodePriceInput = ReservationDiscountCodePriceInput<
   NormalizedOfficeReservationOrder,
   OfficeReservationQuote
@@ -71,7 +79,7 @@ export type OfficePaymentPriceAffirmation = ReservationPaymentPriceAffirmation<
   NormalizedOfficeReservationOrder,
   OfficeReservationQuote
 >;
-export type OfficeDiscountCodePriceResult = ReservationDiscountCodePriceResult<
+export type OfficeDiscountCodeVerdict = ReservationDiscountCodeVerdict<
   NormalizedOfficeReservationOrder,
   OfficeReservationQuote
 >;

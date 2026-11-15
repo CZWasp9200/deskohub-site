@@ -20,11 +20,11 @@ import {
 } from "@/db/schema";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
 import {
   type AccountingSnapshotKey,
   AccountingSnapshotKeyService,
 } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import { manualInvoiceInputSchema } from "@/features/accounting/manual-invoice";
 import {
@@ -49,7 +49,7 @@ const testKey: AccountingSnapshotKey = {
 };
 
 const makeLayer = (database: Layer.Layer<WorkspaceDatabase>) => {
-  const storage = Layer.merge(
+  const accountingStorage = testAccountingStorage(
     database,
     Layer.succeed(
       AccountingSnapshotKeyService,
@@ -59,21 +59,11 @@ const makeLayer = (database: Layer.Layer<WorkspaceDatabase>) => {
       })
     )
   );
-  const invoiceRepository = InvoiceRepository.Default.pipe(
-    Layer.provide(
-      Layer.merge(
-        storage,
-        AccountingDocumentSnapshotRepository.Default.pipe(
-          Layer.provide(storage)
-        )
-      )
-    )
-  );
   return LegacyAdministratorBackfill.Default.pipe(
     Layer.provideMerge(
       Layer.mergeAll(
         database,
-        invoiceRepository,
+        accountingStorage,
         AccountRoleGrants.Default.pipe(Layer.provide(database))
       )
     )

@@ -26,9 +26,10 @@ import {
   type ReservationAdvertisementQuoteInput,
   type ReservationCustomerQuoteInput,
   type ReservationDiscountCodePriceInput,
-  type ReservationDiscountCodePriceResult,
+  type ReservationDiscountCodeVerdict,
   type ReservationPaymentPriceAffirmation,
   type ReservationPaymentPriceAffirmationInput,
+  type ReservationPaymentRepricingInput,
   type ReservationPreparedCustomerQuote,
   reservationCheckoutPricing,
 } from "./reservation-checkout-pricing";
@@ -48,14 +49,21 @@ export type CoworkAdvertisementAffirmationInput =
     CoworkReservationQuote
   >;
 
-export type CoworkCustomerQuoteInput =
-  ReservationCustomerQuoteInput<NormalizedCoworkReservationOrder>;
+export type CoworkCustomerQuoteInput = ReservationCustomerQuoteInput<
+  NormalizedCoworkReservationOrder,
+  CoworkReservationQuote
+>;
 
 export type CoworkPaymentPriceAffirmationInput =
   ReservationPaymentPriceAffirmationInput<
     NormalizedCoworkReservationOrder,
     CoworkReservationQuote
   >;
+
+export type CoworkPaymentRepricingInput = ReservationPaymentRepricingInput<
+  NormalizedCoworkReservationOrder,
+  CoworkReservationQuote
+>;
 
 export type CoworkDiscountCodePriceInput = ReservationDiscountCodePriceInput<
   NormalizedCoworkReservationOrder,
@@ -83,7 +91,7 @@ export type CoworkPaymentPriceAffirmation = ReservationPaymentPriceAffirmation<
   CoworkReservationQuote
 >;
 
-export type CoworkDiscountCodePriceResult = ReservationDiscountCodePriceResult<
+export type CoworkDiscountCodeVerdict = ReservationDiscountCodeVerdict<
   NormalizedCoworkReservationOrder,
   CoworkReservationQuote
 >;

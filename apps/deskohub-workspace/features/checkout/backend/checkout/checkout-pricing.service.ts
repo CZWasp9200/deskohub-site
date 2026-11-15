@@ -16,9 +16,10 @@ import {
   type CoworkCustomerQuote,
   type CoworkCustomerQuoteInput,
   type CoworkDiscountCodePriceInput,
-  type CoworkDiscountCodePriceResult,
+  type CoworkDiscountCodeVerdict,
   type CoworkPaymentPriceAffirmation,
   type CoworkPaymentPriceAffirmationInput,
+  type CoworkPaymentRepricingInput,
   coworkCheckoutPricing,
 } from "./cowork-checkout-pricing";
 import {
@@ -30,9 +31,10 @@ import {
   type MeetingRoomCustomerQuote,
   type MeetingRoomCustomerQuoteInput,
   type MeetingRoomDiscountCodePriceInput,
-  type MeetingRoomDiscountCodePriceResult,
+  type MeetingRoomDiscountCodeVerdict,
   type MeetingRoomPaymentPriceAffirmation,
   type MeetingRoomPaymentPriceAffirmationInput,
+  type MeetingRoomPaymentRepricingInput,
   meetingRoomCheckoutPricing,
 } from "./meeting-room-checkout-pricing";
 import {
@@ -44,9 +46,10 @@ import {
   type OfficeCustomerQuote,
   type OfficeCustomerQuoteInput,
   type OfficeDiscountCodePriceInput,
-  type OfficeDiscountCodePriceResult,
+  type OfficeDiscountCodeVerdict,
   type OfficePaymentPriceAffirmation,
   type OfficePaymentPriceAffirmationInput,
+  type OfficePaymentRepricingInput,
   officeCheckoutPricing,
 } from "./office-checkout-pricing";
 import type { PriceVerdict } from "./price-verdict";
@@ -66,17 +69,17 @@ type AdvertisementQuote =
   | MeetingRoomAdvertisementQuote
   | OfficeAdvertisementQuote;
 
-type CustomerQuoteInput =
-  | CoworkCustomerQuoteInput
-  | MeetingRoomCustomerQuoteInput
-  | OfficeCustomerQuoteInput;
-
 export type PreparedCustomerQuote =
   | CoworkCustomerQuote
   | MeetingRoomCustomerQuote
   | OfficeCustomerQuote;
 
-type PaymentPriceAffirmationInput =
+export type PaymentRepricingInput =
+  | CoworkPaymentRepricingInput
+  | MeetingRoomPaymentRepricingInput
+  | OfficePaymentRepricingInput;
+
+export type PaymentPriceAffirmationInput =
   | CoworkPaymentPriceAffirmationInput
   | MeetingRoomPaymentPriceAffirmationInput
   | OfficePaymentPriceAffirmationInput;
@@ -91,10 +94,10 @@ type DiscountCodePriceInput =
   | MeetingRoomDiscountCodePriceInput
   | OfficeDiscountCodePriceInput;
 
-type DiscountCodePriceResult =
-  | CoworkDiscountCodePriceResult
-  | MeetingRoomDiscountCodePriceResult
-  | OfficeDiscountCodePriceResult;
+type DiscountCodeVerdict =
+  | CoworkDiscountCodeVerdict
+  | MeetingRoomDiscountCodeVerdict
+  | OfficeDiscountCodeVerdict;
 
 /**
  * A submitted reservation with the advertisement snapshot its page issued.
@@ -116,6 +119,16 @@ export type AdvertisementAffirmation =
   | MeetingRoomAdvertisementAffirmation
   | OfficeAdvertisementAffirmation;
 
+/** A submitted reservation's customer, with the advertisement's verdict. */
+export type CustomerQuoteInput = Omit<
+  | CoworkCustomerQuoteInput
+  | MeetingRoomCustomerQuoteInput
+  | OfficeCustomerQuoteInput,
+  "advertisement"
+> & {
+  readonly advertisement: PriceVerdict<AdvertisementAffirmation>;
+};
+
 export interface ICheckoutPricingService {
   readonly quoteAdvertisement: (
     input: AdvertisementQuoteInput
@@ -132,15 +145,42 @@ export interface ICheckoutPricingService {
     PriceVerdict<AdvertisementAffirmation>,
     AdvertisedPriceMismatchError | CheckoutPricingError
   >;
+  /**
+   * Quotes a submitted reservation for its resolved customer. The price
+   * changed when the advertisement's verdict says so, or when full validation
+   * moved the advertised query code; discounts of the customer may appear for
+   * the first time without a change. An unanswered discount provider fails.
+   */
   readonly quoteForCustomer: (
     input: CustomerQuoteInput
-  ) => Effect.Effect<PreparedCustomerQuote, CheckoutPricingError>;
+  ) => Effect.Effect<PriceVerdict<PreparedCustomerQuote>, CheckoutPricingError>;
+  /**
+   * Re-prices a signed order for its payment without judging the signed
+   * price, as claim-admission recovery does.
+   */
+  readonly repriceForPayment: (
+    input: PaymentRepricingInput
+  ) => Effect.Effect<PaymentPriceAffirmation, CheckoutPricingError>;
+  /**
+   * Affirms the signed price before payment. The price changed when the
+   * re-priced quote's fingerprint differs from the signed one or its total
+   * from the accepted total. An unanswered discount provider fails.
+   */
   readonly affirmForPayment: (
     input: PaymentPriceAffirmationInput
-  ) => Effect.Effect<PaymentPriceAffirmation, CheckoutPricingError>;
+  ) => Effect.Effect<
+    PriceVerdict<PaymentPriceAffirmation>,
+    CheckoutPricingError
+  >;
+  /**
+   * Prices an entered code on the displayed price. The price changed when
+   * the affirmed quote's fingerprint or total differs from the displayed one;
+   * the verdict then carries the refreshed price without the code. An
+   * unavailable code or an unanswered discount provider fails.
+   */
   readonly applyDiscountCode: (
     input: DiscountCodePriceInput
-  ) => Effect.Effect<DiscountCodePriceResult, CheckoutPricingError>;
+  ) => Effect.Effect<DiscountCodeVerdict, CheckoutPricingError>;
 }
 
 export class CheckoutPricingService extends Context.Service<
@@ -220,17 +260,43 @@ export class CheckoutPricingService extends Context.Service<
 
       const quoteForCustomer = Effect.fn(
         "CheckoutPricingService.quoteForCustomer"
-      )((input: CustomerQuoteInput) =>
+      )((input: CustomerQuoteInput) => {
+        const { advertisement } = input;
+        return Match.value(advertisement.priced).pipe(
+          Match.discriminatorsExhaustive("kind")({
+            cowork: (priced) =>
+              cowork.quoteForCustomer({
+                ...input,
+                advertisement: { ...advertisement, priced },
+              }),
+            "meeting-room": (priced) =>
+              meetingRoom.quoteForCustomer({
+                ...input,
+                advertisement: { ...advertisement, priced },
+              }),
+            office: (priced) =>
+              office.quoteForCustomer({
+                ...input,
+                advertisement: { ...advertisement, priced },
+              }),
+          })
+        );
+      });
+
+      const repriceForPayment = Effect.fn(
+        "CheckoutPricingService.repriceForPayment"
+      )((input: PaymentRepricingInput) =>
         Match.value(input).pipe(
           Match.when({ reservation: { kind: "cowork" } }, (coworkInput) =>
-            cowork.quoteForCustomer(coworkInput)
+            cowork.repriceForPayment(coworkInput)
           ),
           Match.when(
             { reservation: { kind: "meeting-room" } },
-            (meetingRoomInput) => meetingRoom.quoteForCustomer(meetingRoomInput)
+            (meetingRoomInput) =>
+              meetingRoom.repriceForPayment(meetingRoomInput)
           ),
           Match.when({ reservation: { kind: "office" } }, (officeInput) =>
-            office.quoteForCustomer(officeInput)
+            office.repriceForPayment(officeInput)
           ),
           Match.exhaustive
         )
@@ -277,6 +343,7 @@ export class CheckoutPricingService extends Context.Service<
         quoteAdvertisement,
         affirmAdvertisement,
         quoteForCustomer,
+        repriceForPayment,
         affirmForPayment,
         applyDiscountCode,
       } satisfies ICheckoutPricingService;
