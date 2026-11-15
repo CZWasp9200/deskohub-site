@@ -78,7 +78,7 @@ describe("signInResendAvailableAt", () => {
         nextSignInEmailAt: serverAt(sentAt - 1),
         cooldownWaived: true,
       })
-    ).toBeLessThanOrEqual(sentAt);
+    ).toBe(sentAt - 1);
   });
 
   test("a waived cooldown without a server instant offers the email at once", () => {
