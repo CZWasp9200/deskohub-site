@@ -10,7 +10,11 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { DotyposService, DotyposUnavailable } from "@deskohub/dotypos";
+import {
+  type DotyposCustomerId,
+  DotyposService,
+  DotyposUnavailable,
+} from "@deskohub/dotypos";
 import { EmailRecipientDomainServiceMock } from "@deskohub/email/backend/recipient-domain.service.mock";
 import { testEmailAddress } from "@deskohub/test-email";
 import { eq } from "drizzle-orm";
@@ -22,9 +26,20 @@ import {
   customerMarketingConsents,
   type WorkspaceReservationRow,
 } from "@/db/schema";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
+import {
+  type CurrentLinkedAccount,
+  CustomerAccountContactService,
+} from "@/features/account/backend/customer-account-contact.service";
 import type { CustomerAccountSectionsFixture } from "@/features/account/backend/customer-account-sections.test-utils";
-import { CustomerAccountAccessError } from "@/features/account/customer-account";
+import type { CustomerAccountSession } from "@/features/account/backend/customer-authentication.service";
+import { testSessionProfile } from "@/features/account/backend/customer-authentication.test-utils";
+import {
+  CustomerAccountAccessError,
+  type CustomerAccountId,
+  customerAccountIdSchema,
+  customerAccountUnavailable,
+} from "@/features/account/customer-account";
 import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import { WorkspaceTableAssignmentServiceMock } from "@/features/checkout/backend/reservation/workspace-table-assignment.service.mock";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
@@ -70,6 +85,7 @@ import type { IWorkspaceAvailabilityService } from "@/features/reservation/backe
 import type { CreateWorkspaceReservationDraftInput } from "@/features/reservation/backend/workspace-reservation.repository";
 import { meetingRoomAdvertisedPriceReservationSchema } from "@/features/reservation/meeting-room-reservation";
 import type { ReservationBillingSelectionInput } from "@/features/reservation/reservation-billing";
+import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import { NoReviewAccounts } from "@/features/review-accounts/backend/review-accounts.repository.mock";
 import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
 import { customerAgentNames } from "@/shared/bot-protection/customer-agents";
@@ -90,13 +106,48 @@ mock.module("next/headers", () => ({
   headers: async () => new Headers({ referer: "https://deskohub.test/en-US" }),
 }));
 
+/** The session's account as the fixtures below describe it. */
+type ContactAccount =
+  | { readonly status: "signed-out" }
+  | {
+      readonly status: "unlinked";
+      readonly accountId: CustomerAccountId;
+      readonly email: CustomerAccountSession["email"];
+    }
+  | ({ readonly status: "linked" } & CurrentLinkedAccount);
+type PeekedStanding = Effect.Success<CurrentCustomerAccount["Service"]["peek"]>;
+
+/** The standing behind a contact reader's account, with no review marker. */
+const standingOfContactAccount = (account: ContactAccount): PeekedStanding => {
+  if (account.status === "signed-out") return { kind: "signed-out" };
+  const session = {
+    accountId: account.accountId,
+    email: account.email,
+    deletionRequested: false,
+    ...testSessionProfile,
+  } satisfies CustomerAccountSession;
+  if (account.status === "unlinked") {
+    return { kind: "unlinked", session, reviewMarker: "absent" };
+  }
+  return {
+    kind: "linked",
+    session,
+    reviewMarker: "absent",
+    account: {
+      accountId: account.accountId,
+      dotyposCustomerId: account.dotyposCustomerId,
+    },
+    autoLinked: false,
+  };
+};
+
 const inertRememberedReferral = () =>
   RememberedReferral.inMemory({}).pipe(
     Layer.provide(
       Layer.mergeAll(
         ReferralReleaseGate.fromDecision(true),
         WithheldReferralService,
-        Layer.mock(CustomerAccountContactService, {})
+        Layer.mock(CurrentCustomerAccount, {})
       )
     )
   );
@@ -481,10 +532,16 @@ const runReusableReservationScenario = async (input: {
   };
   readonly accountAuthority?: Parameters<typeof accountAuthorityFixture>[0];
   readonly customer?: "account";
-  readonly account?: CustomerAccountContactService["Service"]["currentAccount"];
+  /** The session's account, from which its standing follows. */
+  readonly account?: Effect.Effect<ContactAccount, CustomerAccountAccessError>;
+  /** The standing booking peeks at; by default the one `account` reports. */
+  readonly standing?: CurrentCustomerAccount["Service"]["peek"];
   readonly linkedContact?: ReturnType<typeof mock>;
   readonly completeProfile?: ReturnType<typeof mock>;
-  readonly linkedAccount?: CustomerAccountContactService["Service"]["currentLinkedAccount"];
+  readonly linkedAccount?: Effect.Effect<
+    CurrentLinkedAccount | null,
+    CustomerAccountAccessError
+  >;
   readonly rememberedReferralCode?: string;
   readonly evaluateCheckoutReferral?: ReturnType<typeof mock>;
   readonly findAvailableCode?: ReturnType<typeof mock>;
@@ -629,6 +686,11 @@ const runReusableReservationScenario = async (input: {
         )
       )
   );
+  // Booking reads the standing; by default it reports what `account` does.
+  const peekStanding = mock(
+    () =>
+      input.standing ?? readAccount().pipe(Effect.map(standingOfContactAccount))
+  );
   const linkedContact =
     input.linkedContact ??
     mock(() => Effect.die("a linked contact must not be read"));
@@ -645,10 +707,11 @@ const runReusableReservationScenario = async (input: {
     input.hasSettledReferral ?? mock(() => Effect.succeed(false));
   const rememberedReferralCookie = { value: input.rememberedReferralCode };
   const contacts = Layer.mock(CustomerAccountContactService, {
-    currentAccount: Effect.suspend(() => readAccount()),
     linkedContact: linkedContact as never,
     completeProfile: completeProfile as never,
-    currentLinkedAccount: Effect.suspend(() => readLinkedAccount()),
+  });
+  const currentAccount = Layer.mock(CurrentCustomerAccount, {
+    peek: Effect.suspend(() => peekStanding()),
   });
   const referrals =
     input.referralService ??
@@ -661,13 +724,14 @@ const runReusableReservationScenario = async (input: {
     TestSealedStateKeys,
     accountAuthority.layer,
     contacts,
+    currentAccount,
     referrals,
     RememberedReferral.inMemory(rememberedReferralCookie).pipe(
       Layer.provide(
         Layer.mergeAll(
           ReferralReleaseGate.fromDecision(true),
           referrals,
-          contacts
+          currentAccount
         )
       )
     ),
@@ -805,6 +869,7 @@ const runReusableReservationScenario = async (input: {
     quoteForCustomer,
     findOrCreateCustomer,
     readAccount,
+    peekStanding,
     linkedContact,
     completeProfile,
     readLinkedAccount,
@@ -2199,7 +2264,7 @@ describe("prepareWorkspacePayState", () => {
             },
           });
           expect(scenario.guardEvents).toEqual([]);
-          expect(scenario.readAccount).not.toHaveBeenCalled();
+          expect(scenario.peekStanding).not.toHaveBeenCalled();
           expect(scenario.completeProfile).not.toHaveBeenCalled();
           expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
           expect(scenario.quoteForCustomer).not.toHaveBeenCalled();
@@ -2929,7 +2994,7 @@ describe("prepareWorkspacePayState", () => {
       });
 
       expect(scenario.result?.status).toBe("ready");
-      expect(scenario.readAccount).toHaveBeenCalledTimes(1);
+      expect(scenario.peekStanding).toHaveBeenCalledTimes(1);
       expect(lockSamples).toEqual([true]);
       expect(linkedContact.mock.calls[0]?.[0]).toMatchObject({
         accountId,
@@ -3016,7 +3081,10 @@ describe("prepareWorkspacePayState", () => {
         expect(lockSamples).toEqual([true]);
         expect(completeProfile.mock.calls).toEqual([
           [
-            { status: "unlinked", accountId, email: testEmailAddressForGrace },
+            expect.objectContaining({
+              accountId,
+              email: testEmailAddressForGrace,
+            }),
             {
               firstName: "Grace",
               lastName: "Hopper",
@@ -3162,7 +3230,7 @@ describe("prepareWorkspacePayState", () => {
             reason: "unauthenticated",
           },
         });
-        expect(scenario.readAccount).toHaveBeenCalledTimes(1);
+        expect(scenario.peekStanding).toHaveBeenCalledTimes(1);
         expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
         expect(scenario.quoteForCustomer).not.toHaveBeenCalled();
         expect(scenario.createDraft).not.toHaveBeenCalled();
@@ -3212,6 +3280,90 @@ describe("prepareWorkspacePayState", () => {
         expect(scenario.createDraft).not.toHaveBeenCalled();
       }
     );
+
+    describe("reading the account's standing", () => {
+      const accountSession = {
+        accountId: customerAccountIdSchema.make(accountId),
+        email: reservationCustomerEmailSchema.make(testEmailAddressForGrace),
+        deletionRequested: false,
+        ...testSessionProfile,
+      } satisfies CustomerAccountSession;
+
+      test.each([
+        [
+          "awaits deletion",
+          {
+            kind: "deletion-pending",
+            session: accountSession,
+            reviewMarker: "absent",
+          },
+          { reason: "unauthenticated" },
+        ],
+        [
+          "has an unverified email",
+          { kind: "unverified" },
+          { reason: "unverified-email" },
+        ],
+        [
+          "cannot read its stored link",
+          {
+            kind: "unavailable",
+            session: accountSession,
+            reviewMarker: "absent",
+            failure: customerAccountUnavailable("account-link.read"),
+          },
+          { reason: "unavailable", cause: { code: "account-link.read" } },
+        ],
+      ] as const)(
+        "refuses an account booking whose account %s before pricing it",
+        async (_label, standing, cause) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            customer: "account",
+            standing: Effect.succeed(standing),
+          });
+
+          expect(scenario.result).toBeUndefined();
+          expect(scenario.error).toMatchObject({
+            _tag: "PublicSafeActionError",
+            cause: { _tag: "CustomerAccountAccessError", ...cause },
+          });
+          expect(scenario.peekStanding).toHaveBeenCalledTimes(1);
+          expect(scenario.completeProfile).not.toHaveBeenCalled();
+          expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
+          expect(scenario.createDraft).not.toHaveBeenCalled();
+        }
+      );
+
+      test("books a linked account whose review marker can't be read as its customer", async () => {
+        const linkedContact = mock(() => accountContact());
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          customer: "account",
+          standing: Effect.succeed({
+            kind: "linked",
+            session: accountSession,
+            reviewMarker: "unreadable",
+            account: {
+              accountId: accountSession.accountId,
+              dotyposCustomerId: accountDotyposCustomerId as DotyposCustomerId,
+            },
+            autoLinked: false,
+          }),
+          linkedContact,
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(linkedContact.mock.calls[0]?.[0]).toMatchObject({
+          accountId,
+          dotyposCustomerId: accountDotyposCustomerId,
+          email: testEmailAddressForGrace,
+        });
+        expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
+      });
+    });
 
     describe("with a remembered referral code", () => {
       const linkedAccount = () =>
@@ -3719,7 +3871,7 @@ describe("prepareWorkspacePayState", () => {
       });
 
       expect(scenario.result?.status).toBe("ready");
-      expect(scenario.readAccount).not.toHaveBeenCalled();
+      expect(scenario.peekStanding).not.toHaveBeenCalled();
       expect(scenario.findOrCreateCustomer).toHaveBeenCalledTimes(1);
       expect(scenario.findOrCreateCustomer.mock.calls[0]?.[0]).toMatchObject({
         email: reservation.email,
