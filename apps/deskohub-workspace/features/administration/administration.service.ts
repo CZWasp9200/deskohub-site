@@ -472,7 +472,7 @@ type AdministrationReservationAuthor =
   | { readonly kind: "unavailable" };
 
 /** What restoring a cancelled reservation would do, for the operator to confirm. */
-export type AdministrationReservationRestoration = {
+type AdministrationReservationRestoration = {
   /** The cancellation email reached the customer, so a restoration email can follow. */
   readonly cancellationEmailRecorded: boolean;
   /** The reservation hasn't ended, so restoring issues a new access code. */
@@ -1352,7 +1352,9 @@ type ReservationRestorationSource = {
 const loadRestorableAccess = ({
   live,
   row,
-}: Pick<ReservationRestorationSource, "live" | "row">) =>
+}: Pick<ReservationRestorationSource, "live" | "row">): Effect.Effect<
+  Option.Option<{ readonly reservedUntil: Temporal.Instant }>
+> =>
   Option.fromNullishOr(live.reservation).pipe(
     Option.filter(() =>
       canRestoreReservation(row, { hasActiveSuccessor: false })
@@ -2242,7 +2244,10 @@ export class AdministrationService extends Context.Service<
         loadRestorableAccess(input).pipe(
           Effect.flatMap(
             Option.match({
-              onNone: () => Effect.succeed(null),
+              onNone: () =>
+                Effect.succeed<AdministrationReservationRestoration | null>(
+                  null
+                ),
               onSome: (access) =>
                 reservations
                   .findCurrentByCheckoutSessionKey(input.checkoutSessionKey)
