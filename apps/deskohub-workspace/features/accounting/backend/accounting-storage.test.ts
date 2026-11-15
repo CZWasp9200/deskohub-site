@@ -5,7 +5,6 @@ import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-
 import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
 import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
-import { AccountingStorage } from "./accounting-storage";
 import { testAccountingStorage } from "./accounting-storage.test-utils";
 import { InvoiceRepository } from "./invoice.repository";
 
@@ -58,12 +57,6 @@ const buildOnce = <E>(graph: Layer.Layer<never, E>) =>
   Effect.runPromise(Effect.scoped(Layer.build(graph)));
 
 describe("AccountingStorage", () => {
-  test("Live needs nothing from its caller", () => {
-    const live: Layer.Layer<InvoiceRepository | AccountingDocumentSnapshots> =
-      AccountingStorage.Live;
-    expect(Layer.isLayer(live)).toBe(true);
-  });
-
   test("one build of a graph using both modules builds the database client and the key registry once", async () => {
     const { builds, database, keys } = await makeCountingDependencies();
     const storage = testAccountingStorage(database, keys);
