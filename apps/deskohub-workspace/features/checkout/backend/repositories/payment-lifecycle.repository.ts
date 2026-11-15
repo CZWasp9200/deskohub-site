@@ -1700,12 +1700,32 @@ const reserveCodeClaim = Effect.fn("PaymentLifecycle.reserveCodeClaim")(
 
     const claimedAt = Temporal.Now.instant();
     yield* requireCurrentHold(input, claimedAt);
+    yield* Match.value(stored).pipe(
+      Match.discriminatorsExhaustive("kind")({
+        discount_code: ({ claim, code, promotion }) =>
+          requireClaimAvailable(claim, "admissionDiscountCodeSchedule", {
+            at: claimedAt,
+            discountCode: code,
+            firstServiceDate: input.firstServiceDate,
+            promotion,
+          }),
+        voucher: ({ claim, promotion }) =>
+          requireClaimAvailable(claim, "admissionVoucherSchedule", {
+            at: claimedAt,
+            promotion,
+          }),
+      })
+    );
+
     const { db } = yield* WorkspaceTransaction;
-    const audience = yield* readPromotionAudience({
-      db,
-      promotionCodeId: stored.promotion.id,
-      dotyposCustomerId: input.claim.dotyposCustomerId,
+    yield* requireClaimAvailable(input.claim, "admissionAudience", {
+      audience: yield* readPromotionAudience({
+        db,
+        promotionCodeId: stored.promotion.id,
+        dotyposCustomerId: input.claim.dotyposCustomerId,
+      }),
     });
+
     yield* Match.value(stored).pipe(
       Match.discriminatorsExhaustive("kind")({
         discount_code: Effect.fnUntraced(function* ({
@@ -1713,13 +1733,6 @@ const reserveCodeClaim = Effect.fn("PaymentLifecycle.reserveCodeClaim")(
           code,
           promotion,
         }) {
-          yield* requireClaimAvailable(claim, "admissionDiscountCodeSchedule", {
-            at: claimedAt,
-            audience,
-            discountCode: code,
-            firstServiceDate: input.firstServiceDate,
-            promotion,
-          });
           yield* validateStoredDiscountClaim({
             ...input,
             claim,
@@ -1737,11 +1750,6 @@ const reserveCodeClaim = Effect.fn("PaymentLifecycle.reserveCodeClaim")(
           });
         }),
         voucher: Effect.fnUntraced(function* ({ claim, voucher, promotion }) {
-          yield* requireClaimAvailable(claim, "admissionVoucherSchedule", {
-            at: claimedAt,
-            audience,
-            promotion,
-          });
           const voucherUses = yield* validateVoucherClaim({
             ...input,
             claim,

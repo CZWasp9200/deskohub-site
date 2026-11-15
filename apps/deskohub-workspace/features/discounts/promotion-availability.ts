@@ -109,14 +109,11 @@ export const promotionAvailabilityPrecedence = {
   pricingVoucher: ["voucherUnclaimed", "audience", "voucherCredit"],
   /** Admission, under the promotion row lock, before the hold check. */
   admissionEnabled: ["enabled"],
-  /** Admission, after the hold check, before the accepted benefit check. */
-  admissionDiscountCodeSchedule: [
-    "started",
-    "unexpired",
-    "serviceDates",
-    "audience",
-  ],
-  admissionVoucherSchedule: ["started", "unexpired", "audience"],
+  /** Admission, after the hold check, before the allowlist is read. */
+  admissionDiscountCodeSchedule: ["started", "unexpired", "serviceDates"],
+  admissionVoucherSchedule: ["started", "unexpired"],
+  /** Admission, before the accepted benefit check, for both kinds. */
+  admissionAudience: ["audience"],
   /** Admission, after the accepted benefit check. */
   admissionDiscountCodeUses: ["customerUses", "totalUses"],
   admissionVoucherUses: ["voucherUnclaimed"],
