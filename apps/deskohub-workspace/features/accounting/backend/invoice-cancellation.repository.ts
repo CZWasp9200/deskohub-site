@@ -104,7 +104,7 @@ export interface IInvoiceCancellationRepository {
   readonly claimNotice: (input: {
     readonly invoiceId: InvoiceId;
     readonly audience: InvoiceEmailDeliveryAudience;
-  }) => Effect.Effect<InvoiceNoticeClaim | null, EffectDrizzleQueryError>;
+  }) => Effect.Effect<InvoiceNoticeClaim | null, DatabaseQueryError>;
   readonly markNoticeAccepted: (input: {
     readonly invoiceId: InvoiceId;
     readonly audience: InvoiceEmailDeliveryAudience;
