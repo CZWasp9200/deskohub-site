@@ -97,6 +97,12 @@ export const customerRequestBudgetClasses = {
     // Authorizing the invoice can resolve the account's Dotypos customer.
     getReservationInvoice: "dotypos-read",
   },
+  invoices: {
+    // Authorizing either read can resolve the account's Dotypos customer;
+    // the app reads them when the customer opens or downloads an invoice.
+    listInvoices: "dotypos-read",
+    getInvoicePdf: "dotypos-read",
+  },
   booking: {
     // The office's seat maximum reads the shared table snapshot, which
     // reads Dotypos when it misses.
