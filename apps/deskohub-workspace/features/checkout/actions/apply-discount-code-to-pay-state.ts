@@ -14,7 +14,15 @@ import {
   toFreshPayState,
 } from "@/features/checkout/backend/checkout/checkout-pay-url";
 import type { CheckoutReferralResult } from "@/features/checkout/backend/checkout/checkout-referral.service";
-import type { SignedPayState } from "@/features/checkout/backend/checkout/pay-state";
+import type {
+  PayStateWithHoldExpiry,
+  SignedPayState,
+} from "@/features/checkout/backend/checkout/pay-state";
+import {
+  getPayStateHoldExpiresAt,
+  loadPayStateHoldExpiry,
+  withPayStateHoldExpiry,
+} from "@/features/checkout/backend/checkout/pay-state-hold";
 import type { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import {
@@ -97,10 +105,15 @@ type DiscountCodeEntry = {
 
 /**
  * A replacement Pay state that keeps a rejected code in the box as signed
- * requested intent, with the field error to show beside it.
+ * requested intent, with the field error to show beside it. It keeps the
+ * hold deadline of `state`.
  */
 const issueRejectedCodePayState = (
-  { input, state, submittedCode }: DiscountCodeEntry,
+  {
+    input,
+    state,
+    submittedCode,
+  }: DiscountCodeEntry & { readonly state: PayStateWithHoldExpiry },
   discountCodeError: DiscountCodeRejection
 ) =>
   issueFreshPayState(
@@ -193,7 +206,7 @@ const rejectReferralCode = Effect.fnUntraced(function* (
 ) {
   const outcome = getReferralRejection(rejection);
   const freshPayState = yield* issueRejectedCodePayState(
-    entry,
+    { ...entry, state: yield* loadPayStateHoldExpiry(entry.state) },
     referralRejections[outcome.status]
   );
   const rejected: ApplyDiscountCodeResult = { ...outcome, ...freshPayState };
@@ -261,7 +274,10 @@ const applyPromotionCode = Effect.fnUntraced(function* (
       // A recoverable invalid-code failure keeps the attempted code as signed
       // requested intent on the correction route instead of the old state.
       Effect.catchTag("PromotionCodeUnavailableError", () =>
-        issueRejectedCodePayState(entry, "unavailable").pipe(
+        issueRejectedCodePayState(
+          { ...entry, state: withPayStateHoldExpiry(state, reservation) },
+          "unavailable"
+        ).pipe(
           Effect.map(
             (freshPayState): DiscountCodeUnavailable & FreshPayState => ({
               status: "unavailable",
@@ -291,6 +307,7 @@ const applyPromotionCode = Effect.fnUntraced(function* (
             locale: input.locale,
             orderId: state.orderId,
             bookedAt: state.bookedAt,
+            holdExpiresAt: getPayStateHoldExpiresAt(state, reservation),
             checkoutSessionId: state.checkoutSessionId,
             submittedCode,
             submittedCodeDiscountId: applied.submittedCodeDiscountId,
@@ -307,6 +324,7 @@ const applyPromotionCode = Effect.fnUntraced(function* (
             locale: input.locale,
             orderId: state.orderId,
             bookedAt: state.bookedAt,
+            holdExpiresAt: getPayStateHoldExpiresAt(state, reservation),
             checkoutSessionId: state.checkoutSessionId,
             changedKeys: changed.changedKeys,
             requestedDiscountCode: submittedCode,

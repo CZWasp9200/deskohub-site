@@ -42,7 +42,7 @@ import {
   type PayStateTokenError,
 } from "@/features/checkout/backend/checkout";
 import { getCheckoutSubmitDeadline } from "@/features/checkout/backend/checkout/checkout-submit-deadline";
-import type { SignedPayState } from "@/features/checkout/backend/checkout/pay-state";
+import type { PayStateWithHoldExpiry } from "@/features/checkout/backend/checkout/pay-state";
 import type { Locale } from "@/features/i18n";
 import { isCurrentPaymentSubmitLegalAcceptance } from "@/features/legal/payment-submit-evidence";
 import { preparePayStateInputSchema } from "@/features/reservation/actions/prepare-pay-state.schema";
@@ -525,6 +525,15 @@ const acceptPriceChange = Effect.fn("customerApi.acceptCheckoutPriceChange")(
       Effect.catchTags({
         PayStateTokenError: answerTokenFailure(operation),
         PayStateIssueError: retryable(operation),
+        // Only a state signed without its hold deadline reads the reservation.
+        PayableReservationUnavailableError: ({ reason }) =>
+          Effect.fail(
+            new CustomerCheckoutUnavailable({
+              reason: toCheckoutUnavailableReason(reason),
+            })
+          ),
+        EffectDrizzleQueryError: retryable(operation),
+        WorkspaceReservationDetailsMalformedError: retryable(operation),
         CheckoutServicesUnavailable: retryable(operation),
       })
     );
@@ -746,7 +755,7 @@ const checkoutAt = (
   });
 
 const toCustomerCheckout = (
-  state: SignedPayState,
+  state: PayStateWithHoldExpiry,
   now: Temporal.Instant,
   payStateToken: string,
   facts: Pick<
@@ -760,7 +769,11 @@ const toCustomerCheckout = (
     orderId: view.orderId,
     payStateToken,
     expiresAt: view.expiresAt,
+    holdExpiresAt: view.holdExpiresAt,
     summary: view.summary,
+    ...(view.appliedDiscountCode !== undefined && {
+      appliedDiscountCode: view.appliedDiscountCode,
+    }),
     ...(view.changedKeys !== undefined && {
       priceReview: { changedKeys: view.changedKeys },
     }),

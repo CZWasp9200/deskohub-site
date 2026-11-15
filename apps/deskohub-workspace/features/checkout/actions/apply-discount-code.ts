@@ -17,6 +17,7 @@ import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
 import { ReferralReleaseGateRequest } from "@/features/referrals/referral-release-gate.server";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
@@ -61,6 +62,7 @@ const applyDiscountCodeOnSite = Effect.fn("checkout.applyDiscountCodeOnSite")(
               Layer.mergeAll(
                 CheckoutPricingService.Live,
                 PayableReservationService.Live,
+                WorkspaceReservationRepository.Live,
                 ReferralService.Live,
                 CheckoutReferralService.Live,
                 CurrentCustomerAccount.Live,

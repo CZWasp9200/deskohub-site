@@ -27,6 +27,7 @@ import {
   sealPayState,
 } from "@/features/checkout/backend/checkout/pay-state";
 import { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
+import { withoutPayStateHoldExpiry } from "@/features/checkout/backend/checkout/signed-pay-state.test-utils";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 import {
@@ -46,6 +47,10 @@ import { ReferralError } from "@/features/referrals/contracts";
 import { WithheldReferralService } from "@/features/referrals/referral.service.mock";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import {
+  type WorkspaceReservation,
+  WorkspaceReservationRepository,
+} from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
 import {
@@ -64,6 +69,11 @@ import type { ApplyDiscountCodeResult } from "./apply-discount-code-to-pay-state
 mock.module("server-only", () => ({}));
 
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
+const payStateHoldExpiresAt = instantStringSchema.make(
+  "2099-06-01T10:08:00.000Z"
+);
+/** The deadline stored with the order, for tokens signed without one. */
+const storedHoldExpiresAt = Temporal.Instant.from("2099-06-01T10:09:30Z");
 
 const reservation = {
   kind: "cowork" as const,
@@ -85,26 +95,35 @@ const makePayStateToken = async (input?: {
   readonly changedKeys?: CheckoutSummaryChangedKeys;
   /** A code the signed state already applied. */
   readonly submittedCode?: CanonicalPromotionCode;
+  readonly issuedAt?: Temporal.Instant;
+  /** Seals it as a token issued before Pay states signed the hold deadline. */
+  readonly withoutHoldExpiry?: true;
 }) => {
   const state = await Effect.runPromise(
-    buildSignedPayState({
-      locale: input?.locale ?? "en-US",
-      reservation,
-      quote,
-      orderId: "reservation-id",
-      bookedAt: payStateBookedAt,
-      checkoutSessionId,
-      requestedDiscountCode: input?.requestedDiscountCode,
-      changedKeys: input?.changedKeys,
-      ...(input?.submittedCode && {
-        submittedCode: input.submittedCode,
-        submittedCodeDiscountId,
-      }),
-    }).pipe(Effect.provide(TestSealedStateKeys))
+    buildSignedPayState(
+      {
+        locale: input?.locale ?? "en-US",
+        reservation,
+        quote,
+        orderId: "reservation-id",
+        bookedAt: payStateBookedAt,
+        holdExpiresAt: payStateHoldExpiresAt,
+        checkoutSessionId,
+        requestedDiscountCode: input?.requestedDiscountCode,
+        changedKeys: input?.changedKeys,
+        ...(input?.submittedCode && {
+          submittedCode: input.submittedCode,
+          submittedCodeDiscountId,
+        }),
+      },
+      { issuedAt: input?.issuedAt }
+    ).pipe(Effect.provide(TestSealedStateKeys))
   );
 
   return await Effect.runPromise(
-    sealPayState(state).pipe(Effect.provide(TestSealedStateKeys))
+    sealPayState(
+      input?.withoutHoldExpiry ? withoutPayStateHoldExpiry(state) : state
+    ).pipe(Effect.provide(TestSealedStateKeys))
   );
 };
 
@@ -158,6 +177,7 @@ const prepareSubmission = async (input?: SubmissionInput) => {
   const getReservation = () => ({
     id: "reservation-id",
     dotyposCustomerId: input?.dotyposCustomerId ?? "customer-id",
+    reservationHoldExpiresAt: storedHoldExpiresAt,
     activePaymentAttemptId:
       payableReservationReadCount > 1
         ? (input?.activePaymentAttemptIdAfterPricing ??
@@ -165,6 +185,9 @@ const prepareSubmission = async (input?: SubmissionInput) => {
           null)
         : (input?.activePaymentAttemptId ?? null),
   });
+  const findReservation = mock(() =>
+    Effect.succeed(getReservation() as WorkspaceReservation)
+  );
   const requireCurrent = mock(() =>
     Effect.sleep(input?.requireCurrentDuration ?? 0).pipe(
       Effect.andThen(() => {
@@ -224,6 +247,9 @@ const prepareSubmission = async (input?: SubmissionInput) => {
       Layer.mergeAll(
         input?.pricing ?? CheckoutPricingServiceMock({ applyDiscountCode }),
         Layer.succeed(PayableReservationService, { requireCurrent }),
+        Layer.mock(WorkspaceReservationRepository, {
+          findById: findReservation,
+        }),
         input?.referralService ?? referralService,
         input?.referralAcceptance === undefined
           ? Layer.succeed(CheckoutReferralService, { acceptCode } as never)
@@ -265,6 +291,7 @@ const prepareSubmission = async (input?: SubmissionInput) => {
   return {
     applyDiscountCode,
     acceptCode,
+    findReservation,
     lookupCodeKind,
     effect,
     requireCurrent,
@@ -1008,6 +1035,90 @@ describe("applyDiscountCodeToPayState", () => {
       await expectReplacementFromOneSeal(scenario.result);
     }
   );
+
+  describe("hold deadline", () => {
+    const openFresh = (result: ApplyDiscountCodeResult) =>
+      Effect.runPromise(
+        openPayState(result.freshPayStateToken ?? "").pipe(
+          Effect.provide(TestSealedStateKeys)
+        )
+      );
+
+    test("keeps it across an applied code while the token expiry moves", async () => {
+      const issuedAt = Temporal.Now.instant().subtract({ minutes: 3 });
+      const payStateToken = await makePayStateToken({ issuedAt });
+      const signed = await Effect.runPromise(
+        openPayState(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
+      );
+
+      const { result } = await runSubmission({ payStateToken });
+      const fresh = await openFresh(result);
+
+      expect(result.status).toBe("applied");
+      expect(fresh.exp).toBeGreaterThan(signed.exp);
+      expect(fresh.holdExpiresAt).toBe(payStateHoldExpiresAt);
+    });
+
+    test("keeps it in a rejected code's replacement", async () => {
+      const { result } = await runSubmission({
+        applyDiscountCode: mock(() =>
+          Effect.fail(
+            new PromotionCodeUnavailableError({
+              reason: "unknown_code",
+              message: "The submitted promotion code does not exist.",
+            })
+          )
+        ),
+      });
+
+      expect(result).toMatchObject({ status: "unavailable", reason: "code" });
+      expect((await openFresh(result)).holdExpiresAt).toBe(
+        payStateHoldExpiresAt
+      );
+    });
+
+    test("keeps it in a rejected referral's replacement", async () => {
+      const { result, findReservation } = await runSubmission({
+        submittedCode: "RFL12345",
+        codeKind: "referral",
+        acceptCode: mock(() => Effect.succeed({ status: "ineligible" })),
+      });
+
+      expect(result.status).toBe("ineligible");
+      expect((await openFresh(result)).holdExpiresAt).toBe(
+        payStateHoldExpiresAt
+      );
+      expect(findReservation).not.toHaveBeenCalled();
+    });
+
+    test.each([
+      ["an applied code", {}],
+      [
+        "a rejected referral",
+        {
+          submittedCode: "RFL12345",
+          codeKind: "referral" as const,
+          acceptCode: mock(() => Effect.succeed({ status: "ineligible" })),
+        },
+      ],
+    ])(
+      "signs the stored deadline into %s on a token issued without one",
+      async (_case, submission) => {
+        const payStateToken = await makePayStateToken({
+          withoutHoldExpiry: true,
+        });
+
+        const { result } = await runSubmission({
+          ...submission,
+          payStateToken,
+        });
+
+        expect((await openFresh(result)).holdExpiresAt).toBe(
+          "2099-06-01T10:09:30.000Z"
+        );
+      }
+    );
+  });
 
   test("returns a rejected code's replacement with its sealed token and the code reason", async () => {
     const scenario = await runSubmission({
