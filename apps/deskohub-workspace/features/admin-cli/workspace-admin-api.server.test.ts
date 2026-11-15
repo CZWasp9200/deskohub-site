@@ -1901,10 +1901,7 @@ describe("customer and reservation administration endpoints", () => {
       accessGrantUpdatedAt: null,
       actor: {
         source: "dhw-cli",
-        administrator: {
-          accountId: "cli-administrator-account",
-          email: "cli-administrator@deskohub.test",
-        },
+        administrator: cliAdministrator,
       },
       force: false,
       providerCredentialRemoved: false,
