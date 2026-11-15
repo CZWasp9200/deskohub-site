@@ -11,8 +11,10 @@ The app's client and data layer are in the `deskohub-mobile` skill
 - Contract: `packages/workspace-customer-api` (portable: Effect only, no
   Next, Node, React, Better Auth, or `@/` imports; `import-boundary.test.ts`
   enforces it). `workspace-customer-api.ts` composes the `account`,
-  `reservations`, and `booking` groups into `WorkspaceCustomerApi`; each group
-  has its own file (`customer-reservations-api.ts`, `customer-booking-api.ts`).
+  `reservations`, `booking`, and `invoices` groups into
+  `WorkspaceCustomerApi`; each group has its own file
+  (`customer-reservations-api.ts`, `customer-booking-api.ts`,
+  `customer-invoices-api.ts`).
   `./client` holds the typed client factories, `./referral-code` the
   browser-safe `ReferralCode` brand.
 - Adapter: `features/customer-api/`. `customer-api.server.ts` builds the
@@ -38,8 +40,9 @@ The app's client and data layer are in the `deskohub-mobile` skill
    version it instead.
 3. Implement it in the group's `HttpApiBuilder.group` in the adapter, in the
    group's own handlers module (`customer-account-handlers.ts`,
-   `customer-reservation-handlers.ts`, `customer-booking-handlers.ts`, which
-   joins `customer-booking-catalog-handlers.ts` and
+   `customer-reservation-handlers.ts`, `customer-invoice-handlers.ts`,
+   `customer-booking-handlers.ts`, which joins
+   `customer-booking-catalog-handlers.ts` and
    `customer-booking-checkout-handlers.ts`).
 4. Classify it in `customerRequestBudgetClasses`. The Record is exhaustive
    over the contract, so an unclassified endpoint is a type error, and
@@ -50,7 +53,8 @@ The app's client and data layer are in the `deskohub-mobile` skill
    and may reactivate an expired one). A GET the app repeats on every load,
    history visit or status poll (the account, the reservation history, an
    order's status and its door code) is `account-read` (40 per 30 minutes);
-   any other Dotypos-backed GET (consent, referrals, the invoice) is
+   any other Dotypos-backed GET (consent, referrals, an order's invoice, the
+   invoice list and an invoice's PDF) is
    `dotypos-read` (20 per 30 minutes); any other method is `dotypos-mutation`
    (15 per 30 minutes, which account edits and checkout steps share; two
    bookings fit). Each has its own per-account budget so reads can't use up
@@ -157,6 +161,19 @@ The app's client and data layer are in the `deskohub-mobile` skill
   `get-session` user may carry it, both as any string or null: a response tag
   stays open so a locale added later never breaks an older app's decoding,
   while the request stays strict.
+
+## Invoices
+
+The `invoices` group (`GET /invoices`, `GET /invoices/:invoiceId/pdf`) adapts
+`CustomerInvoiceService`, the account page's invoice reader, built from
+`CustomerAccountLayers`' `invoices` over the request's `currentAccount`. The
+service owns authorization and ownership (checkout skill, accounting
+documents); the handlers only map. A refused account carries its
+`CustomerAccountAccessError` on `CustomerInvoicesUnavailableError.account`
+and answers as the account endpoints do; any id the service can't find,
+another customer's included, answers 404 `CustomerInvoiceNotFound`. Totals stay
+exact decimal text, as issued. An order's own invoice stays
+`getReservationInvoice`, authorized by the order.
 
 ## Booking checkout
 
