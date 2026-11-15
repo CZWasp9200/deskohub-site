@@ -55,7 +55,8 @@ const storedInvoiceBuyerAddressSchema = Schema.Struct({
   postalCode: storedInvoiceBillingTextSchema,
   country: storedInvoiceBillingTextSchema,
 });
-const storedInvoiceBuyerSchema = Schema.Union([
+/** The buyer an issued accounting document stores. */
+export const storedInvoiceBuyerSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("person"),
     legalName: storedInvoiceBillingTextSchema,
@@ -79,19 +80,22 @@ const invoiceGenerationProvenanceSchema = Schema.Struct({
   generatedAt: instantStringSchema,
 });
 
+/** The supplier an issued accounting document stores. */
+export const invoiceSupplierSchema = Schema.Struct({
+  ...accountingDocumentIdentitySchema.fields.supplier.fields,
+  commercialRegister: Schema.optional(
+    Schema.Struct({
+      court: Schema.NonEmptyString,
+      section: Schema.NonEmptyString,
+      file: Schema.NonEmptyString,
+    })
+  ),
+});
+
 const invoiceIdentitySchema = Schema.Struct({
   ...accountingDocumentIdentitySchema.fields,
   buyer: storedInvoiceBuyerSchema,
-  supplier: Schema.Struct({
-    ...accountingDocumentIdentitySchema.fields.supplier.fields,
-    commercialRegister: Schema.optional(
-      Schema.Struct({
-        court: Schema.NonEmptyString,
-        section: Schema.NonEmptyString,
-        file: Schema.NonEmptyString,
-      })
-    ),
-  }),
+  supplier: invoiceSupplierSchema,
   paymentAttemptId: Schema.NonEmptyString,
   invoiceNumber: invoiceNumberSchema,
   issuedAt: instantStringSchema,

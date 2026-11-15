@@ -1,0 +1,441 @@
+import "@/shared/testing/workspace-test-env";
+
+import { afterAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { EmailDeliveryIdSchema } from "@deskohub/email";
+import { Data, Effect } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  type InvoiceId,
+  invoiceIdSchema,
+} from "@/features/accounting/manual-invoice";
+import {
+  createWorkspacePostgresSuiteDatabase,
+  type WorkspacePostgresSuiteDatabase,
+} from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { InvoiceRepository } from "./invoice.repository";
+import { InvoiceCancellationRepository } from "./invoice-cancellation.repository";
+import { makeInvoiceCancellationTestKit } from "./invoice-cancellation.test-utils";
+import { InvoiceEmailDeliveryRepository } from "./invoice-email-delivery.repository";
+
+// The suite counts corrective document numbers, so it owns its database.
+const testDatabase = await createWorkspacePostgresSuiteDatabase(
+  "invoice_cancellation"
+);
+afterAll(() => testDatabase?.close());
+
+// The kit only touches the database when a test calls it.
+const {
+  acceptInvoiceEmail,
+  cancel,
+  issueManualInvoice,
+  makeActor,
+  query,
+  run,
+} = makeInvoiceCancellationTestKit(testDatabase!);
+
+const readCorrectiveCounters = () =>
+  query<{ numbering_year: number; last_sequence: number }>(
+    "select numbering_year, last_sequence from corrective_document_number_counters order by numbering_year"
+  );
+
+const readNotices = (invoiceId: InvoiceId) =>
+  query<{ audience: string; state: string; attempt_count: number }>(
+    `select audience, state, attempt_count
+     from invoice_cancellation_notice_deliveries
+     where invoice_id = $1 order by audience`,
+    [invoiceId]
+  );
+
+class RolledBack extends Data.TaggedError("RolledBack")<{
+  readonly reason: "test rollback";
+}> {}
+
+describe.skipIf(!testDatabase)(
+  "InvoiceCancellationRepository on disposable Postgres",
+  () => {
+    const postgres = testDatabase as WorkspacePostgresSuiteDatabase;
+
+    test("cancels an invoice once with one corrective document and leaves the invoice untouched", async () => {
+      const actor = await makeActor("cancellation-once");
+      const invoice = await issueManualInvoice(actor);
+      const [before] = await query("select * from invoices where id = $1", [
+        invoice.id,
+      ]);
+
+      const first = await run(cancel({ invoiceId: invoice.id, actor }));
+      const replay = await run(cancel({ invoiceId: invoice.id, actor }));
+
+      expect(first.changed).toBe(true);
+      expect(first.record).toMatchObject({
+        invoiceId: invoice.id,
+        cause: "invoice_cancellation",
+        source: "dhw-cli",
+        actor: {
+          accountId: actor.administrator.accountId,
+          email: actor.administrator.email,
+        },
+        notices: {
+          customer: "not_owed",
+          internal: "processing",
+          needsAttention: false,
+        },
+      });
+      expect(first.record.correctiveDocumentNumber).toMatch(
+        /^WS-OD-\d{4}-\d{6}$/
+      );
+      expect(first.claims).toEqual([
+        { audience: "internal", attemptNumber: 1 },
+      ]);
+      expect(replay).toEqual({
+        changed: false,
+        record: first.record,
+        claims: [],
+      });
+
+      const [after] = await query("select * from invoices where id = $1", [
+        invoice.id,
+      ]);
+      expect(after).toEqual(before!);
+      const reread = await run(
+        Effect.flatMap(InvoiceRepository, (invoices) =>
+          invoices.findById(invoice.id)
+        )
+      );
+      expect(reread).toEqual({
+        ...invoice,
+        cancellation: {
+          cancelledAt: first.record.cancelledAt,
+          cause: "invoice_cancellation",
+          correctiveDocumentNumber: first.record.correctiveDocumentNumber,
+        },
+      });
+      expect(
+        await query(
+          "select count(*)::int as count from corrective_documents where cancelled_invoice_id = $1",
+          [invoice.id]
+        )
+      ).toEqual([{ count: 1 }]);
+    });
+
+    test("decrypts the corrective document that negates the cancelled invoice", async () => {
+      const actor = await makeActor("cancellation-document");
+      const invoice = await issueManualInvoice(actor);
+      const { record } = await run(cancel({ invoiceId: invoice.id, actor }));
+
+      const loaded = await run(
+        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+          Effect.all([
+            cancellations.loadCorrectiveDocument(invoice.id),
+            // An invoice without a cancellation has no corrective document.
+            cancellations.loadCorrectiveDocument(
+              invoiceIdSchema.make(randomUUID())
+            ),
+          ])
+        )
+      );
+
+      expect(loaded[0]).toMatchObject({
+        documentKind: "invoice-cancellation",
+        documentNumber: record.correctiveDocumentNumber,
+        correctedInvoice: {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+        },
+        lines: [{ amount: "-1200" }, { amount: "200" }],
+        total: "-1000",
+        settlement: "refund_due",
+        provenance: { source: "dhw-cli", actor: actor.administrator.email },
+      });
+      expect(loaded[1]).toBeNull();
+    });
+
+    test("allocates one number when concurrent requests cancel the same invoice", async () => {
+      const actor = await makeActor("cancellation-concurrent");
+      const invoice = await issueManualInvoice(actor);
+      const before = await readCorrectiveCounters();
+
+      const results = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          run(cancel({ invoiceId: invoice.id, actor }))
+        )
+      );
+
+      expect(results.filter(({ changed }) => changed)).toHaveLength(1);
+      expect(
+        new Set(results.map(({ record }) => record.correctiveDocumentNumber))
+          .size
+      ).toBe(1);
+      const after = await readCorrectiveCounters();
+      const sequence = (rows: typeof before) =>
+        rows.reduce((total, row) => total + row.last_sequence, 0);
+      expect(sequence(after) - sequence(before)).toBe(1);
+      expect(await readNotices(invoice.id)).toEqual([
+        { audience: "internal", state: "processing", attempt_count: 1 },
+      ]);
+    });
+
+    test("consumes no number and records nothing when the caller's transaction rolls back", async () => {
+      const actor = await makeActor("cancellation-rollback");
+      const invoice = await issueManualInvoice(actor);
+      const before = await readCorrectiveCounters();
+
+      const outcome = await run(
+        Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+          transaction(
+            Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+              cancellations.record({
+                invoiceId: invoice.id,
+                cause: "invoice_cancellation",
+                actor,
+                confirmedCustomerNotice: false,
+              })
+            ).pipe(Effect.andThen(new RolledBack({ reason: "test rollback" })))
+          )
+        ).pipe(Effect.flip)
+      );
+
+      expect(outcome).toBeInstanceOf(RolledBack);
+      expect(await readCorrectiveCounters()).toEqual(before);
+      expect(
+        await query(
+          "select invoice_id from invoice_cancellations where invoice_id = $1",
+          [invoice.id]
+        )
+      ).toEqual([]);
+      const next = await run(cancel({ invoiceId: invoice.id, actor }));
+      const [year] = await readCorrectiveCounters().then((rows) =>
+        rows.filter(
+          (row) =>
+            row.numbering_year ===
+            Number(next.record.correctiveDocumentNumber.slice(6, 10))
+        )
+      );
+      expect(next.record.correctiveDocumentNumber).toBe(
+        `WS-OD-${year!.numbering_year}-${year!.last_sequence
+          .toString()
+          .padStart(6, "0")}`
+      );
+    });
+
+    test("owes the customer a notice only when the invoice email was accepted for them", async () => {
+      const actor = await makeActor("cancellation-sent");
+      const sent = await issueManualInvoice(actor);
+      await run(acceptInvoiceEmail(sent.id, "customer"));
+
+      const stale = await run(
+        cancel({ invoiceId: sent.id, actor }).pipe(Effect.flip)
+      );
+      expect(stale).toMatchObject({
+        _tag: "InvoiceCancellationError",
+        code: "confirmation_stale",
+        invoiceId: sent.id,
+      });
+      expect(await readNotices(sent.id)).toEqual([]);
+      expect(
+        await query(
+          "select invoice_id from invoice_cancellations where invoice_id = $1",
+          [sent.id]
+        )
+      ).toEqual([]);
+
+      const confirmed = await run(
+        cancel({
+          invoiceId: sent.id,
+          actor,
+          confirmedCustomerNotice: true,
+        })
+      );
+      expect(confirmed.claims).toEqual([
+        { audience: "customer", attemptNumber: 1 },
+        { audience: "internal", attemptNumber: 1 },
+      ]);
+      expect(confirmed.record.notices).toEqual({
+        customer: "processing",
+        internal: "processing",
+        needsAttention: false,
+      });
+    });
+
+    test("asks for confirmation while the customer's invoice email is in flight but owes no notice yet", async () => {
+      const actor = await makeActor("cancellation-in-flight");
+      const invoice = await issueManualInvoice(actor);
+      await run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          deliveries.claim({ invoiceId: invoice.id, audience: "customer" })
+        )
+      );
+
+      expect(
+        await run(cancel({ invoiceId: invoice.id, actor }).pipe(Effect.flip))
+      ).toMatchObject({ code: "confirmation_stale" });
+      const confirmed = await run(
+        cancel({ invoiceId: invoice.id, actor, confirmedCustomerNotice: true })
+      );
+      expect(confirmed.claims).toEqual([
+        { audience: "internal", attemptNumber: 1 },
+      ]);
+    });
+
+    test("retries a failed notice and never reclaims an accepted one", async () => {
+      const actor = await makeActor("cancellation-notice-ledger");
+      const invoice = await issueManualInvoice(actor);
+      await run(cancel({ invoiceId: invoice.id, actor }));
+
+      const outcomes = await run(
+        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+          Effect.gen(function* () {
+            const whileClaimed = yield* cancellations.claimNotice({
+              invoiceId: invoice.id,
+              audience: "internal",
+            });
+            yield* cancellations.markNoticeFailed({
+              invoiceId: invoice.id,
+              audience: "internal",
+              attemptNumber: 1,
+              failureCode: "email_send_failed",
+            });
+            const failed = yield* cancellations.find(invoice.id);
+            const retry = yield* cancellations.claimNotice({
+              invoiceId: invoice.id,
+              audience: "internal",
+            });
+            // A superseded attempt's outcome changes nothing.
+            yield* cancellations.markNoticeAccepted({
+              invoiceId: invoice.id,
+              audience: "internal",
+              attemptNumber: 1,
+              providerDeliveryId: EmailDeliveryIdSchema.make("superseded"),
+              acceptedAt: Temporal.Now.instant(),
+            });
+            yield* cancellations.markNoticeAccepted({
+              invoiceId: invoice.id,
+              audience: "internal",
+              attemptNumber: retry!.attemptNumber,
+              providerDeliveryId: EmailDeliveryIdSchema.make("notice-sent"),
+              acceptedAt: Temporal.Now.instant(),
+            });
+            const afterAcceptance = yield* cancellations.claimNotice({
+              invoiceId: invoice.id,
+              audience: "internal",
+            });
+            const accepted = yield* cancellations.find(invoice.id);
+            return {
+              whileClaimed,
+              failed: failed?.notices,
+              retry,
+              afterAcceptance,
+              accepted: accepted?.notices,
+            };
+          })
+        )
+      );
+
+      expect(outcomes).toEqual({
+        whileClaimed: null,
+        failed: {
+          customer: "not_owed",
+          internal: "failed",
+          needsAttention: true,
+        },
+        retry: { audience: "internal", attemptNumber: 2 },
+        afterAcceptance: null,
+        accepted: {
+          customer: "not_owed",
+          internal: "accepted",
+          needsAttention: false,
+        },
+      });
+      expect(
+        await query(
+          `select count(*)::int as count from invoice_cancellation_notice_deliveries
+           where invoice_id = $1 and state = 'accepted'`,
+          [invoice.id]
+        )
+      ).toEqual([{ count: 1 }]);
+    });
+
+    test("claims a late customer notice once, and none for a live invoice", async () => {
+      const actor = await makeActor("cancellation-late-notice");
+      const cancelled = await issueManualInvoice(actor);
+      const live = await issueManualInvoice(actor);
+      await run(cancel({ invoiceId: cancelled.id, actor }));
+
+      const claims = await run(
+        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+          Effect.all([
+            cancellations.claimNotice({
+              invoiceId: cancelled.id,
+              audience: "customer",
+            }),
+            cancellations.claimNotice({
+              invoiceId: cancelled.id,
+              audience: "customer",
+            }),
+          ])
+        )
+      );
+      expect(claims).toEqual([
+        { audience: "customer", attemptNumber: 1 },
+        null,
+      ]);
+
+      const refused = await run(
+        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+          cancellations.claimNotice({
+            invoiceId: live.id,
+            audience: "customer",
+          })
+        ).pipe(Effect.flip)
+      );
+      expect(refused).toBeDefined();
+      expect(await readNotices(live.id)).toEqual([]);
+    });
+
+    test("keeps the actor's email but detaches the deleted account", async () => {
+      const actor = await makeActor("cancellation-actor-deleted");
+      const invoice = await issueManualInvoice(actor);
+      await run(cancel({ invoiceId: invoice.id, actor }));
+
+      await postgres.pool.query('delete from auth."user" where id = $1', [
+        actor.administrator.accountId,
+      ]);
+
+      const record = await run(
+        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+          cancellations.find(invoice.id)
+        )
+      );
+      expect(record?.actor).toEqual({
+        accountId: null,
+        email: actor.administrator.email,
+      });
+    });
+
+    test("rejects every change to an issued corrective document", async () => {
+      const actor = await makeActor("cancellation-immutable");
+      const invoice = await issueManualInvoice(actor);
+      await run(cancel({ invoiceId: invoice.id, actor }));
+
+      for (const statement of [
+        "update corrective_documents set issued_at = issued_at where cancelled_invoice_id = $1",
+        "delete from corrective_documents where cancelled_invoice_id = $1",
+      ]) {
+        const failure = await postgres.pool.query(statement, [invoice.id]).then(
+          () => null,
+          (error: { readonly code?: string }) => error.code
+        );
+        expect(failure).toBe("55000");
+      }
+    });
+
+    test("fails not_found for an unknown invoice", async () => {
+      const actor = await makeActor("cancellation-unknown");
+      const invoiceId = invoiceIdSchema.make(randomUUID());
+
+      expect(
+        await run(cancel({ invoiceId, actor }).pipe(Effect.flip))
+      ).toMatchObject({ code: "not_found", invoiceId });
+    });
+  }
+);

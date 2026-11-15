@@ -13,7 +13,7 @@ import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-cat
 import { getWorkspaceProductTierTitle } from "@/features/checkout/product-catalog.i18n";
 import { type Locale, m } from "@/features/i18n";
 import { findWorkspaceCurrencyDefinition } from "@/shared/money/currencies";
-import { formatMoney } from "@/shared/money/money";
+import { formatMoney, moneyToDecimalString } from "@/shared/money/money";
 import {
   formatInstantDate,
   formatPlainDate,
@@ -188,7 +188,7 @@ export const getInvoicePresentation = (
       ...document.quote.payment.discounts.map(
         ({ amount, discount }): InvoicePresentationLine => ({
           kind: "discount",
-          description: `${copy.discount}: ${discount.label}`,
+          description: getDiscountDescription(copy, discount.label),
           amount: `−${formatMoney(amount, locale)}`,
         })
       ),
@@ -340,6 +340,38 @@ const getSupplierPresentation = (
     document.supplier.contactEmail,
   ],
 });
+
+/**
+ * Each line an invoice states, in order: its description in the document
+ * locale and its exact signed amount as decimal text. A discount line is
+ * negative.
+ */
+export const getInvoiceStatedLines = (
+  document: InvoiceDocument
+): readonly { readonly description: string; readonly amount: string }[] => {
+  if (isManualInvoiceDocument(document)) {
+    return document.lines.map(({ description, price }) => ({
+      description,
+      amount: price,
+    }));
+  }
+
+  const copy = getInvoiceCopy(document.locale);
+  const items = document.quote.items;
+  return [
+    ...getItemLines(document, copy).map(({ description }, index) => ({
+      description,
+      amount: moneyToDecimalString(items[index]!.amount),
+    })),
+    ...document.quote.payment.discounts.map(({ amount, discount }) => ({
+      description: getDiscountDescription(copy, discount.label),
+      amount: moneyToDecimalString({ ...amount, value: -amount.value }),
+    })),
+  ];
+};
+
+const getDiscountDescription = (copy: InvoiceCopy, label: string) =>
+  `${copy.discount}: ${label}`;
 
 const getItemLines = (
   document: Exclude<InvoiceDocument, ManualInvoiceDocument>,

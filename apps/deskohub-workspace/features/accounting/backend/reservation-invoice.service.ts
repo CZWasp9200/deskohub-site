@@ -151,7 +151,7 @@ export class ReservationInvoiceService extends Context.Service<
         }
 
         const invoice =
-          yield* invoices.findByPaymentAttemptId(paymentAttemptId);
+          yield* invoices.findLiveByPaymentAttemptId(paymentAttemptId);
         if (invoice) {
           return { state: "issued" as const, paymentAttemptId };
         }
@@ -182,7 +182,7 @@ export class ReservationInvoiceService extends Context.Service<
           if (!buyer) return;
 
           const existing =
-            yield* invoices.findByPaymentAttemptId(paymentAttemptId);
+            yield* invoices.findLiveByPaymentAttemptId(paymentAttemptId);
           if (!existing) {
             yield* dotypos.updateCustomerBillingDetails(
               source.dotyposCustomerId,

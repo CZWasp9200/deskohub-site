@@ -21,6 +21,7 @@ import {
   type AccountingDocumentSnapshot,
   accountingDocumentSnapshotSchema,
 } from "@/features/accounting/accounting-document-snapshot";
+import { formatCorrectiveDocumentNumber } from "@/features/accounting/corrective-document";
 import { isManualInvoiceDocument } from "@/features/accounting/invoice";
 import {
   makeCoworkInvoiceDocument,
@@ -95,6 +96,10 @@ const invoice = {
   invoiceNumber: document.invoiceNumber,
   issuedAt: Temporal.Instant.from(document.issuedAt),
   document,
+  cancellation: null,
+  archivedAt: null,
+  replacesInvoiceId: null,
+  replacedByInvoiceId: null,
 };
 const source = makeSourceSnapshot(frozenRecipientEmail);
 
@@ -123,6 +128,37 @@ describe("invoice email delivery", () => {
     expect(result).toEqual({ status: "not_issued" });
     expect(sentMessages).toEqual([]);
     expect(harness.claim).not.toHaveBeenCalled();
+  });
+
+  test("never sends, resends or retries the original email of a cancelled invoice", async () => {
+    const sentMessages: EmailMessage[] = [];
+    const cancelledInvoice: Invoice = {
+      ...invoice,
+      cancellation: {
+        cancelledAt: Temporal.Instant.from("2026-11-15T10:00:00Z"),
+        cause: "invoice_cancellation",
+        correctiveDocumentNumber: formatCorrectiveDocumentNumber({
+          year: 2026,
+          sequence: 1,
+        }),
+      },
+    };
+    const harness = makeHarness({ invoice: cancelledInvoice, sentMessages });
+
+    const results = [
+      await runDelivery(harness),
+      await runCustomerResend(harness),
+      await runDeliveryByInvoiceId(harness, cancelledInvoice.id),
+    ];
+
+    expect(results).toEqual([
+      { status: "cancelled" },
+      { status: "cancelled" },
+      { status: "cancelled" },
+    ]);
+    expect(sentMessages).toEqual([]);
+    expect(harness.claim).not.toHaveBeenCalled();
+    expect(harness.claimResend).not.toHaveBeenCalled();
   });
 
   test("sends the same immutable PDF to the frozen recipient and internal copy", async () => {
@@ -338,6 +374,10 @@ describe("invoice email delivery", () => {
       invoiceNumber: manualDocument.invoiceNumber,
       issuedAt: Temporal.Instant.from(manualDocument.issuedAt),
       document: manualDocument,
+      cancellation: null,
+      archivedAt: null,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
     };
     const harness = makeHarness({ invoice: manualInvoice, sentMessages });
 
@@ -381,6 +421,10 @@ describe("invoice email delivery", () => {
       invoiceNumber: manualDocument.invoiceNumber,
       issuedAt: Temporal.Instant.from(manualDocument.issuedAt),
       document: manualDocument,
+      cancellation: null,
+      archivedAt: null,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
     };
 
     await runDeliveryByInvoiceId(
@@ -405,6 +449,10 @@ describe("invoice email delivery", () => {
       invoiceNumber: manualDocument.invoiceNumber,
       issuedAt: Temporal.Instant.from(manualDocument.issuedAt),
       document: manualDocument,
+      cancellation: null,
+      archivedAt: null,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
     };
 
     await runDeliveryByInvoiceId(
@@ -546,7 +594,7 @@ const makeHarness = (options: {
     options.invoice === undefined ? invoice : options.invoice;
   const invoices: IInvoiceRepository = {
     findById: mock(() => Effect.succeed(selectedInvoice)),
-    findByPaymentAttemptId: mock(() =>
+    findLatestByPaymentAttemptId: mock(() =>
       Effect.succeed(
         selectedInvoice && !isManualInvoiceDocument(selectedInvoice.document)
           ? (selectedInvoice as ReservationInvoice)

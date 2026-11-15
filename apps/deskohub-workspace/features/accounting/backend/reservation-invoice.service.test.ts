@@ -644,7 +644,7 @@ const makeHarness = (
       findByPaymentAttemptId: findSnapshot,
     },
     invoices: {
-      findByPaymentAttemptId: findInvoice,
+      findLiveByPaymentAttemptId: findInvoice,
       issue,
     },
     dotypos: {

@@ -45,9 +45,19 @@ export class InvoiceEmailDeliveryError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
+/**
+ * `cancelled`: the invoice is cancelled, so its original email is never sent
+ * again; its cancellation notice replaces it.
+ */
 export type InvoiceEmailDeliveryResult =
   | { readonly status: "not_issued" }
+  | { readonly status: "cancelled" }
   | { readonly status: "delivered"; readonly changed: boolean };
+
+/** A cancelled invoice's original email is never sent, resent or retried. */
+export const isOriginalDeliveryBlocked = (
+  invoice: Pick<Invoice, "cancellation">
+) => invoice.cancellation !== null;
 
 export interface IInvoiceEmailDeliveryService {
   readonly deliverByInvoiceId: (input: {
@@ -224,7 +234,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         "InvoiceEmailDeliveryService.loadDelivery"
       )(function* (paymentAttemptId: string) {
         const invoice = yield* invoices
-          .findByPaymentAttemptId(paymentAttemptId)
+          .findLatestByPaymentAttemptId(paymentAttemptId)
           .pipe(
             Effect.mapError((cause) =>
               deliveryError({
@@ -236,6 +246,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
             )
           );
         if (!invoice) return null;
+        if (isOriginalDeliveryBlocked(invoice)) return "cancelled" as const;
 
         return yield* loadInvoiceDelivery(invoice);
       });
@@ -339,6 +350,9 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           )
         );
         if (!invoice) return { status: "not_issued" } as const;
+        if (isOriginalDeliveryBlocked(invoice)) {
+          return { status: "cancelled" } as const;
+        }
         return yield* loadInvoiceDelivery(invoice).pipe(
           Effect.flatMap(deliverLoaded)
         );
@@ -351,6 +365,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         )(function* ({ paymentAttemptId }) {
           const delivery = yield* loadDelivery(paymentAttemptId);
           if (!delivery) return { status: "not_issued" } as const;
+          if (delivery === "cancelled") return { status: "cancelled" } as const;
           return yield* deliverLoaded(delivery);
         }),
         resendCustomerByPaymentAttemptId: Effect.fn(
@@ -358,6 +373,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         )(function* ({ paymentAttemptId }) {
           const delivery = yield* loadDelivery(paymentAttemptId);
           if (!delivery) return { status: "not_issued" } as const;
+          if (delivery === "cancelled") return { status: "cancelled" } as const;
 
           const changed = yield* deliverAudience({
             invoice: delivery.invoice,

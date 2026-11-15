@@ -95,6 +95,14 @@ const allowedColumns = new Map([
     "administrator login-email snapshot",
   ],
   [
+    "public.invoice_archives.actor_account_email",
+    "administrator login-email snapshot",
+  ],
+  [
+    "public.invoice_cancellations.actor_account_email",
+    "administrator login-email snapshot",
+  ],
+  [
     "public.manual_invoice_actors.actor_account_email",
     "administrator login-email snapshot",
   ],

@@ -1,13 +1,25 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import { and, asc, desc, eq, isNull, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, type SQL, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { Data, Effect, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { accountingDocumentSnapshots, invoices } from "@/db/schema";
+import {
+  accountingDocumentSnapshots,
+  correctiveDocuments,
+  invoiceArchives,
+  invoiceCancellations,
+  invoices,
+} from "@/db/schema";
+import type { CorrectiveDocumentNumber } from "@/features/accounting/corrective-document";
 import {
   decodeInvoiceDocument,
   type InvoiceDocument,
   isManualInvoiceDocument,
 } from "@/features/accounting/invoice";
+import type {
+  InvoiceCancellationCause,
+  InvoiceCancellationFact,
+} from "@/features/accounting/invoice-cancellation";
 import {
   type InvoiceId,
   invoiceIdSchema,
@@ -26,6 +38,7 @@ import type {
   InvoiceMetadata,
   ReservationInvoice,
 } from "./invoice.repository";
+import { isVisibleToCustomer } from "./invoice-visibility-sql";
 
 export class InvoiceStorageError extends Data.TaggedError(
   "InvoiceStorageError"
@@ -50,11 +63,18 @@ export const makeInvoiceReads = Effect.gen(function* () {
   const keys = yield* AccountingSnapshotKeyService;
 
   const loadInvoice = Effect.fn("InvoiceRepository.loadInvoice")(
-    function* (input: { readonly where: SQL; readonly lookupId: string }) {
+    function* (input: {
+      readonly where: SQL;
+      readonly lookupId: string;
+      /** Picks one of several matches: the most recently issued. */
+      readonly latest?: boolean;
+    }) {
+      const order = input.latest ? latestIssuedFirst : [];
       const [metadata] = yield* db
         .select({ keyId: invoices.keyId })
         .from(invoices)
         .where(input.where)
+        .orderBy(...order)
         .limit(1);
 
       if (!metadata) return null;
@@ -79,13 +99,30 @@ export const makeInvoiceReads = Effect.gen(function* () {
           dotyposCustomerId: invoices.dotyposCustomerId,
           invoiceNumber: invoices.invoiceNumber,
           issuedAt: invoices.issuedAt,
+          replacesInvoiceId: invoices.replacesInvoiceId,
+          replacedByInvoiceId: successor.id,
+          cancelledAt: invoiceCancellations.cancelledAt,
+          cancellationCause: invoiceCancellations.cause,
+          correctiveDocumentNumber: correctiveDocuments.documentNumber,
+          archivedAt: invoiceArchives.archivedAt,
           documentJson: decryptAccountingSnapshot(
             invoices.encryptedDocument,
             key.secret
           ),
         })
         .from(invoices)
+        .leftJoin(
+          invoiceCancellations,
+          eq(invoiceCancellations.invoiceId, invoices.id)
+        )
+        .leftJoin(
+          correctiveDocuments,
+          eq(correctiveDocuments.cancelledInvoiceId, invoices.id)
+        )
+        .leftJoin(invoiceArchives, eq(invoiceArchives.invoiceId, invoices.id))
+        .leftJoin(successor, eq(successor.replacesInvoiceId, invoices.id))
         .where(input.where)
+        .orderBy(...order)
         .limit(1)
         .pipe(
           Effect.withTracerEnabled(false),
@@ -138,6 +175,12 @@ export const makeInvoiceReads = Effect.gen(function* () {
         invoiceNumber: document.invoiceNumber,
         issuedAt: row.issuedAt,
         document,
+        cancellation: yield* toCancellationFact(row, input.lookupId),
+        archivedAt: row.archivedAt,
+        replacesInvoiceId: row.replacesInvoiceId,
+        replacedByInvoiceId: row.replacedByInvoiceId
+          ? invoiceIdSchema.make(row.replacedByInvoiceId)
+          : null,
       } satisfies Invoice;
     }
   );
@@ -150,8 +193,28 @@ export const makeInvoiceReads = Effect.gen(function* () {
       })
   );
 
-  const findByPaymentAttemptId = Effect.fn(
-    "InvoiceRepository.findByPaymentAttemptId"
+  /**
+   * The payment attempt's invoice that is not cancelled. A reservation's
+   * invoices form one replacement chain, so it has at most one.
+   */
+  const findLiveByPaymentAttemptId = Effect.fn(
+    "InvoiceRepository.findLiveByPaymentAttemptId"
+  )((paymentAttemptId: string) =>
+    loadInvoice({
+      where: and(
+        eq(
+          invoices.paymentAttemptId,
+          paymentAttemptIdSchema.make(paymentAttemptId)
+        ),
+        isUncancelled
+      )!,
+      lookupId: paymentAttemptId,
+    }).pipe(Effect.map(asReservationInvoice))
+  );
+
+  /** The payment attempt's most recently issued invoice, cancelled or not. */
+  const findLatestByPaymentAttemptId = Effect.fn(
+    "InvoiceRepository.findLatestByPaymentAttemptId"
   )((paymentAttemptId: string) =>
     loadInvoice({
       where: eq(
@@ -159,15 +222,35 @@ export const makeInvoiceReads = Effect.gen(function* () {
         paymentAttemptIdSchema.make(paymentAttemptId)
       ),
       lookupId: paymentAttemptId,
+      latest: true,
     }).pipe(Effect.map(asReservationInvoice))
   );
 
-  /** A reservation has at most one invoice (`invoices_reservation_unique_idx`). */
-  const findByReservationId = Effect.fn(
-    "InvoiceRepository.findByReservationId"
+  /** The reservation's invoice that is not cancelled; at most one exists. */
+  const findLiveByReservationId = Effect.fn(
+    "InvoiceRepository.findLiveByReservationId"
   )((reservationId: WorkspaceReservationId) =>
     loadInvoice({
-      where: eq(invoices.workspaceReservationId, reservationId),
+      where: and(
+        eq(invoices.workspaceReservationId, reservationId),
+        isUncancelled
+      )!,
+      lookupId: reservationId,
+    }).pipe(Effect.map(asReservationInvoice))
+  );
+
+  /**
+   * The tail of the reservation's replacement chain: its latest invoice,
+   * cancelled or not.
+   */
+  const findLatestByReservationId = Effect.fn(
+    "InvoiceRepository.findLatestByReservationId"
+  )((reservationId: WorkspaceReservationId) =>
+    loadInvoice({
+      where: and(
+        eq(invoices.workspaceReservationId, reservationId),
+        isChainTail
+      )!,
       lookupId: reservationId,
     }).pipe(Effect.map(asReservationInvoice))
   );
@@ -217,7 +300,8 @@ export const makeInvoiceReads = Effect.gen(function* () {
       // `and` of defined conditions is never undefined.
       where: and(
         eq(invoices.id, invoiceId),
-        eq(invoices.dotyposCustomerId, dotyposCustomerId)
+        eq(invoices.dotyposCustomerId, dotyposCustomerId),
+        isVisibleToCustomer()
       )!,
       lookupId: invoiceId,
     });
@@ -228,7 +312,12 @@ export const makeInvoiceReads = Effect.gen(function* () {
       const rows = yield* db
         .select({ id: invoices.id })
         .from(invoices)
-        .where(eq(invoices.dotyposCustomerId, dotyposCustomerId))
+        .where(
+          and(
+            eq(invoices.dotyposCustomerId, dotyposCustomerId),
+            isVisibleToCustomer()
+          )
+        )
         .orderBy(desc(invoices.issuedAt), desc(invoices.invoiceNumber));
       const loaded = yield* Effect.all(
         rows.map(({ id }) =>
@@ -289,9 +378,11 @@ export const makeInvoiceReads = Effect.gen(function* () {
 
   return {
     findById,
-    findByPaymentAttemptId,
-    findByReservationId,
     findForCustomer,
+    findLatestByPaymentAttemptId,
+    findLatestByReservationId,
+    findLiveByPaymentAttemptId,
+    findLiveByReservationId,
     list,
     listForCustomer,
     listManualInvoiceProvenance,
@@ -301,7 +392,56 @@ export const makeInvoiceReads = Effect.gen(function* () {
 
 const decodeInvoiceId = Schema.decodeUnknownOption(invoiceIdSchema);
 
-const asReservationInvoice = (invoice: Invoice | null) =>
+/** A later invoice of the same chain that replaces the read one. */
+const successor = alias(invoices, "successor");
+
+const latestIssuedFirst = [
+  desc(invoices.issuedAt),
+  desc(invoices.numberingYear),
+  desc(invoices.numberingSequence),
+];
+
+/** No cancellation is recorded for the invoice. */
+const isUncancelled = sql`not exists (select 1 from ${invoiceCancellations} where ${invoiceCancellations.invoiceId} = ${invoices.id})`;
+
+/** No later invoice replaces the invoice: it is its chain's tail. */
+const chainSuccessor = sql.identifier("chain_successor");
+const isChainTail = sql`not exists (select 1 from ${invoices} ${chainSuccessor} where ${chainSuccessor}.${sql.identifier(invoices.replacesInvoiceId.name)} = ${invoices.id})`;
+
+/**
+ * A cancellation and its corrective document are recorded together, so a
+ * cancelled invoice without its document number is corrupt.
+ */
+const toCancellationFact = Effect.fn("InvoiceRepository.toCancellationFact")(
+  function* (
+    row: {
+      readonly cancelledAt: Temporal.Instant | null;
+      readonly cancellationCause: InvoiceCancellationCause | null;
+      readonly correctiveDocumentNumber: CorrectiveDocumentNumber | null;
+    },
+    lookupId: string
+  ) {
+    if (row.cancelledAt === null) return null;
+    if (
+      row.cancellationCause === null ||
+      row.correctiveDocumentNumber === null
+    ) {
+      return yield* new InvoiceStorageError({
+        operation: "validate",
+        paymentAttemptId: lookupId,
+        message: "Invoice cancellation has no corrective document.",
+      });
+    }
+    return {
+      cancelledAt: row.cancelledAt,
+      cause: row.cancellationCause,
+      correctiveDocumentNumber: row.correctiveDocumentNumber,
+    } satisfies InvoiceCancellationFact;
+  }
+);
+
+/** The invoice when it is a reservation invoice, else `null`. */
+export const asReservationInvoice = (invoice: Invoice | null) =>
   invoice && !isManualInvoiceDocument(invoice.document)
     ? ({ ...invoice, document: invoice.document } as ReservationInvoice)
     : null;
