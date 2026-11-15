@@ -33,7 +33,7 @@ export const resendRequestTimeouts = {
 
 /** The Resend request timeouts of the deployment `VERCEL_ENV` names. */
 export const deploymentResendRequestTimeouts = Effect.gen(function* () {
-  const environment = yield* Config.option(Config.string("VERCEL_ENV"));
+  const environment = yield* Config.option(Config.String("VERCEL_ENV"));
   return Option.contains(environment, "production")
     ? resendRequestTimeouts.production
     : resendRequestTimeouts.nonProduction;

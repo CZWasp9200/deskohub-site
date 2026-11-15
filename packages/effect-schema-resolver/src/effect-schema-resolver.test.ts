@@ -29,7 +29,6 @@ import { describe, expect, test } from "bun:test";
 import {
   Context,
   Effect,
-  Option,
   Schema,
   SchemaGetter,
   SchemaIssue,
@@ -292,15 +291,16 @@ describe("effectSchemaResolver", () => {
     const schema = Schema.Struct({
       code: Schema.String.pipe(
         Schema.decodeTo(Schema.String, {
-          decode: SchemaGetter.transformOrFail((code: string) =>
+          decode: SchemaGetter.transformEffect((code: string) =>
             Effect.sleep("1 millis").pipe(
               Effect.andThen(
                 code === "valid"
                   ? Effect.succeed(code.toUpperCase())
                   : Effect.fail(
-                      new SchemaIssue.InvalidValue(Option.some(code), {
-                        message: "Unknown code.",
-                      })
+                      new SchemaIssue.InvalidValue(
+                        { message: "Unknown code." },
+                        code
+                      )
                     )
               )
             )
@@ -357,13 +357,14 @@ describe("effectSchemaResolver", () => {
     const schema = Schema.Struct({
       username: Schema.String.pipe(
         Schema.decodeTo(Schema.String, {
-          decode: SchemaGetter.transformOrFail((username: string) =>
+          decode: SchemaGetter.transformEffect((username: string) =>
             ReservedNames.use((reserved) =>
               reserved.has(username)
                 ? Effect.fail(
-                    new SchemaIssue.InvalidValue(Option.some(username), {
-                      message: "That name is taken.",
-                    })
+                    new SchemaIssue.InvalidValue(
+                      { message: "That name is taken." },
+                      username
+                    )
                   )
                 : Effect.succeed(username)
             )

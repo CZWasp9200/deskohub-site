@@ -200,7 +200,7 @@ export function makeTaggedAssetLister(
           fetchTagList(tag).pipe(
             Effect.map((entries) => [tag, entries] as const)
           ),
-        { concurrency: "inherit" }
+        { concurrency: "unbounded" }
       )
     );
     const entries = selectEntries(groups, lists).sort(

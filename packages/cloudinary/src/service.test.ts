@@ -1539,6 +1539,22 @@ describe("CloudinaryService tag lists", () => {
     }
   });
 
+  test("requests every tag's list at once", async () => {
+    tagListReplies = { a: ["hang"], b: ["hang"], c: ["hang"] };
+
+    const service = await makeService();
+    const lookup = Effect.runFork(
+      service.listTaggedAssets([["a"], ["b"], ["c"]])
+    );
+    const deadline = Date.now() + 1000;
+    while (tagListRequests.length < 3 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    await Effect.runPromise(Fiber.interrupt(lookup));
+
+    expect([...tagListRequests].sort()).toEqual(["a", "b", "c"]);
+  });
+
   test("treats a 404 list for an unused tag as empty without retrying", async () => {
     tagListReplies = {
       gallery: [tagList(listEntry("gallery/a", "2026-01-01T00:00:00Z"))],

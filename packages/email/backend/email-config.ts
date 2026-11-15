@@ -10,7 +10,7 @@ export const makeEmailConfigLayer = (
     EmailConfigTag,
     Config.all({
       defaultFrom,
-      apiKey: Config.option(Config.string("EMAIL_API_KEY")),
+      apiKey: Config.option(Config.String("EMAIL_API_KEY")),
     }).pipe(
       Config.map(
         ({ defaultFrom, apiKey }): EmailConfig => ({
