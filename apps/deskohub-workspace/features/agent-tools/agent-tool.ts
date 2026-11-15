@@ -21,6 +21,7 @@ import {
   type SignedInAgentToolRequirements,
   type SignedInAgentToolServices,
 } from "./customer-agent-caller";
+import { toClosedStandardJSONSchemaV1 } from "@/shared/utils/closed-json-schema";
 
 /**
  * Who may call a tool. A signed-in tool also names the OAuth scope the
@@ -248,8 +249,8 @@ const makeAgentTool = <
     }),
     unavailableCode: definition.unavailableCode,
     ...(definition.view && { view: definition.view }),
-    input: Schema.toStandardJSONSchemaV1(definition.input),
-    output: Schema.toStandardJSONSchemaV1(
+    input: toClosedStandardJSONSchemaV1(definition.input),
+    output: toClosedStandardJSONSchemaV1(
       Schema.toStandardSchemaV1(
         Schema.Union([
           definition.output,

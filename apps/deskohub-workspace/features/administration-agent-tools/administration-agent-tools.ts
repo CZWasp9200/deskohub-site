@@ -43,6 +43,7 @@ import {
   type AdministrationApiRequest,
 } from "./administration-api-client";
 import { assistantAccessEnded } from "./administration-assistant-refusal";
+import { toClosedStandardJSONSchemaV1 } from "@/shared/utils/closed-json-schema";
 
 type Behavior = AdministrationOperationBehavior["Service"];
 
@@ -180,9 +181,7 @@ const argumentSchema = (
   properties.length === 0
     ? Schema.Record(Schema.String, Schema.Never)
     : Schema.make<Schema.Top>(
-        new SchemaAST.Objects(properties, [], {
-          parseOptions: { onExcessProperty: "error" },
-        })
+        new SchemaAST.Objects(properties, [])
       );
 
 const confirmProperty = new SchemaAST.PropertySignature(
@@ -346,7 +345,7 @@ const outputSchema = ({
             : []),
         ]
       : [result];
-  return Schema.toStandardJSONSchemaV1(
+  return toClosedStandardJSONSchemaV1(
     Schema.toStandardSchemaV1(
       Schema.Union([...successes, administrationAgentToolErrorResultSchema])
     )
@@ -967,7 +966,7 @@ export const makeAdministrationAgentTools = (
     destructive: tool.behavior.kind === "destructive",
     idempotent: tool.behavior.idempotent,
     unavailableCode: "administration_unavailable",
-    input: Schema.toStandardJSONSchemaV1(tool.input),
+    input: toClosedStandardJSONSchemaV1(tool.input),
     output: tool.output,
     call: (args, caller = Option.none<CustomerAgentCaller>()) =>
       Option.match(caller, {
