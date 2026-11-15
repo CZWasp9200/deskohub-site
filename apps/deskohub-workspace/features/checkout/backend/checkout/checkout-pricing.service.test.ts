@@ -7,6 +7,7 @@ import { Effect, Layer, Schema } from "effect";
 import { makeDiscountCommitment } from "@/features/discounts/commitment";
 import {
   affirmedDiscountAdvertisementQuoteCodec,
+  type CanonicalPromotionCode,
   canonicalPromotionCodeSchema,
   type DiscountAdvertisementInput,
   discountAdvertisementQuoteCodec,
@@ -49,6 +50,9 @@ const contact = {
 const bookedAt = Temporal.Instant.from("2099-06-01T10:00:00Z");
 const saleId = Schema.decodeUnknownSync(discountIdSchema)("autumn-sale");
 const extraId = Schema.decodeUnknownSync(discountIdSchema)("extra");
+const queryCode = Schema.decodeUnknownSync(canonicalPromotionCodeSchema)(
+  "AUTUMN"
+);
 const dotyposCustomerId = Schema.decodeUnknownSync(dotyposCustomerIdSchema)(
   "customer-id"
 );
@@ -430,10 +434,12 @@ describe("CheckoutPricingService.quoteForCustomer", () => {
   describe.each(families)("$kind", (family) => {
     /**
      * Affirms the advertised sale at submission, kept or gone, then quotes
-     * the reservation for its customer.
+     * the reservation for its customer. With `advertisedCode`, the sale is
+     * the discount of the query code the page advertised.
      */
     const quoteForCustomer = async (input: {
       readonly advertisedSaleGone?: boolean;
+      readonly advertisedCode?: CanonicalPromotionCode;
       readonly applyCustomerDiscount: Parameters<
         typeof DiscountServiceMock
       >[0]["applyCustomerDiscount"];
@@ -451,6 +457,18 @@ describe("CheckoutPricingService.quoteForCustomer", () => {
                 bookedAt,
               })
               .pipe(
+                Effect.map((advertisementVerdict) =>
+                  input.advertisedCode === undefined
+                    ? advertisementVerdict
+                    : {
+                        ...advertisementVerdict,
+                        priced: {
+                          ...advertisementVerdict.priced,
+                          submittedCode: input.advertisedCode,
+                          submittedCodeDiscountId: saleId,
+                        },
+                      }
+                ),
                 Effect.flatMap((advertisementVerdict) =>
                   pricing.quoteForCustomer({
                     advertisement: advertisementVerdict,
@@ -556,8 +574,36 @@ describe("CheckoutPricingService.quoteForCustomer", () => {
       });
     });
 
-    test("reports a changed price when full validation moves the advertised code", async () => {
+    test("keeps an advertised query code that passes full validation", async () => {
+      const { applyCustomerDiscount, result } = await quoteForCustomer({
+        advertisedCode: queryCode,
+        applyCustomerDiscount: ({ affirmedAdvertisement }) =>
+          Effect.succeed({
+            ...affirmedAdvertisement,
+            advertisedPriceChanged: false,
+            submittedCodeDiscountId: saleId,
+          }),
+      });
+
+      expect(applyCustomerDiscount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          submittedCode: queryCode,
+          submittedCodeDiscountId: saleId,
+        })
+      );
+      expect(result).toMatchObject({
+        _tag: "Success",
+        success: {
+          status: "affirmed",
+          priced: { submittedCode: queryCode, submittedCodeDiscountId: saleId },
+        },
+      });
+      expect(result).not.toHaveProperty("success.changedKeys");
+    });
+
+    test("reports a changed price without the advertised query code when full validation drops it", async () => {
       const { result } = await quoteForCustomer({
+        advertisedCode: queryCode,
         applyCustomerDiscount: ({ affirmedAdvertisement }) =>
           Effect.succeed({
             ...discountQuoteCodec.make(noSale(affirmedAdvertisement)),
@@ -573,6 +619,10 @@ describe("CheckoutPricingService.quoteForCustomer", () => {
           changedKeys: family.changedKeys,
         },
       });
+      expect(result).not.toHaveProperty("success.priced.submittedCode");
+      expect(result).not.toHaveProperty(
+        "success.priced.submittedCodeDiscountId"
+      );
     });
 
     test("keeps an unknown discount a retryable failure, never a changed price", async () => {
