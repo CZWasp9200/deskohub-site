@@ -26,7 +26,7 @@ export function InAppLegalPage({ locale, documentKey }: InAppLegalPageProps) {
     <main className="min-h-screen bg-[#f8f5ef] px-5 pt-4 pb-5 break-words text-navy-blue">
       <div className="mx-auto max-w-3xl">
         <div className="space-y-2 pt-2">
-          <h1 className="text-[1.625rem] leading-8 font-bold! tracking-[-0.3px]">
+          <h1 className="text-[1.625rem] leading-8 tracking-[-0.3px] [--font-heading-weight:700]">
             {document.title}
           </h1>
           <p className="text-xs font-medium text-[#4a5a72]">

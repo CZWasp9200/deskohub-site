@@ -19,8 +19,8 @@ export function LegalDocumentSections({
     },
     "in-app": {
       section: "space-y-4",
-      // The global heading weight is unlayered, so only `!` overrides it.
-      heading: "pt-2 text-[1.0625rem] leading-6 font-semibold!",
+      // Headings take their weight from the brand's heading weight.
+      heading: "pt-2 text-[1.0625rem] leading-6 [--font-heading-weight:600]",
       body: "space-y-4",
     },
   }[variant];
