@@ -1,6 +1,7 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bytea,
   check,
   foreignKey,
@@ -46,7 +47,8 @@ export const invoices = pgTable(
      */
     replacesInvoiceId: text("replaces_invoice_id")
       .$type<InvoiceId>()
-      .references(() => invoiceCancellations.invoiceId),
+      // Annotated: the cancellation table references this one back.
+      .references((): AnyPgColumn => invoiceCancellations.invoiceId),
   },
   (t) => [
     check(

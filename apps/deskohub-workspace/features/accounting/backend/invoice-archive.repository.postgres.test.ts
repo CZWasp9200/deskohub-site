@@ -1,13 +1,17 @@
 import "@/shared/testing/workspace-test-env";
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { InvoiceRepository } from "./invoice.repository";
 import { InvoiceArchiveRepository } from "./invoice-archive.repository";
 import { makeInvoiceCancellationTestKit } from "./invoice-cancellation.test-utils";
 
-const testDatabase = await connectWorkspacePostgresTestDatabase();
+// Cancellations pin their invoices, which suites sharing the configured
+// database delete, so the suite owns its database.
+const testDatabase =
+  await createWorkspacePostgresSuiteDatabase("invoice_archive");
+afterAll(() => testDatabase?.close());
 // The kit only touches the database when a test calls it.
 const { cancel, issueManualInvoice, makeActor, query, run } =
   makeInvoiceCancellationTestKit(testDatabase!);
