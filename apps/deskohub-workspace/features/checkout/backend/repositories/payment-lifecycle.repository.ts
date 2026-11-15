@@ -864,8 +864,12 @@ export class PaymentLifecycleRepository extends Context.Service<
     })
   );
 
-  /** `Default` over the accounting storage; the database comes from context. */
-  static Live = this.Default.pipe(Layer.provide(AccountingStorage.Live));
+  /** `Default` over the accounting storage and the Workspace database. */
+  static Live = this.Default.pipe(
+    Layer.provide(
+      Layer.merge(AccountingStorage.Live, WorkspaceDatabase.Default)
+    )
+  );
 }
 
 /** Reads the reservation's customer, whose first-booking lock comes next. */
