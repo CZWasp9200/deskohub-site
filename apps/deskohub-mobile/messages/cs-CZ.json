@@ -571,5 +571,6 @@
   "booking_restart_availability_changed": "Tvůj výběr už není dostupný, takže začínáme znovu. Vyber prosím jiný termín.",
   "booking_restart_price_changed": "Nabídka se mezitím změnila, takže začínáme znovu s aktuální cenou.",
   "booking_restart_selection_unavailable": "Tvůj výběr v této podobě nejde rezervovat, takže začínáme znovu. Uprav ho a pokračuj.",
-  "booking_restart_checkout_not_found": "Tvou rozpracovanou rezervaci jsme už nenašli, takže začínáme znovu."
+  "booking_restart_checkout_not_found": "Tvou rozpracovanou rezervaci jsme už nenašli, takže začínáme znovu.",
+  "navigation_back": "Zpět"
 }

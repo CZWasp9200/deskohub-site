@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { Platform } from "react-native";
 import { color as palette } from "./tokens";
 
 /**
@@ -11,6 +12,7 @@ export type IconComponent = ComponentType<{
   readonly strokeWidth?: number;
   readonly "aria-hidden"?: boolean;
   readonly accessible?: boolean;
+  readonly accessibilityElementsHidden?: boolean;
   readonly importantForAccessibility?: "no-hide-descendants";
 }>;
 
@@ -22,6 +24,17 @@ export type IconSize = 14 | 16 | 18 | 20 | 24 | 26 | 28 | 30 | 32;
  * Icons are decorative: the control or text beside one carries its meaning,
  * so the icon is hidden from assistive technology.
  */
+// The web's SVG element takes ARIA; native views take React Native's own
+// props, which the DOM would reject as unknown attributes.
+const hiddenFromAssistiveTech = Platform.select({
+  web: { "aria-hidden": true },
+  default: {
+    accessible: false,
+    accessibilityElementsHidden: true,
+    importantForAccessibility: "no-hide-descendants",
+  },
+} as const);
+
 export function Icon({
   icon: Glyph,
   size = 24,
@@ -36,9 +49,7 @@ export function Icon({
       size={size}
       color={color}
       strokeWidth={2}
-      aria-hidden
-      accessible={false}
-      importantForAccessibility="no-hide-descendants"
+      {...hiddenFromAssistiveTech}
     />
   );
 }

@@ -77,6 +77,8 @@ export const color = {
 
 /** Corner radii. */
 export const radius = {
+  /** Checkboxes. */
+  checkbox: 6,
   /** Icon tiles and code boxes. */
   tile: 12,
   /** Badges. */
@@ -134,6 +136,8 @@ export const shadow = {
   sheet: { boxShadow: "0 -12px 32px -12px rgba(0, 2, 79, 0.35)" },
   toast: { boxShadow: "0 10px 24px -8px rgba(0, 2, 79, 0.5)" },
   toastConfirmation: { boxShadow: "0 10px 24px -8px rgba(0, 81, 62, 0.55)" },
+  /** The pull-to-refresh disc. */
+  refresh: { boxShadow: "0 2px 8px rgba(0, 2, 79, 0.25)" },
 } as const;
 
 /** The brand face's family name on this platform. */
@@ -177,14 +181,24 @@ export const typeScale = {
   body: brandText(16, 24, 400),
   /** Row and choice titles. */
   bodyStrong: brandText(16, 22, 600),
+  /** Dialog bodies and masthead subtitles. */
+  lead: brandText(15, 22, 400),
+  /** Section headers and notice titles. */
+  subhead: brandText(15, 20, 600),
+  /** A list row's value beside its label. */
+  rowValue: brandText(15, 24, 400),
   /** Supporting text and row descriptions. */
   bodySmall: brandText(14, 20, 400),
   /** Field labels. */
   label: brandText(14, 20, 600),
   /** Step counters and helper lines. */
   hint: brandText(13, 18, 400),
-  /** Badges and counters. */
+  /** Field errors and a footer's error message. */
+  hintStrong: brandText(13, 18, 500),
+  /** Counters and helper captions. */
   caption: brandText(12, 16, 500),
+  /** Badge labels. */
+  badge: brandText(12, 16, 600),
   /** Button labels. */
   button: brandText(16, 20, 600),
   /** Small button labels. */

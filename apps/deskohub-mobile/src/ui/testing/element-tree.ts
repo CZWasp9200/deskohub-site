@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { type StyleProp, StyleSheet, type ViewStyle } from "react-native";
 
 export type HostProps = Readonly<Record<string, unknown>> & {
   readonly children?: ReactNode;
@@ -120,3 +121,9 @@ export const find = <Props = HostProps>(
   node: ReactNode,
   type: string | JSXElementConstructor<Props>
 ): ReactElement<Props> | undefined => findAll(node, type)[0];
+
+/** An element's `style` prop merged as React Native merges it, for asserting on. */
+export const flatStyle = (style: unknown): Readonly<Record<string, unknown>> =>
+  ({ ...StyleSheet.flatten(style as StyleProp<ViewStyle>) }) as Readonly<
+    Record<string, unknown>
+  >;

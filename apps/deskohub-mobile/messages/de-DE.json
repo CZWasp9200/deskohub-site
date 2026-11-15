@@ -571,5 +571,6 @@
   "booking_restart_availability_changed": "Deine Auswahl ist nicht mehr verfügbar, wir starten neu. Wähle bitte einen anderen Termin.",
   "booking_restart_price_changed": "Das Angebot hat sich geändert, wir starten neu mit dem aktuellen Preis.",
   "booking_restart_selection_unavailable": "Deine Auswahl ist so nicht reservierbar, wir starten neu. Ändere sie und fahre fort.",
-  "booking_restart_checkout_not_found": "Deine begonnene Reservierung ist nicht mehr da, wir starten neu."
+  "booking_restart_checkout_not_found": "Deine begonnene Reservierung ist nicht mehr da, wir starten neu.",
+  "navigation_back": "Zurück"
 }

@@ -1,20 +1,30 @@
+import Lock from "lucide-react-native/icons/lock";
 import { Children, type ReactNode, type Ref, useId, useState } from "react";
 import {
   Pressable,
   StyleSheet,
   type TextInputInstance,
   type TextInputProps,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { theme } from "../theme";
-import { fieldErrorPresentation } from "./field-error-presentation";
+import {
+  FieldLabel,
+  FieldMessages,
+  fieldColumnStyle,
+  fieldDescription,
+  fieldFrameState,
+  fieldFrameStyles,
+  fieldIconColor,
+  fieldInkColor,
+} from "./field";
 import { Icon, type IconComponent } from "./icon";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { LoadingIndicator } from "./loading-indicator";
 import { Text, TextInput } from "./text";
 import { textFieldSubmit } from "./text-field-submit";
-import { color, radius, shadow, space, touchTarget } from "./tokens";
+import { color, radius, shadow, space, touchTarget, typeScale } from "./tokens";
 
 /**
  * A centred screen with a heading. Its content keeps to a readable width;
@@ -34,7 +44,7 @@ export function Screen({
       <View
         style={[styles.content, align === "center" && styles.centeredContent]}
       >
-        <Text role="heading" style={styles.title}>
+        <Text role="heading" variant="titleLarge">
           {title}
         </Text>
         {children}
@@ -44,7 +54,11 @@ export function Screen({
 }
 
 export function BodyText({ children }: { readonly children: ReactNode }) {
-  return <Text style={styles.body}>{children}</Text>;
+  return (
+    <Text variant="body" tone="muted">
+      {children}
+    </Text>
+  );
 }
 
 /** What a button does, by look: see `Button`. */
@@ -136,6 +150,9 @@ export function Button({
         textOnly && buttonStyles.textOnly,
         width === "full" ? buttonStyles.fullWidth : buttonStyles.contentWidth,
         buttonStyles[variant],
+        // The raised lighting of a filled button goes while it is pressed or
+        // disabled; a later style can't unset a shadow, so it is added only here.
+        !(pressed || disabled) && buttonShadow[variant],
         pressed && !disabled && !busy && buttonPressedStyles[variant],
         disabled && !textOnly && buttonDisabledStyle(variant),
         focused && buttonStyles.focused,
@@ -183,14 +200,21 @@ export function Button({
  * stack instead.
  */
 export function ButtonRow({ children }: { readonly children: ReactNode }) {
+  // A button's label grows with the system font size, so the width at which
+  // two buttons still share a row grows with it too.
+  const { fontScale } = useWindowDimensions();
+  const item = { flexBasis: buttonRowItemWidth * fontScale, flexGrow: 1 };
   return (
     <View style={buttonStyles.row}>
       {Children.map(children, (child) =>
-        child ? <View style={buttonStyles.rowItem}>{child}</View> : null
+        child ? <View style={item}>{child}</View> : null
       )}
     </View>
   );
 }
+
+/** The narrowest a button in a row gets at the default font size. */
+const buttonRowItemWidth = 136;
 
 const buttonStyles = StyleSheet.create({
   base: {
@@ -209,18 +233,18 @@ const buttonStyles = StyleSheet.create({
   fullWidth: { alignSelf: "stretch" },
   contentWidth: { alignSelf: "flex-start" },
   label: { flexShrink: 1, textAlign: "center" },
-  primary: { backgroundColor: color.action, ...shadow.primary },
+  primary: { backgroundColor: color.action },
   secondary: {
     backgroundColor: color.surface,
     borderColor: color.outline,
     borderWidth: 1,
   },
-  danger: { backgroundColor: color.danger, ...shadow.danger },
+  danger: { backgroundColor: color.danger },
   text: { backgroundColor: "transparent" },
   quiet: { backgroundColor: "transparent" },
   dangerText: { backgroundColor: "transparent" },
   inverse: { backgroundColor: color.surface },
-  disabled: { backgroundColor: color.disabled, boxShadow: undefined },
+  disabled: { backgroundColor: color.disabled },
   secondaryDisabled: { borderColor: color.disabled },
   focused: {
     outlineColor: color.action,
@@ -232,8 +256,12 @@ const buttonStyles = StyleSheet.create({
   reason: { textAlign: "center" },
   reasonHidden: { display: "none" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  rowItem: { flexBasis: 136, flexGrow: 1 },
 });
+
+const buttonShadow: Partial<Record<ButtonVariant, object>> = {
+  primary: shadow.primary,
+  danger: shadow.danger,
+};
 
 const buttonDisabledStyle = (variant: ButtonVariant) =>
   variant === "secondary"
@@ -245,13 +273,11 @@ const textPressed = { backgroundColor: "rgba(0, 2, 79, 0.06)" } as const;
 const buttonPressedStyles = StyleSheet.create({
   primary: {
     backgroundColor: color.actionPressed,
-    boxShadow: undefined,
     transform: [{ translateY: 1 }],
   },
   secondary: { backgroundColor: color.sunken },
   danger: {
     backgroundColor: color.dangerInk,
-    boxShadow: undefined,
     transform: [{ translateY: 1 }],
   },
   text: textPressed,
@@ -261,25 +287,43 @@ const buttonPressedStyles = StyleSheet.create({
 }) satisfies Record<ButtonVariant, object>;
 
 /**
- * A labelled text input. With an `error` the input turns invalid and shows
- * the error beneath it, in a live region that stays mounted so assistive
- * tech announces each new error, and in the input's description, so it is
- * read again when the input gains focus.
+ * A labelled text input: the label above, a 52 dp outlined frame that rings
+ * orange on focus, and a hint below. With an `error` the frame rings crimson
+ * and the error, with its icon, replaces the hint. The error shows in a live
+ * region that stays mounted so assistive tech announces each new error, and
+ * in the input's description, so it is read again when the input gains
+ * focus. `readOnly` shows a sunken frame with a lock; `disabled` greys it.
  */
 export function TextField({
   label,
+  hint,
   error,
+  readOnly = false,
+  disabled = false,
+  leadingIcon,
+  trailingIcon,
   autoCapitalize = "none",
+  editable,
+  onBlur,
   onSubmitEditing,
   ...input
 }: {
   readonly label: string;
+  /** Help under the field, such as the format it expects. */
+  readonly hint?: string;
   readonly error?: string;
+  /** Shows a value the customer can't change here, such as the login email. */
+  readonly readOnly?: boolean;
+  readonly disabled?: boolean;
+  readonly leadingIcon?: IconComponent;
+  /** An icon at the end of the frame; a read-only field shows a lock. */
+  readonly trailingIcon?: IconComponent;
   /** Lets a form focus the field, such as its first invalid one. */
   readonly ref?: Ref<TextInputInstance>;
 } & Pick<
   TextInputProps,
   | "value"
+  | "placeholder"
   | "onChangeText"
   | "onSubmitEditing"
   | "onBlur"
@@ -293,37 +337,51 @@ export function TextField({
   | "autoFocus"
   | "editable"
 >) {
+  const [focused, setFocused] = useState(false);
+  const hintId = useId();
   const errorId = useId();
-  const { invalid, description, role, live, idleLayout } =
-    fieldErrorPresentation(error);
-  useLiveRegionAnnouncement(description, live);
+  const messages = { hint, hintId, error, errorId };
+  const description = fieldDescription(messages);
+  const state = fieldFrameState({
+    disabled,
+    readOnly,
+    invalid: description.invalid,
+    focused,
+  });
+  const typeable = editable !== false && !readOnly && !disabled;
+  const trailing = trailingIcon ?? (readOnly ? Lock : undefined);
+  const iconColor = fieldIconColor(state);
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        aria-label={label}
-        // Native platforms read the hint; the web reads `aria-describedby`
-        // and `aria-invalid`, which react-native-web maps and RN ignores.
-        accessibilityHint={description}
-        aria-describedby={invalid ? errorId : undefined}
-        aria-invalid={invalid}
-        autoCapitalize={autoCapitalize}
-        autoCorrect={false}
-        style={[styles.input, invalid && styles.invalidInput]}
-        placeholderTextColor={theme.colors.textMuted}
-        {...input}
-        onSubmitEditing={textFieldSubmit(input.editable, onSubmitEditing)}
-      />
-      <Text
-        id={errorId}
-        role={role}
-        aria-live={live}
-        // Text doesn't map `aria-live` to Android's live region; View does.
-        accessibilityLiveRegion={live}
-        style={idleLayout ?? styles.fieldError}
-      >
-        {description ?? ""}
-      </Text>
+    <View style={fieldColumnStyle}>
+      <FieldLabel label={label} />
+      <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
+        {leadingIcon && <Icon icon={leadingIcon} size={20} color={iconColor} />}
+        <TextInput
+          aria-label={label}
+          aria-disabled={disabled}
+          // Native platforms read the hint; the web reads `aria-describedby`
+          // and `aria-invalid`, which react-native-web maps and RN ignores.
+          accessibilityHint={description.hint}
+          aria-describedby={description.describedBy}
+          aria-invalid={description.invalid}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={false}
+          style={[styles.input, { color: fieldInkColor(state) }]}
+          placeholderTextColor={color.ink3}
+          {...input}
+          editable={typeable}
+          onFocus={() => setFocused(true)}
+          onBlur={(event) => {
+            setFocused(false);
+            onBlur?.(event);
+          }}
+          onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}
+        />
+        {trailing && (
+          <Icon icon={trailing} size={readOnly ? 18 : 20} color={iconColor} />
+        )}
+      </View>
+      <FieldMessages {...messages} />
     </View>
   );
 }
@@ -347,7 +405,8 @@ export function LiveMessage({
       aria-live={role === "alert" ? "assertive" : "polite"}
       // Text doesn't map `aria-live` to Android's live region; View does.
       accessibilityLiveRegion={role === "alert" ? "assertive" : "polite"}
-      style={role === "alert" ? styles.alert : styles.status}
+      variant="body"
+      tone={role === "alert" ? "danger" : "muted"}
     >
       {message ?? ""}
     </Text>
@@ -355,35 +414,24 @@ export function LiveMessage({
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: theme.colors.background,
-    flex: 1,
-  },
+  screen: { backgroundColor: color.paper, flex: 1 },
   content: {
     alignSelf: "center",
     flex: 1,
-    gap: theme.spacing.md,
+    gap: space.md,
     justifyContent: "center",
     maxWidth: 480,
-    padding: theme.spacing.lg,
+    padding: space.gutter,
     width: "100%",
   },
   centeredContent: { alignItems: "center" },
-  title: { color: theme.colors.text, ...theme.type.title },
-  body: { color: theme.colors.textMuted, ...theme.type.body },
-  field: { gap: theme.spacing.sm },
-  fieldLabel: { color: theme.colors.text, ...theme.type.body },
   input: {
-    borderColor: theme.colors.textMuted,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    color: theme.colors.text,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm + 4,
-    ...theme.type.body,
+    ...typeScale.body,
+    flex: 1,
+    minWidth: 0,
+    // The frame draws the focus ring; the web's own outline would double it.
+    outlineWidth: 0,
+    paddingHorizontal: 0,
+    paddingVertical: space.md,
   },
-  invalidInput: { borderColor: theme.colors.danger },
-  fieldError: { color: theme.colors.danger, ...theme.type.caption },
-  status: { color: theme.colors.textMuted, ...theme.type.body },
-  alert: { color: theme.colors.accent, ...theme.type.body },
 });

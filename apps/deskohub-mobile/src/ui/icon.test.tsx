@@ -20,8 +20,8 @@ describe("Icon", () => {
       height: 24,
       stroke: color.navy,
       strokeWidth: 2,
-      "aria-hidden": true,
       accessible: false,
+      importantForAccessibility: "no-hide-descendants",
     });
   });
 

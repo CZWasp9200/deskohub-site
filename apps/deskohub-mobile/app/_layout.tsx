@@ -8,6 +8,7 @@ import { CustomerDataExitCleanup } from "../src/customer-api/customer-data-exit"
 import { readLaunchLocale } from "../src/i18n/launch-locale";
 import { AppLocaleProvider } from "../src/i18n/locale-context";
 import { useSessionLocale } from "../src/i18n/use-session-locale";
+import { ToastProvider } from "../src/ui/toast";
 import { UpdateBanner } from "../src/updates/update-banner";
 
 // The entry (index.ts) has already taken sign-in secrets out of the address
@@ -40,23 +41,25 @@ export default function RootLayout() {
 
   return (
     <AppLocaleProvider locale={locale} choose={choose}>
-      <AnalyticsRoot>
-        <CustomerDataExitCleanup>
-          {restored && (
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="sign-in" />
-              <Stack.Protected guard={session.status === "signed-in"}>
-                <Stack.Screen name="index" />
-                <Stack.Screen name="(account)" />
-              </Stack.Protected>
-              <Stack.Screen name="auth/callback" />
-              <Stack.Screen name="account-deleted" />
-              <Stack.Screen name="dev/effect-smoke" />
-              <Stack.Screen name="dev/design-system" />
-            </Stack>
-          )}
-        </CustomerDataExitCleanup>
-      </AnalyticsRoot>
+      <ToastProvider>
+        <AnalyticsRoot>
+          <CustomerDataExitCleanup>
+            {restored && (
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="sign-in" />
+                <Stack.Protected guard={session.status === "signed-in"}>
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="(account)" />
+                </Stack.Protected>
+                <Stack.Screen name="auth/callback" />
+                <Stack.Screen name="account-deleted" />
+                <Stack.Screen name="dev/effect-smoke" />
+                <Stack.Screen name="dev/design-system" />
+              </Stack>
+            )}
+          </CustomerDataExitCleanup>
+        </AnalyticsRoot>
+      </ToastProvider>
       <UpdateBanner />
     </AppLocaleProvider>
   );

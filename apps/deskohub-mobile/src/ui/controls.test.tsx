@@ -2,7 +2,6 @@ import { describe, expect, mock, test } from "bun:test";
 import Mail from "lucide-react-native/icons/mail";
 import { type ComponentProps, createRef } from "react";
 import { StyleSheet, type TextInputInstance } from "react-native";
-import { theme } from "../theme";
 import { Button, ButtonRow, TextField } from "./controls";
 import { LoadingIndicator } from "./loading-indicator";
 import { idleLiveRegionLayout } from "./notice-presentation";
@@ -130,21 +129,45 @@ describe("ButtonRow", () => {
     });
     expect(findAll(row, Button)).toHaveLength(2);
   });
+
+  test("each button's share grows with the font size, so large text stacks them", () => {
+    // The test window is 360 wide at the default font size.
+    const row = elementTree(ButtonRow, {
+      children: [<Button key="a" label="a" onPress={() => undefined} />],
+    });
+    const item = findAll(row, "View")[1];
+    expect(StyleSheet.flatten(item?.props.style as never)).toMatchObject({
+      flexBasis: 136,
+      flexGrow: 1,
+    });
+  });
 });
 
-/** The input and the error live region (its only Text with a role). */
+const flat = (style: unknown) =>
+  (StyleSheet.flatten(style as never) ?? {}) as Record<string, unknown>;
+
+/**
+ * The input, its frame (the view around it), the hint, the error live
+ * region (the only Text with a role) and the icons drawn in the field.
+ */
 const field = (props: Partial<ComponentProps<typeof TextField>> = {}) => {
   const tree = hostTree(elementTree(TextField, { label: "label", ...props }));
+  const frame = findAll(tree, "View").find(
+    (view) => find(view, "TextInput") && flat(view.props.style).minHeight
+  );
+  const errorRegion = findAll(tree, "Text").find(
+    (text) => text.props.role !== undefined
+  )?.props;
   return {
     input: find(tree, "TextInput")?.props,
-    errorRegion: findAll(tree, "Text").find(
-      (text) => text.props.role !== undefined
+    frame: flat(frame?.props.style),
+    icons: frame ? findAll(frame, "Svg").length : 0,
+    errorRegion,
+    hint: findAll(tree, "Text").find(
+      (text) => text.props.id !== undefined && text.props !== errorRegion
     )?.props,
   };
 };
-
-const styleEntries = (style: unknown) =>
-  [style].flat().filter((entry) => typeof entry === "object" && !!entry);
 
 describe("TextField", () => {
   test("without an error the field is valid and its live region idles out of the layout", () => {
@@ -154,23 +177,69 @@ describe("TextField", () => {
       expect(input?.accessibilityHint).toBeUndefined();
       expect(input?.["aria-describedby"]).toBeUndefined();
       expect(errorRegion).toBeDefined();
-      expect(errorRegion?.style).toBe(idleLiveRegionLayout);
+      expect(flat(errorRegion?.style)).toMatchObject(idleLiveRegionLayout);
       expect(errorRegion?.children).toBe("");
     }
   });
 
-  test("an error marks the input invalid and describes it", () => {
+  test("an error marks the input invalid, rings the frame crimson and describes it", () => {
     const error = "x";
-    const { input, errorRegion } = field({ error });
+    const { input, frame, errorRegion } = field({ error });
     expect(input?.["aria-invalid"]).toBe(true);
     expect(input?.accessibilityHint).toBe(error);
     expect(errorRegion?.id).toBeString();
     expect(input?.["aria-describedby"]).toBe(errorRegion?.id);
-    expect(styleEntries(input?.style)).toContainEqual({
-      borderColor: theme.colors.danger,
-    });
+    expect(frame).toMatchObject({ borderColor: color.danger, borderWidth: 2 });
     expect(errorRegion?.children).toBe(error);
-    expect(errorRegion?.style).not.toBe(idleLiveRegionLayout);
+    expect(flat(errorRegion?.style).position).toBeUndefined();
+  });
+
+  test("the error replaces the hint and the hint describes a valid field", () => {
+    const valid = field({ hint: "h" });
+    expect(valid.hint?.children).toBe("h");
+    expect(valid.input?.accessibilityHint).toBe("h");
+    expect(valid.input?.["aria-describedby"]).toBe(valid.hint?.id);
+    const invalid = field({ hint: "h", error: "x" });
+    expect(invalid.hint).toBeUndefined();
+    expect(invalid.input?.accessibilityHint).toBe("x");
+  });
+
+  test("the frame is a 52 dp field-outlined box with radius 14", () => {
+    expect(field().frame).toMatchObject({
+      minHeight: 52,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: color.field,
+      backgroundColor: color.surface,
+    });
+    expect(field().input?.placeholderTextColor).toBe(color.ink3);
+  });
+
+  test("read-only is sunken with a lock and not editable", () => {
+    const { input, frame, icons } = field({ readOnly: true });
+    expect(frame.backgroundColor).toBe(color.sunken);
+    expect(icons).toBe(1);
+    expect(input?.editable).toBe(false);
+  });
+
+  test("disabled is greyed, not editable and marked disabled", () => {
+    const { input, frame } = field({ disabled: true });
+    expect(frame.backgroundColor).toBe(color.disabledField);
+    expect(input?.editable).toBe(false);
+    expect(input?.["aria-disabled"]).toBe(true);
+    expect(flat(input?.style).color).toBe(color.disabledInk);
+  });
+
+  test("leading and trailing icons sit inside the frame", () => {
+    expect(field({ leadingIcon: Mail, trailingIcon: Mail }).icons).toBe(2);
+    expect(field().icons).toBe(0);
+  });
+
+  test("an error shows its icon beside the message", () => {
+    const tree = hostTree(
+      elementTree(TextField, { label: "label", error: "x" })
+    );
+    expect(findAll(tree, "Svg")).toHaveLength(1);
   });
 
   test("the error region declares a polite live region, idle or shown", () => {
