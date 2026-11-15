@@ -1,15 +1,20 @@
 import { Effect, Layer } from "effect";
 import {
   CheckoutPricingService,
+  type CustomerQuoteInput,
   type ICheckoutPricingService,
   type PaymentPriceAffirmation,
   type PaymentRepricingInput,
+  type PreparedCustomerQuote,
 } from "./checkout-pricing.service";
 import {
   getSignedPayStateCheckoutSummary,
   type SignedPayStatePricing,
 } from "./pay-state";
-import { getPaymentPriceVerdict } from "./reservation-checkout-pricing";
+import {
+  getCustomerQuotePriceVerdict,
+  getPaymentPriceVerdict,
+} from "./reservation-checkout-pricing";
 
 export const CheckoutPricingServiceMock = Layer.mock(CheckoutPricingService);
 
@@ -60,3 +65,41 @@ export const paymentPricingFrom = <E>(
       )) as ICheckoutPricingService["affirmForPayment"],
   };
 };
+
+/**
+ * Customer quoting for a caller's test: `quote` stands in for the customer's
+ * discounts and returns the customer quote, full validation keeps the
+ * advertised query code, and the verdict comes from the real submission rule.
+ */
+export const customerQuotePricingFrom = <E>(
+  quote: (
+    input: CustomerQuoteInput
+  ) => Effect.Effect<PreparedCustomerQuote["quote"], E>
+): Pick<ICheckoutPricingService, "quoteForCustomer"> => ({
+  quoteForCustomer: ((input: CustomerQuoteInput) =>
+    quote(input).pipe(
+      Effect.map((customerQuote) => {
+        const { reservation, advertisedQuote } = input.advertisement.priced;
+        const summarize = (summarized: PreparedCustomerQuote["quote"]) =>
+          getSignedPayStateCheckoutSummary({
+            reservation,
+            quote: summarized,
+          } as SignedPayStatePricing);
+        return getCustomerQuotePriceVerdict({
+          advertised: {
+            status: input.advertisement.status,
+            summary: summarize(advertisedQuote),
+          },
+          customer: {
+            priced: {
+              kind: reservation.kind,
+              reservation,
+              quote: customerQuote,
+            } as PreparedCustomerQuote,
+            summary: summarize(customerQuote),
+            advertisedCodeChanged: false,
+          },
+        });
+      })
+    )) as ICheckoutPricingService["quoteForCustomer"],
+});

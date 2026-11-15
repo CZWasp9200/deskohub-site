@@ -282,28 +282,33 @@ const applyPromotionCode = Effect.fnUntraced(function* (
     return result;
   }
 
-  const freshPayState = yield* Match.value(result).pipe(
+  const priced: ApplyDiscountCodeResult = yield* Match.value(result).pipe(
     Match.discriminatorsExhaustive("status")({
-      applied: (applied) =>
+      affirmed: (applied) =>
         issueFreshPayState(
           {
-            ...applied,
+            ...applied.priced,
             locale: input.locale,
             orderId: state.orderId,
             bookedAt: state.bookedAt,
             checkoutSessionId: state.checkoutSessionId,
             submittedCode,
-            submittedCodeDiscountId: applied.submittedCodeDiscountId,
+            submittedCodeDiscountId: applied.priced.submittedCodeDiscountId,
             requestedDiscountCode: submittedCode,
             referralCode: state.referralCode,
           },
           {},
           { orderId: state.orderId }
+        ).pipe(
+          Effect.map((freshPayState) => ({
+            status: "applied" as const,
+            ...toFreshPayState(freshPayState),
+          }))
         ),
       pricing_changed: (changed) =>
         issueFreshPayState(
           {
-            ...changed,
+            ...changed.priced,
             locale: input.locale,
             orderId: state.orderId,
             bookedAt: state.bookedAt,
@@ -314,14 +319,14 @@ const applyPromotionCode = Effect.fnUntraced(function* (
           },
           {},
           { orderId: state.orderId }
+        ).pipe(
+          Effect.map((freshPayState) => ({
+            status: "pricing_changed" as const,
+            ...toFreshPayState(freshPayState),
+          }))
         ),
     })
   );
-
-  const priced: ApplyDiscountCodeResult = {
-    status: result.status,
-    ...toFreshPayState(freshPayState),
-  };
   return priced;
 });
 

@@ -91,7 +91,7 @@ import {
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
-import type { PriceVerdict } from "./price-verdict";
+import { getPriceVerdictChangedKeys, type PriceVerdict } from "./price-verdict";
 import { getReservationStatusPath } from "./reservation-status-url";
 import { appendVercelPreviewProtectionBypass } from "./vercel-preview-protection-bypass";
 
@@ -240,7 +240,7 @@ export class CheckoutService extends Context.Service<
     Layer.provide(PayableReservationService.Default),
     Layer.provide(LegalEvidenceEventRepository.Default),
     Layer.provide(CheckoutAnalytics.Live),
-    Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(PaymentLifecycleRepository.Live),
     Layer.provide(PaymentAttemptRepository.Default),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
@@ -972,8 +972,9 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
       }) {
         const { state, verdict } = input;
-        if (verdict.status === "affirmed") return undefined;
-        const { changedKeys, priced: prepared } = verdict;
+        const changedKeys = getPriceVerdictChangedKeys(verdict);
+        if (changedKeys === undefined) return undefined;
+        const prepared = verdict.priced;
         const freshSummary = prepared.summary;
         yield* Effect.annotateLogsScoped({
           changedSectionKeys: changedKeys.sectionKeys.join(","),

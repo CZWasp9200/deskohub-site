@@ -1,7 +1,4 @@
-import type {
-  DotyposCustomerId,
-  DotyposReservationId,
-} from "@deskohub/dotypos";
+import type { DotyposCustomerId } from "@deskohub/dotypos";
 import type {
   NexiOperationId,
   NexiOrderId,
@@ -9,20 +6,10 @@ import type {
 } from "@deskohub/nexi";
 import { and, count, eq, inArray, ne, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import {
-  Context,
-  Data,
-  Duration,
-  Effect,
-  Layer,
-  Match,
-  Option,
-  Schema,
-} from "effect";
+import { Context, Data, Duration, Effect, Layer, Match, Option } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
-  accountingDocumentSnapshots,
   discountApplications,
   discountCodeRedemptions,
   discountCodes,
@@ -47,16 +34,13 @@ import { postgresUuidV7 } from "@/db/uuid-v7";
 import { WorkspaceLocks } from "@/db/workspace-locks";
 import {
   type AccountingDocumentSnapshot,
-  accountingDocumentSnapshotSchema,
   getAccountingDocumentSnapshotFirstServiceDate,
 } from "@/features/accounting/accounting-document-snapshot";
-import { sealedAccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshot.repository";
-import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
 import {
-  type AccountingRecordReference,
-  type AccountingRecordSealer,
-  AccountingRecordUnavailable,
-} from "@/features/accounting/backend/sealed-accounting-json";
+  AccountingDocumentSnapshots,
+  type AccountingRecordUnavailable,
+} from "@/features/accounting/backend/accounting-document-snapshots";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
 import {
@@ -202,7 +186,7 @@ export class PaymentLifecycleRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
-      const sealedSnapshots = yield* sealedAccountingDocumentSnapshots;
+      const accountingSnapshots = yield* AccountingDocumentSnapshots;
 
       const createPendingNexiAttempt = Effect.fn(
         "PaymentLifecycleRepository.createPendingNexiAttempt"
@@ -214,27 +198,19 @@ export class PaymentLifecycleRepository extends Context.Service<
         readonly locale: Locale;
         readonly accountingSnapshot: AccountingDocumentSnapshot;
       }) {
-        const accountingSnapshot =
-          yield* validateAccountingDocumentSnapshotForAttempt({
-            snapshot: input.accountingSnapshot,
-            workspaceReservationId: input.workspaceReservationId,
-            amount: input.amount,
-            locale: input.locale,
-            paymentReference: {
-              type: "providerOrderId",
-              id: input.providerOrderId,
-            },
-          });
-        const accountingSnapshotSealer = yield* sealedSnapshots.sealer({
-          type: "providerOrderId",
-          id: input.providerOrderId,
+        const accountingSnapshot = yield* accountingSnapshots.prepare({
+          snapshot: input.accountingSnapshot,
+          workspaceReservationId: input.workspaceReservationId,
+          amount: input.amount,
+          locale: input.locale,
+          reference: { type: "providerOrderId", id: input.providerOrderId },
         });
         const commitment = getDiscountCommitmentPayload(input.commitment);
         const claimedApplications =
           yield* validateDiscountCommitment(commitment);
         const firstServiceDate = yield* validateCommitmentFirstServiceDate(
           commitment,
-          accountingSnapshot
+          accountingSnapshot.snapshot
         );
 
         return yield* transaction(
@@ -297,16 +273,6 @@ export class PaymentLifecycleRepository extends Context.Service<
               operation: "createPendingNexiAttempt",
             });
 
-            yield* validateAccountingDocumentSnapshotProviderIdentity({
-              snapshot: accountingSnapshot,
-              paymentReference: {
-                type: "providerOrderId",
-                id: input.providerOrderId,
-              },
-              dotyposCustomerId: reservation.dotyposCustomerId,
-              dotyposReservationId: reservation.dotyposReservationId,
-            });
-
             const [attemptRow] = yield* db
               .insert(paymentAttempts)
               .values({
@@ -327,11 +293,10 @@ export class PaymentLifecycleRepository extends Context.Service<
               );
             }
 
-            yield* persistAccountingDocumentSnapshot({
+            yield* accountingSnapshot.record({
               paymentAttemptId: attemptRow.id,
-              workspaceReservationId: input.workspaceReservationId,
-              snapshot: accountingSnapshot,
-              sealer: accountingSnapshotSealer,
+              dotyposCustomerId: reservation.dotyposCustomerId,
+              dotyposReservationId: reservation.dotyposReservationId,
             });
 
             const [linked] = yield* db
@@ -403,17 +368,16 @@ export class PaymentLifecycleRepository extends Context.Service<
         readonly locale: Locale;
         readonly accountingSnapshot: AccountingDocumentSnapshot;
       }) {
-        const accountingSnapshot =
-          yield* validateAccountingDocumentSnapshotForAttempt({
-            snapshot: input.accountingSnapshot,
-            workspaceReservationId: input.workspaceReservationId,
-            amount: input.amount,
-            locale: input.locale,
-            paymentReference: {
-              type: "workspaceReservationId",
-              id: input.workspaceReservationId,
-            },
-          });
+        const accountingSnapshot = yield* accountingSnapshots.prepare({
+          snapshot: input.accountingSnapshot,
+          workspaceReservationId: input.workspaceReservationId,
+          amount: input.amount,
+          locale: input.locale,
+          reference: {
+            type: "workspaceReservationId",
+            id: input.workspaceReservationId,
+          },
+        });
         const commitment = getDiscountCommitmentPayload(input.commitment);
         const claimedApplications = yield* validateInternalPaymentCommitment(
           commitment,
@@ -421,7 +385,7 @@ export class PaymentLifecycleRepository extends Context.Service<
         );
         const firstServiceDate = yield* validateCommitmentFirstServiceDate(
           commitment,
-          accountingSnapshot
+          accountingSnapshot.snapshot
         );
 
         if (input.amount.value !== 0) {
@@ -501,21 +465,6 @@ export class PaymentLifecycleRepository extends Context.Service<
               operation: "completeInternalPayment",
             });
 
-            yield* validateAccountingDocumentSnapshotProviderIdentity({
-              snapshot: accountingSnapshot,
-              paymentReference: {
-                type: "workspaceReservationId",
-                id: input.workspaceReservationId,
-              },
-              dotyposCustomerId: reservation.dotyposCustomerId,
-              dotyposReservationId: reservation.dotyposReservationId,
-            });
-
-            const accountingSnapshotSealer = yield* sealedSnapshots.sealer({
-              type: "workspaceReservationId",
-              id: input.workspaceReservationId,
-            });
-
             const [attemptRow] = yield* db
               .insert(paymentAttempts)
               .values({
@@ -538,11 +487,10 @@ export class PaymentLifecycleRepository extends Context.Service<
               );
             }
 
-            yield* persistAccountingDocumentSnapshot({
+            yield* accountingSnapshot.record({
               paymentAttemptId: attemptRow.id,
-              workspaceReservationId: input.workspaceReservationId,
-              snapshot: accountingSnapshot,
-              sealer: accountingSnapshotSealer,
+              dotyposCustomerId: reservation.dotyposCustomerId,
+              dotyposReservationId: reservation.dotyposReservationId,
             });
 
             const [completedReservation] = yield* db
@@ -913,7 +861,14 @@ export class PaymentLifecycleRepository extends Context.Service<
         markPaid,
         markTerminal,
       } satisfies IPaymentLifecycleRepository;
-    }).pipe(Effect.provide(AccountingSnapshotKeyService.Default))
+    })
+  );
+
+  /** `Default` over the accounting storage and the Workspace database. */
+  static Live = this.Default.pipe(
+    Layer.provide(
+      Layer.merge(AccountingStorage.Live, WorkspaceDatabase.Default)
+    )
   );
 }
 
@@ -1471,120 +1426,6 @@ const requireNoOtherAdmittedFirstBooking = Effect.fnUntraced(function* (
       message: "Another first booking is already admitted for this invitee.",
     });
   }
-});
-
-const decodeAccountingDocumentSnapshot = Schema.decodeUnknownEffect(
-  accountingDocumentSnapshotSchema,
-  { onExcessProperty: "error" }
-);
-
-const validateAccountingDocumentSnapshotForAttempt = Effect.fn(
-  "PaymentLifecycle.validateAccountingDocumentSnapshotForAttempt"
-)(function* (input: {
-  readonly snapshot: AccountingDocumentSnapshot;
-  readonly workspaceReservationId: WorkspaceReservationId;
-  readonly paymentReference: AccountingRecordReference;
-  readonly amount: Money;
-  readonly locale: Locale;
-}) {
-  const snapshot = yield* decodeAccountingDocumentSnapshot(input.snapshot).pipe(
-    Effect.mapError(
-      () =>
-        new AccountingRecordUnavailable({
-          operation: "validate",
-          reference: input.paymentReference,
-          message: "Accounting snapshot schema is invalid.",
-        })
-    )
-  );
-
-  if (
-    snapshot.workspaceReservationId !== input.workspaceReservationId ||
-    snapshot.locale !== input.locale ||
-    !moneyEquals(snapshot.quote.payment.expectedPrice, input.amount) ||
-    !accountingSnapshotMoneyReconciles(snapshot)
-  ) {
-    return yield* new AccountingRecordUnavailable({
-      operation: "validate",
-      reference: input.paymentReference,
-      message: "Accounting snapshot does not match the payment attempt.",
-    });
-  }
-
-  return snapshot;
-});
-
-const accountingSnapshotMoneyReconciles = (
-  snapshot: AccountingDocumentSnapshot
-): boolean => {
-  const { items, payment } = snapshot.quote;
-  const sameUnit = (amount: Money) =>
-    sameMoneyUnit(amount, payment.expectedPrice);
-
-  if (
-    !sameUnit(payment.undiscountedPrice) ||
-    !items.every(({ amount }) => sameUnit(amount)) ||
-    !payment.discounts.every(
-      ({ amount, subtotalAfter, subtotalBefore }) =>
-        sameUnit(amount) && sameUnit(subtotalAfter) && sameUnit(subtotalBefore)
-    )
-  ) {
-    return false;
-  }
-
-  const itemTotal = items.reduce((total, item) => total + item.amount.value, 0);
-  const discountTotal = payment.discounts.reduce(
-    (total, discount) => total + discount.amount.value,
-    0
-  );
-
-  return (
-    itemTotal === payment.undiscountedPrice.value &&
-    itemTotal - discountTotal === payment.expectedPrice.value
-  );
-};
-
-const validateAccountingDocumentSnapshotProviderIdentity = Effect.fn(
-  "PaymentLifecycle.validateAccountingDocumentSnapshotProviderIdentity"
-)(function* (input: {
-  readonly snapshot: AccountingDocumentSnapshot;
-  readonly paymentReference: AccountingRecordReference;
-  readonly dotyposCustomerId: DotyposCustomerId;
-  readonly dotyposReservationId: DotyposReservationId | null;
-}) {
-  if (
-    input.snapshot.dotyposCustomerId !== input.dotyposCustomerId ||
-    input.snapshot.dotyposReservationId !== input.dotyposReservationId
-  ) {
-    return yield* new AccountingRecordUnavailable({
-      operation: "validate",
-      reference: input.paymentReference,
-      message: "Accounting snapshot provider identity is inconsistent.",
-    });
-  }
-});
-
-const persistAccountingDocumentSnapshot = Effect.fn(
-  "PaymentLifecycle.persistAccountingDocumentSnapshot"
-)(function* (input: {
-  readonly paymentAttemptId: PaymentAttemptId;
-  readonly workspaceReservationId: WorkspaceReservationId;
-  readonly snapshot: AccountingDocumentSnapshot;
-  readonly sealer: AccountingRecordSealer<AccountingDocumentSnapshot>;
-}) {
-  const { db } = yield* WorkspaceTransaction;
-
-  yield* input.sealer.seal({
-    reference: { type: "paymentAttemptId", id: input.paymentAttemptId },
-    value: input.snapshot,
-    insert: (sealed) =>
-      db.insert(accountingDocumentSnapshots).values({
-        paymentAttemptId: input.paymentAttemptId,
-        workspaceReservationId: input.workspaceReservationId,
-        keyId: sealed.keyId,
-        encryptedSnapshot: sealed.ciphertext,
-      }),
-  });
 });
 
 type ClaimedApplication<Claim extends DiscountClaimInstruction> = {

@@ -26,6 +26,7 @@ import {
   buildCheckoutPayPath,
   buildSignedPayState,
   CheckoutPricingService,
+  getPriceVerdictChangedKeys,
   openSubmittedAdvertisedPriceState,
   type PayStateLinkOptions,
   type PreparedCustomerQuote,
@@ -42,13 +43,7 @@ import {
   addCheckoutReferralAppliedMarker,
   hasCheckoutReferralBenefit,
 } from "@/features/checkout/checkout-referral-notice";
-import {
-  type CheckoutSummaryChangedKeys,
-  getCheckoutSummaryChangedKeys,
-} from "@/features/checkout/checkout-summary";
-import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
-import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
-import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
+import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 import { legalEvidenceMapSchema } from "@/features/checkout/legal-evidence";
 import { getCheckoutDetails } from "@/features/checkout/schemas/checkout-details";
 import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
@@ -266,51 +261,20 @@ const quotePreparedReservation = Effect.fn(
       ? {}
       : { referralCode: input.referralCode };
 
-  const advertised = input.advertisement.priced;
-  const prepared = yield* pricing.quoteForCustomer({
-    ...advertised,
+  const verdict = yield* pricing.quoteForCustomer({
+    advertisement: input.advertisement,
     dotyposCustomerId: input.dotyposCustomerId,
     locale: input.locale,
-    affirmedAdvertisement: advertised.discountQuote,
     ...referral,
   });
-  const advertisedSummary = Match.value(advertised).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (advertisement) =>
-        getCoworkCheckoutSummary(
-          advertisement.reservation,
-          advertisement.advertisedQuote
-        ),
-      "meeting-room": (advertisement) =>
-        getMeetingRoomCheckoutSummary(advertisement.advertisedQuote),
-      office: (advertisement) =>
-        getOfficeCheckoutSummary(advertisement.advertisedQuote),
-    })
-  );
-  const preparedSummary = Match.value(prepared).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (customerQuote) =>
-        getCoworkCheckoutSummary(
-          customerQuote.reservation,
-          customerQuote.quote
-        ),
-      "meeting-room": (customerQuote) =>
-        getMeetingRoomCheckoutSummary(customerQuote.quote),
-      office: (customerQuote) => getOfficeCheckoutSummary(customerQuote.quote),
-    })
-  );
-  const changedKeys =
-    input.advertisement.status === "pricing_changed" ||
-    prepared.advertisedPriceChanged
-      ? getCheckoutSummaryChangedKeys(advertisedSummary, preparedSummary)
-      : undefined;
 
   return {
-    ...prepared,
+    ...verdict.priced,
     ...referral,
     requestedDiscountCode:
-      advertised.requestedDiscountCode ?? input.referralCodePrefill,
-    changedKeys,
+      input.advertisement.priced.requestedDiscountCode ??
+      input.referralCodePrefill,
+    changedKeys: getPriceVerdictChangedKeys(verdict),
   };
 });
 

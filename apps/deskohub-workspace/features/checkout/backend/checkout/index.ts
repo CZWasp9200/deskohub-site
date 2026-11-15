@@ -51,4 +51,7 @@ export { getPayStateCheckoutView } from "./pay-state-checkout-view";
 export { acceptPayStatePriceChange } from "./pay-state-price-acceptance";
 export { PayableReservationService } from "./payable-reservation.service";
 export { getPaymentReturnDestination } from "./payment-return-destination";
-export type { PriceVerdict } from "./price-verdict";
+export {
+  getPriceVerdictChangedKeys,
+  type PriceVerdict,
+} from "./price-verdict";

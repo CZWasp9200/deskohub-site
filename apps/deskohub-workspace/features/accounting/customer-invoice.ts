@@ -10,6 +10,10 @@ import {
 } from "@/features/accounting/invoice-settlement";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import { type Locale, m } from "@/features/i18n";
+import {
+  type WorkspaceReservationId,
+  workspaceReservationIdSchema,
+} from "@/features/reservation/persistence-contracts";
 import { workspaceSiteConstants } from "@/shared/utils";
 import type { CsvColumn } from "@/shared/utils/csv";
 import {
@@ -25,6 +29,8 @@ import {
 export interface CustomerInvoiceSummary {
   readonly id: InvoiceId;
   readonly invoiceNumber: InvoiceNumber;
+  /** The reservation it invoices; `null` for a manual invoice. */
+  readonly workspaceReservationId: WorkspaceReservationId | null;
   /** The workspace (Prague) calendar date the invoice was issued on. */
   readonly issuedOn: PlainDate;
   readonly total: InvoiceTotal;
@@ -35,11 +41,18 @@ export interface CustomerInvoiceSummary {
 
 /** `today` is the workspace (Prague) calendar date. */
 export const getCustomerInvoiceSummary = (
-  invoice: Pick<Invoice, "id" | "issuedAt" | "document">,
+  invoice: Pick<
+    Invoice,
+    "id" | "workspaceReservationId" | "issuedAt" | "document"
+  >,
   today: PlainDate
 ): CustomerInvoiceSummary => ({
   id: invoice.id,
   invoiceNumber: invoice.document.invoiceNumber,
+  workspaceReservationId:
+    invoice.workspaceReservationId === null
+      ? null
+      : workspaceReservationIdSchema.make(invoice.workspaceReservationId),
   issuedOn: plainDateStringSchema.make(
     temporalInstantToPlainDate({
       instant: invoice.issuedAt,
