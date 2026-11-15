@@ -35,8 +35,11 @@ mock.module("next/image", () => ({
     <img alt={alt} src={src} />
   ),
 }));
+// Each test opens its own page: the bars on one page share its record.
+let pageCount = 0;
+let pathname = "/en-US/account";
 mock.module("next/navigation", () => ({
-  usePathname: () => "/en-US/account",
+  usePathname: () => pathname,
 }));
 mock.module("@/features/cookie-consent", () => ({
   useVisitorConsentAnswered: () => true,
@@ -49,6 +52,8 @@ mock.module("./use-install-environment", () => ({
 beforeAll(registerWorkspaceComponentTestEnv);
 beforeEach(() => {
   localStorage.clear();
+  pageCount += 1;
+  pathname = `/en-US/account/${pageCount}`;
   Object.defineProperty(navigator, "userAgent", {
     configurable: true,
     get: () => iphoneSafari,
@@ -107,5 +112,27 @@ describe("InstallBar with the add-to-Home-Screen guide", () => {
     const dialog = view.getByRole("dialog");
     expect(dialog.querySelectorAll("ol > li").length).toBe(3);
     expect(dialog.querySelectorAll("button").length).toBe(1);
+  });
+});
+
+describe("InstallBar on a page and in a dialog", () => {
+  test("closing the dialog's bar keeps the page's bar hidden", async () => {
+    const { InstallBar } = await import("./install-bar");
+    const view = render(
+      <>
+        <InstallBar locale="en-US" placement="page" />
+        <InstallBar locale="en-US" placement="dialog" />
+      </>
+    );
+    await settle();
+    const [dialogBar, ...others] = view.queryAllByRole("region");
+    expect(others.length).toBe(0);
+    const close = dialogBar?.querySelectorAll("button")[1];
+    if (!close) throw new Error("the dialog's bar has no close button");
+
+    fireEvent.click(close);
+    await settle();
+
+    expect(view.queryAllByRole("region").length).toBe(0);
   });
 });

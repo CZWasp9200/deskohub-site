@@ -119,3 +119,42 @@ export const recordInstallBarPageView = (now = Date.now()): boolean => {
 export const recordInstallBarClose = (now = Date.now()): void => {
   writeInstallBarDismissal(noteClose(readInstallBarDismissal(), now));
 };
+
+/** Whether the bar stays hidden on a page, once its view is recorded. */
+export type InstallBarPageDismissal = {
+  readonly page: string;
+  readonly dismissed: boolean;
+};
+
+/*
+ * Every bar on screen, the page's and a dialog's, reads this one answer, so
+ * closing one hides the others too.
+ */
+let pageDismissal: InstallBarPageDismissal | undefined;
+const pageDismissalListeners = new Set<() => void>();
+const setPageDismissal = (next: InstallBarPageDismissal) => {
+  pageDismissal = next;
+  for (const listener of pageDismissalListeners) listener();
+};
+
+export const subscribeToInstallBarPageDismissal = (onChange: () => void) => {
+  pageDismissalListeners.add(onChange);
+  return () => {
+    pageDismissalListeners.delete(onChange);
+  };
+};
+
+/** The answer for the latest recorded page, if any. */
+export const readInstallBarPageDismissal = () => pageDismissal;
+
+/** Records a page view once per page, however many bars it shows. */
+export const noteInstallBarPage = (page: string, now = Date.now()): void => {
+  if (pageDismissal?.page === page) return;
+  setPageDismissal({ page, dismissed: recordInstallBarPageView(now) });
+};
+
+/** Records a close and hides every bar on the page. */
+export const closeInstallBar = (page: string, now = Date.now()): void => {
+  recordInstallBarClose(now);
+  setPageDismissal({ page, dismissed: true });
+};

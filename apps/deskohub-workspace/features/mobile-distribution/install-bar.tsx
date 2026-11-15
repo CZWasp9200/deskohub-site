@@ -15,8 +15,10 @@ import Logo from "@/shared/components/logo/logo";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils";
 import {
-  recordInstallBarClose,
-  recordInstallBarPageView,
+  closeInstallBar,
+  noteInstallBarPage,
+  readInstallBarPageDismissal,
+  subscribeToInstallBarPageDismissal,
 } from "./install-bar-dismissal";
 import { decideInstallBarOffer } from "./install-bar-offer";
 import { detectInstallGuide, type InstallGuide } from "./install-guide";
@@ -103,7 +105,15 @@ export function InstallBar({
   // Each page view where the bar applies counts toward the visit, so the
   // record follows client navigations as well as loads.
   const offeredPage = offer === "none" ? undefined : pathname;
-  const [dismissed, setDismissed] = useState<boolean>();
+  const pageDismissal = useSyncExternalStore(
+    subscribeToInstallBarPageDismissal,
+    readInstallBarPageDismissal,
+    () => undefined
+  );
+  const dismissed =
+    offeredPage !== undefined && pageDismissal?.page === offeredPage
+      ? pageDismissal.dismissed
+      : undefined;
   const [guide, setGuide] = useState<InstallGuide>();
   const [guideOpen, setGuideOpen] = useState(false);
   const installButton = useRef<HTMLButtonElement>(null);
@@ -122,7 +132,7 @@ export function InstallBar({
 
   useEffect(() => {
     if (offeredPage === undefined) return;
-    setDismissed(recordInstallBarPageView());
+    noteInstallBarPage(offeredPage);
   }, [offeredPage]);
 
   if (!environment || !shown || (placement === "page" && dialogBarOpen)) {
@@ -146,8 +156,7 @@ export function InstallBar({
   };
 
   const close = () => {
-    recordInstallBarClose();
-    setDismissed(true);
+    if (offeredPage !== undefined) closeInstallBar(offeredPage);
     // Inside a dialog its focus trap keeps focus there.
     if (placement === "page") focusMainContent();
   };
