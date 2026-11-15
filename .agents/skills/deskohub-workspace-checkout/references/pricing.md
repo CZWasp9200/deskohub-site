@@ -41,6 +41,8 @@ Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. 
 
 The accepted payment amount must equal the last signed summary total exactly. Order submission affirms exactly the signed discounts and compares the full quote fingerprint and total. A mismatch, or a failure to persist applications or admit a claim, returns `pricing_changed`, rolls back, and never calls Nexi.
 
+The pricing module owns that comparison: `CheckoutPricingService.affirmForPayment` returns a `PriceVerdict` (`price-verdict.ts`), and order submission and referral acceptance branch on it instead of comparing quotes. Referral acceptance keeps its own expected-addition rule on top of the verdict (referrals skill). Claim-admission recovery uses `repriceForPayment`, which judges nothing, and always shows the keys from the signed summary to the re-priced one.
+
 - Positive total: create a Nexi attempt and HPP session.
 - Zero total: in one transaction insert an already-paid `internal` attempt, mark the reservation paid, persist application snapshots, and redeem any admitted claim. Never call Nexi.
 

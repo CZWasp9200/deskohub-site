@@ -28,6 +28,7 @@ import {
   type ReservationDiscountCodePriceResult,
   type ReservationPaymentPriceAffirmation,
   type ReservationPaymentPriceAffirmationInput,
+  type ReservationPaymentRepricingInput,
   type ReservationPreparedCustomerQuote,
   reservationCheckoutPricing,
 } from "./reservation-checkout-pricing";
@@ -50,6 +51,11 @@ export type OfficePaymentPriceAffirmationInput =
     NormalizedOfficeReservationOrder,
     OfficeReservationQuote
   >;
+
+export type OfficePaymentRepricingInput = ReservationPaymentRepricingInput<
+  NormalizedOfficeReservationOrder,
+  OfficeReservationQuote
+>;
 export type OfficeDiscountCodePriceInput = ReservationDiscountCodePriceInput<
   NormalizedOfficeReservationOrder,
   OfficeReservationQuote

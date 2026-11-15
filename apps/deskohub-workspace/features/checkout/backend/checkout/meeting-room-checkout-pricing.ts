@@ -30,6 +30,7 @@ import {
   type ReservationDiscountCodePriceResult,
   type ReservationPaymentPriceAffirmation,
   type ReservationPaymentPriceAffirmationInput,
+  type ReservationPaymentRepricingInput,
   type ReservationPreparedCustomerQuote,
   reservationCheckoutPricing,
 } from "./reservation-checkout-pricing";
@@ -57,6 +58,11 @@ export type MeetingRoomPaymentPriceAffirmationInput =
     NormalizedMeetingRoomReservationOrder,
     MeetingRoomReservationQuote
   >;
+
+export type MeetingRoomPaymentRepricingInput = ReservationPaymentRepricingInput<
+  NormalizedMeetingRoomReservationOrder,
+  MeetingRoomReservationQuote
+>;
 
 export type MeetingRoomDiscountCodePriceInput =
   ReservationDiscountCodePriceInput<
