@@ -41,7 +41,8 @@ import { automationTickAtOrBefore } from "../automation-ticks";
 import {
   readsTriggeringVisit,
   triggeringVisitVerdict,
-  withdrawnByCancellation,
+  type WorkspaceCancellations,
+  withdrawnByWorkspaceCancellation,
 } from "../automation-trigger-verification";
 import {
   AutomatedSendSubmission,
@@ -116,6 +117,7 @@ type DeliverRun = {
   readonly id: AutomationRunId;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly triggerKind: AutomationTriggerKind;
+  readonly triggerAt: Temporal.Instant;
   readonly triggerReservationId: WorkspaceReservationId | null;
 };
 
@@ -156,6 +158,7 @@ export const makeDeliverHandler = Effect.gen(function* () {
         id: runs.id,
         dotyposCustomerId: runs.dotyposCustomerId,
         triggerKind: runs.triggerKind,
+        triggerAt: runs.triggerAt,
         triggerReservationId: runs.triggerReservationId,
       })
       .from(runs)
@@ -308,14 +311,14 @@ export const makeDeliverHandler = Effect.gen(function* () {
     readonly at: Temporal.Instant;
   }) =>
     Effect.Do.pipe(
-      Effect.bind("cancelled", () =>
+      Effect.bind("cancellations", () =>
         lockTriggeringReservations(
           input.facts.runs.map((run) => run.triggerReservationId)
         )
       ),
-      Effect.let("verdicts", ({ cancelled }) =>
+      Effect.let("verdicts", ({ cancellations }) =>
         Arr.groupBy(input.facts.runs, (run) =>
-          verdictOf({ run, facts: input.facts, cancelled, at: input.at })
+          verdictOf({ run, facts: input.facts, cancellations, at: input.at })
         )
       ),
       Effect.let(
@@ -550,22 +553,25 @@ export const makeDeliverHandler = Effect.gen(function* () {
 
 /**
  * What the pre-submit check (§5.9) makes of one run at the send instant:
- * `send`, `withdraw` because its reservation was cancelled or is gone
- * (D28), or `defer` because Dotypos moved its visit so the trigger hasn't
- * happened yet.
+ * `send`, `withdraw` because its reservation was cancelled or is gone, or
+ * because a restore undid the cancellation that triggered it (D28), or
+ * `defer` because Dotypos moved its visit so the trigger hasn't happened
+ * yet.
  */
 const verdictOf = (input: {
   readonly run: DeliverRun;
   readonly facts: DeliverFacts;
-  readonly cancelled: ReadonlySet<WorkspaceReservationId>;
+  readonly cancellations: WorkspaceCancellations;
   readonly at: Temporal.Instant;
 }): "send" | "withdraw" | "defer" => {
   const { run } = input;
   const reservation = run.triggerReservationId;
   if (reservation === null) return "send";
   if (
-    withdrawnByCancellation(run.triggerKind) &&
-    input.cancelled.has(reservation)
+    withdrawnByWorkspaceCancellation(
+      { kind: run.triggerKind, at: run.triggerAt, reservationId: reservation },
+      input.cancellations
+    )
   ) {
     return "withdraw";
   }
