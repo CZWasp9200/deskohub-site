@@ -84,16 +84,25 @@ export const defineWorkspaceCron = <Input, Summary, E>(
     return Effect.gen(function* () {
       if (job.input) {
         const input = job.input();
-        yield* Effect.annotateLogsScoped({ input });
-        yield* Effect.logInfo("Cron job started");
-        return yield* job.run(input);
+        // The input goes on the start and completion rows, not every row of
+        // the run.
+        yield* Effect.logInfo("Cron job started").pipe(
+          Effect.annotateLogs({ input })
+        );
+        const result = yield* job.run(input);
+        yield* Effect.logInfo("Cron job completed").pipe(
+          Effect.annotateLogs({ input, result })
+        );
+        return result;
       }
 
       yield* Effect.logInfo("Cron job started");
-      return yield* job.run();
+      const result = yield* job.run();
+      yield* Effect.logInfo("Cron job completed").pipe(
+        Effect.annotateLogs({ result })
+      );
+      return result;
     }).pipe(
-      Effect.tap((result) => Effect.annotateLogsScoped({ result })),
-      Effect.tap(() => Effect.logInfo("Cron job completed")),
       Effect.map((result) => NextResponse.json(result)),
       Effect.scoped,
       Effect.mapError(WorkspaceRouteFailure.internal(job.failureMessage))
@@ -126,6 +135,11 @@ export class WebhookRefusal extends Data.TaggedError("WebhookRefusal")<{
   readonly publicMessage?: string;
   /** A stable code for the response and logs, when the provider has one. */
   readonly code?: string;
+  /**
+   * `logs-only` keeps the code out of the response, for codes that would tell
+   * an unauthenticated caller how this deployment is configured.
+   */
+  readonly codeVisibility?: "response-and-logs" | "logs-only";
   /** A public detail the response carries as `message`. */
   readonly publicDetail?: string;
   /** Delivery identifiers for the logs, never payload data. */
@@ -194,7 +208,7 @@ const respondToRefusal = Effect.fn("webhookRoute.respondToRefusal")(function* (
   return NextResponse.json(
     {
       error: refusal.publicMessage ?? "Webhook processing failed",
-      code,
+      code: refusal.codeVisibility === "logs-only" ? undefined : code,
       message: refusal.publicDetail,
     },
     { status: webhookResponseStatus(disposition) }

@@ -2418,6 +2418,7 @@
           "query": null
         },
         "middleware": [
+          "@deskohub/workspace-admin-api/CliClientCompatibility",
           "@deskohub/workspace-admin-api/AdministrationActionRecord",
           "@deskohub/workspace-admin-api/AdministrationAuthentication"
         ],
@@ -2425,13 +2426,19 @@
           "@deskohub/workspace-admin-api/AdministrationOperationBehavior": {
             "kind": "read",
             "idempotent": true
-          }
+          },
+          "@deskohub/workspace-admin-api/MinimumDhwVersion": {
+            "_tag": "Some",
+            "value": "1.36.1"
+          },
+          "@deskohub/workspace-admin-api/OutdatedDhwRefusal": "CliServiceUnavailable"
         },
         "effectiveAnnotations": {
           "minimumDhwVersion": {
-            "_tag": "None"
+            "_tag": "Some",
+            "value": "1.36.1"
           },
-          "outdatedDhwRefusal": "CliInputInvalid"
+          "outdatedDhwRefusal": "CliServiceUnavailable"
         },
         "operation": {
           "tags": [
@@ -5062,9 +5069,6 @@
                       },
                       "canCancel": {
                         "type": "boolean"
-                      },
-                      "requiresProviderCredentialRemoval": {
-                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -5079,10 +5083,19 @@
                       "otherCustomerReservations",
                       "sameDateReservations",
                       "references",
-                      "canCancel",
-                      "requiresProviderCredentialRemoval"
+                      "canCancel"
                     ],
                     "additionalProperties": false
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "CliInputInvalid",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CliInputInvalid"
                   }
                 }
               }
@@ -5167,6 +5180,7 @@
           "query": null
         },
         "middleware": [
+          "@deskohub/workspace-admin-api/CliClientCompatibility",
           "@deskohub/workspace-admin-api/AdministrationActionRecord",
           "@deskohub/workspace-admin-api/AdministrationAuthentication"
         ],
@@ -5180,13 +5194,19 @@
                 "administration.getReservation"
               ]
             }
-          }
+          },
+          "@deskohub/workspace-admin-api/MinimumDhwVersion": {
+            "_tag": "Some",
+            "value": "1.36.1"
+          },
+          "@deskohub/workspace-admin-api/OutdatedDhwRefusal": "CliServiceUnavailable"
         },
         "effectiveAnnotations": {
           "minimumDhwVersion": {
-            "_tag": "None"
+            "_tag": "Some",
+            "value": "1.36.1"
           },
-          "outdatedDhwRefusal": "CliInputInvalid"
+          "outdatedDhwRefusal": "CliServiceUnavailable"
         },
         "operation": {
           "tags": [
@@ -5237,6 +5257,16 @@
                       "email"
                     ],
                     "additionalProperties": false
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "CliInputInvalid",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CliInputInvalid"
                   }
                 }
               }
@@ -5295,20 +5325,7 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "accessGrantUpdatedAt": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
                     "force": {
-                      "type": "boolean"
-                    },
-                    "providerCredentialRemoved": {
                       "type": "boolean"
                     },
                     "sendCancellationEmail": {
@@ -5316,8 +5333,6 @@
                     }
                   },
                   "required": [
-                    "accessGrantUpdatedAt",
-                    "providerCredentialRemoved",
                     "sendCancellationEmail"
                   ],
                   "additionalProperties": false
@@ -15786,7 +15801,9 @@
                           "cs-CZ",
                           "de-DE",
                           "uk-UA",
-                          "sk-SK"
+                          "sk-SK",
+                          "vi-VN",
+                          "hi-IN"
                         ]
                       },
                       "serviceDate": {
@@ -16855,7 +16872,9 @@
                         "cs-CZ",
                         "de-DE",
                         "uk-UA",
-                        "sk-SK"
+                        "sk-SK",
+                        "vi-VN",
+                        "hi-IN"
                       ]
                     },
                     "serviceDate": {
@@ -17506,7 +17525,9 @@
                         "cs-CZ",
                         "de-DE",
                         "uk-UA",
-                        "sk-SK"
+                        "sk-SK",
+                        "vi-VN",
+                        "hi-IN"
                       ]
                     },
                     "serviceDate": {
@@ -22903,7 +22924,9 @@
                             "cs-CZ",
                             "de-DE",
                             "uk-UA",
-                            "sk-SK"
+                            "sk-SK",
+                            "vi-VN",
+                            "hi-IN"
                           ]
                         },
                         "content": {
@@ -23004,7 +23027,9 @@
                             "cs-CZ",
                             "de-DE",
                             "uk-UA",
-                            "sk-SK"
+                            "sk-SK",
+                            "vi-VN",
+                            "hi-IN"
                           ]
                         },
                         "content": {
@@ -23101,7 +23126,9 @@
                             "cs-CZ",
                             "de-DE",
                             "uk-UA",
-                            "sk-SK"
+                            "sk-SK",
+                            "vi-VN",
+                            "hi-IN"
                           ]
                         }
                       },
@@ -23238,7 +23265,9 @@
                               "cs-CZ",
                               "de-DE",
                               "uk-UA",
-                              "sk-SK"
+                              "sk-SK",
+                              "vi-VN",
+                              "hi-IN"
                             ]
                           }
                         },
@@ -23490,7 +23519,9 @@
                             "cs-CZ",
                             "de-DE",
                             "uk-UA",
-                            "sk-SK"
+                            "sk-SK",
+                            "vi-VN",
+                            "hi-IN"
                           ]
                         }
                       },
@@ -23596,6 +23627,52 @@
                             "additionalProperties": false
                           },
                           "sk-SK": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "vi-VN": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "hi-IN": {
                             "type": "object",
                             "properties": {
                               "subject": {
@@ -23863,7 +23940,9 @@
                             "cs-CZ",
                             "de-DE",
                             "uk-UA",
-                            "sk-SK"
+                            "sk-SK",
+                            "vi-VN",
+                            "hi-IN"
                           ]
                         }
                       },
@@ -24033,6 +24112,84 @@
                             "additionalProperties": false
                           },
                           "sk-SK": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyDocument": {
+                                "type": "object",
+                                "properties": {
+                                  "formatVersion": {
+                                    "type": "number",
+                                    "enum": [
+                                      1
+                                    ]
+                                  },
+                                  "doc": {
+                                    "$ref": "#/components/schemas/AdministrationCampaignBodyNode"
+                                  }
+                                },
+                                "required": [
+                                  "formatVersion",
+                                  "doc"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyDocument"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "vi-VN": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyDocument": {
+                                "type": "object",
+                                "properties": {
+                                  "formatVersion": {
+                                    "type": "number",
+                                    "enum": [
+                                      1
+                                    ]
+                                  },
+                                  "doc": {
+                                    "$ref": "#/components/schemas/AdministrationCampaignBodyNode"
+                                  }
+                                },
+                                "required": [
+                                  "formatVersion",
+                                  "doc"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyDocument"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "hi-IN": {
                             "type": "object",
                             "properties": {
                               "subject": {
@@ -24289,7 +24446,9 @@
                             "cs-CZ",
                             "de-DE",
                             "uk-UA",
-                            "sk-SK"
+                            "sk-SK",
+                            "vi-VN",
+                            "hi-IN"
                           ]
                         }
                       },
@@ -24395,6 +24554,52 @@
                             "additionalProperties": false
                           },
                           "sk-SK": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "vi-VN": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "hi-IN": {
                             "type": "object",
                             "properties": {
                               "subject": {
@@ -24891,6 +25096,138 @@
                                   "additionalProperties": false
                                 }
                               ]
+                            },
+                            "vi-VN": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "subject": {
+                                      "type": "string"
+                                    },
+                                    "preheader": {
+                                      "type": "string"
+                                    },
+                                    "operationalReason": {
+                                      "type": "string"
+                                    },
+                                    "bodyMarkdown": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "subject",
+                                    "preheader",
+                                    "bodyMarkdown"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "subject": {
+                                      "type": "string"
+                                    },
+                                    "preheader": {
+                                      "type": "string"
+                                    },
+                                    "operationalReason": {
+                                      "type": "string"
+                                    },
+                                    "bodyDocument": {
+                                      "type": "object",
+                                      "properties": {
+                                        "formatVersion": {
+                                          "type": "number",
+                                          "enum": [
+                                            1
+                                          ]
+                                        },
+                                        "doc": {
+                                          "$ref": "#/components/schemas/AdministrationCampaignBodyNode"
+                                        }
+                                      },
+                                      "required": [
+                                        "formatVersion",
+                                        "doc"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": [
+                                    "subject",
+                                    "preheader",
+                                    "bodyDocument"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            "hi-IN": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "subject": {
+                                      "type": "string"
+                                    },
+                                    "preheader": {
+                                      "type": "string"
+                                    },
+                                    "operationalReason": {
+                                      "type": "string"
+                                    },
+                                    "bodyMarkdown": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "subject",
+                                    "preheader",
+                                    "bodyMarkdown"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "subject": {
+                                      "type": "string"
+                                    },
+                                    "preheader": {
+                                      "type": "string"
+                                    },
+                                    "operationalReason": {
+                                      "type": "string"
+                                    },
+                                    "bodyDocument": {
+                                      "type": "object",
+                                      "properties": {
+                                        "formatVersion": {
+                                          "type": "number",
+                                          "enum": [
+                                            1
+                                          ]
+                                        },
+                                        "doc": {
+                                          "$ref": "#/components/schemas/AdministrationCampaignBodyNode"
+                                        }
+                                      },
+                                      "required": [
+                                        "formatVersion",
+                                        "doc"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": [
+                                    "subject",
+                                    "preheader",
+                                    "bodyDocument"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
                             }
                           },
                           "additionalProperties": false
@@ -25075,7 +25412,9 @@
                             "cs-CZ",
                             "de-DE",
                             "uk-UA",
-                            "sk-SK"
+                            "sk-SK",
+                            "vi-VN",
+                            "hi-IN"
                           ]
                         }
                       },
@@ -25181,6 +25520,52 @@
                             "additionalProperties": false
                           },
                           "sk-SK": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "vi-VN": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "hi-IN": {
                             "type": "object",
                             "properties": {
                               "subject": {
@@ -25589,6 +25974,108 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "vi-VN": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "subject": {
+                                  "type": "string"
+                                },
+                                "preheader": {
+                                  "type": "string"
+                                },
+                                "bodyMarkdown": {
+                                  "type": "string"
+                                },
+                                "bodyDocument": {
+                                  "type": "object",
+                                  "properties": {
+                                    "formatVersion": {
+                                      "type": "number",
+                                      "enum": [
+                                        1
+                                      ]
+                                    },
+                                    "doc": {
+                                      "$ref": "#/components/schemas/AdministrationCampaignBodyNode"
+                                    }
+                                  },
+                                  "required": [
+                                    "formatVersion",
+                                    "doc"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "operationalReason": {
+                                  "anyOf": [
+                                    {
+                                      "$ref": "#/components/schemas/AdministrationActorName"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "hi-IN": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "subject": {
+                                  "type": "string"
+                                },
+                                "preheader": {
+                                  "type": "string"
+                                },
+                                "bodyMarkdown": {
+                                  "type": "string"
+                                },
+                                "bodyDocument": {
+                                  "type": "object",
+                                  "properties": {
+                                    "formatVersion": {
+                                      "type": "number",
+                                      "enum": [
+                                        1
+                                      ]
+                                    },
+                                    "doc": {
+                                      "$ref": "#/components/schemas/AdministrationCampaignBodyNode"
+                                    }
+                                  },
+                                  "required": [
+                                    "formatVersion",
+                                    "doc"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "operationalReason": {
+                                  "anyOf": [
+                                    {
+                                      "$ref": "#/components/schemas/AdministrationActorName"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "additionalProperties": false
@@ -25759,7 +26246,9 @@
                             "cs-CZ",
                             "de-DE",
                             "uk-UA",
-                            "sk-SK"
+                            "sk-SK",
+                            "vi-VN",
+                            "hi-IN"
                           ]
                         }
                       },
@@ -25865,6 +26354,52 @@
                             "additionalProperties": false
                           },
                           "sk-SK": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "vi-VN": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "hi-IN": {
                             "type": "object",
                             "properties": {
                               "subject": {
@@ -26286,7 +26821,9 @@
                                 "cs-CZ",
                                 "de-DE",
                                 "uk-UA",
-                                "sk-SK"
+                                "sk-SK",
+                                "vi-VN",
+                                "hi-IN"
                               ]
                             },
                             "email": {
@@ -26696,7 +27233,9 @@
                             "cs-CZ",
                             "de-DE",
                             "uk-UA",
-                            "sk-SK"
+                            "sk-SK",
+                            "vi-VN",
+                            "hi-IN"
                           ]
                         }
                       },
@@ -27461,7 +28000,9 @@
                                         "cs-CZ",
                                         "de-DE",
                                         "uk-UA",
-                                        "sk-SK"
+                                        "sk-SK",
+                                        "vi-VN",
+                                        "hi-IN"
                                       ]
                                     },
                                     "status": {
@@ -29065,7 +29606,9 @@
                                 "cs-CZ",
                                 "de-DE",
                                 "uk-UA",
-                                "sk-SK"
+                                "sk-SK",
+                                "vi-VN",
+                                "hi-IN"
                               ]
                             },
                             "subject": {
@@ -31148,6 +31691,52 @@
                               "bodyMarkdown"
                             ],
                             "additionalProperties": false
+                          },
+                          "vi-VN": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "hi-IN": {
+                            "type": "object",
+                            "properties": {
+                              "subject": {
+                                "type": "string"
+                              },
+                              "preheader": {
+                                "type": "string"
+                              },
+                              "operationalReason": {
+                                "type": "string"
+                              },
+                              "bodyMarkdown": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "subject",
+                              "preheader",
+                              "bodyMarkdown"
+                            ],
+                            "additionalProperties": false
                           }
                         },
                         "additionalProperties": false
@@ -32791,7 +33380,9 @@
                         "cs-CZ",
                         "de-DE",
                         "uk-UA",
-                        "sk-SK"
+                        "sk-SK",
+                        "vi-VN",
+                        "hi-IN"
                       ]
                     }
                   },
@@ -34621,7 +35212,9 @@
                     "cs-CZ",
                     "de-DE",
                     "uk-UA",
-                    "sk-SK"
+                    "sk-SK",
+                    "vi-VN",
+                    "hi-IN"
                   ]
                 },
                 "allOf": [
@@ -35215,7 +35808,9 @@
                     "cs-CZ",
                     "de-DE",
                     "uk-UA",
-                    "sk-SK"
+                    "sk-SK",
+                    "vi-VN",
+                    "hi-IN"
                   ]
                 },
                 "allOf": [
@@ -35879,7 +36474,9 @@
                     "cs-CZ",
                     "de-DE",
                     "uk-UA",
-                    "sk-SK"
+                    "sk-SK",
+                    "vi-VN",
+                    "hi-IN"
                   ]
                 },
                 "allOf": [

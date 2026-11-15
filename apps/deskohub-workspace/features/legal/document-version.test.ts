@@ -26,7 +26,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "en-US",
     documentKey: "privacy-policy",
-    version: "53e796ba06229ee4d8e9500c3045178a27113df99b1d708dd59c11a3134fb7e5",
+    version: "7b339938e2868abeea712d671e613cfbcf2001ab9201e1dffb93eaf4057f6cdc",
   },
   {
     locale: "en-US",
@@ -51,7 +51,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "cs-CZ",
     documentKey: "privacy-policy",
-    version: "8a2a8f97a98f550859993a6c0884422796d86310d054b85198c2cea5aaaf7597",
+    version: "a446f7a772884a6d288700ae7287470360df7271a4c6ecc00b0d2395158268fc",
   },
   {
     locale: "cs-CZ",
@@ -76,7 +76,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "de-DE",
     documentKey: "privacy-policy",
-    version: "d219cb484f33adc57361b289f7f4c009420caef00b51894d73aff55af2c85c0f",
+    version: "8fedd49f42cc022e7bf4317508d776a2043f6619834ebff905dd95d0770da463",
   },
   {
     locale: "de-DE",
@@ -101,7 +101,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "uk-UA",
     documentKey: "privacy-policy",
-    version: "f4fa60c6d8dff580e3cd048c64badeeb1f390344fc2f48d1fb90e5440e910daa",
+    version: "89f47c0619e1c209a05240b14b89100b540f041913f8918c2dd5c353741d168c",
   },
   {
     locale: "uk-UA",
@@ -126,7 +126,7 @@ const publishedDocuments: ReadonlyArray<{
   {
     locale: "sk-SK",
     documentKey: "privacy-policy",
-    version: "7e12903683052ab508bbbb50228988cf06dacc872431f21506f8b6a4c8e5f3fb",
+    version: "d873f58604993617ca23cd843d95aa573187d8dcbd03192c088e5a5723aa297b",
   },
   {
     locale: "sk-SK",
@@ -137,6 +137,56 @@ const publishedDocuments: ReadonlyArray<{
     locale: "sk-SK",
     documentKey: "cookie-policy",
     version: "d9cc345892616de3c3b05e7e1f7e505a7947738423b2ee4276d0757f3d4dbfaf",
+  },
+  {
+    locale: "vi-VN",
+    documentKey: "terms-and-conditions",
+    version: "ac564a4887b5794001b9e33c3e558365a8a6ef01cc0dbde792517a0fb222b090",
+  },
+  {
+    locale: "vi-VN",
+    documentKey: "operating-rules",
+    version: "2bfa7e9a4afa15bcea55db7daa0737e64c79f395606737bd76bd64f0a740784f",
+  },
+  {
+    locale: "vi-VN",
+    documentKey: "privacy-policy",
+    version: "1f5b58cfd318791b24a8c36517ec04bee3a09141bf5f433844860c403437b204",
+  },
+  {
+    locale: "vi-VN",
+    documentKey: "marketing-communications",
+    version: "7a48ca1500301f44bc87fc89fa88b159386cc8e70ec04bf2374c9ea37c2adf44",
+  },
+  {
+    locale: "vi-VN",
+    documentKey: "cookie-policy",
+    version: "d1a469bc79c9be640a99e42a1266b825ad10e543c7895526567d9207c4f2dd92",
+  },
+  {
+    locale: "hi-IN",
+    documentKey: "terms-and-conditions",
+    version: "e2e9d3c1ba9c4ea94164544416d35d3227a58adbbae9e5930478ccd02878e81c",
+  },
+  {
+    locale: "hi-IN",
+    documentKey: "operating-rules",
+    version: "635da5bf566a299b094ae7f8fc86235f9f551361b10d505e0d27f021ea7fbd31",
+  },
+  {
+    locale: "hi-IN",
+    documentKey: "privacy-policy",
+    version: "404eeaedb1e762bf12af9dd6c03925b499c3493953a9026f4f9384300fb7d2cc",
+  },
+  {
+    locale: "hi-IN",
+    documentKey: "marketing-communications",
+    version: "358888b8c2d137d0ecc28ff406e2267ec833f12f641e18c9380d9620f3ca0882",
+  },
+  {
+    locale: "hi-IN",
+    documentKey: "cookie-policy",
+    version: "8a1b1ac6543ec1b2a5d9ab7188e86679699a29fe1910e762bfa8a1a151ed6bad",
   },
 ];
 

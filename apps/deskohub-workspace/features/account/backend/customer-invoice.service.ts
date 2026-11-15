@@ -1,4 +1,5 @@
 import { Context, Data, Effect, Layer } from "effect";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import {
   type InvoicePdfFile,
@@ -14,20 +15,25 @@ import { workspaceSiteConstants } from "@/shared/utils";
 import type { CsvColumn } from "@/shared/utils/csv";
 import { currentPlainDate, type PlainDate } from "@/shared/utils/temporal";
 import {
+  type CustomerAccountAccessError,
   isCustomerAccountAccessDenial,
   type LinkedCustomerAccount,
 } from "../customer-account";
+import { CurrentCustomerAccount } from "./current-customer-account";
 import { requireAccountActivity } from "./customer-account-activity";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import { CustomerAccountResolver } from "./customer-account-resolver.service";
+import { requireLinkedCustomerAccount } from "./linked-customer-account";
 
 /**
  * The session has no active account whose invoices it may see: signed out,
  * no linked Dotypos customer, a review account, or deletion pending.
+ * `account` is the refusal, for callers that say why.
  */
 export class CustomerInvoicesUnavailableError extends Data.TaggedError(
   "CustomerInvoicesUnavailableError"
-) {}
+)<{
+  readonly account: CustomerAccountAccessError;
+}> {}
 
 /** No invoice of the account's customer has this id. */
 export class CustomerInvoiceNotFoundError extends Data.TaggedError(
@@ -97,14 +103,15 @@ export class CustomerInvoiceService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const resolver = yield* CustomerAccountResolver;
+      const currentAccount = yield* CurrentCustomerAccount;
       const links = yield* CustomerAccountLinkRepository;
       const invoices = yield* InvoiceRepository;
 
       const authorize: Effect.Effect<
         LinkedCustomerAccount,
         CustomerInvoicesUnavailableError | CustomerInvoicesLoadError
-      > = resolver.resolve.pipe(
+      > = requireLinkedCustomerAccount.pipe(
+        Effect.provideService(CurrentCustomerAccount, currentAccount),
         Effect.tap((account) =>
           requireAccountActivity(links, account.accountId)
         ),
@@ -117,7 +124,9 @@ export class CustomerInvoiceService extends Context.Service<
             CustomerInvoicesUnavailableError | CustomerInvoicesLoadError
           > =>
             isCustomerAccountAccessDenial(error)
-              ? Effect.fail(new CustomerInvoicesUnavailableError())
+              ? Effect.fail(
+                  new CustomerInvoicesUnavailableError({ account: error })
+                )
               : failLoad("account.authority")
         )
       );
@@ -182,14 +191,18 @@ export class CustomerInvoiceService extends Context.Service<
     })
   );
 
-  static Live = this.Default.pipe(
+  /**
+   * For the account the caller's `CurrentCustomerAccount` reads, such as one
+   * built from a customer API request's own authentication.
+   */
+  static ForCurrentAccount = this.Default.pipe(
     Layer.provide(
-      Layer.mergeAll(
-        CustomerAccountResolver.Live,
-        CustomerAccountLinkRepository.Live,
-        InvoiceRepository.Live
-      )
+      Layer.mergeAll(CustomerAccountLinkRepository.Live, AccountingStorage.Live)
     )
+  );
+
+  static Live = this.ForCurrentAccount.pipe(
+    Layer.provide(CurrentCustomerAccount.Live)
   );
 }
 

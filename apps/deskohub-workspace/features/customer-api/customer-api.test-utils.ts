@@ -4,6 +4,7 @@ import {
   customerApiPathPrefix,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer } from "effect";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   testCustomerSession,
   testLinkedAccount,
@@ -13,17 +14,21 @@ import {
   PasskeyReleaseGate,
 } from "@/features/account/backend/account-release-gates";
 import type { AccountReleaseLayers } from "@/features/account/backend/account-state-capabilities";
+import { AnalyticsPersonAnonymisation } from "@/features/account/backend/analytics-person-anonymisation";
 import { CustomerAgentConnections } from "@/features/account/backend/auth/customer-agent-connections.service";
 import { CustomerPasskeys } from "@/features/account/backend/auth/customer-passkeys.service";
 import { CustomerRequestOrigins } from "@/features/account/backend/auth/customer-request-origins.service";
 import { CustomerAccountDeletionEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import {
+  CurrentCustomerAccount,
+  requireVerifiedIdentity,
+} from "@/features/account/backend/current-customer-account";
 import {
   type CustomerAccountSession,
   CustomerAuthentication,
 } from "@/features/account/backend/customer-authentication.service";
 import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
+import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
 import { CustomerLocalePreference } from "@/features/account/backend/customer-locale-preference.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
@@ -43,6 +48,7 @@ import {
   testReleaseCohortHeader,
 } from "@/features/feature-flags/backend/release-cohorts.test-utils";
 import type { WorkspaceFeatureFlagService } from "@/features/feature-flags/backend/workspace-feature-flag.service";
+import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
 import { MarketingConsentLedger } from "@/features/legal/backend/marketing-consent-ledger";
 import { MarketingPreferences } from "@/features/legal/backend/marketing-preferences.service";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
@@ -200,7 +206,20 @@ export const makeCustomerApiTestServer = (
 };
 
 const unusedAccountServices: CustomerAccountServiceLayers = {
-  resolver: Layer.mock(CustomerAccountResolver, {}),
+  // Only the active-session check reads the request's session; reading the
+  // account's link fails the test.
+  currentAccount: Layer.effect(
+    CurrentCustomerAccount,
+    Effect.map(CustomerAuthentication, (authentication) =>
+      CurrentCustomerAccount.of({
+        peek: Effect.die("peek is not faked"),
+        resolve: Effect.die("resolve is not faked"),
+        requireActive: authentication.currentUser.pipe(
+          Effect.flatMap(requireVerifiedIdentity)
+        ),
+      })
+    )
+  ),
   profile: Layer.mock(CustomerProfileService, {}),
   avatar: Layer.mock(CustomerAvatarService, {}),
   passkeys: Layer.mock(CustomerPasskeys, {}),
@@ -208,17 +227,20 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
   reviewAccounts: ReviewAccountsMock({}),
   referrals: ReferralServiceMock({}),
   signupIntents: Layer.mock(ReferralSignupIntentRepository, {}),
-  contacts: Layer.mock(CustomerAccountContactService, {}),
   marketingPreferences: Layer.mock(MarketingPreferences, {}),
   consentLedger: Layer.mock(MarketingConsentLedger, {}),
   accountDeletion: Layer.mock(CustomerAccountDeletionEndpoint, {}),
+  analyticsConsentLedger: Layer.mock(AnalyticsConsentLedger, {}),
+  analyticsPersonAnonymisation: Layer.mock(AnalyticsPersonAnonymisation, {}),
   localePreference: Layer.mock(CustomerLocalePreference, {}),
+  dataExport: Layer.mock(AccountDataExportService, {}),
+  invoices: Layer.mock(CustomerInvoiceService, {}),
 };
 
 const unusedReservationServices: CustomerReservationServiceLayers = {
-  contacts: () => Layer.mock(CustomerAccountContactService, {}),
+  currentAccount: Layer.mock(CurrentCustomerAccount, {}),
   history: Layer.mock(CustomerReservationHistoryService, {}),
-  authorization: () => Layer.mock(ReservationAuthorizationService, {}),
+  authorization: Layer.mock(ReservationAuthorizationService, {}),
   checkoutStatus: Layer.mock(CheckoutStatusService, {}),
   access: () => Layer.mock(ReservationAccessService, {}),
   invoice: () => Layer.mock(ReservationInvoicePdfService, {}),
@@ -232,6 +254,57 @@ export const testCustomerProfile: CustomerProfile = {
   billing: null,
 };
 
+/** A standing `CurrentCustomerAccount.resolve` reports. */
+type ResolvedStanding = Effect.Success<
+  CurrentCustomerAccount["Service"]["resolve"]
+>;
+
+/**
+ * The request session's standing: signed out without a session, awaiting
+ * deletion with its marker, and otherwise `resolved(session)`. `peek` reads
+ * an account resolution would link as unlinked, and `requireActive` reads
+ * the session as the module does.
+ */
+export const currentAccountResolving = (
+  resolved: (session: CustomerAccountSession) => ResolvedStanding
+) =>
+  Layer.effect(
+    CurrentCustomerAccount,
+    Effect.gen(function* () {
+      const authentication = yield* CustomerAuthentication;
+      const resolve = authentication.currentUser.pipe(
+        Effect.map((session): ResolvedStanding => {
+          if (session === null) return { kind: "signed-out" };
+          if (session.deletionRequested) {
+            return {
+              kind: "deletion-pending",
+              session,
+              reviewMarker: "absent",
+            };
+          }
+          return resolved(session);
+        })
+      );
+      return CurrentCustomerAccount.of({
+        resolve,
+        // Peek never consults Dotypos: what resolution would find is unlinked.
+        peek: Effect.map(resolve, (standing) =>
+          standing.kind === "profile-missing" ||
+          standing.kind === "support-required"
+            ? ({
+                kind: "unlinked",
+                session: standing.session,
+                reviewMarker: standing.reviewMarker,
+              } as const)
+            : standing
+        ),
+        requireActive: authentication.currentUser.pipe(
+          Effect.flatMap(requireVerifiedIdentity)
+        ),
+      });
+    })
+  );
+
 /**
  * Account services for the session's account, linked to its Dotypos
  * customer with `testCustomerProfile`, no avatar, passkeys or assistants,
@@ -239,13 +312,15 @@ export const testCustomerProfile: CustomerProfile = {
  */
 export const linkedAccountServices: CustomerAccountServiceLayers = {
   ...unusedAccountServices,
-  resolver: Layer.mock(CustomerAccountResolver, {
-    resolve: Effect.succeed(testLinkedAccount),
-    resolveLink: Effect.succeed({
-      account: testLinkedAccount,
-      autoLinked: false,
-    }),
-  }),
+  // The request's session, linked to `testLinkedAccount`'s customer unless
+  // it is signed out or awaiting deletion.
+  currentAccount: currentAccountResolving((session) => ({
+    kind: "linked",
+    session,
+    reviewMarker: "absent",
+    account: testLinkedAccount,
+    autoLinked: false,
+  })),
   profile: Layer.mock(CustomerProfileService, {
     load: () => Effect.succeed(testCustomerProfile),
     update: () => Effect.succeed(testCustomerProfile),

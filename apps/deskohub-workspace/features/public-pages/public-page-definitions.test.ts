@@ -38,16 +38,11 @@ const legalDocumentKeys = [
 
 // The legal pages print their date in each locale's long form; English uses
 // the day-first form.
-const dateFormatLocale = {
-  "en-US": "en-GB",
-  "cs-CZ": "cs-CZ",
-  "de-DE": "de-DE",
-  "uk-UA": "uk-UA",
-  "sk-SK": "sk-SK",
-} as const satisfies Record<Locale, string>;
+const dateFormatLocale = (locale: Locale) =>
+  locale === "en-US" ? "en-GB" : locale;
 
 const longDate = (isoDate: string, locale: Locale) =>
-  new Intl.DateTimeFormat(dateFormatLocale[locale], {
+  new Intl.DateTimeFormat(dateFormatLocale(locale), {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -90,13 +85,16 @@ describe("public page content dates", () => {
     }
   });
 
-  // English's translation notice changed with the new locales' translations,
-  // all after the Czech versions; Czech keeps each document's date.
-  test("date the translated legal pages by their 2026-11-09 translations", () => {
+  // English's translation notice changed with the new locales' translations
+  // on 2026-11-09; a translated page takes the later of that day and its
+  // Czech document date. Czech keeps each document's date.
+  test("date the translated legal pages by the later of their 2026-11-09 translations and the document date", () => {
     for (const documentKey of legalDocumentKeys) {
       const page = publicPageDefinitions[`/${documentKey}`];
+      const translatedDate =
+        page.contentDate > "2026-11-09" ? page.contentDate : "2026-11-09";
       for (const locale of ["en-US", "de-DE", "uk-UA", "sk-SK"] as const) {
-        expect(getPublicPageContentDate(page, locale)).toBe("2026-11-09");
+        expect(getPublicPageContentDate(page, locale)).toBe(translatedDate);
       }
       expect(getPublicPageContentDate(page, "cs-CZ")).toBe(page.contentDate);
     }

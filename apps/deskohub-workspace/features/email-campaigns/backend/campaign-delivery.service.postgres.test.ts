@@ -10,17 +10,27 @@ import {
   DotyposUnavailable,
 } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
+import type {
+  EmailBatchResult,
+  EmailMessage,
+  EmailSendError,
+  EmailSendFailure,
+  EmailSendResult,
+} from "@deskohub/email";
 import { decodeStandardSchema } from "@deskohub/standard-schema";
 import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { customerMarketingConsents } from "@/db/schema";
+import type { CustomerAccountId } from "@/features/account/customer-account";
+import { analyticsConsentLedgerOf } from "@/features/legal/backend/analytics-consent-ledger.test-utils";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   holdPostgresTransaction,
   waitForPostgresLockWaiter,
 } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
-import { campaignEmailKind } from "../campaign-email";
-import type { CampaignId, CampaignSendId } from "../campaign-identifiers";
+import { campaignEmailKind } from "../campaign-email-kind";
+import type { CampaignId } from "../campaign-identifiers";
 import type { CampaignDeliveryEvent } from "./campaign-delivery-status.service";
 import {
   deleteAutomatedCampaigns,
@@ -111,12 +121,22 @@ mock.module("resend", () => ({
   },
 }));
 
-const { EmailConfigTag, EmailServiceTag } = await import("@deskohub/email");
+const {
+  EmailConfigTag,
+  EmailDeliveryIdSchema,
+  EmailProviders,
+  EmailServiceError,
+  EmailServiceTag,
+  NetworkError,
+} = await import("@deskohub/email");
+const { makeResendEmailProvider, resendRequestTimeouts } = await import(
+  "@deskohub/email-resend"
+);
+const { AnalyticsConsentLedger } = await import(
+  "@/features/legal/backend/analytics-consent-ledger"
+);
 const { connectWorkspacePostgresTestDatabase } = await import(
   "@/shared/testing/workspace-postgres-test-database.test-utils"
-);
-const { AutomatedSendSubmission, CampaignDeliveryService } = await import(
-  "./campaign-delivery.service"
 );
 const { campaignDeliveryTestLayer } = await import(
   "./campaign-delivery.test-utils"
@@ -144,6 +164,7 @@ describe.skipIf(!testDatabase)(
     const campaignIds: string[] = [];
     const automatedCampaignIds: CampaignId[] = [];
     const consentCustomerIds: DotyposCustomerId[] = [];
+    const linkedCustomerIds: DotyposCustomerId[] = [];
 
     afterAll(async () => {
       await deleteCampaigns(testDatabase.pool, campaignIds);
@@ -151,6 +172,10 @@ describe.skipIf(!testDatabase)(
       await testDatabase.pool.query(
         "delete from customer_marketing_consents where dotypos_customer_id = any($1)",
         [consentCustomerIds]
+      );
+      await testDatabase.pool.query(
+        "delete from customer_accounts where dotypos_customer_id = any($1)",
+        [linkedCustomerIds]
       );
     });
 
@@ -185,11 +210,42 @@ describe.skipIf(!testDatabase)(
         ...overrides,
       }) as DotyposCustomer;
 
+    const resend = makeResendEmailProvider({
+      apiKey: "re_test",
+      timeouts: resendRequestTimeouts.nonProduction,
+    });
+    const resendEmailLayer = EmailServiceTag.Default.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(EmailProviders, {
+            transactional: [resend],
+            marketing: [resend],
+            marketingCategories: new Set(["email-campaign"]),
+          }),
+          Layer.succeed(EmailConfigTag, {
+            defaultFrom: { email: testEmailAddress("campaigns") },
+          })
+        )
+      )
+    );
+
     const consumerLayerFor = (
-      deploymentEnvironment: "production" | "development"
+      deploymentEnvironment: "production" | "development",
+      {
+        email = resendEmailLayer,
+        analyticsConsent = AnalyticsConsentLedger.Default,
+      }: {
+        readonly email?: Layer.Layer<Layer.Success<typeof resendEmailLayer>>;
+        readonly analyticsConsent?: Layer.Layer<
+          Layer.Success<typeof AnalyticsConsentLedger.Default>,
+          never,
+          WorkspaceDatabase
+        >;
+      } = {}
     ) =>
       campaignDeliveryTestLayer(
         Layer.mergeAll(
+          email,
           DotyposServiceMock({
             getCustomersByIds: (ids) =>
               readCustomers(ids).pipe(
@@ -200,22 +256,14 @@ describe.skipIf(!testDatabase)(
                 )
               ),
           }),
-          EmailServiceTag.Live.pipe(
-            Layer.provide(
-              Layer.succeed(EmailConfigTag, {
-                provider: "resend",
-                apiKey: "re_test",
-                defaultFrom: { email: testEmailAddress("campaigns") },
-              })
-            )
-          ),
           Layer.succeed(CampaignEmailConfig, {
             deploymentEnvironment,
             from: { email: testEmailAddress("campaigns") },
             replyTo: { email: testEmailAddress("hello") },
             adminInbox: testEmailAddress("admin"),
           })
-        )
+        ),
+        analyticsConsent
       ).pipe(Layer.provide(testDatabase.layer));
 
     const consumerLayer = consumerLayerFor("development");
@@ -326,7 +374,7 @@ describe.skipIf(!testDatabase)(
 
     const stored = async (sendId: string) => {
       const { rows: recipients } = await testDatabase.pool.query(
-        "select dotypos_customer_id, status, skip_reason, provider_message_id from email_campaign_recipients where send_id = $1 order by dotypos_customer_id",
+        "select dotypos_customer_id, status, skip_reason, provider_message_id, failure_code from email_campaign_recipients where send_id = $1 order by dotypos_customer_id",
         [sendId]
       );
       const {
@@ -353,6 +401,87 @@ describe.skipIf(!testDatabase)(
       batchSend.mock.calls.map(([, options]) => options.idempotencyKey);
     const requestPayloads = () =>
       batchSend.mock.calls.map(([payload]) => JSON.stringify(payload));
+
+    /**
+     * A provider chain that answers each email of a batch on its own, as the
+     * marketing chain does: `answer` gives each email's result, by the
+     * recipient it's for and the request's position among this chain's
+     * requests. `failRequest` instead fails a whole request, as when no
+     * provider answered.
+     */
+    const answeringEachEmail = ({
+      answer,
+      failRequest = () => undefined,
+    }: {
+      readonly answer: (input: {
+        readonly recipient: string;
+        readonly request: number;
+      }) => EmailSendResult | EmailSendFailure;
+      readonly failRequest?: (request: number) => EmailSendError | undefined;
+    }) => {
+      const requests: {
+        readonly messages: readonly EmailMessage[];
+        readonly idempotencyKey: string;
+        readonly replay: boolean;
+      }[] = [];
+      const layer = Layer.succeed(EmailServiceTag, {
+        send: () => Effect.die("campaigns send batches"),
+        sendBatch: (messages: readonly EmailMessage[], options) =>
+          Effect.suspend(() => {
+            const request =
+              requests.push({
+                messages,
+                idempotencyKey: options.idempotencyKey,
+                replay: options.replay ?? false,
+              }) - 1;
+            const failure = failRequest(request);
+            if (failure) return Effect.fail(failure);
+            return Effect.succeed(
+              messages.map(
+                (message): EmailBatchResult =>
+                  answer({
+                    recipient: String(message.metadata?.dotyposCustomerId),
+                    request,
+                  })
+              )
+            );
+          }),
+      });
+      return { layer, requests };
+    };
+    const acceptedBy = (provider: string, id: string): EmailSendResult => ({
+      id: EmailDeliveryIdSchema.make(id),
+      status: "sent",
+      provider,
+      timestamp: new Date(),
+    });
+    /** Every provider refused the email; the last one gave `code`. */
+    const refusedEverywhere = (code: string): EmailSendFailure => ({
+      status: "failed",
+      provider: "resend",
+      timestamp: new Date(),
+      error: new EmailServiceError(`Refused: ${code}`, undefined, "resend", {
+        failureKind: "message",
+        code,
+      }),
+    });
+    /** The email's last provider never answered, so it may have sent it. */
+    const unanswered = (): EmailSendFailure => ({
+      status: "failed",
+      provider: "posthog",
+      timestamp: new Date(),
+      error: new NetworkError({ message: "Timed out", code: "timeout" }),
+    });
+    const lostRequest = () => new NetworkError({ message: "Timed out" });
+
+    /** Runs the consumer to its end; resolves to whether it failed. */
+    const consumeExit = (
+      message: Parameters<typeof processCampaignSendMessage>[0],
+      layer: typeof consumerLayer
+    ) =>
+      Effect.runPromiseExit(
+        processCampaignSendMessage(message).pipe(Effect.provide(layer))
+      ).then(Exit.isFailure);
 
     test("sends an attempt in batches of 100, each under its own key", async () => {
       const ids = Array.from({ length: 101 }, (_, index) =>
@@ -479,6 +608,172 @@ describe.skipIf(!testDatabase)(
       expect(campaign.status).toBe("failed");
     });
 
+    test("settles each recipient by its own email's outcome", async () => {
+      const sent = customerId("each-sent");
+      const refused = customerId("each-refused");
+      const unknown = customerId("each-unknown");
+      profiles = [sent, refused, unknown].map((id) => profile(id));
+      const { sendId } = await seedSend({
+        purpose: "operational",
+        recipients: [sent, refused, unknown].map((dotyposCustomerId) => ({
+          dotyposCustomerId,
+        })),
+      });
+      const answers = new Map([
+        [sent, () => acceptedBy("posthog", `posthog-${run}-each`)],
+        [refused, () => refusedEverywhere("recipient_suppressed")],
+        [unknown, unanswered],
+      ]);
+      const chain = answeringEachEmail({
+        answer: ({ recipient }) =>
+          (
+            answers.get(DotyposCustomerIdSchema.make(recipient)) ?? unanswered
+          )(),
+      });
+
+      expect(
+        await consume(
+          { sendId, deliveryAttempt: 1 },
+          consumerLayerFor("development", { email: chain.layer })
+        )
+      ).toBe("failed");
+
+      // Neither undelivered recipient is requested again.
+      expect(chain.requests).toHaveLength(1);
+      const { recipients, batches, campaign } = await stored(sendId);
+      expect(
+        Object.fromEntries(
+          recipients.map((row) => [
+            row.dotypos_customer_id,
+            [row.status, row.provider_message_id, row.failure_code],
+          ])
+        )
+      ).toEqual({
+        [sent]: ["sent", `posthog-${run}-each`, null],
+        [refused]: ["failed", null, "recipient_suppressed"],
+        // No provider answered for this one, so it may have been mailed:
+        // only a retry that includes unconfirmed recipients resends it.
+        [unknown]: ["unconfirmed", null, "timeout"],
+      });
+      expect(batches.map((batch) => batch.status)).toEqual(["accepted"]);
+      expect(campaign.status).toBe("failed");
+    });
+
+    test("replays a batch no provider answered, and treats an email refused on replay as unconfirmed", async () => {
+      const sent = customerId("replay-each-sent");
+      const refused = customerId("replay-each-refused");
+      profiles = [sent, refused].map((id) => profile(id));
+      const { sendId } = await seedSend({
+        purpose: "operational",
+        recipients: [sent, refused].map((dotyposCustomerId) => ({
+          dotyposCustomerId,
+        })),
+      });
+      const chain = answeringEachEmail({
+        failRequest: (request) => (request === 0 ? lostRequest() : undefined),
+        answer: ({ recipient }) =>
+          recipient === sent
+            ? acceptedBy("resend", `resend-${run}-replayed`)
+            : refusedEverywhere("recipient_suppressed"),
+      });
+      const layer = consumerLayerFor("development", { email: chain.layer });
+
+      expect(await consumeExit({ sendId, deliveryAttempt: 1 }, layer)).toBe(
+        true
+      );
+      const interrupted = await stored(sendId);
+      expect(interrupted.batches.map((batch) => batch.status)).toEqual([
+        "requested",
+      ]);
+      expect(statusesOf(interrupted.recipients)).toEqual({
+        [sent]: "pending",
+        [refused]: "pending",
+      });
+
+      expect(await consume({ sendId, deliveryAttempt: 1 }, layer)).toBe(
+        "failed"
+      );
+
+      const [first, replay] = chain.requests;
+      expect(replay?.idempotencyKey).toBe(first?.idempotencyKey);
+      // The replay stays with the provider that may have taken the first.
+      expect(chain.requests.map((request) => request.replay)).toEqual([
+        false,
+        true,
+      ]);
+      expect(JSON.stringify(replay?.messages)).toBe(
+        JSON.stringify(first?.messages)
+      );
+      const { recipients, batches } = await stored(sendId);
+      // The first request may have mailed the email the replay refused.
+      expect(statusesOf(recipients)).toEqual({
+        [sent]: "sent",
+        [refused]: "unconfirmed",
+      });
+      expect(batches.map((batch) => batch.status)).toEqual(["accepted"]);
+    });
+
+    test("names a consenting recipient's account in its email, as consent stands at each request", async () => {
+      const consenting = customerId("identity-consenting");
+      const undecided = customerId("identity-undecided");
+      profiles = [consenting, undecided].map((id) => profile(id));
+      const fixtures = workspaceFixtures(db);
+      const consentingAccount = await Effect.runPromise(
+        fixtures.customerAccount({ linkedCustomer: consenting })
+      );
+      await Effect.runPromise(
+        fixtures.customerAccount({ linkedCustomer: undecided })
+      );
+      linkedCustomerIds.push(consenting, undecided);
+      const grants = new Set<CustomerAccountId>([consentingAccount]);
+      const { sendId } = await seedSend({
+        purpose: "operational",
+        recipients: [consenting, undecided].map((dotyposCustomerId) => ({
+          dotyposCustomerId,
+        })),
+      });
+      const chain = answeringEachEmail({
+        failRequest: (request) => (request === 0 ? lostRequest() : undefined),
+        answer: ({ recipient }) => acceptedBy("posthog", `${recipient}-email`),
+      });
+      const layer = consumerLayerFor("development", {
+        email: chain.layer,
+        analyticsConsent: analyticsConsentLedgerOf((accountId) =>
+          grants.has(accountId) ? "grant" : "none"
+        ),
+      });
+      const identities = (request: number) =>
+        Object.fromEntries(
+          (chain.requests[request]?.messages ?? []).map((message) => [
+            String(message.metadata?.dotyposCustomerId),
+            message.recipientIdentity,
+          ])
+        );
+
+      expect(await consumeExit({ sendId, deliveryAttempt: 1 }, layer)).toBe(
+        true
+      );
+      expect(identities(0)).toEqual({
+        [consenting]: `workspace-account:${consentingAccount}`,
+        [undecided]: undefined,
+      });
+
+      // Withdrawn before the replay: the replayed batch names no one, and
+      // is still the batch that was persisted.
+      grants.clear();
+      expect(await consume({ sendId, deliveryAttempt: 1 }, layer)).toBe("sent");
+
+      expect(identities(1)).toEqual({
+        [consenting]: undefined,
+        [undecided]: undefined,
+      });
+      const { recipients } = await stored(sendId);
+      expect(statusesOf(recipients)).toEqual({
+        [consenting]: "sent",
+        [undecided]: "sent",
+      });
+    });
+
     test("delivers only the current attempt's recipients", async () => {
       const delivered = customerId("retry-delivered");
       const retried = customerId("retry-failed");
@@ -559,216 +854,6 @@ describe.skipIf(!testDatabase)(
       expect(batches).toEqual([]);
       expect(campaign.status).toBe("active");
       expect(campaign.completed_at).toBeNull();
-    });
-
-    test("settles a submitted automated send whatever its campaign's status and leaves the status as it is", async () => {
-      batchSend = mock(async () => ({
-        data: null,
-        error: { message: "Invalid batch", statusCode: 422 },
-      }));
-      const id = customerId("automated-paused");
-      profiles = [profile(id)];
-      await grantConsent([id]);
-      const campaignId = await seedAutomatedCampaign(db, {
-        purpose: "operational",
-        status: "paused",
-      });
-      automatedCampaignIds.push(campaignId);
-      const versionId = await seedAutomationVersion(db, {
-        campaignId,
-        purpose: "marketing",
-        text: "Verze jedna",
-      });
-
-      const sendId = await deliverAutomated({
-        campaignId,
-        versionId,
-        recipients: [id],
-      });
-
-      const { recipients, campaign, batches } = await stored(sendId);
-      expect(recipients.map((row) => row.status)).toEqual(["failed"]);
-      expect(batches.map((batch) => batch.status)).toEqual(["rejected"]);
-      expect(campaign.status).toBe("paused");
-      expect(campaign.completed_at).not.toBeNull();
-
-      // A completed automated send has nothing left to submit or settle.
-      expect(await resubmitAutomated(sendId)).toMatchObject({
-        _tag: "AlreadyCompleted",
-      });
-      expect(batchSend.mock.calls).toHaveLength(1);
-    });
-
-    /**
-     * Persists an automated send of the version to `recipients`, submits it
-     * from the profiles read for it and settles it, as a deliver unit does
-     * (§5.9). The unit also ends the send's runs; its own suite covers that.
-     */
-    const deliverAutomated = (input: {
-      readonly campaignId: CampaignId;
-      readonly versionId: Parameters<typeof seedAutomatedSend>[1]["versionId"];
-      readonly recipients: readonly DotyposCustomerId[];
-    }) => {
-      const read = new Map(
-        profiles.flatMap((customer) =>
-          customer.id === undefined ? [] : [[customer.id, customer] as const]
-        )
-      );
-      return Effect.runPromise(
-        Effect.gen(function* () {
-          const delivery = yield* CampaignDeliveryService;
-          const { transaction } = yield* WorkspaceDatabase;
-          const at = Temporal.Now.instant();
-          const sendId = yield* transaction(
-            delivery
-              .createAutomatedSend({
-                campaignId: input.campaignId,
-                versionId: input.versionId,
-                at,
-              })
-              .pipe(
-                Effect.tap((created) =>
-                  delivery.persistAutomatedBatch({
-                    sendId: created,
-                    recipients: input.recipients.map((dotyposCustomerId) => ({
-                      dotyposCustomerId,
-                      locale: "cs-CZ" as const,
-                    })),
-                    profiles: read,
-                    at,
-                  })
-                )
-              )
-          );
-          const submission = yield* delivery.submitAutomatedSend({
-            sendId,
-            profiles: Option.some(read),
-          });
-          yield* transaction(
-            AutomatedSendSubmission.$match(submission, {
-              AlreadyCompleted: () => Effect.void,
-              Submitted: ({ batches }) =>
-                delivery.settleAutomatedSend({
-                  sendId,
-                  batches,
-                  at: Temporal.Now.instant(),
-                }),
-            })
-          );
-          return sendId;
-        }).pipe(Effect.provide(Layer.merge(consumerLayer, testDatabase.layer)))
-      );
-    };
-
-    /** Submits an automated send again, as a reclaimed deliver unit does. */
-    const resubmitAutomated = (sendId: CampaignSendId) =>
-      Effect.runPromise(
-        Effect.flatMap(CampaignDeliveryService, (delivery) =>
-          delivery.submitAutomatedSend({ sendId, profiles: Option.none() })
-        ).pipe(Effect.provide(consumerLayer))
-      );
-
-    test("automated batch reads consent written in its transaction", async () => {
-      const id = customerId("unit-transaction-consent");
-      consentCustomerIds.push(id);
-      profiles = [profile(id)];
-      const campaignId = await seedAutomatedCampaign(db, {
-        purpose: "marketing",
-      });
-      automatedCampaignIds.push(campaignId);
-      const versionId = await seedAutomationVersion(db, {
-        campaignId,
-        purpose: "marketing",
-      });
-      const sendId = await Effect.runPromise(
-        Effect.gen(function* () {
-          const delivery = yield* CampaignDeliveryService;
-          const { transaction, db } = yield* WorkspaceDatabase;
-          const at = Temporal.Now.instant();
-          return yield* transaction(
-            Effect.gen(function* () {
-              yield* db.insert(customerMarketingConsents).values({
-                dotyposCustomerId: id,
-                documentHash: "hash",
-                locale: "cs-CZ",
-                grantedAt: at,
-              });
-              const sendId = yield* delivery.createAutomatedSend({
-                campaignId,
-                versionId,
-                at,
-              });
-              yield* delivery.persistAutomatedBatch({
-                sendId,
-                recipients: [{ dotyposCustomerId: id, locale: "cs-CZ" }],
-                profiles: new Map([[id, profiles[0]!]]),
-                at,
-              });
-              return sendId;
-            })
-          );
-        }).pipe(Effect.provide(Layer.merge(consumerLayer, testDatabase.layer)))
-      );
-      const { recipients, batches } = await stored(sendId);
-      expect(recipients[0]?.status).toBe("pending");
-      expect(batches[0]?.dotypos_customer_ids).toEqual([id]);
-    });
-
-    test("a deliver unit's send mails its version's content, skips non-test recipients one by one and leaves the campaign's status", async () => {
-      const inside = customerId("unit-inside");
-      const outside = customerId("unit-outside");
-      profiles = [
-        profile(inside),
-        profile(outside, { email: resendSimulatorAddress("delivered") }),
-      ];
-      await grantConsent([inside, outside]);
-      const campaignId = await seedAutomatedCampaign(db, {
-        purpose: "operational",
-      });
-      automatedCampaignIds.push(campaignId);
-      const versionId = await seedAutomationVersion(db, {
-        campaignId,
-        purpose: "marketing",
-        text: "Verze jedna",
-      });
-
-      const sendId = await deliverAutomated({
-        campaignId,
-        versionId,
-        recipients: [inside, outside],
-      });
-
-      expect(requestKeys()).toEqual([
-        `email-campaign:${sendId}:attempt-1:batch-0`,
-      ]);
-      expect(requestPayloads()[0]).toContain("Verze jedna");
-      expect(requestPayloads()[0]).not.toContain("Rozpracovan");
-      // The version's marketing purpose, not the campaign's own.
-      expect(
-        batchSend.mock.calls[0]![0][0]!.headers?.["List-Unsubscribe"]
-      ).toBeDefined();
-      expect(mailed).toEqual([testEmailAddress(inside)]);
-      const { recipients, campaign, batches } = await stored(sendId);
-      expect(
-        recipients.map((row) => [
-          row.dotypos_customer_id,
-          row.status,
-          row.skip_reason,
-        ])
-      ).toEqual([
-        [inside, "sent", null],
-        [outside, "skipped", "outside-test-domain"],
-      ]);
-      expect(batches).toEqual([
-        {
-          delivery_attempt: 1,
-          batch_index: 0,
-          dotypos_customer_ids: [inside],
-          status: "accepted",
-        },
-      ]);
-      expect(campaign.status).toBe("active");
-      expect(campaign.completed_at).not.toBeNull();
     });
 
     test("skips a recipient outside the test domain before any provider request outside production", async () => {
@@ -954,121 +1039,6 @@ describe.skipIf(!testDatabase)(
         [100, "accepted"],
         [1, "accepted"],
       ]);
-      expect(campaign.status).toBe("sent");
-    });
-
-    test("never resends a batch whose payload changed; its recipients become unconfirmed", async () => {
-      const changed = customerId("changed-email");
-      const unchanged = customerId("unchanged-email");
-      profiles = [profile(changed), profile(unchanged)];
-      const { sendId } = await seedSend({
-        purpose: "operational",
-        recipients: [changed, unchanged].map((dotyposCustomerId) => ({
-          dotyposCustomerId,
-        })),
-      });
-      batchSend = mock(hang);
-      expect(await consumeCutOff({ sendId, deliveryAttempt: 1 })).toBe(false);
-
-      profiles = [
-        profile(changed, { email: testEmailAddress(`${changed}-new`) }),
-        profile(unchanged),
-      ];
-      batchSend.mockImplementation(acceptBatch);
-      expect(await consume({ sendId, deliveryAttempt: 1 })).toBe("failed");
-
-      expect(batchSend.mock.calls).toHaveLength(1);
-      const { recipients, batches, campaign } = await stored(sendId);
-      expect(statusesOf(recipients)).toEqual({
-        [changed]: "unconfirmed",
-        [unchanged]: "unconfirmed",
-      });
-      expect(batches.map((batch) => batch.status)).toEqual(["unconfirmed"]);
-      expect(campaign.status).toBe("failed");
-    });
-
-    test("gives up on a batch with an unknown outcome once its key's replay window passed", async () => {
-      const id = customerId("expired-key");
-      profiles = [profile(id)];
-      const { sendId } = await seedSend({
-        purpose: "operational",
-        recipients: [{ dotyposCustomerId: id }],
-      });
-      batchSend = mock(hang);
-      expect(await consumeCutOff({ sendId, deliveryAttempt: 1 })).toBe(false);
-      await testDatabase.pool.query(
-        "update email_campaign_delivery_batches set requested_at = now() - interval '23 hours 1 minute' where send_id = $1",
-        [sendId]
-      );
-
-      batchSend.mockImplementation(acceptBatch);
-      expect(await consume({ sendId, deliveryAttempt: 1 })).toBe("failed");
-
-      expect(batchSend.mock.calls).toHaveLength(1);
-      const { recipients, batches } = await stored(sendId);
-      expect(statusesOf(recipients)).toEqual({ [id]: "unconfirmed" });
-      expect(batches.map((batch) => batch.status)).toEqual(["unconfirmed"]);
-    });
-
-    test("treats a refused replay as unconfirmed, since the first request may have been delivered", async () => {
-      const id = customerId("refused-replay");
-      profiles = [profile(id)];
-      const { sendId } = await seedSend({
-        purpose: "operational",
-        recipients: [{ dotyposCustomerId: id }],
-      });
-      batchSend = mock(hang);
-      expect(await consumeCutOff({ sendId, deliveryAttempt: 1 })).toBe(false);
-
-      batchSend.mockImplementation(async () => ({
-        data: null,
-        error: { message: "Invalid batch", statusCode: 422 },
-      }));
-      expect(await consume({ sendId, deliveryAttempt: 1 })).toBe("failed");
-
-      const { recipients, batches } = await stored(sendId);
-      expect(statusesOf(recipients)).toEqual({ [id]: "unconfirmed" });
-      expect(batches.map((batch) => batch.status)).toEqual(["unconfirmed"]);
-    });
-
-    test("replays a batch whose response was lost instead of retrying it within the run", async () => {
-      const id = customerId("lost-response");
-      profiles = [profile(id)];
-      const { sendId } = await seedSend({
-        purpose: "operational",
-        recipients: [{ dotyposCustomerId: id }],
-      });
-      // Resend accepts the batch but its response is lost; a second request
-      // in the same run would be rate limited, which says nothing about the
-      // first.
-      batchSend = mock(async (payload, options) => {
-        if (batchSend.mock.calls.length > 1) return rateLimited;
-        await acceptBatch(payload, options);
-        return {
-          data: null,
-          error: { message: "Internal server error", statusCode: 500 },
-        };
-      });
-
-      await consumeFails({ sendId, deliveryAttempt: 1 });
-
-      expect(batchSend.mock.calls).toHaveLength(1);
-      const interrupted = await stored(sendId);
-      expect(interrupted.batches.map((batch) => batch.status)).toEqual([
-        "requested",
-      ]);
-      expect(statusesOf(interrupted.recipients)).toEqual({ [id]: "pending" });
-
-      batchSend.mockImplementation(acceptBatch);
-      expect(await consume({ sendId, deliveryAttempt: 1 })).toBe("sent");
-
-      expect(requestKeys()).toEqual([
-        `email-campaign:${sendId}:attempt-1:batch-0`,
-        `email-campaign:${sendId}:attempt-1:batch-0`,
-      ]);
-      expect(mailed).toEqual([testEmailAddress(id)]);
-      const { recipients, campaign } = await stored(sendId);
-      expect(statusesOf(recipients)).toEqual({ [id]: "sent" });
       expect(campaign.status).toBe("sent");
     });
 

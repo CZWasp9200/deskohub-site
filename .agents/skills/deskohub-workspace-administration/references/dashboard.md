@@ -22,7 +22,7 @@ The dashboard lives in `apps/deskohub-workspace/app/[locale]/admin` and `feature
 
 The dashboard composes these sources without creating a second customer or reservation store:
 
-- Workspace Postgres decides which reservations belong to Workspace and owns workflow state, milestone timestamps, payment attempts, and applied-discount snapshots.
+- Workspace Postgres decides which reservations belong to Workspace and owns workflow state, milestone timestamps, payment attempts, and applied-discount snapshots. `loadReservation` names each applied discount by its stored `staffLabel`, falling back to the guest `label` on rows recorded before the column existed, so the page, the administration API, and `dhw reservations get --json` show the staff wording while the wire field stays `label`.
 - Dotypos supplies current booking dates and customer contact details. A missing or unavailable Dotypos record never hides a Workspace reservation.
 - Nexi supplies live order and operation details for linked payment attempts. Provider IDs stay visible and link to XPay when Nexi is unavailable.
 - PostHog adds optional lifecycle observations to one reservation's timeline. It never decides current status, and lists never query it.
@@ -84,7 +84,7 @@ Operator cancellation is its own guarded workflow, separate from unpaid-hold cle
 
 - It cancels held, confirmed, or retryable `cancellation_failed` reservations. It refuses while fulfillment is `processing` or `awaiting_delivery`, and while payment is pending unless the CLI passes `--force`. A forced cancel atomically cancels the local attempt and releases its discount or voucher claim, and a later provider settlement goes to refund-required recovery without recreating the booking.
 - It preserves payment and fulfillment history, marks paid Nexi attempts as refund `required` without issuing a refund, and leaves zero-total internal payments refund-free.
-- Igloohome can't revoke AlgoPINs remotely. With a live or ambiguous credential, the operator removes it at the lock and confirms removal (`--confirm-access-credential-removed` in `dhw`). The cancellation claim then retires the local credential atomically.
+- The cancellation claim locks the reservation's access grant and, in the same transaction, expires a provisioning, issued, or uncertain grant and forgets its access code, so a cancelled reservation never shows a PIN. Provisioning records its outcome only on a `provisioning` or `issued` grant, so an issuance that finishes after the claim leaves the grant expired.
 - Send the customer email only after provider and local cancellation succeed, and report its outcome separately.
 
 The payment-attempt refund state is the single refund work queue, shared with late-payment recovery. Surface it through `RefundAttention` (backed by `countReservationsNeedingRefund`, in its own Suspense boundary on Overview and Reservations) and the `needs_refund` status filter that the API and `dhw` share. Check every attempt, not only the latest. When Nexi reports a refund, the attempt becomes `refunded` and leaves the queue.

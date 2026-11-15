@@ -9,8 +9,7 @@ import {
 } from "@/features/account/backend/account-release-gates-run";
 import { CustomerAgentConnections } from "@/features/account/backend/auth/customer-agent-connections.service";
 import { CustomerPasskeys } from "@/features/account/backend/auth/customer-passkeys.service";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
@@ -20,17 +19,18 @@ import { ReferralReleaseGateForRun } from "@/features/referrals/referral-release
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { ReviewAccounts } from "@/features/review-accounts";
-import { failuresAsDefects } from "@/shared/backend/workspace-effect";
+import {
+  failuresAsDefects,
+  isRecoverableCause,
+} from "@/shared/backend/workspace-effect";
 
 /** Everything the account state reads while it loads. */
 export type AccountStateCapabilities =
-  | CustomerAuthentication
-  | CustomerAccountResolver
+  | CurrentCustomerAccount
   | CustomerProfileService
   | CustomerAvatarService
   | CustomerPasskeys
   | CustomerAgentConnections
-  | ReviewAccounts
   | ReferralService
   | ReferralSignupIntentRepository
   | ReferralReleaseGate
@@ -45,13 +45,17 @@ export type AccountStateCapabilities =
  */
 export type AccountStateLayers = {
   readonly authentication: Layer.Layer<CustomerAuthentication>;
-  readonly resolver: Layer.Layer<
-    CustomerAccountResolver,
-    Layer.Error<typeof CustomerAccountResolver.Live>
+  /** The standing, reading the session through `authentication`. */
+  readonly currentAccount: Layer.Layer<
+    CurrentCustomerAccount,
+    Layer.Error<typeof CurrentCustomerAccount.ForProvidedAuthentication>,
+    CustomerAuthentication
   >;
+  /** The profile service, its sections reading the session through `authentication`. */
   readonly profile: Layer.Layer<
     CustomerProfileService,
-    Layer.Error<typeof CustomerProfileService.Live>
+    Layer.Error<typeof CustomerProfileService.ForProvidedAuthentication>,
+    CustomerAuthentication
   >;
   readonly avatar: Layer.Layer<
     CustomerAvatarService,
@@ -59,6 +63,7 @@ export type AccountStateLayers = {
   >;
   readonly passkeys: Layer.Layer<CustomerPasskeys>;
   readonly assistants: Layer.Layer<CustomerAgentConnections>;
+  /** The review marker the standing reads when its links can't be built. */
   readonly reviewAccounts: Layer.Layer<ReviewAccounts>;
   readonly referrals: Layer.Layer<
     ReferralService,
@@ -69,7 +74,7 @@ export type AccountStateLayers = {
   readonly referralRelease: Layer.Layer<ReferralReleaseGate>;
   readonly rememberedReferral: Layer.Layer<
     RememberedReferral,
-    Layer.Error<typeof CustomerAccountContactService.Live>,
+    Layer.Error<typeof CurrentCustomerAccount.Live>,
     ReferralService | ReferralReleaseGate
   >;
   readonly passkeyRelease: Layer.Layer<PasskeyReleaseGate>;
@@ -83,26 +88,19 @@ export type AccountStateLayers = {
 export type AccountServiceLayers = Omit<
   AccountStateLayers,
   "referralRelease" | "rememberedReferral" | "passkeyRelease" | "avatarRelease"
-> & {
-  /** The session's customer, for the remembered referral's order bookers. */
-  readonly contacts: Layer.Layer<
-    CustomerAccountContactService,
-    Layer.Error<typeof CustomerAccountContactService.Live>
-  >;
-};
+>;
 
 /** The account services' live layers. */
 export const liveAccountServiceLayers: AccountServiceLayers = {
   authentication: CustomerAuthentication.Default,
-  resolver: CustomerAccountResolver.Live,
-  profile: CustomerProfileService.Live,
+  currentAccount: CurrentCustomerAccount.ForProvidedAuthentication,
+  profile: CustomerProfileService.ForProvidedAuthentication,
   avatar: CustomerAvatarService.Live,
   passkeys: CustomerPasskeys.Default,
   assistants: CustomerAgentConnections.Default,
   reviewAccounts: ReviewAccounts.Live,
   referrals: ReferralService.Live,
   signupIntents: ReferralSignupIntentRepository.Live,
-  contacts: CustomerAccountContactService.Live,
 };
 
 /** The account release gates, which each edge decides its own way. */
@@ -140,9 +138,14 @@ export const accountStateCapabilitiesForRun = (
   accountStateCapabilities({
     ...services,
     ...releases,
+    // The session's standing, for the remembered referral's order bookers.
     rememberedReferral: RememberedReferral.fromClient(
       request.referralCode
-    ).pipe(Layer.provide(services.contacts)),
+    ).pipe(
+      Layer.provide(
+        services.currentAccount.pipe(Layer.provide(services.authentication))
+      )
+    ),
   });
 
 /**
@@ -150,7 +153,9 @@ export const accountStateCapabilitiesForRun = (
  * capability whose layer fails to build is replaced by one whose every
  * operation dies with that failure, so only the sections that use it
  * degrade, through their own recovery, and a section the load skips is
- * unaffected. The authentication that every state needs stays as it is.
+ * unaffected. The authentication that every state needs stays as it is:
+ * when the standing's link capabilities can't be built, the standing still
+ * reads the session and review marker and reports its links unavailable.
  */
 export const accountStateCapabilities = (
   layers: AccountStateLayers
@@ -167,15 +172,28 @@ export const accountStateCapabilities = (
       resolveReferrerCandidate: () => failure,
     }))
   );
+  const reviewAccounts = layers.reviewAccounts.pipe(
+    unavailableUntilUsed(ReviewAccounts, (failure) => ({
+      isReviewAccount: () => failure,
+      register: () => failure,
+    }))
+  );
   return Layer.mergeAll(
-    layers.authentication,
-    layers.resolver.pipe(
-      unavailableUntilUsed(CustomerAccountResolver, (failure) => ({
-        resolve: failure,
-        resolveLink: failure,
-      }))
+    layers.currentAccount.pipe(
+      Layer.catchCause((cause) =>
+        isRecoverableCause(cause)
+          ? CurrentCustomerAccount.LinksUnavailable.pipe(
+              Layer.provide(reviewAccounts)
+            )
+          : Layer.effect(
+              CurrentCustomerAccount,
+              Effect.failCause(failuresAsDefects(cause))
+            )
+      ),
+      Layer.provide(layers.authentication)
     ),
     layers.profile.pipe(
+      Layer.provide(layers.authentication),
       unavailableUntilUsed(CustomerProfileService, (failure) => ({
         load: () => failure,
         update: () => failure,
@@ -198,12 +216,6 @@ export const accountStateCapabilities = (
     layers.assistants.pipe(
       unavailableUntilUsed(CustomerAgentConnections, (failure) => ({
         list: failure,
-      }))
-    ),
-    layers.reviewAccounts.pipe(
-      unavailableUntilUsed(ReviewAccounts, (failure) => ({
-        isReviewAccount: () => failure,
-        register: () => failure,
       }))
     ),
     referrals,
@@ -231,11 +243,13 @@ export const accountStateCapabilities = (
     layers.passkeyRelease.pipe(
       unavailableUntilUsed(PasskeyReleaseGate, (failure) => ({
         isOpen: failure,
+        decision: failure,
       }))
     ),
     layers.avatarRelease.pipe(
       unavailableUntilUsed(AccountAvatarReleaseGate, (failure) => ({
         isOpen: failure,
+        decision: failure,
       }))
     )
   ).pipe(Layer.provideMerge(layers.referralRelease));

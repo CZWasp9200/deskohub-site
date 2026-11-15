@@ -17,13 +17,20 @@ import {
   CustomerAccountContactService,
   CustomerAccountSections,
 } from "@/features/account";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
+import type { CustomerAccountSession } from "@/features/account/backend/customer-authentication.service";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import { CheckoutAnalytics } from "@/features/checkout/backend/analytics";
 import {
+  type AdvertisementAffirmation,
   buildCheckoutPayPath,
   buildSignedPayState,
   CheckoutPricingService,
+  getPriceVerdictChangedKeys,
+  openSubmittedAdvertisedPriceState,
   type PayStateLinkOptions,
+  type PreparedCustomerQuote,
+  type PriceVerdict,
   sealPayStateForUrl,
 } from "@/features/checkout/backend/checkout";
 import {
@@ -36,15 +43,9 @@ import {
   addCheckoutReferralAppliedMarker,
   hasCheckoutReferralBenefit,
 } from "@/features/checkout/checkout-referral-notice";
-import {
-  type CheckoutSummaryChangedKeys,
-  getCheckoutSummaryChangedKeys,
-} from "@/features/checkout/checkout-summary";
-import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
-import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
-import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
+import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 import { legalEvidenceMapSchema } from "@/features/checkout/legal-evidence";
-import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
+import { getCheckoutDetails } from "@/features/checkout/schemas/checkout-details";
 import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
 import { defaultPhoneRegion, type Locale, m } from "@/features/i18n";
 import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
@@ -61,24 +62,6 @@ import {
   RememberedReferral,
   type RememberedReferralForBooking,
 } from "@/features/referrals/remembered-referral.service";
-import {
-  getPreparedCoworkCheckoutDetails,
-  type PreparedCoworkAdvertisement,
-  type PreparedCoworkPayState,
-  prepareCoworkAdvertisement,
-} from "@/features/reservation/actions/prepare-cowork-pay-state";
-import {
-  getPreparedMeetingRoomCheckoutDetails,
-  type PreparedMeetingRoomAdvertisement,
-  type PreparedMeetingRoomPayState,
-  prepareMeetingRoomAdvertisement,
-} from "@/features/reservation/actions/prepare-meeting-room-pay-state";
-import {
-  getPreparedOfficeCheckoutDetails,
-  type PreparedOfficeAdvertisement,
-  type PreparedOfficePayState,
-  prepareOfficeAdvertisement,
-} from "@/features/reservation/actions/prepare-office-pay-state";
 import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import {
   AgentBookingPaymentInProgressError,
@@ -126,6 +109,7 @@ export type PayStateSubmission = Omit<
 /** The services each caller provides per request for its own channel. */
 type ChannelServices =
   | CustomerAccountSections
+  | CurrentCustomerAccount
   | CustomerAccountContactService
   | RememberedReferral;
 
@@ -240,28 +224,26 @@ const decodeLegalEvidenceMap = Schema.decodeUnknownSync(
 );
 const emptyLegalEvidence = decodeLegalEvidenceMap({});
 
-type PreparedAdvertisement =
-  | PreparedCoworkAdvertisement
-  | PreparedMeetingRoomAdvertisement
-  | PreparedOfficeAdvertisement;
+type PreparedAdvertisement = PriceVerdict<AdvertisementAffirmation>;
 
 const prepareAdvertisement = Effect.fn("preparePayState.prepareAdvertisement")(
-  (
+  function* (
     // Advertising prices the selection; it never reads the consent label.
     input: Omit<PayStateSubmission, "marketingConsentSource"> & {
       readonly bookedAt: Temporal.Instant;
     }
-  ) =>
-    Match.value(input.reservation).pipe(
-      Match.discriminatorsExhaustive("kind")({
-        cowork: (reservation) =>
-          prepareCoworkAdvertisement({ ...input, reservation }),
-        "meeting-room": (reservation) =>
-          prepareMeetingRoomAdvertisement({ ...input, reservation }),
-        office: (reservation) =>
-          prepareOfficeAdvertisement({ ...input, reservation }),
-      })
-    )
+  ) {
+    const advertisement = yield* openSubmittedAdvertisedPriceState(
+      input.advertisedPriceToken
+    );
+    const pricing = yield* CheckoutPricingService;
+    return yield* pricing.affirmAdvertisement({
+      advertisement,
+      reservation: input.reservation,
+      locale: input.locale,
+      bookedAt: input.bookedAt,
+    });
+  }
 );
 
 const quotePreparedReservation = Effect.fn(
@@ -279,72 +261,27 @@ const quotePreparedReservation = Effect.fn(
       ? {}
       : { referralCode: input.referralCode };
 
-  const prepared = yield* pricing.quoteForCustomer({
-    ...input.advertisement,
+  const verdict = yield* pricing.quoteForCustomer({
+    advertisement: input.advertisement,
     dotyposCustomerId: input.dotyposCustomerId,
     locale: input.locale,
-    affirmedAdvertisement: input.advertisement.discountQuote,
     ...referral,
   });
-  const advertisedSummary = Match.value(input.advertisement).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (advertisement) =>
-        getCoworkCheckoutSummary(
-          advertisement.reservation,
-          advertisement.advertisedQuote
-        ),
-      "meeting-room": (advertisement) =>
-        getMeetingRoomCheckoutSummary(advertisement.advertisedQuote),
-      office: (advertisement) =>
-        getOfficeCheckoutSummary(advertisement.advertisedQuote),
-    })
-  );
-  const preparedSummary = Match.value(prepared).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (customerQuote) =>
-        getCoworkCheckoutSummary(
-          customerQuote.reservation,
-          customerQuote.quote
-        ),
-      "meeting-room": (customerQuote) =>
-        getMeetingRoomCheckoutSummary(customerQuote.quote),
-      office: (customerQuote) => getOfficeCheckoutSummary(customerQuote.quote),
-    })
-  );
-  const changedKeys =
-    input.advertisement.changedKeys || prepared.advertisedPriceChanged
-      ? getCheckoutSummaryChangedKeys(advertisedSummary, preparedSummary)
-      : undefined;
 
   return {
-    ...prepared,
+    ...verdict.priced,
     ...referral,
     requestedDiscountCode:
-      input.advertisement.requestedDiscountCode ?? input.referralCodePrefill,
-    changedKeys,
+      input.advertisement.priced.requestedDiscountCode ??
+      input.referralCodePrefill,
+    changedKeys: getPriceVerdictChangedKeys(verdict),
   };
 });
 
-type PreparedPayState =
-  | PreparedCoworkPayState
-  | PreparedMeetingRoomPayState
-  | PreparedOfficePayState;
-
-const getReservationCheckoutDetails = (input: {
-  readonly locale: Locale;
-  readonly prepared: PreparedPayState;
-  readonly legalEvidence: CheckoutDetails["legal"];
-}): CheckoutDetails =>
-  Match.value(input.prepared).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (prepared) =>
-        getPreparedCoworkCheckoutDetails({ ...input, prepared }),
-      "meeting-room": (prepared) =>
-        getPreparedMeetingRoomCheckoutDetails({ ...input, prepared }),
-      office: (prepared) =>
-        getPreparedOfficeCheckoutDetails({ ...input, prepared }),
-    })
-  );
+type PreparedPayState = PreparedCustomerQuote & {
+  readonly requestedDiscountCode?: CanonicalPromotionCode;
+  readonly referralCode?: CanonicalPromotionCode;
+};
 
 const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
   function* (input: {
@@ -439,25 +376,40 @@ const resolveAccountCustomer = Effect.fn(
   if (input.customer !== "account") return undefined;
 
   const contacts = yield* CustomerAccountContactService;
-  const account = yield* contacts.currentAccount;
-  const contact = yield* Match.value(account).pipe(
-    Match.discriminatorsExhaustive("status")({
+  // The stored link only: booking never claims, reactivates, or asks Dotypos
+  // through this read.
+  const standing = yield* CurrentCustomerAccount.pipe(
+    Effect.flatMap((current) => current.peek)
+  );
+  const completeProfile = ({ session }: { session: CustomerAccountSession }) =>
+    Option.isSome(bookingAgent)
+      ? Effect.fail(new AgentBookingProfileRequiredError({}))
+      : contacts.completeProfile(
+          session,
+          getReservationCustomerProfile(
+            input.reservation,
+            defaultPhoneRegion(input.locale)
+          )
+        );
+  const contact = yield* Match.value(standing).pipe(
+    Match.discriminatorsExhaustive("kind")({
       "signed-out": () => Effect.succeed(null),
-      unlinked: (unlinked) =>
-        Option.isSome(bookingAgent)
-          ? Effect.fail(new AgentBookingProfileRequiredError({}))
-          : contacts.completeProfile(
-              unlinked,
-              getReservationCustomerProfile(
-                input.reservation,
-                defaultPhoneRegion(input.locale)
-              )
-            ),
-      linked: (linked) => contacts.linkedContact(linked),
+      "deletion-pending": () => Effect.succeed(null),
+      unverified: () =>
+        Effect.fail(
+          new CustomerAccountAccessError({ reason: "unverified-email" })
+        ),
+      unlinked: completeProfile,
+      // A review account has no link, so it reads as unlinked; the section
+      // books it in the review sandbox before this read.
+      review: completeProfile,
+      linked: ({ account, session }) =>
+        contacts.linkedContact({ ...account, email: session.email }),
+      unavailable: ({ failure }) => Effect.fail(failure),
     })
   );
   if (!contact) {
-    return yield* account.status === "linked" && Option.isSome(bookingAgent)
+    return yield* standing.kind === "linked" && Option.isSome(bookingAgent)
       ? new AgentBookingProfileRequiredError({})
       : new CustomerAccountAccessError({ reason: "unauthenticated" });
   }
@@ -527,8 +479,8 @@ const prepareReviewSandboxHold = Effect.fn(
     agentClientId: Option.getOrUndefined(
       Option.map(bookingAgent, (agent) => agent.clientId)
     ),
-    reservation: advertisement.reservation,
-    total: advertisement.advertisedQuote.payment.expectedPrice,
+    reservation: advertisement.priced.reservation,
+    total: advertisement.priced.advertisedQuote.payment.expectedPrice,
     bookedAt,
   });
 });
@@ -774,19 +726,15 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         const referralCustomerFor = (pricedFor: DotyposCustomerId) =>
           accountReferral === undefined ? undefined : pricedFor;
 
+        const reservation = accountCustomer
+          ? { ...input.reservation, ...accountCustomer.contact }
+          : input.reservation;
         const advertiseAt = (at: Temporal.Instant) =>
-          prepareAdvertisement({
-            ...input,
-            ...(accountCustomer && {
-              reservation: { ...input.reservation, ...accountCustomer.contact },
-            }),
-            bookedAt: at,
-          });
+          prepareAdvertisement({ ...input, reservation, bookedAt: at });
         // Submission locks the price: calendar sales are evaluated at this
         // booking moment here and at every later checkout re-check.
         const bookedAt = yield* currentInstant;
         const advertisement = yield* advertiseAt(bookedAt);
-        const reservation = advertisement.reservation;
 
         const checkoutSessionKeys = yield* deriveCheckoutSessionKeys(
           input.checkoutSessionId
@@ -836,7 +784,9 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
           referralCodePrefill,
           referralCode: accountReferral?.referralCode,
         });
-        yield* Effect.annotateLogsScoped({ quote: prepared.quote });
+        yield* Effect.annotateLogsScoped({
+          quoteFingerprint: prepared.quote.fingerprint,
+        });
         yield* Effect.logDebug("Workspace reservation quote built");
 
         // An agent's hold is anchored at its booking instant, and a repeated
@@ -969,9 +919,9 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
               onSome: (agent) => ({ agent }),
             }),
           },
-          checkoutDetails: getReservationCheckoutDetails({
+          checkoutDetails: getCheckoutDetails({
             locale: input.locale,
-            prepared,
+            priced: prepared,
             legalEvidence: emptyLegalEvidence,
           }),
         });

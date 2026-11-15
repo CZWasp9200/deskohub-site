@@ -3,14 +3,15 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { PostHogDistinctId } from "@deskohub/analytics-posthog/identifiers";
 import { DotyposService } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { EmailRecipientDomainServiceMock } from "@deskohub/email/backend/recipient-domain.service.mock";
-import { PostHogDistinctId } from "@deskohub/posthog/identifiers";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Option, Schema } from "effect";
 import { ReservationAuthorDirectory } from "@/features/account";
 import { customerAgentClientIdSchema } from "@/features/account/backend/auth/customer-agent-authorization.service";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
 import {
   makeCustomerAccountSections,
@@ -140,8 +141,9 @@ describe.skipIf(!database)(
     // Every dependency a recorded booking reaches dies, so reaching one fails
     // the test: Dotypos, availability, the reservation ledger, hold cleanup,
     // marketing consent, and the profile contact.
-    const contacts = Layer.mock(CustomerAccountContactService, {
-      currentAccount: Effect.fail(
+    const contacts = Layer.mock(CustomerAccountContactService, {});
+    const currentAccount = Layer.mock(CurrentCustomerAccount, {
+      peek: Effect.fail(
         new CustomerAccountAccessError({ reason: "unavailable" })
       ),
     });
@@ -195,8 +197,9 @@ describe.skipIf(!database)(
       Layer.mock(MarketingConsentLedger, {
         record: unreachable("Marketing consent"),
       }),
-      // The profile contact fails as unavailable, so an ordinary account's
-      // booking ends in a captured failure.
+      // The account's standing fails as unavailable, so an ordinary
+      // account's booking ends in a captured failure.
+      currentAccount,
       contacts,
       WorkspaceTableAssignmentServiceMock({
         assignTableId: unreachable("Table assignment"),
@@ -209,7 +212,7 @@ describe.skipIf(!database)(
           Layer.mergeAll(
             ReferralReleaseGate.fromDecision(false),
             WithheldReferralService,
-            contacts
+            currentAccount
           )
         )
       ),

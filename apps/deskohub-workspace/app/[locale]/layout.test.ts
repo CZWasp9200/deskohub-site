@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { getPublicCatalogOfferings } from "@/features/checkout/public-offerings";
+import { classifiedConstancy } from "@/features/feature-flags/backend/feature-flag-constancy.test-utils";
 import type { PostHogFeatureFlagKey } from "@/features/feature-flags/generated/contract";
 import { publicSiteShareImage } from "@/features/public-pages/page-metadata";
 import { nextFontLocal } from "@/shared/testing/next-font-local.test-utils";
@@ -21,6 +22,8 @@ mock.module(
     getGlobalWorkspaceFeatureFlagValues: () => Promise.resolve(undefined),
     getGlobalWorkspaceFeatureFlagValue: (key: PostHogFeatureFlagKey) =>
       Promise.resolve(constantFlags[key]),
+    getWorkspaceFeatureFlagConstancy: (key: PostHogFeatureFlagKey) =>
+      Promise.resolve(classifiedConstancy(constantFlags[key])),
   })
 );
 
@@ -144,7 +147,7 @@ describe("localized route layout", () => {
     expect(first?.type).toBe(TemporalLoader);
   });
 
-  test("leads the brand font with a companion only where the script needs one", async () => {
+  test("sets a text font stack only where the script needs one, and the language name faces everywhere", async () => {
     const { default: LocaleLayout } = await import("./layout");
     type Element = { props: { style?: Record<string, string> } };
     const render = async (locale: string) =>
@@ -152,11 +155,25 @@ describe("localized route layout", () => {
         children: page,
         params: Promise.resolve({ locale }),
       })) as Element;
+    const languageNameFaces = {
+      "--font-language-name-uk-UA":
+        "'../../assets/fonts/Montserrat/language-name-cyrillic.woff2'",
+      "--font-language-name-vi-VN":
+        "'../../assets/fonts/Montserrat/language-name-vietnamese.woff2'",
+      "--font-language-name-hi-IN":
+        "'../../assets/fonts/Poppins/language-name-devanagari-400.woff2'",
+    };
 
-    expect((await render("cs-CZ")).props.style).toBeUndefined();
+    expect((await render("cs-CZ")).props.style).toEqual(languageNameFaces);
     expect((await render("uk-UA")).props.style).toEqual({
-      "--font-sculpin":
+      ...languageNameFaces,
+      "--font-text":
         "'../../assets/fonts/Sculpin/regular.woff2', '../../assets/fonts/Montserrat/cyrillic.woff2'",
+    });
+    expect((await render("vi-VN")).props.style).toEqual({
+      ...languageNameFaces,
+      "--font-text":
+        "'../../assets/fonts/Montserrat/vietnamese.woff2', '../../assets/fonts/Montserrat/latin-ext.woff2', '../../assets/fonts/Sculpin/regular.woff2'",
     });
   });
 

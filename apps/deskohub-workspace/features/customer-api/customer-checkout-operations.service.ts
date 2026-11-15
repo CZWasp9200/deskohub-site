@@ -4,6 +4,8 @@ import {
   CustomerAccountContactService,
   CustomerAccountSections,
 } from "@/features/account";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
+import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { applyDiscountCodeToPayState } from "@/features/checkout/actions/apply-discount-code-to-pay-state";
 import {
   acceptPayStatePriceChange,
@@ -99,13 +101,23 @@ export class CustomerCheckoutOperations extends Context.Service<
   ICustomerCheckoutOperations
 >()("@deskohub-workspace/customer-api/CustomerCheckoutOperations") {
   /**
-   * Closes over the request's release gates and referral updates, so the
-   * operations and the handler share one decision per gate and one record
-   * of the client's referral code.
+   * Closes over the request's authentication, release gates and referral
+   * updates, so the operations read the session the handler reads, and
+   * share one decision per gate and one record of the client's referral
+   * code with it.
    */
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
+      // The authentication the session middleware read the request through.
+      const authentication = Layer.succeed(
+        CustomerAuthentication,
+        yield* CustomerAuthentication
+      );
+      const currentAccount =
+        CurrentCustomerAccount.ForProvidedAuthentication.pipe(
+          Layer.provide(authentication)
+        );
       const releases = {
         referral: Layer.succeed(
           ReferralReleaseGate,
@@ -121,8 +133,11 @@ export class CustomerCheckoutOperations extends Context.Service<
           Layer.mergeAll(
             ReservationBooking.Live,
             ReferralService.Live,
-            CustomerAccountSections.Live,
-            CustomerAccountContactService.Live
+            Layer.mergeAll(
+              CustomerAccountSections.ForProvidedAuthentication,
+              CurrentCustomerAccount.ForProvidedAuthentication,
+              CustomerAccountContactService.ForProvidedAuthentication
+            ).pipe(Layer.provide(authentication))
           )
         ),
         Layer.provideMerge(Layer.mergeAll(releases.referral, releases.office)),
@@ -137,7 +152,7 @@ export class CustomerCheckoutOperations extends Context.Service<
             PayableReservationService.Live,
             ReferralService.Live,
             CheckoutReferralService.Live,
-            CustomerAccountContactService.Live,
+            currentAccount,
             SealedStateKeys.Default
           )
         ),
@@ -147,10 +162,9 @@ export class CustomerCheckoutOperations extends Context.Service<
       /** What settling the client's referral code reads. */
       const referralSettlement = remembered.pipe(
         Layer.provide(
-          Layer.mergeAll(
-            ReferralService.Live,
-            CustomerAccountContactService.Live
-          ).pipe(Layer.provideMerge(releases.referral))
+          Layer.mergeAll(ReferralService.Live, currentAccount).pipe(
+            Layer.provideMerge(releases.referral)
+          )
         )
       );
 

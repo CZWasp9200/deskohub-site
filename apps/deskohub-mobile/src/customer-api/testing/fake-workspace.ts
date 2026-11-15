@@ -1,3 +1,4 @@
+import { isSupportedLocale } from "@deskohub/i18n/locale-registry";
 import {
   CurrentCustomerSession,
   CustomerAccessCodeUnavailable,
@@ -9,13 +10,15 @@ import {
   CustomerAuthApi as CustomerAuthHttpApi,
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
+  CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
+  CustomerInvoiceNotFound,
   CustomerInvoiceNotIssued,
+  type CustomerInvoicesApi,
   CustomerMarketingPreferencesRejected,
   type CustomerOrderStatus,
   type CustomerProfile,
-  CustomerProfileCompletionSave,
-  CustomerProfileSave,
+  type CustomerProfileSave,
   CustomerRateLimited,
   CustomerRequestOriginCheck,
   CustomerRequestRejected,
@@ -27,9 +30,13 @@ import {
   CustomerSessionRequired,
   customerApiClientHeader,
   type ProfileCompletionReferralOutcome,
+  profileCompletionSaveOf,
+  profileUpdateSaveOf,
+  type SaveCustomerAnalyticsPreference,
+  type SyncCustomerAnalyticsConsent,
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
-import { Effect, Layer, Schema, Stream } from "effect";
+import { Clock, Effect, Layer, Stream } from "effect";
 import {
   HttpClient,
   HttpClientError,
@@ -79,6 +86,7 @@ export type FakeRequestOutcome =
 type EndpointName = HttpApiEndpoint.Name<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
+  | HttpApiGroup.Endpoints<typeof CustomerInvoicesApi>
   | HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
 >;
 
@@ -106,6 +114,25 @@ export class FakeWorkspace {
   deletionOutcome: CustomerAccountDeletionResult["status"] = "deleted";
   /** Endpoint names in the order requests reached them. */
   readonly calls: EndpointName[] = [];
+  /**
+   * The account's current analytics decision, if it made one; `notice` says
+   * whether a grant was given under the current privacy notice.
+   */
+  analyticsDecision: FakeAnalyticsDecision | undefined;
+  /** What each analytics consent sync sent, in order. */
+  readonly analyticsSyncs: SyncCustomerAnalyticsConsent[] = [];
+  /** What each analytics preference save sent, in order. */
+  readonly analyticsPreferenceSaves: SaveCustomerAnalyticsPreference[] = [];
+  /**
+   * Runs while an analytics consent sync or preference save is handled,
+   * before it answers, as when the device changes meanwhile.
+   */
+  onAnalyticsConsentRequest: (() => void) | undefined;
+  /**
+   * Awaited before an analytics consent sync answers, as a slow response;
+   * the answer is the account's decision once it settles.
+   */
+  analyticsSyncDelay: Promise<void> | undefined;
   private readonly outcomes = new Map<EndpointName, FakeRequestOutcome[]>();
 
   constructor(data: FakeWorkspaceData = sampleWorkspaceData("linked")) {
@@ -169,6 +196,45 @@ export class FakeWorkspace {
   }
 }
 
+/** The account's analytics decision as the fake Workspace keeps it. */
+export interface FakeAnalyticsDecision {
+  readonly granted: boolean;
+  readonly decidedAt: string;
+  readonly notice: "current" | "earlier";
+}
+
+/**
+ * The Workspace's sync rules in brief: a device choice newer than the
+ * account's decision becomes it; the answer is the account's withdrawal over
+ * an accepting choice it didn't take, or its current-notice grant for a
+ * device without a choice.
+ */
+const syncAnalyticsConsent = (
+  workspace: FakeWorkspace,
+  { choice }: SyncCustomerAnalyticsConsent
+) => {
+  const current = workspace.analyticsDecision;
+  if (choice === null) {
+    return current?.granted && current.notice === "current"
+      ? { kind: "grant" as const, decidedAt: current.decidedAt }
+      : { kind: "unchanged" as const };
+  }
+  const mirrored =
+    current === undefined ||
+    Date.parse(choice.decidedAt) > Date.parse(current.decidedAt);
+  if (mirrored) {
+    workspace.analyticsDecision = {
+      granted: choice.analytics,
+      decidedAt: new Date(Date.parse(choice.decidedAt)).toISOString(),
+      notice: "current",
+    };
+    return { kind: "unchanged" as const };
+  }
+  return choice.analytics && !current.granted
+    ? { kind: "withdraw" as const, decidedAt: current.decidedAt }
+    : { kind: "unchanged" as const };
+};
+
 /** One part of an avatar upload body, as the fake Workspace read it. */
 export type FakeAvatarUploadPart =
   | {
@@ -207,17 +273,9 @@ const avatarUploadParts = (
     Effect.catchTag("MultipartError", () => Effect.succeed([]))
   );
 
-/**
- * The save a profile payload asks for, read as the Workspace's handlers read
- * it: the entered phone decoded to the phone number it holds. The payload
- * already passed the same rules, so a failure here is a defect.
- */
-const readProfileSave = <S extends Schema.Top>(schema: S) => {
-  const decode = Schema.decodeEffect(schema);
-  return (payload: S["Encoded"]) => decode(payload).pipe(Effect.orDie);
-};
-const readProfileUpdate = readProfileSave(CustomerProfileSave);
-const readProfileCompletion = readProfileSave(CustomerProfileCompletionSave);
+// The saved language the Workspace's session check reads with the session.
+const savedLocaleOf = ({ locale }: CustomerAccountState) =>
+  locale !== null && isSupportedLocale(locale) ? locale : null;
 
 // Dotypos stores a cleared phone as blank, which reads back as no phone.
 const storedProfile = (input: CustomerProfileSave): CustomerProfile => ({
@@ -274,6 +332,15 @@ const accountView = (data: FakeWorkspaceData): CustomerAccountState => ({
     : { assistants: [...data.assistants] }),
 });
 
+/** A ZIP archive with no entries: its end-of-central-directory record. */
+const emptyZipArchive = Uint8Array.of(
+  0x50,
+  0x4b,
+  0x05,
+  0x06,
+  ...new Array<number>(18).fill(0)
+);
+
 const serverLayer = (workspace: FakeWorkspace) => {
   const linkedAccount = Effect.suspend(() => {
     const { account } = workspace.data;
@@ -306,7 +373,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
           Effect.sync(() => accountView(workspace.data))
         )
         .handle("updateProfile", ({ payload }) =>
-          Effect.all([linkedAccount, readProfileUpdate(payload)]).pipe(
+          Effect.all([linkedAccount, profileUpdateSaveOf(payload)]).pipe(
             Effect.flatMap(([current, save]) =>
               update((data) => ({
                 ...data,
@@ -333,7 +400,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
           ).pipe(Effect.as({ locale }))
         )
         .handle("completeProfile", ({ payload }) =>
-          Effect.flatMap(readProfileCompletion(payload), (save) =>
+          Effect.flatMap(profileCompletionSaveOf(payload), (save) =>
             Effect.suspend(
               (): Effect.Effect<
                 | {
@@ -470,6 +537,39 @@ const serverLayer = (workspace: FakeWorkspace) => {
                 )
           )
         )
+        .handle("syncAnalyticsConsent", ({ payload }) =>
+          Effect.sync(() => {
+            workspace.analyticsSyncs.push(payload);
+            workspace.onAnalyticsConsentRequest?.();
+          }).pipe(
+            Effect.andThen(
+              Effect.promise(
+                () => workspace.analyticsSyncDelay ?? Promise.resolve()
+              )
+            ),
+            Effect.map(() => syncAnalyticsConsent(workspace, payload))
+          )
+        )
+        .handle("getAnalyticsPreference", () =>
+          Effect.sync(() => ({
+            granted: workspace.analyticsDecision?.granted ?? false,
+          }))
+        )
+        // The decision is made now, answered to the millisecond.
+        .handle("saveAnalyticsPreference", ({ payload }) =>
+          Effect.map(Clock.currentTimeMillis, (now) => {
+            const { granted } = payload;
+            workspace.analyticsPreferenceSaves.push(payload);
+            workspace.onAnalyticsConsentRequest?.();
+            const decidedAt = new Date(now).toISOString();
+            workspace.analyticsDecision = {
+              granted,
+              decidedAt,
+              notice: "current",
+            };
+            return { granted, decidedAt };
+          })
+        )
         .handle("getReferrals", () =>
           Effect.flatMap(linkedAccount, (current) =>
             current.referralsEnabled
@@ -482,6 +582,15 @@ const serverLayer = (workspace: FakeWorkspace) => {
         .handle("acknowledgeSignupReferral", () =>
           Effect.flatMap(linkedAccount, ({ signupReferral: _, ...current }) =>
             update((data) => ({ ...data, account: current }))
+          )
+        )
+        // The server serves the archive to the sessions whose account is
+        // linked; this one is an empty ZIP.
+        .handle("getDataExport", () =>
+          Effect.suspend(() =>
+            workspace.data.account.kind === "linked"
+              ? Effect.succeed(emptyZipArchive)
+              : Effect.fail(new CustomerDataExportUnavailable())
           )
         )
         .handle("requestDeletion", () =>
@@ -526,6 +635,24 @@ const serverLayer = (workspace: FakeWorkspace) => {
             found.invoice === undefined
               ? Effect.fail(new CustomerInvoiceNotIssued())
               : Effect.succeed(found.invoice)
+          )
+        )
+  );
+
+  // The sample data issues no invoices yet: the list is empty and every
+  // invoice is not found, as the Workspace answers an account without any.
+  const invoices = HttpApiBuilder.group(
+    WorkspaceCustomerApi,
+    "invoices",
+    (handlers) =>
+      handlers
+        .handle("listInvoices", () =>
+          Effect.as(linkedAccount, { invoices: [] })
+        )
+        .handle("getInvoicePdf", () =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.fail(new CustomerInvoiceNotFound())
           )
         )
   );
@@ -665,6 +792,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
           {
             accountId: workspace.data.accountId,
             email: workspace.data.account.email,
+            locale: savedLocaleOf(workspace.data.account),
           }
         );
         if (outcome === "transport-failure") return brokenConnection();
@@ -681,7 +809,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
 
   return Layer.mergeAll(
     HttpApiBuilder.layer(WorkspaceCustomerApi).pipe(
-      Layer.provide(Layer.mergeAll(account, reservations, booking)),
+      Layer.provide(Layer.mergeAll(account, reservations, invoices, booking)),
       Layer.provide(customerMiddleware)
     ),
     HttpApiBuilder.layer(CustomerAuthHttpApi).pipe(Layer.provide(auth))

@@ -6,14 +6,15 @@ import {
   DotyposTableSchema,
 } from "@deskohub/dotypos";
 import { Effect, Layer, Schema } from "effect";
-import { TestClock } from "effect/testing";
 import {
   CustomerAccountContactService,
   CustomerAccountReservationOwnership,
   CustomerAccountSections,
   type CustomerAgentGrant,
 } from "@/features/account";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import {
   type DiscountAdvertisementInput,
@@ -82,15 +83,6 @@ export const workspaceInstantToday = (time: string) =>
       plainTime: Temporal.PlainTime.from(time),
     })
     .toInstant();
-
-/** Runs an Effect with the clock fixed at an instant. */
-export const atInstant =
-  (instant: Temporal.Instant) =>
-  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    TestClock.setTime(instant.epochMilliseconds).pipe(
-      Effect.andThen(effect),
-      Effect.provide(TestClock.layer())
-    );
 
 /** A confirmed booking of a table for a whole Prague date. */
 export const makeTestOccupancy = (input: {
@@ -250,6 +242,10 @@ type CustomerAgentAccountFakes = {
   readonly contact?: Layer.PartialEffectful<
     CustomerAccountContactService["Service"]
   >;
+  readonly currentAccount?: Layer.PartialEffectful<
+    CurrentCustomerAccount["Service"]
+  >;
+  readonly profile?: Layer.PartialEffectful<CustomerProfileService["Service"]>;
   readonly ownership?: Layer.PartialEffectful<
     CustomerAccountReservationOwnership["Service"]
   >;
@@ -266,13 +262,22 @@ export const inMemoryCustomerAgentCallServices = (
 ) =>
   Layer.succeed(CustomerAgentCallServices, {
     forCaller: ({ grant }) => {
-      const { authentication, sections, contact, ownership } = fakes(grant);
+      const {
+        authentication,
+        sections,
+        contact,
+        currentAccount,
+        profile,
+        ownership,
+      } = fakes(grant);
 
       return Layer.mergeAll(
         Layer.succeed(CurrentCustomerAgentGrant, grant),
         Layer.mock(CustomerAuthentication, authentication ?? {}),
         Layer.mock(CustomerAccountSections, sections ?? {}),
         Layer.mock(CustomerAccountContactService, contact ?? {}),
+        Layer.mock(CurrentCustomerAccount, currentAccount ?? {}),
+        Layer.mock(CustomerProfileService, profile ?? {}),
         Layer.mock(CustomerAccountReservationOwnership, ownership ?? {})
       );
     },

@@ -1,4 +1,8 @@
-import { type DotyposReservationId, DotyposService } from "@deskohub/dotypos";
+import {
+  type DotyposReservationId,
+  DotyposService,
+  type DotyposWriteFailure,
+} from "@deskohub/dotypos";
 import {
   Context,
   Data,
@@ -22,9 +26,11 @@ import {
 import {
   DotyposHoldRelease,
   ReservationHoldCleanupScheduleService,
+  UnpaidHoldRelease,
 } from "@/features/checkout/backend/holds";
 import {
   createWorkspaceDotyposReservation,
+  dotyposReservationLogFields,
   WorkspaceTableAssignmentService,
 } from "@/features/checkout/backend/reservation";
 import {
@@ -32,11 +38,11 @@ import {
   type CheckoutSessionId,
   promoteCheckoutAttemptToSessionId,
 } from "@/features/checkout/checkout-identifiers";
-import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
+import {
+  type CheckoutDetails,
+  checkoutDetailsLogFields,
+} from "@/features/checkout/schemas/checkout-details";
 import type { Locale } from "@/features/i18n";
-import { ensureCoworkPayStateAvailable } from "@/features/reservation/actions/prepare-cowork-pay-state";
-import { ensureMeetingRoomPayStateAvailable } from "@/features/reservation/actions/prepare-meeting-room-pay-state";
-import { ensureOfficePayStateAvailable } from "@/features/reservation/actions/prepare-office-pay-state";
 import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import {
   AgentBookingPaymentInProgressError,
@@ -49,6 +55,7 @@ import { WorkspaceAvailabilityService } from "@/features/reservation/backend/wor
 import {
   type CreateWorkspaceReservationInput,
   type IWorkspaceReservationRepository,
+  reservationLogFields,
   type WorkspaceReservation,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -60,7 +67,7 @@ import {
   getStoredWorkspaceReservationDetails,
   type WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
-import type { ReservationPurpose } from "@/features/reservation/reservation-billing";
+import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { MissingDotyposId } from "@/shared/backend/missing-dotypos-id";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
@@ -291,7 +298,12 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
         reservationId: reservationDraft.id,
       }
     );
-    yield* Effect.annotateLogsScoped({ claimConflictReservation });
+    // A missing reservation keeps the draft's fields.
+    yield* Effect.annotateLogsScoped({
+      claimConflictReservationFound: claimConflictReservation !== null,
+      ...(claimConflictReservation &&
+        reservationLogFields(claimConflictReservation)),
+    });
 
     if (
       claimConflictReservation &&
@@ -334,7 +346,11 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
     checkoutSessionId,
     reservationDraft,
   }: typeof preparedDraft) {
-    yield* Effect.annotateLogsScoped({ reservationDraft });
+    yield* Effect.annotateLogsScoped({
+      ...reservationLogFields(reservationDraft),
+      checkoutSessionKey: reservationDraft.checkoutSessionKey,
+      checkoutAttemptKey: reservationDraft.checkoutAttemptKey,
+    });
 
     // A draft another account authored isn't this account's to resume.
     if (reservationDraft.authorAccountId !== booking.author) {
@@ -373,7 +389,7 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
     yield* Effect.logDebug("Workspace reservation hold creation claimed");
 
     const { checkoutDetails } = request;
-    yield* Effect.annotateLogsScoped({ checkoutDetails });
+    yield* Effect.annotateLogsScoped(checkoutDetailsLogFields(checkoutDetails));
 
     const dotyposReservation = yield* createWorkspaceDotyposReservation({
       paymentOrderId: reservationDraft.id,
@@ -395,10 +411,11 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
         })
       )
     );
-    yield* Effect.annotateLogsScoped({ dotyposReservation });
+    yield* Effect.annotateLogsScoped(
+      dotyposReservationLogFields(dotyposReservation)
+    );
 
     const dotyposReservationId = dotyposReservation.id;
-    yield* Effect.annotateLogsScoped({ dotyposReservationId });
     yield* Effect.logInfo("Workspace Dotypos reservation hold created");
 
     const reservationCreatedAt = Temporal.Now.instant();
@@ -643,30 +660,6 @@ class CheckoutAttemptUnavailableError extends Data.TaggedError(
   readonly reservation: WorkspaceReservation;
 }> {}
 
-const ensureReservationAvailable = (input: {
-  readonly availability: typeof WorkspaceAvailabilityService.Service;
-  readonly reservation: PreparePayStateInput["reservation"];
-}) =>
-  Match.value(input.reservation).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (reservation) =>
-        ensureCoworkPayStateAvailable({
-          availability: input.availability,
-          reservation,
-        }),
-      "meeting-room": (reservation) =>
-        ensureMeetingRoomPayStateAvailable({
-          availability: input.availability,
-          reservation,
-        }),
-      office: (reservation) =>
-        ensureOfficePayStateAvailable({
-          availability: input.availability,
-          reservation,
-        }),
-    })
-  );
-
 /**
  * Cancels the Dotypos hold of a reservation claimed for supersession. A hold
  * Dotypos no longer keeps pending is never cancelled. A failed cancellation
@@ -898,10 +891,7 @@ const supersedeSessionReservation = Effect.fnUntraced(function* (input: {
   }
 
   const cancelledAt = Temporal.Now.instant();
-  return yield* ensureReservationAvailable({
-    availability,
-    reservation: request.reservation,
-  }).pipe(
+  return yield* availability.ensureAvailable(request.reservation).pipe(
     Effect.andThen(
       reservations.completeSupersessionAndCreateDraft({
         cancelledReservationId: claimed.id,
@@ -986,10 +976,7 @@ const createSessionDraft = Effect.fnUntraced(function* (input: {
 }) {
   const { reservations, availability } = input.services;
   const { checkoutSessionId, checkoutAttemptKeys, request } = input;
-  yield* ensureReservationAvailable({
-    availability,
-    reservation: request.reservation,
-  });
+  yield* availability.ensureAvailable(request.reservation);
   const reservationDraft = yield* reservations.createDraft({
     ...request.draft,
     checkoutSessionKey: input.checkoutSessionKey,
@@ -1139,34 +1126,47 @@ const supersedeRotatedAgentHolds = Effect.fn(
       !agentSessionKeys.accepted.includes(hold.checkoutSessionKey)
   );
 
+  const unpaidHoldRelease = yield* UnpaidHoldRelease;
   yield* Effect.forEach(
     rotatedHolds,
     Effect.fn(function* (hold) {
-      const claimed = yield* reservations.claimSupersessionCancellation(
-        hold.id
-      );
-      // workspace_reservations_hold_id_check rejects a held or cancelling
-      // row without its Dotypos hold, so a claimed row always carries one.
-      if (!claimed?.dotyposReservationId) return;
-
-      yield* Effect.logInfo(
-        "Agent client's hold in a rotated checkout session superseded",
-        { reservationId: claimed.id }
-      );
-      const cancelled = yield* cancelSupersededHold({
-        reservationId: claimed.id,
-        dotyposReservationId: claimed.dotyposReservationId,
-      });
-      if (cancelled) {
-        yield* reservations.markCancelled({
-          id: claimed.id,
-          cancelledAt: Temporal.Now.instant(),
+      const dotyposReleaseFailed = (cause: DotyposWriteFailure) =>
+        Effect.logError("Checkout supersession Dotypos cancellation failed", {
+          reservationId: hold.id,
+          dotyposReservationId: hold.dotyposReservationId,
+          cause,
         });
+      // A hold Dotypos refused or failed to cancel is left to its own
+      // lifecycle, marked `cancellation_failed`.
+      const released = yield* unpaidHoldRelease
+        .release({ reason: "agent_rotated", reservationId: hold.id })
+        .pipe(
+          Effect.catchTags({
+            DotyposUnavailable: dotyposReleaseFailed,
+            DotyposRejected: dotyposReleaseFailed,
+            DotyposUncertain: dotyposReleaseFailed,
+          })
+        );
+      if (Predicate.hasProperty(released, "refused")) {
+        yield* Effect.logError(
+          "Checkout supersession refused to cancel a non-pending Dotypos reservation",
+          {
+            reservationId: hold.id,
+            dotyposReservationId: hold.dotyposReservationId,
+            status: released.refused,
+          }
+        );
+      }
+      if (Predicate.hasProperty(released, "released")) {
+        yield* Effect.logInfo(
+          "Agent client's hold in a rotated checkout session superseded",
+          { reservationId: hold.id }
+        );
       }
     }),
     { discard: true }
   );
-});
+}, Effect.provide(UnpaidHoldRelease.Default));
 
 type AgentCheckout =
   | {

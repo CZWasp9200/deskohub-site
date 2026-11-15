@@ -2,15 +2,109 @@
 
 ## Customer resolution
 
-- `CustomerAccountResolver` is the replaceable identity-to-customer capability
-  for authenticated route composition and provider-independent tests. Both
-  `resolve` and `resolveLink` return only `CustomerAccountId` and
-  `DotyposCustomerId`; `resolveLink` adds `autoLinked`, true only when this
-  resolution claimed the link to an existing exact-email customer, which the
-  account page uses to record a remembered referral. Keep other callers on
-  `resolve`.
-- Require the authoritative current session and a verified email, then resolve
-  in this order:
+- `CurrentCustomerAccount` (`features/account/backend/current-customer-account.ts`)
+  reports the current session's standing as facts, and each caller keeps its
+  own policy as a small match over it. Read standing through it, never by
+  ordering the session, review marker, and resolver reads yourself. Kinds:
+  `signed-out`, `unverified`, `deletion-pending`, `review`, `unlinked` (peek
+  only), `profile-missing` and `support-required` (resolve only, with
+  `ambiguous`, `unusable`, or `claimed`), `linked` (with `autoLinked`), and
+  `unavailable` (the session is known but a link, lock, or Dotypos step
+  failed, or the locked recheck refused it; `failure` says which, and a
+  resolve step that dies reads as `account-link.lock`). Signed-in kinds carry
+  the session and `reviewMarker` (`absent` or
+  `unreadable`; `deletion-pending` may also carry `present`). Only a failed
+  session read fails the Effect (`not-configured`, `unavailable`).
+  - Order: session, review marker (an unreadable marker is logged once as
+    `account.review.unavailable` and resolution still runs), deletion marker,
+    review account, then the link.
+  - `peek` reads the stored link only: no claim, reactivation, or Dotypos
+    call. The live layers (`resolvingThrough`) build the Dotypos adapter when
+    a resolution first needs it, so `peek` and `requireActive` work without
+    Dotypos configuration; an adapter that can't be built reads as
+    `unavailable` (`account-link.lock`) from `resolve`.
+  - `resolve` runs the held steps in a `session` account section, so it
+    reuses an enclosing hold of the same account. A recheck under the lock
+    that finds the session gone reports `signed-out`; one that finds the
+    email unverified or a deletion marker reports `unavailable` with that
+    refusal (`unverified` and `deletion-pending` come only from the
+    pre-lock read). It writes only the reactivation and the link claim,
+    never a signup referral.
+  - `requireActive` is the verified session of an account not awaiting
+    deletion, or `unauthenticated`, `unverified-email`, or `link-required`
+    with `deletion-requested`. Use it wherever a session read is followed
+    directly by the deletion refusal; never pair a session read with
+    `requireVerifiedIdentity` yourself (the module exports it only for
+    standing fakes in tests). `requireVerifiedSession` (`verified-customer-session.ts`) admits a
+    pending deletion; it stays for account deletion (a pending deletion may
+    retry), the locale preference (refused under the lock by the section's
+    recheck), and avatar mutations (the release gate decides before the
+    deletion refusal). Moving those to `requireActive` changes their
+    outcomes.
+  - Callers map outcomes differently on purpose. The account state
+    (`loadAccountState`) shows `unverified` and a failed session read as
+    `unavailable`, an `unavailable` whose failure is the recheck's
+    `link-required` or `unverified-email` as `support-required` without
+    history, and any other `unavailable` as `authenticated-unavailable`.
+    Checkout treats `not-configured` and `deletion-pending` as signed out
+    and `unverified` as unavailable; after resolving, a session gone or a
+    recheck `link-required` is signed out and a recheck `unverified-email`
+    is unavailable. Don't merge those mappings into the module.
+  - Checkout's existing-customer load (`loadCheckoutAccount` in
+    `reservation-existing-customer.server.ts`) peeks first and resolves only
+    an `unlinked` account whose marker is `absent`, so a linked account
+    loads without the account lock. An `unlinked` account with an
+    `unreadable` marker is unavailable there, since it might be a review
+    account. Prepare-pay (`resolveAccountCustomer` in
+    `reservation-booking.service.ts`) only peeks: it runs inside
+    `withOptionalAccount`, after the booking's own review check, and
+    completes a missing profile itself. Each booking channel provides
+    `CurrentCustomerAccount` with its own authentication
+    ([authentication supply](#authentication-supply)).
+  - The read-only readers only peek, each with its own mapping: the booking
+    contact (`CustomerAccountContactService.current`), the reservation
+    history account (`currentReservationHistoryAccount`), the remembered
+    referral's order booker, the status page's signed-out check
+    (`isStatusViewerSignedOut`), and `GET /api/account/customer-link`
+    (`accountCustomerLinkFor`). `deletion-pending` reads as no account (the
+    route still answers the account ID with no customer, the status page as
+    signed out), `unverified` fails as the session read's `unverified-email`
+    (the status page reads any failure as not signed out), and `unavailable`
+    fails with its failure. Only the booking contact consults the review
+    marker: `review` books with the synthetic contact, and `unlinked` with an
+    `unreadable` marker fails `account-link.read`. The customer API provides
+    the standing over the request's authentication
+    (`CustomerReservationLayers.currentAccount`, and the account services'
+    `currentAccount` for every account, marketing, referral, avatar and
+    analytics consent endpoint); agents get it from
+    `customerAgentAccountServices`.
+  - The account state reads it through `AccountStateCapabilities`. When its
+    link capabilities can't be built, `accountStateCapabilities` substitutes
+    `CurrentCustomerAccount.LinksUnavailable`, so the session's sections
+    still load.
+  - The table test (`current-customer-account.postgres.test.ts`) covers every
+    kind over test Postgres and a Dotypos fake. Caller tests fake the
+    standing: the read-only readers' policy tests run every label of
+    `testPeekedStandings` through `peeking`, and the resolving callers'
+    every label of `testResolvedStandings` through `answeringStanding`
+    (`current-customer-account.test-utils.ts`). `requiringActiveOver` gives a
+    reader that only requires an active session the real `requireActive`
+    over its fake authentication.
+- `requireLinkedCustomerAccount` (`backend/linked-customer-account.ts`) is the
+  one projection for callers whose policy is "the linked account or the
+  refusal": a match over `resolve` that returns the `LinkedCustomerAccount`
+  or `linkedAccountFailure(standing)`, the exact access error each standing
+  stood for before the standing existed (`review` is
+  `customerAccountUnavailable("account.review")`). Avatar mutations, the
+  signup referral acknowledgement, the referral overview, invoices, the data
+  export authority, reservation ownership, and marketing preferences use it;
+  profile saving matches `linked` and `profile-missing` itself and refuses
+  the rest with `linkedAccountFailure`. Don't copy the match into a caller,
+  and don't give the projection reads of its own.
+  `linked-customer-account.test.ts` proves every resolved standing's value.
+- The held steps (`resolveHeldCustomerAccountLink`,
+  `backend/held-customer-account-link.ts`) resolve in this order, for the
+  account the enclosing section holds:
   1. An existing durable link wins.
   2. One unique active exact-email Dotypos profile gets linked.
   3. One unique expired profile is reactivated first and only then claimed, so
@@ -30,6 +124,66 @@
   the held resolution steps (`resolveHeldCustomerAccountLink`) and creates only on
   `not-found`. Because the created customer carries the verified email, a retry
   after a failed link write links that customer instead of creating another.
+
+## Authentication supply
+
+- Every account service that reads the session (`CustomerAccountSections`,
+  `CurrentCustomerAccount`, `CustomerProfileService`,
+  `CustomerAccountContactService`, `CustomerAccountReservationOwnership`, and
+  `ReservationAuthorizationService` in the reservation feature) has a
+  `ForProvidedAuthentication` Layer that requires `CustomerAuthentication`
+  and builds its dependencies from the other services'
+  `ForProvidedAuthentication`. Effect memoizes the leaf Layers by reference,
+  so one build constructs each service once, whichever caller names it.
+- `CustomerAccountServices` (`backend/customer-account-services.ts`) merges
+  the five account ones. A channel supplies its authentication once:
+  - Agent tools: `customerAgentAccountServices(accessToken)` provides the
+    token's `customerAuthenticationForAgent` to `CustomerAccountServices`
+    and outputs it too. `defineSignedInAgentTool` provides the caller's
+    services with `local: true`, so they and every Layer the call provides
+    inside are built in the call's own memo map. That is what keeps a
+    signed-in tool from reading the browser session: the route's tool
+    services (`CustomerAgentToolsLive`) build `CustomerAccountSections` over
+    the browser session through `ReferralService.Live`, and a call sharing
+    the route's memo map would reuse that leaf. Never take a caller's
+    account service from the route's services, and keep `local: true`.
+  - Customer HTTP API: each handler group wraps the authentication the
+    session middleware read as one `Layer.succeed(CustomerAuthentication, …)`
+    and provides it to its seams, which are Layers requiring
+    `CustomerAuthentication`, never functions of it: the reservations'
+    `currentAccount` and `authorization`, the account group's
+    `currentAccount`, `profile` and `localePreference`, and the booking
+    checkout's `operations` (`CustomerCheckoutOperations.Default` builds its
+    sections, standing and contact over it). The server provides
+    `CustomerAuthentication.Default`, so this is the same value as the
+    browser default.
+  - Site pages, routes and Server Actions: a service's `Live` is its
+    `ForProvidedAuthentication` over `CustomerAuthentication.Default`, for a
+    caller that needs one service. A caller that also reads the session
+    itself provides `CustomerAuthentication.Default` once and takes the
+    services' `ForProvidedAuthentication` under it (the account page's
+    `AccountStateCapabilities.authentication`, the locale and avatar
+    actions, `ReferralService.Live`).
+- Don't add a `withAuthentication(layer)` function or a second
+  `CustomerAuthentication` provision beside a `Live`; supply the
+  authentication to `ForProvidedAuthentication` Layers instead. A memoized
+  leaf keeps the authentication of whoever built it first in a memo map, so
+  never build one service over two authentications in one memo map. The site
+  and the customer HTTP API have one authentication value per request; the
+  agent channel has two (the browser default in the route's services and the
+  caller's token), which is why its calls build in their own memo map.
+- `customer-account-services.test.ts` proves the composition builds every
+  service over the supplied authentication, constructed once, with no
+  browser session read, and that the `Live` services read the browser
+  session; `customer-agent-account-services.test.ts` proves the agent
+  services read the token's customer and never the browser session;
+  `features/agent-tools/customer-agent-caller.test.ts` proves it through the
+  MCP route's own handler and services, in the route's build order and for
+  both MCP eras, with no browser session and with another account's
+  (`signInBrowser`), including the booking section's held account, the
+  hold's author and the customer. All fake the stores with
+  `fakeAccountServiceStores` and run under a browser request with
+  `asBrowserRequest` (`customer-account-services.test-utils.ts`).
 
 ## Durable customer account
 
@@ -90,7 +244,7 @@ glossary defines the customer account, reservation author, and tombstone.
 ## Review accounts
 
 - `customer_accounts.review` marks an app-directory review account; its check forbids a Dotypos customer. `resolveHeldCustomerAccountLink` refuses one (`account.review`) before any Dotypos lookup, so neither resolution nor profile completion links or creates a profile.
-- The account page loads the `review-account` state before resolution: `ReviewAccountCard` replaces profile completion, and the Reservations section shows its sandbox history. The reservation form's `review-account` checkout state books on the account card with `getReviewAccountContact` (synthetic, never stored) and offers no contact entry or consent.
+- `CurrentCustomerAccount` reports a review account before resolution, and the account page loads the `review-account` state from it: `ReviewAccountCard` replaces profile completion, and the Reservations section shows its sandbox history. The reservation form's `review-account` checkout state books on the account card with `getReviewAccountContact` (synthetic, never stored) and offers no contact entry or consent.
 - `CustomerAccountContactService.current` returns that synthetic contact, which is why it returns booking-contact fields without a Dotypos customer.
 
 ## Error contract

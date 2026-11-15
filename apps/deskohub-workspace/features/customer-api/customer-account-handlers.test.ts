@@ -1,8 +1,24 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { customerReferralCodeHeader } from "@deskohub/workspace-customer-api";
-import { Effect, Layer } from "effect";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
+import {
+  accountProfileSchemas,
+  customerReferralCodeHeader,
+} from "@deskohub/workspace-customer-api";
+import { Effect, Layer, Option, Schema } from "effect";
+import { unzipSync } from "fflate";
+import {
+  accountDataExportManifestPath,
+  accountDataExportSections,
+} from "@/features/account/account-data-export-sections";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
+import {
+  accountDataExportRefusals,
+  fakeAccountDataExportSources,
+  SyntheticSourceFailure,
+  syntheticExportSources,
+} from "@/features/account/backend/account-data-export.test-utils";
 import {
   testCustomerSession,
   testLinkedAccount,
@@ -11,13 +27,21 @@ import {
   AccountAvatarReleaseGate,
   PasskeyReleaseGate,
 } from "@/features/account/backend/account-release-gates";
+import { AnalyticsPersonAnonymisation } from "@/features/account/backend/analytics-person-anonymisation";
 import { CustomerAgentConnections } from "@/features/account/backend/auth/customer-agent-connections.service";
 import { CustomerPasskeys } from "@/features/account/backend/auth/customer-passkeys.service";
 import {
   CustomerAccountDeletionEndpoint,
   type CustomerAccountDeletionEndpointResult,
 } from "@/features/account/backend/auth/delete-account-endpoint";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import {
+  CurrentCustomerAccount,
+  requireVerifiedIdentity,
+} from "@/features/account/backend/current-customer-account";
+import {
+  type CustomerAccountSession,
+  CustomerAuthentication,
+} from "@/features/account/backend/customer-authentication.service";
 import {
   CustomerAvatarProviderError,
   CustomerAvatarService,
@@ -28,11 +52,17 @@ import type {
   CustomerProfileInput,
   CustomerProfileSave,
 } from "@/features/account/contracts";
+import type { CustomerAccountId } from "@/features/account/customer-account";
 import {
   CustomerAccountAccessError,
   customerAccountUnavailable,
-  type LinkedCustomerAccount,
 } from "@/features/account/customer-account";
+import {
+  type AnalyticsConsentDecisionRecord,
+  AnalyticsConsentLedger,
+  type AnalyticsConsentMirrorRecord,
+  AnalyticsConsentUnavailable,
+} from "@/features/legal/backend/analytics-consent-ledger";
 import {
   MarketingConsentLedger,
   type MarketingConsentRecord,
@@ -40,15 +70,18 @@ import {
 } from "@/features/legal/backend/marketing-consent-ledger";
 import { MarketingPreferences } from "@/features/legal/backend/marketing-preferences.service";
 import { getAccountMarketingManagementContext } from "@/features/legal/backend/marketing-preferences-authority";
+import { getLegalDocumentVersion } from "@/features/legal/document-version";
 import type { MarketingConsentStatus } from "@/features/legal/marketing-consent-status";
 import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
+import { ReadLimitExceededError } from "@/shared/backend/read-limit";
 import type { CustomerAccountServiceLayers } from "./customer-account-layers";
 import {
   accountReleasesOver,
   answerInEachReleaseCohort,
   type CustomerApiCall,
+  currentAccountResolving,
   customerApiRequest,
   expectEachCohortAnsweredAlone,
   inReleaseCohort,
@@ -59,10 +92,17 @@ import {
 } from "./customer-api.test-utils";
 
 /** An account without a Dotypos customer yet. */
-const profileMissing = new CustomerAccountAccessError({
-  reason: "link-required",
-  linkReason: "not-found",
-});
+/** The session's account, which no Dotypos customer matches yet. */
+const profileMissingStanding = (session: CustomerAccountSession) =>
+  ({ kind: "profile-missing", session, reviewMarker: "absent" }) as const;
+
+/** The session's account, found awaiting deletion. */
+const deletionPendingStanding = (session: CustomerAccountSession) =>
+  ({
+    kind: "deletion-pending",
+    session: { ...session, deletionRequested: true },
+    reviewMarker: "absent",
+  }) as const;
 
 describe("getAccount", () => {
   const getAccount: CustomerApiCall = { method: "GET", path: "/account" };
@@ -148,10 +188,13 @@ describe("getAccount", () => {
     const api = makeCustomerApiTestServer({
       services: {
         ...linkedAccountServices,
-        resolver: Layer.mock(CustomerAccountResolver, {
-          resolveLink: Effect.fail(
-            customerAccountUnavailable("dotypos.customer-lookup")
-          ),
+        currentAccount: Layer.mock(CurrentCustomerAccount, {
+          resolve: Effect.succeed({
+            kind: "unavailable",
+            session: testCustomerSession,
+            reviewMarker: "absent",
+            failure: customerAccountUnavailable("dotypos.customer-lookup"),
+          }),
         }),
       },
     });
@@ -346,19 +389,71 @@ describe("updateProfile", () => {
     expect(updates).toEqual([]);
   });
 
+  test("reads a phone in the phone region of the account's saved language", async () => {
+    const { updates, services } = recordingUpdates();
+    const api = makeCustomerApiTestServer({
+      services,
+      session: { ...testCustomerSession, localePreference: "de-DE" },
+    });
+
+    const response = await api.handle(
+      customerApiRequest({
+        ...updateProfile,
+        body: { firstName: "Grace", phone: "0151 23456789" },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(updates).toEqual([{ firstName: "Grace", phone: "+4915123456789" }]);
+  });
+
+  test("reads a phone as Czech for an account without a saved language", async () => {
+    const { updates, services } = recordingUpdates();
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest({
+        ...updateProfile,
+        body: { firstName: "Grace", phone: "0151 23456789" },
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("");
+    expect(updates).toEqual([]);
+  });
+
+  test("reads a phone as the account's profile schemas do, in every language", async () => {
+    const body = { firstName: "Grace", phone: "0151 23456789" };
+    for (const locale of supportedLocales) {
+      const { updates, services } = recordingUpdates();
+      const api = makeCustomerApiTestServer({
+        services,
+        session: { ...testCustomerSession, localePreference: locale },
+      });
+
+      const response = await api.handle(
+        customerApiRequest({ ...updateProfile, body })
+      );
+
+      expect({ locale, status: response.status, updates }).toEqual(
+        Option.match(
+          Schema.decodeOption(accountProfileSchemas(locale).save)(body),
+          {
+            onNone: () => ({ locale, status: 400, updates: [] }),
+            onSome: (save) => ({ locale, status: 200, updates: [save] }),
+          }
+        )
+      );
+    }
+  });
+
   test("refuses an account whose deletion is pending", async () => {
     const { updates, services } = recordingUpdates();
     const api = makeCustomerApiTestServer({
       services: {
         ...services,
-        resolver: Layer.mock(CustomerAccountResolver, {
-          resolve: Effect.fail(
-            new CustomerAccountAccessError({
-              reason: "link-required",
-              linkReason: "deletion-requested",
-            })
-          ),
-        }),
+        currentAccount: currentAccountResolving(deletionPendingStanding),
       },
     });
 
@@ -434,14 +529,13 @@ describe("a read whose client disconnects", () => {
     const api = makeCustomerApiTestServer({
       services: {
         ...linkedAccountServices,
-        resolver: Layer.mock(CustomerAccountResolver, {
-          resolveLink: Effect.sync(() => started.resolve()).pipe(
+        currentAccount: Layer.mock(CurrentCustomerAccount, {
+          resolve: Effect.sync(() => started.resolve()).pipe(
             Effect.andThen(Effect.never),
             Effect.onInterrupt(() =>
               Effect.sync(() => interrupted.resolve("interrupted"))
             )
           ),
-          resolve: Effect.succeed(testLinkedAccount),
         }),
       },
     });
@@ -478,9 +572,7 @@ describe("completeProfile", () => {
     const created: CustomerProfileSave[] = [];
     const services = {
       ...linkedAccountServices,
-      resolver: Layer.mock(CustomerAccountResolver, {
-        resolve: Effect.fail(profileMissing),
-      }),
+      currentAccount: currentAccountResolving(profileMissingStanding),
       profile: Layer.mock(CustomerProfileService, {
         create: (_accountId, profileInput) =>
           Effect.sync(() => {
@@ -524,6 +616,40 @@ describe("completeProfile", () => {
     expect(created).toEqual([{ firstName: "Grace", phone: "+420601123456" }]);
   });
 
+  test("creates the customer with a phone read in the account's saved language", async () => {
+    const { created, services } = unlinkedServices();
+    const api = makeCustomerApiTestServer({
+      services,
+      session: { ...testCustomerSession, localePreference: "de-DE" },
+    });
+
+    const response = await api.handle(
+      customerApiRequest({
+        ...completeProfile,
+        body: { firstName: "Grace", phone: "0151 23456789" },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(created).toEqual([{ firstName: "Grace", phone: "+4915123456789" }]);
+  });
+
+  test("creates nothing for a national number its account's region doesn't hold", async () => {
+    const { created, services } = unlinkedServices();
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest({
+        ...completeProfile,
+        body: { firstName: "Grace", phone: "0151 23456789" },
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("");
+    expect(created).toEqual([]);
+  });
+
   test("saves nothing for a referral code that can't be used", async () => {
     const { created, services } = unlinkedServices();
     const api = makeCustomerApiTestServer({
@@ -555,14 +681,7 @@ describe("completeProfile", () => {
     const api = makeCustomerApiTestServer({
       services: {
         ...services,
-        resolver: Layer.mock(CustomerAccountResolver, {
-          resolve: Effect.fail(
-            new CustomerAccountAccessError({
-              reason: "link-required",
-              linkReason: "deletion-requested",
-            })
-          ),
-        }),
+        currentAccount: currentAccountResolving(deletionPendingStanding),
       },
     });
 
@@ -770,19 +889,16 @@ describe("listAssistantConnections", () => {
 /**
  * The account-scoped marketing preferences the API serves, over a consent
  * ledger that starts with `status` and records each choice, for the
- * session's linked account unless `resolve` answers otherwise.
+ * session's linked account unless `resolved` answers otherwise.
  */
 const marketingServices = ({
   status = "absent",
   ledgerUnavailable = false,
-  resolve = Effect.succeed(testLinkedAccount),
+  resolved,
 }: {
   readonly status?: MarketingConsentStatus;
   readonly ledgerUnavailable?: boolean;
-  readonly resolve?: Effect.Effect<
-    LinkedCustomerAccount,
-    CustomerAccountAccessError
-  >;
+  readonly resolved?: Parameters<typeof currentAccountResolving>[0];
 } = {}) => {
   const records: MarketingConsentRecord[] = [];
   const unavailable = Effect.fail(
@@ -790,7 +906,7 @@ const marketingServices = ({
   );
   const services = {
     ...linkedAccountServices,
-    resolver: Layer.mock(CustomerAccountResolver, { resolve }),
+    ...(resolved && { currentAccount: currentAccountResolving(resolved) }),
     marketingPreferences: MarketingPreferences.AccountScoped,
     consentLedger: Layer.mock(MarketingConsentLedger, {
       status: () => (ledgerUnavailable ? unavailable : Effect.succeed(status)),
@@ -837,7 +953,7 @@ describe("getMarketingPreferences", () => {
 
   test("asks an account without a Dotypos profile to complete it", async () => {
     const api = makeCustomerApiTestServer(
-      marketingServices({ resolve: Effect.fail(profileMissing) })
+      marketingServices({ resolved: profileMissingStanding })
     );
 
     const response = await api.handle(
@@ -916,7 +1032,7 @@ describe("saveMarketingPreferences", () => {
 
   test("asks an account without a Dotypos profile to complete it", async () => {
     const { records, services } = marketingServices({
-      resolve: Effect.fail(profileMissing),
+      resolved: profileMissingStanding,
     });
     const api = makeCustomerApiTestServer({ services });
 
@@ -1131,6 +1247,552 @@ describe("requestDeletion", () => {
   });
 });
 
+type CurrentAnalyticsDecision = Effect.Success<
+  ReturnType<AnalyticsConsentLedger["Service"]["currentDecision"]>
+>;
+
+/** The account's current analytics decision, by default a current-notice grant. */
+const currentAnalyticsDecision = (
+  overrides: Partial<
+    NonNullable<Option.Option.Value<CurrentAnalyticsDecision>>
+  > = {}
+): CurrentAnalyticsDecision =>
+  Option.some({
+    decision: "grant",
+    documentHash: getLegalDocumentVersion("cs-CZ", "privacy-policy"),
+    locale: "cs-CZ",
+    decidedAt: Temporal.Instant.from("2026-11-05T10:00:00.123456Z"),
+    source: "preference",
+    ...overrides,
+  });
+
+/**
+ * Account services over an analytics consent ledger whose current decision
+ * is `current`, that takes a mirrored choice when `mirrorTakes`, records
+ * decisions at `recordedAt`, and fails every call when `unavailable`; and an
+ * anonymisation that records the accounts it is requested for.
+ */
+const analyticsConsentServices = ({
+  current = Option.none(),
+  mirrorTakes = true,
+  unavailable = false,
+}: {
+  readonly current?: CurrentAnalyticsDecision;
+  readonly mirrorTakes?: boolean;
+  readonly unavailable?: boolean;
+} = {}) => {
+  const mirrored: AnalyticsConsentMirrorRecord[] = [];
+  const recorded: AnalyticsConsentDecisionRecord[] = [];
+  const anonymised: CustomerAccountId[] = [];
+  const recordedAt = Temporal.Instant.from("2026-11-08T10:00:00.123456Z");
+  const ledgerDown = Effect.fail(
+    new AnalyticsConsentUnavailable({ cause: new Error("ledger down") })
+  );
+  const services = {
+    analyticsConsentLedger: Layer.succeed(AnalyticsConsentLedger, {
+      mirror: (input) =>
+        unavailable
+          ? ledgerDown
+          : Effect.sync(() => {
+              mirrored.push(input);
+              return mirrorTakes;
+            }),
+      record: (input) =>
+        unavailable
+          ? ledgerDown
+          : Effect.sync(() => {
+              recorded.push(input);
+              return recordedAt;
+            }),
+      currentDecision: () =>
+        unavailable ? ledgerDown : Effect.succeed(current),
+    }),
+    analyticsPersonAnonymisation: Layer.mock(AnalyticsPersonAnonymisation, {
+      anonymiseWithdrawnAccount: (accountId) =>
+        Effect.sync(() => {
+          anonymised.push(accountId);
+        }),
+    }),
+  };
+  return { mirrored, recorded, anonymised, services };
+};
+
+/** A session whose account's deletion is pending. */
+const deletingSession = { ...testCustomerSession, deletionRequested: true };
+
+const deletionPending = {
+  _tag: "CustomerAccountLinkRequired",
+  reason: "deletion-pending",
+};
+
+describe("getDataExport", () => {
+  const getDataExport: CustomerApiCall = {
+    method: "GET",
+    path: "/account/data-export",
+  };
+
+  /** The website's archive service over synthetic sources. */
+  const exportServices = (
+    refuse: (
+      sources: ReturnType<typeof syntheticExportSources>
+    ) => ReturnType<typeof syntheticExportSources> = (sources) => sources
+  ) => ({
+    services: {
+      dataExport: AccountDataExportService.Default.pipe(
+        Layer.provide(
+          fakeAccountDataExportSources(
+            () => refuse(syntheticExportSources()),
+            []
+          )
+        )
+      ),
+    },
+  });
+
+  testCustomerEndpointGuards(getDataExport);
+
+  test("downloads the account's archive as a private ZIP attachment", async () => {
+    const api = makeCustomerApiTestServer(exportServices());
+
+    const response = await api.handle(customerApiRequest(getDataExport));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+    expect(response.headers.get("content-disposition")).toMatch(
+      /^attachment; filename="deskohub-account-data-\d{4}-\d{2}-\d{2}\.zip"$/
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const entries = Object.keys(
+      unzipSync(new Uint8Array(await response.arrayBuffer()))
+    );
+    expect(entries.toSorted()).toEqual(
+      [
+        accountDataExportManifestPath,
+        ...accountDataExportSections.map(({ path }) => path),
+      ].toSorted()
+    );
+  });
+
+  test("builds the archive under the session the request was authenticated with", async () => {
+    const api = makeCustomerApiTestServer({
+      services: {
+        dataExport: Layer.effect(
+          AccountDataExportService,
+          Effect.map(CustomerAuthentication, (authentication) =>
+            AccountDataExportService.of({
+              download: authentication.currentUser.pipe(
+                Effect.flatMap(requireVerifiedIdentity),
+                Effect.orDie,
+                Effect.map(({ accountId }) => ({
+                  bytes: new TextEncoder().encode(accountId),
+                  fileName: "deskohub-account-data-2026-11-15.zip",
+                }))
+              ),
+            })
+          )
+        ),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(getDataExport));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(testCustomerSession.accountId);
+  });
+
+  test.each(accountDataExportRefusals)(
+    "refuses %s as the website does, without a body of data",
+    async (_name, refuse) => {
+      const api = makeCustomerApiTestServer(exportServices(refuse));
+
+      const response = await api.handle(customerApiRequest(getDataExport));
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        _tag: "CustomerDataExportUnavailable",
+      });
+    }
+  );
+
+  test.each([
+    ["a source that can't be read", new SyntheticSourceFailure()],
+    [
+      "a source over the export's limit",
+      new ReadLimitExceededError({ limit: 500 }),
+    ],
+  ])("answers unavailable for %s", async (_name, failure) => {
+    const api = makeCustomerApiTestServer(
+      exportServices((sources) => ({
+        ...sources,
+        invoices: Effect.fail(failure),
+      }))
+    );
+
+    const response = await api.handle(customerApiRequest(getDataExport));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+
+  test("answers unavailable when the archive service can't be built", async () => {
+    const api = makeCustomerApiTestServer({
+      services: {
+        dataExport: Layer.effect(
+          AccountDataExportService,
+          Effect.fail(new SyntheticSourceFailure())
+        ),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(getDataExport));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+});
+
+describe("syncAnalyticsConsent", () => {
+  const syncAnalyticsConsent = (
+    choice: { readonly analytics: boolean; readonly decidedAt: string } | null,
+    locale = "en-US"
+  ): CustomerApiCall => ({
+    method: "POST",
+    path: "/account/analytics-consent",
+    body: { choice, locale },
+  });
+  const acceptingApp = syncAnalyticsConsent({
+    analytics: true,
+    decidedAt: "2026-11-02T09:30:00.000Z",
+  });
+
+  testCustomerEndpointGuards(acceptingApp);
+
+  test("mirrors the app's choice as an app mirror, dated when the app made it, and answers unchanged", async () => {
+    const { mirrored, services } = analyticsConsentServices();
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(customerApiRequest(acceptingApp));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ kind: "unchanged" });
+    expect(
+      mirrored.map(({ decidedAt, ...record }) => ({
+        ...record,
+        decidedAt: Option.getOrUndefined(Option.map(decidedAt, String)),
+      }))
+    ).toEqual([
+      {
+        accountId: testCustomerSession.accountId,
+        decision: "grant",
+        locale: "en-US",
+        source: "app_mirror",
+        decidedAt: "2026-11-02T09:30:00Z",
+      },
+    ]);
+  });
+
+  test("mirrors a choice made in a locale added after Czech and English in that locale", async () => {
+    const { mirrored, services } = analyticsConsentServices();
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(
+        syncAnalyticsConsent(
+          { analytics: false, decidedAt: "2026-11-02T09:30:00.000Z" },
+          "sk-SK"
+        )
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      mirrored.map(({ decision, locale, source }) => ({
+        decision,
+        locale,
+        source,
+      }))
+    ).toEqual([
+      { decision: "withdraw", locale: "sk-SK", source: "app_mirror" },
+    ]);
+  });
+
+  test("refuses a locale the Workspace doesn't serve, mirroring nothing", async () => {
+    const { mirrored, services } = analyticsConsentServices();
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(
+        syncAnalyticsConsent(
+          { analytics: true, decidedAt: "2026-11-02T09:30:00.000Z" },
+          "fr-FR"
+        )
+      )
+    );
+
+    expect(response.status).toBe(400);
+    expect(mirrored).toEqual([]);
+  });
+
+  test("answers the account's withdrawal the accepting app didn't outrank, at its instant to the millisecond", async () => {
+    const { services } = analyticsConsentServices({
+      current: currentAnalyticsDecision({ decision: "withdraw" }),
+      mirrorTakes: false,
+    });
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(customerApiRequest(acceptingApp));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      kind: "withdraw",
+      decidedAt: "2026-11-05T10:00:00.123Z",
+    });
+  });
+
+  test("answers unchanged to a declining app, whatever the account decided", async () => {
+    const { services } = analyticsConsentServices({
+      current: currentAnalyticsDecision(),
+      mirrorTakes: false,
+    });
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(
+        syncAnalyticsConsent({
+          analytics: false,
+          decidedAt: "2026-11-02T09:30:00.000Z",
+        })
+      )
+    );
+
+    expect(await response.json()).toEqual({ kind: "unchanged" });
+  });
+
+  test("answers the account's current-notice grant to an app without a choice, mirroring nothing", async () => {
+    const { mirrored, services } = analyticsConsentServices({
+      current: currentAnalyticsDecision(),
+    });
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(syncAnalyticsConsent(null))
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      kind: "grant",
+      decidedAt: "2026-11-05T10:00:00.123Z",
+    });
+    expect(mirrored).toEqual([]);
+  });
+
+  test("refuses a choice whose date names no instant", async () => {
+    const { mirrored, services } = analyticsConsentServices();
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(
+        syncAnalyticsConsent({ analytics: true, decidedAt: "yesterday" })
+      )
+    );
+
+    expect(response.status).toBe(400);
+    expect(mirrored).toEqual([]);
+  });
+
+  test("refuses an account whose deletion is pending, mirroring nothing", async () => {
+    const { mirrored, services } = analyticsConsentServices();
+    const api = makeCustomerApiTestServer({
+      session: deletingSession,
+      services,
+    });
+
+    const response = await api.handle(customerApiRequest(acceptingApp));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(deletionPending);
+    expect(mirrored).toEqual([]);
+  });
+
+  test("answers unavailable when the ledger can't be used", async () => {
+    const { services } = analyticsConsentServices({ unavailable: true });
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(customerApiRequest(acceptingApp));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+});
+
+describe("getAnalyticsPreference", () => {
+  const getAnalyticsPreference: CustomerApiCall = {
+    method: "GET",
+    path: "/account/analytics-preference",
+  };
+
+  testCustomerEndpointGuards(getAnalyticsPreference);
+
+  test("answers granted for a grant under any notice, and not granted for a withdrawal or no decision", async () => {
+    const granted = async (current: CurrentAnalyticsDecision) => {
+      const { services } = analyticsConsentServices({ current });
+      const response = await makeCustomerApiTestServer({ services }).handle(
+        customerApiRequest(getAnalyticsPreference)
+      );
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+
+    expect(
+      await granted(
+        currentAnalyticsDecision({ documentHash: "an-earlier-privacy-notice" })
+      )
+    ).toEqual({ granted: true });
+    expect(
+      await granted(currentAnalyticsDecision({ decision: "withdraw" }))
+    ).toEqual({ granted: false });
+    expect(await granted(Option.none())).toEqual({ granted: false });
+  });
+
+  test("refuses an account whose deletion is pending", async () => {
+    const { services } = analyticsConsentServices({
+      current: currentAnalyticsDecision(),
+    });
+    const api = makeCustomerApiTestServer({
+      session: deletingSession,
+      services,
+    });
+
+    const response = await api.handle(
+      customerApiRequest(getAnalyticsPreference)
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(deletionPending);
+  });
+
+  test("answers unavailable, never not granted, when the ledger can't be read", async () => {
+    const { services } = analyticsConsentServices({ unavailable: true });
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(getAnalyticsPreference)
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+});
+
+describe("saveAnalyticsPreference", () => {
+  const saveAnalyticsPreference = (
+    granted: boolean,
+    locale = "en-US"
+  ): CustomerApiCall => ({
+    method: "PUT",
+    path: "/account/analytics-preference",
+    body: { granted, locale },
+  });
+
+  testCustomerEndpointGuards(saveAnalyticsPreference(false));
+
+  test("records a grant from preferences now and answers its instant to the millisecond", async () => {
+    const { recorded, anonymised, services } = analyticsConsentServices();
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(saveAnalyticsPreference(true))
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      granted: true,
+      decidedAt: "2026-11-08T10:00:00.123Z",
+    });
+    expect(recorded).toEqual([
+      {
+        accountId: testCustomerSession.accountId,
+        decision: "grant",
+        locale: "en-US",
+        source: "preference",
+      },
+    ]);
+    expect(anonymised).toEqual([]);
+  });
+
+  test("records a decision made in a locale added after Czech and English in that locale", async () => {
+    const { recorded, services } = analyticsConsentServices();
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(saveAnalyticsPreference(true, "uk-UA"))
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      recorded.map(({ decision, locale }) => ({ decision, locale }))
+    ).toEqual([{ decision: "grant", locale: "uk-UA" }]);
+  });
+
+  test("records a withdrawal and requests the anonymisation of the account's PostHog person", async () => {
+    const { recorded, anonymised, services } = analyticsConsentServices();
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(saveAnalyticsPreference(false))
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      granted: false,
+      decidedAt: "2026-11-08T10:00:00.123Z",
+    });
+    expect(
+      recorded.map(({ decision, source }) => ({ decision, source }))
+    ).toEqual([{ decision: "withdraw", source: "preference" }]);
+    expect(anonymised).toEqual([testCustomerSession.accountId]);
+  });
+
+  test("refuses an account whose deletion is pending, recording nothing", async () => {
+    const { recorded, anonymised, services } = analyticsConsentServices();
+    const api = makeCustomerApiTestServer({
+      session: deletingSession,
+      services,
+    });
+
+    const response = await api.handle(
+      customerApiRequest(saveAnalyticsPreference(false))
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(deletionPending);
+    expect(recorded).toEqual([]);
+    expect(anonymised).toEqual([]);
+  });
+
+  test("answers unavailable when the decision can't be recorded, requesting no anonymisation", async () => {
+    const { anonymised, services } = analyticsConsentServices({
+      unavailable: true,
+    });
+    const api = makeCustomerApiTestServer({ services });
+
+    const response = await api.handle(
+      customerApiRequest(saveAnalyticsPreference(false))
+    );
+
+    expect(response.status).toBe(503);
+    expect(anonymised).toEqual([]);
+  });
+});
+
 describe("overlapping requests in different release cohorts", () => {
   const referralSummary = {
     code: "RFL12345",
@@ -1162,9 +1824,7 @@ describe("overlapping requests in different release cohorts", () => {
       },
       services: {
         ...linkedAccountServices,
-        resolver: Layer.mock(CustomerAccountResolver, {
-          resolve: Effect.fail(profileMissing),
-        }),
+        currentAccount: currentAccountResolving(profileMissingStanding),
         profile: Layer.mock(CustomerProfileService, {
           create: () =>
             Effect.succeed({

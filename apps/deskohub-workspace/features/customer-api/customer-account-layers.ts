@@ -1,13 +1,18 @@
 import { Context, Layer } from "effect";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   type AccountReleaseLayers,
   type AccountServiceLayers,
   liveAccountServiceLayers,
   runAccountReleaseLayers,
 } from "@/features/account/backend/account-state-capabilities";
+import { AnalyticsPersonAnonymisation } from "@/features/account/backend/analytics-person-anonymisation";
 import { CustomerAccountDeletionEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
+import type { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import type { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
 import { CustomerLocalePreference } from "@/features/account/backend/customer-locale-preference.service";
+import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
 import { MarketingConsentLedger } from "@/features/legal/backend/marketing-consent-ledger";
 import { MarketingPreferences } from "@/features/legal/backend/marketing-preferences.service";
 
@@ -31,10 +36,32 @@ export type CustomerAccountServiceLayers = Omit<
   >;
   /** Better Auth's delete-user endpoint. */
   readonly accountDeletion: Layer.Layer<CustomerAccountDeletionEndpoint>;
+  /** The ledger of the account's analytics consent decisions. */
+  readonly analyticsConsentLedger: Layer.Layer<
+    AnalyticsConsentLedger,
+    Layer.Error<typeof AnalyticsConsentLedger.Live>
+  >;
+  /** The PostHog person anonymisation an analytics withdrawal requests. */
+  readonly analyticsPersonAnonymisation: Layer.Layer<
+    AnalyticsPersonAnonymisation,
+    Layer.Error<typeof AnalyticsPersonAnonymisation.Live>
+  >;
+  /** The account's issued invoices, under the request's account standing. */
+  readonly invoices: Layer.Layer<
+    CustomerInvoiceService,
+    Layer.Error<typeof CustomerInvoiceService.ForCurrentAccount>,
+    CurrentCustomerAccount
+  >;
   /** The account's locale preference, under the request's authentication. */
   readonly localePreference: Layer.Layer<
     CustomerLocalePreference,
     Layer.Error<typeof CustomerLocalePreference.Live>,
+    CustomerAuthentication
+  >;
+  /** The account's data archive, under the request's authentication. */
+  readonly dataExport: Layer.Layer<
+    AccountDataExportService,
+    Layer.Error<typeof AccountDataExportService.ForProvidedAuthentication>,
     CustomerAuthentication
   >;
 };
@@ -65,7 +92,11 @@ export class CustomerAccountLayers extends Context.Service<
       marketingPreferences: MarketingPreferences.AccountScoped,
       consentLedger: MarketingConsentLedger.Live,
       accountDeletion: CustomerAccountDeletionEndpoint.Default,
+      analyticsConsentLedger: AnalyticsConsentLedger.Live,
+      analyticsPersonAnonymisation: AnalyticsPersonAnonymisation.Live,
       localePreference: CustomerLocalePreference.Live,
+      dataExport: AccountDataExportService.ForProvidedAuthentication,
+      invoices: CustomerInvoiceService.ForCurrentAccount,
     },
     releases: runAccountReleaseLayers,
   });

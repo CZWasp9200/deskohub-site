@@ -27,7 +27,7 @@ describe("customer request budget classes", () => {
       )
       .toSorted();
 
-    expect(contractEndpoints()).toHaveLength(26);
+    expect(contractEndpoints()).toHaveLength(32);
     expect(classified).toEqual(contractEndpoints());
   });
 
@@ -36,6 +36,9 @@ describe("customer request budget classes", () => {
       updateLocale: "workspace-only",
       listPasskeys: "workspace-only",
       listAssistantConnections: "workspace-only",
+      syncAnalyticsConsent: "workspace-only",
+      getAnalyticsPreference: "workspace-only",
+      saveAnalyticsPreference: "workspace-only",
     });
     expect(customerRequestBudgetClasses.booking).toMatchObject({
       listLegalDocuments: "workspace-only",
@@ -66,7 +69,7 @@ describe("customer request budget classes", () => {
       Object.values(customerRequestBudgetClasses.account).filter(
         (budgetClass) => budgetClass === "dotypos-read"
       )
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(
       Object.values(customerRequestBudgetClasses.reservations).filter(
         (budgetClass) => budgetClass === "dotypos-read"
@@ -77,6 +80,11 @@ describe("customer request budget classes", () => {
         (budgetClass) => budgetClass === "dotypos-read"
       )
     ).toHaveLength(0);
+    expect(
+      Object.values(customerRequestBudgetClasses.invoices).filter(
+        (budgetClass) => budgetClass === "dotypos-read"
+      )
+    ).toHaveLength(2);
     expect(
       Object.values(customerRequestBudgetClasses.booking).filter(
         (budgetClass) => budgetClass === "dotypos-mutation"
@@ -107,6 +115,10 @@ describe("customer request budget classes", () => {
         getReferrals: "dotypos-read",
       },
       reservations: { getReservationInvoice: "dotypos-read" },
+      invoices: {
+        listInvoices: "dotypos-read",
+        getInvoicePdf: "dotypos-read",
+      },
     });
   });
 

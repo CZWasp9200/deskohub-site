@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { PostHogFeatureFlagEvaluationError } from "@deskohub/analytics-posthog/feature-flags/node";
 import {
   type DotyposCustomerId,
   DotyposCustomerIdSchema,
@@ -8,7 +9,6 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
-import { PostHogFeatureFlagEvaluationError } from "@deskohub/posthog/feature-flags/node";
 import { testEmailAddress } from "@deskohub/test-email";
 import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Predicate, Schema } from "effect";
@@ -40,6 +40,8 @@ import {
   accountingDocumentSnapshotSchema,
   makeAccountingDocumentSnapshot,
 } from "@/features/accounting/accounting-document-snapshot";
+import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { makeCoworkInvoiceDocument } from "@/features/accounting/invoice.test-utils";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { LatePaymentRecoveryRepository } from "@/features/checkout/backend/repositories/late-payment-recovery.repository";
@@ -138,7 +140,17 @@ const makeRepository = async (
       return yield* PaymentLifecycleRepository;
     }).pipe(
       Effect.provide(
-        PaymentLifecycleRepository.Default.pipe(Layer.provide(databaseLayer))
+        PaymentLifecycleRepository.Default.pipe(
+          Layer.provide(
+            Layer.merge(
+              databaseLayer,
+              testAccountingStorage(
+                databaseLayer,
+                AccountingSnapshotKeyService.Default
+              )
+            )
+          )
+        )
       )
     )
   );
@@ -1378,6 +1390,7 @@ describe.skipIf(!testDatabase)(
             providerReference: occurrenceReference,
           }),
           label: "Calendar sale",
+          staffLabel: "Kalendářová akce",
           adjustment: { kind: "percentage", basisPoints: 2_000 },
         },
         provenance: {
@@ -1418,6 +1431,8 @@ describe.skipIf(!testDatabase)(
               id: discountApplications.id,
               sequence: discountApplications.sequence,
               publicDiscountId: discountApplications.publicDiscountId,
+              label: discountApplications.label,
+              staffLabel: discountApplications.staffLabel,
               subtotalBefore: discountApplications.subtotalBeforeValue,
               applied: discountApplications.appliedAmountValue,
             })
@@ -1448,6 +1463,14 @@ describe.skipIf(!testDatabase)(
           subtotalBefore: 28_000,
           applied: 4_200,
         });
+        // Each row keeps the guest label; the staff label is stored only
+        // when the accepted application carries one.
+        expect(sale).toMatchObject({
+          label: calendarSale.discount.label,
+          staffLabel: calendarSale.discount.staffLabel,
+        });
+        expect(invitation?.label).toEqual(expect.any(String));
+        expect(invitation?.staffLabel).toBeNull();
         expect(attempt.amount.value).toBe(23_800);
         const [claim] = (
           await testDatabase!.pool.query(
@@ -2530,7 +2553,19 @@ describe.skipIf(!testDatabase)(
         Effect.gen(function* () {
           return yield* operation(yield* PaymentLifecycleRepository);
         }).pipe(
-          Effect.provide(PaymentLifecycleRepository.Default),
+          Effect.provide(
+            PaymentLifecycleRepository.Default.pipe(
+              Layer.provide(
+                Layer.merge(
+                  testDatabase.layer,
+                  testAccountingStorage(
+                    testDatabase.layer,
+                    AccountingSnapshotKeyService.Default
+                  )
+                )
+              )
+            )
+          ),
           Effect.provide(testDatabase.layer),
           Effect.provide(referralFeatureFlag(true)),
           Effect.result
