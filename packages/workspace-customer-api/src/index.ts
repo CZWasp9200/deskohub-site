@@ -126,7 +126,9 @@ export {
 } from "./customer-profile";
 export {
   CustomerAccessCodeUnavailable,
+  CustomerBookedSelection,
   CustomerCoworkTier,
+  CustomerEstablishment,
   CustomerInvoiceNotIssued,
   CustomerInvoicePdf,
   CustomerOrderFulfillmentStatus,

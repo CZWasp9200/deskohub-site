@@ -72,6 +72,7 @@ describe("app route tree", () => {
         "/book/cowork",
         "/book/meeting-room",
         "/book/office",
+        "/dev/design-system",
         "/dev/effect-smoke",
         "/reservations",
         "/reservations/[orderId]",
