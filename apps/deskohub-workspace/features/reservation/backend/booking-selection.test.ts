@@ -488,7 +488,7 @@ describe("getRebookingSelection", () => {
         family: "cowork",
         date: tomorrow,
         tier: "reserved-desk",
-        monitorOption: "monitor",
+        monitorOption: "2x27-qhd",
       },
       {
         family: "meeting-room",

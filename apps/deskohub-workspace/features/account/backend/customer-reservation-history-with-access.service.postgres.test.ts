@@ -25,6 +25,7 @@ import {
 } from "@/features/checkout/backend/reservation/access-code.service";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
+import { ReservationRecords } from "@/features/reservation/backend/reservation-records";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
   type StoredWorkspaceReservationDetails,
@@ -170,6 +171,12 @@ const makeHistory = (input: {
       Layer.mergeAll(
         testDatabaseLayer(),
         dotyposLayer,
+        // Shared snapshots the service must never read: it lists live.
+        Layer.mock(ReservationRecords, {
+          get: () => Effect.die("read a snapshot record"),
+          listForCustomer: () => Effect.die("read a snapshot list"),
+          listByIds: () => Effect.die("read snapshot records"),
+        }),
         access,
         ReviewAccounts.Default.pipe(Layer.provide(testDatabaseLayer())),
         ReviewSandbox.Default.pipe(Layer.provide(testDatabaseLayer())),
@@ -352,7 +359,7 @@ describe.skipIf(!testDatabase)(
 
     test("names each booking in the locale asked for, with its access window and the booking that repeats it", async () => {
       const now = Temporal.Now.instant();
-      const startsAt = nextPragueMidnight(now).add({ days: 2 });
+      const startsAt = nextPragueMidnight(now).add({ hours: 48 });
       const seeded = await seedAccount([
         {
           label: "open-space",
@@ -407,7 +414,8 @@ describe.skipIf(!testDatabase)(
     test("shows a review account's sandbox with names and selections but never a code", async () => {
       const seeded = await seedAccount([]);
       await testDatabase!.pool.query(
-        "update customer_accounts set review = true where id = $1",
+        // A review account never has a Dotypos customer.
+        "update customer_accounts set review = true, dotypos_customer_id = null where id = $1",
         [seeded.accountId]
       );
       const history = makeHistory({
@@ -418,7 +426,6 @@ describe.skipIf(!testDatabase)(
       const entries = entriesOf(
         await history.load({
           accountId: seeded.accountId,
-          dotyposCustomerId: seeded.customerId,
         })
       );
 

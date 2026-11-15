@@ -7,7 +7,7 @@ import {
 } from "@/features/reservation/backend/reservation-access.service";
 import type { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { ReservationRecords } from "@/features/reservation/backend/reservation-records";
-import { getWorkspaceDate } from "@/features/reservation/reservation-date";
+import { isOpenOnCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { ReviewAccounts, ReviewSandbox } from "@/features/review-accounts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import {
@@ -114,11 +114,6 @@ const hasAccessToday = (
   now: Temporal.Instant
 ) =>
   status === "confirmed" &&
-  Option.exists(
-    accessInterval,
-    ({ startsAt, endsAt }) =>
-      Temporal.PlainDate.compare(
-        getWorkspaceDate(startsAt),
-        getWorkspaceDate(now)
-      ) <= 0 && Temporal.Instant.compare(endsAt, now) > 0
+  Option.exists(accessInterval, (interval) =>
+    isOpenOnCurrentWorkspaceDate(interval, now)
   );

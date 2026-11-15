@@ -54,6 +54,7 @@ import { fakeBookingGroup } from "../../booking/testing/fake-booking-api";
 import {
   type FakeWorkspaceData,
   type SampleAccountKind,
+  sampleEstablishment,
   sampleWorkspaceData,
 } from "./sample-fixtures";
 
@@ -598,6 +599,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
                 );
           })
         )
+        .handle("getEstablishment", () => Effect.succeed(sampleEstablishment))
         .handle("getReservationStatus", ({ params }) =>
           Effect.map(order(params.orderId), (found) => found.state)
         )

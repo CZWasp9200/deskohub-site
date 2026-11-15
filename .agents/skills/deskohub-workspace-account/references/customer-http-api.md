@@ -264,7 +264,11 @@ project what the reservation services return.
   `makeCustomerReservationHistory`. Its optional `?locale` (`CustomerLocale`,
   the default locale when absent) names `productName` with
   `getReservationProductName` (`features/account/reservation-product-name.ts`),
-  the website history's own names. A website order carries
+  the website history's own names. Typed clients call it with
+  `{ query: {} }` at least: the client types accept `{}`, but Effect's
+  `HttpApiClient` then encodes an absent query as `undefined` and fails
+  before sending (a request without a query string still decodes on the
+  server, so older apps keep working). A website order carries
   `accessStartsAt`/`accessEndsAt`, the span Dotypos holds (early setup
   included), from which issuance derives the code's window. An entry whose
   stored product can still be booked carries `bookedSelection`
