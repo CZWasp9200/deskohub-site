@@ -595,7 +595,7 @@ const pendingHoldCreationRetryPolicy = Schedule.exponential("250 millis").pipe(
   Schedule.modifyDelay((_, delay) =>
     Effect.succeed(Duration.min(delay, Duration.seconds(5)))
   ),
-  Schedule.collectWhile(
+  Schedule.while(
     (metadata) =>
       metadata.elapsed < 40_000 &&
       Predicate.isTagged(metadata.input, "PendingReservationTransition")

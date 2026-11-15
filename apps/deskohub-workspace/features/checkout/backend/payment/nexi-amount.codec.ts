@@ -1,13 +1,13 @@
 import { NexiAmountSchema, nexiMinorUnitExponent } from "@deskohub/nexi";
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
+import { Effect, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { positiveMoneyCodec } from "@/shared/money/money";
 
 const invalidValue = <T>(actual: T, message: string) =>
-  new SchemaIssue.InvalidValue(Option.some(actual), { message });
+  new SchemaIssue.InvalidValue({ message }, actual);
 
 export const NexiAmountFromWorkspaceMoney = NexiAmountSchema.pipe(
   Schema.decodeTo(positiveMoneyCodec, {
-    decode: SchemaGetter.transformOrFail((nexiAmount, options) =>
+    decode: SchemaGetter.transformEffect((nexiAmount, options) =>
       Schema.decodeUnknownEffect(positiveMoneyCodec)(
         {
           value: Number(nexiAmount.amount),
@@ -19,7 +19,7 @@ export const NexiAmountFromWorkspaceMoney = NexiAmountSchema.pipe(
         Effect.mapError((error) => invalidValue(nexiAmount, error.message))
       )
     ),
-    encode: SchemaGetter.transformOrFail((money, options) =>
+    encode: SchemaGetter.transformEffect((money, options) =>
       Schema.decodeUnknownEffect(NexiAmountSchema)(
         {
           amount: (

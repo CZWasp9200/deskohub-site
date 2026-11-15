@@ -6,7 +6,8 @@ import type {
 import { AlgoPinSchema } from "@deskohub/igloohome";
 import { NodeCrypto } from "@effect/platform-node";
 import { and, asc, eq, inArray, lte, or } from "drizzle-orm";
-import { Context, Crypto, Data, Effect, Layer, Schema } from "effect";
+import { Context, Data, Effect, Layer, Schema } from "effect";
+import { SecureRandom } from "effect/crypto";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
 import { reservationAccessGrants } from "@/db/schema";
@@ -191,7 +192,7 @@ export class ReservationAccessRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db } = yield* WorkspaceDatabase;
-      const crypto = yield* Crypto.Crypto;
+      const secureRandom = yield* SecureRandom.SecureRandom;
 
       const findByReservationId = Effect.fn(
         "ReservationAccessRepository.findByReservationId"
@@ -263,18 +264,9 @@ export class ReservationAccessRepository extends Context.Service<
         listForReservations,
         ensure: Effect.fn("ReservationAccessRepository.ensure")(
           function* (input) {
-            const id = yield* crypto.randomUUIDv7.pipe(
-              Effect.map(reservationAccessGrantIdSchema.make),
-              Effect.mapError(
-                () =>
-                  new ReservationAccessStorageError({
-                    operation: "ensure",
-                    reservationId: input.reservationId,
-                    message:
-                      "Reservation access grant ID could not be generated.",
-                  })
-              )
-            );
+            const id = yield* secureRandom
+              .uuidV7()
+              .pipe(Effect.map(reservationAccessGrantIdSchema.make));
             yield* db
               .insert(reservationAccessGrants)
               .values({
