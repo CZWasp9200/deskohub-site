@@ -534,6 +534,21 @@ describe("getRebookingSelection", () => {
     });
   });
 
+  test("names no monitor setup for a desk booked without one", () => {
+    expect(
+      getRebookingSelection({
+        kind: "cowork",
+        entryTier: "reserved-desk",
+        date: tomorrow,
+        coffee: true,
+        // The form's value for "no monitor".
+        monitorOption: "",
+      })
+    ).toEqual({
+      selection: { family: "cowork", date: tomorrow, tier: "reserved-desk" },
+    });
+  });
+
   test("books nothing for a link that leaves a needed field open", () => {
     expect(
       getRebookingSelection({ kind: "cowork", entryTier: "open-space" })

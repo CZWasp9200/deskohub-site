@@ -5,6 +5,7 @@ import {
   getCoworkTierCoffeeAddon,
   getCoworkTierWorkstationAddon,
   isWorkspaceCoworkCurrentProductTier,
+  isWorkspaceProductMonitorOption,
   type WorkspaceCoworkCurrentTier,
   type WorkspaceProductMonitorOption,
   workspaceCoworkCurrentTiers,
@@ -702,7 +703,7 @@ const getCoworkRebooking = ({
           tier,
           ...(coffee !== undefined &&
             getCoworkTierCoffeeAddon(tier) === "optional" && { coffee }),
-          ...(monitorOption !== undefined &&
+          ...(isWorkspaceProductMonitorOption(monitorOption) &&
             getCoworkTierWorkstationAddon(tier) !== "unavailable" && {
               monitorOption,
             }),
