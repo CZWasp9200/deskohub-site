@@ -129,9 +129,14 @@ The app's client and data layer are in the `deskohub-mobile` skill
   in the OpenAPI document with `.annotateMerge(responseHeaders(200, { ... }))`
   (`src/openapi-response-headers.ts`) and regenerate the golden.
 - A reservation service that decides who may see an order takes the
-  authorization the handler built from the session's authentication
-  (`ReservationAuthorizationService.withAuthentication`), through the
-  service's `withAuthorization`, never `ReservationAuthorizationService.Live`.
+  authorization the handler built over the session's authentication
+  (`ReservationAuthorizationService.ForProvidedAuthentication` with the
+  request's `CustomerAuthentication` provided), through the service's
+  `withAuthorization`, never `ReservationAuthorizationService.Live`.
+- A handler seam that reads the signed-in account is a Layer requiring
+  `CustomerAuthentication`; the handler group provides the authentication
+  the session middleware read (account skill,
+  `account-domain-and-routes.md#authentication-supply`).
 - Don't validate an upload from the endpoint's multipart part stream: Effect
   lets the body's end overwrite a parser failure from the same chunk, and its
   part limit counts the part's headers. Parse the handler's `request` body as
