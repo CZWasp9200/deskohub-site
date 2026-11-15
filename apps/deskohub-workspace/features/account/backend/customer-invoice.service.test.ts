@@ -5,7 +5,7 @@ import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import type { Invoice } from "@/features/accounting/backend/invoice.repository";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";

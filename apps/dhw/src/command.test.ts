@@ -37,7 +37,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { BunServices } from "@effect/platform-bun";
 import { Console, Effect, Exit, Layer, Option, Redacted, Schema } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { AccessCodeAttemptStore } from "./access-codes/access-code-attempt-store.service";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";

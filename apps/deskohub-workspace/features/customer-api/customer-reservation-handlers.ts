@@ -14,8 +14,8 @@ import {
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Match } from "effect";
-import { HttpServerResponse } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpServerResponse } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import {
   CustomerReservationHistoryService,
   currentReservationHistoryAccount,

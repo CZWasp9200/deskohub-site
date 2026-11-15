@@ -1,5 +1,5 @@
 import { RegistryContext } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useContext, useEffect } from "react";
 
 /**

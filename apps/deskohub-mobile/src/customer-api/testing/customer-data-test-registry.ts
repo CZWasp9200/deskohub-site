@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { AccountReadBudget } from "../account-read-budget";
 import {
   AccountExitFence,

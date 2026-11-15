@@ -1,5 +1,5 @@
 import { Context, Effect, Option } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 
 interface ICustomerRequestDispatch {
   /** Runs each time the client sends the request, retries included. */

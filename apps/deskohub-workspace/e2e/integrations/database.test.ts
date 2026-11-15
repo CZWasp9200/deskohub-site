@@ -2,7 +2,7 @@ import { expect, mock, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";

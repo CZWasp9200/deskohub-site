@@ -32,7 +32,7 @@ import {
   type PlatformError,
   Schema,
 } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CliAuthenticationRequestRow,

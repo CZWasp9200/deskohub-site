@@ -11,7 +11,7 @@ import type {
   HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   RequestBudget,
   type RequestBudgetPolicy,

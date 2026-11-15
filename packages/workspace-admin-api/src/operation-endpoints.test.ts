@@ -7,14 +7,14 @@ import {
   HttpClientResponse,
   HttpRouter,
   HttpServer,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   HttpApi,
   HttpApiBuilder,
   HttpApiClient,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   administrationOperations,
   destructiveOperation,

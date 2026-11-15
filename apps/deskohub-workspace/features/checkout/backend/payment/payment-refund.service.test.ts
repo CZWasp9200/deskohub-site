@@ -11,7 +11,7 @@ import {
 } from "@deskohub/nexi";
 import { Clock, Context, Duration, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import type { NexiPaymentAttempt } from "../repositories/payment-attempt.repository";
@@ -515,7 +515,7 @@ describe("PaymentRefundService", () => {
     }) => {
       const { NexiService } = await import("@deskohub/nexi");
       const { makeWithTransaction } = await import(
-        "effect/unstable/sql/SqlClient"
+        "effect/sql/SqlClient"
       );
       const { PaymentRefundRepository } = await import(
         "../repositories/payment-refund.repository"

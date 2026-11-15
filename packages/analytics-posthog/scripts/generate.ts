@@ -5,8 +5,8 @@ import {
   FetchHttpClient,
   HttpClient,
   HttpClientResponse,
-} from "effect/unstable/http";
-import type { OpenAPISpec } from "effect/unstable/httpapi/OpenApi";
+} from "effect/http";
+import type { OpenAPISpec } from "effect/http-api/OpenApi";
 
 const generatedClientPath = Bun.fileURLToPath(
   new URL("../src/generated/effect.gen.ts", import.meta.url)

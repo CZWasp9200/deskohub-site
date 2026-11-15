@@ -3,7 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { afterAll, describe, expect, test } from "bun:test";
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import { redirect } from "next/navigation";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";

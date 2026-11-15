@@ -1,5 +1,5 @@
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";

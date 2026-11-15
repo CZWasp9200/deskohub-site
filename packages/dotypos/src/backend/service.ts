@@ -12,7 +12,7 @@ import {
   Schema,
   Struct,
 } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { DotyposRuntimeConfig } from "../config";
 import {
   type DotyposConditionalWriteFailure,

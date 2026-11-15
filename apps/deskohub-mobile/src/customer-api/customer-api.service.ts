@@ -3,7 +3,7 @@ import {
   makeWorkspaceCustomerApiClient,
 } from "@deskohub/workspace-customer-api/client";
 import { Context, Effect, Layer } from "effect";
-import type { HttpClient } from "effect/unstable/http";
+import type { HttpClient } from "effect/http";
 
 interface ICustomerApiTransport {
   /** The Workspace origin every customer request goes to. */

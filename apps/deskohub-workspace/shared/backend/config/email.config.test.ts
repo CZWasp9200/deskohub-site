@@ -11,7 +11,7 @@ import {
 import { makeEmailProviderFake } from "@deskohub/email/testing";
 import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { ConfigProvider, Effect, Logger } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 
 type SendImplementation = (payload?: {
   readonly subject?: string;

@@ -3,7 +3,7 @@ import {
   type HttpApi,
   HttpApiBuilder,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 
 /** A group's handler builder, seen without its endpoint types. */
 interface UntypedHandlers {

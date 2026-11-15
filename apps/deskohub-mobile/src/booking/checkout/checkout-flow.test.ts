@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { CustomerCheckoutDetailsInvalid } from "@deskohub/workspace-customer-api";
 import { Clock, Deferred, Effect, Exit, Option } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { reservationHistoryAtom } from "../../account/reservations/reservations-list-state";
 import { analytics } from "../../analytics/analytics";
 import { accountStorageKey } from "../../customer-api/account-scoped-storage";

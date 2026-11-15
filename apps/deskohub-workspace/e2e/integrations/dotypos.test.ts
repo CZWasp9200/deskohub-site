@@ -7,7 +7,7 @@ import {
 import type { DiscountGroup } from "@deskohub/dotypos/generated";
 import { Temporal } from "@js-temporal/polyfill";
 import { Effect, Layer, Logger, Tracer } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import {
   hasPreviousPaidBooking,
   hasPriorConfirmedDotyposBooking,

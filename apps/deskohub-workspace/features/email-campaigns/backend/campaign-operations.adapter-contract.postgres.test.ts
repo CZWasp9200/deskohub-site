@@ -23,8 +23,8 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { NodeCrypto, NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Option } from "effect";
-import { HttpRouter } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { cliSessions } from "@/db/schema";
 import type { AdministratorAccountActor } from "@/features/administrators/account-role";

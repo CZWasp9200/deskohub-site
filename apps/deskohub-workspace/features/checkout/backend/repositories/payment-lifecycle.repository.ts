@@ -19,7 +19,7 @@ import {
   Option,
   Schema,
 } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
   accountingDocumentSnapshots,

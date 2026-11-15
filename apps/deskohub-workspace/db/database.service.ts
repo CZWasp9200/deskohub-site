@@ -1,5 +1,5 @@
 import { Context, Effect, Latch, Layer, Option, Stream } from "effect";
-import type { SqlClient, SqlConnection } from "effect/unstable/sql";
+import type { SqlClient, SqlConnection } from "effect/sql";
 import type { DatabaseClient, RootDatabaseClient } from "./database-client";
 import type { DatabaseQueryError } from "./sql-constraint";
 import { openLockLedger } from "./workspace-lock-ledger";

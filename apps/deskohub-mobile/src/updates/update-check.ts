@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { HttpClient } from "effect/unstable/http";
+import type { HttpClient } from "effect/http";
 import { checkNativeRelease, type NativeReleaseCheck } from "./native-release";
 import {
   findReadyUpdate,

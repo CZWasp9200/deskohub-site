@@ -4,7 +4,7 @@ import "@/shared/polyfills/temporal";
 
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer, Schema } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import type { DatabaseQueryError } from "@/db/sql-constraint";
 import type { WorkspaceProductIdentity } from "@/features/checkout/product-identity";
 import {

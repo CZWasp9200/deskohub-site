@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import type { Locale } from "@/features/i18n";
 import { checkAvailabilityResultSchema } from "../check-availability.schema";
 import { getQuoteResultSchema } from "../get-quote.schema";

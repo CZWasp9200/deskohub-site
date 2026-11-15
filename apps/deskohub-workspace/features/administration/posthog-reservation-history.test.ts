@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { PostHogProjectId } from "@deskohub/analytics-posthog/identifiers";
 import { Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import {
   mergeReservationHistory,

@@ -1,6 +1,6 @@
 import { useAtomSet } from "@effect/atom-react";
 import { Layer } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { type ReactNode, useEffect, useRef } from "react";
 import { useAuthSession } from "../auth/use-auth-session";
 import { AccountExitFence } from "./account-scoped-storage";

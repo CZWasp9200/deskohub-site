@@ -5,7 +5,7 @@ import {
   AsyncResult,
   type Atom,
   AtomRegistry,
-} from "effect/unstable/reactivity";
+} from "effect/reactivity";
 import { CustomerWriteUnconfirmed } from "../../customer-api/customer-request";
 import {
   CustomerViewError,

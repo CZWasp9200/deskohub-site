@@ -1,6 +1,6 @@
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Option } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { revokeAdministrationAgentAccess } from "@/features/account/backend/auth/administration-agent-access";
 import { findActiveCustomerAccountByEmail } from "@/features/account/backend/customer-account-by-email";

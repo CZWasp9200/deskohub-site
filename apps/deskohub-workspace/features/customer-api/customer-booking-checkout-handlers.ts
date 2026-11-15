@@ -32,7 +32,7 @@ import {
   Schema,
   type SchemaIssue,
 } from "effect";
-import type { HttpApiBuilder } from "effect/unstable/httpapi";
+import type { HttpApiBuilder } from "effect/http-api";
 import { env } from "@/env";
 import { getApplyDiscountCodeDeadline } from "@/features/checkout/actions/apply-discount-code-to-pay-state";
 import {

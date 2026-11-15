@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { openPage, waitForPageText, waitForPageUrl } from "../browser";
 import type { OpenE2EBrowserSession } from "../browser-session";
 import { getWorkspaceE2EDateInterval } from "../capacity";

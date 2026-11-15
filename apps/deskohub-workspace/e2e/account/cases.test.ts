@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import type { Customer } from "@deskohub/dotypos/generated";
 import { Effect, Exit, Layer, Option } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { strToU8, zipSync } from "fflate";
 import {
   accountDataExportManifestPath,

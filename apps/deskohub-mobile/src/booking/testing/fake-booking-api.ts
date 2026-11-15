@@ -40,7 +40,7 @@ import {
   HttpApiBuilder,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   type FakeRequestOutcome,
   type FakeWorkspace,

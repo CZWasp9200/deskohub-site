@@ -1,6 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import type { WorkspaceE2EConfig } from "./config";
 import {
   assertPreviewAuthSessionReady,

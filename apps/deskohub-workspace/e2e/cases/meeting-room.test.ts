@@ -7,7 +7,7 @@ import {
 } from "@deskohub/dotypos";
 import type { Reservation, Table } from "@deskohub/dotypos/generated";
 import { Effect, Exit, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { makeMeetingRoomCheckoutData } from "../checkout/data";

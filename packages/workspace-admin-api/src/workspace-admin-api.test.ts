@@ -2,13 +2,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Context, Effect, Layer, Option, Schema, Struct } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 import {
   HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   AdministrationOperationBehavior,
   CliOnly,

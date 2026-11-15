@@ -48,7 +48,7 @@ import {
   dhwVersionHeader,
 } from "@deskohub/workspace-admin-api";
 import { Clock, Duration, Effect, Layer, Redacted, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { DHW_VERSION } from "../build-info";
 import { DhwConfig } from "../config/dhw-config.service";
 import {

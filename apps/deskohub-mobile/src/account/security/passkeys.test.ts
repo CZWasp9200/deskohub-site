@@ -4,7 +4,7 @@ import {
   type AsyncResult,
   type Atom,
   AtomRegistry,
-} from "effect/unstable/reactivity";
+} from "effect/reactivity";
 import type { CustomerRequestFailure } from "../../customer-api/customer-view-error";
 import {
   makeFakeCustomerData,

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { Context, Effect, Layer, Result, Semaphore } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import type { Pool } from "pg";
 
 export type PostgresAdvisoryLockKey = readonly [string, string];

@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import * as JsonSchemaGenerator from "@effect/openapi-generator/JsonSchemaGenerator";
 import * as OpenApiGenerator from "@effect/openapi-generator/OpenApiGenerator";
 import { Effect, Schema } from "effect";
-import type { OpenAPISpec } from "effect/unstable/httpapi/OpenApi";
+import type { OpenAPISpec } from "effect/http-api/OpenApi";
 
 const recursiveSpec = {
   openapi: "3.1.0",

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Option } from "effect";
-import type { AtomRegistry } from "effect/unstable/reactivity";
+import type { AtomRegistry } from "effect/reactivity";
 import { makeFakeCustomerData } from "../../customer-api/testing/customer-data-test-registry";
 import {
   bookingAvailabilityAtom,

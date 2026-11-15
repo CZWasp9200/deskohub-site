@@ -14,7 +14,7 @@ import {
   HttpClientError,
   HttpClientRequest,
   type HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { DotyposRuntimeConfig, type DotyposRuntimeConfigObj } from "../config";
 import {
   type DotyposClient,

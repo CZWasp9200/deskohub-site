@@ -10,7 +10,7 @@ import {
   customerAvailabilityReplacementHeader,
 } from "@deskohub/workspace-customer-api";
 import { Data, Effect, Layer, Match, Option, Struct } from "effect";
-import type { HttpApiBuilder } from "effect/unstable/httpapi";
+import type { HttpApiBuilder } from "effect/http-api";
 import { buildAdvertisedPrice } from "@/features/checkout/backend/checkout/advertised-price.server";
 import { loadPublicOfferings } from "@/features/checkout/backend/checkout/public-offerings";
 import {

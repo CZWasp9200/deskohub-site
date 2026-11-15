@@ -2,7 +2,7 @@ import "server-only";
 
 import { join } from "node:path";
 import { Effect } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { generateStaticMapImage, type StaticMapImageOptions } from "osm";
 import { workspaceLocationMapImageOptions } from "@/shared/utils/workspace-location-map";
 

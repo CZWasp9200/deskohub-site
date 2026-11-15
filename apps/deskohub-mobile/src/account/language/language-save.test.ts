@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { AtomRegistry } from "effect/unstable/reactivity";
+import { AtomRegistry } from "effect/reactivity";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import {

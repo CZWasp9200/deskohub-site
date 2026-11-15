@@ -1,6 +1,6 @@
 import { checkRateLimit } from "@vercel/firewall";
 import { Context, Data, Effect, Layer } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/http";
 
 const cliAuthenticationStartRateLimitId = "cli-authentication-start";
 

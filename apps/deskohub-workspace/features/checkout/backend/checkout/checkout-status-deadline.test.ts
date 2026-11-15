@@ -5,7 +5,7 @@ import { expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { ReservationRecords } from "@/features/reservation/backend/reservation-records";
 import { SeatingMapReleaseGate } from "@/features/reservation/backend/seating-map-release-gate";

@@ -7,7 +7,7 @@ import {
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer, Match, Option } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceReservations } from "@/db/schema";
 import { isWorkspaceCoworkCurrentProductTier } from "@/features/checkout/product-catalog";

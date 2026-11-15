@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { Context, Duration, Effect, Option, Order } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import type { RootDatabaseClient } from "./database-client";
 import {
   type PostgresAdvisoryLockKey,

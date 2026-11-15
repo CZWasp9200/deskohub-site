@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { makeWorkspaceE2ECaseIdentities } from "../account/case-identities";
 import type { WorkspaceE2EAccountJournalOwner } from "../account/reconcile";
 import { resolveWorkspaceE2ESessionSigningSecret } from "../account/seeded-session";

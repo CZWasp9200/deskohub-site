@@ -2,7 +2,7 @@ import "server-only";
 
 import { WorkspaceCustomerApi } from "@deskohub/workspace-customer-api";
 import { Effect } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/http-api";
 import { handleCustomerBookingCatalog } from "./customer-booking-catalog-handlers";
 import { handleCustomerBookingCheckout } from "./customer-booking-checkout-handlers";
 

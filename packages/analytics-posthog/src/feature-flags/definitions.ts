@@ -3,7 +3,7 @@ import {
   FetchHttpClient,
   HttpClient,
   HttpClientError,
-} from "effect/unstable/http";
+} from "effect/http";
 import type { FeatureFlag } from "../generated/effect.gen";
 import type { PostHogProjectId } from "../identifiers";
 import { makePostHogManagementClient } from "../management-client";

@@ -1,6 +1,6 @@
 import { deepStrictEqual } from "node:assert/strict";
 import { Effect } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
 import { m } from "@/features/i18n";
 import { referralCodeQueryParam } from "@/features/referrals/client";

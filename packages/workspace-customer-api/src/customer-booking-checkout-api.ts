@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiSchema } from "effect/http-api";
 import { CustomerAccountLinkRequired } from "./customer-account-api";
 import {
   CustomerBookingDateOutOfRange,

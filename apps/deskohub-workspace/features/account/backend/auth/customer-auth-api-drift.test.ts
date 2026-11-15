@@ -9,7 +9,7 @@ import {
   HttpApi,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   disabledCustomerAgentClientPaths,
   makeCustomerAgentAuthorizationPlugins,

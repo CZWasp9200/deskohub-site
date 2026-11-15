@@ -5,8 +5,8 @@ import {
 } from "@deskohub/workspace-customer-api";
 import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { HttpClientError, HttpClientRequest } from "effect/unstable/http";
-import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { HttpClientError, HttpClientRequest } from "effect/http";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { AccountReadBudget, accountReadAllowance } from "./account-read-budget";
 import { CustomerSessionCheck } from "./customer-api.service";
 import {

@@ -2,7 +2,7 @@ import { NextEffect } from "@deskohub/next-effect";
 import { NodeHttpServer } from "@effect/platform-node";
 import { waitUntil } from "@vercel/functions";
 import { Cause, Data, Effect, Exit, identity, Layer, Result } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { unstable_rethrow } from "next/navigation";
 import { after } from "next/server";
 import {

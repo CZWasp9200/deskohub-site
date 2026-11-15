@@ -8,7 +8,7 @@ import {
   HttpClient,
   HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { env } from "@/env";
 import {
   type ReservationLifecycleEvent,

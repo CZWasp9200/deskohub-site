@@ -9,7 +9,7 @@ import {
 import { Effect, Fiber, Layer, Logger, References } from "effect";
 import * as Schema from "effect/Schema";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 
 mock.module("server-only", () => ({}));
 

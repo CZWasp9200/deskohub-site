@@ -5,7 +5,7 @@ import {
   useAtomValue,
 } from "@effect/atom-react";
 import { Effect, Match, Option } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { openBrowserAsync } from "expo-web-browser";
 import { useContext, useEffect, useState } from "react";
 import { StyleSheet, Switch, View } from "react-native";

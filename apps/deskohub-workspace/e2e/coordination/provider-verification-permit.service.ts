@@ -1,6 +1,6 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Context, Effect, Layer, Semaphore } from "effect";
-import * as SqlError from "effect/unstable/sql/SqlError";
+import * as SqlError from "effect/sql/SqlError";
 import { toWorkspaceE2EError, type WorkspaceE2EError } from "../errors";
 
 const workspaceE2EProviderVerificationConcurrency = 1;

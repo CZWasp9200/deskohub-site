@@ -3,7 +3,7 @@ import type {
   CustomerAnalyticsConsentSync,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Match } from "effect";
-import type { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import type { Atom, AtomRegistry } from "effect/reactivity";
 import { CustomerApi } from "../customer-api/customer-api.service";
 import { customerDataRuntime } from "../customer-api/customer-data-runtime";
 import { customerWrite } from "../customer-api/customer-request";

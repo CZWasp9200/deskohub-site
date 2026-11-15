@@ -3,10 +3,10 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import type { SchemaError } from "effect/Schema"
 import * as Schema from "effect/Schema"
-import type * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientError from "effect/unstable/http/HttpClientError"
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import type * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientError from "effect/http/HttpClientError"
+import * as HttpClientRequest from "effect/http/HttpClientRequest"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 // non-recursive definitions
 export type Amount = { readonly "amount": string, readonly "currency": string }
 export const Amount = Schema.Struct({ "amount": Schema.String.annotate({ "description": "Integer minor-unit/scaled amount string." }).check(Schema.isPattern(new RegExp("^[0-9]+$"))), "currency": Schema.String.check(Schema.isMinLength(3)).check(Schema.isMaxLength(3)) }).annotate({ "description": "Monetary amount as an integer minor-unit/scaled amount string, e.g. 5000 means 50.00 for currencies with two decimal places." })

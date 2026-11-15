@@ -1,6 +1,6 @@
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { StyleSheet } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";

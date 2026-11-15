@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, Layer, Predicate } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
+import { FetchHttpClient, type HttpClient } from "effect/http";
 import sharp from "sharp";
 import { generateStaticMapImage } from "./static-map";
 import { generateSvgPngBuffer } from "./svg-png";

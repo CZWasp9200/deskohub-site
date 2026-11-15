@@ -5,12 +5,12 @@ import {
   HttpClient,
   HttpClientRequest,
   type HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   type HttpApi,
   HttpApiClient,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 
 /**
  * Serves one request with the administration API that administrators'

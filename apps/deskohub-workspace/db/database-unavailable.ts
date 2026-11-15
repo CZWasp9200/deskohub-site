@@ -1,5 +1,5 @@
 import { Cause, Predicate } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 
 // Neon's proxy answers a connection to an endpoint that no longer exists, such
 // as a deleted branch's, with this message under SQLSTATE XX000.

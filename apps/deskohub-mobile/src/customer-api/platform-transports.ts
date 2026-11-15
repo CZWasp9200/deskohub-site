@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient } from "effect/http";
 import { CustomerApiTransport } from "./customer-api.service";
 import { reportEachSend } from "./customer-request-dispatch";
 import { retryTransientReads } from "./read-retry";

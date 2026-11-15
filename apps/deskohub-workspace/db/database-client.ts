@@ -2,7 +2,7 @@ import * as PgClient from "@effect/sql-pg/PgClient";
 import { EffectCache } from "drizzle-orm/cache/core/cache-effect";
 import { type EffectPgDatabase, make } from "drizzle-orm/effect-postgres";
 import { Effect, Layer } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import type { SqlClient } from "effect/sql";
 import { Pool, type PoolConfig } from "pg";
 import { DatabaseQueryLoggerLive } from "@/shared/backend/logging/database-query-logger";
 import { normalizePostgresConnectionUrl } from "./postgres-connection-url";

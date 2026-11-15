@@ -13,7 +13,7 @@
     "@deskohub/email": "workspace:*",
     "@deskohub/provider-request": "workspace:*",
     "@deskohub/test-email": "workspace:*",
-    "effect": "4.0.0-beta.85",
+    "effect": "4.1.4",
     "resend": "^6.32.1"
   }
 }

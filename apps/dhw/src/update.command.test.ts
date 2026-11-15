@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer, Option } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { DHW_VERSION } from "./build-info";
 import { dhwCommand } from "./command";
 import { DhwConfig } from "./config/dhw-config.service";

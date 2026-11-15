@@ -1,6 +1,6 @@
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Option, Predicate } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 
 /** A failed database statement, as Drizzle or Effect SQL reports it. */
 export type DatabaseQueryError = EffectDrizzleQueryError | SqlError.SqlError;

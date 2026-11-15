@@ -4,7 +4,7 @@ import type {
   ProfileCompletionReferralOutcome,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Data, Effect, Match, Option, Predicate } from "effect";
-import { type AsyncResult, Atom } from "effect/unstable/reactivity";
+import { type AsyncResult, Atom } from "effect/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import {
   accountAtom,

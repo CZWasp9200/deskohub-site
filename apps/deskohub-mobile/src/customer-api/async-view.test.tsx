@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Children, isValidElement, type ReactNode } from "react";
 import { AppLocaleProvider } from "../i18n/locale-context";
 import { LoadingState } from "../ui/async-states";

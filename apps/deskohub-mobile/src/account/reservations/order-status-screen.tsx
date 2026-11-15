@@ -6,7 +6,7 @@ import type {
 } from "@deskohub/workspace-customer-api";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Match, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { type Href, useFocusEffect, useRouter } from "expo-router";
 import { useCallback } from "react";
 import { StyleSheet, View } from "react-native";

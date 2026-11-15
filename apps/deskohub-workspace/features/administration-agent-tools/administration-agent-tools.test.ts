@@ -21,7 +21,7 @@ import {
   HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { customerAgentCatalog } from "@/features/agent-tools/customer-agent-catalog";
 import {
   administrationOperationTools,

@@ -1,4 +1,4 @@
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 /**
  * Stands in for a read a screen doesn't need for its draft, so the screen

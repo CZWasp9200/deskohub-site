@@ -7,7 +7,7 @@ import {
   type ReferralCode,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Match, Option, type Schema } from "effect";
-import type { HttpClientError } from "effect/unstable/http";
+import type { HttpClientError } from "effect/http";
 import { Platform, type PlatformOSType } from "react-native";
 import { trackBookingSubmitted } from "../../analytics/events";
 import { CustomerApi } from "../../customer-api/customer-api.service";

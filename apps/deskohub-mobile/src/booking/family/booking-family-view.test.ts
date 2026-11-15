@@ -6,7 +6,7 @@ import {
   CustomerServiceUnavailable,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import {
   BookingCatalogViewError,

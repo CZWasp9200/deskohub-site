@@ -15,7 +15,7 @@ import {
 import { NodeHttpServer } from "@effect/platform-node";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Effect, Exit, Layer, Option, type Schema } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerResponse } from "effect/http";
 import { StandaloneAccessCodeAdministration } from "@/features/access-codes";
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { AdministrationService } from "@/features/administration/administration.service";

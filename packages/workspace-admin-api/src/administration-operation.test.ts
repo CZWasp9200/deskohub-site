@@ -4,7 +4,7 @@ import {
   HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   AdministrationOperationBehavior,
   AdministrationOperationVariants,

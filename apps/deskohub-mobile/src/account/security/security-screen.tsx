@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Match, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useReducer } from "react";
 import { StyleSheet, View } from "react-native";
 import { AddPasskeyAction } from "../../auth/passkey/add-passkey-action";

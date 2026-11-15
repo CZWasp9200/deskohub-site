@@ -12,7 +12,7 @@ import {
   FetchHttpClient,
   HttpClient,
   HttpClientRequest,
-} from "effect/unstable/http";
+} from "effect/http";
 import { indexNowKey, indexNowKeyPathname } from "@/features/public-pages";
 import { runStandaloneWorkspaceEffect } from "@/shared/backend/standalone-workspace-effect";
 import {

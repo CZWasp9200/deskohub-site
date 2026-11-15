@@ -7,7 +7,7 @@ import {
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { providePerRequest } from "./provide-per-request";
 import { toWorkspaceWebHandler } from "./workspace-effect";
 

@@ -8,13 +8,13 @@ import {
   HttpRouter,
   HttpServer,
   HttpServerRequest,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   HttpApi,
   HttpApiBuilder,
   type HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { makeWorkspaceCustomerApiClient } from "./client";
 import { CustomerAccountApi } from "./customer-account-api";
 import type {

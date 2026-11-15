@@ -6,7 +6,7 @@ import {
   type WorkspaceAdminOperationReference,
 } from "@deskohub/workspace-admin-api";
 import { Console, Crypto, Data, Effect, Option, type Redacted } from "effect";
-import { Command, Flag, Prompt } from "effect/unstable/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
 import { DHW_VERSION } from "./build-info";

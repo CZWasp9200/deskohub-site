@@ -7,7 +7,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { BunServices } from "@effect/platform-bun";
 import { Crypto, Effect, FileSystem, Layer, Path, Schema } from "effect";
-import { KeyValueStore } from "effect/unstable/persistence";
+import { KeyValueStore } from "effect/persistence";
 import {
   type AccessCodeAttemptIdentity,
   accessCodeAttemptReservationKey,

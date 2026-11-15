@@ -11,7 +11,7 @@ import {
   customerApiClientHeader,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Option, Schema } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/http";
 import { CustomerRequestOrigins } from "@/features/account/backend/auth/customer-request-origins.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { RequestBudget } from "@/shared/backend/request-budget/request-budget.service";

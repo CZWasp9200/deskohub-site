@@ -16,7 +16,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Data, Effect, Logger, References } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import { createTracingLive } from "../observability/telemetry-sinks";
 
 const syntheticEmail = testEmailAddress("synthetic");

@@ -23,7 +23,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { NodeCrypto, NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Option } from "effect";
-import { HttpApiTest } from "effect/unstable/httpapi";
+import { HttpApiTest } from "effect/http-api";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CampaignAudienceRow,

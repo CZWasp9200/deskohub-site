@@ -17,7 +17,7 @@ import {
   type PlatformError,
   Schema,
 } from "effect";
-import { KeyValueStore } from "effect/unstable/persistence";
+import { KeyValueStore } from "effect/persistence";
 import { DhwConfig } from "../config/dhw-config.service";
 
 const AccessCodeAttemptReservation = Schema.Struct({

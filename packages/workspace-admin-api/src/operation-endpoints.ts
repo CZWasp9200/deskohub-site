@@ -1,11 +1,11 @@
 import { type Array as Arr, Effect, Option, Schema, Struct } from "effect";
-import { HttpMethod, type HttpRouter } from "effect/unstable/http";
+import { HttpMethod, type HttpRouter } from "effect/http";
 import {
   type HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import {
   AdministrationOperationBehavior,
   readOperation,

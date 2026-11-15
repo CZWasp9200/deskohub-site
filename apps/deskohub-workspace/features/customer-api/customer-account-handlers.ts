@@ -18,7 +18,7 @@ import {
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Match, Option } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/http-api";
 import { loadAccountState } from "@/features/account/backend/account-state";
 import { accountStateCapabilitiesForRun } from "@/features/account/backend/account-state-capabilities";
 import { CustomerAgentConnections } from "@/features/account/backend/auth/customer-agent-connections.service";

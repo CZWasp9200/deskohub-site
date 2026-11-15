@@ -4,7 +4,7 @@ import {
   HttpClientError,
   HttpClientRequest,
   type HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { NexiRuntimeConfig, type NexiRuntimeConfigObj } from "../config";
 import { ExternalAPIError, NetworkError } from "../errors";
 import {

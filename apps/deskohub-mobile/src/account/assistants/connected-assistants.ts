@@ -1,6 +1,6 @@
 import type { CustomerAgentConnection } from "@deskohub/workspace-customer-api";
 import { Cause, Effect, Option, Predicate } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import {
   CustomerApi,
   CustomerAuthApi,

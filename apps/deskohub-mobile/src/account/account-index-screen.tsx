@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useRouter } from "expo-router";
 import { SignOutFailure, signOut } from "../auth/sign-out";
 import { standaloneTaskRuntime, useAuthTask } from "../auth/use-auth-task";

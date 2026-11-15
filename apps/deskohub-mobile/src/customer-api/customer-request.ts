@@ -8,7 +8,7 @@ import {
   Predicate,
   Ref,
 } from "effect";
-import type { Atom } from "effect/unstable/reactivity";
+import type { Atom } from "effect/reactivity";
 import { AccountReadBudget } from "./account-read-budget";
 import { CustomerSessionCheck } from "./customer-api.service";
 import { CustomerRequestDispatch } from "./customer-request-dispatch";

@@ -11,7 +11,7 @@ import {
 import { NodeHttpServer } from "@effect/platform-node";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, Effect, Layer } from "effect";
-import { HttpApiTest } from "effect/unstable/httpapi";
+import { HttpApiTest } from "effect/http-api";
 import { AdministratorRoster } from "@/features/administrators/backend/administrator-roster.service";
 import {
   LegacyAdministratorAccountNotFound,

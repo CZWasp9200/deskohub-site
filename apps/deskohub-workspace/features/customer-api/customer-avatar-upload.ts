@@ -9,7 +9,7 @@ import {
   customerAvatarMaxUploadBytes,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Match, Stream } from "effect";
-import { type HttpServerRequest, Multipasta } from "effect/unstable/http";
+import { type HttpServerRequest, Multipasta } from "effect/http";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import {
   admitCurrentAvatarMutation,

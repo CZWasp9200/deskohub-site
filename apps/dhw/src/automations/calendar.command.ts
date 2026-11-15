@@ -3,7 +3,7 @@ import {
   type CalendarPreviewType,
 } from "@deskohub/workspace-admin-api";
 import { Console, Effect } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 import {
   campaignLocaleFlag,
   campaignLocaleShortNames,

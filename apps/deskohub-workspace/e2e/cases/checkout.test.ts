@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import type { Customer } from "@deskohub/dotypos/generated";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import type { WorkspaceE2EStepRunner } from "../case-runner";
 import { preparedReservationForm } from "../checkout/reservation-form-preparation";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";

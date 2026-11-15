@@ -3,7 +3,7 @@ import {
   FetchHttpClient,
   HttpClient,
   HttpClientRequest,
-} from "effect/unstable/http";
+} from "effect/http";
 import { decodeHTML } from "entities";
 import { GamesRequestError } from "../errors";
 import { type Game, make } from "../generated/effect.gen";

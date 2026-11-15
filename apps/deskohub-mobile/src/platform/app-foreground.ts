@@ -1,4 +1,4 @@
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { AppState, type AppStateStatus } from "react-native";
 
 /** The part of React Native's `AppState` the foreground atom listens to. */

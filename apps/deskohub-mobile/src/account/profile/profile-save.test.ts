@@ -9,7 +9,7 @@ import {
   type AsyncResult,
   type Atom,
   AtomRegistry,
-} from "effect/unstable/reactivity";
+} from "effect/reactivity";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import {
   makeFakeCustomerData,

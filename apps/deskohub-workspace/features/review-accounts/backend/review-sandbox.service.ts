@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer, Match, Option } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { toStoredInstant } from "@/db/instant";
 import {

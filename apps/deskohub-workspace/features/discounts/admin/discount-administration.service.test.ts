@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import {
   findDiscountAdminConflict,
   voucherDenominationCanChange,

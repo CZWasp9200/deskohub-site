@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { HttpApi, type HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApi, type HttpApiGroup, OpenApi } from "effect/http-api";
 import {
   CustomerRequestOriginCheck,
   CustomerSessionAuthentication,

@@ -7,7 +7,7 @@ import {
   AdministrationLegacyUsername,
 } from "@deskohub/workspace-admin-api";
 import { Console, Effect } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import {
   confirmationFlag,
   confirmChange,

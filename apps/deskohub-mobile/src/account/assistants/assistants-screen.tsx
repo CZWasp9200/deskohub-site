@@ -1,5 +1,5 @@
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useState } from "react";
 import { AsyncView } from "../../customer-api/async-view";
 import type { CustomerViewError } from "../../customer-api/customer-view-error";

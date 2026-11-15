@@ -1,5 +1,5 @@
 import { Data, Effect, Stream } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 import {
   type WorkspaceE2EDiagnosticCode,
   type WorkspaceE2EError,

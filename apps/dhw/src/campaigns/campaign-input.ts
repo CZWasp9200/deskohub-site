@@ -11,7 +11,7 @@ import {
   type AudienceFilterType,
 } from "@deskohub/workspace-admin-api";
 import { Effect, FileSystem, Option } from "effect";
-import { Flag } from "effect/unstable/cli";
+import { Flag } from "effect/cli";
 import { InvalidMutationInputError } from "../command-runtime";
 import { decodeJsonInput, readJsonInputFile } from "../json-input";
 

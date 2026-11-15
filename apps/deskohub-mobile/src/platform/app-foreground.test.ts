@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AtomRegistry } from "effect/unstable/reactivity";
+import { AtomRegistry } from "effect/reactivity";
 import { makeAppForegroundAtom } from "./app-foreground";
 import { fakeAppState } from "./testing/fake-app-state";
 

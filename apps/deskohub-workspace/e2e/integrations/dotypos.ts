@@ -19,7 +19,7 @@ import type {
 import { baseLocale } from "@deskohub/i18n/locale-registry";
 import { parsePhoneNumber } from "@deskohub/phone-number";
 import { Effect, Layer, Logger, Option, Schema } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { splitCustomerName } from "@/features/checkout/backend/reservation/dotypos-customer-policy";
 import {
   workspaceMeetingRoomReservationTableTag,

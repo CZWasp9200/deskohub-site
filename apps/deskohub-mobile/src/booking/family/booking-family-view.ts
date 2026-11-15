@@ -5,7 +5,7 @@ import type {
   CustomerLocale,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import {
   type CustomerRequestFailure,
   CustomerViewError,

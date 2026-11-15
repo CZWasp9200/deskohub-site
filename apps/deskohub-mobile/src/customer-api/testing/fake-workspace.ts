@@ -44,12 +44,12 @@ import {
   HttpServerRequest,
   HttpServerResponse,
   Multipart,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   HttpApiBuilder,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { fakeBookingGroup } from "../../booking/testing/fake-booking-api";
 import {
   type FakeWorkspaceData,

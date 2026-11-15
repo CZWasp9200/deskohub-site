@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { HttpClientRequest } from "effect/unstable/http";
+import { HttpClientRequest } from "effect/http";
 import {
   nativeAuthOrigin,
   withNativeAuthOrigin,

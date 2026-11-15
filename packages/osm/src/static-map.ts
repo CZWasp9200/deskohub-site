@@ -1,5 +1,5 @@
 import { Effect, Predicate } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 import sharp, { type OverlayOptions } from "sharp";
 import { ImageRenderingError, OsmTileRequestError } from "./errors";
 import { renderTextImage } from "./text-image";

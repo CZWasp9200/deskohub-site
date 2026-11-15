@@ -4,7 +4,7 @@ import {
   FetchHttpClient,
   HttpClient,
   HttpClientError,
-} from "effect/unstable/http";
+} from "effect/http";
 import type { PersonBulkDeleteResponse } from "../generated/effect.gen";
 import type { PostHogDistinctId, PostHogProjectId } from "../identifiers";
 import { makePostHogManagementClient } from "../management-client";

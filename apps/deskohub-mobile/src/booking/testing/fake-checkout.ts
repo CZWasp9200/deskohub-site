@@ -2,7 +2,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import type { CustomerBookingSelection } from "@deskohub/workspace-customer-api";
 import { Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import {
   type CustomerDataServices,
   customerDataLayer,

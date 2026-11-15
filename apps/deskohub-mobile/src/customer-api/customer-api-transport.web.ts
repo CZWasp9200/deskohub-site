@@ -1,5 +1,5 @@
 import { Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { apiOrigin } from "../auth/auth-client.web";
 import { webCustomerApiTransport } from "./platform-transports";
 

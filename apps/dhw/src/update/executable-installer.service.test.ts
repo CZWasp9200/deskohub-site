@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BunServices } from "@effect/platform-bun";
 import { Crypto, Effect, FileSystem, Path } from "effect";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import type { BuildTarget } from "../build-info";
 import { installExecutable } from "./executable-installer.service";
 import type { AvailableUpdate } from "./update-state-store.service";

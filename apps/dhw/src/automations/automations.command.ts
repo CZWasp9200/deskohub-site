@@ -35,7 +35,7 @@ import {
   type Redacted,
   Schema,
 } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import type { WorkspaceAdminApiClient } from "../api/workspace-admin-api-client.service";
 import {
   confirmationFlag,

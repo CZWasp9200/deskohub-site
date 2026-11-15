@@ -7,7 +7,7 @@ import {
   HttpClient,
   type HttpClientError,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import type { CloudinaryConfig } from "./config";
 import { CloudinarySearchError } from "./errors";
 import type { CnfExpression } from "./expression";

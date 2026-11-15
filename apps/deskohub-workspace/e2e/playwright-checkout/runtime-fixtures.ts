@@ -1,7 +1,7 @@
 import "../../shared/polyfills/temporal";
 
 import { test as base } from "@playwright/test";
-import type { HttpClient } from "effect/unstable/http";
+import type { HttpClient } from "effect/http";
 import type { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
 import type { WorkspaceE2EProviderVerificationPermitService } from "../coordination/provider-verification-permit.service";
 import { makeWorkspaceE2EEnvironment } from "../e2e-env";

@@ -12,7 +12,7 @@ import {
   Option,
   Schema,
 } from "effect";
-import { AsyncResult, type AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, type AtomRegistry } from "effect/reactivity";
 import {
   AccountExitFence,
   accountStorageKey,

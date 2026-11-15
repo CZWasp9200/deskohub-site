@@ -13,7 +13,7 @@ import type {
   CustomerSessionRequired,
 } from "@deskohub/workspace-customer-api";
 import { Cause, Data, Match, Option, type Schema } from "effect";
-import type { HttpClientError } from "effect/unstable/http";
+import type { HttpClientError } from "effect/http";
 import type {
   CustomerRequestTimedOut,
   CustomerWriteUnconfirmed,

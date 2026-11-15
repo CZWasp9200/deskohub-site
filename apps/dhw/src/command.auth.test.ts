@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { CliAccessToken, CliSessionId } from "@deskohub/workspace-admin-api";
 import { BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer, Option, Redacted, Schema } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
 import { ClientIdentity } from "./authentication/client-identity.service";

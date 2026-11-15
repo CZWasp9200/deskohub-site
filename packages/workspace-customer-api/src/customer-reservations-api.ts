@@ -3,7 +3,7 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiSchema,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
 import { CustomerServiceUnavailable } from "./customer-session";
 import { responseHeaders } from "./openapi-response-headers";

@@ -1,7 +1,7 @@
 import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
 import { useAtomMount, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Stack, useRouter } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
 import { AsyncView } from "../../customer-api/async-view";

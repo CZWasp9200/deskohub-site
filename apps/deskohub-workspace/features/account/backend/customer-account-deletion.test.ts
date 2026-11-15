@@ -9,7 +9,7 @@ import {
   DotyposVersionConflict,
 } from "@deskohub/dotypos";
 import { Effect, Layer, Logger, Option, Schema } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import { customerAccountIdSchema } from "../customer-account";
 import {
   type CustomerAccountDeletionDependencies,

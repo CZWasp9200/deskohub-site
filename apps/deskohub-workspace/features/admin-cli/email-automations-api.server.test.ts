@@ -20,7 +20,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Schema } from "effect";
-import { HttpApiMiddleware, HttpApiTest } from "effect/unstable/httpapi";
+import { HttpApiMiddleware, HttpApiTest } from "effect/http-api";
 import {
   AutomationDraftChanged,
   AutomationRunNotFound,

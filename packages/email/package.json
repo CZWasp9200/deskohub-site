@@ -23,6 +23,6 @@
   },
   "dependencies": {
     "@deskohub/test-email": "workspace:*",
-    "effect": "4.0.0-beta.85"
+    "effect": "4.1.4"
   }
 }

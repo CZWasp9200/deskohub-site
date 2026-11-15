@@ -4,7 +4,7 @@ import {
   type AsyncResult,
   type Atom,
   AtomRegistry,
-} from "effect/unstable/reactivity";
+} from "effect/reactivity";
 import { AccountReadBudget, accountReadAllowance } from "./account-read-budget";
 import { CustomerApi, CustomerAuthApi } from "./customer-api.service";
 import { accountAtom, customerDataRuntime } from "./customer-data-runtime";

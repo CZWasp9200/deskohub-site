@@ -5,7 +5,7 @@ import type {
 import { and, asc, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import { retryDatabaseRead } from "@/db/retry-database-read";
 import {

@@ -5,7 +5,7 @@ import type { NexiOperationId, NexiWebhookEventId } from "@deskohub/nexi";
 import { and, asc, desc, eq, gt, inArray, lte, ne, or, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
 import {

@@ -4,7 +4,7 @@ import {
   AsyncResult,
   type Atom,
   AtomRegistry,
-} from "effect/unstable/reactivity";
+} from "effect/reactivity";
 import type { StoredConsent } from "../../consent/analytics-consent";
 import { makeFakeDeviceConsent } from "../../consent/testing/fake-device-consent";
 import { CustomerWriteUnconfirmed } from "../../customer-api/customer-request";

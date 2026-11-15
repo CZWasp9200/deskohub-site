@@ -9,12 +9,12 @@ import {
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
 import { Context, Effect, Layer, Match, Option, Schema } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/http";
 import {
   HttpApi,
   type HttpApiEndpoint,
   type HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 import { gte } from "semver";
 
 /**

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { meetingRoomEmailDetails } from "@/emails/_components/reservation-email-details";
 import { renderWorkspaceEmailDetailsText } from "@/emails/workspace-email-detail";
 import { isMeetingRoomWholeDayReservationDuration } from "@/features/reservation/meeting-room-reservation-duration";

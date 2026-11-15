@@ -6,7 +6,7 @@ import {
   type Schema,
   SchemaAST,
 } from "effect";
-import { HttpApi, type HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApi, type HttpApiGroup } from "effect/http-api";
 
 declare module "effect/Schema" {
   namespace Annotations {

@@ -1,6 +1,6 @@
 import { Clock, Effect, Schedule, Stream } from "effect";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
 
 /** How long the customer waits before asking for another email. */
 export const SIGN_IN_CODE_RESEND_COOLDOWN_MS = 60 * 1000;

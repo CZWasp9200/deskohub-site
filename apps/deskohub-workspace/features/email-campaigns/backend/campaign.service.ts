@@ -4,7 +4,7 @@ import type { CampaignPatchInput } from "@deskohub/workspace-admin-api";
 import { and, desc, eq, ne, notExists, or } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import type { SqlError } from "effect/sql";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
   type CampaignRow,

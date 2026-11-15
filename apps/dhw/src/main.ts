@@ -1,7 +1,7 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
-import { Command } from "effect/unstable/cli";
-import { FetchHttpClient, Headers } from "effect/unstable/http";
+import { Command } from "effect/cli";
+import { FetchHttpClient, Headers } from "effect/http";
 import { AccessCodeAttemptStore } from "./access-codes/access-code-attempt-store.service";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";

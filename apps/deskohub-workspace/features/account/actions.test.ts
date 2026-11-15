@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AresLookupFailure } from "@deskohub/ares";
 import { DotyposUnavailable } from "@deskohub/dotypos";
 import { Context, Effect, Layer } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import { m } from "@/features/i18n";
 import {
   ReferralError,

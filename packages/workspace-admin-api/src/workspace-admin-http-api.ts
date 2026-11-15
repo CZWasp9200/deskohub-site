@@ -1,5 +1,5 @@
-import type { HttpApiEndpoint } from "effect/unstable/httpapi";
-import { HttpApi, type HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiEndpoint } from "effect/http-api";
+import { HttpApi, type HttpApiGroup } from "effect/http-api";
 import { AdminCliAdministratorsApi } from "./administrators";
 import {
   AdminCliAutomationsApi,

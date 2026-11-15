@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Duration, Effect, Fiber, Layer, Predicate, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { NexiRuntimeConfig } from "../config";
 import type { OrderResponse } from "../generated/effect.gen";
 import {

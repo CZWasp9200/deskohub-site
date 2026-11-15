@@ -2,7 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { WorkspaceAdminApi } from "@deskohub/workspace-admin-api";
-import { HttpApi } from "effect/unstable/httpapi";
+import { HttpApi } from "effect/http-api";
 
 const contractMethods = () => {
   const methods = new Set<string>();

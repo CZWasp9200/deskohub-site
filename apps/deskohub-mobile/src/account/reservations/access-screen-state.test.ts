@@ -5,7 +5,7 @@ import {
 } from "@deskohub/workspace-customer-api";
 import { type Duration, Effect, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
-import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
+import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import {
   type CustomerRequestFailure,

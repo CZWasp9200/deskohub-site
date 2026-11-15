@@ -7,7 +7,7 @@ import {
   type AdministrationCampaignTemplatePreviewInputType,
 } from "@deskohub/workspace-admin-api";
 import { Console, Effect, FileSystem, Option } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import {
   InvalidMutationInputError,
   runAuthenticatedCommand,

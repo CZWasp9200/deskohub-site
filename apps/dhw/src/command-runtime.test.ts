@@ -21,7 +21,7 @@ import {
   Schema,
   Terminal,
 } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { AccessCodeAttemptStore } from "./access-codes/access-code-attempt-store.service";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Duration, Effect, Fiber, Redacted, Ref, Result } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { PostHogDistinctId, PostHogProjectId } from "../identifiers";
 import type { PostHogPersonsWriteFailure } from "./errors";
 import { postHogPersonsRequestCeilings } from "./request-policy";

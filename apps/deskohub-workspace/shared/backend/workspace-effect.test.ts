@@ -4,7 +4,7 @@ import {
   HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { redirect } from "next/navigation";
 import * as nextServer from "next/server";
 import { savedConsentCookieValue } from "@/shared/testing/consent-cookie.test-utils";

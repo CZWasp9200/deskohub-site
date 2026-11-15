@@ -21,8 +21,8 @@ import {
 import {
   HttpServerRequest,
   type HttpServerResponse,
-} from "effect/unstable/http";
-import type { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+} from "effect/http";
+import type { HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import { CurrentAdministrationAction } from "./administration-action";
 import {
   type AdministrationActionEnd,

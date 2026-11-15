@@ -6,7 +6,7 @@ import {
   HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { NextRequest } from "next/server";
 import { runToCompletion } from "./run-to-completion";
 import { toWorkspaceWebHandler } from "./workspace-effect";

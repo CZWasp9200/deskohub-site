@@ -1,5 +1,5 @@
 import type { Redacted } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 import { make, type PostHogClient } from "./generated/effect.gen";
 
 /** Where the PostHog management API lives and the personal API key that authenticates it. */

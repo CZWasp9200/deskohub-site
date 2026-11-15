@@ -1,4 +1,4 @@
-import { HttpClientRequest } from "effect/unstable/http";
+import { HttpClientRequest } from "effect/http";
 
 /**
  * The origin Better Auth trusts for native cookie-authenticated mutations

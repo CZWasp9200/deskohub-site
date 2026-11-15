@@ -1,5 +1,5 @@
 import { Effect, Result } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import {
   tryWorkspaceE2ESync,
   type WorkspaceE2EError,

@@ -9,7 +9,7 @@ import {
   AsyncResult,
   type Atom,
   type AtomRegistry,
-} from "effect/unstable/reactivity";
+} from "effect/reactivity";
 import {
   AccountReadBudget,
   accountReadAllowance,

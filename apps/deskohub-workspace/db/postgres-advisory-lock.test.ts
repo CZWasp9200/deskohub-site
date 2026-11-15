@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
-import { SqlError } from "effect/unstable/sql";
+import { SqlError } from "effect/sql";
 import { Pool } from "pg";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";

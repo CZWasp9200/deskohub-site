@@ -3,7 +3,7 @@ import type {
   HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 
 type CustomerApiGroups =
   typeof WorkspaceCustomerApi extends HttpApi.HttpApi<string, infer Groups>

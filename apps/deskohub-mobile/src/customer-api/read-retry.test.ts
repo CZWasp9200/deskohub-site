@@ -6,7 +6,7 @@ import {
   HttpClientError,
   type HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { retryTransientReads } from "./read-retry";
 
 const url = "https://workspace.deskohub.test/api/customer/account";

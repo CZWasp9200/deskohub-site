@@ -49,8 +49,8 @@ import {
   Result,
   Schema,
 } from "effect";
-import { HttpRouter } from "effect/unstable/http";
-import { HttpApiTest } from "effect/unstable/httpapi";
+import { HttpRouter } from "effect/http";
+import { HttpApiTest } from "effect/http-api";
 import {
   StandaloneAccessCodeAdministration,
   StandaloneAccessCodeCreationError,
