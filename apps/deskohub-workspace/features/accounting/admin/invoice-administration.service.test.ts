@@ -28,6 +28,10 @@ import {
   InvoiceEmailDeliveryService,
 } from "../backend/invoice-email-delivery.service";
 import {
+  formatCorrectiveDocumentNumber,
+  makeCorrectiveDocument,
+} from "../corrective-document";
+import {
   type InvoiceAdministrationListItem,
   InvoiceAdministrationService,
   sortInvoiceAdministrationItems,
@@ -560,6 +564,7 @@ describe("InvoiceAdministrationService cancellation", () => {
   const makeService = (options: {
     readonly plan: ReturnType<typeof planOf>;
     readonly invoices?: readonly Invoice[];
+    readonly correctiveDocument?: ReturnType<typeof makeCorrectiveDocument>;
   }) => {
     const cancelStandalone = mock(() =>
       Effect.succeed({ outcome: "cancelled" as const, cancellation: record })
@@ -622,6 +627,8 @@ describe("InvoiceAdministrationService cancellation", () => {
           }),
           Layer.mock(InvoiceCancellationRepository, {
             find: () => Effect.succeed(record),
+            loadCorrectiveDocument: () =>
+              Effect.succeed(options.correctiveDocument ?? null),
             findMany: (ids) =>
               Effect.succeed(
                 new Map(
@@ -857,6 +864,95 @@ describe("InvoiceAdministrationService cancellation", () => {
       invoiceId,
       changed: true,
       needsAttention: false,
+    });
+  });
+
+  test("downloads a cancelled invoice's corrective document, archived or not, only within the read scope", async () => {
+    const document = makeTestManualInvoiceDocument("en-US");
+    const base = {
+      workspaceReservationId: null,
+      paymentAttemptId: null,
+      dotyposCustomerId: document.dotyposCustomerId,
+      invoiceNumber: document.invoiceNumber,
+      issuedAt: Temporal.Instant.from(document.issuedAt),
+      document,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
+    };
+    const archived = {
+      ...base,
+      id: invoiceId,
+      cancellation: {
+        cancelledAt: record.cancelledAt,
+        cause: record.cause,
+        correctiveDocumentNumber: record.correctiveDocumentNumber as never,
+      },
+      archivedAt: Temporal.Instant.from("2026-11-15T11:00:00Z"),
+    } satisfies Invoice;
+    const live = {
+      ...base,
+      id: invoiceIdSchema.make("01980000-0000-7000-8000-0000000000c2"),
+      cancellation: null,
+      archivedAt: null,
+    } satisfies Invoice;
+    const correctiveDocument = makeCorrectiveDocument({
+      invoice: { id: invoiceId, document },
+      cause: "invoice_cancellation",
+      actor: issuer,
+      documentNumber: formatCorrectiveDocumentNumber({
+        year: 2026,
+        sequence: 1,
+      }),
+      issuedAt: record.correctiveDocumentIssuedAt,
+    });
+    const service = makeService({
+      plan: planOf("none"),
+      invoices: [archived, live],
+      correctiveDocument,
+    });
+    const unknownId = "01980000-0000-7000-8000-0000000000c3";
+
+    const pdf = await service.run((administration) =>
+      administration.getCorrectiveDocumentPdf(invoiceId, {
+        includeArchived: true,
+      })
+    );
+    const refusals = await service.run((administration) =>
+      Effect.all(
+        [
+          administration.getCorrectiveDocumentPdf(invoiceId, {
+            includeArchived: false,
+          }),
+          administration.getCorrectiveDocumentPdf(live.id, {
+            includeArchived: true,
+          }),
+          administration.getCorrectiveDocumentPdf(unknownId, {
+            includeArchived: true,
+          }),
+        ].map((read) => Effect.flip(read))
+      )
+    );
+    const unavailable = await makeService({
+      plan: planOf("none"),
+      invoices: [archived],
+    }).run((administration) =>
+      Effect.flip(
+        administration.getCorrectiveDocumentPdf(invoiceId, {
+          includeArchived: true,
+        })
+      )
+    );
+
+    expect(Buffer.from(pdf.bytes).subarray(0, 5).toString()).toBe("%PDF-");
+    expect(pdf.fileName).toBe(`${correctiveDocument.documentNumber}.pdf`);
+    expect(refusals.map(({ _tag }) => _tag)).toEqual([
+      "InvoiceAdministrationNotFoundError",
+      "InvoiceAdministrationNotFoundError",
+      "InvoiceAdministrationNotFoundError",
+    ]);
+    expect(unavailable).toMatchObject({
+      _tag: "InvoiceCancellationError",
+      code: "document_unavailable",
     });
   });
 });

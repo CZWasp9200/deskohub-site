@@ -94,6 +94,7 @@ import {
   temporalInstantToPlainDate,
 } from "@/shared/utils/temporal";
 import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
+import { renderCorrectiveDocumentPdfFile } from "../backend/corrective-document-pdf";
 import { type Invoice, InvoiceRepository } from "../backend/invoice.repository";
 import { InvoiceArchiveRepository } from "../backend/invoice-archive.repository";
 import { InvoiceCancellationRepository } from "../backend/invoice-cancellation.repository";
@@ -461,6 +462,31 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     return yield* renderInvoicePdfFile(stored.document);
   });
 
+  /**
+   * The corrective document of a cancelled invoice, rendered from its stored
+   * snapshot. An invoice that isn't cancelled has none and is not found, like
+   * an archived one outside the scope.
+   */
+  const getCorrectiveDocumentPdf = Effect.fn(
+    "InvoiceAdministrationService.getCorrectiveDocumentPdf"
+  )(function* (invoiceId: string, scope: InvoiceAdministrationReadScope) {
+    const stored = yield* findReadable(invoiceId, scope);
+    if (!stored.cancellation)
+      return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
+    const document = yield* cancellationRecords.loadCorrectiveDocument(
+      stored.id
+    );
+    // A cancellation always records its corrective document.
+    if (!document) {
+      return yield* new InvoiceCancellationError({
+        code: "document_unavailable",
+        invoiceId: stored.id,
+        message: "The invoice's corrective document could not be loaded.",
+      });
+    }
+    return yield* renderCorrectiveDocumentPdfFile(document);
+  });
+
   const searchCustomers = Effect.fn(
     "InvoiceAdministrationService.searchCustomers"
   )(function* (query: string) {
@@ -775,6 +801,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     cancel,
     create,
     get,
+    getCorrectiveDocumentPdf,
     getCreationDefaults,
     getPdf,
     list,
