@@ -27,10 +27,22 @@ export function TrophyList({
             key={trophy.id}
             className="flex gap-4 rounded-lg border border-gray-700 bg-gray-900/60 p-4"
           >
-            <Icon
-              className={`mt-0.5 h-8 w-8 shrink-0 ${placementColor(trophy.placement)}`}
-              aria-hidden
-            />
+            {trophy.medal ? (
+              // biome-ignore lint/performance/noImgElement: the medal comes from the database, not from the image pipeline
+              <img
+                src={`/api/medals/${trophy.medal.id}`}
+                alt={trophy.medal.name}
+                width={64}
+                height={64}
+                loading="lazy"
+                className="h-16 w-16 shrink-0 object-contain"
+              />
+            ) : (
+              <Icon
+                className={`mt-0.5 h-8 w-8 shrink-0 ${placementColor(trophy.placement)}`}
+                aria-hidden
+              />
+            )}
             <div className="min-w-0">
               <p className="font-semibold text-white">{trophy.title}</p>
               {trophy.placement !== null && (

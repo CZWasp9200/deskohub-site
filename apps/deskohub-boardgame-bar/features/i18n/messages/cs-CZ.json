@@ -1160,7 +1160,7 @@
     "emailPlaceholder": "tvuj@email.cz",
     "submit": "Poslat přihlašovací odkaz",
     "sending": "Odesílám…",
-    "sentTitle": "Mrkni do e-mailu",
+    "sentTitle": "Zkontroluj si e-mail",
     "sentBody": "Na adresu {email} jsme poslali přihlašovací odkaz. Platí 10 minut a dá se použít jen jednou.",
     "sentHint": "E-mail nedorazil? Podívej se do spamu, nebo si nech poslat nový odkaz.",
     "sendAgain": "Poslat nový odkaz",
@@ -1174,7 +1174,7 @@
     "modeSignIn": "Přihlášení",
     "modeRegister": "Registrace",
     "nicknameLabel": "Přezdívka",
-    "nicknamePlaceholder": "Jak ti máme říkat",
+    "nicknamePlaceholder": "např. Kostkový Karel",
     "nicknameHint": "Pod přezdívkou tě uvidí obsluha u přihlášek na akce a u trofejí. Později ji můžeš změnit v účtu.",
     "invalidNickname": "Přezdívka musí mít 2 až 40 znaků.",
     "submitRegister": "Vytvořit účet",
@@ -1184,7 +1184,6 @@
     "pageTitle": "Můj účet - Deskohub",
     "pageDescription": "Tvůj účet Deskohub: členství, přihlášky na akce a trofeje z turnajů.",
     "title": "Můj účet",
-    "signedInAs": "Přihlášený účet: {email}",
     "signOut": "Odhlásit se",
     "profile": {
       "title": "Profil",
@@ -1206,7 +1205,13 @@
       "choose": "Vyber si členství",
       "extend": "Prodloužit členství",
       "payAtBar": "Platí se osobně na baru. Obsluha ti členství po zaplacení aktivuje a po uplynutí období samo skončí.",
-      "noPlans": "Nabídku členství připravujeme."
+      "noPlans": "Nabídku členství připravujeme.",
+      "daysLeft": {
+        "one": "Zbývá {count} den",
+        "few": "Zbývají {count} dny",
+        "other": "Zbývá {count} dní"
+      },
+      "noneHint": "S členstvím hraješ bez vstupného a máš slevy na placené akce."
     },
     "trophies": {
       "title": "Trofeje",
@@ -1217,7 +1222,8 @@
     },
     "registrations": {
       "title": "Moje přihlášky",
-      "empty": "Zatím nemáš přihlášku na žádnou nadcházející akci."
+      "empty": "Zatím nemáš přihlášku na žádnou nadcházející akci.",
+      "time": "v {time}"
     },
     "email": {
       "subject": "Přihlášení do účtu Deskohub",
@@ -1226,7 +1232,8 @@
       "button": "Přihlásit se",
       "expiry": "Odkaz platí {minutes} minut a dá se použít jen jednou.",
       "ignore": "Pokud o přihlášení nevíš, tenhle e-mail ignoruj."
-    }
+    },
+    "greeting": "Ahoj, {name}"
   },
   "events": {
     "pageTitle": "Kalendář akcí - Deskohub",

@@ -2,6 +2,7 @@ import { defineRelations } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   index,
   integer,
   pgSchema,
@@ -234,6 +235,23 @@ export const eventRegistrations = pgTable("event_registrations", {
     .defaultNow(),
 });
 
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+/** A themed medal the operator uploaded for an event and awards with trophies. */
+export const eventMedals = pgTable("event_medals", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").references(() => events.id, {
+    onDelete: "set null",
+  }),
+  name: text("name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  image: bytea("image").notNull(),
+});
+
 export const trophies = pgTable("trophies", {
   id: serial("id").primaryKey(),
   userId: text("user_id")
@@ -245,6 +263,9 @@ export const trophies = pgTable("trophies", {
   title: text("title").notNull(),
   placement: integer("placement"),
   note: text("note"),
+  medalId: integer("medal_id").references(() => eventMedals.id, {
+    onDelete: "set null",
+  }),
   awardedAt: timestamp("awarded_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

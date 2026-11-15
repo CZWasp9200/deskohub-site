@@ -1152,7 +1152,7 @@
     "modeSignIn": "Sign in",
     "modeRegister": "Register",
     "nicknameLabel": "Nickname",
-    "nicknamePlaceholder": "What should we call you",
+    "nicknamePlaceholder": "e.g. Dice Wizard",
     "nicknameHint": "The staff see your nickname on event registrations and trophies. You can change it later in your account.",
     "invalidNickname": "The nickname must have 2 to 40 characters.",
     "submitRegister": "Create account",
@@ -1162,7 +1162,6 @@
     "pageTitle": "My account - Deskohub",
     "pageDescription": "Your Deskohub account: membership, event registrations, and tournament trophies.",
     "title": "My account",
-    "signedInAs": "Signed in as {email}",
     "signOut": "Sign out",
     "profile": {
       "title": "Profile",
@@ -1184,7 +1183,13 @@
       "choose": "Choose a membership",
       "extend": "Renew membership",
       "payAtBar": "Paid in person at the bar. The staff activate your membership after payment, and it ends on its own when the period is over.",
-      "noPlans": "Membership plans are on the way."
+      "noPlans": "Membership plans are on the way.",
+      "daysLeft": {
+        "one": "{count} day left",
+        "few": "{count} days left",
+        "other": "{count} days left"
+      },
+      "noneHint": "With a membership you play without an entry fee and get discounts on paid events."
     },
     "trophies": {
       "title": "Trophies",
@@ -1195,7 +1200,8 @@
     },
     "registrations": {
       "title": "My registrations",
-      "empty": "You aren't registered for any upcoming event."
+      "empty": "You aren't registered for any upcoming event.",
+      "time": "at {time}"
     },
     "email": {
       "subject": "Sign in to your Deskohub account",
@@ -1204,7 +1210,8 @@
       "button": "Sign in",
       "expiry": "The link works for {minutes} minutes and can be used once.",
       "ignore": "If you didn't ask to sign in, you can ignore this email."
-    }
+    },
+    "greeting": "Hi, {name}"
   },
   "events": {
     "pageTitle": "Events calendar - Deskohub",
