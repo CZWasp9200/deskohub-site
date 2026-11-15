@@ -91,7 +91,9 @@ const buttonLabelColor = {
  * - `busy`: the shared loading indicator replaces the icon and the label
  *   stays, the button keeps its size and ignores presses.
  * - `disabled`: neutral grey, never a dimmed brand colour. `disabledReason`
- *   says why, centred above the button and as its accessibility hint.
+ *   says why, centred above the button (or below it with
+ *   `reasonPlacement="below"`, as under the booking bar's Continue) and as
+ *   its accessibility hint.
  * - The label wraps instead of truncating at large font sizes; `width`
  *   `full` stretches across its container, `content` hugs the label.
  */
@@ -100,6 +102,7 @@ export function Button({
   onPress,
   disabled = false,
   disabledReason,
+  reasonPlacement = "above",
   busy = false,
   variant = "primary",
   icon,
@@ -110,8 +113,10 @@ export function Button({
   readonly label: string;
   readonly onPress: () => void;
   readonly disabled?: boolean;
-  /** Why the button is disabled, shown above it while it is. */
+  /** Why the button is disabled, shown beside it while it is. */
   readonly disabledReason?: string;
+  /** Where the disabled reason sits: above the button (default) or below it. */
+  readonly reasonPlacement?: "above" | "below";
   /** The action is running: shows the loading indicator in the button. */
   readonly busy?: boolean;
   readonly variant?: ButtonVariant;
@@ -182,6 +187,7 @@ export function Button({
         width === "full" ? buttonStyles.fullWidth : buttonStyles.contentWidth,
       ]}
     >
+      {reasonPlacement === "below" && pressable}
       <Text
         id={reasonId}
         variant="hint"
@@ -189,7 +195,7 @@ export function Button({
       >
         {reason ?? ""}
       </Text>
-      {pressable}
+      {reasonPlacement === "above" && pressable}
     </View>
   );
 }

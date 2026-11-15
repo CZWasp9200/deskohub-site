@@ -39,6 +39,15 @@ export function ButtonsSection() {
           onPress={ignore}
         />
       </GalleryCase>
+      <GalleryCase label="Disabled with the reason below">
+        <Button
+          label={sample("Continue")}
+          disabled
+          disabledReason={sample("Choose a date to continue")}
+          reasonPlacement="below"
+          onPress={ignore}
+        />
+      </GalleryCase>
       <GalleryCase label="Danger">
         <Button
           label={sample("Delete permanently")}

@@ -106,6 +106,27 @@ describe("Button", () => {
     expect(restingStyle(tree).backgroundColor).toBe(color.disabled);
   });
 
+  test("the reason sits above the button by default and below it on request", () => {
+    const order = (placement?: "above" | "below") => {
+      const wrapper = elementTree(Button, {
+        label: "label",
+        onPress: () => undefined,
+        disabled: true,
+        disabledReason: "why",
+        reasonPlacement: placement,
+      }) as { readonly props: { readonly children: unknown[] } };
+      return wrapper.props.children
+        .filter(Boolean)
+        .map((child) =>
+          (child as { readonly type: unknown }).type === "Pressable"
+            ? "button"
+            : "reason"
+        );
+    };
+    expect(order()).toEqual(["reason", "button"]);
+    expect(order("below")).toEqual(["button", "reason"]);
+  });
+
   test("an enabled button keeps its reason's place empty and undescribed", () => {
     const pressable = pressableOf(button({ disabledReason: "why" }));
     expect(pressable.accessibilityHint).toBeUndefined();

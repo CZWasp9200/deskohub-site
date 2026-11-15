@@ -24,16 +24,20 @@ export type IconSize = 14 | 16 | 18 | 20 | 24 | 26 | 28 | 30 | 32;
  * Icons are decorative: the control or text beside one carries its meaning,
  * so the icon is hidden from assistive technology.
  */
-// The web's SVG element takes ARIA; native views take React Native's own
-// props, which the DOM would reject as unknown attributes.
-const hiddenFromAssistiveTech = Platform.select({
-  web: { "aria-hidden": true },
-  default: {
-    accessible: false,
-    accessibilityElementsHidden: true,
-    importantForAccessibility: "no-hide-descendants",
-  },
-} as const);
+/**
+ * The props that hide an icon from assistive technology on `os`. The web's
+ * SVG element takes ARIA; native views take React Native's own props, which
+ * the DOM would reject as unknown attributes (React warns, and Expo's web
+ * development build shows its error overlay).
+ */
+export const iconHiddenProps = (os: string) =>
+  os === "web"
+    ? ({ "aria-hidden": true } as const)
+    : ({
+        accessible: false,
+        accessibilityElementsHidden: true,
+        importantForAccessibility: "no-hide-descendants",
+      } as const);
 
 export function Icon({
   icon: Glyph,
@@ -49,7 +53,7 @@ export function Icon({
       size={size}
       color={color}
       strokeWidth={2}
-      {...hiddenFromAssistiveTech}
+      {...iconHiddenProps(Platform.OS)}
     />
   );
 }
