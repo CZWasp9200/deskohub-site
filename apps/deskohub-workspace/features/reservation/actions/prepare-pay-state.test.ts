@@ -40,6 +40,7 @@ import {
   customerAccountIdSchema,
   customerAccountUnavailable,
 } from "@/features/account/customer-account";
+import type { ICheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import { WorkspaceTableAssignmentServiceMock } from "@/features/checkout/backend/reservation/workspace-table-assignment.service.mock";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
@@ -368,24 +369,34 @@ const affirmAdvertisementQuote = (
 ): AffirmedDiscountAdvertisementQuote =>
   affirmedDiscountAdvertisementQuoteCodec.make(quote);
 
-const makeAdvertisementAffirmation = (basisPoints?: number) => {
-  const discountQuote = affirmAdvertisementQuote(
-    makeAdvertisementQuote(basisPoints)
-  );
-  return {
-    kind: "cowork" as const,
-    reservation: {
-      kind: "cowork" as const,
-      details: {
-        kind: "cowork" as const,
-        entryTier: reservation.entryTier,
-        coffee: reservation.coffee,
-        date: reservation.date,
-      },
-    },
+type AdvertisementAffirmationCall = Parameters<
+  ICheckoutPricingService["affirmAdvertisement"]
+>[0];
+
+/**
+ * The pricing service's verdict on a snapshot whose discounts re-evaluate to
+ * `discountQuote`: the price changed when the re-evaluated quote's
+ * fingerprint differs from the snapshot's.
+ */
+const advertisementVerdict = (
+  affirmation: AdvertisementAffirmationCall,
+  discountQuote = affirmAdvertisementQuote(makeAdvertisementQuote())
+) => {
+  const priced = {
+    kind: affirmation.reservation.kind,
+    reservation: affirmation.reservation,
+    advertisedQuote: affirmation.advertisement.quote,
     discountQuote,
-    quote: buildQuoteFromAdvertisement(discountQuote),
+    requestedDiscountCode: affirmation.advertisement.requestedDiscountCode,
   };
+  return affirmation.advertisement.quote.fingerprint ===
+    buildQuoteFromAdvertisement(discountQuote).fingerprint
+    ? { status: "affirmed" as const, priced }
+    : {
+        status: "pricing_changed" as const,
+        priced,
+        changedKeys: { sectionKeys: [], itemKeys: [] },
+      };
 };
 
 /** The account the activity fixture signs in, and so the author it resumes. */
@@ -640,7 +651,9 @@ const runReusableReservationScenario = async (input: {
     input.markCancellationFailed ?? mock(() => Effect.void);
   const affirmAdvertisement =
     input.affirmAdvertisement ??
-    mock(() => Effect.succeed(makeAdvertisementAffirmation()));
+    mock((affirmation: AdvertisementAffirmationCall) =>
+      Effect.succeed(advertisementVerdict(affirmation))
+    );
   const quoteForCustomer =
     input.quoteForCustomer ??
     mock(({ affirmedAdvertisement }) =>
@@ -736,7 +749,7 @@ const runReusableReservationScenario = async (input: {
       )
     ),
     CheckoutPricingServiceMock({
-      affirmCoworkAdvertisement: affirmAdvertisement,
+      affirmAdvertisement: affirmAdvertisement as never,
       quoteForCustomer: quoteForCustomerResult as never,
     }),
     EmailRecipientDomainServiceMock({ check: checkContactEmailDomain }),
@@ -1234,11 +1247,9 @@ describe("prepareWorkspacePayState", () => {
     const scenario = await runMeetingRoomNewHoldScenario();
     const { startsAt, endsAt } = scenario.meetingRoomReservation;
 
-    expect(scenario.ensureAvailable).toHaveBeenCalledWith({
-      kind: "meeting-room",
-      startsAt,
-      endsAt,
-    });
+    expect(scenario.ensureAvailable).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "meeting-room", startsAt, endsAt })
+    );
     expect(scenario.createDraft).toHaveBeenCalledWith(
       expect.objectContaining({
         checkoutSessionKey: expect.stringMatching(storedLookupKeyPattern),
@@ -1400,11 +1411,12 @@ describe("prepareWorkspacePayState", () => {
         return { id: "customer-id" };
       })
     );
-    const affirmAdvertisement = mock(() =>
-      Effect.sync(() => {
-        eventOrder.push("advertisement");
-        return makeAdvertisementAffirmation();
-      })
+    const affirmAdvertisement = mock(
+      (affirmation: AdvertisementAffirmationCall) =>
+        Effect.sync(() => {
+          eventOrder.push("advertisement");
+          return advertisementVerdict(affirmation);
+        })
     );
     const quoteForCustomer = mock(({ affirmedAdvertisement }) =>
       Effect.sync(() => {
@@ -1428,7 +1440,7 @@ describe("prepareWorkspacePayState", () => {
       accountAuthorityLayer,
       inertRememberedReferral(),
       CheckoutPricingServiceMock({
-        affirmCoworkAdvertisement: affirmAdvertisement,
+        affirmAdvertisement: affirmAdvertisement as never,
         quoteForCustomer: quoteForCustomerResult as never,
       }),
       BotProtectionServiceMock({ verifyHuman }),
@@ -4212,6 +4224,12 @@ describe("prepareWorkspacePayState", () => {
     const { BotProtectionServiceMock } = await import(
       "@/shared/backend/bot-protection/bot-protection.service.mock"
     );
+    const { CheckoutPricingService } = await import(
+      "@/features/checkout/backend/checkout/checkout-pricing.service"
+    );
+    const { DiscountServiceMock } = await import(
+      "@/features/discounts/discount.service.mock"
+    );
     const { layer: accountAuthorityLayer } = await accountAuthorityFixture();
     const effect = prepareFromReservationForm({
       locale: "en-US",
@@ -4225,7 +4243,10 @@ describe("prepareWorkspacePayState", () => {
           accountAuthorityLayer,
           inertRememberedReferral(),
           BotProtectionServiceMock({ verifyHuman: () => Effect.void }),
-          CheckoutPricingServiceMock({}),
+          // The snapshot is checked before any discount is affirmed.
+          CheckoutPricingService.Default.pipe(
+            Layer.provide(DiscountServiceMock({}))
+          ),
           recordCheckoutAnalytics().layer,
           TestSealedStateKeys
         )
@@ -4253,8 +4274,8 @@ describe("prepareWorkspacePayState", () => {
       advertisedPriceToken: await buildAdvertisedPriceToken(
         buildQuoteFromAdvertisement(advertisedDiscount)
       ),
-      affirmAdvertisement: mock(() =>
-        Effect.succeed(makeAdvertisementAffirmation())
+      affirmAdvertisement: mock((affirmation: AdvertisementAffirmationCall) =>
+        Effect.succeed(advertisementVerdict(affirmation))
       ),
     });
 
