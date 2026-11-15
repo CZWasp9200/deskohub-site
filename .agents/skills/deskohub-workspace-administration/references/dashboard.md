@@ -55,12 +55,12 @@ A meeting room booked with early setup is held in Dotypos from its setup start. 
 
 ## Customer directory
 
-`AdministrationCustomerDirectory` (`features/administration/customer-directory.service.ts`) is the administrator's read of Dotypos customers. It sits above `DotyposService`, has one implementation and no mock: tests substitute `DotyposService` beneath it, and `AdministrationService.Default` provides it itself. It returns the Dotypos customer record; callers project it.
+`AdministrationCustomerDirectory` (`features/administration/customer-directory.service.ts`) is the administrator's read of Dotypos customers. It sits above `DotyposService`, has one implementation and no mock: tests substitute `DotyposService` beneath it, and `AdministrationService.Default` and `InvoiceAdministrationService.Default` provide it themselves. It returns the Dotypos customer record; callers project it.
 
-- `search(query)` hides deleted customers, keeps expired ones, keeps the Dotypos order, caps the rest at 50, then classifies them (`matched`, `ambiguous`, `not-found`).
+- `search(query)` hides deleted customers, keeps expired ones, keeps the Dotypos order, caps the rest at 50, then classifies them (`matched`, `ambiguous`, `not-found`). The invoice customer picker reads it; its action decodes the query with `customerSearchQuerySchema` (`customer-search-query.ts`).
 - `find(id)` is `None` for a missing or deleted customer.
 - `findMany(ids, policy)` returns every customer Dotypos has, deleted ones included, and owns the batch concurrency, the single-read fallback below, and the degrade-or-fail policy. Lists, exports, reservations, bookings, reservation authors and the Overview read through it.
-- A screen names a customer with `nameAdministrationCustomer(customer, precedence)` or `describeAdministrationCustomer` (`customer-identity.ts`). The three precedences are the screens' current rules, kept apart until they are unified: lists, exports, the Overview and the API lists use `person-company`; the invoice picker's rule is `company-person-email`; the discounts screens' rule, which `toAdminDotyposCustomer` still applies on its own, is `company-person-email-phone`.
+- A screen names a customer with `nameAdministrationCustomer(customer, precedence)` or `describeAdministrationCustomer` (`customer-identity.ts`). The three precedences are the screens' current rules, kept apart until they are unified: lists, exports, the Overview and the API lists use `person-company`; the invoice picker uses `company-person-email`; the discounts screens' rule, which `toAdminDotyposCustomer` still applies on its own, is `company-person-email-phone`.
 
 ## List export
 
