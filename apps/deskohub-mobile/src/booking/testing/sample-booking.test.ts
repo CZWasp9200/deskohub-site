@@ -233,7 +233,9 @@ describe("sample booking", () => {
     expect(await openSamplePayment(paymentUrl, returnUrl)).toMatchObject({
       success: "returned",
     });
-    const history = await run((api) => api.reservations.listReservations({ query: {} }));
+    const history = await run((api) =>
+      api.reservations.listReservations({ query: {} })
+    );
     expect(
       history.current.filter((row) => row.orderId === submission.orderId)
     ).toEqual([paid.row as NonNullable<typeof paid.row>]);
