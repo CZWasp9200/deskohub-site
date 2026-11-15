@@ -192,16 +192,29 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
           )
         )
       )
-      .handle("cancelReservation", ({ params, payload }) =>
-        reservationAdministration
-          .cancel({
-            accessGrantUpdatedAt: payload.accessGrantUpdatedAt,
-            force: payload.force ?? false,
-            providerCredentialRemoved: payload.providerCredentialRemoved,
-            reservationId: params.reservationId,
-            sendCancellationEmail: payload.sendCancellationEmail,
-          })
-          .pipe(mapAdministrationApiFailure(mapReservationCancellationFailure))
+      .handle(
+        "cancelReservation",
+        Effect.fn(function* ({ params, payload }) {
+          const { actor, channel } = yield* CurrentAdministrationCaller;
+          return yield* reservationAdministration
+            .cancel({
+              accessGrantUpdatedAt: payload.accessGrantUpdatedAt,
+              actor: {
+                source: provenanceSourceOf(channel),
+                administrator: actor,
+              },
+              ...(payload.confirmedConsequences && {
+                confirmedConsequences: payload.confirmedConsequences,
+              }),
+              force: payload.force ?? false,
+              providerCredentialRemoved: payload.providerCredentialRemoved,
+              reservationId: params.reservationId,
+              sendCancellationEmail: payload.sendCancellationEmail,
+            })
+            .pipe(
+              mapAdministrationApiFailure(mapReservationCancellationFailure)
+            );
+        })
       )
       .handle("backfillReservationProductDetails", ({ payload }) =>
         productDetailsBackfill.runBatch(payload).pipe(mapServiceFailure)
@@ -384,11 +397,11 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       )
       .handle("getInvoice", ({ params }) =>
         invoices
-          .get(params.invoiceId)
+          .get(params.invoiceId, { includeArchived: true })
           .pipe(mapAdministrationApiFailure(mapInvoiceReadFailure))
       )
       .handle("getInvoicePdf", ({ params }) =>
-        invoices.getPdf(params.invoiceId).pipe(
+        invoices.getPdf(params.invoiceId, { includeArchived: true }).pipe(
           Effect.map(({ bytes }) => bytes),
           mapAdministrationApiFailure(mapInvoiceReadFailure)
         )

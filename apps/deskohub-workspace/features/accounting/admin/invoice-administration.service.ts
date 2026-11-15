@@ -38,6 +38,13 @@ import {
   isManualInvoiceDocument,
   makeManualInvoiceDocument,
 } from "@/features/accounting/invoice";
+import { InvoiceArchiveError } from "@/features/accounting/invoice-archive";
+import {
+  type InvoiceCancellationCause,
+  InvoiceCancellationError,
+  type InvoiceCancellationRecord,
+  type InvoiceNoticeSummary,
+} from "@/features/accounting/invoice-cancellation";
 import type {
   InvoiceDeliveryStatus,
   InvoiceDeliverySummary,
@@ -67,7 +74,13 @@ import {
 } from "@/features/administration/administration-href";
 import { unnamedCustomerDisplayName } from "@/features/administration/customer-name";
 import { getAdministrationPagination } from "@/features/administration/listing";
+import { ReservationAdministrationService } from "@/features/administration/reservation-administration.service";
+import type {
+  AdministrationActor,
+  AdministrationSource,
+} from "@/features/administrators/administration-source";
 import { baseLocale, defaultPhoneRegion, type Locale } from "@/features/i18n";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import {
   defaultWorkspaceCurrencyCode,
@@ -82,6 +95,13 @@ import {
 } from "@/shared/utils/temporal";
 import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
 import { type Invoice, InvoiceRepository } from "../backend/invoice.repository";
+import { InvoiceArchiveRepository } from "../backend/invoice-archive.repository";
+import { InvoiceCancellationRepository } from "../backend/invoice-cancellation.repository";
+import {
+  type InvoiceCancellationOutcome,
+  type InvoiceCancellationPlan,
+  InvoiceCancellationService,
+} from "../backend/invoice-cancellation.service";
 import { InvoiceEmailDeliveryRepository } from "../backend/invoice-email-delivery.repository";
 import { InvoiceEmailDeliveryService } from "../backend/invoice-email-delivery.service";
 import { renderInvoicePdf, renderInvoicePdfFile } from "../backend/invoice-pdf";
@@ -105,6 +125,17 @@ export type InvoiceAdministrationListQuery = {
     | "delivery";
   readonly direction?: "asc" | "desc";
   readonly page?: number;
+  /** Also list archived invoices; the Admin UI never does. */
+  readonly includeArchived?: boolean;
+};
+
+/**
+ * Whether a single-invoice read serves an archived invoice. The Admin UI
+ * reads with `false`, so an archived invoice is the admin 404 there; the
+ * administration API, `dhw` and agent tools read with `true`.
+ */
+export type InvoiceAdministrationReadScope = {
+  readonly includeArchived: boolean;
 };
 
 type InvoiceAdministrationPage = {
@@ -141,9 +172,36 @@ export type InvoiceAdministrationListItem = {
   readonly actor: string | null;
   readonly delivery: InvoiceAdministrationDelivery;
   readonly needsAttention: boolean;
+  /** `null` while the invoice is live. */
+  readonly cancellation: InvoiceAdministrationCancellation | null;
+  /** When the cancelled invoice was hidden from the Admin UI. */
+  readonly archivedAt: string | null;
+  readonly replacesInvoiceId: AdministrationInvoiceIdType | null;
+  readonly replacedByInvoiceId: AdministrationInvoiceIdType | null;
 };
 
+/** Who cancelled the invoice, when, how and why, and its corrective document. */
+export type InvoiceAdministrationCancellation = {
+  readonly cancelledAt: string;
+  readonly cause: InvoiceCancellationCause;
+  readonly source: AdministrationSource;
+  /** The administrator's login email when they cancelled. */
+  readonly actor: string;
+  readonly correctiveDocumentNumber: string;
+  readonly correctiveDocumentIssuedAt: string;
+  readonly correctiveDocumentPdfUrl: AdministrationHref;
+  readonly notices: InvoiceNoticeSummary;
+};
+
+/** What cancelling the live invoice would do: the confirmation's warnings. */
+export type InvoiceAdministrationCancellationPlan = Pick<
+  InvoiceCancellationPlan,
+  "customerNotice" | "reservation"
+>;
+
 export type InvoiceAdministrationDetail = InvoiceAdministrationListItem & {
+  /** `null` once the invoice is cancelled. */
+  readonly cancellationPlan: InvoiceAdministrationCancellationPlan | null;
   readonly locale: Locale;
   readonly serviceDate: string | null;
   readonly dueDate: string | null;
@@ -182,6 +240,41 @@ type InvoiceAdministrationRetryResult = {
   readonly needsAttention: boolean;
 };
 
+export type InvoiceAdministrationCancelInput = {
+  readonly invoiceId: string;
+  readonly actor: AdministrationActor;
+  /** The operator saw that the customer will be emailed a cancellation notice. */
+  readonly confirmedCustomerNotice: boolean;
+  /**
+   * The reservation cancellation the operator confirmed, required when the
+   * invoice bills a live reservation: both are cancelled together.
+   */
+  readonly reservation?: {
+    readonly accessGrantUpdatedAt: string | null;
+    readonly providerCredentialRemoved: boolean;
+    readonly sendCancellationEmail: boolean;
+  };
+};
+
+export type InvoiceAdministrationCancelResult = {
+  readonly invoiceId: AdministrationInvoiceIdType;
+  readonly outcome: "cancelled" | "already_cancelled";
+  readonly cancellation: InvoiceAdministrationCancellation;
+  /** Set when the invoice's reservation was cancelled with it. */
+  readonly reservation: {
+    readonly reservationId: AdministrationWorkspaceReservationIdType;
+    readonly outcome: "cancelled" | "already_cancelled";
+    readonly email: "not_requested" | "sent" | "failed";
+  } | null;
+};
+
+export type InvoiceAdministrationArchiveResult = {
+  readonly invoiceId: AdministrationInvoiceIdType;
+  readonly archivedAt: string;
+  /** False when the invoice was already archived. */
+  readonly changed: boolean;
+};
+
 export type InvoiceAdministrationCustomerErrorReason =
   | "billing-details-invalid"
   | "currency-not-payable"
@@ -216,6 +309,10 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   const deliveryLedger = yield* InvoiceEmailDeliveryRepository;
   const dotypos = yield* DotyposService;
   const creationRequests = yield* ManualInvoiceCreationRequests;
+  const cancellation = yield* InvoiceCancellationService;
+  const cancellationRecords = yield* InvoiceCancellationRepository;
+  const archives = yield* InvoiceArchiveRepository;
+  const reservationAdministration = yield* ReservationAdministrationService;
 
   const prepare = Effect.fn("InvoiceAdministrationService.prepare")(function* (
     input: AdministrationInvoiceCreateInputType,
@@ -264,18 +361,34 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   const list = Effect.fn("InvoiceAdministrationService.list")(
     (query: InvoiceAdministrationListQuery = {}) =>
       invoices.list().pipe(
-        Effect.flatMap((stored) =>
-          Effect.all([
-            deliveryLedger.status(stored.map(({ id }) => id)),
+        Effect.map((stored) =>
+          query.includeArchived
+            ? stored
+            : stored.filter((invoice) => invoice.archivedAt === null)
+        ),
+        Effect.flatMap((stored) => {
+          const ids = stored.map(({ id }) => id);
+          return Effect.all([
+            deliveryLedger.status(ids),
+            cancellationRecords.findMany(
+              stored.flatMap(({ cancellation, id }) =>
+                cancellation ? [id] : []
+              )
+            ),
             currentPragueDate,
           ]).pipe(
-            Effect.map(([statuses, today]) =>
+            Effect.map(([statuses, cancellations, today]) =>
               stored.map((invoice) =>
-                toListItem(invoice, statuses.get(invoice.id)!, today)
+                toListItem(
+                  invoice,
+                  statuses.get(invoice.id)!,
+                  cancellations.get(invoice.id) ?? null,
+                  today
+                )
               )
             )
-          )
-        ),
+          );
+        }),
         Effect.map((items): InvoiceAdministrationPage => {
           const sorted = sortInvoiceAdministrationItems(items, query);
           const pageSize = 24;
@@ -298,15 +411,39 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
       )
   );
 
+  /** The invoice the scope may read; an archived one is not found for the Admin UI. */
+  const findReadable = Effect.fn("InvoiceAdministrationService.findReadable")(
+    function* (invoiceId: string, scope: InvoiceAdministrationReadScope) {
+      const id = yield* decodeInvoiceAdministrationId(invoiceId);
+      const stored = yield* invoices.findById(id);
+      if (!stored || (stored.archivedAt !== null && !scope.includeArchived))
+        return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
+      return stored;
+    }
+  );
+
   const get = Effect.fn("InvoiceAdministrationService.get")(function* (
-    invoiceId: string
+    invoiceId: string,
+    scope: InvoiceAdministrationReadScope
   ) {
-    const id = yield* decodeInvoiceAdministrationId(invoiceId);
-    const stored = yield* invoices.findById(id);
-    if (!stored)
-      return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
+    const stored = yield* findReadable(invoiceId, scope);
     const statuses = yield* deliveryLedger.status([stored.id]);
-    return toDetail(stored, statuses.get(stored.id)!, yield* currentPragueDate);
+    const record = stored.cancellation
+      ? yield* cancellationRecords.find(stored.id)
+      : null;
+    const plan = stored.cancellation
+      ? null
+      : yield* cancellation.plan(stored.id);
+    return toDetail(
+      stored,
+      statuses.get(stored.id)!,
+      record,
+      plan && {
+        customerNotice: plan.customerNotice,
+        reservation: plan.reservation,
+      },
+      yield* currentPragueDate
+    );
   });
 
   const needsAttention = Effect.fn(
@@ -317,12 +454,10 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   });
 
   const getPdf = Effect.fn("InvoiceAdministrationService.getPdf")(function* (
-    invoiceId: string
+    invoiceId: string,
+    scope: InvoiceAdministrationReadScope
   ) {
-    const id = yield* decodeInvoiceAdministrationId(invoiceId);
-    const stored = yield* invoices.findById(id);
-    if (!stored)
-      return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
+    const stored = yield* findReadable(invoiceId, scope);
     return yield* renderInvoicePdfFile(stored.document);
   });
 
@@ -458,6 +593,11 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     } satisfies InvoiceAdministrationCreateResult;
   });
 
+  /**
+   * Retries what the invoice still owes: the original invoice email of a
+   * live invoice, or the cancellation notices of a cancelled one. A
+   * cancelled invoice's original email is never sent again.
+   */
   const retry = Effect.fn("InvoiceAdministrationService.retry")(function* (
     invoiceId: string
   ) {
@@ -465,6 +605,14 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     const stored = yield* invoices.findById(id);
     if (!stored)
       return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
+    if (stored.cancellation) {
+      const delivery = yield* cancellation.retryNotices(id);
+      return {
+        invoiceId: AdministrationInvoiceId.make(id),
+        changed: delivery.changed,
+        needsAttention: delivery.notices.needsAttention,
+      } satisfies InvoiceAdministrationRetryResult;
+    }
     const result = yield* deliveries.deliverByInvoiceId({ invoiceId: id });
     return {
       invoiceId: AdministrationInvoiceId.make(id),
@@ -472,6 +620,135 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
       needsAttention: yield* needsAttention(stored.id),
     } satisfies InvoiceAdministrationRetryResult;
   });
+
+  const toCancelResult = (
+    outcome: InvoiceCancellationOutcome,
+    reservation: InvoiceAdministrationCancelResult["reservation"]
+  ): InvoiceAdministrationCancelResult => ({
+    invoiceId: AdministrationInvoiceId.make(outcome.cancellation.invoiceId),
+    outcome: outcome.outcome,
+    cancellation: toCancellation(outcome.cancellation),
+    reservation,
+  });
+
+  /**
+   * Cancels the invoice with a corrective document. An invoice that bills a
+   * live reservation is cancelled only with it, through the reservation's
+   * cancellation, so the reservation's confirmation is required; every other
+   * invoice is cancelled alone. A replay answers `already_cancelled`.
+   */
+  const cancel = Effect.fn("InvoiceAdministrationService.cancel")(function* (
+    input: InvoiceAdministrationCancelInput
+  ) {
+    const id = yield* decodeInvoiceAdministrationId(input.invoiceId);
+    const plan = yield* cancellation.plan(id).pipe(
+      Effect.catchIf(
+        (cause) => cause.code === "not_found",
+        () =>
+          Effect.fail(
+            new InvoiceAdministrationNotFoundError({
+              invoiceId: input.invoiceId,
+            })
+          )
+      )
+    );
+    const cancelAlone = cancellation
+      .cancelStandalone({
+        invoiceId: id,
+        actor: input.actor,
+        confirmedCustomerNotice: input.confirmedCustomerNotice,
+      })
+      .pipe(Effect.map((outcome) => toCancelResult(outcome, null)));
+    if (plan.invoice.cancelled) return yield* cancelAlone;
+    if (plan.reservation === "cancellation_in_progress") {
+      return yield* new InvoiceCancellationError({
+        code: "reservation_cancellation_in_progress",
+        invoiceId: id,
+        message:
+          "The invoice's reservation is being cancelled. Try again once that finishes.",
+      });
+    }
+    if (
+      plan.reservation !== "cancels_reservation" ||
+      !plan.invoice.reservationId
+    )
+      return yield* cancelAlone;
+    if (!input.reservation) {
+      return yield* new InvoiceCancellationError({
+        code: "reservation_confirmation_required",
+        invoiceId: id,
+        message:
+          "Cancelling this invoice also cancels its reservation. Confirm the reservation cancellation too.",
+      });
+    }
+    const reservationId: WorkspaceReservationId = plan.invoice.reservationId;
+    const cancelled = yield* reservationAdministration.cancel({
+      ...input.reservation,
+      reservationId,
+      actor: input.actor,
+      confirmedConsequences: {
+        invoice: true,
+        customerNotice: input.confirmedCustomerNotice,
+      },
+    });
+    const reservation = {
+      reservationId: AdministrationWorkspaceReservationId.make(reservationId),
+      outcome: cancelled.outcome,
+      email: cancelled.email,
+    };
+    const record = yield* cancellationRecords.find(id);
+    // The reservation was cancelled meanwhile without this invoice, as a
+    // legacy cancellation left it: it is cancelled alone now.
+    if (!record) {
+      return yield* cancelAlone.pipe(
+        Effect.map((result) => ({ ...result, reservation }))
+      );
+    }
+    return toCancelResult(
+      {
+        outcome:
+          cancelled.invoice?.invoiceId === id
+            ? cancelled.invoice.outcome
+            : "already_cancelled",
+        cancellation: record,
+      },
+      reservation
+    );
+  });
+
+  /**
+   * Hides a cancelled invoice from the Admin UI. It stays retained and
+   * readable through the administration API. A live invoice is refused;
+   * archiving again changes nothing and keeps the first actor.
+   */
+  const archive = Effect.fn("InvoiceAdministrationService.archive")(
+    function* (input: {
+      readonly invoiceId: string;
+      readonly actor: AdministrationActor;
+    }) {
+      const id = yield* decodeInvoiceAdministrationId(input.invoiceId);
+      const archived = yield* archives
+        .archive({ invoiceId: id, actor: input.actor })
+        .pipe(
+          Effect.catchIf(
+            (cause) =>
+              cause instanceof InvoiceArchiveError &&
+              cause.code === "not_found",
+            () =>
+              Effect.fail(
+                new InvoiceAdministrationNotFoundError({
+                  invoiceId: input.invoiceId,
+                })
+              )
+          )
+        );
+      return {
+        invoiceId: AdministrationInvoiceId.make(id),
+        archivedAt: archived.archive.archivedAt.toString(),
+        changed: archived.changed,
+      } satisfies InvoiceAdministrationArchiveResult;
+    }
+  );
 
   const getCreationDefaults = Effect.fn(
     "InvoiceAdministrationService.getCreationDefaults"
@@ -489,6 +766,8 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   });
 
   return {
+    archive,
+    cancel,
     create,
     get,
     getCreationDefaults,
@@ -689,9 +968,25 @@ const toCustomer = (
   };
 };
 
+const toCancellation = (
+  record: InvoiceCancellationRecord
+): InvoiceAdministrationCancellation => ({
+  cancelledAt: record.cancelledAt.toString(),
+  cause: record.cause,
+  source: record.source,
+  actor: record.actor.email,
+  correctiveDocumentNumber: record.correctiveDocumentNumber,
+  correctiveDocumentIssuedAt: record.correctiveDocumentIssuedAt.toString(),
+  // The Admin UI route for the corrective document PDF is added with the
+  // invoice cancellation screens; build it with `administrationHref` then.
+  correctiveDocumentPdfUrl: `/admin/invoices/${encodeURIComponent(record.invoiceId)}/corrective-document`,
+  notices: record.notices,
+});
+
 const toListItem = (
   invoice: Invoice,
   { customer, internal, needsAttention }: InvoiceDeliverySummary,
+  cancellationRecord: InvoiceCancellationRecord | null,
   today: PlainDate
 ): InvoiceAdministrationListItem => {
   const document = invoice.document;
@@ -716,16 +1011,33 @@ const toListItem = (
       : (document.provenance?.source ?? "legacy"),
     actor: manual ? document.provenance.actor : null,
     delivery: { customer, internal },
-    needsAttention,
+    // A cancelled invoice's own email no longer needs attention; its
+    // notices may.
+    needsAttention: cancellationRecord
+      ? cancellationRecord.notices.needsAttention
+      : needsAttention,
+    cancellation: cancellationRecord && toCancellation(cancellationRecord),
+    archivedAt: invoice.archivedAt?.toString() ?? null,
+    replacesInvoiceId: invoice.replacesInvoiceId
+      ? AdministrationInvoiceId.make(invoice.replacesInvoiceId)
+      : null,
+    replacedByInvoiceId: invoice.replacedByInvoiceId
+      ? AdministrationInvoiceId.make(invoice.replacedByInvoiceId)
+      : null,
   };
 };
 
 const toDetail = (
   invoice: Invoice,
   delivery: InvoiceDeliverySummary,
+  cancellationRecord: InvoiceCancellationRecord | null,
+  cancellationPlan: InvoiceAdministrationCancellationPlan | null,
   today: PlainDate
 ): InvoiceAdministrationDetail => {
-  const summary = toListItem(invoice, delivery, today);
+  const summary = {
+    ...toListItem(invoice, delivery, cancellationRecord, today),
+    cancellationPlan,
+  };
   const document = invoice.document;
   const settlement = getInvoiceSettlement(document);
   // The contract reports the due date a manual invoice states even when
@@ -827,6 +1139,10 @@ function getDependencies() {
     WorkspaceDatabase.Default,
     InvoiceRepository.Live,
     InvoiceEmailDeliveryRepository.Live,
+    InvoiceCancellationRepository.Live,
+    InvoiceArchiveRepository.Live,
+    InvoiceCancellationService.Live,
+    ReservationAdministrationService.Live,
     creationRequests,
     InvoiceEmailDeliveryService.Live,
     WorkspaceDotyposLayer

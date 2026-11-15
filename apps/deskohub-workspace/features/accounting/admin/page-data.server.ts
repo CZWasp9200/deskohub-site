@@ -43,7 +43,7 @@ export const loadInvoiceAdministrationDetail = (invoiceId: string) =>
     "invoice-administration.get",
     Effect.gen(function* () {
       const administration = yield* InvoiceAdministrationService;
-      return yield* administration.get(invoiceId);
+      return yield* administration.get(invoiceId, { includeArchived: false });
     }).pipe(
       Effect.catchTag("InvoiceAdministrationNotFoundError", invoiceNotFound)
     ),
@@ -55,7 +55,9 @@ export const loadInvoiceAdministrationPdf = (invoiceId: string) =>
     "invoice-administration.pdf",
     Effect.gen(function* () {
       const administration = yield* InvoiceAdministrationService;
-      return yield* administration.getPdf(invoiceId);
+      return yield* administration.getPdf(invoiceId, {
+        includeArchived: false,
+      });
     }).pipe(
       Effect.catchTag("InvoiceAdministrationNotFoundError", invoiceNotFound)
     ),
