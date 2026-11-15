@@ -57,9 +57,15 @@ export const customerEvents = pgTable(
     automationProcessedAt: instant("automation_processed_at"),
   },
   (t) => [
+    // A reservation is booked once.
     uniqueIndex("customer_events_workspace_write_unique_idx")
       .on(t.kind, t.workspaceReservationId)
-      .where(sql`${t.kind} in ('reservation-booked', 'reservation-cancelled')`),
+      .where(sql`${t.kind} = 'reservation-booked'`),
+    // Unique per cancellation: a retried write or the reconciler conflicts,
+    // while a reservation restored and cancelled again records a new event.
+    uniqueIndex("customer_events_cancellation_unique_idx")
+      .on(t.kind, t.workspaceReservationId, t.occurredAt)
+      .where(sql`${t.kind} = 'reservation-cancelled'`),
     // Unique per visit time: a re-swept visit conflicts, while a visit that
     // Dotypos moved gets a new event at its new time.
     uniqueIndex("customer_events_visit_unique_idx")

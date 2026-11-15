@@ -55,6 +55,10 @@ const allowedColumns = new Map([
     "public.email_preparations.unavailable_value_name",
     "named recipient value definition key",
   ],
+  [
+    "public.workspace_reservations.cancellation_email_sent_at",
+    "when the cancellation email was sent, not an address",
+  ],
   // Better Auth owns the login email; AGENTS.md permits it in the auth schema.
   ["auth.user.email", "Better Auth login email"],
   ["auth.user.email_verified", "Better Auth login email verification flag"],

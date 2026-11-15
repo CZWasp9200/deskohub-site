@@ -200,6 +200,42 @@ describe.skipIf(!testDatabase)(
       expect(await readEvents(unconfirmed)).toEqual([]);
     });
 
+    test("records a second cancellation of a restored booking beside the first", async () => {
+      const now = nowInYear(2096);
+      const confirmedAt = now.subtract({ hours: 5 });
+      const firstCancelledAt = now.subtract({ hours: 4 });
+      const secondCancelledAt = now.subtract({ hours: 2 });
+      const id = await insertReservation({
+        stage: { reservation: "cancelled", payment: "paid" },
+        at: firstCancelledAt,
+        overrides: { reservationConfirmedAt: confirmedAt },
+      });
+      expect(await reconcileAt(now)).toEqual({
+        ...nothingReconciled,
+        booked: 1,
+        cancelled: 1,
+      });
+
+      // Restored and cancelled again: only the cancellation time moves.
+      await Effect.runPromise(
+        testDatabase.db
+          .update(workspaceReservations)
+          .set({ reservationCancelledAt: secondCancelledAt })
+          .where(eq(workspaceReservations.id, id))
+      );
+
+      expect(await reconcileAt(now)).toEqual({
+        ...nothingReconciled,
+        cancelled: 1,
+      });
+      expect(await reconcileAt(now)).toEqual(nothingReconciled);
+      expect(await readEvents(id)).toEqual([
+        { kind: "reservation-booked", occurredAt: confirmedAt },
+        { kind: "reservation-cancelled", occurredAt: firstCancelledAt },
+        { kind: "reservation-cancelled", occurredAt: secondCancelledAt },
+      ]);
+    });
+
     test("ignores confirmations older than 35 days", async () => {
       const now = nowInYear(2093);
       const [tooOld, recent] = await insertReservations([
