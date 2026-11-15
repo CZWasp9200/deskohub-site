@@ -8,7 +8,7 @@ import { TestClock } from "effect/testing";
 import { SqlError } from "effect/unstable/sql";
 import type { Invoice } from "@/features/accounting/backend/invoice.repository";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
-import { InvoiceStorageError } from "@/features/accounting/backend/invoice-reads";
+import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";
 import { getCustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
 import {
   makeCoworkInvoiceDocument,
@@ -72,10 +72,10 @@ type Fixture = {
   /** The resolved standing, or the session read's failure. */
   standing: ResolvedStanding | CustomerAccountAccessError;
   activity: Effect.Effect<CustomerAccountActivityState, SqlError.SqlError>;
-  list: Effect.Effect<readonly Invoice[], InvoiceStorageError>;
+  list: Effect.Effect<readonly Invoice[], AccountingRecordUnavailable>;
   find: (
     invoiceId: string
-  ) => Effect.Effect<Invoice | null, InvoiceStorageError>;
+  ) => Effect.Effect<Invoice | null, AccountingRecordUnavailable>;
 };
 
 let fixture: Fixture;
@@ -261,9 +261,9 @@ describe("CustomerInvoiceService.list", () => {
 
   test("fails to load without the storage cause when invoices can't be read", async () => {
     fixture.list = Effect.fail(
-      new InvoiceStorageError({
+      new AccountingRecordUnavailable({
         operation: "decrypt",
-        paymentAttemptId: dueInvoice.id,
+        reference: { type: "invoiceId", id: dueInvoice.id },
         message: "synthetic decryption failure",
       })
     );
@@ -312,9 +312,9 @@ describe("CustomerInvoiceService.pdf", () => {
   test("fails to load when the invoice can't be read", async () => {
     fixture.find = () =>
       Effect.fail(
-        new InvoiceStorageError({
+        new AccountingRecordUnavailable({
           operation: "decrypt",
-          paymentAttemptId: dueInvoice.id,
+          reference: { type: "invoiceId", id: dueInvoice.id },
           message: "synthetic decryption failure",
         })
       );
