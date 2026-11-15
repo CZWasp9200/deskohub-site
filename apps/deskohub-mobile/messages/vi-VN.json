@@ -558,5 +558,6 @@
   "booking_restart_availability_changed": "Lựa chọn của bạn không còn khả dụng, nên chúng tôi bắt đầu lại. Hãy chọn thời gian khác.",
   "booking_restart_price_changed": "Lựa chọn đã thay đổi trong lúc này, nên chúng tôi bắt đầu lại với giá hiện tại.",
   "booking_restart_selection_unavailable": "Không thể đặt lựa chọn của bạn ở dạng này, nên chúng tôi bắt đầu lại. Hãy điều chỉnh và tiếp tục.",
-  "booking_restart_checkout_not_found": "Không còn tìm thấy đặt chỗ đang thực hiện của bạn, nên chúng tôi bắt đầu lại."
+  "booking_restart_checkout_not_found": "Không còn tìm thấy đặt chỗ đang thực hiện của bạn, nên chúng tôi bắt đầu lại.",
+  "navigation_back": "Quay lại"
 }

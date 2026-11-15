@@ -134,6 +134,8 @@ export const shadow = {
   sheet: { boxShadow: "0 -12px 32px -12px rgba(0, 2, 79, 0.35)" },
   toast: { boxShadow: "0 10px 24px -8px rgba(0, 2, 79, 0.5)" },
   toastConfirmation: { boxShadow: "0 10px 24px -8px rgba(0, 81, 62, 0.55)" },
+  /** The pull-to-refresh disc. */
+  refresh: { boxShadow: "0 2px 8px rgba(0, 2, 79, 0.25)" },
 } as const;
 
 /** The brand face's family name on this platform. */
@@ -177,6 +179,8 @@ export const typeScale = {
   body: brandText(16, 24, 400),
   /** Row and choice titles. */
   bodyStrong: brandText(16, 22, 600),
+  /** Dialog bodies and masthead subtitles. */
+  lead: brandText(15, 22, 400),
   /** Supporting text and row descriptions. */
   bodySmall: brandText(14, 20, 400),
   /** Field labels. */
