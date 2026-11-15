@@ -88,8 +88,9 @@ const buttonLabelColor = {
  *   `danger`: crimson, for the destructive step itself; `text`: an orange
  *   text button (the boards' tinted button); `quiet`: a navy text button;
  *   `dangerText`: a crimson text button; `inverse`: white on navy.
- * - `busy`: the shared loading indicator replaces the icon and the label
- *   stays, the button keeps its size and ignores presses.
+ * - `busy`: the shared loading indicator takes the icon's place (without an
+ *   icon, its slot comes out of the side padding); the label stays, the
+ *   button keeps its size and ignores presses.
  * - `disabled`: neutral grey, never a dimmed brand colour. `disabledReason`
  *   says why, centred above the button (or below it with
  *   `reasonPlacement="below"`, as under the booking bar's Continue) and as
@@ -134,6 +135,12 @@ export function Button({
   const filled = variant === "primary" || variant === "danger";
   const textOnly =
     variant === "text" || variant === "quiet" || variant === "dangerText";
+  const busyIndicator = (
+    <LoadingIndicator
+      size="inline"
+      tone={filled && !disabled ? "white" : { color: labelColor }}
+    />
+  );
   const pressable = (
     <Pressable
       role="button"
@@ -161,15 +168,23 @@ export function Button({
         pressed && !disabled && !busy && buttonPressedStyles[variant],
         disabled && !textOnly && buttonDisabledStyle(variant),
         focused && buttonStyles.focused,
+        // Without an icon, the die's slot and gap come out of the side
+        // padding, so going busy changes neither the width nor the label's.
+        busy &&
+          !icon && {
+            paddingHorizontal:
+              (size === "small" || textOnly ? space.lg : space.xxl) -
+              busySlotWidth / 2,
+          },
       ]}
     >
-      {busy ? (
-        <LoadingIndicator
-          size="inline"
-          tone={filled && !disabled ? "white" : { color: labelColor }}
-        />
-      ) : (
-        icon && <Icon icon={icon} size={20} color={labelColor} />
+      {(icon || busy) && (
+        // The die takes the icon's 20 dp slot, so the button keeps its size.
+        <View style={buttonStyles.iconSlot}>
+          {busy
+            ? busyIndicator
+            : icon && <Icon icon={icon} size={20} color={labelColor} />}
+        </View>
       )}
       <Text
         variant={size === "small" ? "buttonSmall" : "button"}
@@ -239,6 +254,12 @@ const buttonStyles = StyleSheet.create({
   fullWidth: { alignSelf: "stretch" },
   contentWidth: { alignSelf: "flex-start" },
   label: { flexShrink: 1, textAlign: "center" },
+  iconSlot: {
+    alignItems: "center",
+    height: 20,
+    justifyContent: "center",
+    width: 20,
+  },
   primary: { backgroundColor: color.action },
   secondary: {
     backgroundColor: color.surface,
@@ -263,6 +284,9 @@ const buttonStyles = StyleSheet.create({
   reasonHidden: { display: "none" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
 });
+
+/** The die's slot plus the gap before the label. */
+const busySlotWidth = 20 + space.sm;
 
 const buttonShadow: Partial<Record<ButtonVariant, object>> = {
   primary: shadow.primary,
