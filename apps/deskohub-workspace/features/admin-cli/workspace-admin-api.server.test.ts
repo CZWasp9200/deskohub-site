@@ -51,6 +51,7 @@ import {
 } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiTest } from "effect/unstable/httpapi";
+import { WorkspaceDatabase } from "@/db/database.service";
 import {
   StandaloneAccessCodeAdministration,
   StandaloneAccessCodeCreationError,
@@ -60,6 +61,7 @@ import {
   InvoiceAdministrationInProgressError,
   InvoiceAdministrationService,
 } from "@/features/accounting/admin/invoice-administration.service";
+import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
 import { ManualInvoiceValidationError } from "@/features/accounting/manual-invoice";
 import { AdministrationService } from "@/features/administration/administration.service";
 import {
@@ -76,6 +78,8 @@ import {
 } from "@/features/administrators";
 import type { AdministratorAccountActor } from "@/features/administrators/account-role";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
+import { PaymentRefundService } from "@/features/checkout/backend/payment/payment-refund.service";
+import { WorkspaceTableAssignmentService } from "@/features/checkout/backend/reservation/workspace-table-assignment.service";
 import {
   adminCodeClaim,
   adminCustomerCode,
@@ -96,6 +100,7 @@ import {
 } from "@/features/reservation/backend/reservation-product-details-backfill.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import { ReservationAccessService } from "@/features/reservation-access";
 import { toWorkspaceWebHandler } from "@/shared/backend/workspace-effect";
 import { makeMeetingPoint } from "@/shared/testing/overlapping-requests.test-utils";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
@@ -1713,8 +1718,15 @@ describe("customer and reservation administration endpoints", () => {
             Effect.succeed(stored(id)),
           markAdministrationCancelled: () => Effect.void,
           markAdministrationCancellationFailed: () => Effect.void,
+          recordCancellationEmailSent: () => Effect.succeed(true),
         })
-      )
+      ),
+      // What only a reservation restore uses.
+      Layer.mock(AccountingDocumentSnapshotRepository, {}),
+      Layer.mock(PaymentRefundService, {}),
+      Layer.mock(ReservationAccessService, {}),
+      Layer.mock(WorkspaceDatabase, {}),
+      Layer.mock(WorkspaceTableAssignmentService, {})
     );
     const handle = toWorkspaceWebHandler(
       makeWorkspaceAdminApiLayer({
