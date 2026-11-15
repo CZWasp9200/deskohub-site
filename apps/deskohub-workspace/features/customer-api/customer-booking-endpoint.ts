@@ -1,9 +1,5 @@
 import type { WorkspaceCustomerApi } from "@deskohub/workspace-customer-api";
-import type {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-} from "effect/http-api";
+import type { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 
 type CustomerApiGroups =
   typeof WorkspaceCustomerApi extends HttpApi.HttpApi<string, infer Groups>

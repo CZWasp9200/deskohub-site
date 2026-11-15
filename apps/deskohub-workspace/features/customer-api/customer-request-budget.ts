@@ -7,11 +7,7 @@ import {
   type WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Duration, Effect, Match } from "effect";
-import type {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-} from "effect/http-api";
+import type { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import {
   RequestBudget,
   type RequestBudgetPolicy,

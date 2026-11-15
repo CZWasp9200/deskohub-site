@@ -33,7 +33,10 @@ export const unhandledHttpApiGroups = <
       Layer.empty
     );
 
-const unhandledGroup = <ApiId extends string, Groups extends HttpApiGroup.Constraint>(
+const unhandledGroup = <
+  ApiId extends string,
+  Groups extends HttpApiGroup.Constraint,
+>(
   api: HttpApi.HttpApi<ApiId, Groups>,
   [name, group]: readonly [string, HttpApiGroup.Constraint]
 ): Layer.Layer<never> =>

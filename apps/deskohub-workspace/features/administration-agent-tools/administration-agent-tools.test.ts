@@ -17,11 +17,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { Schema } from "effect";
-import {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-} from "effect/http-api";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import { customerAgentCatalog } from "@/features/agent-tools/customer-agent-catalog";
 import {
   administrationOperationTools,

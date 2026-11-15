@@ -14,7 +14,7 @@ type JsonObject = {
 
 const closedness = (schema: JsonObject) => [
   schema.additionalProperties,
-  schema.properties?.["when"]?.additionalProperties,
+  schema.properties?.when?.additionalProperties,
 ];
 
 describe("toClosedStandardJSONSchemaV1", () => {
@@ -23,17 +23,14 @@ describe("toClosedStandardJSONSchemaV1", () => {
 
     for (const target of ["draft-2020-12", "draft-07"] as const) {
       expect(closedness(jsonSchema.input({ target }))).toEqual([false, false]);
-      expect(closedness(jsonSchema.output({ target }))).toEqual([
-        false,
-        false,
-      ]);
+      expect(closedness(jsonSchema.output({ target }))).toEqual([false, false]);
     }
   });
 
   test("describes the encoded input and the decoded output", () => {
     const { jsonSchema } = toClosedStandardJSONSchemaV1(Nested)["~standard"];
     const day = (schema: JsonObject) =>
-      schema.properties?.["when"]?.properties?.["day"];
+      schema.properties?.when?.properties?.day;
 
     expect(day(jsonSchema.input({ target: "draft-2020-12" }))).toMatchObject({
       type: "string",

@@ -136,9 +136,7 @@ function postAgentToolRequest<S extends Schema.Top>(
     Effect.scoped,
     Effect.map(getJsonRpcMessage),
     Effect.flatMap((message) =>
-      Schema.decodeUnknownEffect(Schema.fromJsonString(responseSchema))(
-        message
-      )
+      Schema.decodeUnknownEffect(Schema.fromJsonString(responseSchema))(message)
     ),
     Effect.mapError((cause) =>
       cause instanceof AgentToolRequestError

@@ -1,10 +1,6 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 import { Cause, Context, Deferred, Effect, Layer } from "effect";
-import {
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { redirect } from "next/navigation";
 import * as nextServer from "next/server";
 import { savedConsentCookieValue } from "@/shared/testing/consent-cookie.test-utils";

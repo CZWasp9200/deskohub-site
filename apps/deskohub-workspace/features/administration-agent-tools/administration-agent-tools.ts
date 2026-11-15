@@ -36,6 +36,7 @@ import {
   decodeAdministrationError,
 } from "@/features/agent-tools/agent-tool-error";
 import type { CustomerAgentCaller } from "@/features/agent-tools/customer-agent-caller";
+import { toClosedStandardJSONSchemaV1 } from "@/shared/utils/closed-json-schema";
 import { getFirstInvalidFieldPath } from "@/shared/utils/schema-issue";
 import {
   AdministrationAgentAccessToken,
@@ -43,7 +44,6 @@ import {
   type AdministrationApiRequest,
 } from "./administration-api-client";
 import { assistantAccessEnded } from "./administration-assistant-refusal";
-import { toClosedStandardJSONSchemaV1 } from "@/shared/utils/closed-json-schema";
 
 type Behavior = AdministrationOperationBehavior["Service"];
 
@@ -180,9 +180,7 @@ const argumentSchema = (
 ): Schema.Top =>
   properties.length === 0
     ? Schema.Record(Schema.String, Schema.Never)
-    : Schema.make<Schema.Top>(
-        new SchemaAST.Objects(properties, [])
-      );
+    : Schema.make<Schema.Top>(new SchemaAST.Objects(properties, []));
 
 const confirmProperty = new SchemaAST.PropertySignature(
   confirmArgument,
@@ -366,10 +364,7 @@ interface EndpointReflection {
   >;
 }
 
-const payloadOf = (
-  endpoint: HttpApiEndpoint.Top,
-  reference: string
-) => {
+const payloadOf = (endpoint: HttpApiEndpoint.Top, reference: string) => {
   const [payload, ...others] = [...endpoint.payload.values()].flatMap(
     ({ schemas }) => schemas
   );

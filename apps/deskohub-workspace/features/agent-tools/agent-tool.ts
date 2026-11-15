@@ -6,6 +6,7 @@ import type {
 import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import type { CustomerAgentScope } from "@/features/account";
 import type { Locale } from "@/features/i18n";
+import { toClosedStandardJSONSchemaV1 } from "@/shared/utils/closed-json-schema";
 import { getFirstInvalidFieldPath } from "@/shared/utils/schema-issue";
 import type { AgentToolAccountBudget } from "./agent-tool-call-budget";
 import {
@@ -21,7 +22,6 @@ import {
   type SignedInAgentToolRequirements,
   type SignedInAgentToolServices,
 } from "./customer-agent-caller";
-import { toClosedStandardJSONSchemaV1 } from "@/shared/utils/closed-json-schema";
 
 /**
  * Who may call a tool. A signed-in tool also names the OAuth scope the
