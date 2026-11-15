@@ -104,7 +104,8 @@ export interface Invoice {
  * document: no decryption, no encrypted bytes and no key id.
  * `documentSnapshotRecordedAt` is when the accounting snapshot of a
  * reservation invoice's payment attempt was recorded; a manual invoice has
- * none.
+ * none. `cancellation` carries no actor; `archivedAt` is when the
+ * administration hid the cancelled invoice from its own list.
  */
 export interface InvoiceMetadata {
   readonly invoiceNumber: InvoiceNumber;
@@ -114,6 +115,8 @@ export interface InvoiceMetadata {
   readonly workspaceReservationId: WorkspaceReservationId | null;
   readonly paymentAttemptId: PaymentAttemptId | null;
   readonly documentSnapshotRecordedAt: Temporal.Instant | null;
+  readonly cancellation: InvoiceCancellationFact | null;
+  readonly archivedAt: Temporal.Instant | null;
 }
 
 interface InvoiceIssuance {
@@ -239,7 +242,7 @@ export interface IInvoiceRepository {
     readonly limit: number;
   }) => Effect.Effect<
     readonly InvoiceMetadata[],
-    EffectDrizzleQueryError | ReadLimitExceededError
+    EffectDrizzleQueryError | ReadLimitExceededError | InvoiceStorageError
   >;
   /** Decrypts every invoice. */
   readonly list: () => Effect.Effect<

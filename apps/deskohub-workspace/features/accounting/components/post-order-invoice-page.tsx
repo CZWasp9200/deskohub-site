@@ -180,6 +180,7 @@ function PostOrderInvoiceHeading({
               create: m.postOrderInvoiceTitle({}, { locale }),
               created: m.postOrderInvoiceCreatedTitle({}, { locale }),
               issued: m.postOrderInvoiceIssuedTitle({}, { locale }),
+              cancelled: m.postOrderInvoiceCancelledTitle({}, { locale }),
               unavailable: m.postOrderInvoiceUnavailableTitle({}, { locale }),
             }[displayState]
           }
@@ -192,6 +193,7 @@ function PostOrderInvoiceHeading({
                 ? m.postOrderInvoiceCreatedDeliveryFailedLead({}, { locale })
                 : m.postOrderInvoiceCreatedLead({}, { locale }),
               issued: m.postOrderInvoiceIssuedLead({}, { locale }),
+              cancelled: m.postOrderInvoiceCancelledLead({}, { locale }),
               unavailable: m.postOrderInvoiceUnavailableLead({}, { locale }),
             }[displayState]
           }

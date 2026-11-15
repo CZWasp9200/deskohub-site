@@ -1,5 +1,6 @@
 import { Match } from "effect";
 import type { Invoice } from "@/features/accounting/backend/invoice.repository";
+import type { CorrectiveDocumentNumber } from "@/features/accounting/corrective-document";
 import type { InvoiceNumber } from "@/features/accounting/invoice";
 import {
   getInvoicePaymentStatus,
@@ -29,13 +30,26 @@ export interface CustomerInvoiceSummary {
   readonly issuedOn: PlainDate;
   readonly total: InvoiceTotal;
   readonly paymentStatus: InvoicePaymentStatus;
-  /** The due date while the invoice requests payment, else `null`. */
+  /** The due date while the invoice requests payment, else `null`, also once it's cancelled. */
   readonly dueDate: PlainDate | null;
+  /**
+   * The corrective document that cancelled the invoice, else `null`. A
+   * cancelled invoice stays listed, and its own document is unchanged.
+   */
+  readonly cancellation: {
+    readonly correctiveDocumentNumber: CorrectiveDocumentNumber;
+  } | null;
 }
+
+/**
+ * What the account shows as an invoice's status: `cancelled` replaces the
+ * payment status, which no longer asks the customer for anything.
+ */
+export type CustomerInvoiceStatus = InvoicePaymentStatus | "cancelled";
 
 /** `today` is the workspace (Prague) calendar date. */
 export const getCustomerInvoiceSummary = (
-  invoice: Pick<Invoice, "id" | "issuedAt" | "document">,
+  invoice: Pick<Invoice, "id" | "issuedAt" | "document" | "cancellation">,
   today: PlainDate
 ): CustomerInvoiceSummary => ({
   id: invoice.id,
@@ -48,17 +62,30 @@ export const getCustomerInvoiceSummary = (
   ),
   total: getInvoiceTotal(invoice.document),
   paymentStatus: getInvoicePaymentStatus(invoice.document, today),
-  dueDate: Match.value(getInvoiceSettlement(invoice.document)).pipe(
-    Match.tagsExhaustive({
-      Paid: () => null,
-      NothingDue: () => null,
-      PaymentRequested: ({ dueDate }) => dueDate,
-    })
-  ),
+  // A cancelled invoice requests no payment any more.
+  dueDate: invoice.cancellation
+    ? null
+    : Match.value(getInvoiceSettlement(invoice.document)).pipe(
+        Match.tagsExhaustive({
+          Paid: () => null,
+          NothingDue: () => null,
+          PaymentRequested: ({ dueDate }) => dueDate,
+        })
+      ),
+  // Archiving hides an invoice from the administration UI only, so an
+  // archived invoice reads here like any other cancelled one.
+  cancellation: invoice.cancellation && {
+    correctiveDocumentNumber: invoice.cancellation.correctiveDocumentNumber,
+  },
 });
 
+export const getCustomerInvoiceStatus = (
+  invoice: Pick<CustomerInvoiceSummary, "paymentStatus" | "cancellation">
+): CustomerInvoiceStatus =>
+  invoice.cancellation === null ? invoice.paymentStatus : "cancelled";
+
 export const getCustomerInvoiceStatusLabel = (
-  status: InvoicePaymentStatus,
+  status: CustomerInvoiceStatus,
   locale: Locale
 ) =>
   ({
@@ -66,6 +93,7 @@ export const getCustomerInvoiceStatusLabel = (
     issued: m.accountBillingInvoiceStatusIssued,
     due: m.accountBillingInvoiceStatusDue,
     overdue: m.accountBillingInvoiceStatusOverdue,
+    cancelled: m.accountBillingInvoiceStatusCancelled,
   })[status]({}, { locale });
 
 /**
@@ -98,6 +126,10 @@ export const getCustomerInvoiceCsvColumns = (
   {
     header: m.accountBillingInvoiceColumnStatus({}, { locale }),
     value: (invoice) =>
-      getCustomerInvoiceStatusLabel(invoice.paymentStatus, locale),
+      getCustomerInvoiceStatusLabel(getCustomerInvoiceStatus(invoice), locale),
+  },
+  {
+    header: m.accountBillingInvoiceColumnCorrectiveDocument({}, { locale }),
+    value: (invoice) => invoice.cancellation?.correctiveDocumentNumber ?? null,
   },
 ];

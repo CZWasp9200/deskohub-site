@@ -9,7 +9,7 @@
  * The version of the exported archive shape. Increase it whenever an
  * exported section's meaning changes, never to flag data freshness.
  */
-export const accountDataExportSchemaVersion = 3;
+export const accountDataExportSchemaVersion = 4;
 
 /**
  * The fixed manifest entry name. Every other archive entry must appear in
@@ -67,7 +67,7 @@ export const accountDataExportSections = [
   {
     path: "invoices.json",
     manifestDescription:
-      "Metadata of invoices issued to you: invoice number, issue date, and the delivery status of the customer invoice email. The invoice PDF documents themselves are not included.",
+      "Metadata of invoices issued to you: invoice number, issue date, whether and when the invoice was cancelled with the number of the credit note that cancelled it, whether it was hidden from the administration's invoice list, and the delivery status of the customer invoice email. The invoice and credit note PDF documents themselves are not included.",
   },
   {
     path: "consents.json",

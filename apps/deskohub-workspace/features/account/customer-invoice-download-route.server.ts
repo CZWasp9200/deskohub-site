@@ -30,9 +30,36 @@ type CustomerInvoiceExportParams = {
 export const makeCustomerInvoicePdfGet = (
   service: CustomerInvoiceServiceLayer = CustomerInvoiceService.Live
 ) =>
+  makeCustomerDocumentPdfGet("account.invoice-pdf", service, (invoices, id) =>
+    invoices.pdf(id)
+  );
+
+/**
+ * `GET /[locale]/account/invoices/[invoiceId]/corrective-document`: the
+ * corrective document that cancelled one of the signed-in customer's
+ * invoices, as a PDF attachment.
+ */
+export const makeCustomerCorrectiveDocumentPdfGet = (
+  service: CustomerInvoiceServiceLayer = CustomerInvoiceService.Live
+) =>
+  makeCustomerDocumentPdfGet(
+    "account.corrective-document-pdf",
+    service,
+    (invoices, id) => invoices.correctiveDocumentPdf(id)
+  );
+
+/** A PDF of one of the customer's invoices, answered like every download here. */
+const makeCustomerDocumentPdfGet = (
+  operation: string,
+  service: CustomerInvoiceServiceLayer,
+  read: (
+    invoices: CustomerInvoiceService["Service"],
+    invoiceId: string
+  ) => ReturnType<CustomerInvoiceService["Service"]["pdf"]>
+) =>
   defineWorkspaceRoute(
     {
-      operation: "account.invoice-pdf",
+      operation,
       cancellation: "interrupt-on-disconnect",
       caller: "client",
     },
@@ -40,7 +67,7 @@ export const makeCustomerInvoicePdfGet = (
       routeLocale(params).pipe(
         Effect.flatMap(({ invoiceId }) =>
           Effect.flatMap(CustomerInvoiceService, (invoices) =>
-            invoices.pdf(invoiceId)
+            read(invoices, invoiceId)
           ).pipe(withService(service))
         ),
         Effect.map(({ bytes, fileName }) =>

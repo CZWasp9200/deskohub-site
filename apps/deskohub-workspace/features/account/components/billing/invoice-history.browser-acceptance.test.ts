@@ -3,6 +3,7 @@ import { type Browser, chromium, type Page } from "@playwright/test";
 import { createElement } from "react";
 import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server";
 import type { CustomerInvoiceHistory } from "@/features/account/contracts";
+import { correctiveDocumentNumberSchema } from "@/features/accounting/corrective-document";
 import { invoiceNumberSchema } from "@/features/accounting/invoice";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
@@ -13,10 +14,13 @@ import { BillingScreen } from "./billing-screen";
 import { InvoiceHistoryPanel } from "./invoice-history";
 
 const locale = "en-US" as const;
+const correctiveNumber =
+  correctiveDocumentNumberSchema.make("WS-OD-2026-000003");
 
 const populated: CustomerInvoiceHistory = {
   kind: "populated",
   exportPath: "/en-US/account/invoices/export",
+  // The first invoice was cancelled, so its row offers two downloads.
   invoices: ["000012", "000011"].map((serial, index) => ({
     invoice: {
       id: invoiceIdSchema.make(`018f47d2-8f7c-7c5e-9f9a-6ef21f${serial}`),
@@ -25,14 +29,23 @@ const populated: CustomerInvoiceHistory = {
       total: { amount: "1210.00", currency: "CZK" },
       paymentStatus: index === 0 ? "issued" : "paid",
       dueDate: index === 0 ? plainDateStringSchema.make("2026-10-15") : null,
+      cancellation:
+        index === 0 ? { correctiveDocumentNumber: correctiveNumber } : null,
     },
     display: {
       issuedOn: "October 1, 2026",
       total: "CZK 1,210.00",
-      status: index === 0 ? "Issued" : "Paid",
-      dueDate: index === 0 ? "October 15, 2026" : null,
+      status: index === 0 ? "Cancelled" : "Paid",
+      dueDate: null,
     },
     pdfPath: `/en-US/account/invoices/WS-FV-2026-${serial}/pdf`,
+    correctiveDocument:
+      index === 0
+        ? {
+            documentNumber: correctiveNumber,
+            pdfPath: `/en-US/account/invoices/WS-FV-2026-${serial}/corrective-document`,
+          }
+        : null,
   })),
 };
 
