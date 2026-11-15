@@ -40,3 +40,30 @@ export const getReservationAccessErrorMessage = (
       m.administrationReservationAccessErrorTemporarilyUnavailable,
     recovery_failed: m.administrationReservationAccessErrorRecoveryFailed,
   })[reason]({}, { locale });
+
+const reservationRestorationErrorMessages = {
+  not_found: m.administrationReservationRestorationErrorNotFound,
+  invalid_state: m.administrationReservationRestorationErrorInvalidState,
+  cancellation_in_progress:
+    m.administrationReservationRestorationErrorCancellationInProgress,
+  superseded: m.administrationReservationRestorationErrorSuperseded,
+  refund_acknowledgement_required:
+    m.administrationReservationRestorationErrorRefundAcknowledgementRequired,
+  refund_check_failed:
+    m.administrationReservationRestorationErrorRefundCheckFailed,
+  table_unavailable:
+    m.administrationReservationRestorationErrorTableUnavailable,
+  changed_in_dotypos:
+    m.administrationReservationRestorationErrorChangedInDotypos,
+  dotypos_failed: m.administrationReservationRestorationErrorDotyposFailed,
+  access_uncertain: m.administrationReservationRestorationErrorAccessUncertain,
+  details_unavailable:
+    m.administrationReservationRestorationErrorDetailsUnavailable,
+  record_failed: m.administrationReservationRestorationErrorRecordFailed,
+};
+
+/** The operator-facing reason a reservation restoration stopped. */
+export const getReservationRestorationErrorMessage = (
+  reason: keyof typeof reservationRestorationErrorMessages,
+  locale: Locale
+) => reservationRestorationErrorMessages[reason]({}, { locale });
