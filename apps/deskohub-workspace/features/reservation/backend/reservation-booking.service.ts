@@ -26,6 +26,7 @@ import {
   buildCheckoutPayPath,
   buildSignedPayState,
   CheckoutPricingService,
+  getPriceVerdictChangedKeys,
   openSubmittedAdvertisedPriceState,
   type PayStateLinkOptions,
   type PreparedCustomerQuote,
@@ -273,8 +274,7 @@ const quotePreparedReservation = Effect.fn(
     requestedDiscountCode:
       input.advertisement.priced.requestedDiscountCode ??
       input.referralCodePrefill,
-    changedKeys:
-      verdict.status === "pricing_changed" ? verdict.changedKeys : undefined,
+    changedKeys: getPriceVerdictChangedKeys(verdict),
   };
 });
 

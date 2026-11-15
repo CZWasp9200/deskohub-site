@@ -1,3 +1,4 @@
+import { Match } from "effect";
 import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 
 /**
@@ -19,3 +20,17 @@ export type PriceVerdict<Priced, Repriced = Priced> =
       readonly priced: Repriced;
       readonly changedKeys: CheckoutSummaryChangedKeys;
     };
+
+/**
+ * The checkout summary items a verdict says moved; `undefined` when the
+ * price still holds.
+ */
+export const getPriceVerdictChangedKeys = (
+  verdict: PriceVerdict<unknown>
+): CheckoutSummaryChangedKeys | undefined =>
+  Match.value(verdict).pipe(
+    Match.discriminatorsExhaustive("status")({
+      affirmed: () => undefined,
+      pricing_changed: ({ changedKeys }) => changedKeys,
+    })
+  );

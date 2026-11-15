@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Effect, Match, Option } from "effect";
 import {
   type CheckoutSummary,
   getCheckoutSummaryChangedKeys,
@@ -264,17 +264,23 @@ export const getCustomerQuotePriceVerdict = <Priced>(input: {
   };
 }): PriceVerdict<Priced> => {
   const { advertised, customer } = input;
-  if (advertised.status === "affirmed" && !customer.advertisedCodeChanged) {
-    return { status: "affirmed", priced: customer.priced };
-  }
-  return {
+  const changed = (): PriceVerdict<Priced> => ({
     status: "pricing_changed",
     priced: customer.priced,
     changedKeys: getCheckoutSummaryChangedKeys(
       advertised.summary,
       customer.summary
     ),
-  };
+  });
+  return Match.value(advertised).pipe(
+    Match.discriminatorsExhaustive("status")({
+      affirmed: (): PriceVerdict<Priced> =>
+        customer.advertisedCodeChanged
+          ? changed()
+          : { status: "affirmed", priced: customer.priced },
+      pricing_changed: changed,
+    })
+  );
 };
 
 type PricingContext = {
