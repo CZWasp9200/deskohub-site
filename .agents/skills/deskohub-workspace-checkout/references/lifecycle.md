@@ -271,16 +271,21 @@ Recovery:
 
 - A confirmed row whose cancellation was recorded (`hasRecordedCancellation`) with Dotypos still `CONFIRMED` on the same booking is a finished restore: a retry reports `already_confirmed` and sends and issues nothing.
 - A crash after the Dotypos write leaves the row cancelled and Dotypos `CONFIRMED`; a retry passes the same checks, gets `AlreadyConfirmed`, and completes.
-- When the CAS finds the row changed, the restore rereads it: `confirmed` reports `already_confirmed`, anything else is refused as it now stands.
-- When another reservation took the checkout session after this restore's Dotypos write (`Restored`, then `WorkspaceReservationSessionTakenError` from the partial unique active-session index), that restore cancels the Dotypos reservation again and refuses `superseded`; if that cancel fails it logs an error for an operator. A restore that found Dotypos already `CONFIRMED` (`AlreadyConfirmed`) made no write, so it only logs the local-cancelled, Dotypos-`CONFIRMED` mismatch for an operator and refuses `superseded`. A preflight `superseded` refusal never writes to Dotypos.
+- Whenever the finalize transaction rolls back (`access_uncertain`, a refund recorded since the check, a lost CAS, `WorkspaceReservationSessionTakenError`, or a failed write), the restore rereads the row. A `confirmed` row that passes the finished-restore check above was finished by a concurrent restore: it reports `already_confirmed` and sends and issues nothing. This covers a losing restore that planned access before the winner's grant committed and saw it as `access_uncertain`. Otherwise the original refusal stands, and a lost CAS is refused as the row now stands.
+- When another reservation took the checkout session after this restore's Dotypos write (`Restored`, then `WorkspaceReservationSessionTakenError` from the partial unique active-session index), the restore cancels the Dotypos reservation again only while the reread row is still `cancelled` with the `reservation_cancelled_at` the preflight read and `findCurrentByCheckoutSessionKey` returns another row; `cancelReservation` is unconditional by id, so a later restore's booking must not be cancelled. Then it refuses `superseded`, and a failed cancel is logged for an operator. When the reread shows anything else, or fails, it skips the cancel, logs the mismatch and refuses `superseded`. A restore that found Dotypos already `CONFIRMED` (`AlreadyConfirmed`) made no write, so it never cancels; it logs the mismatch and refuses `superseded`. A preflight `superseded` refusal never writes to Dotypos.
 - Reasons map to codes: `not_found`; `not_restorable` (operator must change something); `restoration_failed` (`refund_check_failed`, `dotypos_failed`, `details_unavailable`, `record_failed`: retry).
 
 Known limitations:
 
-- A refusal after the Dotypos write (`access_uncertain` or a refund recorded since the check, both under the finalize locks) leaves Dotypos `CONFIRMED` while Workspace stays cancelled until a retry completes it or an operator cancels it in Dotypos.
+- The compensation fence narrows the race but doesn't close it: a successor cancelled and a concurrent restore finalized between the reread and the cancel still loses its Dotypos booking. Closing it needs a lock in `db/workspace-locks.ts` held across the reread and the cancel, which the restore doesn't take.
+- Any other refusal after the Dotypos write leaves Dotypos `CONFIRMED` while Workspace keeps the row cancelled. The restore doesn't compensate it; it logs an error with the reservation ID, the refusal reason and "Dotypos confirmed, Workspace cancelled". Recovery by reason:
+  - A refund recorded since the check (`refund_acknowledgement_required`): retry with the acknowledgement. Dotypos answers `AlreadyConfirmed` and the restore completes.
+  - `access_uncertain`: an operator reconciles the grant, then retries.
+  - A CAS lost to a newer cancellation: an operator decides; they may cancel the reservation in Dotypos directly.
+  - `restoration_failed` reasons (`record_failed`, `details_unavailable`): retry.
 - Restore, cancel and restore again while the grant is still `pending` is `access_uncertain` until an operator reconciles the grant.
 - A refund Nexi records after the finalize read its attempts is a refund after the restore; the refund batch records it as usual.
-- The restoration email is best effort: a crash after commit loses it, and a replay never sends it.
+- The restoration email is best effort: a crash after commit loses it, and a replay never sends it. A cancellation that wins between the restore's commit and the email send can still get the restoration email.
 
 ## Fulfillment
 
