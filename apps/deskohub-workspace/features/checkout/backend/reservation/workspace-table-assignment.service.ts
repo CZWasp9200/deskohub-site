@@ -94,7 +94,7 @@ const requiresEmptyTable = (kind: WorkspaceReservationKind) =>
  * needs, or when the table is gone, disabled or hidden, or the booking names
  * no table, no increasing held span, or no readable seat count.
  */
-export type AssignedTableAvailability = "available" | "unavailable";
+type AssignedTableAvailability = "available" | "unavailable";
 
 /**
  * The table hold a reservation asks for, whatever its status. Unlike the

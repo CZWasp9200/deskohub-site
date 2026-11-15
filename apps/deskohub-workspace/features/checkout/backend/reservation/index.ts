@@ -1,9 +1,6 @@
 export { splitCustomerName } from "./dotypos-customer-policy";
 export { createWorkspaceDotyposReservation } from "./dotypos-reservation.adapter";
-export {
-  type AssignedTableAvailability,
-  WorkspaceTableAssignmentService,
-} from "./workspace-table-assignment.service";
+export { WorkspaceTableAssignmentService } from "./workspace-table-assignment.service";
 export {
   excludeDotyposReservationsById,
   getOccupancyWindow,
