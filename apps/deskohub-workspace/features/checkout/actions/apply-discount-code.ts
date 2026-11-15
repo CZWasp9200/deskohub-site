@@ -11,6 +11,15 @@ import {
   PayableReservationService,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import {
+  type ApplyDiscountCodeResult,
+  applyDiscountCodeToPayState,
+  getApplyDiscountCodeDeadline,
+} from "@/features/checkout/backend/checkout/pay-state-discount-code";
+import {
+  type ApplyDiscountCodeInput,
+  applyDiscountCodeSchema,
+} from "@/features/checkout/backend/checkout/pay-state-discount-code-input";
 import { addCheckoutReferralAppliedMarker } from "@/features/checkout/checkout-referral-notice";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
@@ -22,15 +31,6 @@ import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protec
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { customerAgentNames } from "@/shared/bot-protection/customer-agents";
-import {
-  type ApplyDiscountCodeInput,
-  applyDiscountCodeSchema,
-} from "./apply-discount-code-input";
-import {
-  type ApplyDiscountCodeResult,
-  applyDiscountCodeToPayState,
-  getApplyDiscountCodeDeadline,
-} from "./apply-discount-code-to-pay-state";
 
 /** What the site's discount-code entry can answer. */
 export type ApplyDiscountCodeActionResult =

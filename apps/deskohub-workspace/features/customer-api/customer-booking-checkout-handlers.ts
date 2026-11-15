@@ -34,7 +34,6 @@ import {
 } from "effect";
 import type { HttpApiBuilder } from "effect/unstable/httpapi";
 import { env } from "@/env";
-import { getApplyDiscountCodeDeadline } from "@/features/checkout/actions/apply-discount-code-to-pay-state";
 import {
   CheckoutService,
   getPaymentReturnDestination,
@@ -43,6 +42,7 @@ import {
 } from "@/features/checkout/backend/checkout";
 import { getCheckoutSubmitDeadline } from "@/features/checkout/backend/checkout/checkout-submit-deadline";
 import type { PayStateWithHoldExpiry } from "@/features/checkout/backend/checkout/pay-state";
+import { getApplyDiscountCodeDeadline } from "@/features/checkout/backend/checkout/pay-state-discount-code";
 import type { Locale } from "@/features/i18n";
 import { isCurrentPaymentSubmitLegalAcceptance } from "@/features/legal/payment-submit-evidence";
 import { preparePayStateInputSchema } from "@/features/reservation/actions/prepare-pay-state.schema";

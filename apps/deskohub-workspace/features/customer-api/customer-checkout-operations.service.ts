@@ -5,7 +5,6 @@ import {
   CustomerAccountSections,
 } from "@/features/account";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
-import { applyDiscountCodeToPayState } from "@/features/checkout/actions/apply-discount-code-to-pay-state";
 import {
   acceptPayStatePriceChange,
   CheckoutReferralService,
@@ -14,6 +13,7 @@ import {
   requirePayStateAuthor,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import { applyDiscountCodeToPayState } from "@/features/checkout/backend/checkout/pay-state-discount-code";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralService } from "@/features/referrals";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";

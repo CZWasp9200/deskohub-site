@@ -1,29 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { Effect, Match, Option, Schema } from "effect";
-import {
-  CheckoutPricingService,
-  CheckoutReferralService,
-  getSignedPayStateBookedAt,
-  issueFreshPayState,
-  openPayStateForLocale,
-  PayableReservationService,
-} from "@/features/checkout/backend/checkout";
-import {
-  type FreshPayState,
-  type NoFreshPayState,
-  toFreshPayState,
-} from "@/features/checkout/backend/checkout/checkout-pay-url";
-import type { CheckoutReferralResult } from "@/features/checkout/backend/checkout/checkout-referral.service";
-import type {
-  PayStateWithHoldExpiry,
-  SignedPayState,
-} from "@/features/checkout/backend/checkout/pay-state";
-import {
-  getPayStateHoldExpiresAt,
-  loadPayStateHoldExpiry,
-  withPayStateHoldExpiry,
-} from "@/features/checkout/backend/checkout/pay-state-hold";
-import type { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import {
   type CanonicalPromotionCode,
@@ -35,7 +11,30 @@ import { RememberedReferral } from "@/features/referrals/remembered-referral.ser
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { getCalendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
 import type { DeploymentEnvironment } from "@/shared/deployment/deployment-stage";
-import type { ApplyDiscountCodeInput } from "./apply-discount-code-input";
+import {
+  type FreshPayState,
+  issueFreshPayState,
+  type NoFreshPayState,
+  toFreshPayState,
+} from "./checkout-pay-url";
+import { CheckoutPricingService } from "./checkout-pricing.service";
+import {
+  type CheckoutReferralResult,
+  CheckoutReferralService,
+} from "./checkout-referral.service";
+import { openPayStateForLocale } from "./open-pay-state-for-locale";
+import type { PayStateWithHoldExpiry, SignedPayState } from "./pay-state";
+import { getSignedPayStateBookedAt } from "./pay-state.server";
+import type { ApplyDiscountCodeInput } from "./pay-state-discount-code-input";
+import {
+  getPayStateHoldExpiresAt,
+  loadPayStateHoldExpiry,
+  withPayStateHoldExpiry,
+} from "./pay-state-hold";
+import {
+  PayableReservationService,
+  type PayableReservationUnavailableError,
+} from "./payable-reservation.service";
 
 /**
  * Discount-code entry affirms the displayed discounts, awaiting one Google

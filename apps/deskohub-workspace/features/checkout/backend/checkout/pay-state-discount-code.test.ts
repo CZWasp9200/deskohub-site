@@ -64,7 +64,7 @@ import {
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
-import type { ApplyDiscountCodeResult } from "./apply-discount-code-to-pay-state";
+import type { ApplyDiscountCodeResult } from "./pay-state-discount-code";
 
 mock.module("server-only", () => ({}));
 
@@ -168,7 +168,7 @@ const prepareSubmission = async (input?: SubmissionInput) => {
     { CheckoutReferralService },
     { ReferralService },
   ] = await Promise.all([
-    import("./apply-discount-code-to-pay-state"),
+    import("./pay-state-discount-code"),
     import("@/features/checkout/backend/checkout/payable-reservation.service"),
     import("@/features/checkout/backend/checkout"),
     import("@/features/referrals"),
@@ -738,7 +738,7 @@ describe("applyDiscountCodeToPayState", () => {
         const { input, listEvents } = submission();
 
         const { getApplyDiscountCodeDeadline } = await import(
-          "./apply-discount-code-to-pay-state"
+          "./pay-state-discount-code"
         );
 
         const exit = await runSubmissionWithinDeadline(

@@ -543,7 +543,7 @@
     "features/ai-assistants/openai-apps-challenge.test.ts": 54,
     "features/analytics-warehouse/backend/dotypos-customer-source-access.service.test.ts": 62,
     "features/analytics-warehouse/backend/dotypos-customer-source.test.ts": 461,
-    "features/checkout/actions/apply-discount-code-to-pay-state.test.ts": 1419,
+    "features/checkout/backend/checkout/pay-state-discount-code.test.ts": 1419,
     "features/checkout/actions/apply-discount-code.bot-protection.test.ts": 1413,
     "features/checkout/actions/apply-discount-code.test.ts": 926,
     "features/checkout/advertised-price.test.ts": 180,
