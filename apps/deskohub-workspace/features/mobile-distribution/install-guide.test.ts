@@ -3,6 +3,7 @@ import {
   detectInstallGuide,
   type InstallGuide,
   installGuideArrow,
+  installGuidePictures,
 } from "./install-guide";
 import { detectInstallPlatform } from "./install-platform";
 
@@ -218,4 +219,32 @@ describe("installGuideArrow", () => {
       expect(installGuideArrow(guide, "landscape")).toBe(landscape);
     }
   );
+});
+
+describe("installGuidePictures", () => {
+  test.each([
+    ["safariIos18", "safari-iphone-classic"],
+    ["safariIos26", "safari-iphone-compact"],
+    ["safariIos26Point1", "safari-iphone-compact"],
+    ["ipadSafariDesktop", "safari-ipad"],
+    ["ipadSafariMobile", "safari-ipad"],
+    ["chromeIphone", "chrome-ios"],
+    ["chromeIpad", "chrome-ios"],
+    ["firefoxIos", "ios-other"],
+    ["edgeIos", "ios-other"],
+    ["duckDuckGoIos", "ios-other"],
+    ["instagramIos", "ios-other"],
+    ["facebookIos", "ios-other"],
+    ["googleAppIos", "ios-other"],
+    ["plainWebViewIos", "ios-other"],
+    ["androidFirefox", "android"],
+    ["androidWebView", "android"],
+    ["androidInstagram", "android"],
+  ] as const)("%s shows the %s pictures", (browser, pictures) => {
+    expect(installGuidePictures(guideFor(userAgents[browser]))).toBe(pictures);
+  });
+
+  test("shows the arrow-less iOS pictures when nothing is recognised", () => {
+    expect(installGuidePictures({ kind: "unidentified" })).toBe("ios-other");
+  });
 });
