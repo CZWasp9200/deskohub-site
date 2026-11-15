@@ -99,6 +99,10 @@ export const swipeIntent = ({
 const chevronColor = "#A9A59B";
 const chevronSize = 22;
 
+// The board's arrow strip, and how far the content under it moves up.
+const grabStrip = 20;
+const grabOverlap = 6;
+
 // The opened list takes at most this share of the window, then scrolls.
 const openListShare = 0.45;
 
@@ -190,7 +194,6 @@ export function BookingBar({
                 role="button"
                 aria-label={detailsLabel}
                 aria-expanded={shownOpen}
-                hitSlop={{ bottom: 14 }}
                 onPress={() => toggle(!shownOpen)}
                 style={styles.grab}
               >
@@ -373,13 +376,15 @@ const styles = StyleSheet.create({
     boxShadow: "0 -12px 28px -12px rgba(0, 2, 79, 0.35)",
   },
   summaryArea: { gap: 10 },
-  // The arrow's row spans the bar, so the whole top edge takes the tap.
-  grabArea: { marginBottom: -6 },
+  // The arrow sits in the board's 20-tall strip on the bar's top edge, but
+  // its target is a full 48 tall and spans the bar. The target overlaps the
+  // summary (which toggles too) or the list's top, and sits above them, so
+  // the summary starts where the board's strip ends (20 − 6 + the gap).
+  grabArea: { marginBottom: grabStrip - grabOverlap - touchTarget, zIndex: 1 },
   grab: {
     alignItems: "center",
-    height: 20,
-    justifyContent: "center",
-    minWidth: touchTarget,
+    height: touchTarget,
+    justifyContent: "flex-start",
   },
   summary: {
     alignItems: "center",

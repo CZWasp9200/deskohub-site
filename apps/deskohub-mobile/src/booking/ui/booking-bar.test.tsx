@@ -22,6 +22,7 @@ const { idleLiveRegionLayout } = await import("../../ui/notice-presentation");
 const { elementTree, find, findAll, flatStyle, hostTree, textOf } =
   await import("../../ui/testing/element-tree");
 const { ToastProvider } = await import("../../ui/toast");
+const { touchTarget } = await import("../../ui/tokens");
 const { czk } = await import("../testing/sample-booking-catalog");
 const { BookingBar, claimsSwipe, swipeIntent } = await import("./booking-bar");
 const { priceBreakdown } = await import("./price-breakdown");
@@ -140,6 +141,26 @@ describe("BookingBar", () => {
       idleLiveRegionLayout
     );
     expect(findAll(statuses[0], "Text").map(textOf)).toEqual([""]);
+  });
+
+  test("the arrow's own target is a full touch target, above what it overlaps", () => {
+    const tree = bar();
+    const chevron = chevronOf(tree);
+    expect(flatStyle(chevron?.props.style).height).toBe(touchTarget);
+    expect(chevron?.props.hitSlop).toBeUndefined();
+    // The strip is the View right around the arrow.
+    const strip = findAll(tree, "View").find((view) =>
+      Children.toArray(view.props.children).some(
+        (child) =>
+          (child as ReactElement<{ "aria-expanded"?: boolean }>).props?.[
+            "aria-expanded"
+          ] !== undefined
+      )
+    );
+    const own = flatStyle(strip?.props.style);
+    expect(own.zIndex).toBeGreaterThan(0);
+    // Whatever follows starts where the board's strip ends.
+    expect(touchTarget + Number(own.marginBottom)).toBe(20 - 6);
   });
 
   test("a from-price shows its unit and does not open", () => {
