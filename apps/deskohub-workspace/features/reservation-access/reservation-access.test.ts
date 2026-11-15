@@ -30,8 +30,8 @@ describe("getRestoredReservationAccess", () => {
 
   test.each([
     { state: "expired", access: "issue" },
-    { state: "pending", access: "issue" },
-    { state: "failed", access: "issue" },
+    { state: "pending", access: "uncertain" },
+    { state: "failed", access: "uncertain" },
     { state: "issued", access: "uncertain" },
     { state: "provisioning", access: "uncertain" },
     { state: "uncertain", access: "uncertain" },

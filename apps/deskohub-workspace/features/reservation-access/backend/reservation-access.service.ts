@@ -146,16 +146,16 @@ export interface IReservationAccessService {
   /**
    * In the transaction that confirms a cancelled reservation again: locks its
    * grant and plans its access (`getRestoredReservationAccess`). An `issue`
-   * plan reopens an expired grant as `pending`, so the reservation commits
+   * plan reopens the expired grant as `pending`, or creates a `pending` one
+   * for the reservation's span when it has none, so the reservation commits
    * with a grant that `issueRestoredAccess`, or the administration retry,
    * then issues. Lock the grant before the reservation row, as cancellation
-   * does. An `uncertain` plan writes nothing; the caller refuses the restore.
+   * does. Other plans write nothing; on `uncertain` the caller refuses the
+   * restore.
    */
-  readonly prepareRestoredAccess: (input: {
-    readonly reservationId: WorkspaceReservationId;
-    readonly reservedUntil: Temporal.Instant;
-    readonly now: Temporal.Instant;
-  }) => Effect.Effect<
+  readonly prepareRestoredAccess: (
+    input: ReservationAccessRequest & { readonly now: Temporal.Instant }
+  ) => Effect.Effect<
     RestoredReservationAccess,
     ReservationAccessIssuanceError,
     WorkspaceTransaction
@@ -597,21 +597,30 @@ export class ReservationAccessService extends Context.Service<
             .lockForReservation(input.reservationId)
             .pipe(Effect.mapError(storageFailure));
           const access = getRestoredReservationAccess(grant, input, input.now);
-          if (access === "issue" && grant?.state === "expired") {
-            const reopened = yield* repository
-              .reopenExpired({
-                id: grant.id,
-                reservationId: input.reservationId,
-                reopenedAt: input.now,
-              })
-              .pipe(Effect.mapError(storageFailure));
-            if (!reopened) {
-              return yield* new ReservationAccessIssuanceError({
-                reservationId: input.reservationId,
-                outcome: "rejected",
-                message: "Reservation access grant changed concurrently.",
-              });
-            }
+          if (access !== "issue") return access;
+
+          // Only an expired grant plans `issue`.
+          const prepared = yield* (
+            grant
+              ? repository.reopenExpired({
+                  id: grant.id,
+                  reservationId: input.reservationId,
+                  reopenedAt: input.now,
+                })
+              : repository.createPending({
+                  reservationId: input.reservationId,
+                  deviceId,
+                  scheduledAccessStartsAt: input.reservedFrom,
+                  accessStartsAt: input.reservedFrom,
+                  accessEndsAt: input.reservedUntil,
+                })
+          ).pipe(Effect.mapError(storageFailure));
+          if (!prepared) {
+            return yield* new ReservationAccessIssuanceError({
+              reservationId: input.reservationId,
+              outcome: "rejected",
+              message: "Reservation access grant changed concurrently.",
+            });
           }
           return access;
         }),

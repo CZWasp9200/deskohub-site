@@ -8,6 +8,7 @@ import {
 } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Match, Option } from "effect";
 import { workspaceProductMonitorOptionTableTags } from "@/features/checkout/product-catalog";
+import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
 import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
@@ -35,7 +36,7 @@ import {
   getTableBookingOccupancyById,
   getWorkspaceReservationIntervalDates,
   getWorkspaceTableOccupancyById,
-  toTableBooking,
+  type TableBooking,
   toTableBookings,
   workspaceBookingSeatCount,
 } from "./workspace-table-occupancy";
@@ -90,10 +91,32 @@ const requiresEmptyTable = (kind: WorkspaceReservationKind) =>
 /**
  * Whether the table a Dotypos reservation holds is still free for it:
  * `unavailable` when other active bookings took the capacity its family
- * needs, or when the table is gone, disabled, hidden, or the booking names no
- * table or readable bounds.
+ * needs, or when the table is gone, disabled or hidden, or the booking names
+ * no table, no increasing held span, or no readable seat count.
  */
 export type AssignedTableAvailability = "available" | "unavailable";
+
+/**
+ * The table hold a reservation asks for, whatever its status. Unlike the
+ * occupancy of other bookings, nothing defaults: an unreadable fact is none.
+ */
+const getRequestedTableBooking = (
+  reservation: ReservationRecord
+): Option.Option<TableBooking> => {
+  const booked = decodeBookedReservation(reservation);
+  return Option.all({
+    tableId: Option.fromNullishOr(reservation._tableId),
+    interval: booked.occupiedInterval,
+    seats: booked.seats,
+  }).pipe(
+    Option.map(({ tableId, interval, seats }) => ({
+      tableId,
+      startsAt: interval.startsAt.epochMilliseconds,
+      endsAt: interval.endsAt.epochMilliseconds,
+      seats,
+    }))
+  );
+};
 
 const getReservedDeskScoringOccupancyById = Effect.fn(
   "workspaceTableAssignment.getReservedDeskScoringOccupancyById"
@@ -314,7 +337,7 @@ export class WorkspaceTableAssignmentService extends Context.Service<
           readonly reservation: ReservationRecord;
           readonly kind: WorkspaceReservationKind;
         }) {
-          const booking = toTableBooking(input.reservation);
+          const booking = getRequestedTableBooking(input.reservation);
           if (Option.isNone(booking)) {
             yield* Effect.logWarning(
               "Workspace assigned table has no readable table hold"

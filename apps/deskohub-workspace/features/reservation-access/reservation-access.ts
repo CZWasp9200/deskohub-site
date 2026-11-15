@@ -91,18 +91,21 @@ export interface IssuedReservationAccess {
  *
  * - `not_needed`: the reservation has ended, so its grant stays as it is.
  * - `issue`: fresh access is issued once the reservation is confirmed again.
- *   Cancellation expires a grant only after its credential was confirmed
- *   removed or its access ended, and a `pending` or `failed` grant, like a
- *   missing one, has no credential at the provider.
+ *   Cancellation expires a live grant only after its credential was confirmed
+ *   removed or its access ended, and a reservation without a grant never had
+ *   a credential.
  * - `uncertain`: the provider may hold a credential Workspace can't account
- *   for (`issued`, `provisioning`, `uncertain`), so the restore must stop.
+ *   for, so the restore must stop. `issued`, `provisioning` and `uncertain`
+ *   grants may hold one, and so may `pending` and `failed` ones: replacing an
+ *   issued grant for new hours resets it to `pending` while the replaced
+ *   credential stays live, and cancellation leaves both states as they are.
  */
 export type RestoredReservationAccess = "not_needed" | "issue" | "uncertain";
 
 const restoredAccessByGrantState = {
   expired: "issue",
-  pending: "issue",
-  failed: "issue",
+  pending: "uncertain",
+  failed: "uncertain",
   issued: "uncertain",
   provisioning: "uncertain",
   uncertain: "uncertain",

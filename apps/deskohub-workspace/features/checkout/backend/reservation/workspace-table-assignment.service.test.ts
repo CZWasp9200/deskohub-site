@@ -1090,7 +1090,18 @@ describe("WorkspaceTableAssignmentService.getAssignedTableAvailability", () => {
     ).resolves.toBe("unavailable");
   });
 
-  test("reports a booking without a table or readable bounds as unavailable", async () => {
+  test("reports a booking without a table, an increasing span, or readable seats as unavailable", async () => {
+    for (const reservation of [
+      { ...restoredMeetingRoom, startDate: restoredMeetingRoom.endDate },
+      { ...restoredMeetingRoom, seats: "many" },
+    ]) {
+      await expect(
+        getAssignedTableAvailability({ reservation, kind: "meeting-room" }, [
+          meetingRoom,
+        ])
+      ).resolves.toBe("unavailable");
+    }
+
     await expect(
       getAssignedTableAvailability(
         {

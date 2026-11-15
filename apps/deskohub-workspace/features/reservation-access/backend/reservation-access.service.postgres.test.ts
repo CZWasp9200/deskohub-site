@@ -300,6 +300,7 @@ describe.skipIf(!testDatabase)(
             transaction(
               service.prepareRestoredAccess({
                 reservationId,
+                reservedFrom: upcoming.reservedFrom,
                 reservedUntil,
                 now: restoredAt,
               })
@@ -355,7 +356,7 @@ describe.skipIf(!testDatabase)(
               service
                 .prepareRestoredAccess({
                   reservationId,
-                  reservedUntil: upcoming.reservedUntil,
+                  ...upcoming,
                   now: restoredAt,
                 })
                 .pipe(Effect.andThen(Effect.fail("restore refused" as const)))
@@ -380,38 +381,46 @@ describe.skipIf(!testDatabase)(
         });
       });
 
-      test.each(["issued", "provisioning", "uncertain"] as const)(
-        "refuses a %s grant without changing it",
-        async (state) => {
-          const reservationId = await insertReservation();
-          const grant = await insertGrant(reservationId, state);
+      test.each([
+        "issued",
+        "provisioning",
+        "uncertain",
+        "pending",
+        "failed",
+      ] as const)("refuses a %s grant without changing it", async (state) => {
+        const reservationId = await insertReservation();
+        const grant = await insertGrant(reservationId, state);
 
-          expect(await prepare(reservationId)).toBe("uncertain");
-          expect(await loadGrant(reservationId)).toMatchObject({
-            state,
-            updatedAt: grant.updatedAt,
-          });
-        }
-      );
+        expect(await prepare(reservationId)).toBe("uncertain");
+        expect(await loadGrant(reservationId)).toMatchObject({
+          state,
+          updatedAt: grant.updatedAt,
+        });
+      });
 
-      test.each(["pending", "failed"] as const)(
-        "leaves a %s grant for normal issuance",
-        async (state) => {
-          const reservationId = await insertReservation();
-          const grant = await insertGrant(reservationId, state);
-
-          expect(await prepare(reservationId)).toBe("issue");
-          expect(await loadGrant(reservationId)).toMatchObject({
-            state,
-            updatedAt: grant.updatedAt,
-          });
-        }
-      );
-
-      test("issues access for a reservation without a grant", async () => {
+      test("creates a pending grant for a reservation without one", async () => {
         const reservationId = await insertReservation();
 
         expect(await prepare(reservationId)).toBe("issue");
+        expect(await loadGrant(reservationId)).toMatchObject({
+          state: "pending",
+          deviceId: "fixture-ek1",
+          providerCredentialId: null,
+        });
+        const created = await loadGrant(reservationId);
+        expect(created?.accessName).toBe(`Deskohub ${created?.id}`);
+        expect(created?.accessStartsAt.equals(upcoming.reservedFrom)).toBe(
+          true
+        );
+        expect(created?.accessEndsAt.equals(upcoming.reservedUntil)).toBe(true);
+      });
+
+      test("leaves a reservation that has ended without a grant", async () => {
+        const reservationId = await insertReservation();
+
+        expect(
+          await prepare(reservationId, restoredAt.subtract({ hours: 1 }))
+        ).toBe("not_needed");
         expect(await loadGrant(reservationId)).toBeNull();
       });
 
@@ -445,26 +454,34 @@ describe.skipIf(!testDatabase)(
         }
       );
 
-      test("issues a reopened grant whose restore committed before issuance ran", async () => {
-        const reservationId = await insertReservation();
-        await insertGrant(reservationId, "expired");
-        expect(await prepare(reservationId)).toBe("issue");
+      test.each([
+        { name: "a reopened", grant: "expired" },
+        { name: "a created", grant: null },
+      ] as const)(
+        "issues $name grant whose restore committed before issuance ran",
+        async ({ grant }) => {
+          const reservationId = await insertReservation();
+          if (grant) await insertGrant(reservationId, grant);
+          expect(await prepare(reservationId)).toBe("issue");
 
-        // The administration retry issues through normal issuance.
-        const igloohome = igloohomeIssuing(
-          Effect.succeed({
-            pin: restoredPin,
-            pinId: IgloohomePinIdSchema.make("synthetic-recovered-pin"),
-          })
-        );
-        const issued = await run(
-          (service) =>
-            service.issueForReservation({ reservationId, ...upcoming }),
-          igloohome.layer
-        );
-        expect(issued.accessStartsAt.equals(upcoming.reservedFrom)).toBe(true);
-        expect((await loadGrant(reservationId))?.state).toBe("issued");
-      });
+          // The administration retry issues through normal issuance.
+          const igloohome = igloohomeIssuing(
+            Effect.succeed({
+              pin: restoredPin,
+              pinId: IgloohomePinIdSchema.make("synthetic-recovered-pin"),
+            })
+          );
+          const issued = await run(
+            (service) =>
+              service.issueForReservation({ reservationId, ...upcoming }),
+            igloohome.layer
+          );
+          expect(issued.accessStartsAt.equals(upcoming.reservedFrom)).toBe(
+            true
+          );
+          expect((await loadGrant(reservationId))?.state).toBe("issued");
+        }
+      );
     });
   }
 );
