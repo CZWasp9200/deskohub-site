@@ -147,10 +147,27 @@ export const subscribeToInstallBarPageDismissal = (onChange: () => void) => {
 /** The answer for the latest recorded page, if any. */
 export const readInstallBarPageDismissal = () => pageDismissal;
 
-/** Records a page view once per page, however many bars it shows. */
-export const noteInstallBarPage = (page: string, now = Date.now()): void => {
-  if (pageDismissal?.page === page) return;
-  setPageDismissal({ page, dismissed: recordInstallBarPageView(now) });
+let pageBars = 0;
+
+/**
+ * Holds the page's answer while a bar shows on it. The first bar to arrive
+ * on a page records the page view; a bar arriving beside it, such as a
+ * status dialog's over the account, shares that record. Once the last bar
+ * leaves, the next one records a fresh view, so coming back after a break
+ * starts a new visit. Returns the release.
+ */
+export const holdInstallBarPage = (
+  page: string,
+  now = Date.now()
+): (() => void) => {
+  pageBars += 1;
+  if (pageBars === 1 || pageDismissal?.page !== page) {
+    setPageDismissal({ page, dismissed: recordInstallBarPageView(now) });
+  }
+  return () => {
+    pageBars -= 1;
+    if (pageBars === 0) pageDismissal = undefined;
+  };
 };
 
 /** Records a close and hides every bar on the page. */

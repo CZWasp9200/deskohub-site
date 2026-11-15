@@ -16,7 +16,7 @@ import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils";
 import {
   closeInstallBar,
-  noteInstallBarPage,
+  holdInstallBarPage,
   readInstallBarPageDismissal,
   subscribeToInstallBarPageDismissal,
 } from "./install-bar-dismissal";
@@ -132,7 +132,7 @@ export function InstallBar({
 
   useEffect(() => {
     if (offeredPage === undefined) return;
-    noteInstallBarPage(offeredPage);
+    return holdInstallBarPage(offeredPage);
   }, [offeredPage]);
 
   if (!environment || !shown || (placement === "page" && dialogBarOpen)) {

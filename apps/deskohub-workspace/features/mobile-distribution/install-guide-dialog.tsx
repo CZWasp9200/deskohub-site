@@ -71,7 +71,10 @@ export function InstallGuideDialog({
               orientation === "portrait"
                 ? "top-auto bottom-[calc(12px+env(safe-area-inset-bottom))] translate-y-0"
                 : undefined,
-          }[arrow ?? "none"]
+          }[arrow ?? "none"],
+          // Held sideways the steps sit in two columns, so all of them fit
+          // the short viewport without scrolling.
+          orientation === "landscape" && "max-w-3xl"
         )}
         locale={locale}
         onCloseAutoFocus={(event) => {
@@ -102,7 +105,12 @@ export function InstallGuideDialog({
         <DialogDescription className="sr-only">
           {m.installGuideDescription({}, { locale })}
         </DialogDescription>
-        <ol className="flex flex-col gap-2.5">
+        <ol
+          className={cn(
+            "flex flex-col gap-2.5",
+            orientation === "landscape" && "grid grid-cols-2 gap-x-4"
+          )}
+        >
           {guideSteps(pictures, orientation, locale).map((step, index) => (
             <li className="flex items-center gap-2.5" key={step.key}>
               <StepNumber step={index + 1} />

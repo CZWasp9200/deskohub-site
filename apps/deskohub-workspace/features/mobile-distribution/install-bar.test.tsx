@@ -6,6 +6,7 @@ import {
   describe,
   expect,
   mock,
+  setSystemTime,
   test,
 } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
@@ -134,5 +135,28 @@ describe("InstallBar on a page and in a dialog", () => {
     await settle();
 
     expect(view.queryAllByRole("region").length).toBe(0);
+  });
+});
+
+describe("InstallBar across visits", () => {
+  afterEach(() => setSystemTime());
+
+  test("a bar closed for the visit comes back on a later visit to the same page", async () => {
+    setSystemTime(new Date("2026-11-15T10:00:00Z"));
+    const first = await renderBar();
+    const close = first.bar.querySelectorAll("button")[1];
+    if (!close) throw new Error("the bar has no close button");
+    fireEvent.click(close);
+    await settle();
+    expect(first.view.queryAllByRole("region").length).toBe(0);
+    // The customer leaves the pages that show the bar.
+    first.view.unmount();
+
+    setSystemTime(new Date("2026-11-15T10:45:00Z"));
+    const { InstallBar } = await import("./install-bar");
+    const again = render(<InstallBar locale="en-US" placement="page" />);
+    await settle();
+
+    expect(again.queryAllByRole("region").length).toBe(1);
   });
 });
