@@ -355,21 +355,30 @@ describe("PostOrderInvoicePage", () => {
     expect(resending.disabled).toBe(true);
   });
 
-  test("offers no form or resend when invoice management is unavailable", () => {
+  test.each([
+    [
+      "invoice management is unavailable",
+      "unavailable",
+      m.postOrderInvoiceUnavailableTitle,
+    ],
+    [
+      "the reservation's invoice was cancelled",
+      "cancelled",
+      m.postOrderInvoiceCancelledTitle,
+    ],
+  ] as const)("offers no form or resend when %s", (_, initialState, title) => {
     captureAction();
     const view = render(
       <PostOrderInvoicePage
         accessToken={accessToken}
-        initialState="unavailable"
+        initialState={initialState}
         locale={locale}
         orderId={orderId}
       />
     );
 
-    expect(stateOf(view.container)).toBe("unavailable");
-    expect(
-      view.getByText(m.postOrderInvoiceUnavailableTitle({}, { locale }))
-    ).toBeTruthy();
+    expect(stateOf(view.container)).toBe(initialState);
+    expect(view.getByText(title({}, { locale }))).toBeTruthy();
     expect(view.container.querySelector("form")).toBeNull();
     expect(view.queryByRole("button")).toBeNull();
   });

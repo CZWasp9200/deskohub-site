@@ -12,12 +12,12 @@ import {
   getCustomerInvoiceStatusLabel,
   getCustomerInvoiceSummary,
 } from "./customer-invoice";
-import type { InvoiceCancellationFact } from "./invoice-cancellation";
 import type { InvoiceDocument } from "./invoice";
 import {
   makeCoworkInvoiceDocument,
   makeTestManualInvoiceDocument,
 } from "./invoice.test-utils";
+import type { InvoiceCancellationFact } from "./invoice-cancellation";
 import { getInvoiceTotal } from "./invoice-settlement";
 import { invoiceIdSchema } from "./manual-invoice";
 

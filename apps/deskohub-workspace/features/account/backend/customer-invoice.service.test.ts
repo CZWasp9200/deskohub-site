@@ -81,9 +81,8 @@ const paidInvoice: Invoice = {
   replacedByInvoiceId: null,
 };
 
-const correctiveDocumentNumber = correctiveDocumentNumberSchema.make(
-  "WS-OD-2026-000007"
-);
+const correctiveDocumentNumber =
+  correctiveDocumentNumberSchema.make("WS-OD-2026-000007");
 /** Cancelled and then hidden from the administration's invoice list. */
 const cancelledInvoice: Invoice = {
   ...paidInvoice,
@@ -460,9 +459,7 @@ describe("CustomerInvoiceService.correctiveDocumentPdf", () => {
     );
 
     expect(error).toEqual(new CustomerInvoiceNotFoundError());
-    expect(events.some((event) => event.startsWith("corrective:"))).toBe(
-      false
-    );
+    expect(events.some((event) => event.startsWith("corrective:"))).toBe(false);
   });
 
   test("is not found for another customer's invoice or an unknown id", async () => {
@@ -474,9 +471,7 @@ describe("CustomerInvoiceService.correctiveDocumentPdf", () => {
       );
       expect(error).toEqual(new CustomerInvoiceNotFoundError());
     }
-    expect(events.some((event) => event.startsWith("corrective:"))).toBe(
-      false
-    );
+    expect(events.some((event) => event.startsWith("corrective:"))).toBe(false);
   });
 
   test.each(deniedAuthorities)(

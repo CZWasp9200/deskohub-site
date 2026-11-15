@@ -145,7 +145,9 @@ describe("loadInvoiceHistory", () => {
     expect(
       cancelled.kind === "populated" &&
         cancelled.invoices[0]?.correctiveDocument?.pdfPath
-    ).toBe(`/en-US/account/invoices/${cancelledInvoice.id}/corrective-document`);
+    ).toBe(
+      `/en-US/account/invoices/${cancelledInvoice.id}/corrective-document`
+    );
   });
 
   test("is empty when the account has no invoices", async () => {
