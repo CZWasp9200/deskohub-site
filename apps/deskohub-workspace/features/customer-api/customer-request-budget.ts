@@ -96,6 +96,8 @@ export const customerRequestBudgetClasses = {
     getReservationAccess: "account-read",
     // Authorizing the invoice can resolve the account's Dotypos customer.
     getReservationInvoice: "dotypos-read",
+    // Authorizes like the invoice, then records the page's return target.
+    reopenPaymentPage: "dotypos-mutation",
   },
   booking: {
     // The office's seat maximum reads the shared table snapshot, which
