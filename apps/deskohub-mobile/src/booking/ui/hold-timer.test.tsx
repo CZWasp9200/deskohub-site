@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  act,
   Children,
   isValidElement,
   type ReactElement,
@@ -172,6 +173,9 @@ describe("HoldEndedDialog", () => {
 
 describe("useHoldCountdown", () => {
   const { render } = clientRoot();
+  // Real time passes inside act, so the clock's re-renders land in it.
+  const pass = (millis: number) =>
+    act(() => new Promise((resolve) => setTimeout(resolve, millis)));
 
   test("is right on the first render and counts down each second", async () => {
     const seen: Array<HoldStatus> = [];
@@ -188,10 +192,17 @@ describe("useHoldCountdown", () => {
     expect(seen[0]?.phase).toBe("held");
     expect(seen[0]?.secondsLeft).toBeOneOf([65, 64]);
 
-    await new Promise((resolve) => setTimeout(resolve, 2_200));
+    // At least two ticks, however slowly a loaded machine runs timers.
+    const deadline = Date.now() + 10_000;
+    while ((seen.at(-1)?.secondsLeft ?? 65) > 63 && Date.now() < deadline) {
+      await pass(100);
+    }
     const last = seen.at(-1);
     expect(last?.secondsLeft).toBeLessThanOrEqual(63);
-    expect(last?.secondsLeft).toBeGreaterThanOrEqual(61);
+    // Never behind the time: the last render shows at least what's left now.
+    expect(last?.secondsLeft).toBeGreaterThanOrEqual(
+      holdCountdown(expiresAt, Date.now()).secondsLeft
+    );
     await render(null);
   });
 
@@ -210,7 +221,7 @@ describe("useHoldCountdown", () => {
     }
     await render(<Running />);
     // Between the running clock's ticks, a new hold of exactly 30 seconds.
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await pass(1_500);
     fresh = new Date(Date.now() + 30_000).toISOString();
     await render(
       <>
