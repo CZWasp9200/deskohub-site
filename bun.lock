@@ -359,7 +359,7 @@
     },
     "apps/dhw": {
       "name": "dhw",
-      "version": "1.35.0",
+      "version": "1.36.0",
       "dependencies": {
         "@deskohub/i18n": "workspace:*",
         "@deskohub/workspace-admin-api": "workspace:*",
