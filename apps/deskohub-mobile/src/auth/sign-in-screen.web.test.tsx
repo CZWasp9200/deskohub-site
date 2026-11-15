@@ -1,5 +1,5 @@
-import { testEmailAddress } from "@deskohub/test-email";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import { act, type ReactElement, type ReactNode } from "react";
 import { View } from "react-native";
@@ -13,8 +13,8 @@ import { AppSignInCodeStep } from "./app-sign-in-code-step.web";
 import { AppSignInContinueStep } from "./app-sign-in-continue-step";
 import { AppSignInEmailStep } from "./app-sign-in-email-step";
 import { AppSignInLinkStep } from "./app-sign-in-link-step";
-import type { AuthSessionState } from "./auth-session-state";
 import { nativeReturnUri } from "./auth-callback";
+import type { AuthSessionState } from "./auth-session-state";
 import {
   clearNativeHandoffRequest,
   saveNativeHandoffRequest,
@@ -111,7 +111,9 @@ const shownStep = <Props,>(component: (props: Props) => ReactNode): Props => {
 };
 
 const settle = (check: () => boolean) =>
-  Effect.runPromise(eventually(check, () => String((shown as ReactElement)?.type)));
+  Effect.runPromise(
+    eventually(check, () => String((shown as ReactElement)?.type))
+  );
 
 const runInPage = (run: () => void) => act(async () => run());
 
@@ -206,7 +208,9 @@ describe("the web SignInScreen", () => {
     const before = Date.now();
     emailAnswers.push(codesOn());
     await runInPage(() => shownStep(AppSignInCodeStep).onResend());
-    await settle(() => shownStep(AppSignInCodeStep).notice?.tone === "positive");
+    await settle(
+      () => shownStep(AppSignInCodeStep).notice?.tone === "positive"
+    );
     const resent = shownStep(AppSignInCodeStep);
     expect(resent.code).toBe("");
     expect(resent.invalid).toBe(false);
@@ -229,7 +233,9 @@ describe("the web SignInScreen", () => {
       })
     );
     await runInPage(() => shownStep(AppSignInCodeStep).onResend());
-    await settle(() => shownStep(AppSignInCodeStep).resendAvailableAt === serverAt);
+    await settle(
+      () => shownStep(AppSignInCodeStep).resendAvailableAt === serverAt
+    );
     const limited = shownStep(AppSignInCodeStep);
     expect(limited.exhausted).toBe(true);
     expect(limited.notice?.tone).toBe("error");

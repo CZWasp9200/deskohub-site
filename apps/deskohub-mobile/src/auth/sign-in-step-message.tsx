@@ -37,7 +37,9 @@ export function SignInStepMessage({
           <Icon
             icon={notice.tone === "error" ? CircleAlert : CircleCheck}
             size={16}
-            color={notice.tone === "error" ? color.dangerInk : color.positiveInk}
+            color={
+              notice.tone === "error" ? color.dangerInk : color.positiveInk
+            }
           />
         )}
         <Text

@@ -1,5 +1,5 @@
-import { useAtomValue } from "@effect/atom-react";
 import { resendCooldownSecondsAtom } from "@deskohub/workspace-customer-api/sign-in-email";
+import { useAtomValue } from "@effect/atom-react";
 import Clock from "lucide-react-native/icons/clock";
 import { StyleSheet, View } from "react-native";
 import { useAppLocale } from "../i18n/locale-context";

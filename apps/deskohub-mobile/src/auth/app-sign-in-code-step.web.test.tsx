@@ -1,5 +1,5 @@
-import { testEmailAddress } from "@deskohub/test-email";
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import Mail from "lucide-react-native/icons/mail";
 import type { ReactElement, ReactNode } from "react";
 import { Button } from "../ui/controls";

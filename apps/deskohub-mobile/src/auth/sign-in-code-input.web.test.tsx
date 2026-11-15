@@ -32,7 +32,7 @@ describe("SignInCodeInput", () => {
     );
     expect(elements.indexOf(boxes[2] as never)).toBeLessThan(dash);
     expect(elements.indexOf(boxes[3] as never)).toBeGreaterThan(dash);
-    expect(boxes.map(({ props }) => props.children).flat()).toEqual(
+    expect(boxes.flatMap(({ props }) => props.children as never)).toEqual(
       expect.arrayContaining(["7", "3", "1", "0"])
     );
   });
@@ -61,9 +61,9 @@ describe("SignInCodeInput", () => {
 
   test("disabled boxes are greyed and take no input", () => {
     const elements = shown({ disabled: true });
-    expect(
-      elements.find(({ type }) => type === "input")?.props.disabled
-    ).toBe(true);
+    expect(elements.find(({ type }) => type === "input")?.props.disabled).toBe(
+      true
+    );
     for (const box of boxesOf(elements)) {
       expect(
         (box.props.style as { backgroundColor: string }).backgroundColor

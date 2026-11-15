@@ -1,5 +1,5 @@
-import { testEmailAddress } from "@deskohub/test-email";
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import type { ReactElement, ReactNode } from "react";
 import { Button, TextField } from "../ui/controls";
 import { elementTree, find } from "../ui/testing/element-tree";
@@ -68,7 +68,11 @@ describe("AppSignInEmailStep", () => {
 
   test("a locked address is read-only and not focused", () => {
     const { field } = step({
-      email: { value: testEmailAddress("locked"), locked: true, onChange: () => undefined },
+      email: {
+        value: testEmailAddress("locked"),
+        locked: true,
+        onChange: () => undefined,
+      },
     });
     expect(field?.value).toBe(testEmailAddress("locked"));
     expect(field?.editable).toBe(false);

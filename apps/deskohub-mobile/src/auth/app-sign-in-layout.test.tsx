@@ -3,9 +3,7 @@ import { StyleSheet, View } from "react-native";
 import { AppSignInLayout } from "./app-sign-in-layout";
 import { inOrder, shownTree } from "./testing/sign-in-step-tree";
 
-const layout = (
-  props: Partial<Parameters<typeof AppSignInLayout>[0]> = {}
-) =>
+const layout = (props: Partial<Parameters<typeof AppSignInLayout>[0]> = {}) =>
   inOrder(
     shownTree(AppSignInLayout, {
       title: "title",
@@ -18,8 +16,11 @@ const layout = (
   );
 
 const grows = (props: { readonly style?: unknown }) =>
-  (StyleSheet.flatten(props.style as never) as { flexGrow?: number } | undefined)
-    ?.flexGrow === 1;
+  (
+    StyleSheet.flatten(props.style as never) as
+      | { flexGrow?: number }
+      | undefined
+  )?.flexGrow === 1;
 
 describe("AppSignInLayout", () => {
   test("puts the heading, instructions and link on top, the field in the middle and the action at the bottom, above the footnote", () => {

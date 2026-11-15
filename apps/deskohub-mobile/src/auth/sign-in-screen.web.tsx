@@ -296,20 +296,21 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
       verify.state.status === "failed" ? verify.state.failure : undefined;
     // A refused resend outranks the earlier code result, so it is seen.
     const stepFailure = firstFailure(handoff.state, send.state, verify.state);
+    const resentNotice: SignInStepNotice | undefined = resent
+      ? {
+          tone: "positive",
+          text:
+            step === "link"
+              ? m.signin_link_resent({}, { locale })
+              : m.signin_code_resent({}, { locale }),
+        }
+      : undefined;
     const notice: SignInStepNotice | undefined = stepFailure
       ? {
           tone: "error",
           text: webSignInFailureMessage(stepFailure.reason, locale),
         }
-      : resent
-        ? {
-            tone: "positive",
-            text:
-              step === "link"
-                ? m.signin_link_resent({}, { locale })
-                : m.signin_code_resent({}, { locale }),
-          }
-        : undefined;
+      : resentNotice;
     const resendAvailableAt =
       sent === undefined
         ? 0

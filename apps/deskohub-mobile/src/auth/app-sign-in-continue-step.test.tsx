@@ -1,5 +1,5 @@
-import { testEmailAddress } from "@deskohub/test-email";
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import type { ReactElement } from "react";
 import { Button } from "../ui/controls";
 import { elementTree, findAll, textOf } from "../ui/testing/element-tree";
@@ -38,9 +38,10 @@ describe("AppSignInContinueStep", () => {
     action.props.onPress();
     expect(onContinue).toHaveBeenCalledTimes(1);
 
-    const texts = findAll(shownTree(AppSignInContinueStep, defaults), "Text").map(
-      textOf
-    );
+    const texts = findAll(
+      shownTree(AppSignInContinueStep, defaults),
+      "Text"
+    ).map(textOf);
     expect(texts).toContain(defaults.email);
     expect(texts).toContain(emailInitials(defaults.email));
   });

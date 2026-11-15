@@ -62,7 +62,9 @@ describe("useKeyboardResizedViewport", () => {
 
   test("lets the keyboard resize the page only while the screen is shown", async () => {
     await render(<Probe />);
-    expect(viewportMeta()).toBe(`${original}, interactive-widget=resizes-content`);
+    expect(viewportMeta()).toBe(
+      `${original}, interactive-widget=resizes-content`
+    );
     await render(null);
     expect(viewportMeta()).toBe(original);
   });
@@ -70,9 +72,14 @@ describe("useKeyboardResizedViewport", () => {
   test("keeps a page's own keyboard setting", async () => {
     document
       .querySelector('meta[name="viewport"]')
-      ?.setAttribute("content", `${original}, interactive-widget=overlays-content`);
+      ?.setAttribute(
+        "content",
+        `${original}, interactive-widget=overlays-content`
+      );
     await render(<Probe />);
-    expect(viewportMeta()).toBe(`${original}, interactive-widget=overlays-content`);
+    expect(viewportMeta()).toBe(
+      `${original}, interactive-widget=overlays-content`
+    );
   });
 
   test("follows the visible area where only the visual viewport shrinks", async () => {

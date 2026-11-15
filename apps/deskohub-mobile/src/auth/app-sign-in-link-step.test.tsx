@@ -1,6 +1,7 @@
-import { testEmailAddress } from "@deskohub/test-email";
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import type { ReactElement, ReactNode } from "react";
+import { View } from "react-native";
 import { elementTree, find } from "../ui/testing/element-tree";
 import { AppSignInLayout } from "./app-sign-in-layout";
 import { AppSignInLinkStep } from "./app-sign-in-link-step";
@@ -8,9 +9,7 @@ import { SignInResend } from "./sign-in-resend";
 import { SignInStepMessage } from "./sign-in-step-message";
 import { inEnglish } from "./testing/sign-in-step-tree";
 
-const step = (
-  props: Partial<Parameters<typeof AppSignInLinkStep>[0]> = {}
-) => {
+const step = (props: Partial<Parameters<typeof AppSignInLinkStep>[0]> = {}) => {
   const layout = elementTree(
     AppSignInLinkStep,
     {
@@ -35,15 +34,18 @@ describe("AppSignInLinkStep", () => {
     expect(layout.instructions).toBeDefined();
     expect(layout.onUseDifferentEmail).toBeDefined();
     expect(
-      find(<>{layout.children as ReactNode}</>, SignInResend)?.props.what
+      find(<View>{layout.children as ReactNode}</View>, SignInResend)?.props
+        .what
     ).toBe("link");
   });
 
   test("a new link sent, or a refused one, shows in place", () => {
     const notice = { tone: "positive", text: "sent" } as const;
     expect(
-      find(<>{step({ notice }).children as ReactNode}</>, SignInStepMessage)?.props
-        .notice
+      find(
+        <View>{step({ notice }).children as ReactNode}</View>,
+        SignInStepMessage
+      )?.props.notice
     ).toEqual(notice);
   });
 

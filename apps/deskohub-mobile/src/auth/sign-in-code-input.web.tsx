@@ -90,15 +90,14 @@ function CodeBox({
   readonly invalid: boolean;
   readonly disabled: boolean;
 }) {
-  const ring = invalid
-    ? `inset 0 0 0 2px ${color.danger}`
-    : slot.isActive && !disabled
-      ? `inset 0 0 0 2px ${color.action}`
-      : `inset 0 0 0 1px ${color.field}`;
+  const active = slot.isActive && !disabled;
+  let ring = `inset 0 0 0 1px ${color.field}`;
+  if (active) ring = `inset 0 0 0 2px ${color.action}`;
+  if (invalid) ring = `inset 0 0 0 2px ${color.danger}`;
   return (
     <div
       data-code-box=""
-      data-active={slot.isActive && !disabled}
+      data-active={active}
       style={{
         ...boxStyle,
         boxShadow: ring,

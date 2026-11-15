@@ -23,7 +23,9 @@ export const shownTree = <Props>(
 ): ReactNode => hostTree(elementTree(component, props, inEnglish), inEnglish);
 
 /** Every element of a tree, in document order. */
-export const inOrder = (node: ReactNode): ReadonlyArray<ReactElement<HostProps>> =>
+export const inOrder = (
+  node: ReactNode
+): ReadonlyArray<ReactElement<HostProps>> =>
   isValidElement<HostProps>(node)
     ? [node, ...Children.toArray(node.props.children).flatMap(inOrder)]
     : [];

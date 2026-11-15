@@ -4,11 +4,11 @@ import { m } from "../i18n/messages";
 import { Button } from "../ui/controls";
 import { Text } from "../ui/text";
 import { color, radius, shadow, space } from "../ui/tokens";
+import { AppSignInLayout } from "./app-sign-in-layout";
 import {
   SignInStepMessage,
   type SignInStepNotice,
 } from "./sign-in-step-message";
-import { AppSignInLayout } from "./app-sign-in-layout";
 
 /**
  * Up to two initials for an account known only by its email: the first

@@ -29,7 +29,11 @@ export const useKeyboardResizedViewport = (): VisibleViewport | undefined => {
       'meta[name="viewport"]'
     );
     const original = meta?.getAttribute("content") ?? undefined;
-    if (meta && original !== undefined && !original.includes("interactive-widget")) {
+    if (
+      meta &&
+      original !== undefined &&
+      !original.includes("interactive-widget")
+    ) {
       meta.setAttribute("content", `${original}, ${resizesContent}`);
     }
 
