@@ -13,6 +13,7 @@ import { type Locale, m } from "@/features/i18n";
 import { getMeetingRoomCheckoutStatusSummary } from "@/features/meeting-room/components/meeting-room-checkout-status-summary";
 import { getOfficeCheckoutStatusSummary } from "@/features/office/components/office-checkout-status-summary";
 import { getOfficeReservationSelection } from "@/features/reservation/office-reservation";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
 import {
   getCoworkReservationPath,
@@ -27,6 +28,7 @@ import {
   type CheckoutStatusCopy,
   getCheckoutStatusCopy,
 } from "./checkout-status-copy";
+import { CheckoutStatusPaymentPageReopening } from "./checkout-status-payment-page-reopening";
 import { WorkspaceTableMapView } from "./workspace-table-map-view";
 
 type CheckoutStatusPageProps = {
@@ -283,6 +285,11 @@ export function CheckoutStatusPage({
           locale
         )}
         reserveAgainPath={reserveAgainPath}
+        reopensPaymentPageFor={
+          checkoutStatusTraits[status.status].offersPaymentPageReopening
+            ? status.orderId
+            : undefined
+        }
       />
     </CheckoutStatusFrame>
   );
@@ -482,14 +489,18 @@ function CheckoutStatusReservationDetails({
   );
 }
 
+const checkoutStatusActionsClassName = "mt-8 flex flex-col gap-3 sm:flex-row";
+
 /**
  * A page offers a new reservation and the way home; a fulfilled reservation
- * also links to its access, softly navigating inside a modal.
+ * also links to its access, softly navigating inside a modal. An order still
+ * awaiting its payment first offers its payment page again, in a modal too.
  */
 function CheckoutStatusActions({
   locale,
   offersNewReservation,
   presentation,
+  reopensPaymentPageFor,
   reservationAccessHref,
   reserveAgainLabel,
   reserveAgainPath,
@@ -497,15 +508,19 @@ function CheckoutStatusActions({
   readonly locale: Locale;
   readonly offersNewReservation: boolean;
   readonly presentation: CheckoutStatusPresentation;
+  /** The order whose payment page the status offers again, if any. */
+  readonly reopensPaymentPageFor: WorkspaceReservationId | undefined;
   readonly reservationAccessHref: string | undefined;
   readonly reserveAgainLabel: string;
   readonly reserveAgainPath: string;
 }) {
   const showPageActions = presentation === "page";
-  if (!showPageActions && !reservationAccessHref) return null;
+  if (!showPageActions && !reservationAccessHref && !reopensPaymentPageFor) {
+    return null;
+  }
 
-  return (
-    <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+  const actions = (
+    <>
       {showPageActions && (
         <>
           {offersNewReservation && (
@@ -539,6 +554,18 @@ function CheckoutStatusActions({
           )}
         </Button>
       )}
-    </div>
+    </>
+  );
+
+  return reopensPaymentPageFor ? (
+    <CheckoutStatusPaymentPageReopening
+      className={checkoutStatusActionsClassName}
+      locale={locale}
+      orderId={reopensPaymentPageFor}
+    >
+      {actions}
+    </CheckoutStatusPaymentPageReopening>
+  ) : (
+    <div className={checkoutStatusActionsClassName}>{actions}</div>
   );
 }

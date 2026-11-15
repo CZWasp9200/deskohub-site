@@ -891,6 +891,8 @@
   "checkoutStatusBookAgain": "Забронювати знову",
   "checkoutStatusTryAgain": "Спробувати ще раз",
   "checkoutStatusBackHome": "На головну",
+  "checkoutStatusOpenPaymentPage": "Відкрити платіжну сторінку",
+  "checkoutStatusOpenPaymentPageError": "Не вдалося відкрити платіжну сторінку. Спробуйте ще раз.",
   "reservationEmailTierLabel": "Тариф",
   "reservationEmailReservationLabel": "Бронювання",
   "reservationEmailDateLabel": "Дата бронювання",

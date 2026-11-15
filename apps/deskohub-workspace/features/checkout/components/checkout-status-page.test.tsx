@@ -15,6 +15,10 @@ import { cleanup, render } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
+import {
+  type CheckoutStatusKind,
+  checkoutStatusKinds,
+} from "@/features/checkout/checkout-status-kind";
 import { type Locale, m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
@@ -51,7 +55,21 @@ mock.module("next/link", () => ({
   },
 }));
 
+const { workspaceUseAction } = await import(
+  "@/shared/testing/workspace-component-module-mocks"
+);
+mock.module("@/features/checkout/actions/reopen-payment-page", () => ({
+  reopenPaymentPage: mock(),
+}));
+
 const { CheckoutStatusPage } = await import("./checkout-status-page");
+
+beforeEach(() => {
+  workspaceUseAction.mockReturnValue({
+    execute: mock(),
+    isExecuting: false,
+  } as never);
+});
 
 const baseStatus: CheckoutStatusViewModel = {
   kind: "cowork",
@@ -1288,4 +1306,94 @@ describe("CheckoutStatusPage payment retry", () => {
     );
     expect(cta?.getAttribute("href")).toBe("/en-US/reservation/cowork");
   });
+});
+
+describe("CheckoutStatusPage payment page reopening", () => {
+  beforeAll(() => {
+    registerWorkspaceComponentTestEnv();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
+  });
+
+  const openPaymentPageSelector = "#checkout-status-open-payment-page";
+  const backHome = m.checkoutStatusBackHome({}, { locale: "en-US" });
+
+  test.each(["page", "modal"] as const)(
+    "leads the actions with the payment page while the payment is pending in %s presentation",
+    (presentation) => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          presentation={presentation}
+          status={{
+            ...baseStatus,
+            status: "pending",
+            paymentStatus: "pending",
+            fulfillmentStatus: "not_started",
+          }}
+        />
+      );
+
+      const openPaymentPage = view.container.querySelector(
+        openPaymentPageSelector
+      );
+      expect(openPaymentPage?.tagName).toBe("BUTTON");
+      expect(openPaymentPage?.parentElement?.firstElementChild).toBe(
+        openPaymentPage
+      );
+      expect(view.queryByRole("link", { name: backHome }) !== null).toBe(
+        presentation === "page"
+      );
+    }
+  );
+
+  const statusesWithoutPaymentPage: readonly CheckoutStatusViewModel[] = [
+    {
+      orderId: "reservation-no-payment-page",
+      returnOutcome: "unknown",
+      status: "not_found",
+    },
+    ...checkoutStatusKinds
+      .filter(
+        (kind): kind is Exclude<CheckoutStatusKind, "not_found" | "pending"> =>
+          kind !== "not_found" && kind !== "pending"
+      )
+      .map(
+        (kind): CheckoutStatusViewModel => ({
+          ...baseStatus,
+          status: kind,
+          paymentStatus: "pending",
+          fulfillmentStatus: "not_started",
+        })
+      ),
+  ];
+
+  test.each(
+    statusesWithoutPaymentPage.flatMap((status) =>
+      (["page", "modal"] as const).map((presentation) => ({
+        kind: status.status,
+        presentation,
+        status,
+      }))
+    )
+  )(
+    "offers no payment page for $kind in $presentation presentation",
+    ({ presentation, status }) => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          presentation={presentation}
+          status={status}
+        />
+      );
+
+      expect(view.container.querySelector(openPaymentPageSelector)).toBeNull();
+    }
+  );
 });
