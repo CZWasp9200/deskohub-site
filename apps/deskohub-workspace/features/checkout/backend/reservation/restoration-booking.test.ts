@@ -255,6 +255,23 @@ describe("getRestorationBooking", () => {
         expect(findSnapshot).toHaveBeenCalledWith(paymentAttemptId);
       });
 
+      test("books a record whose unchanged instants are written in another UTC offset", async () => {
+        const inOtherOffset = (instant: string) =>
+          Temporal.Instant.from(instant).toString({ timeZone: "+05:30" });
+        const record = {
+          ...kind.record,
+          startDate: inOtherOffset(kind.record.startDate),
+          endDate: inOtherOffset(kind.record.endDate),
+        };
+
+        const result = await withSnapshot(record);
+
+        expect(result).toEqual({
+          error: null,
+          booking: bookingOf(kind.record, Number(kind.record.seats)),
+        });
+      });
+
       for (const [field, change] of [
         [
           "start",

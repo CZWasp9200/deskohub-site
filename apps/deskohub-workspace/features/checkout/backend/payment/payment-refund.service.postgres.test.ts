@@ -9,7 +9,9 @@ import {
   NexiService,
 } from "@deskohub/nexi";
 import { eq } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import { Cause, Deferred, Effect, Fiber, Layer, Option } from "effect";
+import type { WorkspaceDatabase } from "@/db/database.service";
 import { paymentAttempts } from "@/db/schema";
 import {
   type PaymentAttemptId,
@@ -60,32 +62,38 @@ describe.skipIf(!testDatabase)(
       );
     });
 
-    const reconcile = (
+    const reconciliation = (
       reservationId: WorkspaceReservationId,
-      getOrder: NexiService["Service"]["getOrder"]
+      getOrder: NexiService["Service"]["getOrder"],
+      repository: Layer.Layer<
+        PaymentRefundRepository,
+        never,
+        WorkspaceDatabase
+      > = PaymentRefundRepository.Default
     ) =>
-      Effect.runPromise(
-        Effect.gen(function* () {
-          const service = yield* PaymentRefundService;
-          return yield* service.reconcileReservationRefunds(reservationId);
-        }).pipe(
-          Effect.match({
-            onFailure: (error) => ({ error, attempts: null }),
-            onSuccess: (attempts) => ({ error: null, attempts }),
-          }),
-          Effect.provide(
-            PaymentRefundService.Default.pipe(
-              Layer.provide(PaymentRefundRepository.Default),
-              Layer.provide(
-                Layer.merge(
-                  Layer.mock(NexiService, { getOrder }),
-                  testDatabase.layer
-                )
+      Effect.gen(function* () {
+        const service = yield* PaymentRefundService;
+        return yield* service.reconcileReservationRefunds(reservationId);
+      }).pipe(
+        Effect.match({
+          onFailure: (error) => ({ error, attempts: null }),
+          onSuccess: (attempts) => ({ error: null, attempts }),
+        }),
+        Effect.provide(
+          PaymentRefundService.Default.pipe(
+            Layer.provide(repository),
+            Layer.provide(
+              Layer.merge(
+                Layer.mock(NexiService, { getOrder }),
+                testDatabase.layer
               )
             )
           )
         )
       );
+
+    const reconcile = (...input: Parameters<typeof reconciliation>) =>
+      Effect.runPromise(reconciliation(...input));
 
     /** A synthetic cancelled reservation with the given Nexi attempts. */
     const insertReservation = async (
@@ -203,6 +211,114 @@ describe.skipIf(!testDatabase)(
 
       expect(result.error?._tag).toBe("PaymentRefundReconciliationError");
     });
+
+    test("reconciles attempts awaiting a refund one Nexi read at a time and returns every result", async () => {
+      const { reservationId, attemptIds } = await insertReservation([
+        { refundState: "required" },
+        { refundState: "required" },
+      ]);
+
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const gates = yield* Effect.forEach(attemptIds, (id) =>
+            Effect.gen(function* () {
+              return {
+                orderId: NexiOrderIdSchema.make(`order-${id}`),
+                reached: yield* Deferred.make<void>(),
+                release: yield* Deferred.make<void>(),
+              };
+            })
+          );
+          const [first, second] = gates;
+          if (!first || !second) return yield* Effect.die("Missing gates.");
+          const getOrder = (input: GetNexiOrderInput) =>
+            Effect.gen(function* () {
+              const gate = gates.find(
+                ({ orderId }) => orderId === input.orderId
+              );
+              if (!gate) return yield* Effect.die("Unexpected Nexi order.");
+              yield* Deferred.succeed(gate.reached, undefined);
+              yield* Deferred.await(gate.release);
+              return refundedOrder(input.orderId);
+            });
+          const request = yield* Effect.forkChild(
+            reconciliation(reservationId, getOrder)
+          );
+          // Fails at once rather than at the test timeout when the request
+          // ends before reading the gated order.
+          const awaitRead = (gate: (typeof gates)[number]) =>
+            Effect.raceFirst(
+              Deferred.await(gate.reached),
+              Fiber.await(request).pipe(
+                Effect.andThen(Effect.die("Request ended before reading."))
+              )
+            );
+
+          yield* awaitRead(first);
+          const secondReadDuringFirst = yield* Deferred.await(
+            second.reached
+          ).pipe(Effect.timeoutOption("200 millis"));
+          expect(Option.isNone(secondReadDuringFirst)).toBe(true);
+          yield* Deferred.succeed(first.release, undefined);
+          yield* awaitRead(second);
+          yield* Deferred.succeed(second.release, undefined);
+          return yield* Fiber.join(request);
+        })
+      );
+
+      expect(result.error).toBeNull();
+      expect(result.attempts).toEqual([
+        expect.objectContaining({
+          refundState: "refunded",
+          refundedAmountValue: 29_000,
+        }),
+        expect.objectContaining({
+          refundState: "refunded",
+          refundedAmountValue: 29_000,
+        }),
+      ]);
+      for (const id of attemptIds) {
+        const attempt = await readAttempt(id);
+        expect(attempt?.refundState).toBe("refunded");
+        expect(attempt?.refundedAt).toEqual(
+          Temporal.Instant.from("2026-10-05T08:30:00Z")
+        );
+      }
+    });
+
+    test.each(["findRequiredRefunds", "findReservationAttempts"] as const)(
+      "fails when %s can't read the reservation's attempts",
+      async (reader) => {
+        const { reservationId } = await insertReservation([
+          { refundState: "required" },
+        ]);
+        const failingRepository = Layer.effect(
+          PaymentRefundRepository,
+          Effect.gen(function* () {
+            const repository = yield* PaymentRefundRepository;
+            return PaymentRefundRepository.of({
+              ...repository,
+              [reader]: () =>
+                Effect.fail(
+                  new EffectDrizzleQueryError({
+                    query: "select 1",
+                    params: [],
+                    cause: Cause.die(new Error("synthetic storage outage")),
+                  })
+                ),
+            });
+          })
+        ).pipe(Layer.provide(PaymentRefundRepository.Default));
+
+        const result = await reconcile(
+          reservationId,
+          (input) => Effect.succeed(refundedOrder(input.orderId)),
+          failingRepository
+        );
+
+        expect(result.error?._tag).toBe("PaymentRefundReconciliationError");
+      }
+    );
 
     test("reads Nexi only for attempts awaiting a refund", async () => {
       const { reservationId } = await insertReservation([
