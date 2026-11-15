@@ -33,6 +33,7 @@ import {
 } from "./web-native-request-store";
 import { loadReauthenticatingUser } from "./web-reauthentication-store";
 import {
+  appAccountEmail,
   completeWebCodeSignIn,
   completeWebPasskeySignIn,
   finishSignIn,
@@ -128,7 +129,11 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     setPageSession((known) => known ?? { user });
   }, [sessionRead, sessionUserId, sessionEmail]);
   // Its email goes only to that account, through any start over.
-  const emailField = signInEmailField({ reauthenticating, pageSession });
+  const emailField = signInEmailField({
+    reauthenticating,
+    pageSession,
+    appAccountEmail: appAccountEmail(nativeRequest),
+  });
   const verify = useAuthTask(
     standaloneTaskRuntime,
     (address: string, entered: string, expectation: WebAccountExpectation) =>

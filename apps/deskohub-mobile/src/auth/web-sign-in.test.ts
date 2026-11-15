@@ -111,6 +111,7 @@ const {
   reauthenticationExpectation,
   sendSignInEmail,
   signInEmailField,
+  appAccountEmail,
 } = await import("./web-sign-in");
 const {
   clearReauthenticatingUser,
@@ -260,6 +261,25 @@ describe("signInEmailField", () => {
     }
   });
 
+  test("locks the app's reauthentication to the account the app named", () => {
+    const other = { id: "bob", email: testEmailAddress("bob") };
+    for (const pageSession of [
+      undefined,
+      { user: undefined },
+      { user: other },
+    ]) {
+      for (const reauthenticating of [true, false]) {
+        expect(
+          signInEmailField({
+            reauthenticating,
+            pageSession,
+            appAccountEmail: user.email,
+          })
+        ).toEqual({ kind: "locked", email: user.email });
+      }
+    }
+  });
+
   test("leaves the address free with no account to keep", () => {
     expect(
       signInEmailField({
@@ -270,6 +290,31 @@ describe("signInEmailField", () => {
     expect(
       signInEmailField({ reauthenticating: false, pageSession: { user } })
     ).toEqual({ kind: "free" });
+  });
+});
+
+describe("appAccountEmail", () => {
+  const request = {
+    codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+    state: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+    returnUri: "deskohub://auth/callback",
+    reauthenticate: true,
+    loginHint: testEmailAddress("ada"),
+  };
+
+  test("is the account an app reauthentication names", () => {
+    expect(appAccountEmail(Option.some(request))).toBe(request.loginHint);
+  });
+
+  test("is absent without an app reauthentication naming one", () => {
+    const { loginHint: _, ...withoutHint } = request;
+    for (const nativeRequest of [
+      Option.none(),
+      Option.some(withoutHint),
+      Option.some({ ...request, reauthenticate: false }),
+    ]) {
+      expect(appAccountEmail(nativeRequest)).toBeUndefined();
+    }
   });
 });
 

@@ -1,6 +1,16 @@
 import { Option, Schema } from "effect";
 import { type AppLocale, appLocales, isAppLocale } from "../i18n/app-locale";
 import { nativeReturnUri, webCallbackPath } from "./auth-callback";
+import { isEmailAddress } from "./email-address";
+
+/** Why the app asks the customer to sign in again. */
+export const reauthenticationPurposes = ["delete-account"] as const;
+export type ReauthenticationPurpose = (typeof reauthenticationPurposes)[number];
+
+const isReauthenticationPurpose = (
+  value: string | undefined
+): value is ReauthenticationPurpose =>
+  reauthenticationPurposes.some((purpose) => purpose === value);
 
 /**
  * What the native app asks the web sign-in page for: after the customer
@@ -23,6 +33,14 @@ export interface NativeHandoffRequest {
    * the page read it names none, and the page keeps the browser's.
    */
   readonly locale?: AppLocale;
+  /**
+   * The account a reauthentication signs in as. The page shows it locked, so
+   * nobody confirms as someone else; the app still refuses another account's
+   * session when it comes back.
+   */
+  readonly loginHint?: string;
+  /** What a reauthentication is for, so the page can say so. */
+  readonly purpose?: ReauthenticationPurpose;
 }
 
 /** The web page that runs the email sign-in for the native app. */
@@ -39,6 +57,8 @@ const params = {
   returnUri: "return_uri",
   prompt: "prompt",
   locale: "locale",
+  loginHint: "login_hint",
+  purpose: "purpose",
 } as const;
 
 // base64url SHA-256: exactly 43 characters.
@@ -59,6 +79,11 @@ export const nativeSignInUrl = (
   });
   if (request.reauthenticate) search.set(params.prompt, "login");
   if (request.locale !== undefined) search.set(params.locale, request.locale);
+  if (request.loginHint !== undefined) {
+    search.set(params.loginHint, request.loginHint);
+  }
+  if (request.purpose !== undefined)
+    search.set(params.purpose, request.purpose);
   return `${origin}${webSignInPath}?${search.toString()}`;
 };
 
@@ -83,6 +108,10 @@ export const readNativeHandoffRequest = (
   // The language only picks the page's copy, so a value the page doesn't
   // support leaves the browser's instead of refusing the sign-in.
   const locale = only(search, params.locale);
+  // The hint and the purpose only shape what the page shows, so a value it
+  // can't use leaves them out instead of refusing the sign-in.
+  const loginHint = only(search, params.loginHint);
+  const purpose = only(search, params.purpose);
   if (
     codeChallenge === undefined ||
     !challengePattern.test(codeChallenge) ||
@@ -101,6 +130,10 @@ export const readNativeHandoffRequest = (
     returnUri,
     reauthenticate: prompt[0] === "login",
     ...(isAppLocale(locale) ? { locale } : {}),
+    ...(loginHint !== undefined && isEmailAddress(loginHint)
+      ? { loginHint }
+      : {}),
+    ...(isReauthenticationPurpose(purpose) ? { purpose } : {}),
   });
 };
 
@@ -131,6 +164,10 @@ const storedRequestSchema = Schema.fromJsonString(
       returnUri: Schema.String,
       reauthenticate: Schema.Boolean,
       locale: Schema.optionalKey(Schema.Literals(appLocales)),
+      loginHint: Schema.optionalKey(
+        Schema.String.check(Schema.makeFilter(isEmailAddress))
+      ),
+      purpose: Schema.optionalKey(Schema.Literals(reauthenticationPurposes)),
     }),
     expiresAt: Schema.Finite,
   })

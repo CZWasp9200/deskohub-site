@@ -139,7 +139,7 @@ const reauthenticationCompletedAsBob = async () => {
     }).pipe(Effect.provideService(SignInLocale, "en-US"))
   );
   const request = await app.runPromise(
-    startPendingSignIn(Option.some(ada.id)).pipe(
+    startPendingSignIn(Option.some({ user: ada })).pipe(
       Effect.provideService(SignInLocale, "en-US")
     )
   );
