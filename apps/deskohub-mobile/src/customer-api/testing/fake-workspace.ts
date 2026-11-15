@@ -11,7 +11,9 @@ import {
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
   CustomerFeatureUnavailable,
+  CustomerInvoiceNotFound,
   CustomerInvoiceNotIssued,
+  type CustomerInvoicesApi,
   CustomerMarketingPreferencesRejected,
   type CustomerOrderStatus,
   type CustomerProfile,
@@ -83,6 +85,7 @@ export type FakeRequestOutcome =
 type EndpointName = HttpApiEndpoint.Name<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
+  | HttpApiGroup.Endpoints<typeof CustomerInvoicesApi>
   | HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
 >;
 
@@ -617,6 +620,24 @@ const serverLayer = (workspace: FakeWorkspace) => {
         )
   );
 
+  // The sample data issues no invoices yet: the list is empty and every
+  // invoice is not found, as the Workspace answers an account without any.
+  const invoices = HttpApiBuilder.group(
+    WorkspaceCustomerApi,
+    "invoices",
+    (handlers) =>
+      handlers
+        .handle("listInvoices", () =>
+          Effect.as(linkedAccount, { invoices: [] })
+        )
+        .handle("getInvoicePdf", () =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.fail(new CustomerInvoiceNotFound())
+          )
+        )
+  );
+
   const booking = fakeBookingGroup(workspace);
 
   const auth = HttpApiBuilder.group(CustomerAuthHttpApi, "auth", (handlers) =>
@@ -769,7 +790,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
 
   return Layer.mergeAll(
     HttpApiBuilder.layer(WorkspaceCustomerApi).pipe(
-      Layer.provide(Layer.mergeAll(account, reservations, booking)),
+      Layer.provide(Layer.mergeAll(account, reservations, invoices, booking)),
       Layer.provide(customerMiddleware)
     ),
     HttpApiBuilder.layer(CustomerAuthHttpApi).pipe(Layer.provide(auth))
