@@ -94,9 +94,8 @@ const toHistoryItem = (
       getCustomerInvoiceStatus(invoice),
       locale
     ),
-    // A cancelled invoice asks for no payment, so it shows no due date.
     dueDate:
-      invoice.dueDate === null || invoice.cancellation !== null
+      invoice.dueDate === null
         ? null
         : formatPlainDate({
             date: Temporal.PlainDate.from(invoice.dueDate),

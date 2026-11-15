@@ -120,7 +120,7 @@ export interface CustomerInvoiceHistoryItem {
     readonly issuedOn: string;
     readonly total: string;
     readonly status: string;
-    /** `null` while the invoice requests no payment, and once it's cancelled. */
+    /** `null` while the invoice requests no payment. */
     readonly dueDate: string | null;
   };
   readonly pdfPath: string;

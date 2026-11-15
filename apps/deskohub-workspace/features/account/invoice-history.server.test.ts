@@ -47,9 +47,10 @@ const paidInvoice: CustomerInvoiceSummary = {
 };
 const correctiveDocumentNumber =
   correctiveDocumentNumberSchema.make("WS-OD-2026-000005");
-/** A cancelled invoice that still asked for payment when it was cancelled. */
+/** A cancelled invoice, which requests no payment any more. */
 const cancelledInvoice: CustomerInvoiceSummary = {
   ...dueInvoice,
+  dueDate: null,
   id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb25"),
   invoiceNumber: invoiceNumberSchema.make("WS-FV-2026-000043"),
   cancellation: { correctiveDocumentNumber },
@@ -104,7 +105,7 @@ describe("loadInvoiceHistory", () => {
     });
   });
 
-  test("marks a cancelled invoice cancelled without a due date, keeps its PDF and links its corrective document", async () => {
+  test("marks a cancelled invoice cancelled, keeps its PDF and links its corrective document", async () => {
     const history = await loadWith(Effect.succeed([cancelledInvoice]));
 
     expect(history.kind === "populated" && history.invoices[0]).toEqual({

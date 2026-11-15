@@ -68,6 +68,10 @@ describe("customer invoice summary", () => {
 
     expect(summary.cancellation).toEqual({ correctiveDocumentNumber });
     expect(summary.paymentStatus).toBe("overdue");
+    expect(summary.dueDate).toBeNull();
+    expect(summarize(dueManual, date("2026-09-02")).dueDate).toBe(
+      date("2026-09-01")
+    );
     expect(getCustomerInvoiceStatus(summary)).toBe("cancelled");
     expect(getCustomerInvoiceStatus(summarize(dueManual))).toBe("issued");
   });

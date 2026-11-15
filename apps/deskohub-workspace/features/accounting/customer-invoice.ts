@@ -30,7 +30,7 @@ export interface CustomerInvoiceSummary {
   readonly issuedOn: PlainDate;
   readonly total: InvoiceTotal;
   readonly paymentStatus: InvoicePaymentStatus;
-  /** The due date while the invoice requests payment, else `null`. */
+  /** The due date while the invoice requests payment, else `null`, also once it's cancelled. */
   readonly dueDate: PlainDate | null;
   /**
    * The corrective document that cancelled the invoice, else `null`. A
@@ -62,13 +62,16 @@ export const getCustomerInvoiceSummary = (
   ),
   total: getInvoiceTotal(invoice.document),
   paymentStatus: getInvoicePaymentStatus(invoice.document, today),
-  dueDate: Match.value(getInvoiceSettlement(invoice.document)).pipe(
-    Match.tagsExhaustive({
-      Paid: () => null,
-      NothingDue: () => null,
-      PaymentRequested: ({ dueDate }) => dueDate,
-    })
-  ),
+  // A cancelled invoice requests no payment any more.
+  dueDate: invoice.cancellation
+    ? null
+    : Match.value(getInvoiceSettlement(invoice.document)).pipe(
+        Match.tagsExhaustive({
+          Paid: () => null,
+          NothingDue: () => null,
+          PaymentRequested: ({ dueDate }) => dueDate,
+        })
+      ),
   // Archiving hides an invoice from the administration UI only, so an
   // archived invoice reads here like any other cancelled one.
   cancellation: invoice.cancellation && {
