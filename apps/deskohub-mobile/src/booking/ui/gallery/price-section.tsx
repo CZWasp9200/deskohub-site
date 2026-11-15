@@ -301,17 +301,13 @@ export function PriceGallerySection() {
         </GalleryCase>
       </GallerySection>
       <GallerySection title="Full-screen frames">
-        {[...bars, opened[0], ...pay].flatMap((state) =>
-          state === undefined
-            ? []
-            : [
-                <GalleryCase key={state.label} label={state.label}>
-                  <Frame>
-                    <BookingBar {...state.props} />
-                  </Frame>
-                </GalleryCase>,
-              ]
-        )}
+        {[...bars, ...opened, ...pay].map(({ label, props }) => (
+          <GalleryCase key={label} label={label}>
+            <Frame>
+              <BookingBar {...props} />
+            </Frame>
+          </GalleryCase>
+        ))}
       </GallerySection>
     </ScrollScreen>
   );

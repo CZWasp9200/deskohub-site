@@ -8,7 +8,9 @@ import {
   LayoutAnimation,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -97,6 +99,9 @@ export const swipeIntent = ({
 const chevronColor = "#A9A59B";
 const chevronSize = 22;
 
+// The opened list takes at most this share of the window, then scrolls.
+const openListShare = 0.45;
+
 /**
  * The sticky footer of a booking screen: what and when on the left, the
  * price on the right, the screen's one action under them and, under the
@@ -122,6 +127,7 @@ export function BookingBar({
   readonly initiallyOpen?: boolean;
 }) {
   const { bottom } = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const [height, setHeight] = useState(0);
   useToastObstruction(height);
   const reducedMotion = useReducedMotion() !== false;
@@ -144,7 +150,8 @@ export function BookingBar({
     dx: nativeEvent.pageX - touchStart.current.x,
     dy: nativeEvent.pageY - touchStart.current.y,
   });
-  // The summary area takes a vertical swipe from the presses inside it.
+  // The arrow and the summary row take a vertical swipe from the presses
+  // inside them; the opened list keeps its own scrolling.
   const swipeResponder = {
     onStartShouldSetResponderCapture: ({
       nativeEvent,
@@ -176,45 +183,55 @@ export function BookingBar({
       ]}
     >
       {summary !== undefined && (
-        <View {...swipeResponder} style={styles.summaryArea}>
+        <View style={styles.summaryArea}>
           {quoted !== undefined && (
-            <Pressable
-              role="button"
-              aria-label={detailsLabel}
-              aria-expanded={shownOpen}
-              hitSlop={{ top: 14, bottom: 14 }}
-              onPress={() => toggle(!shownOpen)}
-              style={styles.grab}
-            >
-              <Chevron open={shownOpen} />
-            </Pressable>
+            <View {...swipeResponder} style={styles.grabArea}>
+              <Pressable
+                role="button"
+                aria-label={detailsLabel}
+                aria-expanded={shownOpen}
+                hitSlop={{ bottom: 14 }}
+                onPress={() => toggle(!shownOpen)}
+                style={styles.grab}
+              >
+                <Chevron open={shownOpen} />
+              </Pressable>
+            </View>
           )}
           {quoted !== undefined && shownOpen && (
-            <PriceLines
-              breakdown={quoted.breakdown}
-              describeLine={quoted.describeLine}
-              locale={locale}
-              variant="bar"
-            />
+            // Long lists scroll, so the summary and the action stay on screen.
+            <ScrollView
+              bounces={false}
+              style={{ maxHeight: windowHeight * openListShare }}
+            >
+              <PriceLines
+                breakdown={quoted.breakdown}
+                describeLine={quoted.describeLine}
+                locale={locale}
+                variant="bar"
+              />
+            </ScrollView>
           )}
-          <Pressable
-            // A pointer convenience: the arrow is the accessible toggle.
-            accessible={false}
-            focusable={false}
-            disabled={quoted === undefined}
-            onPress={() => toggle(!shownOpen)}
-            style={styles.summary}
-          >
-            <View style={styles.what}>
-              <Text style={styles.title}>{summary.title}</Text>
-              {summary.detail !== undefined && summary.detail !== "" && (
-                <Text numberOfLines={1} style={styles.detail}>
-                  {summary.detail}
-                </Text>
-              )}
-            </View>
-            <BarPrice price={summary.price} locale={locale} />
-          </Pressable>
+          <View {...swipeResponder}>
+            <Pressable
+              // A pointer convenience: the arrow is the accessible toggle.
+              accessible={false}
+              focusable={false}
+              disabled={quoted === undefined}
+              onPress={() => toggle(!shownOpen)}
+              style={styles.summary}
+            >
+              <View style={styles.what}>
+                <Text style={styles.title}>{summary.title}</Text>
+                {summary.detail !== undefined && summary.detail !== "" && (
+                  <Text numberOfLines={1} style={styles.detail}>
+                    {summary.detail}
+                  </Text>
+                )}
+              </View>
+              <BarPrice price={summary.price} locale={locale} />
+            </Pressable>
+          </View>
         </View>
       )}
       <Button
@@ -248,7 +265,25 @@ function Chevron({ open }: { readonly open: boolean }) {
   );
 }
 
-/** The price column, centred against the summary: struck earlier price, total, unit. */
+/** What the price column shows: the amount, a struck earlier one and a unit. */
+const pricedColumn = (
+  price: BookingBarPrice
+): { amount: Money; was?: Money; unit?: string } | undefined => {
+  switch (price.kind) {
+    case "from":
+      return { amount: price.amount, was: price.was, unit: price.unit };
+    case "quoted":
+      return { amount: price.breakdown.total, was: price.was };
+    default:
+      return undefined;
+  }
+};
+
+/**
+ * The price column, centred against the summary: struck earlier price,
+ * total, unit. "Updating price…" shows in a status region that stays
+ * mounted across price states, so its arrival is announced.
+ */
 function BarPrice({
   price,
   locale,
@@ -261,41 +296,33 @@ function BarPrice({
       ? m.booking_price_updating({}, { locale })
       : undefined;
   useLiveRegionAnnouncement(updating, "polite");
-  switch (price.kind) {
-    case "none":
-      return null;
-    case "updating":
-      return (
-        <View
-          role="status"
-          aria-live="polite"
-          accessibilityLiveRegion="polite"
-          style={styles.updating}
-        >
+  const priced = pricedColumn(price);
+  return (
+    <>
+      <View
+        role="status"
+        aria-live="polite"
+        accessibilityLiveRegion="polite"
+        style={updating === undefined ? idleLiveRegionLayout : styles.updating}
+      >
+        {updating !== undefined && (
           <LoadingIndicator size="inline" tone={{ color: color.action }} />
-          <Text style={styles.updatingText}>{updating}</Text>
-        </View>
-      );
-    case "from":
-      return (
+        )}
+        <Text style={styles.updatingText}>{updating ?? ""}</Text>
+      </View>
+      {priced !== undefined && (
         <View style={styles.price}>
-          {price.was !== undefined && <Was was={price.was} locale={locale} />}
+          {priced.was !== undefined && <Was was={priced.was} locale={locale} />}
           <Text numeric style={styles.total}>
-            {formatMoney(price.amount, locale)}
+            {formatMoney(priced.amount, locale)}
           </Text>
-          <Text style={styles.unit}>{price.unit}</Text>
+          {priced.unit !== undefined && (
+            <Text style={styles.unit}>{priced.unit}</Text>
+          )}
         </View>
-      );
-    case "quoted":
-      return (
-        <View style={styles.price}>
-          {price.was !== undefined && <Was was={price.was} locale={locale} />}
-          <Text numeric style={styles.total}>
-            {formatMoney(price.breakdown.total, locale)}
-          </Text>
-        </View>
-      );
-  }
+      )}
+    </>
+  );
 }
 
 function Was({
@@ -346,12 +373,12 @@ const styles = StyleSheet.create({
     boxShadow: "0 -12px 28px -12px rgba(0, 2, 79, 0.35)",
   },
   summaryArea: { gap: 10 },
+  // The arrow's row spans the bar, so the whole top edge takes the tap.
+  grabArea: { marginBottom: -6 },
   grab: {
     alignItems: "center",
-    alignSelf: "center",
     height: 20,
     justifyContent: "center",
-    marginBottom: -6,
     minWidth: touchTarget,
   },
   summary: {

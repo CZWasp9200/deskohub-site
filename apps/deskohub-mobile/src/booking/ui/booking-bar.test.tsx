@@ -121,6 +121,27 @@ describe("BookingBar", () => {
     );
   });
 
+  test("the opened list scrolls within a share of the window", () => {
+    const host = bar({ initiallyOpen: true });
+    const list = find(host, "ScrollView");
+    expect(findAll(list, "View").some((v) => v.props.accessible)).toBe(true);
+    const { maxHeight } = flatStyle(list?.props.style);
+    expect(maxHeight).toBeGreaterThan(0);
+    expect(maxHeight).toBeLessThan(780);
+  });
+
+  test("the price's status region stays mounted, idle until the price updates", () => {
+    const statuses = findAll(bar(), "View").filter(
+      (view) => view.props.role === "status"
+    );
+    // The price's region, then the reason's.
+    expect(statuses).toHaveLength(2);
+    expect(flatStyle(statuses[0]?.props.style)).toMatchObject(
+      idleLiveRegionLayout
+    );
+    expect(findAll(statuses[0], "Text").map(textOf)).toEqual([""]);
+  });
+
   test("a from-price shows its unit and does not open", () => {
     const tree = bar({
       summary: {
