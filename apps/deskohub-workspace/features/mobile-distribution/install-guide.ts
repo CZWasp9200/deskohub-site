@@ -32,9 +32,9 @@ export type InstallGuide =
   | { readonly kind: "android-browser" }
   | { readonly kind: "unidentified" };
 
-export type AppleDevice = "iphone" | "ipad";
+type AppleDevice = "iphone" | "ipad";
 
-export type SafariGeneration = "liquid-glass" | "classic";
+type SafariGeneration = "liquid-glass" | "classic";
 
 export type InstallGuideSignals = {
   readonly platform: InstallPlatform;
@@ -135,5 +135,46 @@ export const installGuideArrow = (
       return guide.device === "iphone" ? "top-right" : undefined;
     default:
       return undefined;
+  }
+};
+
+/**
+ * Which set of step pictures a guide shows. Each names the browser layout the
+ * pictures copy:
+ *
+ * - `safari-iphone-classic`: Share in Safari 18's bottom bar.
+ * - `safari-iphone-compact`: ··· in Safari 26's compact bottom bar, then Share.
+ * - `safari-ipad`: Share in the toolbar along the top.
+ * - `chrome-ios`: Share inside Chrome's address bar.
+ * - `ios-other`: Share or ···, for iOS browsers whose layout we don't know,
+ *   including browsers built into other apps.
+ * - `android`: the ⋮ menu of an Android browser with no install prompt.
+ */
+export type InstallGuidePictures =
+  | "safari-iphone-classic"
+  | "safari-iphone-compact"
+  | "safari-ipad"
+  | "chrome-ios"
+  | "ios-other"
+  | "android";
+
+export const installGuidePictures = (
+  guide: InstallGuide
+): InstallGuidePictures => {
+  switch (guide.kind) {
+    case "safari":
+      if (guide.device === "ipad") return "safari-ipad";
+      return guide.generation === "liquid-glass"
+        ? "safari-iphone-compact"
+        : "safari-iphone-classic";
+    case "chrome-ios":
+      return "chrome-ios";
+    case "in-app-browser":
+      return guide.platform === "android" ? "android" : "ios-other";
+    case "android-browser":
+      return "android";
+    case "other-ios-browser":
+    case "unidentified":
+      return "ios-other";
   }
 };

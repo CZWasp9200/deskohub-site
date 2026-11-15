@@ -13,6 +13,7 @@ import { useVisitorConsentAnswered } from "@/features/cookie-consent";
 import { type Locale, m } from "@/features/i18n";
 import Logo from "@/shared/components/logo/logo";
 import { Button } from "@/shared/components/ui/button";
+import { cn } from "@/shared/utils";
 import {
   recordInstallBarClose,
   recordInstallBarPageView,
@@ -164,22 +165,29 @@ export function InstallBar({
       >
         <section
           aria-labelledby={titleId}
-          className="pointer-events-auto mx-auto flex max-w-md items-center gap-2.5 rounded-[18px] bg-white py-3 pr-2.5 pl-3 shadow-[0_0_0_1px_#E4DFD5,0_12px_28px_-10px_rgba(0,2,79,0.45)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4 motion-safe:duration-300"
+          className={cn(
+            "pointer-events-auto mx-auto flex max-w-md items-center gap-2 rounded-2xl bg-white py-2.5 pr-1.5 pl-3 shadow-[0_0_0_1px_#E4DFD5,0_12px_28px_-10px_rgba(0,2,79,0.45)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4 motion-safe:duration-300",
+            // The guide covers the bar. It stays mounted, out of sight and
+            // out of reach, so focus can come back to Install.
+            guideOpen && "invisible"
+          )}
+          inert={guideOpen}
         >
           <Logo
             alt=""
-            className="h-[41px] w-9 flex-none"
-            height={41}
+            className="h-9 w-8 flex-none"
+            height={36}
             styling={{ color: "light", variant: "color" }}
-            width={36}
+            width={32}
           />
+          {/* The title wraps before the button gives way. */}
           <p
-            className="min-w-0 flex-1 font-semibold text-[15px] text-navy-blue leading-5"
+            className="min-w-min flex-[1_1_0] font-semibold text-[15px] text-navy-blue leading-[19px]"
             id={titleId}
           >
             {m.installBarTitle({}, { locale })}
           </p>
-          <Button className="flex-none" onClick={install} ref={installButton}>
+          <Button onClick={install} ref={installButton} size="sm">
             {m.installBarInstall({}, { locale })}
           </Button>
           <Button
@@ -190,7 +198,7 @@ export function InstallBar({
             tone="muted"
             variant="ghost"
           >
-            <X aria-hidden="true" className="size-5" />
+            <X aria-hidden="true" className="size-[18px]" />
           </Button>
         </section>
       </div>
