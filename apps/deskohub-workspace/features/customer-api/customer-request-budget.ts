@@ -88,12 +88,15 @@ export const customerRequestBudgetClasses = {
   },
   reservations: {
     // Reservation details are read live from Dotypos; the status refresh
-    // and the door code also call the payment and lock providers.
+    // and the door code also call the payment and lock providers, as the
+    // history does for today's door codes, from the records it read.
     listReservations: "account-read",
     getReservationStatus: "account-read",
     getReservationAccess: "account-read",
     // Authorizing the invoice can resolve the account's Dotypos customer.
     getReservationInvoice: "dotypos-read",
+    // The space's address is the site's own constant.
+    getEstablishment: "workspace-only",
   },
   booking: {
     // The office's seat maximum reads the shared table snapshot, which

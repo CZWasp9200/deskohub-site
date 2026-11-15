@@ -1,7 +1,7 @@
 import { Context, Layer } from "effect";
-import { CustomerReservationHistoryService } from "@/features/account";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import type { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { CheckoutStatusService } from "@/features/checkout/backend/checkout/checkout-status.service";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
@@ -24,10 +24,25 @@ export type CustomerReservationServiceLayers = {
     CurrentCustomerAccount,
     Layer.Error<typeof CurrentCustomerAccount.Live>
   >;
-  /** The reservation history, read live as the account page reads it. */
-  readonly history: Layer.Layer<
-    CustomerReservationHistoryService,
-    Layer.Error<typeof CustomerReservationHistoryService.Live>
+  /**
+   * The reservation history, read live as the account page reads it, with
+   * today's door codes shown to whom `authorization` lets see them.
+   */
+  readonly history: (
+    authorization: Layer.Layer<
+      ReservationAuthorizationService,
+      AuthorizationLayerError
+    >
+  ) => Layer.Layer<
+    CustomerReservationHistoryWithAccessService,
+    Layer.Error<
+      ReturnType<
+        typeof CustomerReservationHistoryWithAccessService.withAuthorization<
+          AuthorizationLayerError,
+          never
+        >
+      >
+    >
   >;
   /**
    * Who may see an order, decided for the account `authentication` reads,
@@ -75,7 +90,7 @@ export class CustomerReservationLayers extends Context.Service<
 >()("@deskohub-workspace/customer-api/CustomerReservationLayers") {
   static Live = Layer.succeed(this, {
     currentAccount: CurrentCustomerAccount.withAuthentication,
-    history: CustomerReservationHistoryService.Live,
+    history: CustomerReservationHistoryWithAccessService.withAuthorization,
     authorization: ReservationAuthorizationService.withAuthentication,
     checkoutStatus: CheckoutStatusService.Live,
     access: ReservationAccessService.withAuthorization,

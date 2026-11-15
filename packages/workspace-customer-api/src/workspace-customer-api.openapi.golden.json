@@ -1355,7 +1355,16 @@
       "get": {
         "tags": ["reservations"],
         "operationId": "reservations.listReservations",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "locale",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerLocale"
+            },
+            "required": false
+          }
+        ],
         "security": [],
         "responses": {
           "200": {
@@ -1421,6 +1430,66 @@
                       "$ref": "#/components/schemas/CustomerServiceUnavailable"
                     }
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/customer/reservations/establishment": {
+      "get": {
+        "tags": ["reservations"],
+        "operationId": "reservations.getEstablishment",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerEstablishment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerEstablishment"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerServiceUnavailable"
                 }
               }
             }
@@ -4668,6 +4737,116 @@
         "type": "string",
         "enum": ["cancelled", "confirmed", "pending", "requires-attention"]
       },
+      "CustomerReservationFamily": {
+        "type": "string",
+        "enum": ["cowork", "meeting-room", "office"]
+      },
+      "CustomerPlainDate": {
+        "type": "string",
+        "allOf": [
+          {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Prague calendar date in YYYY-MM-DD format."
+          }
+        ]
+      },
+      "CustomerStartTime": {
+        "type": "string",
+        "allOf": [
+          {
+            "pattern": "^\\d{2}:\\d{2}$",
+            "description": "Prague start time in HH:mm, such as 09:00."
+          }
+        ]
+      },
+      "CustomerMeetingRoomDuration": {
+        "type": "string",
+        "enum": ["hour:1", "hour:4", "day:1"],
+        "description": "hour:1 (one hour), hour:4 (four hours), or day:1 (a whole Prague calendar day)."
+      },
+      "CustomerBookableCoworkTier": {
+        "type": "string",
+        "enum": ["open-space", "reserved-desk"]
+      },
+      "CustomerMonitorOption": {
+        "type": "string",
+        "enum": ["2x27-qhd", "2x32-qhd", "2x27-4k", "2x32-4k"]
+      },
+      "CustomerBookingSelection": {
+        "type": "object",
+        "properties": {
+          "family": {
+            "$ref": "#/components/schemas/CustomerReservationFamily"
+          },
+          "date": {
+            "$ref": "#/components/schemas/CustomerPlainDate"
+          },
+          "endDate": {
+            "$ref": "#/components/schemas/CustomerPlainDate"
+          },
+          "startTime": {
+            "$ref": "#/components/schemas/CustomerStartTime"
+          },
+          "duration": {
+            "$ref": "#/components/schemas/CustomerMeetingRoomDuration"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/CustomerBookableCoworkTier"
+          },
+          "monitorOption": {
+            "$ref": "#/components/schemas/CustomerMonitorOption"
+          },
+          "seats": {
+            "type": "integer",
+            "allOf": [
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "coffee": {
+            "type": "boolean"
+          }
+        },
+        "required": ["family", "date"],
+        "additionalProperties": false
+      },
+      "CustomerBookedSelection": {
+        "type": "object",
+        "properties": {
+          "selection": {
+            "$ref": "#/components/schemas/CustomerBookingSelection"
+          },
+          "earlySetup": {
+            "type": "boolean"
+          }
+        },
+        "required": ["selection"],
+        "additionalProperties": false
+      },
+      "CustomerReservationAccess": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "allOf": [
+              {
+                "minLength": 1
+              }
+            ]
+          },
+          "accessStartsAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "accessEndsAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          }
+        },
+        "required": ["code", "accessStartsAt", "accessEndsAt"],
+        "additionalProperties": false
+      },
       "CustomerReservationSummary": {
         "type": "object",
         "properties": {
@@ -4753,6 +4932,58 @@
           },
           "status": {
             "$ref": "#/components/schemas/CustomerReservationStatus"
+          },
+          "productName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accessStartsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accessEndsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bookedSelection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerBookedSelection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "todayAccess": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerReservationAccess"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["id", "product", "startsAt", "endsAt", "seats", "status"],
@@ -4781,6 +5012,121 @@
           }
         },
         "required": ["current", "past", "unavailable"],
+        "additionalProperties": false
+      },
+      "CustomerEstablishment": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "formattedAddress": {
+            "type": "string"
+          },
+          "address": {
+            "type": "object",
+            "properties": {
+              "street": {
+                "type": "string"
+              },
+              "cityDistrict": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string"
+              },
+              "postalCode": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "street",
+              "cityDistrict",
+              "city",
+              "postalCode",
+              "country"
+            ],
+            "additionalProperties": false
+          },
+          "coordinates": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["NaN"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["Infinity"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["-Infinity"]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "lng": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["NaN"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["Infinity"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["-Infinity"]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              }
+            },
+            "required": ["lat", "lng"],
+            "additionalProperties": false
+          },
+          "directionsUrl": {
+            "type": "string"
+          },
+          "mapUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "formattedAddress",
+          "address",
+          "coordinates",
+          "directionsUrl",
+          "mapUrl"
+        ],
         "additionalProperties": false
       },
       "CustomerReservationKind": {
@@ -4899,6 +5245,16 @@
                 "type": "null"
               }
             ]
+          },
+          "bookedSelection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerBookedSelection"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4919,29 +5275,6 @@
           }
         },
         "required": ["_tag"],
-        "additionalProperties": false
-      },
-      "CustomerReservationAccess": {
-        "type": "object",
-        "properties": {
-          "code": {
-            "type": "string",
-            "allOf": [
-              {
-                "minLength": 1
-              }
-            ]
-          },
-          "accessStartsAt": {
-            "type": "string",
-            "description": "ISO 8601 instant."
-          },
-          "accessEndsAt": {
-            "type": "string",
-            "description": "ISO 8601 instant."
-          }
-        },
-        "required": ["code", "accessStartsAt", "accessEndsAt"],
         "additionalProperties": false
       },
       "CustomerAccessCodeUnavailable": {
@@ -4966,19 +5299,6 @@
         "required": ["_tag"],
         "additionalProperties": false
       },
-      "CustomerPlainDate": {
-        "type": "string",
-        "allOf": [
-          {
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-            "description": "Prague calendar date in YYYY-MM-DD format."
-          }
-        ]
-      },
-      "CustomerBookableCoworkTier": {
-        "type": "string",
-        "enum": ["open-space", "reserved-desk"]
-      },
       "CustomerAdvertisedPrice": {
         "type": "object",
         "properties": {
@@ -4994,10 +5314,6 @@
         },
         "required": ["price", "discount"],
         "additionalProperties": false
-      },
-      "CustomerMonitorOption": {
-        "type": "string",
-        "enum": ["2x27-qhd", "2x32-qhd", "2x27-4k", "2x32-4k"]
       },
       "CustomerOfferingAddOn": {
         "type": "object",
@@ -5034,11 +5350,6 @@
         },
         "required": ["id", "name", "price", "included"],
         "additionalProperties": false
-      },
-      "CustomerMeetingRoomDuration": {
-        "type": "string",
-        "enum": ["hour:1", "hour:4", "day:1"],
-        "description": "hour:1 (one hour), hour:4 (four hours), or day:1 (a whole Prague calendar day)."
       },
       "CustomerOffering": {
         "anyOf": [
@@ -5192,10 +5503,6 @@
         "required": ["advertisedOn", "openingHours", "offerings"],
         "additionalProperties": false
       },
-      "CustomerReservationFamily": {
-        "type": "string",
-        "enum": ["cowork", "meeting-room", "office"]
-      },
       "CustomerAvailabilityNotice": {
         "type": "object",
         "properties": {
@@ -5332,15 +5639,6 @@
         },
         "required": ["date", "duration", "startTimes"],
         "additionalProperties": false
-      },
-      "CustomerStartTime": {
-        "type": "string",
-        "allOf": [
-          {
-            "pattern": "^\\d{2}:\\d{2}$",
-            "description": "Prague start time in HH:mm, such as 09:00."
-          }
-        ]
       },
       "CustomerCheckoutSummaryDiscount": {
         "type": "object",
@@ -5541,45 +5839,6 @@
           }
         },
         "required": ["documents"],
-        "additionalProperties": false
-      },
-      "CustomerBookingSelection": {
-        "type": "object",
-        "properties": {
-          "family": {
-            "$ref": "#/components/schemas/CustomerReservationFamily"
-          },
-          "date": {
-            "$ref": "#/components/schemas/CustomerPlainDate"
-          },
-          "endDate": {
-            "$ref": "#/components/schemas/CustomerPlainDate"
-          },
-          "startTime": {
-            "$ref": "#/components/schemas/CustomerStartTime"
-          },
-          "duration": {
-            "$ref": "#/components/schemas/CustomerMeetingRoomDuration"
-          },
-          "tier": {
-            "$ref": "#/components/schemas/CustomerBookableCoworkTier"
-          },
-          "monitorOption": {
-            "$ref": "#/components/schemas/CustomerMonitorOption"
-          },
-          "seats": {
-            "type": "integer",
-            "allOf": [
-              {
-                "minimum": 1
-              }
-            ]
-          },
-          "coffee": {
-            "type": "boolean"
-          }
-        },
-        "required": ["family", "date"],
         "additionalProperties": false
       },
       "CustomerInvoiceAddress": {

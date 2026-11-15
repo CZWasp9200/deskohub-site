@@ -4,6 +4,8 @@ import {
   CurrentCustomerSession,
   CustomerAccessCodeUnavailable,
   CustomerAccountLinkRequired,
+  type CustomerBookedSelection,
+  type CustomerEstablishment,
   CustomerInvoiceNotIssued,
   type CustomerOrderState,
   type CustomerReservationAccess,
@@ -17,23 +19,30 @@ import { Effect, Layer, Match } from "effect";
 import { HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
-  CustomerReservationHistoryService,
   currentReservationHistoryAccount,
   type CustomerReservationHistory as ReservationHistoryRecord,
   type CustomerReservationSummary as ReservationSummaryRecord,
 } from "@/features/account";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import type { InvoicePdfFile } from "@/features/accounting/backend/invoice-pdf";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { loadAuthorizedCheckoutStatus } from "@/features/checkout/backend/checkout/authorized-checkout-status";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout/checkout-status.service";
 import { defaultLocale } from "@/features/i18n";
+import type { RebookingSelection } from "@/features/reservation/backend/booking-selection";
 import {
   ReservationAccessService,
   type ReservationAccessViewModel,
 } from "@/features/reservation/backend/reservation-access.service";
 import { providePerRequest } from "@/shared/backend/provide-per-request";
 import { runToCompletion } from "@/shared/backend/run-to-completion";
+import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+import {
+  workspaceFormattedAddress,
+  workspaceGoogleDirectionsUrl,
+  workspaceGoogleMapUrl,
+} from "@/shared/utils/workspace-location-map";
 import {
   answerCustomerApiFailure,
   answerSessionApiFailure,
@@ -63,25 +72,30 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
 
     return (
       handlers
-        .handle("listReservations", () =>
+        // Showing today's door code can issue it at the lock provider and
+        // store it, so the list ends even when the client disconnects.
+        .handle("listReservations", ({ query: { locale = defaultLocale } }) =>
           Effect.flatMap(CurrentCustomerSession, (session) =>
             currentReservationHistoryAccount(session.accountId)
           ).pipe(
             Effect.flatMap((account) =>
-              Effect.flatMap(CustomerReservationHistoryService, (histories) =>
-                histories.load(account)
+              Effect.flatMap(
+                CustomerReservationHistoryWithAccessService,
+                (histories) => histories.load(account, { locale })
               )
             ),
             Effect.provide(
               Layer.mergeAll(
                 reservations.currentAccount(authentication),
-                reservations.history
+                reservations.history(authorization)
               )
             ),
+            runToCompletion,
             answerCustomerApiFailure("customerApi.listReservations"),
             Effect.flatMap(answerReservationHistory)
           )
         )
+        .handle("getEstablishment", () => Effect.succeed(establishment))
         // A refresh can finalize a payment, so it ends even when the client
         // disconnects.
         .handle("getReservationStatus", ({ params: { orderId } }) =>
@@ -178,6 +192,11 @@ const answerReservationSummary = ({
   setupStartsAt,
   seats,
   status,
+  productName,
+  accessStartsAt,
+  accessEndsAt,
+  bookedSelection,
+  todayAccess,
 }: ReservationSummaryRecord): CustomerReservationSummary => ({
   id,
   ...(workspaceReservationId && { orderId: workspaceReservationId }),
@@ -189,7 +208,58 @@ const answerReservationSummary = ({
   ...(setupStartsAt && { setupStartsAt }),
   seats,
   status,
+  ...(productName !== undefined && { productName }),
+  ...(accessStartsAt && accessEndsAt && { accessStartsAt, accessEndsAt }),
+  ...(bookedSelection && {
+    bookedSelection: answerBookedSelection(bookedSelection),
+  }),
+  ...(todayAccess && {
+    todayAccess: {
+      code: todayAccess.code,
+      accessStartsAt: todayAccess.accessStartsAt,
+      accessEndsAt: todayAccess.accessEndsAt,
+    },
+  }),
 });
+
+/** A booking selection as `createCheckout` takes it, without unknown fields. */
+const answerBookedSelection = ({
+  selection: {
+    family,
+    date,
+    endDate,
+    startTime,
+    duration,
+    seats,
+    tier,
+    coffee,
+    monitorOption,
+  },
+  earlySetup,
+}: RebookingSelection): CustomerBookedSelection => ({
+  selection: {
+    family,
+    date,
+    ...(endDate !== undefined && { endDate }),
+    ...(startTime !== undefined && { startTime }),
+    ...(duration !== undefined && { duration }),
+    ...(seats !== undefined && { seats }),
+    ...(tier !== undefined && { tier }),
+    ...(coffee !== undefined && { coffee }),
+    ...(monitorOption !== undefined && { monitorOption }),
+  },
+  ...(earlySetup && { earlySetup }),
+});
+
+/** Where the space is, from the site's own location constants. */
+const establishment: CustomerEstablishment = {
+  name: workspaceSiteConstants.brand.name,
+  formattedAddress: workspaceFormattedAddress,
+  address: workspaceSiteConstants.location.address,
+  coordinates: workspaceSiteConstants.location.coordinates,
+  directionsUrl: workspaceGoogleDirectionsUrl,
+  mapUrl: workspaceGoogleMapUrl,
+};
 
 /** An order the account may see, as the contract carries its status. */
 const answerOrderState = (state: CheckoutStatusViewModel) =>
@@ -206,6 +276,7 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
         fulfillmentStatus,
         reviewSandbox,
         summary,
+        bookedSelection,
       }) =>
         Effect.succeed<CustomerOrderState>({
           orderId,
@@ -226,6 +297,9 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
               exponent: summary.price.exponent,
               currency: summary.price.currency,
             },
+          }),
+          ...(bookedSelection && {
+            bookedSelection: answerBookedSelection(bookedSelection),
           }),
         })
     )

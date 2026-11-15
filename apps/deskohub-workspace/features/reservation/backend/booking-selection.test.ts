@@ -12,6 +12,7 @@ import { AdvisoryAvailabilityInventory } from "./availability-inventory";
 import {
   type BookingSelectionInput,
   BookingSelectionRejected,
+  getRebookingSelection,
   resolveBookingQuoteSelection,
   resolveMeetingRoomSelection,
 } from "./booking-selection";
@@ -474,5 +475,77 @@ describe("resolveMeetingRoomSelection", () => {
         duration: "hour:1",
       })
     ).toEqual({ kind: "invalid-field", field: "startTime" });
+  });
+});
+
+describe("getRebookingSelection", () => {
+  test("books again exactly the selection a quote resolved", async () => {
+    const selections: readonly BookingSelectionInput[] = [
+      { family: "cowork", date: tomorrow, tier: "open-space", coffee: true },
+      { family: "cowork", date: tomorrow, tier: "open-space", coffee: false },
+      // Coffee comes with a Reserved Desk, so booking it again names none.
+      {
+        family: "cowork",
+        date: tomorrow,
+        tier: "reserved-desk",
+        monitorOption: "monitor",
+      },
+      {
+        family: "meeting-room",
+        date: today,
+        startTime: "16:00",
+        duration: "hour:4",
+      },
+      // A whole day starts at midnight, so it names no start time.
+      { family: "meeting-room", date: tomorrow, duration: "day:1" },
+      {
+        family: "office",
+        date: tomorrow,
+        endDate: "2099-08-02" as PlainDate,
+        seats: 3,
+      },
+      { family: "office", date: tomorrow, seats: 1 },
+    ];
+
+    for (const selection of selections) {
+      const { reservationSelection } = await quote(selection);
+      expect(getRebookingSelection(reservationSelection)).toEqual({
+        selection,
+      });
+    }
+  });
+
+  test("keeps a meeting room's early setup beside its selection", () => {
+    expect(
+      getRebookingSelection({
+        kind: "meeting-room",
+        startDateTime: `${tomorrow}T09:00`,
+        duration: "hour:1",
+        earlySetup: true,
+      })
+    ).toEqual({
+      selection: {
+        family: "meeting-room",
+        date: tomorrow,
+        startTime: "09:00",
+        duration: "hour:1",
+      },
+      earlySetup: true,
+    });
+  });
+
+  test("books nothing for a link that leaves a needed field open", () => {
+    expect(
+      getRebookingSelection({ kind: "cowork", entryTier: "open-space" })
+    ).toBeUndefined();
+    expect(
+      getRebookingSelection({
+        kind: "meeting-room",
+        startDateTime: `${tomorrow}T09:00`,
+      })
+    ).toBeUndefined();
+    expect(
+      getRebookingSelection({ kind: "office", startsOn: tomorrow })
+    ).toBeUndefined();
   });
 });

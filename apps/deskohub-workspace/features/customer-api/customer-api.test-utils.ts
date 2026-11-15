@@ -29,7 +29,7 @@ import {
 import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
 import { CustomerLocalePreference } from "@/features/account/backend/customer-locale-preference.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
-import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
+import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import type { CustomerProfile } from "@/features/account/contracts";
 import {
   type CustomerAccountAccessError,
@@ -235,7 +235,7 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
 
 const unusedReservationServices: CustomerReservationServiceLayers = {
   currentAccount: () => Layer.mock(CurrentCustomerAccount, {}),
-  history: Layer.mock(CustomerReservationHistoryService, {}),
+  history: () => Layer.mock(CustomerReservationHistoryWithAccessService, {}),
   authorization: () => Layer.mock(ReservationAuthorizationService, {}),
   checkoutStatus: Layer.mock(CheckoutStatusService, {}),
   access: () => Layer.mock(ReservationAccessService, {}),

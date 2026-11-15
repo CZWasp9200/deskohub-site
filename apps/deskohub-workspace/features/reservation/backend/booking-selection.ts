@@ -1,9 +1,10 @@
-import { Data, Effect, Match, Schema } from "effect";
+import { Data, Effect, Match, Option, Schema } from "effect";
 import type { AdvertisedPriceRequest } from "@/features/checkout/advertised-price";
 import {
   type CoworkCoffeeAddonAvailability,
   getCoworkTierCoffeeAddon,
   getCoworkTierWorkstationAddon,
+  isWorkspaceCoworkCurrentProductTier,
   type WorkspaceCoworkCurrentTier,
   type WorkspaceProductMonitorOption,
   workspaceCoworkCurrentTiers,
@@ -11,6 +12,7 @@ import {
 import type { Locale } from "@/features/i18n";
 import { loadAdvisoryOfficeSeatCapacity } from "@/features/office/backend/office-advisory-seat-capacity";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
+import { getBookedSelection } from "@/features/reservation/booked-selection";
 import {
   getCoworkAdvertisedPriceReservation,
   isCoworkOpenSpaceDayCutoffReached,
@@ -39,7 +41,11 @@ import type { ReservationInterval } from "@/features/reservation/reservation-int
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import type { ReservationSelection } from "@/features/reservation/selection-path";
 import { getWorkspaceAvailabilityRange } from "@/features/reservation/workspace-availability";
-import { getPlainDatesBetween, type PlainDate } from "@/shared/utils/temporal";
+import {
+  getPlainDatesBetween,
+  type PlainDate,
+  plainDateStringSchema,
+} from "@/shared/utils/temporal";
 
 /**
  * What a customer or their agent names when choosing a booking. Fields that
@@ -131,6 +137,44 @@ export type QuoteSelection = {
   /** Names every quoted option, so the page fills nothing from history. */
   readonly reservationSelection: ReservationSelection;
   readonly reservation: SelectedReservation;
+};
+
+/**
+ * What booking a reservation again sends: the booking selection, and beside
+ * it the early setup a meeting-room booking adds, as checkout takes them.
+ */
+export type RebookingSelection = {
+  readonly selection: BookingSelectionInput;
+  readonly earlySetup?: true;
+};
+
+/**
+ * The booking that repeats a reservation-page selection, with only the options
+ * booking accepts for it: coffee where it is an option rather than included,
+ * and a monitor setup where the tier offers a workstation. `undefined` while
+ * the selection leaves open a field booking needs, as a link may.
+ */
+export const getRebookingSelection = (
+  selection: ReservationSelection
+): RebookingSelection | undefined =>
+  Match.value(selection).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      cowork: getCoworkRebooking,
+      "meeting-room": getMeetingRoomRebooking,
+      office: getOfficeRebooking,
+    }),
+    Option.getOrUndefined
+  );
+
+/**
+ * What booking a stored reservation again sends: its booked selection
+ * (`getBookedSelection`) as booking takes it.
+ */
+export const getStoredRebookingSelection = (
+  stored: Parameters<typeof getBookedSelection>[0]
+): RebookingSelection | undefined => {
+  const selection = getBookedSelection(stored);
+  return selection && getRebookingSelection(selection);
 };
 
 type QuoteSelectionRequest = {
@@ -632,4 +676,100 @@ const ensureWithin = ({
         BookingSelectionRejected.dateOutOfRange({ earliest: from, latest: to })
     ),
     Effect.asVoid
+  );
+
+const decodePlainDate = Schema.decodeUnknownOption(plainDateStringSchema);
+
+const parsePlainDateTime = Option.liftThrowable((value: string) =>
+  Temporal.PlainDateTime.from(value)
+);
+
+const getCoworkRebooking = ({
+  entryTier,
+  date,
+  coffee,
+  monitorOption,
+}: Extract<ReservationSelection, { readonly kind: "cowork" }>) =>
+  Option.all({
+    tier: Option.liftPredicate(entryTier, isWorkspaceCoworkCurrentProductTier),
+    date: decodePlainDate(date),
+  }).pipe(
+    Option.map(
+      ({ tier, date }): RebookingSelection => ({
+        selection: {
+          family: "cowork",
+          date,
+          tier,
+          ...(coffee !== undefined &&
+            getCoworkTierCoffeeAddon(tier) === "optional" && { coffee }),
+          ...(monitorOption !== undefined &&
+            getCoworkTierWorkstationAddon(tier) !== "unavailable" && {
+              monitorOption,
+            }),
+        },
+      })
+    )
+  );
+
+const getMeetingRoomRebooking = ({
+  startDateTime,
+  duration,
+  earlySetup,
+}: Extract<ReservationSelection, { readonly kind: "meeting-room" }>) =>
+  Option.all({
+    start: Option.flatMap(
+      Option.fromUndefinedOr(startDateTime),
+      parsePlainDateTime
+    ),
+    duration: Option.fromUndefinedOr(duration),
+  }).pipe(
+    Option.flatMap(({ start, duration }) =>
+      Option.map(
+        decodePlainDate(start.toPlainDate().toString()),
+        (date): RebookingSelection => ({
+          selection: {
+            family: "meeting-room",
+            date,
+            duration,
+            // A whole day starts at midnight whatever time it names.
+            ...(!isMeetingRoomWholeDayReservationDuration(
+              getMeetingRoomReservationDuration(duration)
+            ) && {
+              startTime: start
+                .toPlainTime()
+                .toString({ smallestUnit: "minute" }),
+            }),
+          },
+          ...(earlySetup === true && { earlySetup }),
+        })
+      )
+    )
+  );
+
+const getOfficeRebooking = ({
+  startsOn,
+  dayCount,
+  seats,
+}: Extract<ReservationSelection, { readonly kind: "office" }>) =>
+  Option.all({
+    date: Option.flatMap(Option.fromUndefinedOr(startsOn), decodePlainDate),
+    dayCount: Option.fromUndefinedOr(dayCount),
+  }).pipe(
+    Option.flatMap(({ date, dayCount }) =>
+      Option.map(
+        decodePlainDate(
+          Temporal.PlainDate.from(date)
+            .add({ days: dayCount - 1 })
+            .toString()
+        ),
+        (endDate): RebookingSelection => ({
+          selection: {
+            family: "office",
+            date,
+            ...(endDate !== date && { endDate }),
+            ...(seats !== undefined && { seats }),
+          },
+        })
+      )
+    )
   );
