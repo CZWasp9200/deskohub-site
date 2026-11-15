@@ -73,7 +73,6 @@ To rotate:
 
 ## SQL logging
 
-- Mark snapshot plaintext and every key with `sensitiveDatabaseParameter` (see `features/accounting/backend/accounting-snapshot-sql.ts`). Don't blanket-redact unrelated parameters.
-- Encryption and decryption queries disable tracing and map failures straight to stable accounting errors without the raw driver cause or the parameter-bearing Drizzle message.
+- Seal and open snapshots and invoice documents only through `sealedAccountingJson` (`features/accounting/backend/sealed-accounting-json.ts`), declared once per record kind (`sealedAccountingDocumentSnapshots`, `sealedInvoiceDocuments`). It picks the key (active to seal, the row's `key_id` to open), marks plaintext and every key with `sensitiveDatabaseParameter`, runs the encrypting and decrypting statements untraced, decodes strictly, and fails with one `AccountingRecordUnavailable` whose `reference` names the kind of id and whose cause is censored. Don't blanket-redact unrelated parameters, and don't call `pgp_sym_encrypt` or `pgp_sym_decrypt` elsewhere.
 - Extend the shared structured-log censor (`shared/backend/logging/censorship.ts`) and its nested request and error tests before carrying a new billing field through provider calls.
 - PostgreSQL server logging sits outside the application censor. Before relying on encryption in a new database, confirm statement and duration logging don't record bind values and that `log_parameter_max_length` and `log_parameter_max_length_on_error` are `0`. Treat an unknown managed-Postgres policy as a blocker.
