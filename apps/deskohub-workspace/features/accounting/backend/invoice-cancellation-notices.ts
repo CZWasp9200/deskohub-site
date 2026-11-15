@@ -2,7 +2,7 @@ import { Context, type Effect } from "effect";
 import type { InvoiceNoticeSummary } from "@/features/accounting/invoice-cancellation";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { InvoiceNoticeClaim } from "./invoice-cancellation.repository";
-import type { InvoiceEmailDeliveryError } from "./invoice-email-delivery.service";
+import type { InvoiceEmailDeliveryError } from "./invoice-email-sending";
 
 export interface IInvoiceCancellationNotices {
   /**

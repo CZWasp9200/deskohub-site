@@ -1,50 +1,27 @@
-import type { EmailMessage, EmailRecipient } from "@deskohub/email";
-import {
-  EmailConfigTag,
-  EmailServiceError,
-  EmailServiceTag,
-} from "@deskohub/email/backend/service";
-import { Context, Data, Effect, Layer } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
-import { env } from "@/env";
-import { isManualInvoiceDocument } from "@/features/accounting/invoice";
-import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
-import { WorkspaceEmailLayer } from "@/shared/backend/config/email.config";
-import {
-  internalWorkspaceEmailRecipientFor,
-  workspaceEmailRecipient,
-} from "@/shared/backend/email/workspace-email-recipients";
-import { censorLogValue } from "@/shared/backend/logging/censorship";
+import type { EmailRecipient } from "@deskohub/email";
+import { Context, Effect, Layer } from "effect";
+import { internalWorkspaceEmailRecipientFor } from "@/shared/backend/email/workspace-email-recipients";
 import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
 import { type Invoice, InvoiceRepository } from "./invoice.repository";
+import { InvoiceCancellationNoticesLive } from "./invoice-cancellation-notice-delivery";
+import { InvoiceCancellationNotices } from "./invoice-cancellation-notices";
 import { renderInvoiceDeliveryEmail } from "./invoice-delivery-email";
+import { InvoiceEmailDeliveryRepository } from "./invoice-email-delivery.repository";
 import {
-  type IInvoiceEmailDeliveryRepository,
-  type InvoiceEmailDeliveryClaim,
-  InvoiceEmailDeliveryRepository,
-} from "./invoice-email-delivery.repository";
+  deliveryError,
+  InvoiceEmailDeliveryError,
+  invoiceEmailDependencies,
+  invoiceEmailLookupId,
+  makeClaimedInvoiceEmailSender,
+  resolveInvoiceEmailRecipient,
+  settleDelivery,
+} from "./invoice-email-sending";
 import { type InvoicePdfRenderingError, renderInvoicePdf } from "./invoice-pdf";
+
+export { InvoiceEmailDeliveryError };
 
 const invoiceCustomerEmailCategory = "workspace-invoice-customer";
 const invoiceInternalEmailCategory = "workspace-invoice-internal";
-
-export class InvoiceEmailDeliveryError extends Data.TaggedError(
-  "InvoiceEmailDeliveryError"
-)<{
-  readonly code:
-    | "delivery_recipient_unavailable"
-    | "delivery_in_progress"
-    | "email_delivery_failed"
-    | "invoice_cancelled"
-    | "invoice_load_failed"
-    | "pdf_render_failed"
-    | "persistence_failed";
-  readonly paymentAttemptId: string;
-  readonly message: string;
-  readonly customerDelivered?: boolean;
-  readonly cause?: unknown;
-}> {}
 
 /**
  * `cancelled`: the invoice is cancelled, so its original email is never sent
@@ -81,9 +58,9 @@ export class InvoiceEmailDeliveryService extends Context.Service<
     Effect.gen(function* () {
       const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
       const deliveries = yield* InvoiceEmailDeliveryRepository;
-      const emailConfig = yield* EmailConfigTag;
-      const emailService = yield* EmailServiceTag;
       const invoices = yield* InvoiceRepository;
+      const notices = yield* InvoiceCancellationNotices;
+      const send = yield* makeClaimedInvoiceEmailSender;
 
       const deliverAudience = Effect.fn(
         "InvoiceEmailDeliveryService.deliverAudience"
@@ -105,8 +82,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           Effect.mapError((cause) =>
             deliveryError({
               code: "persistence_failed",
-              paymentAttemptId:
-                input.invoice.paymentAttemptId ?? input.invoice.id,
+              paymentAttemptId: invoiceEmailLookupId(input.invoice),
               message: "Invoice email delivery could not be claimed.",
               cause,
             })
@@ -116,8 +92,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         if (claim === "cancelled") {
           return yield* deliveryError({
             code: "invoice_cancelled",
-            paymentAttemptId:
-              input.invoice.paymentAttemptId ?? input.invoice.id,
+            paymentAttemptId: invoiceEmailLookupId(input.invoice),
             message: "The invoice was cancelled before its email was sent.",
           });
         }
@@ -127,114 +102,49 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           customer: invoiceCustomerEmailCategory,
           internal: invoiceInternalEmailCategory,
         }[input.audience];
-        const { pdf, rendered } = yield* Effect.all({
-          pdf: input.renderPdf.pipe(
-            Effect.mapError((cause) =>
-              deliveryError({
-                code: "pdf_render_failed",
-                paymentAttemptId:
-                  input.invoice.paymentAttemptId ?? input.invoice.id,
-                message: "Invoice PDF could not be rendered for delivery.",
-                cause,
-              })
-            )
-          ),
-          rendered: renderInvoiceDeliveryEmail({
+        const claimed = {
+          invoiceId: input.invoice.id,
+          audience: input.audience,
+          attemptNumber: claim.attemptNumber,
+        };
+        yield* send({
+          invoice: input.invoice,
+          audience: input.audience,
+          recipient: input.recipient,
+          attachment: {
+            fileName: `${input.invoice.invoiceNumber}.pdf`,
+            render: input.renderPdf,
+          },
+          renderEmail: renderInvoiceDeliveryEmail({
             invoice: input.invoice,
             audience: input.audience,
-          }).pipe(
-            Effect.mapError((cause) =>
-              deliveryError({
-                code: "email_delivery_failed",
-                paymentAttemptId:
-                  input.invoice.paymentAttemptId ?? input.invoice.id,
-                message: "Invoice delivery email could not be rendered.",
-                cause,
-              })
-            )
-          ),
-        }).pipe(
-          Effect.catch((error) =>
-            failDelivery({
-              deliveries,
-              claim,
-              invoice: input.invoice,
-              audience: input.audience,
-              error,
-            })
-          )
-        );
-
-        const message: EmailMessage = {
-          from: emailConfig.defaultFrom,
-          to: input.recipient,
-          replyTo: workspaceEmailRecipient,
-          subject: rendered.subject,
-          html: rendered.html,
-          text: rendered.text,
+          }),
+          category,
+          source: "workspace-invoice-delivery",
           idempotencyKey: input.resend
             ? `workspace-invoice-customer-resend-${input.invoice.id}-${claim.attemptNumber}`
             : `${category}-${input.invoice.id}`,
-          attachments: [
-            {
-              filename: `${input.invoice.invoiceNumber}.pdf`,
-              content: pdf,
-              contentType: "application/pdf",
-            },
-          ],
-          tags: [category],
-          metadata: {
-            deploymentEnvironment: env.VERCEL_ENV,
-            source: "workspace-invoice-delivery",
-            ...(input.invoice.workspaceReservationId && {
-              workspaceReservationId: input.invoice.workspaceReservationId,
-            }),
-            invoiceId: input.invoice.id,
-            audience: input.audience,
+          ledger: {
+            markAccepted: (accepted) =>
+              deliveries.markAccepted({ ...claimed, ...accepted }),
+            markFailed: (failureCode) =>
+              deliveries.markFailed({ ...claimed, failureCode }),
           },
-        };
+        });
 
-        const sendResult = yield* emailService.send(message).pipe(
-          Effect.filterOrFail(
-            (result) => result.status !== "failed",
-            () => new EmailServiceError("Email provider rejected delivery.")
-          ),
-          Effect.catch((cause) =>
-            failDelivery({
-              deliveries,
-              claim,
-              invoice: input.invoice,
-              audience: input.audience,
-              error: deliveryError({
-                code: "email_delivery_failed",
-                paymentAttemptId:
-                  input.invoice.paymentAttemptId ?? input.invoice.id,
-                message: "Invoice email delivery failed.",
-                cause,
-              }),
-            })
-          )
-        );
-
-        yield* deliveries
-          .markAccepted({
-            invoiceId: input.invoice.id,
-            audience: input.audience,
-            attemptNumber: claim.attemptNumber,
-            providerDeliveryId: sendResult.id,
-            acceptedAt: Temporal.Now.instant(),
-          })
-          .pipe(
-            Effect.mapError((cause) =>
-              deliveryError({
-                code: "persistence_failed",
-                paymentAttemptId:
-                  input.invoice.paymentAttemptId ?? input.invoice.id,
-                message: "Accepted invoice email delivery was not recorded.",
-                cause,
+        if (input.audience === "customer") {
+          // A cancellation recorded while this email was in flight could not
+          // owe the customer a notice yet; now that the invoice reached them,
+          // it does. The accepted email stays delivered either way.
+          yield* notices.ensureOwed(input.invoice.id).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Owed cancellation notice was not sent", {
+                invoiceId: input.invoice.id,
+                code: error.code,
               })
             )
           );
+        }
 
         return true;
       });
@@ -263,47 +173,14 @@ export class InvoiceEmailDeliveryService extends Context.Service<
       const loadInvoiceDelivery = Effect.fn(
         "InvoiceEmailDeliveryService.loadInvoiceDelivery"
       )(function* (invoice: Invoice) {
-        if (isManualInvoiceDocument(invoice.document)) {
-          return {
-            invoice,
-            recipient: invoice.document.delivery.email,
-            renderPdf: yield* Effect.cached(renderInvoicePdf(invoice.document)),
-          };
-        }
-
-        if (!invoice.paymentAttemptId) {
-          return yield* deliveryError({
-            code: "invoice_load_failed",
-            paymentAttemptId: invoice.id,
-            message: "Reservation invoice payment reference is unavailable.",
-          });
-        }
-        const paymentAttemptId = invoice.paymentAttemptId;
-
-        const source = yield* accountingSnapshots
-          .findByPaymentAttemptId(paymentAttemptIdSchema.make(paymentAttemptId))
-          .pipe(
-            Effect.mapError((cause) =>
-              deliveryError({
-                code: "invoice_load_failed",
-                paymentAttemptId,
-                message:
-                  "Invoice source snapshot could not be loaded for delivery.",
-                cause,
-              })
-            )
-          );
-        if (!source?.delivery) {
-          return yield* deliveryError({
-            code: "delivery_recipient_unavailable",
-            paymentAttemptId,
-            message: "Invoice delivery recipient is unavailable.",
-          });
-        }
-
         return {
           invoice,
-          recipient: source.delivery.email,
+          recipient: yield* resolveInvoiceEmailRecipient(invoice).pipe(
+            Effect.provideService(
+              AccountingDocumentSnapshotRepository,
+              accountingSnapshots
+            )
+          ),
           renderPdf: yield* Effect.cached(renderInvoicePdf(invoice.document)),
         };
       });
@@ -405,77 +282,12 @@ export class InvoiceEmailDeliveryService extends Context.Service<
   );
 
   static Live = this.Default.pipe(
-    Layer.provide(getInvoiceEmailDeliveryDependencies())
+    Layer.provide(
+      Layer.mergeAll(
+        invoiceEmailDependencies(),
+        InvoiceEmailDeliveryRepository.Live,
+        InvoiceCancellationNoticesLive
+      )
+    )
   );
 }
-
-function getInvoiceEmailDeliveryDependencies() {
-  const accountingStorage = Layer.merge(
-    WorkspaceDatabase.Default,
-    AccountingSnapshotKeyService.Default
-  );
-  const accountingSnapshots = AccountingDocumentSnapshotRepository.Default.pipe(
-    Layer.provide(accountingStorage)
-  );
-  const invoices = InvoiceRepository.Default.pipe(
-    Layer.provide(Layer.merge(accountingStorage, accountingSnapshots))
-  );
-
-  return Layer.mergeAll(
-    accountingSnapshots,
-    invoices,
-    InvoiceEmailDeliveryRepository.Live,
-    WorkspaceEmailLayer
-  );
-}
-
-const settleDelivery = <A,>(
-  effect: Effect.Effect<A, InvoiceEmailDeliveryError>
-) =>
-  effect.pipe(
-    Effect.map((value) => ({ success: true as const, value })),
-    Effect.catch((error) => Effect.succeed({ success: false as const, error }))
-  );
-
-const failDelivery = (input: {
-  readonly deliveries: IInvoiceEmailDeliveryRepository;
-  readonly claim: InvoiceEmailDeliveryClaim;
-  readonly invoice: Invoice;
-  readonly audience: "customer" | "internal";
-  readonly error: InvoiceEmailDeliveryError;
-}) =>
-  input.deliveries
-    .markFailed({
-      invoiceId: input.invoice.id,
-      audience: input.audience,
-      attemptNumber: input.claim.attemptNumber,
-      failureCode:
-        input.error.code === "pdf_render_failed"
-          ? "pdf_render_failed"
-          : "email_send_failed",
-    })
-    .pipe(
-      Effect.mapError((cause) =>
-        deliveryError({
-          code: "persistence_failed",
-          paymentAttemptId: input.invoice.paymentAttemptId ?? input.invoice.id,
-          message: "Failed invoice email delivery was not recorded.",
-          cause,
-        })
-      ),
-      Effect.andThen(Effect.fail(input.error))
-    );
-
-const deliveryError = (
-  input: Omit<
-    ConstructorParameters<typeof InvoiceEmailDeliveryError>[0],
-    "cause"
-  > & {
-    readonly cause?: unknown;
-  }
-) =>
-  new InvoiceEmailDeliveryError(
-    input.cause === undefined
-      ? input
-      : { ...input, cause: censorLogValue(input.cause) }
-  );
