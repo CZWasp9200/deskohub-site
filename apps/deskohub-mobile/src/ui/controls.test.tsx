@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import Mail from "lucide-react-native/icons/mail";
-import { type ComponentProps, createRef } from "react";
+import { type ComponentProps, createRef, type ReactElement } from "react";
 import { StyleSheet, type TextInputInstance } from "react-native";
 import { Button, ButtonRow, TextField } from "./controls";
 import { LoadingIndicator } from "./loading-indicator";
@@ -91,6 +91,39 @@ describe("Button", () => {
     expect(findAll(tree, "Text").map(textOf)).toContain("label");
   });
 
+  test("going busy keeps the button's size and the label's width", () => {
+    // The pressable's direct children are what the row lays out.
+    const laidOut = (props: Partial<ComponentProps<typeof Button>>) => {
+      const tree = button(props);
+      const children = [find(tree, "Pressable")?.props.children]
+        .flat(2)
+        .filter(Boolean) as ReactElement<{ style?: unknown }>[];
+      const style = restingStyle(tree);
+      return {
+        slots: children.map((child) =>
+          StyleSheet.flatten(child.props.style as never)
+        ),
+        // Side padding plus the gap and the slot beside the label.
+        besideLabel:
+          2 * Number(style.paddingHorizontal) +
+          (children.length - 1) * (20 + Number(style.gap)),
+      };
+    };
+    // With an icon the die takes the icon's slot.
+    expect(laidOut({ busy: true, icon: Mail })).toEqual(
+      laidOut({ icon: Mail })
+    );
+    // Without one, its slot comes out of the side padding.
+    for (const size of ["regular", "small"] as const) {
+      for (const variant of ["primary", "text"] as const) {
+        const idle = laidOut({ size, variant });
+        const busy = laidOut({ size, variant, busy: true });
+        expect(busy.slots).toHaveLength(idle.slots.length + 1);
+        expect(busy.besideLabel).toBe(idle.besideLabel);
+      }
+    }
+  });
+
   test("an icon is drawn before the label", () => {
     expect(find(button({ icon: Mail }), "Svg")).toBeDefined();
   });
@@ -104,6 +137,27 @@ describe("Button", () => {
     expect(reason?.props.id).toBeString();
     expect(pressable["aria-describedby"]).toBe(reason?.props.id);
     expect(restingStyle(tree).backgroundColor).toBe(color.disabled);
+  });
+
+  test("the reason sits above the button by default and below it on request", () => {
+    const order = (placement?: "above" | "below") => {
+      const wrapper = elementTree(Button, {
+        label: "label",
+        onPress: () => undefined,
+        disabled: true,
+        disabledReason: "why",
+        reasonPlacement: placement,
+      }) as { readonly props: { readonly children: unknown[] } };
+      return wrapper.props.children
+        .filter(Boolean)
+        .map((child) =>
+          (child as { readonly type: unknown }).type === "Pressable"
+            ? "button"
+            : "reason"
+        );
+    };
+    expect(order()).toEqual(["reason", "button"]);
+    expect(order("below")).toEqual(["button", "reason"]);
   });
 
   test("an enabled button keeps its reason's place empty and undescribed", () => {
@@ -128,6 +182,18 @@ describe("ButtonRow", () => {
       flexWrap: "wrap",
     });
     expect(findAll(row, Button)).toHaveLength(2);
+  });
+
+  test("each button's share grows with the font size, so large text stacks them", () => {
+    // The test window is 360 wide at the default font size.
+    const row = elementTree(ButtonRow, {
+      children: [<Button key="a" label="a" onPress={() => undefined} />],
+    });
+    const item = findAll(row, "View")[1];
+    expect(StyleSheet.flatten(item?.props.style as never)).toMatchObject({
+      flexBasis: 136,
+      flexGrow: 1,
+    });
   });
 });
 

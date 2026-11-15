@@ -31,11 +31,33 @@ export function ButtonsSection() {
           <Button label={sample("Save changes")} disabled onPress={ignore} />
         </ButtonRow>
       </GalleryCase>
+      <GalleryCase label="Going busy keeps the size: idle, then busy">
+        <Button label={sample("Save")} width="content" onPress={ignore} />
+        <Button label={sample("Save")} width="content" busy onPress={ignore} />
+        <Button
+          label={sample("Send the confirmation code again by email")}
+          onPress={ignore}
+        />
+        <Button
+          label={sample("Send the confirmation code again by email")}
+          busy
+          onPress={ignore}
+        />
+      </GalleryCase>
       <GalleryCase label="Disabled with a reason">
         <Button
           label={sample("Save changes")}
           disabled
           disabledReason={sample("No changes to save")}
+          onPress={ignore}
+        />
+      </GalleryCase>
+      <GalleryCase label="Disabled with the reason below">
+        <Button
+          label={sample("Continue")}
+          disabled
+          disabledReason={sample("Choose a date to continue")}
+          reasonPlacement="below"
           onPress={ignore}
         />
       </GalleryCase>

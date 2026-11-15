@@ -5,6 +5,7 @@ import {
   StyleSheet,
   type TextInputInstance,
   type TextInputProps,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -87,10 +88,13 @@ const buttonLabelColor = {
  *   `danger`: crimson, for the destructive step itself; `text`: an orange
  *   text button (the boards' tinted button); `quiet`: a navy text button;
  *   `dangerText`: a crimson text button; `inverse`: white on navy.
- * - `busy`: the shared loading indicator replaces the icon and the label
- *   stays, the button keeps its size and ignores presses.
+ * - `busy`: the shared loading indicator takes the icon's place (without an
+ *   icon, its slot comes out of the side padding); the label stays, the
+ *   button keeps its size and ignores presses.
  * - `disabled`: neutral grey, never a dimmed brand colour. `disabledReason`
- *   says why, centred above the button and as its accessibility hint.
+ *   says why, centred above the button (or below it with
+ *   `reasonPlacement="below"`, as under the booking bar's Continue) and as
+ *   its accessibility hint.
  * - The label wraps instead of truncating at large font sizes; `width`
  *   `full` stretches across its container, `content` hugs the label.
  */
@@ -99,6 +103,7 @@ export function Button({
   onPress,
   disabled = false,
   disabledReason,
+  reasonPlacement = "above",
   busy = false,
   variant = "primary",
   icon,
@@ -109,8 +114,10 @@ export function Button({
   readonly label: string;
   readonly onPress: () => void;
   readonly disabled?: boolean;
-  /** Why the button is disabled, shown above it while it is. */
+  /** Why the button is disabled, shown beside it while it is. */
   readonly disabledReason?: string;
+  /** Where the disabled reason sits: above the button (default) or below it. */
+  readonly reasonPlacement?: "above" | "below";
   /** The action is running: shows the loading indicator in the button. */
   readonly busy?: boolean;
   readonly variant?: ButtonVariant;
@@ -128,6 +135,12 @@ export function Button({
   const filled = variant === "primary" || variant === "danger";
   const textOnly =
     variant === "text" || variant === "quiet" || variant === "dangerText";
+  const busyIndicator = (
+    <LoadingIndicator
+      size="inline"
+      tone={filled && !disabled ? "white" : { color: labelColor }}
+    />
+  );
   const pressable = (
     <Pressable
       role="button"
@@ -155,15 +168,23 @@ export function Button({
         pressed && !disabled && !busy && buttonPressedStyles[variant],
         disabled && !textOnly && buttonDisabledStyle(variant),
         focused && buttonStyles.focused,
+        // Without an icon, the die's slot and gap come out of the side
+        // padding, so going busy changes neither the width nor the label's.
+        busy &&
+          !icon && {
+            paddingHorizontal:
+              (size === "small" || textOnly ? space.lg : space.xxl) -
+              busySlotWidth / 2,
+          },
       ]}
     >
-      {busy ? (
-        <LoadingIndicator
-          size="inline"
-          tone={filled && !disabled ? "white" : { color: labelColor }}
-        />
-      ) : (
-        icon && <Icon icon={icon} size={20} color={labelColor} />
+      {(icon || busy) && (
+        // The die takes the icon's 20 dp slot, so the button keeps its size.
+        <View style={buttonStyles.iconSlot}>
+          {busy
+            ? busyIndicator
+            : icon && <Icon icon={icon} size={20} color={labelColor} />}
+        </View>
       )}
       <Text
         variant={size === "small" ? "buttonSmall" : "button"}
@@ -181,6 +202,7 @@ export function Button({
         width === "full" ? buttonStyles.fullWidth : buttonStyles.contentWidth,
       ]}
     >
+      {reasonPlacement === "below" && pressable}
       <Text
         id={reasonId}
         variant="hint"
@@ -188,7 +210,7 @@ export function Button({
       >
         {reason ?? ""}
       </Text>
-      {pressable}
+      {reasonPlacement === "above" && pressable}
     </View>
   );
 }
@@ -199,14 +221,21 @@ export function Button({
  * stack instead.
  */
 export function ButtonRow({ children }: { readonly children: ReactNode }) {
+  // A button's label grows with the system font size, so the width at which
+  // two buttons still share a row grows with it too.
+  const { fontScale } = useWindowDimensions();
+  const item = { flexBasis: buttonRowItemWidth * fontScale, flexGrow: 1 };
   return (
     <View style={buttonStyles.row}>
       {Children.map(children, (child) =>
-        child ? <View style={buttonStyles.rowItem}>{child}</View> : null
+        child ? <View style={item}>{child}</View> : null
       )}
     </View>
   );
 }
+
+/** The narrowest a button in a row gets at the default font size. */
+const buttonRowItemWidth = 136;
 
 const buttonStyles = StyleSheet.create({
   base: {
@@ -225,6 +254,12 @@ const buttonStyles = StyleSheet.create({
   fullWidth: { alignSelf: "stretch" },
   contentWidth: { alignSelf: "flex-start" },
   label: { flexShrink: 1, textAlign: "center" },
+  iconSlot: {
+    alignItems: "center",
+    height: 20,
+    justifyContent: "center",
+    width: 20,
+  },
   primary: { backgroundColor: color.action },
   secondary: {
     backgroundColor: color.surface,
@@ -248,8 +283,10 @@ const buttonStyles = StyleSheet.create({
   reason: { textAlign: "center" },
   reasonHidden: { display: "none" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  rowItem: { flexBasis: 136, flexGrow: 1 },
 });
+
+/** The die's slot plus the gap before the label. */
+const busySlotWidth = 20 + space.sm;
 
 const buttonShadow: Partial<Record<ButtonVariant, object>> = {
   primary: shadow.primary,

@@ -21,8 +21,10 @@ export function FieldsSection() {
       <GalleryCase label="Filled">
         <TextField label={sample("Last name")} value="Nováková" />
       </GalleryCase>
-      <GalleryCase label="Focused">
-        <TextField label={sample("First name")} value="Jana" autoFocus />
+      {/* Tap to focus: focusing on mount would keep scrolling the gallery
+          back to this field. */}
+      <GalleryCase label="Focused (tap the field)">
+        <TextField label={sample("First name")} value="Jana" />
       </GalleryCase>
       <GalleryCase label="Error">
         <TextField
