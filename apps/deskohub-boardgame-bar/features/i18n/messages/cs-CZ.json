@@ -1148,91 +1148,91 @@
   "accounts": {
     "unavailable": {
       "title": "Uživatelské účty jsou dočasně nedostupné",
-      "hint": "Zkuste to prosím znovu za pár minut."
+      "hint": "Zkus to prosím znovu za pár minut."
     }
   },
   "signIn": {
     "pageTitle": "Přihlášení - Deskohub",
-    "pageDescription": "Přihlaste se ke svému účtu Deskohub: členství, přihlášky na akce a trofeje z turnajů.",
+    "pageDescription": "Přihlas se ke svému účtu Deskohub: členství, přihlášky na akce a trofeje z turnajů.",
     "title": "Přihlášení",
-    "subtitle": "Zadejte e-mail a my vám pošleme odkaz, kterým se přihlásíte. Heslo není potřeba. Nový účet si vytvoříte v záložce Registrace, kde si zvolíte přezdívku.",
+    "subtitle": "Zadej e-mail a my ti pošleme odkaz, kterým se přihlásíš. Heslo není potřeba. Nový účet si vytvoříš v záložce Registrace, kde si zvolíš přezdívku.",
     "emailLabel": "E-mail",
-    "emailPlaceholder": "vas@email.cz",
+    "emailPlaceholder": "tvuj@email.cz",
     "submit": "Poslat přihlašovací odkaz",
     "sending": "Odesílám…",
-    "sentTitle": "Zkontrolujte e-mail",
+    "sentTitle": "Mrkni do e-mailu",
     "sentBody": "Na adresu {email} jsme poslali přihlašovací odkaz. Platí 10 minut a dá se použít jen jednou.",
-    "sentHint": "E-mail nedorazil? Podívejte se do spamu, nebo si nechte poslat nový odkaz.",
+    "sentHint": "E-mail nedorazil? Podívej se do spamu, nebo si nech poslat nový odkaz.",
     "sendAgain": "Poslat nový odkaz",
-    "invalidEmail": "Zadejte platnou e-mailovou adresu.",
-    "tooManyRequests": "Příliš mnoho pokusů. Zkuste to prosím za několik minut.",
-    "sendFailed": "Odkaz se nepodařilo odeslat. Zkuste to prosím znovu.",
-    "linkInvalid": "Přihlašovací odkaz vypršel nebo už byl použit. Nechte si poslat nový.",
-    "privacyNote": "Odesláním souhlasíte se zpracováním e-mailu pro vedení účtu.",
+    "invalidEmail": "Zadej platnou e-mailovou adresu.",
+    "tooManyRequests": "Příliš mnoho pokusů. Zkus to prosím za několik minut.",
+    "sendFailed": "Odkaz se nepodařilo odeslat. Zkus to prosím znovu.",
+    "linkInvalid": "Přihlašovací odkaz vypršel nebo už byl použitý. Nech si poslat nový.",
+    "privacyNote": "Odesláním souhlasíš se zpracováním e-mailu pro vedení účtu.",
     "privacyLink": "Zásady ochrany osobních údajů",
     "modeLabel": "Přihlášení nebo registrace",
     "modeSignIn": "Přihlášení",
     "modeRegister": "Registrace",
     "nicknameLabel": "Přezdívka",
-    "nicknamePlaceholder": "Jak vám máme říkat",
-    "nicknameHint": "Pod přezdívkou vás uvidí obsluha u přihlášek na akce a u trofejí. Později ji můžete změnit v účtu.",
+    "nicknamePlaceholder": "Jak ti máme říkat",
+    "nicknameHint": "Pod přezdívkou tě uvidí obsluha u přihlášek na akce a u trofejí. Později ji můžeš změnit v účtu.",
     "invalidNickname": "Přezdívka musí mít 2 až 40 znaků.",
     "submitRegister": "Vytvořit účet",
-    "sentBodyRegister": "Na adresu {email} jsme poslali odkaz, kterým registraci dokončíte. Platí 10 minut a dá se použít jen jednou."
+    "sentBodyRegister": "Na adresu {email} jsme poslali odkaz, kterým registraci dokončíš. Platí 10 minut a dá se použít jen jednou."
   },
   "account": {
     "pageTitle": "Můj účet - Deskohub",
-    "pageDescription": "Váš účet Deskohub: členství, přihlášky na akce a trofeje z turnajů.",
+    "pageDescription": "Tvůj účet Deskohub: členství, přihlášky na akce a trofeje z turnajů.",
     "title": "Můj účet",
-    "signedInAs": "Přihlášen jako {email}",
+    "signedInAs": "Přihlášený účet: {email}",
     "signOut": "Odhlásit se",
     "profile": {
       "title": "Profil",
       "nameLabel": "Jméno nebo přezdívka",
-      "nameHint": "Pod tímto jménem vás uvidí obsluha u přihlášek na akce a u trofejí.",
+      "nameHint": "Pod tímhle jménem tě uvidí obsluha u přihlášek na akce a u trofejí.",
       "save": "Uložit",
       "saving": "Ukládám…",
       "saved": "Jméno je uložené.",
-      "saveFailed": "Jméno se nepodařilo uložit. Zkuste to prosím znovu.",
+      "saveFailed": "Jméno se nepodařilo uložit. Zkus to prosím znovu.",
       "nameInvalid": "Jméno musí mít 2 až 40 znaků.",
       "emailLabel": "E-mail"
     },
     "membership": {
       "title": "Členství",
       "activeUntil": "{plan} platí do {date}",
-      "none": "Zatím nemáte členství.",
+      "none": "Zatím nemáš členství.",
       "pending": "Žádost o {plan} za {price} Kč čeká na zaplacení na baru.",
       "view": "Zobrazit členství",
-      "choose": "Vyberte si členství",
+      "choose": "Vyber si členství",
       "extend": "Prodloužit členství",
-      "payAtBar": "Platí se osobně na baru. Obsluha vám členství po zaplacení aktivuje a po uplynutí období samo skončí.",
+      "payAtBar": "Platí se osobně na baru. Obsluha ti členství po zaplacení aktivuje a po uplynutí období samo skončí.",
       "noPlans": "Nabídku členství připravujeme."
     },
     "trophies": {
       "title": "Trofeje",
-      "empty": "Zatím žádná trofej. Přihlaste se na turnaj a vybojujte si první.",
+      "empty": "Zatím žádná trofej. Přihlas se na turnaj a vybojuj si první.",
       "browseEvents": "Zobrazit kalendář akcí",
       "placement": "{place}. místo",
       "awardedOn": "Uděleno {date}"
     },
     "registrations": {
       "title": "Moje přihlášky",
-      "empty": "Nejste přihlášeni na žádnou nadcházející akci."
+      "empty": "Zatím nemáš přihlášku na žádnou nadcházející akci."
     },
     "email": {
       "subject": "Přihlášení do účtu Deskohub",
       "heading": "Přihlášení do účtu Deskohub",
-      "intro": "Kliknutím na tlačítko níže se přihlásíte ke svému účtu.",
+      "intro": "Tlačítkem níže se přihlásíš ke svému účtu.",
       "button": "Přihlásit se",
       "expiry": "Odkaz platí {minutes} minut a dá se použít jen jednou.",
-      "ignore": "Pokud jste o přihlášení nežádali, tento e-mail ignorujte."
+      "ignore": "Pokud o přihlášení nevíš, tenhle e-mail ignoruj."
     }
   },
   "events": {
     "pageTitle": "Kalendář akcí - Deskohub",
-    "pageDescription": "Turnaje a akce v Deskohub baru s deskovými hrami. Přihlaste se online a sbírejte trofeje z turnajů.",
+    "pageDescription": "Turnaje a akce v Deskohub baru s deskovými hrami. Přihlas se online a sbírej trofeje z turnajů.",
     "title": "Kalendář akcí",
-    "subtitle": "Turnaje, herní večery a další akce. Na akci se přihlásíte svým účtem, za umístění v turnaji získáte trofej.",
+    "subtitle": "Turnaje, herní večery a další akce. Na akci se přihlásíš svým účtem, za umístění v turnaji získáš trofej.",
     "previousMonth": "Předchozí měsíc",
     "nextMonth": "Další měsíc",
     "currentMonth": "Tento měsíc",
@@ -1240,7 +1240,7 @@
     "listTitle": "Akce v tomto měsíci",
     "empty": {
       "title": "Na tento měsíc zatím není vypsaná žádná akce",
-      "hint": "Zkuste se podívat na další měsíc."
+      "hint": "Zkus se podívat na další měsíc."
     },
     "kind": {
       "tournament": "Turnaj",
@@ -1253,21 +1253,21 @@
     "register": "Přihlásit se na akci",
     "registering": "Přihlašuji…",
     "cancel": "Odhlásit se z akce",
-    "youAreRegistered": "Jste přihlášeni",
+    "youAreRegistered": "Jsi na seznamu",
     "full": "Obsazeno",
     "closed": "Přihlašování je uzavřeno",
     "past": "Akce už proběhla",
     "signInToRegister": "Přihlásit se k účtu",
-    "signInHint": "Pro přihlášení na akci potřebujete účet.",
+    "signInHint": "Na přihlášení na akci potřebuješ účet.",
     "outcome": {
-      "registered": "Jste přihlášeni na akci.",
-      "alreadyRegistered": "Na tuto akci už jste přihlášeni.",
+      "registered": "Hotovo, jsi na seznamu hráčů.",
+      "alreadyRegistered": "Na tuhle akci už máš přihlášku.",
       "full": "Akce je už bohužel obsazená.",
       "closed": "Přihlašování na tuto akci je uzavřeno.",
       "notFound": "Akce nebyla nalezena.",
-      "cancelled": "Odhlásili jsme vás z akce.",
-      "signedOut": "Nejdřív se prosím přihlaste k účtu.",
-      "failed": "Něco se nepovedlo. Zkuste to prosím znovu."
+      "cancelled": "Odhlásili jsme tě z akce.",
+      "signedOut": "Nejdřív se prosím přihlas k účtu.",
+      "failed": "Něco se nepovedlo. Zkus to prosím znovu."
     }
   },
   "membership": {
@@ -1277,7 +1277,7 @@
     "subtitle": "Staň se PATŘONĚM. Patříš k nám a jsi náš „patron“ neboli deskoherní štamgast.",
     "empty": {
       "title": "Nabídku členství připravujeme",
-      "hint": "Brzy tu najdete tarify a jejich výhody."
+      "hint": "Brzy tu najdeš tarify a jejich výhody."
     },
     "price": "{price} Kč",
     "durationDays": "na {days} dní",
@@ -1294,7 +1294,7 @@
     },
     "pending": {
       "title": "Žádost čeká na zaplacení",
-      "body": "Požádal(a) jsi o {plan} za {price} Kč. Zaplať prosím osobně na baru; jakmile platbu potvrdíme, členství začne platit.",
+      "body": "Tvoje žádost o {plan} za {price} Kč čeká na zaplacení. Zaplať prosím osobně na baru; jakmile platbu potvrdíme, členství začne platit.",
       "cancel": "Zrušit žádost"
     },
     "outcome": {
@@ -1302,25 +1302,25 @@
       "alreadyRequested": "Jedna žádost o členství už čeká na úhradu.",
       "planUnavailable": "Tento tarif už není v nabídce.",
       "cancelled": "Žádost o členství jsme zrušili.",
-      "signedOut": "Nejdřív se prosím přihlaste k účtu.",
-      "failed": "Něco se nepovedlo. Zkuste to prosím znovu."
+      "signedOut": "Nejdřív se prosím přihlas k účtu.",
+      "failed": "Něco se nepovedlo. Zkus to prosím znovu."
     },
     "durationHalfYear": "na 6 měsíců",
     "choose": "Vybrat",
     "email": {
-      "greeting": "Dobrý den, {name},",
+      "greeting": "Ahoj {name},",
       "accountButton": "Zobrazit můj účet",
       "activated": {
-        "subject": "Vaše členství v Deskohubu platí",
+        "subject": "Tvoje členství v Deskohubu platí",
         "heading": "Členství je aktivní",
-        "body": "platbu jsme přijali a vaše {plan} platí od {from} do {to}.",
-        "note": "Po tomto datu členství samo skončí, nic rušit nemusíte."
+        "body": "platbu jsme přijali a tvoje {plan} platí od {from} do {to}.",
+        "note": "Po tomhle datu členství samo skončí, nic rušit nemusíš."
       },
       "expiring": {
-        "subject": "Vaše členství v Deskohubu brzy skončí",
+        "subject": "Tvoje členství v Deskohubu brzy skončí",
         "heading": "Členství brzy skončí",
-        "body": "vaše {plan} platí do {to}.",
-        "note": "Chcete pokračovat? Vyberte si ve svém účtu nové členství a zaplaťte ho na baru. Nové období naváže na to současné, o žádný den nepřijdete.",
+        "body": "tvoje {plan} platí do {to}.",
+        "note": "Chceš pokračovat? Vyber si ve svém účtu nové členství a zaplať ho na baru. Nové období naváže na to současné, o žádný den nepřijdeš.",
         "button": "Prodloužit členství"
       }
     },

@@ -20,8 +20,8 @@ describe("membership emails", () => {
     const message = buildMembershipActivatedEmail(details);
 
     expect(message.to).toEqual({ email: "karel@example.test" });
-    expect(message.subject).toBe("Vaše členství v Deskohubu platí");
-    expect(message.text).toContain("Dobrý den, Kostkový Karel,");
+    expect(message.subject).toBe("Tvoje členství v Deskohubu platí");
+    expect(message.text).toContain("Ahoj Kostkový Karel,");
     expect(message.text).toContain(
       "Měsíční členství platí od 14. listopadu 2026 do 14. prosince 2026"
     );
@@ -32,11 +32,11 @@ describe("membership emails", () => {
   it("reminds the member of the end date and how to renew", () => {
     const message = buildMembershipExpiringEmail(details);
 
-    expect(message.subject).toBe("Vaše členství v Deskohubu brzy skončí");
+    expect(message.subject).toBe("Tvoje členství v Deskohubu brzy skončí");
     expect(message.text).toContain(
       "Měsíční členství platí do 14. prosince 2026"
     );
-    expect(message.text).toContain("zaplaťte ho na baru");
+    expect(message.text).toContain("zaplať ho na baru");
     expect(message.html).toContain("Prodloužit členství");
     expect(message.tags).toEqual(["membership-expiring"]);
   });
