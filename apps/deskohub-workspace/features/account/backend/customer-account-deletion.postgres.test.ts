@@ -611,11 +611,9 @@ describe.skipIf(!invoiceDatabase)(
           )
         )
       );
-      expect(denied).toEqual([
-        new CustomerInvoicesUnavailableError(),
-        new CustomerInvoicesUnavailableError(),
-        new CustomerInvoicesUnavailableError(),
-      ]);
+      expect(
+        denied.map((error) => error instanceof CustomerInvoicesUnavailableError)
+      ).toEqual([true, true, true]);
     });
   }
 );
