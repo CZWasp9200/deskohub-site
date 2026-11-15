@@ -13,6 +13,7 @@ import type { InvoiceDeliveryEmailProps } from "../invoice-delivery";
 import type { ReservationAuthorEmailProps } from "../reservation-author";
 import type { ReservationCancellationEmailProps } from "../reservation-cancellation";
 import type { ReservationNotificationEmailProps } from "../reservation-notification";
+import type { ReservationRestorationEmailProps } from "../reservation-restoration";
 import type { WorkspaceCampaignEmailProps } from "../workspace-campaign";
 
 const customerEmail = testEmailAddress("customer");
@@ -88,6 +89,12 @@ export const reservationCancellationPreviewProps = {
   locale: "en-US",
   reservation: previewReservation,
 } satisfies ReservationCancellationEmailProps;
+
+export const reservationRestorationPreviewProps = {
+  locale: "en-US",
+  reservation: previewReservation,
+  accessUrl: customerReservationPreviewProps.accessUrl,
+} satisfies ReservationRestorationEmailProps;
 
 export const invoiceDeliveryPreviewProps = {
   invoiceNumber: "WS-FV-2026-000003",
