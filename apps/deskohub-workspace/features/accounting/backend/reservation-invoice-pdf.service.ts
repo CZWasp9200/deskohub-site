@@ -15,7 +15,7 @@ import {
   type InvoicePdfRenderingError,
   renderInvoicePdfFile,
 } from "./invoice-pdf";
-import type { InvoiceStorageError } from "./invoice-reads";
+import type { AccountingRecordUnavailable } from "./sealed-accounting-json";
 
 /**
  * The reservation doesn't exist, or the visitor may not see its invoice. The
@@ -54,7 +54,7 @@ type ReservationInvoicePdfError =
   | ReservationInvoiceNotIssuedError
   | ReservationAuthorizationUnavailableError
   | EffectDrizzleQueryError
-  | InvoiceStorageError
+  | AccountingRecordUnavailable
   | InvoicePdfRenderingError
   | WorkspaceReservationDetailsMalformedError;
 

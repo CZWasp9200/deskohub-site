@@ -95,8 +95,15 @@ export type BuildSignedPayStateInput =
   | BuildSignedMeetingRoomPayStateInput
   | BuildSignedOfficePayStateInput;
 
+/** One family's reservation with its quote, as a Pay state carries them. */
+export type SignedPayStatePricing = SignedPayState extends infer State
+  ? State extends SignedPayState
+    ? Pick<State, "reservation" | "quote">
+    : never
+  : never;
+
 export const getSignedPayStateCheckoutSummary = (
-  state: SignedPayState
+  state: SignedPayStatePricing
 ): CheckoutSummary =>
   Match.value(state).pipe(
     Match.when({ reservation: { kind: "cowork" } }, ({ quote, reservation }) =>
