@@ -27,9 +27,7 @@ import type { DiscountAdjustment } from "../contracts";
 import type { DiscountCodeId, VoucherId } from "../persistence-contracts";
 import { toAdminCalendarSale } from "./admin-calendar-sale";
 import { toAdminDiscountGroup } from "./admin-discount-group";
-import type { DiscountAdminCustomerSearch } from "./contracts";
 import type {
-  AdminCustomerSearchResult,
   AdminDiscount,
   AdminDiscountCode,
   AdminDiscountCodeClaim,
@@ -287,22 +285,6 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
       )
   );
 
-  const searchCustomers = Effect.fn("DiscountAdministration.searchCustomers")(
-    function* (input: DiscountAdminCustomerSearch) {
-      const customers = (yield* dotypos.searchCustomers(input.query))
-        .filter((customer) => !customer.deleted)
-        .map(toAdminDotyposCustomer)
-        .slice(0, 50);
-      let kind: AdminCustomerSearchResult["kind"] = "not-found";
-      if (customers.length === 1) kind = "matched";
-      else if (customers.length > 1) kind = "ambiguous";
-      return {
-        kind,
-        customers,
-      } satisfies AdminCustomerSearchResult;
-    }
-  );
-
   const loadCustomerProfile = Effect.fn(
     "DiscountAdministration.loadCustomerProfile"
   )((input: { readonly customerId: DotyposCustomerId }) =>
@@ -433,7 +415,6 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
     loadSalesPage,
     loadVoucherDetail,
     loadVouchersPage,
-    searchCustomers,
   };
 });
 

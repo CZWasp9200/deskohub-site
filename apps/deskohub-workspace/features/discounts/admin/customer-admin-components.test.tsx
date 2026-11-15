@@ -57,9 +57,14 @@ mock.module("./actions", () => ({
   deleteDiscountAdminForm: mock(),
   deleteDiscountCodeAdminForm: mock(),
   mutateDiscountAdmin: mock(),
-  searchDiscountAdminCustomers: mock(),
   updateDiscountAdminForm: mock(),
   updateDiscountCodeAdminForm: mock(),
+}));
+mock.module("@/features/administration/actions", () => ({
+  cancelAdministrationReservation: mock(),
+  getAdministrationReservation: mock(),
+  mutateReservationAccess: mock(),
+  searchAdministrationCustomers: mock(),
 }));
 
 const execute = mock();
@@ -172,7 +177,7 @@ describe("customer administration pages", () => {
       ).toBeDefined();
       expect(
         view.getByRole("searchbox", {
-          name: m.discountsCustomerSearchLabel({}, { locale }),
+          name: m.administrationCustomerSearchLabel({}, { locale }),
         })
       ).toBeDefined();
     });

@@ -181,18 +181,17 @@ describe("administration entry points without the administrator grant", () => {
     requestHeaders = new Headers({
       referer: "https://deskohub.test/admin/reservations",
     });
-    const { mutateDiscountAdmin, searchDiscountAdminCustomers } = await import(
+    const { mutateDiscountAdmin } = await import(
       "@/features/discounts/admin/actions"
     );
-    const { getAdministrationReservation } = await import(
-      "@/features/administration/actions"
-    );
+    const { getAdministrationReservation, searchAdministrationCustomers } =
+      await import("@/features/administration/actions");
 
     const mutation = await mutateDiscountAdmin({
       kind: "delete-discount",
       id: "00000000-0000-0000-0000-000000000001",
     });
-    const search = await searchDiscountAdminCustomers({
+    const search = await searchAdministrationCustomers({
       query: "attacker-controlled-name",
     });
     const reservation = await getAdministrationReservation({

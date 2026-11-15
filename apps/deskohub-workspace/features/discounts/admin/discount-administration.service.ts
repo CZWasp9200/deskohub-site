@@ -68,7 +68,6 @@ import type {
   CreateDiscountAdminInput,
   CreateManagedDiscountCodeAdminInput,
   CreateVoucherAdminInput,
-  DiscountAdminCustomerSearch,
   UpdateDiscountAdminInput,
   UpdateDiscountCodeAdminInput,
   UpdateVoucherAdminInput,
@@ -211,11 +210,6 @@ type AdminCustomerCodeCreation = {
 
 type AdminCustomerVoucherCreation = {
   readonly customer: AdminDotyposCustomer;
-};
-
-export type AdminCustomerSearchResult = {
-  readonly kind: "matched" | "not-found" | "ambiguous";
-  readonly customers: readonly AdminDotyposCustomer[];
 };
 
 export type AdminCalendarSale = {
@@ -389,9 +383,6 @@ export interface IDiscountAdministration {
     AdminDiscountCodeDetail,
     EffectDrizzleQueryError | SqlError | DiscountAdminNotFoundError
   >;
-  readonly searchCustomers: (
-    input: DiscountAdminCustomerSearch
-  ) => Effect.Effect<AdminCustomerSearchResult, DotyposReadFailure>;
   /** Every Dotypos discount group, for choosing one by name. */
   readonly listDiscountGroups: () => Effect.Effect<
     readonly DiscountGroupListing[],
