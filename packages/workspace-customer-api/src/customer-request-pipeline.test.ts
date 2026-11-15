@@ -242,6 +242,17 @@ describe("the typed client's profile phone", () => {
     expect(received).toEqual([{ firstName: "Ada", phone: "" }]);
   });
 
+  test("refuses to send a field the contract doesn't know", async () => {
+    // A value with an extra field still has the payload's static type.
+    const payload = { firstName: "Ada", email: otherEmail };
+    const updated = await callTypedClient((client) =>
+      client.account.updateProfile({ payload })
+    );
+
+    expect(Result.isFailure(updated)).toBe(true);
+    expect(ran).toEqual([]);
+  });
+
   test("never delivers a phone without a phone number", async () => {
     const updated = await callTypedClient((client) =>
       client.account.updateProfile({

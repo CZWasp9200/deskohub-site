@@ -1,3 +1,4 @@
+export { administrationInputParseOptions } from "./administration-input-parse-options";
 export {
   type AdministrationOperationAccess,
   AdministrationOperationBehavior,

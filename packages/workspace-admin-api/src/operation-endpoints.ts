@@ -1,11 +1,12 @@
 import { type Array as Arr, Effect, Option, Schema, Struct } from "effect";
 import { HttpMethod, type HttpRouter } from "effect/http";
 import {
-  type HttpApi,
+  HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
   HttpApiGroup,
 } from "effect/http-api";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
   AdministrationOperationBehavior,
   readOperation,
@@ -19,10 +20,6 @@ import type {
 } from "./campaign-operations";
 import { MinimumDhwVersion } from "./dhw-version";
 import { administrationOperationGroup } from "./workspace-admin-api";
-
-const strictParseOptions = {
-  parseOptions: { errors: "all", onExcessProperty: "error" },
-} as const;
 
 /** The names of a path's `:name` segments. */
 export type PathParamNames<Path extends string> =
@@ -360,9 +357,9 @@ const endpointOf = (
   const rest = (): Schema.Top =>
     paramKeys.length === 0
       ? input
-      : (input as Schema.Struct<Schema.Struct.Fields>)
-          .mapFields(Struct.omit(paramKeys))
-          .annotate(strictParseOptions);
+      : (input as Schema.Struct<Schema.Struct.Fields>).mapFields(
+          Struct.omit(paramKeys)
+        );
   const behavior =
     operation.kind === "query"
       ? readOperation
@@ -387,7 +384,12 @@ const endpointOf = (
       success: operation.output,
       error,
     }
-  ).annotate(AdministrationOperationBehavior, behavior);
+  )
+    // An operation's request reports every issue and refuses fields its
+    // input doesn't declare.
+    .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+    .annotate(HttpApi.QueryParseOptions, administrationInputParseOptions)
+    .annotate(AdministrationOperationBehavior, behavior);
   return operation.minimumDhwVersion === undefined
     ? endpoint
     : endpoint.annotate(

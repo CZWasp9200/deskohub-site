@@ -32,7 +32,7 @@ describe("CLI authentication crypto", () => {
       "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
     );
 
-    expect(await run(makeCliAuthenticationChallenge(verifier))).toBe(
+    expect(String(await run(makeCliAuthenticationChallenge(verifier)))).toBe(
       "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
     );
   });

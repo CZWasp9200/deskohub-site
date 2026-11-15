@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { Multipart } from "effect/http";
 import {
+  HttpApi,
   HttpApiEndpoint,
   HttpApiError,
   HttpApiGroup,
@@ -270,12 +271,10 @@ export type CustomerAccountState = typeof CustomerAccountState.Type;
 /** The profile payloads, decoded as the account actions decode them. */
 const ProfileUpdatePayload = CustomerProfileInput.annotate({
   identifier: "CustomerProfileInput",
-  parseOptions: customerInputParseOptions,
 });
 
 const ProfileCompletionPayload = CustomerProfileCompletionInput.annotate({
   identifier: "CustomerProfileCompletionInput",
-  parseOptions: customerInputParseOptions,
 });
 
 type AccountProfileSchemas = ReturnType<typeof accountProfileSchemas>;
@@ -309,7 +308,6 @@ export const profileCompletionSaveOf = profileSaveReader(
 /** The language to save on the account, as the web language switcher does. */
 const LocaleUpdatePayload = Schema.Struct({ locale: CustomerLocale }).annotate({
   identifier: "CustomerLocaleUpdate",
-  parseOptions: customerInputParseOptions,
 });
 
 /** The saved language. */
@@ -400,7 +398,6 @@ export const SaveCustomerMarketingPreferences = Schema.Struct({
   locale: CustomerLocale,
 }).annotate({
   identifier: "SaveCustomerMarketingPreferences",
-  parseOptions: customerInputParseOptions,
 });
 export type SaveCustomerMarketingPreferences =
   typeof SaveCustomerMarketingPreferences.Type;
@@ -432,7 +429,6 @@ export const SyncCustomerAnalyticsConsent = Schema.Struct({
   locale: CustomerLocale,
 }).annotate({
   identifier: "SyncCustomerAnalyticsConsent",
-  parseOptions: customerInputParseOptions,
 });
 export type SyncCustomerAnalyticsConsent =
   typeof SyncCustomerAnalyticsConsent.Type;
@@ -469,7 +465,6 @@ export const SaveCustomerAnalyticsPreference = Schema.Struct({
   locale: CustomerLocale,
 }).annotate({
   identifier: "SaveCustomerAnalyticsPreference",
-  parseOptions: customerInputParseOptions,
 });
 export type SaveCustomerAnalyticsPreference =
   typeof SaveCustomerAnalyticsPreference.Type;
@@ -489,7 +484,6 @@ export const RequestCustomerAccountDeletion = Schema.Struct({
   confirmed: Schema.Literal(true),
 }).annotate({
   identifier: "RequestCustomerAccountDeletion",
-  parseOptions: customerInputParseOptions,
 });
 
 /**
@@ -529,7 +523,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     /**
@@ -544,7 +538,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.post("completeProfile", "/profile", {
@@ -555,7 +549,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.put("uploadAvatar", "/avatar", {
@@ -612,7 +606,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.post("syncAnalyticsConsent", "/analytics-consent", {
@@ -622,7 +616,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.get("getAnalyticsPreference", "/analytics-preference", {
@@ -641,7 +635,7 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .add(
     HttpApiEndpoint.get("getReferrals", "/referrals", {
@@ -671,6 +665,6 @@ export const CustomerAccountApi = HttpApiGroup.make("account")
     HttpApiEndpoint.post("requestDeletion", "/deletion", {
       payload: RequestCustomerAccountDeletion,
       success: CustomerAccountDeletionResult,
-    })
+    }).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions)
   )
   .prefix("/account");

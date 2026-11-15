@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiSchema } from "effect/http-api";
+import { HttpApi, HttpApiEndpoint, HttpApiSchema } from "effect/http-api";
 import { CustomerAccountLinkRequired } from "./customer-account-api";
 import {
   CustomerBookingDateOutOfRange,
@@ -306,7 +306,6 @@ export const CreateCustomerCheckout = Schema.Struct({
   marketingConsent: Schema.optionalKey(Schema.Boolean),
 }).annotate({
   identifier: "CreateCustomerCheckout",
-  parseOptions: customerInputParseOptions,
 });
 export type CreateCustomerCheckout = typeof CreateCustomerCheckout.Type;
 
@@ -320,14 +319,12 @@ export const ApplyCustomerCheckoutDiscountCode = Schema.Struct({
   code: Schema.String.check(Schema.isMaxLength(64)),
 }).annotate({
   identifier: "ApplyCustomerCheckoutDiscountCode",
-  parseOptions: customerInputParseOptions,
 });
 
 export const AcceptCustomerCheckoutPriceChange = Schema.Struct(
   PayStateStep
 ).annotate({
   identifier: "AcceptCustomerCheckoutPriceChange",
-  parseOptions: customerInputParseOptions,
 });
 
 /**
@@ -357,7 +354,6 @@ export const SubmitCustomerCheckout = Schema.Struct({
   returnTarget: Schema.optionalKey(CustomerCheckoutReturnTarget),
 }).annotate({
   identifier: "SubmitCustomerCheckout",
-  parseOptions: customerInputParseOptions,
 });
 
 // Endpoints
@@ -387,7 +383,7 @@ const createCheckout = HttpApiEndpoint.post("createCheckout", "/checkouts", {
     CustomerAccountLinkRequired.schema,
     CustomerServiceUnavailable.schema,
   ],
-});
+}).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
 
 /** Applies a discount or referral code to a held checkout. */
 const applyCheckoutDiscountCode = HttpApiEndpoint.post(
@@ -399,7 +395,7 @@ const applyCheckoutDiscountCode = HttpApiEndpoint.post(
     success: CustomerCheckoutDiscountCodeResult,
     error: [CustomerDiscountCodeRejected.schema, ...checkoutStepErrors],
   }
-);
+).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
 
 /**
  * Accepts the changed price a `price_review` checkout shows. It doesn't
@@ -413,7 +409,7 @@ const acceptCheckoutPriceChange = HttpApiEndpoint.post(
     success: CustomerCheckout,
     error: [...checkoutStepErrors],
   }
-);
+).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
 
 /**
  * Submits a checkout for payment, after checking its consents and the
@@ -433,7 +429,7 @@ const submitCheckout = HttpApiEndpoint.post(
       ...checkoutStepErrors,
     ],
   }
-);
+).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
 
 /** The booking group's checkout endpoints, in the order a booking calls them. */
 export const customerBookingCheckoutEndpoints = [
