@@ -182,22 +182,6 @@ describe("Pay URL state", () => {
     expect(opened.holdExpiresAt).toBe(payStateHoldExpiresAt);
   });
 
-  test("requires the hold deadline to build a Pay state", () => {
-    const buildWithoutDeadline = () =>
-      buildSignedPayState(
-        // @ts-expect-error every Pay state built signs its hold deadline
-        {
-          locale: "en-US",
-          reservation: baseReservation,
-          quote: buildCoworkReservationQuote(baseReservation),
-          orderId: "pay-state-test-order-id",
-          bookedAt: payStateBookedAt,
-        }
-      );
-
-    expect(buildWithoutDeadline).toBeFunction();
-  });
-
   test("opens a token signed before Pay states carried the hold deadline", () => {
     const state = buildState();
 

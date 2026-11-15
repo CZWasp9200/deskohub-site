@@ -114,6 +114,24 @@ describe("acceptPayStatePriceChange", () => {
     });
   });
 
+  test("reads the stored deadline of a token without one before returning it unchanged", async () => {
+    const payStateToken = await sealSyntheticPayStateToken({
+      withoutHoldExpiry: true,
+    });
+    findReservation.mockClear();
+    findReservation.mockImplementationOnce(() => Effect.succeed(null));
+
+    const failure = await runFailure(
+      acceptPayStatePriceChange({ payStateToken, locale: "en-US" })
+    );
+
+    expect(findReservation).toHaveBeenCalledTimes(1);
+    expect(failure).toMatchObject({
+      _tag: "PayableReservationUnavailableError",
+      reason: "missing_reservation",
+    });
+  });
+
   test("rejects a Pay state signed for another language", async () => {
     const payStateToken = await sealSyntheticPayStateToken({
       locale: "cs-CZ",

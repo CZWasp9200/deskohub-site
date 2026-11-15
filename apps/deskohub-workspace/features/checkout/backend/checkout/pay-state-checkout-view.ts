@@ -34,12 +34,10 @@ export type PayStateCheckoutView = {
   readonly holdExpiresAt: Instant;
   readonly summary: CheckoutSummary;
   /** The entered code the price includes, with its summary discount's id. */
-  readonly appliedDiscountCode:
-    | {
-        readonly code: CanonicalPromotionCode;
-        readonly discountId: DiscountId;
-      }
-    | undefined;
+  readonly appliedDiscountCode?: {
+    readonly code: CanonicalPromotionCode;
+    readonly discountId: DiscountId;
+  };
   /** Set while the customer still has to accept a price change. */
   readonly changedKeys: CheckoutSummaryChangedKeys | undefined;
   readonly earlyPerformanceConsent: {
@@ -57,13 +55,12 @@ export const getPayStateCheckoutView = (
   expiresAt: getPayStateExpiresAt(state),
   holdExpiresAt: state.holdExpiresAt,
   summary: getSignedPayStateCheckoutSummary(state),
-  appliedDiscountCode:
-    state.submittedCode === undefined
-      ? undefined
-      : {
-          code: state.submittedCode,
-          discountId: state.submittedCodeDiscountId,
-        },
+  ...(state.submittedCode !== undefined && {
+    appliedDiscountCode: {
+      code: state.submittedCode,
+      discountId: state.submittedCodeDiscountId,
+    },
+  }),
   changedKeys: state.changedKeys,
   earlyPerformanceConsent: {
     required: isEarlyPerformanceRequestRequired({

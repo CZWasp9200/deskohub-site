@@ -94,7 +94,7 @@ describe("getPayStateCheckoutView", () => {
       code: submittedCode,
       discountId: submittedCodeDiscountId,
     });
-    expect(withoutCode.appliedDiscountCode).toBeUndefined();
+    expect(withoutCode).not.toHaveProperty("appliedDiscountCode");
   });
 
   test("carries the changed keys of a price review", async () => {
