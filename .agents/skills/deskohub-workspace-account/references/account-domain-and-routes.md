@@ -59,7 +59,8 @@
     `reservation-booking.service.ts`) only peeks: it runs inside
     `withOptionalAccount`, after the booking's own review check, and
     completes a missing profile itself. Each booking channel provides
-    `CurrentCustomerAccount` with its own authentication.
+    `CurrentCustomerAccount` with its own authentication
+    ([authentication supply](#authentication-supply)).
   - The read-only readers only peek, each with its own mapping: the booking
     contact (`CustomerAccountContactService.current`), the reservation
     history account (`currentReservationHistoryAccount`), the remembered
@@ -123,6 +124,66 @@
   the held resolution steps (`resolveHeldCustomerAccountLink`) and creates only on
   `not-found`. Because the created customer carries the verified email, a retry
   after a failed link write links that customer instead of creating another.
+
+## Authentication supply
+
+- Every account service that reads the session (`CustomerAccountSections`,
+  `CurrentCustomerAccount`, `CustomerProfileService`,
+  `CustomerAccountContactService`, `CustomerAccountReservationOwnership`, and
+  `ReservationAuthorizationService` in the reservation feature) has a
+  `ForProvidedAuthentication` Layer that requires `CustomerAuthentication`
+  and builds its dependencies from the other services'
+  `ForProvidedAuthentication`. Effect memoizes the leaf Layers by reference,
+  so one build constructs each service once, whichever caller names it.
+- `CustomerAccountServices` (`backend/customer-account-services.ts`) merges
+  the five account ones. A channel supplies its authentication once:
+  - Agent tools: `customerAgentAccountServices(accessToken)` provides the
+    token's `customerAuthenticationForAgent` to `CustomerAccountServices`
+    and outputs it too. `defineSignedInAgentTool` provides the caller's
+    services with `local: true`, so they and every Layer the call provides
+    inside are built in the call's own memo map. That is what keeps a
+    signed-in tool from reading the browser session: the route's tool
+    services (`CustomerAgentToolsLive`) build `CustomerAccountSections` over
+    the browser session through `ReferralService.Live`, and a call sharing
+    the route's memo map would reuse that leaf. Never take a caller's
+    account service from the route's services, and keep `local: true`.
+  - Customer HTTP API: each handler group wraps the authentication the
+    session middleware read as one `Layer.succeed(CustomerAuthentication, …)`
+    and provides it to its seams, which are Layers requiring
+    `CustomerAuthentication`, never functions of it: the reservations'
+    `currentAccount` and `authorization`, the account group's
+    `currentAccount`, `profile` and `localePreference`, and the booking
+    checkout's `operations` (`CustomerCheckoutOperations.Default` builds its
+    sections, standing and contact over it). The server provides
+    `CustomerAuthentication.Default`, so this is the same value as the
+    browser default.
+  - Site pages, routes and Server Actions: a service's `Live` is its
+    `ForProvidedAuthentication` over `CustomerAuthentication.Default`, for a
+    caller that needs one service. A caller that also reads the session
+    itself provides `CustomerAuthentication.Default` once and takes the
+    services' `ForProvidedAuthentication` under it (the account page's
+    `AccountStateCapabilities.authentication`, the locale and avatar
+    actions, `ReferralService.Live`).
+- Don't add a `withAuthentication(layer)` function or a second
+  `CustomerAuthentication` provision beside a `Live`; supply the
+  authentication to `ForProvidedAuthentication` Layers instead. A memoized
+  leaf keeps the authentication of whoever built it first in a memo map, so
+  never build one service over two authentications in one memo map. The site
+  and the customer HTTP API have one authentication value per request; the
+  agent channel has two (the browser default in the route's services and the
+  caller's token), which is why its calls build in their own memo map.
+- `customer-account-services.test.ts` proves the composition builds every
+  service over the supplied authentication, constructed once, with no
+  browser session read, and that the `Live` services read the browser
+  session; `customer-agent-account-services.test.ts` proves the agent
+  services read the token's customer and never the browser session;
+  `features/agent-tools/customer-agent-caller.test.ts` proves it through the
+  MCP route's own handler and services, in the route's build order and for
+  both MCP eras, with no browser session and with another account's
+  (`signInBrowser`), including the booking section's held account, the
+  hold's author and the customer. All fake the stores with
+  `fakeAccountServiceStores` and run under a browser request with
+  `asBrowserRequest` (`customer-account-services.test-utils.ts`).
 
 ## Durable customer account
 

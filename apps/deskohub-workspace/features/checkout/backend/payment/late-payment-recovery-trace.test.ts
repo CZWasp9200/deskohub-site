@@ -3,7 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService, DotyposUnavailable } from "@deskohub/dotypos";
 import { Cause, Effect, Exit, Layer, Predicate } from "effect";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import {
   makeCoworkInvoiceDocument,
   makeMeetingRoomInvoiceDocument,
@@ -238,10 +238,10 @@ const recover = async (scenario: Scenario) => {
           Layer.mergeAll(
             Layer.mock(LatePaymentRecoveryRepository, recoveries as never),
             Layer.mock(WorkspaceReservationRepository, reservations as never),
-            Layer.mock(AccountingDocumentSnapshotRepository, {
-              findByPaymentAttemptId: trace.recordCalls("snapshots", {
-                findByPaymentAttemptId: succeed(snapshot),
-              }).findByPaymentAttemptId,
+            Layer.mock(AccountingDocumentSnapshots, {
+              find: trace.recordCalls("snapshots", {
+                find: succeed(snapshot),
+              }).find,
             }),
             Layer.mock(WorkspaceAvailabilityService, {
               ensureAvailable: trace.recordCalls("availability", {
@@ -467,7 +467,7 @@ describe("LatePaymentRecoveryService.recover original hold reuse", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -620,7 +620,7 @@ describe("LatePaymentRecoveryService.recover original hold reuse", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_newer_reservation, completedAt=<Instant>)",
@@ -672,7 +672,7 @@ describe("LatePaymentRecoveryService.recover original hold reuse", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_newer_reservation, completedAt=<Instant>)",
@@ -749,7 +749,7 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "call reservations.findById(reservation-id)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -844,7 +844,7 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -954,7 +954,7 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -1038,7 +1038,7 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "call reservations.findById(reservation-id)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -1147,7 +1147,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -1297,7 +1297,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_snapshot_unavailable, completedAt=<Instant>)",
       ]
     `);
@@ -1327,7 +1327,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_newer_reservation, completedAt=<Instant>)",
       ]
     `);
@@ -1356,7 +1356,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_snapshot_unavailable, completedAt=<Instant>)",
       ]
     `);
@@ -1389,7 +1389,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_reservation_ended, completedAt=<Instant>)",
       ]
@@ -1427,7 +1427,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.requireReview(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_replacement_ambiguous, completedAt=<Instant>)",
@@ -1465,7 +1465,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call dotypos.cancelReservation(replacement-id)",
@@ -1503,7 +1503,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.completeWithReplacement(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, recoveredDotyposReservationId=replacement-id, reservationState=held, completedAt=<Instant>)",
@@ -1542,7 +1542,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.completeWithReplacement(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, recoveredDotyposReservationId=replacement-id, reservationState=confirmed, completedAt=<Instant>)",
@@ -1580,7 +1580,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -1617,7 +1617,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -1652,7 +1652,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -1700,7 +1700,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -1751,7 +1751,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
@@ -1799,7 +1799,7 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",

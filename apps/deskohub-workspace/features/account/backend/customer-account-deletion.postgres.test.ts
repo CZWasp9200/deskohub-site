@@ -12,8 +12,8 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { customerAccounts } from "@/db/schema";
 import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import { manualInvoiceInputSchema } from "@/features/accounting/manual-invoice";
 import { ReviewAccounts } from "@/features/review-accounts";
@@ -466,24 +466,23 @@ describe.skipIf(!invoiceDatabase)(
     };
 
     const makeLayer = () => {
+      const accountingKeys = Layer.succeed(
+        AccountingSnapshotKeyService,
+        AccountingSnapshotKeyService.of({
+          getActive: Effect.succeed(accountingKey),
+          getById: () => Effect.succeed(accountingKey),
+        })
+      );
       const storage = Layer.mergeAll(
         invoiceDatabase!.layer,
         WorkspaceDatabaseAdvisoryLock.makeLayer(invoiceDatabase!.pool),
-        Layer.succeed(
-          AccountingSnapshotKeyService,
-          AccountingSnapshotKeyService.of({
-            getActive: Effect.succeed(accountingKey),
-            getById: () => Effect.succeed(accountingKey),
-          })
-        )
+        accountingKeys
       );
       const repositories = Layer.mergeAll(
         CustomerAccountLinkRepository.Default,
         CustomerAccountRepository.Default,
         ReviewAccounts.Default,
-        InvoiceRepository.Default.pipe(
-          Layer.provide(AccountingDocumentSnapshotRepository.Default)
-        )
+        testAccountingStorage(invoiceDatabase!.layer, accountingKeys)
       ).pipe(Layer.provideMerge(storage));
       return Layer.mergeAll(
         repositories,
@@ -611,11 +610,9 @@ describe.skipIf(!invoiceDatabase)(
           )
         )
       );
-      expect(denied).toEqual([
-        new CustomerInvoicesUnavailableError(),
-        new CustomerInvoicesUnavailableError(),
-        new CustomerInvoicesUnavailableError(),
-      ]);
+      expect(
+        denied.map((error) => error instanceof CustomerInvoicesUnavailableError)
+      ).toEqual([true, true, true]);
     });
   }
 );

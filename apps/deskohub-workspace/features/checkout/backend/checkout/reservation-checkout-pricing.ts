@@ -1,7 +1,6 @@
-import { Effect, Option } from "effect";
+import { Effect, Match, Option } from "effect";
 import {
   type CheckoutSummary,
-  type CheckoutSummaryChangedKeys,
   getCheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
 import type { ReservationQuotePayment } from "@/features/checkout/reservation-quote-schema";
@@ -19,7 +18,7 @@ import {
 } from "@/features/discounts";
 import type { Locale } from "@/features/i18n";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
-import { moneyEquals } from "@/shared/money/money";
+import { type Money, moneyEquals } from "@/shared/money/money";
 import { currentInstant } from "@/shared/utils";
 import { AdvertisedPriceMismatchError } from "./advertised-price-mismatch";
 import {
@@ -84,23 +83,31 @@ export type ReservationAdvertisementAffirmationInput<
 };
 
 export type ReservationCustomerQuoteInput<
-  Reservation extends ReservationDetails,
-> = PayStateSubmittedCodeMetadata & {
-  readonly reservation: Reservation;
+  CustomerReservation extends ReservationDetails,
+  Quote extends ReservationQuote,
+> = {
+  /**
+   * The verdict reservation submission reached on the advertised price; its
+   * price names the reservation, the affirmed discounts and the query code.
+   */
+  readonly advertisement: PriceVerdict<
+    ReservationAdvertisementAffirmation<CustomerReservation, Quote>
+  >;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
-  readonly affirmedAdvertisement: AffirmedDiscountAdvertisementQuote;
   /** Referral code the checkout carries for an unattributed customer. */
   readonly referralCode?: CanonicalPromotionCode;
 };
 
-export type ReservationPaymentPriceAffirmationInput<
+/** A signed order to re-price for its payment, with the quote it signed. */
+export type ReservationPaymentRepricingInput<
   Reservation extends ReservationDetails,
   Quote extends ReservationQuote,
 > = {
   readonly reservation: Reservation;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
+  /** The signed quote; its discounts are the ones affirmed again. */
   readonly quote: Quote;
   /** Booking moment stored when the price was locked. */
   readonly bookedAt: Temporal.Instant;
@@ -109,11 +116,19 @@ export type ReservationPaymentPriceAffirmationInput<
   readonly referralCode?: CanonicalPromotionCode;
 };
 
+export type ReservationPaymentPriceAffirmationInput<
+  Reservation extends ReservationDetails,
+  Quote extends ReservationQuote,
+> = ReservationPaymentRepricingInput<Reservation, Quote> & {
+  /** The total the customer accepted with the signed quote. */
+  readonly acceptedTotal: Money;
+};
+
 export type ReservationDiscountCodePriceInput<
   Reservation extends ReservationDetails,
   Quote extends ReservationQuote,
 > = Omit<
-  ReservationPaymentPriceAffirmationInput<Reservation, Quote>,
+  ReservationPaymentRepricingInput<Reservation, Quote>,
   "submittedCode"
 > & {
   readonly submittedCode: CanonicalPromotionCode;
@@ -167,29 +182,106 @@ export type ReservationPreparedCustomerQuote<
   Reservation extends ReservationDetails,
   Quote extends ReservationQuote,
 > = ReservationCustomerQuote<Reservation, Quote> &
-  PayStateSubmittedCodeMetadata & {
-    readonly advertisedPriceChanged?: boolean;
-  };
+  PayStateSubmittedCodeMetadata;
 
+/**
+ * The price a signed order is paid with: the re-affirmed quote, the discount
+ * commitment payment persists and admits, and the checkout summary the quote
+ * shows.
+ */
 export type ReservationPaymentPriceAffirmation<
   Reservation extends ReservationDetails,
   Quote extends ReservationQuote,
 > = ReservationCustomerQuote<Reservation, Quote> & {
   readonly commitment: DiscountCommitment;
+  readonly summary: CheckoutSummary;
 };
 
-export type ReservationDiscountCodePriceResult<
+/**
+ * Code entry's verdict: affirmed with the order priced with the entered code,
+ * or changed with the refreshed displayed price, which carries no code.
+ */
+export type ReservationDiscountCodeVerdict<
   Reservation extends ReservationDetails,
   Quote extends ReservationQuote,
-> =
-  | (ReservationCustomerQuote<Reservation, Quote> & {
-      readonly status: "pricing_changed";
-      readonly changedKeys: CheckoutSummaryChangedKeys;
+> = PriceVerdict<
+  ReservationCustomerQuote<Reservation, Quote> & {
+    readonly submittedCodeDiscountId: DiscountId;
+  },
+  ReservationCustomerQuote<Reservation, Quote>
+>;
+
+/**
+ * The payment boundary's rule: the signed price holds only when the re-priced
+ * quote keeps the signed fingerprint and its total is the accepted total.
+ * Otherwise the changed keys run from the signed summary to the re-priced one.
+ */
+export const getPaymentPriceVerdict = <
+  Priced extends {
+    readonly quote: ReservationQuote;
+    readonly summary: CheckoutSummary;
+  },
+>(input: {
+  readonly signed: {
+    readonly quote: ReservationQuote;
+    readonly summary: CheckoutSummary;
+    readonly acceptedTotal: Money;
+  };
+  readonly priced: Priced;
+}): PriceVerdict<Priced> => {
+  const { signed, priced } = input;
+  if (
+    priced.quote.fingerprint === signed.quote.fingerprint &&
+    moneyEquals(priced.summary.total, signed.acceptedTotal)
+  ) {
+    return { status: "affirmed", priced };
+  }
+  return {
+    status: "pricing_changed",
+    priced,
+    changedKeys: getCheckoutSummaryChangedKeys(signed.summary, priced.summary),
+  };
+};
+
+/**
+ * The reservation-submission rule, after the customer's identity is known:
+ * the customer quote keeps the advertisement's verdict and changes it only
+ * when full validation moved the advertised query code. Discounts of the
+ * customer, such as a customer discount, may appear for the first time here
+ * without changing the price. The changed keys run from the advertised
+ * summary to the customer quote's.
+ */
+export const getCustomerQuotePriceVerdict = <Priced>(input: {
+  readonly advertised: {
+    readonly status: PriceVerdict<unknown>["status"];
+    readonly summary: CheckoutSummary;
+  };
+  readonly customer: {
+    readonly priced: Priced;
+    readonly summary: CheckoutSummary;
+    /** Full validation dropped or changed the advertised query code. */
+    readonly advertisedCodeChanged: boolean;
+  };
+}): PriceVerdict<Priced> => {
+  const { advertised, customer } = input;
+  const changed = (): PriceVerdict<Priced> => ({
+    status: "pricing_changed",
+    priced: customer.priced,
+    changedKeys: getCheckoutSummaryChangedKeys(
+      advertised.summary,
+      customer.summary
+    ),
+  });
+  return Match.value(advertised).pipe(
+    Match.discriminatorsExhaustive("status")({
+      affirmed: (): PriceVerdict<Priced> =>
+        customer.advertisedCodeChanged
+          ? changed()
+          : { status: "affirmed", priced: customer.priced },
+      pricing_changed: changed,
     })
-  | (ReservationCustomerQuote<Reservation, Quote> & {
-      readonly status: "applied";
-      readonly submittedCodeDiscountId: DiscountId;
-    });
+  );
+};
 
 type PricingContext = {
   readonly discountInput: Omit<
@@ -251,21 +343,29 @@ interface ReservationCheckoutPricing<
     Error | AdvertisedPriceMismatchError
   >;
   readonly quoteForCustomer: (
-    input: ReservationCustomerQuoteInput<CustomerReservation>
+    input: ReservationCustomerQuoteInput<CustomerReservation, Quote>
   ) => Effect.Effect<
-    ReservationPreparedCustomerQuote<CustomerReservation, Quote>,
+    PriceVerdict<ReservationPreparedCustomerQuote<CustomerReservation, Quote>>,
+    Error
+  >;
+  readonly repriceForPayment: (
+    input: ReservationPaymentRepricingInput<CustomerReservation, Quote>
+  ) => Effect.Effect<
+    ReservationPaymentPriceAffirmation<CustomerReservation, Quote>,
     Error
   >;
   readonly affirmForPayment: (
     input: ReservationPaymentPriceAffirmationInput<CustomerReservation, Quote>
   ) => Effect.Effect<
-    ReservationPaymentPriceAffirmation<CustomerReservation, Quote>,
+    PriceVerdict<
+      ReservationPaymentPriceAffirmation<CustomerReservation, Quote>
+    >,
     Error
   >;
   readonly applyDiscountCode: (
     input: ReservationDiscountCodePriceInput<CustomerReservation, Quote>
   ) => Effect.Effect<
-    ReservationDiscountCodePriceResult<CustomerReservation, Quote>,
+    ReservationDiscountCodeVerdict<CustomerReservation, Quote>,
     Error
   >;
 }
@@ -525,70 +625,119 @@ export const reservationCheckoutPricing = <
         )
     );
 
+    /**
+     * Quotes the submitted reservation for its resolved customer on top of
+     * the affirmed advertisement, and judges it by the submission rule
+     * ({@link getCustomerQuotePriceVerdict}). A query code that fails full
+     * validation leaves the quote.
+     */
     const quoteForCustomer = Effect.fn(
       "ReservationCheckoutPricing.quoteForCustomer"
-    )((input: ReservationCustomerQuoteInput<CustomerReservation>) =>
-      domain.getPricingContext(input.reservation).pipe(
+    )((input: ReservationCustomerQuoteInput<CustomerReservation, Quote>) => {
+      const advertised = input.advertisement.priced;
+      return domain.getPricingContext(advertised.reservation).pipe(
         Effect.bindTo("pricing"),
         Effect.bind("customerQuote", ({ pricing }) =>
           discounts.applyCustomerDiscount({
-            affirmedAdvertisement: input.affirmedAdvertisement,
+            affirmedAdvertisement: advertised.discountQuote,
             dotyposCustomerId: input.dotyposCustomerId,
             firstServiceDate: pricing.discountInput.firstServiceDate,
             locale: input.locale,
-            ...getSubmittedCodeMetadata(input),
+            ...getSubmittedCodeMetadata(advertised),
             ...getReferralCode(input),
           })
         ),
         Effect.bind("quote", ({ customerQuote, pricing }) =>
           domain.buildQuote({ pricing, discountQuote: customerQuote })
         ),
-        Effect.map(({ customerQuote, quote }) => ({
-          advertisedPriceChanged: customerQuote.advertisedPriceChanged,
-          kind: input.reservation.kind,
-          reservation: input.reservation,
-          quote,
-          ...getSubmittedCodeMetadata({
-            submittedCode: input.submittedCode,
-            submittedCodeDiscountId: customerQuote.submittedCodeDiscountId,
-          }),
-        }))
-      )
-    );
+        Effect.map(({ customerQuote, quote }) =>
+          getCustomerQuotePriceVerdict({
+            advertised: {
+              status: input.advertisement.status,
+              summary: domain.getCheckoutSummary({
+                reservation: advertised.reservation,
+                quote: advertised.advertisedQuote,
+              }),
+            },
+            customer: {
+              priced: {
+                kind: advertised.reservation.kind,
+                reservation: advertised.reservation,
+                quote,
+                ...getSubmittedCodeMetadata({
+                  submittedCode: advertised.submittedCode,
+                  submittedCodeDiscountId:
+                    customerQuote.submittedCodeDiscountId,
+                }),
+              },
+              summary: domain.getCheckoutSummary({
+                reservation: advertised.reservation,
+                quote,
+              }),
+              advertisedCodeChanged: customerQuote.advertisedPriceChanged,
+            },
+          })
+        )
+      );
+    });
 
     const affirmDisplayedPrice = Effect.fn(
       "ReservationCheckoutPricing.affirmDisplayedPrice"
-    )(
-      (
-        input: ReservationPaymentPriceAffirmationInput<
-          CustomerReservation,
-          Quote
-        >
-      ) =>
-        domain.getPricingContext(input.reservation).pipe(
-          Effect.bindTo("pricing"),
-          Effect.bind("affirmation", ({ pricing }) =>
-            discounts.affirmDisplayedDiscounts({
-              ...pricing.discountInput,
-              bookedAt: input.bookedAt,
-              dotyposCustomerId: input.dotyposCustomerId,
-              locale: input.locale,
-              submittedCode: input.submittedCode,
-              ...getReferralCode(input),
-              displayedDiscountIds: input.quote.payment.discounts.map(
-                ({ discount }) => discount.id
-              ),
-            })
-          ),
-          Effect.bind("quote", ({ affirmation, pricing }) =>
-            domain.buildQuote({
-              pricing,
-              discountQuote: affirmation.quote,
-            })
-          )
+    )((input: ReservationPaymentRepricingInput<CustomerReservation, Quote>) =>
+      domain.getPricingContext(input.reservation).pipe(
+        Effect.bindTo("pricing"),
+        Effect.bind("affirmation", ({ pricing }) =>
+          discounts.affirmDisplayedDiscounts({
+            ...pricing.discountInput,
+            bookedAt: input.bookedAt,
+            dotyposCustomerId: input.dotyposCustomerId,
+            locale: input.locale,
+            submittedCode: input.submittedCode,
+            ...getReferralCode(input),
+            displayedDiscountIds: input.quote.payment.discounts.map(
+              ({ discount }) => discount.id
+            ),
+          })
+        ),
+        Effect.bind("quote", ({ affirmation, pricing }) =>
+          domain.buildQuote({
+            pricing,
+            discountQuote: affirmation.quote,
+          })
         )
+      )
     );
 
+    /**
+     * Re-prices a signed order for its payment: the signed discounts affirmed
+     * again at the booking moment. It judges nothing about the signed price.
+     */
+    const repriceForPayment = Effect.fn(
+      "ReservationCheckoutPricing.repriceForPayment"
+    )((input: ReservationPaymentRepricingInput<CustomerReservation, Quote>) =>
+      affirmDisplayedPrice(input).pipe(
+        Effect.map(
+          ({
+            affirmation,
+            quote,
+          }): ReservationPaymentPriceAffirmation<
+            CustomerReservation,
+            Quote
+          > => ({
+            kind: input.reservation.kind,
+            reservation: input.reservation,
+            quote,
+            commitment: affirmation.commitment,
+            summary: domain.getCheckoutSummary({
+              reservation: input.reservation,
+              quote,
+            }),
+          })
+        )
+      )
+    );
+
+    /** Affirms the signed price before payment by the payment rule. */
     const affirmForPayment = Effect.fn(
       "ReservationCheckoutPricing.affirmForPayment"
     )(
@@ -598,16 +747,29 @@ export const reservationCheckoutPricing = <
           Quote
         >
       ) =>
-        affirmDisplayedPrice(input).pipe(
-          Effect.map(({ affirmation, quote }) => ({
-            kind: input.reservation.kind,
-            reservation: input.reservation,
-            quote,
-            commitment: affirmation.commitment,
-          }))
+        repriceForPayment(input).pipe(
+          Effect.map((priced) =>
+            getPaymentPriceVerdict({
+              signed: {
+                quote: input.quote,
+                summary: domain.getCheckoutSummary({
+                  reservation: input.reservation,
+                  quote: input.quote,
+                }),
+                acceptedTotal: input.acceptedTotal,
+              },
+              priced,
+            })
+          )
         )
     );
 
+    /**
+     * Prices an entered code on the displayed price. Code entry's rule: the
+     * displayed price holds only when the affirmed quote keeps its
+     * fingerprint and its total. Otherwise the verdict carries the refreshed
+     * price without the code, and the code is never resolved.
+     */
     const applyDiscountCode = Effect.fn(
       "ReservationCheckoutPricing.applyDiscountCode"
     )(function* (
@@ -634,16 +796,22 @@ export const reservationCheckoutPricing = <
         moneyEquals(affirmedSummary.total, displayedSummary.total);
 
       if (!displayedPriceIsCurrent) {
-        return {
-          kind: input.reservation.kind,
-          reservation: input.reservation,
-          quote,
-          status: "pricing_changed" as const,
+        const verdict: ReservationDiscountCodeVerdict<
+          CustomerReservation,
+          Quote
+        > = {
+          status: "pricing_changed",
+          priced: {
+            kind: input.reservation.kind,
+            reservation: input.reservation,
+            quote,
+          },
           changedKeys: getCheckoutSummaryChangedKeys(
             displayedSummary,
             affirmedSummary
           ),
         };
+        return verdict;
       }
 
       const appliedCode = yield* discounts.applyDiscountCode({
@@ -659,19 +827,26 @@ export const reservationCheckoutPricing = <
         discountQuote: appliedCode.quote,
       });
 
-      return {
-        kind: input.reservation.kind,
-        reservation: input.reservation,
-        quote: appliedQuote,
-        status: "applied" as const,
-        submittedCodeDiscountId: appliedCode.application.discount.id,
+      const verdict: ReservationDiscountCodeVerdict<
+        CustomerReservation,
+        Quote
+      > = {
+        status: "affirmed",
+        priced: {
+          kind: input.reservation.kind,
+          reservation: input.reservation,
+          quote: appliedQuote,
+          submittedCodeDiscountId: appliedCode.application.discount.id,
+        },
       };
+      return verdict;
     });
 
     return {
       quoteAdvertisement,
       affirmAdvertisement,
       quoteForCustomer,
+      repriceForPayment,
       affirmForPayment,
       applyDiscountCode,
     };
