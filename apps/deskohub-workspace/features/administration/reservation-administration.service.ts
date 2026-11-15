@@ -43,15 +43,8 @@ type ReservationCancellationResult = {
   readonly email: "not_requested" | "sent" | "failed";
 };
 
-export {
-  ReservationAdministrationError,
-  type ReservationCancellationFailureReason,
-  type ReservationRestorationFailureReason,
-} from "./reservation-administration-error";
-export type {
-  ReservationRestorationInput,
-  ReservationRestorationResult,
-} from "./reservation-restoration.service";
+// Existing callers import the error from here.
+export { ReservationAdministrationError } from "./reservation-administration-error";
 
 type ReservationCancellationInput = {
   readonly accessGrantUpdatedAt: string | null;
