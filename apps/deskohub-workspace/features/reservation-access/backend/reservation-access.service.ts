@@ -402,11 +402,18 @@ export class ReservationAccessService extends Context.Service<
                 })
             )
           );
-        if (!claimed) {
+        if (claimed === "taken") {
           return yield* new ReservationAccessIssuanceError({
             reservationId: input.reservationId,
             outcome: "uncertain",
             message: "Reservation access grant was claimed concurrently.",
+          });
+        }
+        if (claimed === "not_issuable") {
+          return yield* new ReservationAccessIssuanceError({
+            reservationId: input.reservationId,
+            outcome: "rejected",
+            message: "The reservation is no longer confirmed.",
           });
         }
 
