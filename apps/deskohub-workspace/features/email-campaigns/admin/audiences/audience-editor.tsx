@@ -2,16 +2,23 @@
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { get, useForm, useWatch } from "react-hook-form";
+import { AdministrationLink as Link } from "@/features/administration/admin-link";
+import {
+  administrationHref,
+  localizeAdministrationHref,
+} from "@/features/administration/administration-href";
 import {
   AdministrationPage,
   AdministrationPageHeader,
 } from "@/features/administration/components";
 import { ConfirmDialog } from "@/features/administration/confirm-dialog";
+import { m } from "@/features/administration/i18n";
 import { AdministrationAlert } from "@/features/administration/notice";
+import type { Locale } from "@/features/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import { Button } from "@/shared/components/ui/button";
 import {
   Form,
@@ -22,31 +29,43 @@ import {
   FormMessage,
 } from "@/shared/components/ui/form";
 import { Input } from "@/shared/components/ui/input";
-import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
-import { audienceSingleLocale } from "../../audience-filter";
+import {
+  type AudienceFilter,
+  audienceSingleLocale,
+} from "../../audience-filter";
 import type { CampaignAudienceId } from "../../campaign-identifiers";
 import {
-  type DiscountGroupOption,
+  type AudienceValueLookups,
   describeAudienceFilter,
 } from "../audience-filter-summary";
-import {
-  archiveAudience,
-  deleteAudience,
-  saveAudience,
-  unarchiveAudience,
-} from "./actions";
+import { useCampaignOperation } from "../use-campaign-operation";
 import {
   type AudienceFormValues,
-  audienceFormSchema,
+  createAudienceFormSchema,
 } from "./audience-contracts";
+import {
+  audienceArchiveFailureCopy,
+  audienceDeleteFailureCopy,
+  audienceSaveFailureCopy,
+  audienceUnarchiveFailureCopy,
+} from "./audience-failure-copy";
 import { AudienceFilterBuilder } from "./audience-filter-builder";
 import { asRootGroup } from "./audience-filter-editing";
 import { AudienceStatusBadge, audienceHref } from "./audience-list";
 import type { AudienceEditorData } from "./audience-page-data.server";
 
-const audienceListHref = "/admin/email-audiences";
+const audienceListHref = administrationHref("/[locale]/admin/email-audiences");
 
-const localeNames = { "cs-CZ": "Czech", "en-US": "English" } as const;
+/** Which content an audience of one locale's speakers needs. */
+const singleLocaleNotes = {
+  "cs-CZ": m.emailCampaignsAudienceEditorSingleLocaleCzech,
+  "en-US": m.emailCampaignsAudienceEditorSingleLocaleEnglish,
+  "de-DE": m.emailCampaignsAudienceEditorSingleLocaleGerman,
+  "uk-UA": m.emailCampaignsAudienceEditorSingleLocaleUkrainian,
+  "sk-SK": m.emailCampaignsAudienceEditorSingleLocaleSlovak,
+  "vi-VN": m.emailCampaignsAudienceEditorSingleLocaleVietnamese,
+  "hi-IN": m.emailCampaignsAudienceEditorSingleLocaleHindi,
+} as const satisfies Record<Locale, (...args: never) => string>;
 
 type Feedback = {
   readonly kind: "success" | "error";
@@ -55,18 +74,22 @@ type Feedback = {
 
 export function AudienceEditorPage({
   audience,
-  discountGroups,
+  lookups = {},
 }: {
   /** Omitted when creating a new audience. */
   readonly audience?: AudienceEditorData;
-  readonly discountGroups?: readonly DiscountGroupOption[];
+  readonly lookups?: AudienceValueLookups;
 }) {
+  const locale = useRouteLocale();
   return (
     <AdministrationPage>
       <AdministrationPageHeader
-        eyebrow="Email audience"
-        title={audience?.title ?? "New audience"}
-        description="Choose who a campaign reaches. Conditions are checked when a campaign is sent, so draft campaigns always follow the latest version."
+        eyebrow={m.emailCampaignsAudienceEditorEyebrow({}, { locale })}
+        title={
+          audience?.title ??
+          m.emailCampaignsAudienceEditorNewTitle({}, { locale })
+        }
+        description={m.emailCampaignsAudienceEditorDescription({}, { locale })}
         actions={
           audience ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -83,66 +106,66 @@ export function AudienceEditorPage({
       />
       {audience?.archived ? (
         <AdministrationAlert status="warning" className="mb-5">
-          This audience is archived. New campaigns can&rsquo;t select it.
+          {m.emailCampaignsAudienceEditorArchivedNotice({}, { locale })}
         </AdministrationAlert>
       ) : null}
-      <AudienceForm audience={audience} discountGroups={discountGroups} />
+      <AudienceForm audience={audience} lookups={lookups} />
     </AdministrationPage>
   );
 }
 
+/** The form's starting values: the audience's, or a blank one with no filters. */
+const audienceFormDefaults = (audience: AudienceEditorData | undefined) =>
+  ({
+    title: audience?.title ?? "",
+    filter: asRootGroup(
+      audience?.filter ?? { _tag: "Group", operator: "and", filters: [] }
+    ),
+  }) satisfies AudienceFormValues;
+
 function AudienceForm({
   audience,
-  discountGroups,
+  lookups,
 }: {
   readonly audience: AudienceEditorData | undefined;
-  readonly discountGroups: readonly DiscountGroupOption[] | undefined;
+  readonly lookups: AudienceValueLookups;
 }) {
   const router = useRouter();
+  const locale = useRouteLocale();
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const form = useForm({
-    defaultValues: {
-      title: audience?.title ?? "",
-      filter: asRootGroup(
-        audience?.filter ?? { _tag: "Group", operator: "and", filters: [] }
-      ),
-    } satisfies AudienceFormValues,
+    defaultValues: audienceFormDefaults(audience),
     mode: "onSubmit",
     reValidateMode: "onChange",
-    resolver: effectSchemaResolver(audienceFormSchema),
+    resolver: effectSchemaResolver(createAudienceFormSchema(locale)),
   });
   const filter = useWatch({ control: form.control, name: "filter" });
-  const singleLocale = audienceSingleLocale(filter);
 
-  const { execute, isExecuting } = useWorkspaceAction(saveAudience, {
-    actionName: "email-campaigns.admin.save-audience",
-    onSuccess: ({ data, input }) => {
-      if (!data) return;
-      if (!audience) {
-        router.push(audienceHref(data.audienceId));
-        return;
-      }
-      form.reset({ title: input.title, filter: input.filter });
-      setFeedback({ kind: "success", message: "Audience saved." });
+  const showSaveFailure = (message: string) =>
+    setFeedback({ kind: "error", message });
+  const create = useCampaignOperation("createCampaignAudience", {
+    failureCopy: audienceSaveFailureCopy,
+    onSuccess: (created) =>
+      router.push(localizeAdministrationHref(audienceHref(created.id), locale)),
+    onFailure: showSaveFailure,
+  });
+  const update = useCampaignOperation("updateCampaignAudience", {
+    failureCopy: audienceSaveFailureCopy,
+    onSuccess: (_updated, { title, filter }) => {
+      form.reset({ title, filter });
+      setFeedback({
+        kind: "success",
+        message: m.emailCampaignsAudienceEditorSaved({}, { locale }),
+      });
       router.refresh();
     },
-    onError: ({ error }) => {
-      setFeedback({
-        kind: "error",
-        message:
-          error.serverError ??
-          "The audience could not be saved. Check the form and try again.",
-      });
-    },
-    onTransportError: () => {
-      setFeedback({
-        kind: "error",
-        message: "The audience could not be saved. Try again.",
-      });
-    },
+    onFailure: showSaveFailure,
   });
+  const isExecuting = create.isExecuting || update.isExecuting;
 
-  const submitLabel = audience ? "Save audience" : "Create audience";
+  const submitLabel = audience
+    ? m.emailCampaignsAudienceEditorSave({}, { locale })
+    : m.emailCampaignsAudienceEditorCreate({}, { locale });
   const errorAt = (path: string): string | undefined =>
     get(form.formState.errors, path)?.message;
 
@@ -153,9 +176,13 @@ function AudienceForm({
         className="space-y-6"
         onSubmit={form.handleSubmit((values) => {
           setFeedback(null);
-          execute(
-            audience ? { audienceId: audience.id, ...values } : { ...values }
-          );
+          if (audience) update.execute({ audienceId: audience.id, ...values });
+          else {
+            create.execute({
+              requestId: crypto.randomUUID(),
+              audience: values,
+            });
+          }
         })}
       >
         <section className="rounded-xl border border-navy-blue/10 bg-white p-5">
@@ -164,11 +191,16 @@ function AudienceForm({
             name="title"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Title</FormLabel>
+                <FormLabel>
+                  {m.emailCampaignsAudienceEditorTitleLabel({}, { locale })}
+                </FormLabel>
                 <FormControl>
                   <Input
                     {...field}
-                    placeholder="e.g. Czech customers who visited this year"
+                    placeholder={m.emailCampaignsAudienceEditorTitlePlaceholder(
+                      {},
+                      { locale }
+                    )}
                     className="max-w-xl"
                   />
                 </FormControl>
@@ -180,11 +212,11 @@ function AudienceForm({
 
         <section className="space-y-4 rounded-xl border border-navy-blue/10 bg-white p-5">
           <div>
-            <h2 className="font-semibold text-lg">Who it reaches</h2>
+            <h2 className="font-semibold text-lg">
+              {m.emailCampaignsAudienceEditorReachHeading({}, { locale })}
+            </h2>
             <p className="mt-1 text-navy-blue/62 text-sm">
-              Only customers Workspace already knows from reservations,
-              accounts, or marketing consent can match. Marketing campaigns also
-              skip anyone without active consent.
+              {m.emailCampaignsAudienceEditorReachDescription({}, { locale })}
             </p>
           </div>
           <FormField
@@ -196,39 +228,20 @@ function AudienceForm({
                 onChange={field.onChange}
                 path="filter"
                 errorAt={errorAt}
-                lookups={{ discountGroups }}
+                lookups={lookups}
               />
             )}
           />
-          <div className="rounded-lg bg-navy-blue/[0.04] px-4 py-3">
-            <p className="font-semibold text-[0.7rem] text-navy-blue/55 uppercase tracking-[0.12em]">
-              In plain English
-            </p>
-            <p className="mt-1 text-sm leading-6">
-              {describeAudienceFilter(filter, { discountGroups })}.
-            </p>
-            {singleLocale ? (
-              <p className="mt-1 text-navy-blue/62 text-sm">
-                Every recipient speaks {localeNames[singleLocale]}, so campaigns
-                for this audience need {localeNames[singleLocale]} content only.
-              </p>
-            ) : null}
-          </div>
+          <AudienceFilterSummary filter={filter} lookups={lookups} />
         </section>
 
-        {feedback ? (
-          <AdministrationAlert
-            className="font-semibold"
-            role={feedback.kind === "error" ? "alert" : "status"}
-            status={feedback.kind}
-          >
-            {feedback.message}
-          </AdministrationAlert>
-        ) : null}
+        <AudienceFormFeedback feedback={feedback} />
 
         <div className="flex items-center justify-end gap-3 border-navy-blue/10 border-t pt-5">
           <Button asChild variant="ghost">
-            <Link href={audienceListHref}>Cancel</Link>
+            <Link href={audienceListHref}>
+              {m.emailCampaignsAudienceEditorCancel({}, { locale })}
+            </Link>
           </Button>
           <Button
             type="submit"
@@ -236,12 +249,63 @@ function AudienceForm({
               isExecuting || (audience !== undefined && !form.formState.isDirty)
             }
           >
-            {isExecuting ? "Saving…" : submitLabel}
+            {isExecuting
+              ? m.emailCampaignsAudienceEditorSaving({}, { locale })
+              : submitLabel}
           </Button>
         </div>
       </form>
     </Form>
   );
+}
+
+/** What the filter reaches, and which content a one-locale audience needs. */
+function AudienceFilterSummary({
+  filter,
+  lookups,
+}: {
+  readonly filter: AudienceFilter;
+  readonly lookups: AudienceValueLookups;
+}) {
+  const locale = useRouteLocale();
+  const singleLocale = audienceSingleLocale(filter);
+  return (
+    <div className="rounded-lg bg-navy-blue/[0.04] px-4 py-3">
+      <p className="font-semibold text-[0.7rem] text-navy-blue/55 uppercase tracking-[0.12em]">
+        {m.emailCampaignsAudienceEditorSummaryHeading({}, { locale })}
+      </p>
+      <p className="mt-1 text-sm leading-6">
+        {m.emailCampaignsAudienceEditorSummary(
+          {
+            summary: describeAudienceFilter(filter, locale, lookups),
+          },
+          { locale }
+        )}
+      </p>
+      {singleLocale ? (
+        <p className="mt-1 text-navy-blue/62 text-sm">
+          {singleLocaleNotes[singleLocale]({}, { locale })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The last save's outcome: an alert for a failure, a status for success. */
+function AudienceFormFeedback({
+  feedback,
+}: {
+  readonly feedback: Feedback | null;
+}) {
+  return feedback ? (
+    <AdministrationAlert
+      className="font-semibold"
+      role={feedback.kind === "error" ? "alert" : "status"}
+      status={feedback.kind}
+    >
+      {feedback.message}
+    </AdministrationAlert>
+  ) : null;
 }
 
 function ArchiveAudienceControl({
@@ -250,20 +314,20 @@ function ArchiveAudienceControl({
   readonly audienceId: CampaignAudienceId;
 }) {
   const router = useRouter();
+  const locale = useRouteLocale();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { execute, isExecuting } = useWorkspaceAction(archiveAudience, {
-    actionName: "email-campaigns.admin.archive-audience",
-    onSuccess: ({ data }) => {
-      if (!data) return;
-      setOpen(false);
-      router.refresh();
-    },
-    onError: ({ error }) =>
-      setError(error.serverError ?? "The audience could not be archived."),
-    onTransportError: () =>
-      setError("The audience could not be archived. Try again."),
-  });
+  const { execute, isExecuting } = useCampaignOperation(
+    "archiveCampaignAudience",
+    {
+      failureCopy: audienceArchiveFailureCopy,
+      onSuccess: () => {
+        setOpen(false);
+        router.refresh();
+      },
+      onFailure: setError,
+    }
+  );
 
   return (
     <ConfirmDialog
@@ -275,12 +339,16 @@ function ArchiveAudienceControl({
       trigger={
         <Button type="button" variant="secondary" size="sm">
           <Archive className="h-4 w-4" aria-hidden />
-          Archive
+          {m.emailCampaignsAudienceArchive({}, { locale })}
         </Button>
       }
-      title="Archive this audience?"
-      description="New campaigns can no longer select it. Draft campaigns that already use it keep it, and sent campaigns are not affected."
-      confirmLabel={isExecuting ? "Archiving…" : "Archive audience"}
+      title={m.emailCampaignsAudienceArchiveTitle({}, { locale })}
+      description={m.emailCampaignsAudienceArchiveDescription({}, { locale })}
+      confirmLabel={
+        isExecuting
+          ? m.emailCampaignsAudienceArchiving({}, { locale })
+          : m.emailCampaignsAudienceArchiveConfirm({}, { locale })
+      }
       pending={isExecuting}
       error={error}
       onConfirm={() => execute({ audienceId })}
@@ -294,18 +362,16 @@ function UnarchiveAudienceControl({
   readonly audienceId: CampaignAudienceId;
 }) {
   const router = useRouter();
+  const locale = useRouteLocale();
   const [error, setError] = useState<string | null>(null);
-  const { execute, isExecuting } = useWorkspaceAction(unarchiveAudience, {
-    actionName: "email-campaigns.admin.unarchive-audience",
-    onSuccess: ({ data }) => {
-      if (!data) return;
-      router.refresh();
-    },
-    onError: ({ error }) =>
-      setError(error.serverError ?? "The audience could not be unarchived."),
-    onTransportError: () =>
-      setError("The audience could not be unarchived. Try again."),
-  });
+  const { execute, isExecuting } = useCampaignOperation(
+    "unarchiveCampaignAudience",
+    {
+      failureCopy: audienceUnarchiveFailureCopy,
+      onSuccess: () => router.refresh(),
+      onFailure: setError,
+    }
+  );
 
   return (
     <>
@@ -320,7 +386,9 @@ function UnarchiveAudienceControl({
         }}
       >
         <ArchiveRestore className="h-4 w-4" aria-hidden />
-        {isExecuting ? "Unarchiving…" : "Unarchive"}
+        {isExecuting
+          ? m.emailCampaignsAudienceUnarchiving({}, { locale })
+          : m.emailCampaignsAudienceUnarchive({}, { locale })}
       </Button>
       <span
         role="alert"
@@ -338,19 +406,18 @@ function DeleteAudienceControl({
   readonly audienceId: CampaignAudienceId;
 }) {
   const router = useRouter();
+  const locale = useRouteLocale();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { execute, isExecuting } = useWorkspaceAction(deleteAudience, {
-    actionName: "email-campaigns.admin.delete-audience",
-    onSuccess: ({ data }) => {
-      if (!data) return;
-      router.push(audienceListHref);
-    },
-    onError: ({ error }) =>
-      setError(error.serverError ?? "The audience could not be deleted."),
-    onTransportError: () =>
-      setError("The audience could not be deleted. Try again."),
-  });
+  const { execute, isExecuting } = useCampaignOperation(
+    "deleteCampaignAudience",
+    {
+      failureCopy: audienceDeleteFailureCopy,
+      onSuccess: () =>
+        router.push(localizeAdministrationHref(audienceListHref, locale)),
+      onFailure: setError,
+    }
+  );
 
   return (
     <ConfirmDialog
@@ -362,12 +429,16 @@ function DeleteAudienceControl({
       trigger={
         <Button type="button" variant="ghost" size="sm">
           <Trash2 className="h-4 w-4" aria-hidden />
-          Delete
+          {m.emailCampaignsAudienceDelete({}, { locale })}
         </Button>
       }
-      title="Delete this audience?"
-      description="This can't be undone. Sent campaigns keep their own copy of the filters. An audience that draft campaigns use can only be archived."
-      confirmLabel={isExecuting ? "Deleting…" : "Delete audience"}
+      title={m.emailCampaignsAudienceDeleteTitle({}, { locale })}
+      description={m.emailCampaignsAudienceDeleteDescription({}, { locale })}
+      confirmLabel={
+        isExecuting
+          ? m.emailCampaignsAudienceDeleting({}, { locale })
+          : m.emailCampaignsAudienceDeleteConfirm({}, { locale })
+      }
       pending={isExecuting}
       error={error}
       onConfirm={() => execute({ audienceId })}

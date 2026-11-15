@@ -57,7 +57,12 @@ function request<T>(
 async function createLocaleReader(
   beforeRead: () => Promise<unknown> = () => Promise.resolve()
 ) {
-  const { actionClient } = await import("../safe-action-client");
+  const { createWorkspaceActionClient } = await import("../safe-action-client");
+  const { m } = await import("@/features/i18n");
+  const actionClient = createWorkspaceActionClient({
+    logUnexpectedFailure: async () => {},
+    unexpectedFailure: m.actionFailedUnexpectedly,
+  });
   const { getLocale } = await import("@/features/i18n/paraglide/runtime.js");
 
   return actionClient.action(async ({ ctx }) => {
@@ -67,15 +72,15 @@ async function createLocaleReader(
 }
 
 describe("action locale middleware", () => {
-  test("a request without a locale cookie keeps the default after a Czech request", async () => {
+  test("a request without a locale cookie keeps the fallback after an English request", async () => {
     const readLocale = await createLocaleReader();
 
-    await request("cs-CZ", () => readLocale());
+    await request("en-US", () => readLocale());
     const result = await request(undefined, () => readLocale());
 
     expect(result.data).toEqual({
-      contextLocale: "en-US",
-      messageLocale: "en-US",
+      contextLocale: "cs-CZ",
+      messageLocale: "cs-CZ",
     });
   });
 

@@ -1,5 +1,36 @@
+import "@/shared/polyfills/temporal";
+
 import { describe, expect, test } from "bun:test";
-import { getReservationCustomerQueryMode } from "./reservation-checkout-query";
+import { testEmailAddress } from "@deskohub/test-email";
+import {
+  decodeReservationCheckoutCustomer,
+  getReservationCustomerQueryMode,
+  setReservationSelectionSearchParams,
+} from "./reservation-checkout-query";
+
+describe("decodeReservationCheckoutCustomer", () => {
+  test.each([
+    ["DE", "0151 23456789"],
+    ["UA", "050 123 4567"],
+    ["CZ", "777 123 456"],
+    ["CZ", "+420 777 123 456"],
+    ["DE", "+420 777 123 456"],
+    ["UA", "+420 777 123 456"],
+  ] as const)("prefills a phone valid in region %s: %s", (region, phone) => {
+    expect(decodeReservationCheckoutCustomer({ phone }, region)).toEqual({
+      phone,
+    });
+  });
+
+  test.each([
+    ["CZ", "0151 23456789"],
+    ["CZ", "050 123 4567"],
+  ] as const)("drops a phone invalid in region %s: %s", (region, phone) => {
+    expect(
+      decodeReservationCheckoutCustomer({ name: "Ada Lovelace", phone }, region)
+    ).toEqual({ name: "Ada Lovelace" });
+  });
+});
 
 describe("getReservationCustomerQueryMode", () => {
   test("honours an explicit customer parameter over contact fields", () => {
@@ -45,5 +76,35 @@ describe("getReservationCustomerQueryMode", () => {
         { prefillsContact: false }
       )
     ).toBe("contact");
+  });
+});
+
+describe("setReservationSelectionSearchParams", () => {
+  const contact = {
+    name: "Ada Lovelace",
+    email: testEmailAddress("ada"),
+    phone: "+420777777777",
+    customer: "contact",
+  };
+
+  test("leave the parameters outside the selection as they arrived", () => {
+    const searchParams = new URLSearchParams({
+      ...contact,
+      discountCode: "SPRING",
+      utm_source: "newsletter",
+      date: "2099-06-09",
+      monitorOption: "2x27-qhd",
+    });
+    setReservationSelectionSearchParams(searchParams, {
+      date: "2099-06-10",
+      monitorOption: undefined,
+    });
+
+    expect(Object.fromEntries(searchParams)).toEqual({
+      ...contact,
+      discountCode: "SPRING",
+      utm_source: "newsletter",
+      date: "2099-06-10",
+    });
   });
 });

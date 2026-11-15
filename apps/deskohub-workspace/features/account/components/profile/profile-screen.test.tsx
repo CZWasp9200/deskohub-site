@@ -17,13 +17,13 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import type { Locale } from "@/features/i18n";
+import { type Locale, m } from "@/features/i18n";
 import { Input } from "@/shared/components/ui/input";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import type { ProfileScreenCopy, ProfileScreenProps } from "./profile-screen";
+import type { ProfileScreenProps } from "./profile-screen";
 
 let ProfileScreen: (props: ProfileScreenProps) => React.ReactNode;
 
@@ -47,19 +47,7 @@ registerWorkspaceComponentTestEnv();
 
 const adaAddress = testEmailAddress("ada");
 
-const englishCopy: ProfileScreenCopy = {
-  emailLabel: "Email",
-  emailVerification: {
-    unverified: "This email still needs verification.",
-    verified: "This email has been successfully verified.",
-  },
-  languageLabel: "Preferred language",
-  languageOptionCs: "Čeština",
-  languageOptionEn: "English (US)",
-  memberFallback: "Workspace member",
-  title: "Member profile and settings",
-  verifiedEmail: "Verified login email",
-};
+const czechOption = "Čeština";
 
 const profileFields = (
   <>
@@ -95,13 +83,9 @@ describe("ProfileScreen", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  const renderLanguageControl = (
-    locale: Locale = "en-US",
-    copy: ProfileScreenCopy = englishCopy
-  ) =>
+  const renderLanguageControl = (locale: Locale = "en-US") =>
     render(
       <ProfileScreen
-        copy={copy}
         email={adaAddress}
         firstName="Ada"
         lastName="Lovelace"
@@ -111,17 +95,14 @@ describe("ProfileScreen", () => {
       </ProfileScreen>
     );
 
-  const languageTrigger = (
-    view: RenderResult,
-    copy: ProfileScreenCopy = englishCopy
-  ) => view.getByRole("combobox", { name: copy.languageLabel });
+  const languageTrigger = (view: RenderResult) =>
+    view.getByRole("combobox", {
+      name: m.accountProfileScreenLanguageLabel({}, { locale: "en-US" }),
+    });
 
-  const openLanguageListbox = async (
-    view: RenderResult,
-    copy: ProfileScreenCopy = englishCopy
-  ) => {
+  const openLanguageListbox = async (view: RenderResult) => {
     await act(async () => {
-      fireEvent.keyDown(languageTrigger(view, copy), { key: "Enter" });
+      fireEvent.keyDown(languageTrigger(view), { key: "Enter" });
     });
     return view.findByRole("listbox");
   };
@@ -129,12 +110,14 @@ describe("ProfileScreen", () => {
   const chooseLanguage = async (view: RenderResult, name: string) => {
     await openLanguageListbox(view);
     const option = view.getByRole("option", { name });
+    const optionLabel = option.textContent ?? "";
     await act(async () => {
       option.focus();
     });
     await act(async () => {
       fireEvent.keyDown(option, { key: "Enter" });
     });
+    return optionLabel;
   };
 
   beforeEach(() => {
@@ -142,7 +125,7 @@ describe("ProfileScreen", () => {
     updateLocalePreference.mockImplementation(() =>
       Promise.resolve({ data: { status: "saved" } })
     );
-    window.location.href = "http://localhost/en-US/account?section=profile";
+    window.location.href = "http://localhost/en-US/account/profile?ref=menu";
   });
 
   test("saves the chosen language, then moves the document to it", async () => {
@@ -150,12 +133,13 @@ describe("ProfileScreen", () => {
     updateLocalePreference.mockImplementationOnce(() => saved.promise);
     const view = renderLanguageControl();
 
-    await chooseLanguage(view, "Čeština");
+    const chosenLabel = await chooseLanguage(view, czechOption);
 
     expect(updateLocalePreference).toHaveBeenCalledWith({ locale: "cs-CZ" });
-    expect(window.location.pathname).toBe("/en-US/account");
+    expect(window.location.pathname).toBe("/en-US/account/profile");
     // The control shows the choice and stays locked while the switch runs.
-    expect(languageTrigger(view).textContent).toContain("Čeština");
+    expect(chosenLabel).not.toBe("");
+    expect(languageTrigger(view).textContent).toContain(chosenLabel);
     expect((languageTrigger(view) as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => {
@@ -164,9 +148,9 @@ describe("ProfileScreen", () => {
     });
 
     await waitFor(() =>
-      expect(window.location.pathname).toBe("/cs-CZ/account")
+      expect(window.location.pathname).toBe("/cs-CZ/account/profile")
     );
-    expect(window.location.search).toBe("?section=profile");
+    expect(window.location.search).toBe("?ref=menu");
     expect(updateLocalePreference).toHaveBeenCalledTimes(1);
   });
 
@@ -181,7 +165,6 @@ describe("ProfileScreen", () => {
         }}
       >
         <ProfileScreen
-          copy={englishCopy}
           email={adaAddress}
           firstName="Ada"
           lastName="Lovelace"

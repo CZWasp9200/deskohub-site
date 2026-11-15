@@ -1,16 +1,53 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect } from "effect";
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
-import { localeCookieName } from "@/features/i18n/routing";
+import { localeCookieName, locales } from "@/features/i18n/routing";
+import { indexNowKeyPathname } from "@/features/public-pages";
 import { referralCodeCookieName } from "@/features/referrals/referral-code-cookie";
 import { getReservationAccessCookieName } from "@/features/reservation/backend/reservation-access-cookie";
 import { createReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { reservationAccessTokenQueryParam } from "@/features/reservation/reservation-access-token";
 import { runCommand } from "@/scripts/shared/command";
-import { workspaceTestAdministrators } from "@/shared/testing/workspace-test-environment";
-import { config, proxy } from "./proxy";
+import type { AgentPageRequest } from "@/shared/backend/agent-traffic/agent-page-request";
+
+const localizedSignInPathname = new RegExp(
+  `^/(?:${locales.join("|")})/auth/sign-in$`
+);
+
+let administrationAccessResult:
+  | "administrator"
+  | "signed-out"
+  | "not-administrator" = "administrator";
+let administrationAccessFailure: unknown;
+const administrationRequestHeaders: Headers[] = [];
+const readAdministrationRequestAccess = async (headers: Headers) => {
+  administrationRequestHeaders.push(headers);
+  if (administrationAccessFailure !== undefined) {
+    throw administrationAccessFailure;
+  }
+  return administrationAccessResult;
+};
+
+mock.module(
+  "./features/administrators/server/administration-request-access.server",
+  () => ({ readAdministrationRequestAccess })
+);
+const scheduledAgentPageRequests: AgentPageRequest[] = [];
+mock.module("./shared/backend/agent-traffic/agent-page-request", () => ({
+  scheduleAgentPageRequest: (pageRequest: AgentPageRequest) => {
+    scheduledAgentPageRequests.push(pageRequest);
+  },
+}));
+const { config, proxy } = await import("./proxy");
+
+beforeEach(() => {
+  administrationAccessResult = "administrator";
+  administrationAccessFailure = undefined;
+  administrationRequestHeaders.length = 0;
+  scheduledAgentPageRequests.length = 0;
+});
 
 // A signed-in request reads the saved language preference, whose logs share
 // stdout with the inspection result.
@@ -47,6 +84,10 @@ const inspectCheckoutEntry = (
           ["https://immutable-preview.vercel.app/en-US/account", { headers: { cookie: "better-auth.session_token=synthetic-session" } }],
           ["https://branch-preview.vercel.app/en-US", {}],
           ["https://branch-preview.vercel.app/en-US/reservation/cowork", {}],
+          ["https://workspace.deskohub.cz/en-US/checkout/pay?state=synthetic-summary", {}],
+          ["https://immutable-preview.vercel.app/en/faq?utm_source=synthetic", {}],
+          ["https://branch-preview.vercel.app/en-US/admin", { method: "HEAD" }],
+          ["https://branch-preview.vercel.app/cs-CZ/reservation/access/synthetic-order?accessToken=synthetic-token", {}],
         ];
         const results = [];
         for (const [url, options] of requests) {
@@ -145,34 +186,65 @@ test("uses the Preview callback host before sign-in and reservation preparation"
   expect(responses[9].status).toBe(200);
 });
 
-test("retains Development and Production payment origins", async () => {
-  const results = await Promise.all(
-    (["development", "production"] as const).map(inspectCheckoutEntryOnce)
-  );
-  for (const result of results) {
-    expect(result.exitCode).toBe(0);
-    const responses = inspectedResponses(result);
-    for (const index of [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
-      expect(responses[index].location).toBeNull();
-    }
+test("retains Development payment origins", async () => {
+  const result = await inspectCheckoutEntryOnce("development");
+  expect(result.exitCode).toBe(0);
+  const responses = inspectedResponses(result);
+  for (const index of [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
+    expect(responses[index].location).toBeNull();
   }
 });
 
-const toAuthorization = (username: string, password: string) =>
-  `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+test("moves Production alias page loads to the canonical origin with their path and query", async () => {
+  const result = await inspectCheckoutEntryOnce("production");
+  expect(result.exitCode).toBe(0);
+  const responses = inspectedResponses(result);
+  const canonicalUrls = new Map([
+    [
+      0,
+      "https://workspace.deskohub.cz/en-US/checkout/pay?state=synthetic%2Bsummary",
+    ],
+    [
+      1,
+      "https://workspace.deskohub.cz/cs-CZ/checkout/pay?state=synthetic-summary",
+    ],
+    [3, "https://workspace.deskohub.cz/en-US/checkout/pay"],
+    [10, "https://workspace.deskohub.cz/en-US"],
+    [13, "https://workspace.deskohub.cz/en/faq?utm_source=synthetic"],
+    [14, "https://workspace.deskohub.cz/en-US/admin"],
+    [
+      15,
+      "https://workspace.deskohub.cz/cs-CZ/reservation/access/synthetic-order?accessToken=synthetic-token",
+    ],
+  ]);
+  for (const [index, canonicalUrl] of canonicalUrls) {
+    expect(responses[index].status).toBe(308);
+    expect(responses[index].location).toBe(canonicalUrl);
+  }
+  // The query can carry a credential, so private paths redirect privately.
+  for (const index of [8, 14, 15]) {
+    expect(responses[index].cacheControl).toBe("private, no-store");
+  }
+  expect(responses[15].referrerPolicy).toBe("no-referrer");
+  expect(responses[10].cacheControl).toBeNull();
+  // A Server Action finishes where it was posted; the canonical host serves.
+  for (const index of [6, 12]) {
+    expect(responses[index].location).toBeNull();
+    expect(responses[index].status).toBe(200);
+  }
+});
 
-const [primaryAdministrator, secondaryAdministrator] =
-  workspaceTestAdministrators;
-const primaryAdminAuthorization = toAuthorization(
-  primaryAdministrator.username,
-  primaryAdministrator.password
-);
-const secondaryAdminAuthorization = toAuthorization(
-  secondaryAdministrator.username,
-  secondaryAdministrator.password
-);
+test("lets Preview deployments serve a bare language on their own host", async () => {
+  const result = await inspectCheckoutEntryOnce("preview");
+  expect(result.exitCode).toBe(0);
+  const response = inspectedResponses(result)[13];
+  expect(response.status).toBe(308);
+  expect(response.location).toBe(
+    "https://immutable-preview.vercel.app/en-US/faq?utm_source=synthetic"
+  );
+});
 
-const administrationPaths = [
+const unprefixedAdministrationPaths = [
   "/admin",
   "/admin/",
   "/admin/bookings",
@@ -187,7 +259,28 @@ const administrationPaths = [
   "/admin/codes",
   "/admin/codes/code-id",
   "/admin/sales",
+  "/admin/invoices/invoice-id/pdf",
 ] as const;
+
+const administrationPaths = [
+  ...unprefixedAdministrationPaths,
+  ...unprefixedAdministrationPaths.flatMap((pathname) => [
+    `/en-US${pathname}`,
+    `/cs-CZ${pathname}`,
+  ]),
+];
+
+const sessionCookie = "better-auth.session_token=synthetic-session";
+
+const expectPrivateAdministrationResponse = (response: Response) => {
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  const vary = response.headers
+    .get("vary")
+    ?.split(",")
+    .map((value) => value.trim().toLowerCase());
+  expect(vary).toContain("cookie");
+  expect(vary).not.toContain("authorization");
+};
 
 describe("administration route boundary", () => {
   test("matches every administration route including dotted identifiers", () => {
@@ -197,6 +290,8 @@ describe("administration route boundary", () => {
       "/admin/reservations/reservation.with.dots",
       "/admin/reservations/reservation%2Ewith%2Edots",
       "/admin/customers/customer.with.dots/create-code",
+      "/cs-CZ/admin/reservations/reservation.with.dots",
+      "/en-US/admin/invoices/invoice.with.dots/pdf",
     ]) {
       expect(
         unstable_doesMiddlewareMatch({
@@ -213,45 +308,236 @@ describe("administration route boundary", () => {
         new NextRequest(`https://workspace.example${pathname}`)
       );
 
-      expect(response.status).not.toBe(401);
+      expect(response.status).toBe(307);
       expect(response.headers.get("location")).toBe(
-        `https://workspace.example/en-US${pathname}`
+        `https://workspace.example/cs-CZ${pathname}`
       );
     }
   });
 
-  test("challenges every concrete administration route", async () => {
+  test("redirects every concrete administration route without a session cookie", async () => {
     for (const pathname of administrationPaths) {
       const response = await proxy(
         new NextRequest(`https://workspace.example${pathname}`)
       );
 
-      expect(response.status).toBe(401);
-      expect(response.headers.get("www-authenticate")).toContain(
-        "Basic realm="
+      expect(response.status).toBe(307);
+      expect(new URL(response.headers.get("location")!).pathname).toMatch(
+        localizedSignInPathname
       );
+      expectPrivateAdministrationResponse(response);
+    }
+    expect(administrationRequestHeaders).toHaveLength(0);
+  });
+
+  test("recognizes encoded, odd, and malformed administration path spellings", async () => {
+    for (const pathname of [
+      "/xx-XX/admin",
+      "/%61dmin/reservations",
+      "/cs-CZ/%61dmin",
+      "/en-US/admin%2Freservations",
+      "/en-US/admin/%",
+    ]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${pathname}`)
+      );
+
+      expect(response.status).toBe(307);
+      expect(new URL(response.headers.get("location")!).pathname).toMatch(
+        localizedSignInPathname
+      );
+      expectPrivateAdministrationResponse(response);
     }
   });
 
-  test("challenges navigation request variants consistently", async () => {
-    const requests = [
-      new NextRequest("https://workspace.example/admin/reservations", {
-        method: "HEAD",
-      }),
-      new NextRequest("https://workspace.example/admin/reservations", {
-        headers: { rsc: "1" },
-      }),
-      new NextRequest("https://workspace.example/admin/reservations", {
-        headers: {
-          "next-router-prefetch": "1",
-          purpose: "prefetch",
-        },
-      }),
-    ];
+  test("moves a loosely spelled administration locale to the exact locale privately", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/cs-cz/admin/reservations")
+    );
 
-    for (const request of requests) {
-      expect((await proxy(request)).status).toBe(401);
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/cs-CZ/admin/reservations"
+    );
+    expectPrivateAdministrationResponse(response);
+  });
+
+  test("redirects a cookie-less localized invoice request to sign-in with its return path", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/admin/invoices?page=2")
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/en-US/auth/sign-in?returnTo=%2Fen-US%2Fadmin%2Finvoices%3Fpage%3D2"
+    );
+    expectPrivateAdministrationResponse(response);
+  });
+
+  test("uses Accept-Language for cookie-less unprefixed administration sign-in", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/admin", {
+        headers: { "accept-language": "cs" },
+      })
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/cs-CZ/auth/sign-in?returnTo=%2Fadmin"
+    );
+    expectPrivateAdministrationResponse(response);
+  });
+
+  test("redirects cookie-less HEAD requests to the same sign-in continuation", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/admin/invoices?page=2", {
+        method: "HEAD",
+      })
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/en-US/auth/sign-in?returnTo=%2Fen-US%2Fadmin%2Finvoices%3Fpage%3D2"
+    );
+    expectPrivateAdministrationResponse(response);
+    expect(administrationRequestHeaders).toHaveLength(0);
+  });
+
+  test("passes an administration Server Action through without a session cookie", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/admin/discounts", {
+        method: "POST",
+        headers: { "next-action": "action-id" },
+      })
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+    expectPrivateAdministrationResponse(response);
+    expect(administrationRequestHeaders).toHaveLength(0);
+  });
+
+  test("passes a session-cookie administration page through with its request path", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/admin/invoices?page=2", {
+        headers: { cookie: sessionCookie },
+      })
+    );
+
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(
+      response.headers.get(
+        "x-middleware-request-x-deskohub-administration-path"
+      )
+    ).toBe("/en-US/admin/invoices?page=2");
+    expectPrivateAdministrationResponse(response);
+    expect(administrationRequestHeaders).toHaveLength(1);
+    expect(administrationRequestHeaders[0]?.get("cookie")).toBe(sessionCookie);
+  });
+
+  test("rewrites non-administrators for GET, HEAD, RSC, and unprefixed page requests", async () => {
+    administrationAccessResult = "not-administrator";
+    const responses: Response[] = [];
+    for (const request of [
+      new NextRequest(
+        "https://workspace.example/cs-CZ/admin/bookings?tab=recent",
+        { headers: { cookie: sessionCookie } }
+      ),
+      new NextRequest("https://workspace.example/cs-CZ/admin/bookings", {
+        method: "HEAD",
+        headers: { cookie: sessionCookie },
+      }),
+      new NextRequest("https://workspace.example/cs-CZ/admin/bookings", {
+        headers: { cookie: sessionCookie, rsc: "1" },
+      }),
+      new NextRequest("https://workspace.example/admin", {
+        headers: { cookie: sessionCookie, "accept-language": "cs" },
+      }),
+    ]) {
+      responses.push(await proxy(request));
     }
+
+    expect(
+      responses.map((response) => response.headers.get("x-middleware-rewrite"))
+    ).toEqual([
+      "https://workspace.example/cs-CZ/administration-not-found",
+      "https://workspace.example/cs-CZ/administration-not-found",
+      "https://workspace.example/cs-CZ/administration-not-found",
+      "https://workspace.example/cs-CZ/administration-not-found",
+    ]);
+    for (const response of responses) {
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+      expectPrivateAdministrationResponse(response);
+    }
+    expect(administrationRequestHeaders).toHaveLength(4);
+    expect(administrationRequestHeaders[2]?.get("rsc")).toBe("1");
+  });
+
+  test("redirects a stale session cookie to sign-in with its return path", async () => {
+    administrationAccessResult = "signed-out";
+    const response = await proxy(
+      new NextRequest(
+        "https://workspace.example/cs-CZ/admin/bookings?tab=recent",
+        { headers: { cookie: sessionCookie } }
+      )
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/cs-CZ/auth/sign-in?returnTo=%2Fcs-CZ%2Fadmin%2Fbookings%3Ftab%3Drecent"
+    );
+    expectPrivateAdministrationResponse(response);
+    expect(administrationRequestHeaders).toHaveLength(1);
+    expect(administrationRequestHeaders[0]?.get("cookie")).toBe(sessionCookie);
+  });
+
+  test("returns a private unavailable response when the administrator reader rejects", async () => {
+    administrationAccessFailure = new Error("synthetic reader failure");
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/admin/bookings", {
+        headers: { cookie: sessionCookie },
+      })
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe("");
+    expect(response.headers.get("location")).toBeNull();
+    expectPrivateAdministrationResponse(response);
+    expect(administrationRequestHeaders).toHaveLength(1);
+  });
+
+  test("passes administration Server Actions with a session cookie without reading access", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/admin/discounts", {
+        method: "POST",
+        headers: { cookie: sessionCookie, "next-action": "action-id" },
+      })
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+    expectPrivateAdministrationResponse(response);
+    expect(administrationRequestHeaders).toHaveLength(0);
+  });
+
+  test("overwrites a client-sent administration request path header", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/admin/discounts", {
+        headers: {
+          cookie: sessionCookie,
+          "x-deskohub-administration-path": "/client-supplied",
+        },
+      })
+    );
+
+    expect(
+      response.headers.get(
+        "x-middleware-request-x-deskohub-administration-path"
+      )
+    ).toBe("/en-US/admin/discounts");
+    expectPrivateAdministrationResponse(response);
   });
 });
 
@@ -270,6 +556,243 @@ test("passes Server Action requests through without mutating the response", asyn
 
   expect(response.headers.get("x-middleware-next")).toBe("1");
   expect(response.cookies.get(localeCookieName)).toBeUndefined();
+});
+
+describe("locale negotiation", () => {
+  const localeRedirect = async (url: string, headers: HeadersInit = {}) => {
+    const response = await proxy(new NextRequest(url, { headers }));
+    return {
+      status: response.status,
+      location: response.headers.get("location"),
+    };
+  };
+
+  test("opens Czech for a request that states no language", async () => {
+    for (const [path, localized] of [
+      ["/", "/cs-CZ"],
+      ["/faq?x=1", "/cs-CZ/faq?x=1"],
+    ]) {
+      expect(await localeRedirect(`https://workspace.example${path}`)).toEqual({
+        status: 307,
+        location: `https://workspace.example${localized}`,
+      });
+    }
+  });
+
+  test("opens the locale of a language the site serves", async () => {
+    for (const [acceptLanguage, localized] of [
+      ["de-AT,de;q=0.9", "/de-DE/faq"],
+      ["sk-SK,sk;q=0.9", "/sk-SK/faq"],
+      ["uk,ru;q=0.8", "/uk-UA/faq"],
+      ["vi-VN,vi;q=0.9", "/vi-VN/faq"],
+      ["hi,en;q=0.8", "/hi-IN/faq"],
+    ]) {
+      expect(
+        await localeRedirect("https://workspace.example/faq", {
+          "accept-language": acceptLanguage,
+        })
+      ).toEqual({
+        status: 307,
+        location: `https://workspace.example${localized}`,
+      });
+    }
+  });
+
+  test("opens English for languages the site doesn't serve", async () => {
+    for (const acceptLanguage of ["ru-RU,ru;q=0.9", "fr-FR,fr;q=0.9"]) {
+      expect(
+        await localeRedirect("https://workspace.example/faq", {
+          "accept-language": acceptLanguage,
+        })
+      ).toEqual({
+        status: 307,
+        location: "https://workspace.example/en-US/faq",
+      });
+    }
+  });
+
+  test("moves a loosely spelled locale prefix permanently to the exact locale", async () => {
+    for (const [path, exact] of [
+      ["/en-us/faq?x=1", "/en-US/faq?x=1"],
+      ["/EN-US", "/en-US"],
+      ["/cs-cz/pricing", "/cs-CZ/pricing"],
+      ["/en/faq", "/en-US/faq"],
+      ["/CS/faq", "/cs-CZ/faq"],
+      ["/En/faq", "/en-US/faq"],
+      ["/en/account", "/en-US/account"],
+      ["/cs/admin", "/cs-CZ/admin"],
+      ["/de-de/faq", "/de-DE/faq"],
+      ["/sk/faq", "/sk-SK/faq"],
+      ["/UK/faq", "/uk-UA/faq"],
+      ["/vi/faq", "/vi-VN/faq"],
+      ["/hi/faq", "/hi-IN/faq"],
+    ]) {
+      // The URL alone decides, whatever the visitor's language or cookie.
+      expect(
+        await localeRedirect(`https://workspace.example${path}`, {
+          "accept-language": "de",
+          cookie: `${localeCookieName}=en-US`,
+        })
+      ).toEqual({ status: 308, location: `https://workspace.example${exact}` });
+    }
+  });
+
+  test("leaves a bare language segment the site doesn't serve as a path", async () => {
+    // French has no locale, so `/fr` is not a misspelled locale prefix.
+    expect(
+      await localeRedirect("https://workspace.example/fr/faq", {
+        "accept-language": "ru",
+      })
+    ).toEqual({
+      status: 307,
+      location: "https://workspace.example/en-US/fr/faq",
+    });
+  });
+
+  test("keeps a credential-bearing link's exact-locale redirect private", async () => {
+    const response = await proxy(
+      new NextRequest(
+        `https://workspace.example/en/reservation/access/synthetic-order?${reservationAccessTokenQueryParam}=synthetic-token`
+      )
+    );
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe(
+      `https://workspace.example/en-US/reservation/access/synthetic-order?${reservationAccessTokenQueryParam}=synthetic-token`
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+});
+
+describe("mobile web app under /app/", () => {
+  test("hands app paths on without locale, sign-in or administration handling", async () => {
+    for (const path of [
+      "/app/",
+      "/app/account",
+      "/app/account/security?tab=passkeys",
+      "/app/admin",
+    ]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${path}`, {
+          headers: {
+            "accept-language": "en-US",
+            cookie: `${localeCookieName}=en-US`,
+          },
+        })
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    }
+    expect(administrationRequestHeaders).toHaveLength(0);
+  });
+
+  test("moves the bare path permanently into the installed app's scope", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/app?source=pwa")
+    );
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/app/?source=pwa"
+    );
+  });
+});
+
+describe("dotted paths under a locale prefix", () => {
+  const matchesProxy = (pathname: string) =>
+    unstable_doesMiddlewareMatch({
+      config,
+      url: `https://workspace.example${pathname}`,
+    });
+
+  test("reach the proxy whatever the prefix's letter case", () => {
+    for (const pathname of [
+      "/CS-cz/x.txt",
+      "/en-us/x.html",
+      "/EN-US/a/b.php",
+      "/cs-CZ/nope.html",
+      "/de-de/x.html",
+    ]) {
+      expect(matchesProxy(pathname)).toBe(true);
+    }
+  });
+
+  test("leave root files, build assets and API routes out of the proxy", () => {
+    for (const pathname of [
+      "/robots.txt",
+      "/sitemap.xml",
+      "/llms.txt",
+      "/.well-known/security.txt",
+      "/.well-known/assetlinks.json",
+      "/.well-known/apple-app-site-association",
+      indexNowKeyPathname,
+      "/favicon.ico",
+      "/favicon.png",
+      "/apple-touch-icon.png",
+      "/manifest.webmanifest",
+      "/official-company-extract.pdf",
+      "/_next/static/chunks/main.js",
+      "/api/v1/cli/file.json",
+    ]) {
+      expect(matchesProxy(pathname)).toBe(false);
+    }
+  });
+
+  // Next strips the suffix before the proxy sees the URL, so these requests
+  // would pass for page loads.
+  test("leave RSC and segment requests under a locale out of the proxy", () => {
+    for (const pathname of [
+      "/en-US/faq.rsc",
+      "/en-us/faq.rsc",
+      "/cs-CZ/pricing.prefetch.rsc",
+      "/cs-CZ/pricing.segments/_tree.segment.rsc",
+      "/en-US/faq.segments/$c$locale/__PAGE__.segment.rsc",
+    ]) {
+      expect(matchesProxy(pathname)).toBe(false);
+    }
+  });
+
+  test("move a loosely spelled locale prefix permanently to the exact locale", async () => {
+    for (const [path, exact] of [
+      ["/CS-cz/x.txt", "/cs-CZ/x.txt"],
+      ["/en-us/x.html", "/en-US/x.html"],
+      ["/EN-US/a/b.php?x=1", "/en-US/a/b.php?x=1"],
+      ["/de-de/x.html", "/de-DE/x.html"],
+    ]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${path}`)
+      );
+
+      expect(response.status).toBe(308);
+      expect(response.headers.get("location")).toBe(
+        `https://workspace.example${exact}`
+      );
+    }
+  });
+
+  // Under a prefix that names no locale (`/fr-fr`), the `afterFiles` rewrite
+  // in `next.config.mjs` then gives the path the locale redirect.
+  test("go on untouched under an exact locale or a prefix that names none", async () => {
+    for (const path of [
+      "/cs-CZ/nope.html",
+      "/en-US/a/b.php",
+      "/fr-fr/x.html",
+      "/xx-YY/a.txt",
+    ]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${path}`, {
+          headers: { "accept-language": "de" },
+        })
+      );
+
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(response.headers.get("location")).toBeNull();
+      expect(response.cookies.get(localeCookieName)).toBeUndefined();
+    }
+  });
 });
 
 test("continues to persist the locale for ordinary localized requests", async () => {
@@ -298,6 +821,62 @@ test.each([
     );
   }
 );
+
+describe("legacy account section links", () => {
+  test("redirects a localized ?section= link to the section's path, keeping other parameters", async () => {
+    const response = await proxy(
+      new NextRequest(
+        "https://workspace.example/cs-CZ/account?section=security&utm_source=email"
+      )
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/cs-CZ/account/security?utm_source=email"
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.cookies.get(localeCookieName)?.value).toBe("cs-CZ");
+  });
+
+  test("redirects an unknown section to the account itself", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/account?section=unknown")
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/en-US/account"
+    );
+  });
+
+  test("redirects an unprefixed ?section= link straight to the localized section path", async () => {
+    const response = await proxy(
+      new NextRequest(
+        "https://workspace.example/account?section=billing&ref=RFL12345",
+        { headers: { "accept-language": "cs-CZ,cs;q=0.9" } }
+      )
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/cs-CZ/account/billing?ref=RFL12345"
+    );
+  });
+
+  test("serves section paths and other account pages without a redirect", async () => {
+    for (const path of [
+      "/en-US/account",
+      "/en-US/account/profile",
+      "/en-US/account/legal?section=profile",
+    ]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${path}`)
+      );
+
+      expect(response.headers.get("location")).toBeNull();
+    }
+  });
+});
 
 test("prevents private reservation responses from being cached", async () => {
   for (const path of [
@@ -465,74 +1044,210 @@ test("does not treat a GET with a spoofed action header as a Server Action", asy
   const response = await proxy(request);
 
   expect(response.headers.get("location")).toBe(
-    "https://workspace.example/en-US"
+    "https://workspace.example/cs-CZ"
   );
 });
 
-test("challenges unauthenticated administration requests", async () => {
-  const response = await proxy(
-    new NextRequest("https://workspace.example/admin/discounts")
-  );
+test("redirects session-cookie unprefixed administration URLs to the resolved locale with query", async () => {
+  const cases = [
+    {
+      url: "https://workspace.example/admin/cli/authenticate?code=SYNTHETIC-CODE",
+      headers: {},
+      location:
+        "https://workspace.example/cs-CZ/admin/cli/authenticate?code=SYNTHETIC-CODE",
+    },
+    {
+      url: "https://workspace.example/admin",
+      headers: { "accept-language": "cs-CZ,cs;q=0.9" },
+      location: "https://workspace.example/cs-CZ/admin",
+    },
+    {
+      url: "https://workspace.example/admin/reservations?status=paid",
+      headers: { cookie: `${localeCookieName}=cs-CZ` },
+      location:
+        "https://workspace.example/cs-CZ/admin/reservations?status=paid",
+    },
+  ];
 
-  expect(response.status).toBe(401);
-  expect(response.headers.get("www-authenticate")).toContain("Basic realm=");
-  expect(response.headers.get("cache-control")).toBe("private, no-store");
-  expect(response.headers.get("vary")).toBe("Authorization");
-});
-
-test("passes authenticated administration requests without localization", async () => {
-  for (const authorization of [
-    primaryAdminAuthorization,
-    secondaryAdminAuthorization,
-  ]) {
+  for (const { url, headers, location } of cases) {
+    const requestHeaders = new Headers(headers);
+    requestHeaders.set(
+      "cookie",
+      [sessionCookie, requestHeaders.get("cookie")]
+        .filter((value): value is string => value !== null)
+        .join("; ")
+    );
     const response = await proxy(
-      new NextRequest("https://workspace.example/admin/discounts", {
-        headers: { authorization },
+      new NextRequest(url, {
+        headers: requestHeaders,
       })
     );
 
-    expect(response.headers.get("x-middleware-next")).toBe("1");
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(response.headers.get("vary")).toBe("Authorization");
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(location);
+    expectPrivateAdministrationResponse(response);
   }
 });
 
-test("fails closed for wrong, crossed, and unknown administrator credentials", async () => {
-  for (const authorization of [
-    toAuthorization("admin", "operator-test-password"),
-    toAuthorization("operator", "test-password"),
-    toAuthorization("admin", "definitely-not-the-password"),
-    toAuthorization("unknown", "test-password"),
-  ]) {
+test.each([
+  ["signed out", {}],
+  ["signed in", { cookie: sessionCookie }],
+])(
+  "redirects the OAuth server's AI assistant pages to the locale with their signed query intact while %s",
+  async (_label, headers) => {
+    // The provider's signed query, with encoded values and a repeated key.
+    const query =
+      "?response_type=code&client_id=https%3A%2F%2Fassistant.invalid%2Fclient.json&scope=offerings%3Aread+reservations%3Aread&state=a%2Fb%3Dc&exp=1900000000&ba_iat=1899999400&ba_param=client_id&ba_param=scope&sig=SYNTHETIC-SIG_-";
+    for (const path of ["/auth/connect", "/auth/consent"]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${path}${query}`, {
+          headers: { ...headers, "accept-language": "cs-CZ,cs;q=0.9" },
+        })
+      );
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(
+        `https://workspace.example/cs-CZ${path}${query}`
+      );
+    }
+  }
+);
+
+describe("AI assistant sign-in step", () => {
+  const signedQuery =
+    "?response_type=code&client_id=https%3A%2F%2Fassistant.invalid%2Fclient.json&scope=reservations%3Aread&state=s&exp=1900000000&ba_iat=1899999400&ba_param=client_id&sig=SYNTHETIC-SIG_-";
+
+  test("sends a signed-out page load to the assistant sign-in with an HTTP redirect", async () => {
     const response = await proxy(
-      new NextRequest("https://workspace.example/admin/discounts", {
-        headers: { authorization },
-      })
+      new NextRequest(
+        `https://workspace.example/en-US/auth/connect${signedQuery}`
+      )
     );
 
-    expect(response.status).toBe(401);
-  }
+    expect(response.status).toBe(307);
+    const location = new URL(response.headers.get("location")!);
+    expect(location.pathname).toBe("/en-US/auth/sign-in");
+    expect(location.searchParams.get("for")).toBe("assistant");
+    const returnTo = new URL(
+      location.searchParams.get("returnTo")!,
+      "https://workspace.example"
+    );
+    expect(returnTo.pathname).toBe("/en-US/auth/connect");
+    expect(returnTo.searchParams.get("client_id")).toBe(
+      "https://assistant.invalid/client.json"
+    );
+    expect(returnTo.searchParams.has("sig")).toBe(false);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+  });
+
+  test.each([
+    [
+      "a signed-in visitor",
+      `/en-US/auth/connect${signedQuery}`,
+      { cookie: sessionCookie },
+    ],
+    ["a request without a client", "/en-US/auth/connect", {}],
+  ])("leaves %s to the page", async (_label, path, headers) => {
+    const response = await proxy(
+      new NextRequest(`https://workspace.example${path}`, { headers })
+    );
+
+    expect(response.headers.get("location")).toBeNull();
+  });
 });
 
-test("checks administration Server Action posts before the general pass-through", async () => {
-  const unauthorized = await proxy(
-    new NextRequest("https://workspace.example/admin/discounts", {
-      method: "POST",
-      headers: { "next-action": "action-id" },
-    })
-  );
-  const authorized = await proxy(
-    new NextRequest("https://workspace.example/admin/discounts", {
-      method: "POST",
-      headers: {
-        authorization: primaryAdminAuthorization,
-        "next-action": "action-id",
-      },
-    })
-  );
+describe("account render pathname hand-off", () => {
+  const renderedPathname = (response: Response) =>
+    response.headers.get("x-middleware-request-x-deskohub-request-pathname");
 
-  expect(unauthorized.status).toBe(401);
-  expect(authorized.headers.get("x-middleware-next")).toBe("1");
+  const matchesProxy = (pathname: string) =>
+    unstable_doesMiddlewareMatch({
+      config,
+      url: `https://workspace.example${pathname}`,
+    });
+
+  test("matches every account route including dotted segments", () => {
+    for (const pathname of [
+      "/account",
+      "/account/security",
+      "/account/unknown.foo",
+      "/en-US/account",
+      "/en-US/account/unknown.foo",
+      "/en-US/account/x.png",
+      "/cs-CZ/account/security.",
+      "/en-US/account/legal/terms.pdf",
+    ]) {
+      expect(matchesProxy(pathname)).toBe(true);
+    }
+  });
+
+  test("keeps API routes and static files out of the proxy", () => {
+    for (const pathname of [
+      "/api/account/customer-link",
+      "/api/account/customer.link",
+      "/_next/static/chunks/account.js",
+      "/favicon.ico",
+      "/workspace-location-map.jpeg",
+      // The footer's company extract and the utility files serve from the
+      // site root, without a locale prefix.
+      "/official-company-extract.pdf",
+      "/llms.txt",
+      "/.well-known/security.txt",
+      indexNowKeyPathname,
+    ]) {
+      expect(matchesProxy(pathname)).toBe(false);
+    }
+  });
+
+  test("hands account renders their pathname, replacing a client's value", async () => {
+    for (const path of [
+      "/en-US/account",
+      "/en-US/account/unknown",
+      "/en-US/account/unknown.foo",
+      "/cs-CZ/account/security",
+    ]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${path}`, {
+          headers: { "x-deskohub-request-pathname": "/en-US/account" },
+        })
+      );
+
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(renderedPathname(response)).toBe(path);
+    }
+  });
+
+  test("hands an account Server Action's render its pathname", async () => {
+    for (const path of ["/en-US/account/danger", "/en-US/account/danger.x"]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${path}`, {
+          method: "POST",
+          headers: {
+            "next-action": "action-id",
+            "x-deskohub-request-pathname": "/en-US/account",
+          },
+        })
+      );
+
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(renderedPathname(response)).toBe(path);
+      expect(response.cookies.get(localeCookieName)).toBeUndefined();
+    }
+  });
+
+  test("leaves other renders' request headers alone", async () => {
+    for (const request of [
+      new NextRequest("https://workspace.example/en-US/reservation/cowork"),
+      new NextRequest("https://workspace.example/en-US/checkout/pay", {
+        method: "POST",
+        headers: { "next-action": "action-id" },
+      }),
+    ]) {
+      const response = await proxy(request);
+
+      expect(response.headers.get("x-middleware-override-headers")).toBeNull();
+    }
+  });
 });
 
 describe("shared referral code hand-off", () => {
@@ -576,7 +1291,10 @@ describe("shared referral code hand-off", () => {
     );
 
     expect(storedCookieOf(response)).toBeUndefined();
-    expect(renderedCookies(response)).toBeNull();
+    // The account render receives the request's own cookies, unchanged.
+    expect(renderedCookies(response)).toBe(
+      `${referralCodeCookieName}=RFLFIRST1`
+    );
   });
 
   test("ignores a value that cannot be a referral code", async () => {
@@ -646,5 +1364,224 @@ describe("shared referral code hand-off", () => {
       `${referralCodeCookieName}=RFL12345`
     );
     expect(storedCookieOf(response)).toBeUndefined();
+  });
+});
+
+describe("agent traffic", () => {
+  const chatGptUser =
+    "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot";
+  const chromeOnMac =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+
+  test("records an agent page load once", async () => {
+    const response = await proxy(
+      new NextRequest(
+        "https://workspace.example/en-US/reservation/status/019edbcf-5026-7ecc-821b-eda46998eaaa?statusToken=synthetic",
+        { headers: { "user-agent": chatGptUser, "sec-fetch-dest": "document" } }
+      )
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(scheduledAgentPageRequests).toEqual([
+      {
+        traffic: { category: "ai_user_agent", name: "chatgpt" },
+        locale: "en-US",
+        pathname:
+          "/en-US/reservation/status/019edbcf-5026-7ecc-821b-eda46998eaaa",
+      },
+    ]);
+  });
+
+  test("records nothing for a human page load", async () => {
+    await proxy(
+      new NextRequest("https://workspace.example/en-US/reservation/cowork", {
+        headers: { "user-agent": chromeOnMac, "sec-fetch-dest": "document" },
+      })
+    );
+
+    expect(scheduledAgentPageRequests).toEqual([]);
+  });
+
+  test("ignores a client-sent category on a human page load", async () => {
+    await proxy(
+      new NextRequest("https://workspace.example/en-US/reservation/cowork", {
+        headers: {
+          "user-agent": chromeOnMac,
+          "sec-fetch-dest": "document",
+          "x-deskohub-agent-category": "ai_user_agent",
+          "x-deskohub-agent-name": "claude",
+        },
+      })
+    );
+
+    expect(scheduledAgentPageRequests).toEqual([]);
+  });
+
+  test("records no page load for an agent's Server Action", async () => {
+    await proxy(
+      new NextRequest("https://workspace.example/en-US/checkout/pay", {
+        method: "POST",
+        headers: { "next-action": "action-id", "user-agent": chatGptUser },
+      })
+    );
+
+    expect(scheduledAgentPageRequests).toEqual([]);
+  });
+
+  test.each([
+    ["a router request", { rsc: "1" }],
+    ["a router prefetch", { "next-router-prefetch": "1" }],
+    ["a speculative prefetch", { "sec-purpose": "prefetch" }],
+    ["a subresource load", { "sec-fetch-dest": "image" }],
+  ])("records nothing for %s", async (_, headers) => {
+    await proxy(
+      new NextRequest("https://workspace.example/en-US/reservation/cowork", {
+        headers: { "user-agent": chatGptUser, ...headers },
+      })
+    );
+
+    expect(scheduledAgentPageRequests).toEqual([]);
+  });
+
+  test("records nothing for a redirect to the localized page", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/reservation/cowork", {
+        headers: { "user-agent": chatGptUser, "accept-language": "en-US" },
+      })
+    );
+
+    expect(response.status).toBe(307);
+    expect(scheduledAgentPageRequests).toEqual([]);
+  });
+});
+
+describe("page Markdown negotiation", () => {
+  const markdownAccept = "text/markdown, text/html;q=0.9, */*;q=0.8";
+  const browserAccept =
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8";
+  const varyOf = (response: Response) =>
+    (response.headers.get("vary") ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase());
+
+  test.each([
+    ["/en-US", "/page-markdown/en-US"],
+    ["/cs-CZ/contact", "/page-markdown/cs-CZ/contact"],
+    [
+      "/en-US/terms-and-conditions",
+      "/page-markdown/en-US/terms-and-conditions",
+    ],
+    ["/cs-CZ/reservation/cowork", "/page-markdown/cs-CZ/reservation/cowork"],
+  ])(
+    "rewrites a public page %s that prefers Markdown to %s",
+    async (pathname, routePath) => {
+      for (const method of ["GET", "HEAD"]) {
+        const response = await proxy(
+          new NextRequest(`https://workspace.example${pathname}`, {
+            method,
+            headers: { accept: markdownAccept },
+          })
+        );
+
+        expect(response.headers.get("x-middleware-rewrite")).toBe(
+          `https://workspace.example${routePath}`
+        );
+        expect(response.headers.get("location")).toBeNull();
+      }
+    }
+  );
+
+  test.each([
+    ["a browser", browserAccept],
+    ["any type", "*/*"],
+    ["no preference", undefined],
+    ["HTML first at equal quality", "text/html, text/markdown"],
+    ["Markdown at a lower quality", "text/markdown;q=0.5, text/html"],
+  ])("serves the HTML page to %s, varying on Accept", async (_, accept) => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/faq", {
+        headers: accept === undefined ? {} : { accept },
+      })
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(varyOf(response)).toContain("accept");
+  });
+
+  test("redirects an unprefixed page to its locale before negotiating", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/contact", {
+        headers: { accept: markdownAccept, "accept-language": "cs" },
+      })
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/cs-CZ/contact"
+    );
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+  });
+
+  test.each([
+    "/en-US/account",
+    "/en-US/checkout/pay?state=synthetic",
+    "/en-US/reservation/status/019edbcf-5026-7ecc-821b-eda46998eaaa",
+    "/en-US/logo",
+    "/en-US/cookie-settings",
+    "/en-US/testing",
+    "/en-US/unknown-page",
+  ])("never rewrites %s, which is not a public page", async (path) => {
+    const response = await proxy(
+      new NextRequest(`https://workspace.example${path}`, {
+        headers: { accept: "text/markdown" },
+      })
+    );
+
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(varyOf(response)).not.toContain("accept");
+  });
+
+  test("never rewrites the administration", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/admin", {
+        headers: { accept: "text/markdown" },
+      })
+    );
+
+    expect(response.headers.get("x-middleware-rewrite") ?? "").not.toContain(
+      "/page-markdown"
+    );
+  });
+
+  test("passes a Server Action on a public page through", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/contact", {
+        method: "POST",
+        headers: { accept: "text/markdown", "next-action": "action-id" },
+      })
+    );
+
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+  });
+
+  test("records an agent's Markdown page load", async () => {
+    await proxy(
+      new NextRequest("https://workspace.example/en-US/faq", {
+        headers: {
+          accept: "text/markdown",
+          "user-agent":
+            "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot",
+        },
+      })
+    );
+
+    expect(scheduledAgentPageRequests).toEqual([
+      {
+        traffic: { category: "ai_user_agent", name: "chatgpt" },
+        locale: "en-US",
+        pathname: "/en-US/faq",
+      },
+    ]);
   });
 });

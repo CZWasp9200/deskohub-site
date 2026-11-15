@@ -2,6 +2,11 @@ import "server-only";
 
 import { loadInvoiceAdministrationBreadcrumbLabel } from "@/features/accounting/admin/invoice-breadcrumb.server";
 import { AdministrationBreadcrumbs } from "@/features/administration/admin-shell";
+import type { AdministrationRecordArea } from "@/features/administration/administration-areas";
+import {
+  type AdministrationRecordLabelLoader,
+  loadAdministrationRecordLabel,
+} from "@/features/administration/administration-record-label";
 import {
   loadAdministrationBookingBreadcrumbLabel,
   loadAdministrationReservationBreadcrumbLabel,
@@ -12,51 +17,42 @@ import {
   loadAudienceBreadcrumbLabel,
   loadCampaignBreadcrumbLabel,
 } from "@/features/email-campaigns/admin/campaign-page-data.server";
+import { getRequestLocale } from "@/features/i18n/server/request-locale";
 
-const newEntityLabels: Readonly<Record<string, string>> = {
-  "email-audiences": "New audience",
-  "email-campaigns": "New campaign",
-};
+const recordLabelLoaders = new Map<
+  AdministrationRecordArea,
+  AdministrationRecordLabelLoader
+>([
+  ["bookings", loadAdministrationBookingBreadcrumbLabel],
+  // A customer directory would own this label; discount administration loads
+  // it until one exists.
+  [
+    "customers",
+    (customerId, locale) =>
+      loadDiscountAdminCustomerBreadcrumbLabel(
+        requireDotyposCustomerRouteId(customerId),
+        locale
+      ),
+  ],
+  ["email-audiences", (audienceId) => loadAudienceBreadcrumbLabel(audienceId)],
+  ["email-campaigns", (campaignId) => loadCampaignBreadcrumbLabel(campaignId)],
+  ["invoices", loadInvoiceAdministrationBreadcrumbLabel],
+  ["reservations", loadAdministrationReservationBreadcrumbLabel],
+]);
 
+/** The breadcrumb trail of a path under `/admin`, with its record's label. */
 export async function AdministrationBreadcrumb({
   segments,
 }: {
   readonly segments: readonly string[];
 }) {
-  let entityLabel: string | undefined;
-
-  if (segments[0] === "customers" && segments[1]) {
-    entityLabel = await loadDiscountAdminCustomerBreadcrumbLabel(
-      requireDotyposCustomerRouteId(segments[1])
-    );
-  } else if (segments[0] === "reservations" && segments[1]) {
-    entityLabel =
-      (await loadAdministrationReservationBreadcrumbLabel(segments[1])) ??
-      undefined;
-  } else if (segments[0] === "bookings" && segments[1]) {
-    entityLabel = await loadAdministrationBookingBreadcrumbLabel(segments[1]);
-  } else if (
-    segments[0] === "invoices" &&
-    segments[1] &&
-    segments[1] !== "new"
-  ) {
-    entityLabel = await loadInvoiceAdministrationBreadcrumbLabel(segments[1]);
-  } else if (segments[0] && segments[1] === "new") {
-    entityLabel = newEntityLabels[segments[0]];
-  } else if (segments[0] === "email-campaigns" && segments[1]) {
-    entityLabel = await loadCampaignBreadcrumbLabel(segments[1]);
-  } else if (segments[0] === "email-audiences" && segments[1]) {
-    entityLabel = await loadAudienceBreadcrumbLabel(segments[1]);
-  }
-
-  const segmentLabels =
-    entityLabel && segments[1] ? { [segments[1]]: entityLabel } : undefined;
+  const recordLabel = await loadAdministrationRecordLabel({
+    loaders: recordLabelLoaders,
+    locale: await getRequestLocale(),
+    segments,
+  });
 
   return (
-    <AdministrationBreadcrumbs
-      entityLabel={segments.length === 2 ? entityLabel : undefined}
-      segmentLabels={segmentLabels}
-      segments={["admin", ...segments]}
-    />
+    <AdministrationBreadcrumbs recordLabel={recordLabel} segments={segments} />
   );
 }

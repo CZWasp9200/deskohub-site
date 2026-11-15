@@ -16,7 +16,7 @@ import {
   voucherRedemptions,
   vouchers,
 } from "@/db/schema";
-import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
+import type { DiscountLabels } from "@/features/discounts/discount-label";
 import type {
   CanonicalPromotionCode,
   DiscountCodeId,
@@ -31,6 +31,7 @@ import {
   voucherIdSchema,
 } from "@/features/discounts/persistence-contracts";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import type { Money } from "@/shared/money/money";
 import { type WorkspaceE2EError, workspaceE2EError } from "../errors";
 import { log } from "../runtime";
 import { E2EDatabase } from "./database.service";
@@ -469,7 +470,7 @@ export const setE2ECalendarSaleReservedDeskEligibility = (
 interface DiscountDefinitionFixture {
   readonly basisPoints: number;
   readonly id: StoredDiscountId;
-  readonly labels: Readonly<Record<"cs-CZ" | "en-US", string>>;
+  readonly labels: DiscountLabels;
   readonly products: readonly WorkspaceProductTarget[];
 }
 
@@ -487,6 +488,6 @@ interface DiscountCodeFixture {
 
 interface VoucherFixture {
   readonly code: CanonicalPromotionCode;
-  readonly creditPerRun: WorkspaceMoney;
+  readonly creditPerRun: Money;
   readonly id: VoucherId;
 }

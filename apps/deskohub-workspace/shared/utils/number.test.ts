@@ -1,5 +1,46 @@
 import { describe, expect, test } from "bun:test";
-import { formatNamesWithNumericRanges } from "./number";
+import {
+  consecutiveRuns,
+  formatCount,
+  formatFileSize,
+  formatNamesWithNumericRanges,
+} from "./number";
+
+describe("formatCount", () => {
+  test("groups digits for the locale", () => {
+    expect(formatCount(1000, "en-US")).toBe("1,000");
+    expect(formatCount(1000, "cs-CZ")).toBe("1\u00a0000");
+    expect(formatCount(7, "cs-CZ")).toBe("7");
+  });
+});
+
+describe("formatFileSize", () => {
+  test("picks the decimal unit that fits the size", () => {
+    expect(formatFileSize(42_123_456, "en-US")).toBe("42.1 MB");
+    expect(formatFileSize(42_123_456, "cs-CZ")).toBe("42,1 MB");
+    expect(formatFileSize(1500, "en-US")).toBe("1.5 kB");
+    expect(formatFileSize(1_200_000_000, "en-US")).toBe("1.2 GB");
+    expect(formatFileSize(999, "cs-CZ")).toBe("999 B");
+  });
+});
+
+describe("consecutiveRuns", () => {
+  test("groups consecutive integers in ascending order", () => {
+    expect(consecutiveRuns([20, 9, 15, 8, 10, 14])).toEqual([
+      { first: 8, last: 10 },
+      { first: 14, last: 15 },
+      { first: 20, last: 20 },
+    ]);
+  });
+
+  test("counts duplicates once", () => {
+    expect(consecutiveRuns([3, 2, 3, 2])).toEqual([{ first: 2, last: 3 }]);
+  });
+
+  test("yields no runs for no values", () => {
+    expect(consecutiveRuns([])).toEqual([]);
+  });
+});
 
 describe("formatNamesWithNumericRanges", () => {
   test("formats the required table-name example", () => {

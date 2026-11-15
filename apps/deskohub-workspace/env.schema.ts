@@ -10,12 +10,17 @@ import {
   type workspaceClientEnvSchema,
 } from "./client-env.schema";
 import { parseBetterAuthSecrets } from "./features/account/backend/auth/auth-secrets";
+import { signingCertificateFingerprintSchema } from "./features/account/backend/auth/native-app";
+import { reviewAccountCredentialsSchema } from "./features/account/backend/auth/review-account-credentials";
 import {
   postHogFeatureFlagOverridesEnvironmentCheck,
   postHogFeatureFlagOverridesSchema,
   vercelEnvironmentSchema,
 } from "./features/feature-flags/feature-flag-overrides.schema";
-import { administratorCredentialRegistrySchema } from "./shared/administrator/administrator-credentials";
+import {
+  postHogLogsExportSchema,
+  workspaceLogLevelSchema,
+} from "./shared/backend/observability/telemetry-policy";
 import { urlStringSchema } from "./shared/utils/url-schema";
 
 const nonEmptyStringSchema = toEnvSchema(Schema.NonEmptyString);
@@ -110,9 +115,6 @@ export const workspaceServerEnvSchema = Schema.Struct({
   CLOUDINARY_API_SECRET: nonEmptyStringSchema,
   DATABASE_URL: urlEnvSchema,
   DATABASE_URL_UNPOOLED: optionalUrlEnvSchema,
-  ADMIN_BASIC_AUTH_CREDENTIALS: toEnvSchema(
-    administratorCredentialRegistrySchema
-  ),
   BETTER_AUTH_SECRETS: toEnvSchema(Schema.optional(Schema.NonEmptyString)),
   DOTYPOS_API_TIMEOUT: toEnvSchema(
     Schema.FiniteFromString.check(Schema.isInt())
@@ -163,6 +165,18 @@ export const workspaceServerEnvSchema = Schema.Struct({
   IGLOOHOME_CLIENT_SECRET: optionalNonEmptyStringSchema,
   IGLOOHOME_ALGOPIN_TARGET_DEVICE_ID: nonEmptyStringSchema,
   RESEND_WEBHOOK_SECRET: nonEmptyStringSchema,
+  // App-directory review logins, the only password sign-ins.
+  REVIEW_ACCOUNT_CREDENTIALS: toEnvSchema(reviewAccountCredentialsSchema),
+  // The Apple Developer team of the native app. Without it the site serves
+  // no `/.well-known/apple-app-site-association`.
+  APPLE_TEAM_ID: toEnvSchema(
+    Schema.optional(Schema.String.check(Schema.isPattern(/^[A-Z0-9]{10}$/)))
+  ),
+  // SHA-256 fingerprint of a debug signing certificate whose app builds may
+  // use passkeys in local development only.
+  ANDROID_DEBUG_SIGNING_CERT_SHA256: toEnvSchema(
+    Schema.optional(signingCertificateFingerprintSchema)
+  ),
   CHECKOUT_PAY_STATE_KEYS: nonEmptyStringSchema,
   CHECKOUT_RETURN_STATE_TOKEN_SECRET: toEnvSchema(
     Schema.optional(Schema.String.check(Schema.isMinLength(32)))
@@ -171,10 +185,32 @@ export const workspaceServerEnvSchema = Schema.Struct({
     Schema.optional(Schema.String.check(Schema.isMinLength(32)))
   ),
   CRON_SECRET: toEnvSchema(Schema.optional(Schema.NonEmptyString)),
+  ANALYTICS_WAREHOUSE_SOURCE_TOKEN: toEnvSchema(
+    Schema.optional(Schema.String.check(Schema.isMinLength(32)))
+  ),
+  // Bearer token the release pipeline presents to publish mobile app updates.
+  MOBILE_UPDATES_PUBLISH_TOKEN: toEnvSchema(
+    Schema.optional(Schema.String.check(Schema.isMinLength(32)))
+  ),
+  // PEM RSA key that signs mobile update manifests; the app embeds its
+  // certificate, features/mobile-updates/code-signing-certificate.pem.
+  MOBILE_UPDATES_SIGNING_PRIVATE_KEY: toEnvSchema(
+    Schema.optional(
+      Schema.String.check(
+        Schema.isPattern(/-----BEGIN (RSA )?PRIVATE KEY-----/)
+      )
+    )
+  ),
   NEXI_API_KEY: nonEmptyStringSchema,
   NEXI_API_ORIGIN: urlEnvSchema,
   NEXI_CHECKOUT_CURRENCY_OVERRIDE: toEnvSchema(
     Schema.optional(Schema.Literal("EUR"))
+  ),
+  // The ChatGPT app directory's domain verification token, served at
+  // `/.well-known/openai-apps-challenge`. Trimmed so a pasted line break
+  // doesn't change the served token.
+  OPENAI_APPS_CHALLENGE_TOKEN: toEnvSchema(
+    Schema.optional(Schema.Trim.check(Schema.isNonEmpty()))
   ),
   POSTHOG_SERVICE_NAME: toEnvSchema(
     Schema.NonEmptyString.pipe(
@@ -192,6 +228,12 @@ export const workspaceServerEnvSchema = Schema.Struct({
     postHogFeatureFlagOverridesSchema
   ),
   POSTHOG_INGEST_HOST: urlEnvSchema,
+  // Which deployments export server logs to PostHog: "production-only" (the
+  // default when unset) or "always". Set "always" as a branch-scoped Vercel
+  // Preview variable to read one preview's logs in PostHog; it is read at
+  // runtime, so a redeploy of that branch picks it up.
+  POSTHOG_LOGS_EXPORT: toEnvSchema(Schema.optional(postHogLogsExportSchema)),
+  POSTHOG_PERSON_PRIVACY_API_KEY: optionalNonEmptyStringSchema,
   POSTHOG_PROJECT_ID: toEnvSchema(Schema.optional(PostHogProjectId)),
   PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: optionalStringSchema,
   VERCEL_BRANCH_URL: optionalStringSchema,
@@ -200,7 +242,13 @@ export const workspaceServerEnvSchema = Schema.Struct({
   VERCEL_AUTOMATION_BYPASS_SECRET: optionalStringSchema,
   VERCEL_PROJECT_PRODUCTION_URL: nonEmptyStringSchema,
   VERCEL_URL: nonEmptyStringSchema,
+  // Read by `next.config.mjs` at build time for the `Origin-Trial` header.
+  WEBMCP_ORIGIN_TRIAL_TOKENS: optionalNonEmptyStringSchema,
   WORKSPACE_E2E_BASE_URL: optionalUrlEnvSchema,
+  // The least severe level Workspace server runs log, as an Effect log level
+  // name ("All", "Fatal", "Error", "Warn", "Info", "Debug", "Trace", "None").
+  // Unset, production logs from Info and every other deployment from Debug.
+  WORKSPACE_LOG_LEVEL: toEnvSchema(Schema.optional(workspaceLogLevelSchema)),
 }).check(
   postHogFeatureFlagOverridesEnvironmentCheck,
   igloohomeProductionEnvironmentCheck,

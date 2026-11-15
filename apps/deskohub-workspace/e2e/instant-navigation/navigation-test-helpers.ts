@@ -1,14 +1,10 @@
-import {
-  type BrowserContext,
-  expect,
-  type Page,
-  type Request,
-} from "@playwright/test";
+import { expect, type Page, type Request } from "@playwright/test";
 import type { AccountReviewDestination } from "../account/review-screenshots";
 import {
   makeReviewScreenshotEnvironment,
   reviewScreenshotsEnabled,
 } from "../e2e-env";
+import { waitForReactClickHandler } from "../react-handlers";
 
 /** The review screenshot opt-in, decoded once through the E2E environment. */
 export const reviewScreenshots = reviewScreenshotsEnabled(
@@ -21,26 +17,6 @@ export const reviewDestination = (
   baseUrl: requireBaseUrl(baseURL),
   screenshots: reviewScreenshots,
 });
-
-export async function enablePreviewAccess(
-  context: BrowserContext,
-  baseURL: string | undefined
-) {
-  const previewBypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-  if (!previewBypassSecret) return;
-
-  const response = await context.request.get(
-    new URL("/favicon.svg", requireBaseUrl(baseURL)).toString(),
-    {
-      headers: {
-        "x-vercel-protection-bypass": previewBypassSecret,
-        "x-vercel-set-bypass-cookie": "true",
-      },
-    }
-  );
-  expect(response.ok()).toBe(true);
-  await response.dispose();
-}
 
 export async function expectPublicSiteShell(page: Page) {
   await expect(page.getByRole("banner")).toBeVisible();
@@ -92,7 +68,11 @@ export async function prefetchRoute(page: Page, pathname: string) {
   page.on("requestfinished", onSettled);
   page.on("requestfailed", onSettled);
   try {
-    await page.waitForFunction(() => window.next?.router !== undefined);
+    // Next exposes its router before hydration creates the action queue.
+    await waitForReactClickHandler(
+      page,
+      page.getByRole("banner").getByRole("link", { name: "Deskohub Workspace" })
+    );
     await page.evaluate(
       (target) => window.next?.router?.prefetch(target),
       pathname

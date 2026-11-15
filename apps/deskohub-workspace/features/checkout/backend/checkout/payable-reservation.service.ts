@@ -1,21 +1,17 @@
-import {
-  DotyposService,
-  type ExternalAPIError,
-  type NetworkError,
-  type ValidationError,
-} from "@deskohub/dotypos";
+import { type DotyposReadFailure, DotyposService } from "@deskohub/dotypos";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer } from "effect";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
+import type { WorkspaceReservationDetailsMalformedError } from "@/features/reservation/backend/stored-reservation-details.server";
 import {
   type WorkspaceReservation,
-  type WorkspaceReservationDetailsMalformedError,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
+import type { SealedStateTokenError } from "@/shared/backend/sealed-state";
+import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { deriveCheckoutSessionKeys } from "./checkout-lookup-keys.server";
-import type { CheckoutStateTokenError } from "./checkout-state-token";
 
 export class PayableReservationUnavailableError extends Data.TaggedError(
   "PayableReservationUnavailableError"
@@ -38,12 +34,10 @@ interface IPayableReservationService {
   }) => Effect.Effect<
     WorkspaceReservation,
     | PayableReservationUnavailableError
-    | CheckoutStateTokenError
+    | SealedStateTokenError
     | EffectDrizzleQueryError
     | WorkspaceReservationDetailsMalformedError
-    | ExternalAPIError
-    | NetworkError
-    | ValidationError
+    | DotyposReadFailure
   >;
 }
 
@@ -56,6 +50,34 @@ export class PayableReservationService extends Context.Service<
     Effect.gen(function* () {
       const reservations = yield* WorkspaceReservationRepository;
       const dotypos = yield* DotyposService;
+      const sealedStateKeys = yield* SealedStateKeys;
+
+      /** The order, when it is the current reservation of this checkout session. */
+      const findSessionReservation = Effect.fnUntraced(function* (input: {
+        readonly orderId: WorkspaceReservationId;
+        readonly checkoutSessionId: CheckoutSessionId;
+      }) {
+        const checkoutSessionKeys = yield* deriveCheckoutSessionKeys(
+          input.checkoutSessionId
+        ).pipe(Effect.provideService(SealedStateKeys, sealedStateKeys));
+        const reservation = yield* reservations.findById(input.orderId);
+        if (!reservation) {
+          return yield* unavailable(input, "missing_reservation");
+        }
+        if (
+          !checkoutSessionKeys.accepted.includes(reservation.checkoutSessionKey)
+        ) {
+          return yield* unavailable(input, "not_current");
+        }
+
+        const current = yield* reservations.findCurrentByCheckoutSessionKey(
+          reservation.checkoutSessionKey
+        );
+        if (current?.id !== reservation.id) {
+          return yield* unavailable(input, "not_current");
+        }
+        return reservation;
+      });
 
       return PayableReservationService.of({
         requireCurrent: Effect.fn("payableReservation.requireCurrent")(
@@ -64,41 +86,13 @@ export class PayableReservationService extends Context.Service<
               return yield* unavailable(input, "missing_checkout_session");
             }
 
-            const checkoutSessionKeys = yield* deriveCheckoutSessionKeys(
-              input.checkoutSessionId
-            );
-            const reservation = yield* reservations.findById(input.orderId);
-            if (!reservation) {
-              return yield* unavailable(input, "missing_reservation");
-            }
-            if (
-              !checkoutSessionKeys.accepted.includes(
-                reservation.checkoutSessionKey
-              )
-            ) {
-              return yield* unavailable(input, "not_current");
-            }
+            const reservation = yield* findSessionReservation({
+              orderId: input.orderId,
+              checkoutSessionId: input.checkoutSessionId,
+            });
 
-            const current = yield* reservations.findCurrentByCheckoutSessionKey(
-              reservation.checkoutSessionKey
-            );
-            if (current?.id !== reservation.id) {
-              return yield* unavailable(input, "not_current");
-            }
-
-            if (reservation.reservationState !== "held") {
-              return yield* unavailable(input, "not_held");
-            }
-
-            if (
-              reservation.reservationHoldExpiresAt &&
-              Temporal.Instant.compare(
-                reservation.reservationHoldExpiresAt,
-                Temporal.Now.instant()
-              ) <= 0
-            ) {
-              return yield* unavailable(input, "expired");
-            }
+            const holdRefusal = getHoldRefusal(reservation);
+            if (holdRefusal) return yield* unavailable(input, holdRefusal);
 
             if (!reservation.dotyposReservationId) {
               return yield* unavailable(input, "missing_dotypos_reservation");
@@ -120,7 +114,8 @@ export class PayableReservationService extends Context.Service<
 
   static Live = this.Default.pipe(
     Layer.provide(WorkspaceReservationRepository.Live),
-    Layer.provide(WorkspaceDotyposLayer)
+    Layer.provide(WorkspaceDotyposLayer),
+    Layer.provide(SealedStateKeys.Default)
   );
 }
 
@@ -132,3 +127,23 @@ const unavailable = (
     orderId: input.orderId,
     reason,
   });
+
+/** Why the reservation no longer holds its booking, if it doesn't. */
+const getHoldRefusal = (
+  reservation: Pick<
+    WorkspaceReservation,
+    "reservationState" | "reservationHoldExpiresAt"
+  >
+): PayableReservationUnavailableError["reason"] | undefined => {
+  if (reservation.reservationState !== "held") return "not_held";
+  if (
+    reservation.reservationHoldExpiresAt &&
+    Temporal.Instant.compare(
+      reservation.reservationHoldExpiresAt,
+      Temporal.Now.instant()
+    ) <= 0
+  ) {
+    return "expired";
+  }
+  return undefined;
+};

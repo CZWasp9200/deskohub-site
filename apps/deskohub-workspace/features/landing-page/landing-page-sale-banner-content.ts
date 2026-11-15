@@ -1,6 +1,10 @@
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
-import type { DiscountAdjustment } from "@/features/discounts/contracts";
+import type {
+  DiscountAdjustment,
+  DiscountId,
+} from "@/features/discounts/contracts";
 import {
+  type WorkspaceProductFamily,
   type WorkspaceProductTarget,
   workspaceProductTargetsCoverFamily,
 } from "@/features/discounts/product-target";
@@ -19,37 +23,41 @@ type LandingPageSale = {
 };
 
 export function getLandingPageSaleBannerContent({
+  bookableProducts,
   locale,
   reservationKind,
   sale,
 }: {
+  bookableProducts: readonly WorkspaceProductFamily[];
   locale: Locale;
   reservationKind: ReservationOrderData["kind"];
-  sale: LandingPageSale;
+  sale: LandingPageSale & { readonly id: DiscountId };
 }): LandingPageSaleBannerContent {
   return {
-    label: getLandingPageSaleBannerLabel(sale, locale),
+    label: getLandingPageSaleBannerLabel(sale, locale, bookableProducts),
     adjustmentKind: sale.adjustment.kind,
     statusLabel: m.landingSaleBannerStatus({}, { locale }),
     ctaLabel: m.landingSaleBannerCta({}, { locale }),
-    href: getReservationStartPath(
-      locale,
-      reservationKind,
-      new URLSearchParams({
-        utm_source: "deskohub",
-        utm_medium: "sale_banner",
-        utm_content: "home_hero",
-      })
-    ),
+    href: getReservationStartPath(locale, reservationKind),
+    click: { discountId: sale.id, locale, reservationKind },
   };
 }
 
+/**
+ * A sale covering every product family visitors can currently book is a sale
+ * on all products, even when other families are switched off.
+ */
 export function getLandingPageSaleBannerLabel(
   sale: LandingPageSale,
-  locale: Locale
+  locale: Locale,
+  bookableProducts: readonly WorkspaceProductFamily[]
 ): LandingPageSaleBannerLabel {
   return {
-    template: getLandingPageSaleBannerTemplate(sale.products, locale),
+    template: getLandingPageSaleBannerTemplate(
+      sale.products,
+      locale,
+      bookableProducts
+    ),
     title: sale.title,
     adjustment: formatDiscountAdjustment(sale.adjustment, locale),
   };
@@ -57,14 +65,15 @@ export function getLandingPageSaleBannerLabel(
 
 function getLandingPageSaleBannerTemplate(
   products: LandingPageSale["products"],
-  locale: Locale
+  locale: Locale,
+  bookableProducts: readonly WorkspaceProductFamily[]
 ) {
   const productKinds = new Set(products.map(({ kind }) => kind));
-  const coversAll = (kind: WorkspaceProductTarget["kind"]) =>
+  const coversAll = (kind: WorkspaceProductFamily) =>
     workspaceProductTargetsCoverFamily(products, kind);
   const placeholders = { title: "{title}", adjustment: "{adjustment}" };
 
-  if (coversAll("cowork") && coversAll("meeting-room") && coversAll("office")) {
+  if (bookableProducts.every(coversAll)) {
     return m.landingSaleBannerAllProducts(placeholders, { locale });
   }
 

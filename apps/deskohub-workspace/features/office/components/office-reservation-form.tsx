@@ -1,25 +1,17 @@
 "use client";
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import { Option, Predicate, Schema } from "effect";
-import { useEffect, useMemo } from "react";
-import { useForm, useWatch } from "react-hook-form";
-import {
-  type AdvertisedPrice,
-  isOfficeAdvertisedPrice,
-  type PreloadedAdvertisedPrice,
-} from "@/features/checkout/advertised-price";
+import { Option, Schema } from "effect";
+import { useMemo } from "react";
+import { useForm } from "react-hook-form";
+import type { PreloadedAdvertisedPrice } from "@/features/checkout/advertised-price";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import { getWorkspaceOfficeProductTitle } from "@/features/checkout/product-catalog.i18n";
-import {
-  formatWorkspaceMoney,
-  workspaceMoneyWithValue,
-} from "@/features/checkout/workspace-money";
 import type { CanonicalPromotionCode } from "@/features/discounts";
-import { type Locale, m } from "@/features/i18n";
+import { defaultPhoneRegion, type Locale, m } from "@/features/i18n";
 import { ReservationAdvertisedPrice } from "@/features/reservation/components/reservation-advertised-price";
 import { ReservationCheckoutForm } from "@/features/reservation/components/reservation-checkout-form";
-import { ReservationFormDatePicker } from "@/features/reservation/components/reservation-date-picker";
+import { ReservationFormDateInput } from "@/features/reservation/components/reservation-date-input";
 import {
   ReservationCustomerFieldsFallback,
   ReservationFormFallback,
@@ -34,44 +26,45 @@ import {
   reservationTypeInputLayout,
   reservationTypeOptionLayout,
 } from "@/features/reservation/components/reservation-type-input";
-import { useAdvertisedPrices } from "@/features/reservation/components/use-advertised-price";
-import { useReservationAvailability } from "@/features/reservation/components/use-reservation-availability";
-import { getOfficeSeatAdvertisedPriceRequests } from "@/features/reservation/office-advertised-price";
+import { useAdvertisedOptionPrices } from "@/features/reservation/components/use-advertised-option-prices";
+import { useWatchedSelection } from "@/features/reservation/components/use-reservation-selection-url";
+import {
+  findOfficeSeatAdvertisedPriceRequest,
+  getOfficeSeatAdvertisedPriceRequests,
+  officeSeatOptions,
+} from "@/features/reservation/office-advertised-price";
 import {
   getOfficeReservationDayCount,
-  getOfficeReservationDefaultValues,
   getOfficeReservationEndsOn,
-  getOfficeReservationMaximumDayCount,
-  getOfficeReservationMaximumEndsOn,
   getOfficeReservationOrder,
   getOfficeSeatOptions,
-  type NormalizedOfficeReservationOrder,
   type OfficeReservationData,
   type OfficeReservationInput,
   officeReservationDetailsSchema,
   officeReservationSchema,
 } from "@/features/reservation/office-reservation";
-import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
-import {
-  getOfficeAvailabilityQuery,
-  type PreloadedWorkspaceAvailability,
-} from "@/features/reservation/workspace-availability";
+import { officeSelectionLink } from "@/features/reservation/office-selection-link";
+import type { ReservationCheckoutCustomerForm } from "@/features/reservation/reservation-existing-customer";
+import type { PreloadedWorkspaceAvailability } from "@/features/reservation/workspace-availability";
 import {
   FormControl,
   FormField,
   FormItem,
   FormMessage,
 } from "@/shared/components/ui/form";
+import { formatMoney } from "@/shared/money/money";
 import { cn } from "@/shared/utils";
 import { OfficeDayCountInput } from "./office-day-count-input";
+import { getOfficeReservationSelectionSummary } from "./office-reservation-selection-summary";
+import { useOfficeAvailability } from "./use-office-availability";
+import { useOfficeDayCountBounds } from "./use-office-day-count-bounds";
 
 type OfficeReservationFormProps = {
   readonly checkoutSessionId?: CheckoutSessionId;
-  readonly existingCustomer?: ReservationExistingCustomerForm;
+  readonly checkoutCustomer: ReservationCheckoutCustomerForm;
   readonly seatCapacity: number;
   readonly initialAdvertisedPrices?: ReadonlyArray<PreloadedAdvertisedPrice>;
   readonly initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
-  readonly initialReservation?: NormalizedOfficeReservationOrder;
   readonly initialValues: OfficeReservationInput;
   readonly locale: Locale;
   readonly replacementToken?: string;
@@ -102,44 +95,37 @@ const getSelection = (
 
 export function OfficeReservationForm({
   checkoutSessionId,
-  existingCustomer,
+  checkoutCustomer,
   seatCapacity,
   initialAdvertisedPrices = [],
   initialAvailability,
-  initialReservation,
   initialValues,
   locale,
   replacementToken,
   submittedCode,
   today,
 }: OfficeReservationFormProps) {
-  const defaultValues = initialReservation
-    ? getOfficeReservationDefaultValues(initialReservation)
-    : initialValues;
   const form = useForm<OfficeReservationInput, unknown, OfficeReservationData>({
-    resolver: effectSchemaResolver(officeReservationSchema),
-    defaultValues,
+    resolver: effectSchemaResolver(
+      officeReservationSchema(defaultPhoneRegion(locale))
+    ),
+    defaultValues: initialValues,
     mode: "onBlur",
     reValidateMode: "onChange",
   });
-  const [startsOn, dayCount, seats] = useWatch({
-    control: form.control,
-    name: ["startsOn", "dayCount", "seats"],
-  });
+  const watchedSelection = useWatchedSelection(
+    officeSelectionLink,
+    form.control
+  );
+  const { startsOn, dayCount, seats } = watchedSelection;
   const selection = useMemo(
     () => getSelection(startsOn, dayCount, seats),
     [dayCount, seats, startsOn]
   );
-  const maximumEndsOn = getOfficeReservationMaximumEndsOn(
-    Temporal.PlainDate.from(today)
-  ).toString();
-  const availabilityQuery = useMemo(
-    () => getOfficeAvailabilityQuery(today),
-    [today]
-  );
-  const availabilityResult = useReservationAvailability(availabilityQuery, {
+  const { availabilityResult, maximumEndsOn } = useOfficeAvailability({
     initialAvailability,
     replacementToken,
+    today,
   });
   const advertisedPriceRequests = useMemo(
     () =>
@@ -154,71 +140,26 @@ export function OfficeReservationForm({
         : [],
     [seatCapacity, locale, selection, submittedCode]
   );
-  const advertisedPriceResults = useAdvertisedPrices(
-    advertisedPriceRequests,
-    initialAdvertisedPrices
-  );
-  const advertisedPricesBySeats = new Map<
-    number,
-    Extract<AdvertisedPrice, { readonly kind: "office" }>
-  >();
-
-  for (const [index, result] of advertisedPriceResults.entries()) {
-    const request = advertisedPriceRequests[index];
-    if (
-      request &&
-      !result.isError &&
-      result.data &&
-      isOfficeAdvertisedPrice(result.data)
-    ) {
-      advertisedPricesBySeats.set(
-        request.reservation.details.seats,
-        result.data
-      );
-    }
-  }
-
-  const selectedAdvertisedPriceIndex = advertisedPriceRequests.findIndex(
-    (request) => request.reservation.details.seats === seats
-  );
-  const advertisedPriceResult =
-    advertisedPriceResults[selectedAdvertisedPriceIndex];
-  const advertisedPrice = Predicate.isNumber(seats)
-    ? advertisedPricesBySeats.get(seats)
-    : undefined;
-  const advertisedOfficeQuoteItem = advertisedPrice?.quote.items[0];
-  const unavailableDates = useMemo(
-    () => new Set(availabilityResult.availability?.unavailableDates ?? []),
-    [availabilityResult.availability]
-  );
-  const maximumDayCount = startsOn
-    ? getOfficeReservationMaximumDayCount({
-        startsOn,
-        maximumEndsOn: Temporal.PlainDate.from(maximumEndsOn),
-        unavailableDates: [...unavailableDates],
-      })
-    : 0;
-  useEffect(() => {
-    if (
-      maximumDayCount > 0 &&
-      Predicate.isNumber(dayCount) &&
-      dayCount > maximumDayCount
-    ) {
-      form.setValue("dayCount", maximumDayCount, { shouldValidate: true });
-    }
-  }, [dayCount, form, maximumDayCount]);
-  const unavailable = Boolean(
-    startsOn &&
-      (maximumDayCount === 0 ||
-        (Predicate.isNumber(dayCount) && dayCount > maximumDayCount))
-  );
-  const availabilityMessage = unavailable
-    ? m.reservationOfficeUnavailable({}, { locale })
-    : undefined;
-  const availabilityErrorMessage =
-    availabilityResult.isError && !availabilityResult.isPending
-      ? m.reservationAvailabilityError({}, { locale })
-      : undefined;
+  const advertisedPrices = useAdvertisedOptionPrices({
+    family: officeSeatOptions,
+    initialAdvertisedPrices,
+    productLabel: getWorkspaceOfficeProductTitle(locale),
+    requests: advertisedPriceRequests,
+    selected: findOfficeSeatAdvertisedPriceRequest(
+      advertisedPriceRequests,
+      seats
+    ),
+  });
+  const advertisedOfficeQuoteItem =
+    advertisedPrices.selectedPrice?.quote.items[0];
+  const { availability, maximumDayCount, unavailableDates } =
+    useOfficeDayCountBounds({
+      availabilityResult,
+      form,
+      locale,
+      maximumEndsOn,
+      selection: watchedSelection,
+    });
   const basePriceLabel = selection
     ? m.reservationOfficeBasePriceLabel(
         { dayCount: getOfficeReservationDayCount(selection) },
@@ -228,27 +169,25 @@ export function OfficeReservationForm({
 
   return (
     <ReservationCheckoutForm
-      existingCustomer={existingCustomer}
-      advertisedPrice={{
-        token: advertisedPrice?.advertisedPriceToken,
-        isFetching: advertisedPriceResult?.isFetching ?? false,
-        isError: advertisedPriceResult?.isError ?? false,
-        retry: () => void advertisedPriceResult?.refetch(),
-        sale: advertisedPrice
-          ? {
-              discounts: advertisedPrice.quote.payment.discounts,
-              productLabel: getWorkspaceOfficeProductTitle(locale),
-            }
-          : undefined,
-      }}
-      availability={{
-        isPending: availabilityResult.isPending,
-        unavailableMessage: availabilityMessage ?? availabilityErrorMessage,
-      }}
+      checkoutCustomer={checkoutCustomer}
+      advertisedPrice={advertisedPrices.checkout}
+      availability={availability}
       checkoutSessionId={checkoutSessionId}
       form={form}
       getReservation={getOfficeReservationOrder}
       locale={locale}
+      selectionSummary={getOfficeReservationSelectionSummary(
+        { startsOn, dayCount, seats },
+        locale
+      )}
+      selection={{
+        kind: officeSelectionLink.kind,
+        fromSearchParams: (searchParams) =>
+          officeSelectionLink.readSelection(searchParams, {
+            seatCapacity,
+            today,
+          }),
+      }}
     >
       <fieldset className="flex flex-col gap-y-2">
         <legend className="text-sm font-semibold uppercase tracking-[0.14em] text-navy-blue/72 after:content-['_*']">
@@ -258,25 +197,18 @@ export function OfficeReservationForm({
           <FormField
             control={form.control}
             name="startsOn"
-            render={({ field, fieldState }) => (
+            render={({ field }) => (
               <FormItem>
                 <ReservationFormLabel required>
                   {m.reservationOfficeStartDateLabel({}, { locale })}
                 </ReservationFormLabel>
-                <ReservationFormDatePicker
-                  ariaLabel={m.reservationOfficeStartDateLabel({}, { locale })}
-                  isDateDisabled={(date) =>
-                    unavailableDates.has(date.toString())
-                  }
+                <ReservationFormDateInput
+                  {...field}
+                  label={m.reservationOfficeStartDateLabel({}, { locale })}
                   locale={locale}
                   maximum={maximumEndsOn}
                   minimum={today}
-                  name={field.name}
-                  onBlur={field.onBlur}
-                  onChange={field.onChange}
-                  placeholder={m.reservationDatePlaceholder({}, { locale })}
-                  value={field.value}
-                  variant={fieldState.error ? "error" : "default"}
+                  unavailableDates={unavailableDates}
                 />
                 <FormMessage />
               </FormItem>
@@ -351,16 +283,12 @@ export function OfficeReservationForm({
                     { count: seatCount },
                     { locale }
                   );
-                  const optionAdvertisedPrice =
-                    advertisedPricesBySeats.get(seatCount);
-                  const quotedSeatAmount =
-                    optionAdvertisedPrice?.quote.items[0].seatAmount;
-                  const seatPrice = quotedSeatAmount
-                    ? workspaceMoneyWithValue(
-                        quotedSeatAmount.value * seatCount,
-                        quotedSeatAmount
-                      )
-                    : undefined;
+                  const seatRequest = findOfficeSeatAdvertisedPriceRequest(
+                    advertisedPriceRequests,
+                    seatCount
+                  );
+                  const seatPrice =
+                    seatRequest && advertisedPrices.of(seatRequest)?.amount;
 
                   return (
                     <ReservationTypeOption
@@ -369,7 +297,7 @@ export function OfficeReservationForm({
                       price={
                         seatPrice ? (
                           <span className="before:content-['+']">
-                            {formatWorkspaceMoney(seatPrice, locale)}
+                            {formatMoney(seatPrice, locale)}
                           </span>
                         ) : (
                           <ReservationSkeletonBlock className="h-5 w-24 bg-aquamarine-green/15" />

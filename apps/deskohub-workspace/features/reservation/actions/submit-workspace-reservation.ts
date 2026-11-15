@@ -1,42 +1,13 @@
-import { Effect, Match } from "effect";
+import { Effect, Match, Struct } from "effect";
 import { CheckoutService } from "@/features/checkout/backend/checkout";
-import { isBookerReferralSettled } from "@/features/checkout/backend/checkout/booker-referral-settlement";
 import { m } from "@/features/i18n";
-import {
-  forgetRememberedReferralCode,
-  readRememberedReferralCode,
-} from "@/features/referrals/remembered-referral-code.server";
+import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
 import type { SubmitReservationInput } from "@/features/reservation/actions/submit-reservation-input";
-import {
-  createReservationAccessCookieCapability,
-  parseCanonicalReservationStatusUrl,
-  ReservationAccessCookieError,
-} from "@/features/reservation/backend/reservation-access-cookie";
-import { ReservationAccessCookieWriter } from "@/features/reservation/backend/reservation-access-cookie.server";
 import { WorkspaceTableUnavailableError } from "@/features/reservation/backend/workspace-availability.service";
 import { getReservationAvailabilityUnavailableMessage } from "@/features/reservation/reservation.i18n";
 import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
+import { customerAgentNames } from "@/shared/bot-protection/customer-agents";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
-
-/**
- * A paid order records any carried referral, and the booker's first paid
- * order closes their referral window, so the browser's remembered code is of
- * no further use once the booker's own referral is settled. Booking for
- * someone else keeps it. The payment already succeeded, so a failure here is
- * only logged.
- */
-const forgetUsedReferralCode = Effect.gen(function* () {
-  const rememberedCode = yield* readRememberedReferralCode;
-  if (!rememberedCode) return;
-  if (!(yield* isBookerReferralSettled({ paid: true }))) return;
-  yield* Effect.tryPromise(() => forgetRememberedReferralCode());
-}).pipe(
-  Effect.catch((cause) =>
-    Effect.logWarning("Remembered referral code could not be forgotten", {
-      cause,
-    })
-  )
-);
 
 export const submitWorkspaceReservation = Effect.fn(
   "submitWorkspaceReservation"
@@ -45,9 +16,14 @@ export const submitWorkspaceReservation = Effect.fn(
     const { locale } = input;
     yield* Effect.annotateLogsScoped({ locale });
     const botProtection = yield* BotProtectionService;
-    yield* botProtection.verifyHuman({ verificationFailurePolicy: "allow" });
+    // Pay submit: the customer's own purchase path, so verified customer
+    // agents may start the hosted payment the customer completes.
+    yield* botProtection.verifyHuman({
+      verificationFailurePolicy: "allow",
+      verifiedBots: { allow: customerAgentNames },
+      callSite: "reservation.submit",
+    });
     const service = yield* CheckoutService;
-    const cookieWriter = yield* ReservationAccessCookieWriter;
     const checkout = yield* service.createHostedPaymentCheckout(
       {
         payStateToken: input.payStateToken,
@@ -57,31 +33,21 @@ export const submitWorkspaceReservation = Effect.fn(
       locale
     );
 
-    if (checkout.status === "redirect") {
-      const orderId = parseCanonicalReservationStatusUrl(
-        checkout.statusUrl ?? checkout.redirectUrl,
-        locale
-      );
-      if (!orderId) {
-        return yield* new ReservationAccessCookieError({
-          code: "invalid-cookie",
-          message: "Checkout returned an invalid reservation status URL.",
-        });
-      }
-
-      const capability = yield* createReservationAccessCookieCapability({
-        orderId,
-        locale,
-      });
-      yield* cookieWriter.write({ orderId, capability });
-      if (checkout.paid) yield* forgetUsedReferralCode;
+    // The signed-in author follows the status page by session, so the
+    // checkout sets no access cookie of its own.
+    // A paid order records any carried referral, and the booker's first paid
+    // order closes their referral window. Booking for someone else keeps the
+    // booker's code.
+    if (checkout.status === "redirect" && checkout.paid) {
+      const remembered = yield* RememberedReferral;
+      yield* remembered.forgetIfSettled({ kind: "order", paid: true });
     }
 
     yield* Effect.logInfo("Workspace checkout started");
 
     return {
       message: "Checkout started successfully",
-      ...checkout,
+      ...toSiteCheckoutResult(checkout),
     };
   },
   (effect, input) =>
@@ -96,10 +62,8 @@ export const submitWorkspaceReservation = Effect.fn(
             message: Match.value(error).pipe(
               Match.tagsExhaustive({
                 BotDetectedError: () =>
-                  m.reservationRateLimitMessage({}, { locale: input.locale }),
+                  m.automatedRequestRejected({}, { locale: input.locale }),
                 BotVerificationError: () =>
-                  m.reservationErrorMessage({}, { locale: input.locale }),
-                ReservationAccessCookieError: () =>
                   m.reservationErrorMessage({}, { locale: input.locale }),
                 CheckoutError: (checkoutError) =>
                   Match.value(checkoutError.code).pipe(
@@ -146,6 +110,14 @@ export const submitWorkspaceReservation = Effect.fn(
                         )
                       )
                     ),
+                    // Other callers tell missing consents apart; the site
+                    // keeps showing its generic checkout failure.
+                    Match.whenOr(
+                      "legal_consent_required",
+                      "early_performance_consent_required",
+                      () =>
+                        m.reservationErrorMessage({}, { locale: input.locale })
+                    ),
                     Match.exhaustive
                   ),
               })
@@ -155,3 +127,28 @@ export const submitWorkspaceReservation = Effect.fn(
       )
     )
 );
+
+type HostedPaymentCheckout = Effect.Success<
+  ReturnType<CheckoutService["Service"]["createHostedPaymentCheckout"]>
+>;
+
+/**
+ * What the Pay page's form reads from a submission. The checkout's sealed
+ * token, its expiry and the order id serve the customer HTTP API; the
+ * browser follows `freshPayUrl` and `statusUrl` instead.
+ */
+const toSiteCheckoutResult = (checkout: HostedPaymentCheckout) =>
+  Match.value(checkout).pipe(
+    Match.discriminatorsExhaustive("status")({
+      redirect: (redirect) =>
+        Struct.pick(redirect, ["status", "redirectUrl", "statusUrl", "paid"]),
+      pricing_changed: (changed) =>
+        Struct.pick(changed, [
+          "status",
+          "changedKeys",
+          "freshSummary",
+          "freshPayUrl",
+        ]),
+      in_progress: (inProgress) => Struct.pick(inProgress, ["status"]),
+    })
+  );

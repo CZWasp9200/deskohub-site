@@ -1,7 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Result } from "effect";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
+import { NoReviewAccounts } from "@/features/review-accounts/backend/review-accounts.repository.mock";
+import type { CustomerProfile } from "../contracts";
 import {
   CustomerAccountAccessError,
   customerAccountIdSchema,
@@ -12,7 +14,7 @@ import {
   type CustomerAccountSession,
   CustomerAuthentication,
 } from "./customer-authentication.service";
-import type { CustomerProfile } from "./customer-dotypos-adapter.service";
+import { testSessionProfile } from "./customer-authentication.test-utils";
 import { CustomerProfileService } from "./customer-profile.service";
 
 const customerEmail = testEmailAddress("ada");
@@ -26,6 +28,7 @@ const session = (
   accountId,
   email: reservationCustomerEmailSchema.make(customerEmail),
   deletionRequested: false,
+  ...testSessionProfile,
   ...overrides,
 });
 
@@ -44,6 +47,7 @@ const runCurrent = (
     readonly session?: CustomerAccountSession | null;
     readonly find?: ReturnType<typeof mock>;
     readonly profile?: CustomerProfile;
+    readonly create?: ReturnType<typeof mock>;
   } = {},
   operation: (
     contacts: CustomerAccountContactService["Service"]
@@ -57,7 +61,8 @@ const runCurrent = (
     Effect.die("markDeletionRequested must not be called")
   );
   const load = mock(() => Effect.succeed(options.profile ?? profile()));
-  const create = mock(() => Effect.die("create must not be called"));
+  const create =
+    options.create ?? mock(() => Effect.die("create must not be called"));
   const update = mock(() => Effect.die("update must not be called"));
   const currentSession =
     options.session !== undefined ? options.session : session();
@@ -73,7 +78,12 @@ const runCurrent = (
           claim,
           markDeletionRequested,
         }),
-        Layer.mock(CustomerProfileService, { load, create, update })
+        Layer.mock(CustomerProfileService, {
+          load,
+          create,
+          update,
+        }),
+        NoReviewAccounts
       )
     )
   );
@@ -179,6 +189,26 @@ describe("CustomerAccountContactService.current", () => {
     }
   );
 
+  test.each([
+    // What the Workspace writes: kept, it reads the same in every locale.
+    ["in E.164 form", "+420777777777", "+420777777777"],
+    // Entered without a country calling code, such as at the till: read in
+    // the base locale's region and offered with one, so a de-DE checkout
+    // doesn't read it as a German number.
+    ["as a national number", "777 777 777", "+420 777 777 777"],
+    ["with an international prefix", "00420777777777", "+420 777 777 777"],
+  ] as const)(
+    "offers a stored phone written %s in a form every locale reads alike",
+    async (_label, phone, offered) => {
+      const { outcome } = await runCurrent({ profile: profile({ phone }) });
+
+      expect(outcome).toMatchObject({
+        _tag: "Success",
+        success: { phone: offered },
+      });
+    }
+  );
+
   test("maps a link read failure to an unavailable account error", async () => {
     const { outcome, load } = await runCurrent({
       find: mock(() => Effect.fail(new Error("database unavailable"))),
@@ -195,18 +225,170 @@ describe("CustomerAccountContactService.current", () => {
   });
 });
 
+describe("CustomerAccountContactService.currentAccount", () => {
+  const runCurrentAccount = (options: Parameters<typeof runCurrent>[0] = {}) =>
+    runCurrent(options, (contacts) => contacts.currentAccount);
+
+  test("reads an anonymous session as signed out without reading the link", async () => {
+    const { outcome, find } = await runCurrentAccount({ session: null });
+
+    expect(Result.getOrThrow(outcome)).toEqual({ status: "signed-out" });
+    expect(find).not.toHaveBeenCalled();
+  });
+
+  test("reads a deletion-pending session as signed out without reading the link", async () => {
+    const { outcome, find } = await runCurrentAccount({
+      session: session({ deletionRequested: true }),
+    });
+
+    expect(Result.getOrThrow(outcome)).toEqual({ status: "signed-out" });
+    expect(find).not.toHaveBeenCalled();
+  });
+
+  test("reads a session without a link as unlinked without claiming one", async () => {
+    const { outcome, find, claim, load } = await runCurrentAccount({
+      find: mock(() => Effect.succeed(null)),
+    });
+
+    expect(Result.getOrThrow(outcome)).toEqual({
+      status: "unlinked",
+      accountId,
+      email: customerEmail,
+    });
+    expect(find).toHaveBeenCalledWith(accountId);
+    expect(claim).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test("reads a linked session with its Dotypos customer without reading the profile", async () => {
+    const { outcome, load } = await runCurrentAccount();
+
+    expect(Result.getOrThrow(outcome)).toEqual({
+      status: "linked",
+      accountId,
+      dotyposCustomerId,
+      email: customerEmail,
+    });
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test("maps a link read failure to an unavailable account error", async () => {
+    const { outcome } = await runCurrentAccount({
+      find: mock(() => Effect.fail(new Error("database unavailable"))),
+    });
+
+    expect(outcome._tag).toBe("Failure");
+    if (outcome._tag !== "Failure") throw new Error("Expected a failure");
+    expect(outcome.failure).toBeInstanceOf(CustomerAccountAccessError);
+    expect(outcome.failure).toMatchObject({
+      reason: "unavailable",
+      cause: { code: "account-link.read" },
+    });
+  });
+});
+
 describe("CustomerAccountContactService.currentLinkedAccount", () => {
+  test.each([
+    ["an anonymous", { session: null }],
+    ["a deletion-pending", { session: session({ deletionRequested: true }) }],
+    ["an unlinked", { find: mock(() => Effect.succeed(null)) }],
+  ] as const)("returns null for %s session", async (_label, options) => {
+    const { outcome } = await runCurrent(
+      options,
+      (contacts) => contacts.currentLinkedAccount
+    );
+
+    expect(Result.getOrThrow(outcome)).toBeNull();
+  });
+
+  test("keeps the link read failure", async () => {
+    const { outcome } = await runCurrent(
+      { find: mock(() => Effect.fail(new Error("database unavailable"))) },
+      (contacts) => contacts.currentLinkedAccount
+    );
+
+    expect(outcome).toMatchObject({
+      _tag: "Failure",
+      failure: { reason: "unavailable", cause: { code: "account-link.read" } },
+    });
+  });
+
   test("returns the session's link without reading the profile", async () => {
     const { outcome, find, load } = await runCurrent(
       {},
       (contacts) => contacts.currentLinkedAccount
     );
 
-    expect(outcome).toMatchObject({
-      _tag: "Success",
-      success: { accountId, dotyposCustomerId, email: customerEmail },
+    expect(Result.getOrThrow(outcome)).toEqual({
+      accountId,
+      dotyposCustomerId,
+      email: customerEmail,
     });
     expect(find).toHaveBeenCalledWith(accountId);
     expect(load).not.toHaveBeenCalled();
+  });
+});
+
+describe("CustomerAccountContactService.completeProfile", () => {
+  const profileInput = {
+    firstName: "Ada",
+    lastName: "Lovelace",
+    phone: "+420 777 777 777",
+  };
+  const unlinkedAccount = { accountId, email: customerEmail };
+
+  const runComplete = (createdProfile: CustomerProfile) => {
+    const create = mock(() =>
+      Effect.succeed({
+        account: { accountId, dotyposCustomerId: "60999" },
+        profile: createdProfile,
+        created: true,
+      })
+    );
+    return runCurrent({ create }, (contacts) =>
+      contacts.completeProfile(unlinkedAccount, profileInput)
+    );
+  };
+
+  test("creates the account's profile and returns its contact", async () => {
+    const { outcome, create, find, load } = await runComplete(profile());
+
+    expect(Result.getOrThrow(outcome)).toEqual({
+      accountId,
+      dotyposCustomerId: "60999",
+      name: "Ada Lovelace",
+      email: customerEmail,
+      phone: "+420 777 777 777",
+    });
+    expect(create).toHaveBeenCalledWith(accountId, profileInput);
+    expect(find).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test("returns null when the saved profile's name cannot book", async () => {
+    const { outcome } = await runComplete(
+      profile({ firstName: "A", lastName: null })
+    );
+
+    expect(Result.getOrThrow(outcome)).toBeNull();
+  });
+
+  test("keeps the profile creation failure", async () => {
+    const create = mock(() =>
+      Effect.fail(
+        new CustomerAccountAccessError({
+          reason: "link-required",
+          linkReason: "claimed",
+        })
+      )
+    );
+    const { outcome } = await runCurrent({ create }, (contacts) =>
+      contacts.completeProfile(unlinkedAccount, profileInput)
+    );
+
+    expect(outcome).toMatchObject({
+      _tag: "Failure",
+      failure: { reason: "link-required", linkReason: "claimed" },
+    });
   });
 });

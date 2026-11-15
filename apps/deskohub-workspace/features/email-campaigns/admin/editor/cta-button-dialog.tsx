@@ -1,8 +1,11 @@
 "use client";
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import { Schema } from "effect";
+import { Match, Option, Schema } from "effect";
 import { useForm } from "react-hook-form";
+import { m } from "@/features/administration/i18n";
+import type { Locale } from "@/features/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import { Button } from "@/shared/components/ui/button";
 import {
   Dialog,
@@ -21,29 +24,42 @@ import {
   FormMessage,
 } from "@/shared/components/ui/form";
 import { Input } from "@/shared/components/ui/input";
-import {
-  campaignLinkHrefHint,
-  normalizeCampaignLinkHref,
-} from "./campaign-link-href";
+import { campaignButtonLabelIssue } from "../../body/campaign-body-rules";
+import { normalizeCampaignLinkHref } from "./campaign-link-href";
 
 export type CtaButtonValues = {
   readonly label: string;
   readonly href: string;
 };
 
-const CtaButtonFields = Schema.Struct({
-  label: Schema.String.check(
-    Schema.makeFilter(
-      (label) => label.trim().length > 0 || "Enter the button text."
-    )
-  ),
-  href: Schema.String.check(
-    Schema.makeFilter(
-      (href) =>
-        normalizeCampaignLinkHref(href) !== undefined || campaignLinkHrefHint
-    )
-  ),
-});
+/** The button form; `locale` is the admin's language for its messages. */
+const createCtaButtonFields = (locale: Locale) =>
+  Schema.Struct({
+    label: Schema.String.check(
+      Schema.makeFilter((label) =>
+        // Checks the label as the button keeps it: trimmed.
+        Option.match(campaignButtonLabelIssue(label.trim(), ["label"]), {
+          onNone: () => true,
+          onSome: (issue) =>
+            Match.valueTags(issue, {
+              ButtonLabelMissing: () =>
+                m.emailCampaignsCtaLabelRequired({}, { locale }),
+              ButtonLabelLineBreaks: () =>
+                m.emailCampaignsBodyButtonLabelLineBreaks({}, { locale }),
+            }),
+        })
+      )
+    ),
+    href: Schema.String.check(
+      Schema.makeFilter(
+        (href) =>
+          normalizeCampaignLinkHref(href) !== undefined ||
+          m.emailCampaignsLinkHrefHint({}, { locale })
+      )
+    ),
+  });
+
+type CtaButtonSchema = ReturnType<typeof createCtaButtonFields>;
 
 /** Inserts or edits a call-to-action button: its text and where it links. */
 export function CtaButtonDialog({
@@ -60,20 +76,25 @@ export function CtaButtonDialog({
   readonly onSubmit: (values: CtaButtonValues) => void;
   readonly open: boolean;
 }) {
+  const locale = useRouteLocale();
+
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent>
+      <DialogContent locale={locale}>
         <DialogHeader>
           <DialogTitle>
-            {initialValues ? "Edit button" : "Insert button"}
+            {initialValues
+              ? m.emailCampaignsCtaEdit({}, { locale })
+              : m.emailCampaignsCtaInsert({}, { locale })}
           </DialogTitle>
           <DialogDescription>
-            A prominent button that links to a page or an email address.
+            {m.emailCampaignsCtaDescription({}, { locale })}
           </DialogDescription>
         </DialogHeader>
         {open && (
           <CtaButtonForm
             initialValues={initialValues}
+            locale={locale}
             onCancel={() => onOpenChange(false)}
             onRemove={onRemove}
             onSubmit={(values) => {
@@ -89,21 +110,23 @@ export function CtaButtonDialog({
 
 function CtaButtonForm({
   initialValues,
+  locale,
   onCancel,
   onRemove,
   onSubmit,
 }: {
   readonly initialValues: CtaButtonValues | undefined;
+  readonly locale: Locale;
   readonly onCancel: () => void;
   readonly onRemove: (() => void) | undefined;
   readonly onSubmit: (values: CtaButtonValues) => void;
 }) {
   const form = useForm<
-    typeof CtaButtonFields.Encoded,
+    CtaButtonSchema["Encoded"],
     unknown,
-    typeof CtaButtonFields.Type
+    CtaButtonSchema["Type"]
   >({
-    resolver: effectSchemaResolver(CtaButtonFields),
+    resolver: effectSchemaResolver(createCtaButtonFields(locale)),
     defaultValues: initialValues ?? { label: "", href: "" },
   });
 
@@ -128,9 +151,17 @@ function CtaButtonForm({
           name="label"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Button text</FormLabel>
+              <FormLabel>
+                {m.emailCampaignsCtaLabelLabel({}, { locale })}
+              </FormLabel>
               <FormControl>
-                <Input placeholder="Book a desk" {...field} />
+                <Input
+                  placeholder={m.emailCampaignsCtaLabelPlaceholder(
+                    {},
+                    { locale }
+                  )}
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -141,7 +172,9 @@ function CtaButtonForm({
           name="href"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Link</FormLabel>
+              <FormLabel>
+                {m.emailCampaignsCtaHrefLabel({}, { locale })}
+              </FormLabel>
               <FormControl>
                 <Input
                   inputMode="url"
@@ -162,7 +195,7 @@ function CtaButtonForm({
               type="button"
               variant="ghost"
             >
-              Remove button
+              {m.emailCampaignsCtaRemove({}, { locale })}
             </Button>
           )}
           <Button
@@ -171,10 +204,12 @@ function CtaButtonForm({
             type="button"
             variant="secondary"
           >
-            Cancel
+            {m.emailCampaignsCtaCancel({}, { locale })}
           </Button>
           <Button size="sm" type="submit">
-            {initialValues ? "Update button" : "Insert button"}
+            {initialValues
+              ? m.emailCampaignsCtaUpdate({}, { locale })
+              : m.emailCampaignsCtaInsert({}, { locale })}
           </Button>
         </DialogFooter>
       </form>

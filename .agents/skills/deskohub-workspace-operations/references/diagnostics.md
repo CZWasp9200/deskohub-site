@@ -6,12 +6,15 @@ Report counts, IDs, statuses, and error codes. Never print or quote secrets, tok
 
 Before you diagnose from PostHog Logs, confirm that service `deskohub-workspace` has recent entries, for example with a `logs-count` over `-24h` without the severity filter. Ingestion can stop, and an empty window then means missing evidence, not a healthy system. [posthog-mvp-error-query.md](posthog-mvp-error-query.md) has the query shapes.
 
+Only production exports server logs to PostHog by default, from Info up. Preview and development logs stay in the Vercel runtime logs, from Debug up. To read one preview's logs in PostHog, set `POSTHOG_LOGS_EXPORT=always` as a Vercel Preview variable scoped to that branch, redeploy, and remove it when done; never set it for all previews. `WORKSPACE_LOG_LEVEL` (an Effect log level name) overrides the minimum level in any environment.
+
 ## Log through the censored pipeline
 
 - Use `Effect.log*` for Workspace diagnostics, not `console.*`.
 - Keep useful log annotations. `apps/deskohub-workspace/shared/backend/logging/censorship.ts` censors and redacts all Workspace and Dotypos application logs, so strip annotations locally only for a new uncensored sink.
 - Attach handled failures to their error logs. Censorship keeps recursive cause types, safe classification fields, and stack frames for source-map attribution. It redacts dynamic stack message lines, sensitive database diagnostics, and marked query parameters.
-- The span exporter doesn't censor span names. `createWorkspaceSpanRedactors` in [`span-redaction.ts`](../../../../apps/deskohub-workspace/shared/backend/observability/span-redaction.ts) scrubs credential-bearing URL segments such as Cloudinary `s--…--` signatures. List its processors first in every Workspace tracer provider.
+- The database query logger writes every statement's SQL text and bound parameters wherever Debug logs are on, as in preview and development, and blanks only marked parameters. Production query rows keep the parameter count alone. Declare a secret or identifying text column with `sensitiveText` (`apps/deskohub-workspace/db/sensitive-text.ts`): its encoder marks every insert, update, `onConflictDoUpdate` set, and `eq`/`ne`/`inArray` value. Mark values that skip the encoder with `sensitiveDatabaseParameter` where you bind them: raw `sql` templates, `like` and `ilike`, comparisons against expressions such as `lower(column)`, placeholders, and `equalsAny`. `db/schema/sensitive-columns.test.ts` drives every `sensitiveText` column through the logger, requires the type for email, token, secret, password, and similar column names, and scans app modules for unmarked encoder-skipping bindings.
+- The span exporter doesn't censor span names. The span redactors in [`telemetry-sinks.ts`](../../../../apps/deskohub-workspace/shared/backend/observability/telemetry-sinks.ts) scrub credential-bearing URL segments such as Cloudinary `s--…--` signatures. Every tracer provider and the `registerOTel` options built there list them first; build any new Workspace tracer provider there too. Production spans from `registerOTel`'s automatic exporters get only these redactors, not the censored exporter the PostHog tracer provider adds.
 - Keep access-code-like keys globally censored. Customer access codes have reached PostHog annotations before.
 
 ## Bound sensitive inspection
@@ -19,6 +22,7 @@ Before you diagnose from PostHog Logs, confirm that service `deskohub-workspace`
 - Don't add, enable, fetch, or quote raw Dotypos request and response logging without explicit redaction. It carries Authorization headers, refresh tokens, bearer tokens, and token response bodies.
 - Don't fetch or quote full Cloudinary search payloads. Report the result count, public IDs, status, and error code.
 - Never fetch, print, or quote a signed Cloudinary tag list URL. Its `s--…--` segment derives from the API secret. For the gallery data source and Admin API quota, load `$deskohub-repository`.
+- Never print or quote raw `posthog-cli` output. It can carry the project API URL, response bodies, and presigned S3 URLs. `build:source-maps` logs a fixed-vocabulary summary of each failed attempt from `describeSourceMapUploadFailure` in `apps/deskohub-workspace/scripts/source-map-upload-failure.ts`. When a failure shows up as unrecognised, extend those vocabularies, and recheck them after a CLI upgrade.
 - Run ad-hoc Workspace status or service scripts only when you need them. They can print raw reservation annotations, including customer access codes.
 
 ## Verify integration identity first
@@ -33,4 +37,6 @@ Batch workflows that issue concurrent database reads need a numeric concurrency 
 
 ## Attribute runtime timeouts carefully
 
-When successful responses keep running until the hosting timeout, check post-response logging and telemetry flushes as well as provider durations. Compare an isolated preview change against a stable baseline on equivalent traffic. Don't credit a caching change when database or provider behavior changed in the same window.
+When successful responses keep running until the hosting timeout, check post-response logging and telemetry flushes as well as provider durations.
+
+A provider timeout can be an instance that was suspended mid-run, not a slow provider. The signs: the run's start log carries an `observed_timestamp` minutes or hours after its `timestamp`, and the retry warning and the final timeout land milliseconds apart instead of one request timeout apart. Look for work that no response awaited. Compare an isolated preview change against a stable baseline on equivalent traffic. Don't credit a caching change when database or provider behavior changed in the same window.

@@ -4,14 +4,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import {
   type DotyposCustomerId,
   DotyposCustomerIdSchema,
-  type DotyposReservationId,
   DotyposReservationIdSchema,
   DotyposService,
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { PostHogFeatureFlagEvaluationError } from "@deskohub/posthog/feature-flags/node";
 import { testEmailAddress } from "@deskohub/test-email";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Predicate, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
@@ -30,8 +29,11 @@ import {
   vouchers,
   workspaceReservations,
 } from "@/db/schema";
+import { WorkspaceLockSections } from "@/db/workspace-locks";
 import { CustomerAccountLinkRepository } from "@/features/account/backend/customer-account-link.repository";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import { CustomerAccountSections } from "@/features/account/backend/customer-account-sections";
+import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { signedInAuthentication } from "@/features/account/backend/customer-authentication.test-utils";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import {
   type AccountingDocumentSnapshot,
@@ -45,9 +47,7 @@ import {
   type IPaymentLifecycleRepository,
   PaymentLifecycleRepository,
 } from "@/features/checkout/backend/repositories/payment-lifecycle.repository";
-import { checkoutAttemptKeySchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
-import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
 import { calculateDiscounts } from "@/features/discounts/calculator";
 import {
   type DiscountCommitment,
@@ -74,29 +74,23 @@ import {
 import type { DiscountCandidate } from "@/features/discounts/provider";
 import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
 import { type Locale, m } from "@/features/i18n";
-import { referralGraphAdvisoryLockKey } from "@/features/referrals/advisory-locks";
-import { getReferralInvitationDiscountId } from "@/features/referrals/discount-identifiers";
 import { ReferralService } from "@/features/referrals/referral.service";
-import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
-import { ReferralFeatureFlagServiceMock } from "@/features/referrals/referral-feature-flag.service.mock";
-import {
-  type WorkspaceReservationId,
-  workspaceReservationIdSchema,
-} from "@/features/reservation/persistence-contracts";
+import { getReferralBenefitIds } from "@/features/referrals/referral-benefits";
+import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { Money } from "@/shared/money/money";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   waitForAdvisoryLockWaiter,
   waitForPostgresLockWaiter,
 } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
-import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { createHeldReservation as createSharedHeldReservation } from "./payment-lifecycle.test-utils";
+import {
+  connectWorkspacePostgresTestDatabase,
+  readReservationOrderMirror,
+} from "@/shared/testing/workspace-postgres-test-database.test-utils";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 const product = { kind: "cowork", tier: "basic" } as const;
-const reservationDetails = {
-  kind: "cowork",
-  entryTier: "basic",
-  coffee: false,
-} as const;
 const uniqueId = () => crypto.randomUUID();
 const customerId = () =>
   (
@@ -105,12 +99,12 @@ const customerId = () =>
 
 type Reservation = typeof workspaceReservations.$inferSelect;
 type Admission = {
-  readonly amount: WorkspaceMoney;
+  readonly amount: Money;
   readonly commitment: DiscountCommitment;
 };
 
 const referralFeatureFlag = (enabled: boolean) =>
-  ReferralFeatureFlagServiceMock({ isEnabled: Effect.succeed(enabled) });
+  ReferralReleaseGate.fromDecision(enabled);
 
 /**
  * The referral flag as a paid transition's run would see it: off, or failing
@@ -120,7 +114,7 @@ const withheldReferralFlags = [
   ["off", referralFeatureFlag(false)],
   [
     "unreadable",
-    ReferralFeatureFlagService.Default.pipe(
+    ReferralReleaseGate.Default.pipe(
       Layer.provide(
         WorkspaceFeatureFlagServiceMock({
           isEnabled: () =>
@@ -149,6 +143,14 @@ const makeRepository = async (
     )
   );
 
+/** Runs `effect` inside an account's lock section, as checkout's account guard does. */
+const inAccountGuard = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  WorkspaceLockSections.customerAccount(
+    customerAccountIdSchema.make(`account-${uniqueId()}`)
+  )(effect).pipe(
+    Effect.provide(WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool))
+  );
+
 const makeReferralService = async (input?: {
   readonly databaseLayer?: Layer.Layer<WorkspaceDatabase>;
   readonly pool?: ReturnType<typeof makeDatabasePool>;
@@ -163,8 +165,13 @@ const makeReferralService = async (input?: {
     input?.pool ?? testDatabase!.pool
   );
   const accountLinksLayer = CustomerAccountLinkRepository.Default.pipe(
-    Layer.provide(Layer.mergeAll(databaseLayer, lockLayer))
+    Layer.provide(databaseLayer)
   );
+  const authenticationLayer = input?.identity
+    ? signedInAuthentication(input.identity.accountId)
+    : Layer.succeed(CustomerAuthentication, {
+        currentUser: Effect.die("Identity is not used by quote lookup"),
+      });
 
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -178,11 +185,16 @@ const makeReferralService = async (input?: {
               databaseLayer,
               lockLayer,
               accountLinksLayer,
-              Layer.succeed(CustomerAccountResolver, {
-                resolve: input?.identity
-                  ? Effect.succeed(input.identity)
-                  : Effect.die("Identity is not used by quote lookup"),
-              }),
+              authenticationLayer,
+              CustomerAccountSections.Default.pipe(
+                Layer.provide(
+                  Layer.mergeAll(
+                    authenticationLayer,
+                    accountLinksLayer,
+                    lockLayer
+                  )
+                )
+              ),
               Layer.mock(DotyposService, {
                 listReservations:
                   input?.listReservations ?? (() => Effect.succeed([])),
@@ -301,11 +313,15 @@ const createHeldReservation = (
   dotyposCustomerId: DotyposCustomerId
 ): Promise<Reservation> =>
   Effect.runPromise(
-    createSharedHeldReservation(testDatabase!.db, dotyposCustomerId)
+    workspaceFixtures(testDatabase!.db).reservation({
+      stage: { reservation: "held" },
+      customer: dotyposCustomerId,
+    })
   );
 
 const createOrdinaryDiscountCode = async (
-  dotyposCustomerId: DotyposCustomerId
+  dotyposCustomerId: DotyposCustomerId,
+  basisPoints = 1_000
 ) => {
   const code = canonicalPromotionCodeSchema.make(
     `D${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
@@ -323,7 +339,7 @@ const createOrdinaryDiscountCode = async (
   const [storedDiscount] = await Effect.runPromise(
     testDatabase!.db
       .insert(discounts)
-      .values({ labels, percentageBasisPoints: 1_000 })
+      .values({ labels, percentageBasisPoints: basisPoints })
       .returning({ id: discounts.id })
   );
   await Effect.runPromise(
@@ -351,7 +367,7 @@ const createOrdinaryDiscountCode = async (
     discount: {
       id: storedDiscount!.id,
       label: labels["en-US"],
-      adjustment: { kind: "percentage", basisPoints: 1_000 },
+      adjustment: { kind: "percentage", basisPoints },
     },
     provenance: {
       providerNamespace: "database-discount-code",
@@ -498,7 +514,7 @@ const makeReferralAdmission = (input: {
   const promotionCodeId = promotionCodeIdSchema.make(input.promotionCodeId);
   const candidate = {
     discount: {
-      id: getReferralInvitationDiscountId(input.invitedDotyposCustomerId),
+      id: getReferralBenefitIds(input.invitedDotyposCustomerId).invitation,
       label: m.checkoutSummaryItemReferralInvitationDiscount({}, { locale }),
       adjustment: { kind: "percentage" as const, basisPoints: 1_500 },
     },
@@ -565,6 +581,7 @@ const makeReferralAdmission = (input: {
       amount: snapshot.quote.payment.expectedPrice,
       commitment: makeDiscountCommitment({
         product,
+        firstServiceDate: "2099-01-01",
         applications: [
           ...calculation.applications,
           ...(creditCalculation?.applications ?? []),
@@ -584,7 +601,11 @@ const makeOrdinaryAdmission = (
     snapshot,
     admission: {
       amount: snapshot.quote.payment.expectedPrice,
-      commitment: makeDiscountCommitment({ product, applications: [] }),
+      commitment: makeDiscountCommitment({
+        product,
+        firstServiceDate: "2099-01-01",
+        applications: [],
+      }),
     } satisfies Admission,
   };
 };
@@ -769,17 +790,9 @@ describe.skipIf(!testDatabase)(
         try {
           if (alreadyPaid) {
             await Effect.runPromise(
-              testDatabase!.db.insert(workspaceReservations).values({
-                checkoutAttemptKey: `referral-history-${uniqueId()}`,
-                dotyposCustomerId: fixture.invitedDotyposCustomerId,
-                dotyposReservationId: ("dotypos-history-" +
-                  uniqueId()) as DotyposReservationId,
-                reservationState: "confirmed",
-                paymentState: "paid",
-                paidAt: Temporal.Now.instant(),
-                fulfillmentState: "not_started",
-                reservationDetails,
-                locale: "en-US",
+              workspaceFixtures(testDatabase!.db).reservation({
+                stage: { reservation: "confirmed", payment: "paid" },
+                customer: fixture.invitedDotyposCustomerId,
               })
             );
           }
@@ -1327,6 +1340,16 @@ describe.skipIf(!testDatabase)(
         );
 
         expect(paid.changed).toBe(true);
+        const mirror = await readReservationOrderMirror(
+          testDatabase!.pool,
+          reservation.id
+        );
+        expect(mirror.order).toEqual(mirror.expected);
+        expect(mirror.order).toMatchObject({
+          payment_state: "paid",
+          active_payment_attempt_id: attempt.id,
+        });
+        expect(mirror.attemptOrderIds).toEqual([reservation.id]);
         expect((await readClaim(attempt.id))[0]?.state).toBe("redeemed");
         expect(
           await readAttributions(fixture.invitedDotyposCustomerId)
@@ -1355,6 +1378,7 @@ describe.skipIf(!testDatabase)(
             providerReference: occurrenceReference,
           }),
           label: "Calendar sale",
+          staffLabel: "Kalendářová akce",
           adjustment: { kind: "percentage", basisPoints: 2_000 },
         },
         provenance: {
@@ -1395,6 +1419,8 @@ describe.skipIf(!testDatabase)(
               id: discountApplications.id,
               sequence: discountApplications.sequence,
               publicDiscountId: discountApplications.publicDiscountId,
+              label: discountApplications.label,
+              staffLabel: discountApplications.staffLabel,
               subtotalBefore: discountApplications.subtotalBeforeValue,
               applied: discountApplications.appliedAmountValue,
             })
@@ -1402,9 +1428,9 @@ describe.skipIf(!testDatabase)(
             .where(eq(discountApplications.paymentAttemptId, attempt.id))
             .orderBy(discountApplications.sequence)
         );
-        const invitationId = getReferralInvitationDiscountId(
+        const invitationId = getReferralBenefitIds(
           fixture.invitedDotyposCustomerId
-        );
+        ).invitation;
         const [sale, invitation] = applications;
         expect(
           applications.filter(
@@ -1425,6 +1451,14 @@ describe.skipIf(!testDatabase)(
           subtotalBefore: 28_000,
           applied: 4_200,
         });
+        // Each row keeps the guest label; the staff label is stored only
+        // when the accepted application carries one.
+        expect(sale).toMatchObject({
+          label: calendarSale.discount.label,
+          staffLabel: calendarSale.discount.staffLabel,
+        });
+        expect(invitation?.label).toEqual(expect.any(String));
+        expect(invitation?.staffLabel).toBeNull();
         expect(attempt.amount.value).toBe(23_800);
         const [claim] = (
           await testDatabase!.pool.query(
@@ -1446,13 +1480,12 @@ describe.skipIf(!testDatabase)(
         ]);
 
         // Once the guest signs in, the Referrals screen counts the invitation.
-        await testDatabase!.pool.query(
-          `insert into auth."user" (id, name, email) values ($1, '', $2)`,
-          [inviteeAccountId, testEmailAddress(inviteeAccountId)]
-        );
-        await testDatabase!.pool.query(
-          "insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)",
-          [inviteeAccountId, fixture.invitedDotyposCustomerId]
+        await Effect.runPromise(
+          workspaceFixtures(testDatabase!.db).account("referral-guest", {
+            id: inviteeAccountId,
+            verified: false,
+            linkedCustomer: fixture.invitedDotyposCustomerId,
+          })
         );
         const identity = {
           accountId: inviteeAccountId,
@@ -1481,11 +1514,11 @@ describe.skipIf(!testDatabase)(
           [issued.rows.map(({ id }) => id)]
         );
         await testDatabase!.pool.query(
-          "delete from customer_account_links where customer_account_id = $1",
+          'delete from auth."user" where id = $1',
           [inviteeAccountId]
         );
         await testDatabase!.pool.query(
-          'delete from auth."user" where id = $1',
+          "delete from customer_accounts where id = $1",
           [inviteeAccountId]
         );
       }
@@ -1509,6 +1542,13 @@ describe.skipIf(!testDatabase)(
             })
           );
 
+          const mirror = await readReservationOrderMirror(
+            testDatabase!.pool,
+            reservation.id
+          );
+          expect(mirror.order).toEqual(mirror.expected);
+          expect(mirror.order?.payment_state).toBe(state);
+          expect(mirror.attemptOrderIds).toEqual([reservation.id]);
           expect((await readClaim(attempt.id))[0]?.state).toBe("released");
           expect(
             await readAttributions(fixture.invitedDotyposCustomerId)
@@ -1776,6 +1816,16 @@ describe.skipIf(!testDatabase)(
         );
 
         expect(internal.attempt.state).toBe("paid");
+        const mirror = await readReservationOrderMirror(
+          testDatabase!.pool,
+          reservation.id
+        );
+        expect(mirror.order).toEqual(mirror.expected);
+        expect(mirror.order).toMatchObject({
+          payment_state: "paid",
+          active_payment_attempt_id: internal.attempt.id,
+        });
+        expect(mirror.attemptOrderIds).toEqual([reservation.id]);
         expect(
           await readAttributions(fixture.invitedDotyposCustomerId)
         ).toEqual([
@@ -1837,10 +1887,162 @@ describe.skipIf(!testDatabase)(
       }
     });
 
-    test("fails a zero-payable internal payment cleanly after the bounded graph-lock wait, then lets it retry", async () => {
+    // Checkout completes a signed-in payment inside the account guard, which
+    // holds the account lock in a section on another connection; a guest's
+    // payment has no account section. The bound applies to both.
+    for (const [checkout, inAccountSection] of [
+      ["inside the account guard", true],
+      ["for a guest, with no account section", false],
+    ] as const) {
+      test(`fails a zero-payable internal payment ${checkout} cleanly after the bounded graph-lock wait, then lets it retry`, async () => {
+        const repository = await makeRepository();
+        const fixture = await createInvitedCustomer(false);
+        const graphHolder = await testDatabase!.pool.connect();
+        let voucher: Awaited<ReturnType<typeof createVoucher>> | undefined;
+        try {
+          const reservation = await createHeldReservation(
+            fixture.invitedDotyposCustomerId
+          );
+          const referralOnly = makeReferralAdmission({
+            reservation,
+            ...fixture,
+          });
+          voucher = await createVoucher(
+            fixture.invitedDotyposCustomerId,
+            referralOnly.admission.amount.value
+          );
+          const fullyCovered = makeReferralAdmission({
+            reservation,
+            ...fixture,
+            creditCandidates: [voucher.candidate],
+          });
+          const completeInternalPayment = () => {
+            const payment = repository.completeInternalPayment({
+              workspaceReservationId: reservation.id,
+              amount: fullyCovered.admission.amount,
+              commitment: fullyCovered.admission.commitment,
+              locale: fullyCovered.locale,
+              accountingSnapshot: fullyCovered.snapshot,
+            });
+            return inAccountSection ? inAccountGuard(payment) : payment;
+          };
+          const readPaymentRows = async () => ({
+            reservation: (
+              await testDatabase!.pool.query(
+                "select payment_state, active_payment_attempt_id, paid_at from workspace_reservations where id = $1",
+                [reservation.id]
+              )
+            ).rows,
+            attempts: (
+              await testDatabase!.pool.query(
+                "select state from payment_attempts where workspace_reservation_id = $1",
+                [reservation.id]
+              )
+            ).rows,
+            snapshots: (
+              await testDatabase!.pool.query(
+                "select payment_attempt_id from accounting_document_snapshots where workspace_reservation_id = $1",
+                [reservation.id]
+              )
+            ).rows,
+            applications: (
+              await testDatabase!.pool.query(
+                "select public_discount_id from discount_applications where workspace_reservation_id = $1",
+                [reservation.id]
+              )
+            ).rows,
+            invitationClaims: (
+              await testDatabase!.pool.query(
+                "select state from referral_invitation_claims where invited_dotypos_customer_id = $1",
+                [fixture.invitedDotyposCustomerId]
+              )
+            ).rows,
+            voucherClaims: (
+              await testDatabase!.pool.query(
+                "select state from voucher_redemptions where dotypos_customer_id = $1",
+                [fixture.invitedDotyposCustomerId]
+              )
+            ).rows,
+            attributions: await readAttributions(
+              fixture.invitedDotyposCustomerId
+            ),
+          });
+          const before = await readPaymentRows();
+          expect(before).toEqual({
+            reservation: [
+              {
+                payment_state: "not_started",
+                active_payment_attempt_id: null,
+                paid_at: null,
+              },
+            ],
+            attempts: [],
+            snapshots: [],
+            applications: [],
+            invitationClaims: [],
+            voucherClaims: [],
+            attributions: [],
+          });
+
+          // A concurrent acceptReferral holds the graph lock past the bound.
+          await graphHolder.query("begin");
+          await graphHolder.query(
+            "select pg_advisory_xact_lock(hashtext('referral-attribution'), hashtext('graph'))"
+          );
+          const startedAt = performance.now();
+          const timedOut = await Effect.runPromise(
+            Effect.exit(completeInternalPayment())
+          );
+          const waitedMillis = performance.now() - startedAt;
+          await graphHolder.query("rollback");
+
+          // The graph lock wait gives up at the 5s bound with a lock timeout,
+          // well before the pool's 10s query timeouts would cancel it.
+          expect(waitedMillis).toBeGreaterThanOrEqual(4_900);
+          const failure = Exit.isFailure(timedOut)
+            ? Cause.squash(timedOut.cause)
+            : undefined;
+          expect(failure).toMatchObject({
+            _tag: "EffectDrizzleQueryError",
+            params: ["referral-attribution", "graph"],
+          });
+          const queryCause = Predicate.hasProperty(failure, "cause")
+            ? failure.cause
+            : undefined;
+          expect(
+            Cause.isCause(queryCause) ? Cause.squash(queryCause) : queryCause
+          ).toMatchObject({
+            _tag: "SqlError",
+            reason: { _tag: "LockTimeoutError" },
+          });
+          expect(await readPaymentRows()).toEqual(before);
+
+          const retried = await Effect.runPromise(completeInternalPayment());
+          expect(retried.changed).toBe(true);
+          expect(retried.attempt.state).toBe("paid");
+          const after = await readPaymentRows();
+          expect(after.reservation[0]?.payment_state).toBe("paid");
+          expect(after.attempts).toEqual([{ state: "paid" }]);
+          expect(after.invitationClaims).toEqual([{ state: "redeemed" }]);
+          expect(after.voucherClaims).toEqual([{ state: "redeemed" }]);
+          expect(after.attributions).toEqual([
+            {
+              referrer: fixture.referrerDotyposCustomerId,
+              code: fixture.promotionCodeId,
+            },
+          ]);
+        } finally {
+          await graphHolder.query("rollback").catch(() => {});
+          graphHolder.release();
+          await fixture.cleanup();
+          await voucher?.cleanup();
+        }
+      });
+    }
+
+    test("restores the transaction's previous lock_timeout after the bounded graph-lock wait", async () => {
       const repository = await makeRepository();
       const fixture = await createInvitedCustomer(false);
-      const graphHolder = await testDatabase!.pool.connect();
       let voucher: Awaited<ReturnType<typeof createVoucher>> | undefined;
       try {
         const reservation = await createHeldReservation(
@@ -1856,122 +2058,45 @@ describe.skipIf(!testDatabase)(
           ...fixture,
           creditCandidates: [voucher.candidate],
         });
-        const completeInternalPayment = () =>
-          repository.completeInternalPayment({
-            workspaceReservationId: reservation.id,
-            amount: fullyCovered.admission.amount,
-            commitment: fullyCovered.admission.commitment,
-            locale: fullyCovered.locale,
-            accountingSnapshot: fullyCovered.snapshot,
-          });
-        const readPaymentRows = async () => ({
-          reservation: (
-            await testDatabase!.pool.query(
-              "select payment_state, active_payment_attempt_id, paid_at from workspace_reservations where id = $1",
-              [reservation.id]
-            )
-          ).rows,
-          attempts: (
-            await testDatabase!.pool.query(
-              "select state from payment_attempts where workspace_reservation_id = $1",
-              [reservation.id]
-            )
-          ).rows,
-          snapshots: (
-            await testDatabase!.pool.query(
-              "select payment_attempt_id from accounting_document_snapshots where workspace_reservation_id = $1",
-              [reservation.id]
-            )
-          ).rows,
-          applications: (
-            await testDatabase!.pool.query(
-              "select public_discount_id from discount_applications where workspace_reservation_id = $1",
-              [reservation.id]
-            )
-          ).rows,
-          invitationClaims: (
-            await testDatabase!.pool.query(
-              "select state from referral_invitation_claims where invited_dotypos_customer_id = $1",
-              [fixture.invitedDotyposCustomerId]
-            )
-          ).rows,
-          voucherClaims: (
-            await testDatabase!.pool.query(
-              "select state from voucher_redemptions where dotypos_customer_id = $1",
-              [fixture.invitedDotyposCustomerId]
-            )
-          ).rows,
-          attributions: await readAttributions(
-            fixture.invitedDotyposCustomerId
-          ),
-        });
-        const before = await readPaymentRows();
-        expect(before).toEqual({
-          reservation: [
-            {
-              payment_state: "not_started",
-              active_payment_attempt_id: null,
-              paid_at: null,
-            },
-          ],
-          attempts: [],
-          snapshots: [],
-          applications: [],
-          invitationClaims: [],
-          voucherClaims: [],
-          attributions: [],
-        });
 
-        // A concurrent acceptReferral holds the graph lock past the bound.
-        await graphHolder.query("begin");
-        await graphHolder.query(
-          "select pg_advisory_xact_lock(hashtext('referral-attribution'), hashtext('graph'))"
+        const [transition, lockTimeout] = await Effect.runPromise(
+          inAccountGuard(
+            Effect.gen(function* () {
+              const { db, transaction } = yield* WorkspaceDatabase;
+              return yield* transaction(
+                Effect.gen(function* () {
+                  yield* db.execute(sql`set local lock_timeout = '7s'`);
+                  const transition = yield* repository.completeInternalPayment({
+                    workspaceReservationId: reservation.id,
+                    amount: fullyCovered.admission.amount,
+                    commitment: fullyCovered.admission.commitment,
+                    locale: fullyCovered.locale,
+                    accountingSnapshot: fullyCovered.snapshot,
+                  });
+                  const { rows } = yield* db.execute<{
+                    readonly lock_timeout: string;
+                  }>(
+                    sql`select current_setting('lock_timeout') as lock_timeout`
+                  );
+                  return [transition, rows[0]?.lock_timeout] as const;
+                })
+              );
+            }).pipe(Effect.provide(testDatabase!.layer))
+          )
         );
-        const startedAt = performance.now();
-        const timedOut = await Effect.runPromise(
-          Effect.exit(completeInternalPayment())
-        );
-        const waitedMillis = performance.now() - startedAt;
-        await graphHolder.query("rollback");
 
-        // The graph lock wait gives up at the 5s bound with a lock timeout,
-        // well before the pool's 10s query timeouts would cancel it.
-        expect(waitedMillis).toBeGreaterThanOrEqual(4_900);
-        const failure = Exit.isFailure(timedOut)
-          ? Cause.squash(timedOut.cause)
-          : undefined;
-        expect(failure).toMatchObject({
-          _tag: "EffectDrizzleQueryError",
-          params: ["referral-attribution", "graph"],
-        });
-        const queryCause = Predicate.hasProperty(failure, "cause")
-          ? failure.cause
-          : undefined;
+        expect(transition.changed).toBe(true);
+        expect(transition.attempt.state).toBe("paid");
+        expect(lockTimeout).toBe("7s");
         expect(
-          Cause.isCause(queryCause) ? Cause.squash(queryCause) : queryCause
-        ).toMatchObject({
-          _tag: "SqlError",
-          reason: { _tag: "LockTimeoutError" },
-        });
-        expect(await readPaymentRows()).toEqual(before);
-
-        const retried = await Effect.runPromise(completeInternalPayment());
-        expect(retried.changed).toBe(true);
-        expect(retried.attempt.state).toBe("paid");
-        const after = await readPaymentRows();
-        expect(after.reservation[0]?.payment_state).toBe("paid");
-        expect(after.attempts).toEqual([{ state: "paid" }]);
-        expect(after.invitationClaims).toEqual([{ state: "redeemed" }]);
-        expect(after.voucherClaims).toEqual([{ state: "redeemed" }]);
-        expect(after.attributions).toEqual([
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([
           {
             referrer: fixture.referrerDotyposCustomerId,
             code: fixture.promotionCodeId,
           },
         ]);
       } finally {
-        await graphHolder.query("rollback").catch(() => {});
-        graphHolder.release();
         await fixture.cleanup();
         await voucher?.cleanup();
       }
@@ -2020,10 +2145,10 @@ describe.skipIf(!testDatabase)(
               .pipe(Effect.provide(flagLayer))
           );
           // The admitted referral is honored: payment waits for the graph.
-          await waitForAdvisoryLockWaiter(
-            testDatabase!.pool,
-            referralGraphAdvisoryLockKey
-          );
+          await waitForAdvisoryLockWaiter(testDatabase!.pool, [
+            "referral-attribution",
+            "graph",
+          ]);
           await graphLock.release();
           graphLock = undefined;
 
@@ -2221,29 +2346,26 @@ describe.skipIf(!testDatabase)(
         const admissionPromises: Promise<unknown>[] = [];
 
         try {
-          await testDatabase!.pool.query(
-            `insert into auth."user" (id, name, email) values ($1, '', $2), ($3, '', $4)`,
-            [
-              inviteeAccountId,
-              testEmailAddress(inviteeAccountId),
-              referrerAccountId,
-              testEmailAddress(referrerAccountId),
-            ]
-          );
-          await testDatabase!.pool.query(
-            "insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2), ($3, $4)",
-            [
-              inviteeAccountId,
-              fixture.invitedDotyposCustomerId,
-              referrerAccountId,
-              fixture.referrerDotyposCustomerId,
-            ]
+          const accounts = workspaceFixtures(testDatabase!.db);
+          await Effect.runPromise(
+            Effect.all([
+              accounts.account("referral-pool-invitee", {
+                id: inviteeAccountId,
+                verified: false,
+                linkedCustomer: fixture.invitedDotyposCustomerId,
+              }),
+              accounts.account("referral-pool-referrer", {
+                id: referrerAccountId,
+                verified: false,
+                linkedCustomer: fixture.referrerDotyposCustomerId,
+              }),
+            ])
           );
 
           const db = await Effect.runPromise(makeDatabaseClient(pool));
           const databaseLayer = Layer.succeed(
             WorkspaceDatabase,
-            WorkspaceDatabase.of({ db })
+            WorkspaceDatabase.make(db)
           );
           const repository = await makeRepository(databaseLayer);
           const referrals = await makeReferralService({
@@ -2343,11 +2465,11 @@ describe.skipIf(!testDatabase)(
           await Promise.allSettled(admissionPromises);
           await fixture.cleanup();
           await testDatabase!.pool.query(
-            "delete from customer_account_links where customer_account_id = any($1)",
+            'delete from auth."user" where id = any($1)',
             [[inviteeAccountId, referrerAccountId]]
           );
           await testDatabase!.pool.query(
-            'delete from auth."user" where id = any($1)',
+            "delete from customer_accounts where id = any($1)",
             [[inviteeAccountId, referrerAccountId]]
           );
           await pool.end();
@@ -2429,33 +2551,16 @@ describe.skipIf(!testDatabase)(
     /** Inserts a synthetic held reservation that has not started payment. */
     const insertHeldReservation = async () => {
       const id = crypto.randomUUID();
-      const reservationId = workspaceReservationIdSchema.make(
-        `lifecycle-reservation-${id}`
-      );
-      const dotyposCustomerId = DotyposCustomerIdSchema.make(`customer-${id}`);
       const dotyposReservationId = DotyposReservationIdSchema.make(
         `dotypos-${id}`
       );
-      reservationIds.push(reservationId);
-      await Effect.runPromise(
-        testDatabase.db.insert(workspaceReservations).values({
-          id: reservationId,
-          checkoutSessionKey: `lifecycle-session-${id}`,
-          checkoutAttemptKey: checkoutAttemptKeySchema.make(`attempt-${id}`),
-          dotyposCustomerId,
-          dotyposReservationId,
-          reservationState: "held",
-          paymentState: "not_started",
-          fulfillmentState: "not_started",
-          reservationHoldExpiresAt: Temporal.Now.instant().add({ minutes: 15 }),
-          reservationDetails: {
-            kind: "cowork",
-            entryTier: "open-space",
-            coffee: true,
-          },
-          locale: "en-US",
+      const { id: reservationId, dotyposCustomerId } = await Effect.runPromise(
+        workspaceFixtures(testDatabase.db).reservation({
+          stage: { reservation: "held" },
+          overrides: { dotyposReservationId },
         })
       );
+      reservationIds.push(reservationId);
       return { id, reservationId, dotyposCustomerId, dotyposReservationId };
     };
 
@@ -2551,34 +2656,36 @@ describe.skipIf(!testDatabase)(
       );
       discountIds.push(storedDiscountId);
       await Effect.runPromise(
-        testDatabase.db.transaction((tx) =>
-          Effect.gen(function* () {
-            yield* tx.insert(discounts).values({
-              id: storedDiscountId,
-              labels: { "cs-CZ": "Tarifní sleva", "en-US": "Tier discount" },
-              percentageBasisPoints: 1000,
-            });
-            yield* tx.insert(discountProductTargets).values(
-              products.map((productTarget) => ({
+        Effect.flatMap(WorkspaceDatabase, ({ db, transaction }) =>
+          transaction(
+            Effect.gen(function* () {
+              yield* db.insert(discounts).values({
+                id: storedDiscountId,
+                labels: { "cs-CZ": "Tarifní sleva", "en-US": "Tier discount" },
+                percentageBasisPoints: 1000,
+              });
+              yield* db.insert(discountProductTargets).values(
+                products.map((productTarget) => ({
+                  discountId: storedDiscountId,
+                  productTarget,
+                }))
+              );
+              yield* db.insert(promotionCodes).values({
+                id: promotionCodeId,
+                kind: "discount",
+                code,
+                enabled: true,
+              });
+              yield* db.insert(discountCodes).values({
+                id: codeId,
+                code,
+                enabled: true,
+                promotionCodeId,
                 discountId: storedDiscountId,
-                productTarget,
-              }))
-            );
-            yield* tx.insert(promotionCodes).values({
-              id: promotionCodeId,
-              kind: "discount",
-              code,
-              enabled: true,
-            });
-            yield* tx.insert(discountCodes).values({
-              id: codeId,
-              code,
-              enabled: true,
-              promotionCodeId,
-              discountId: storedDiscountId,
-            });
-          })
-        )
+              });
+            })
+          )
+        ).pipe(Effect.provide(testDatabase.layer))
       );
       return { codeId, storedDiscountId };
     };
@@ -2611,6 +2718,7 @@ describe.skipIf(!testDatabase)(
         snapshot,
         commitment: makeDiscountCommitment({
           product: input.product,
+          firstServiceDate: "2099-01-01",
           applications: [
             {
               application: {
@@ -2676,6 +2784,7 @@ describe.skipIf(!testDatabase)(
         snapshot: makeSnapshot(reservation),
         commitment: makeDiscountCommitment({
           product: { kind: "cowork", tier: "basic" },
+          firstServiceDate: "2099-01-01",
           applications: [],
         }),
       });
@@ -2707,6 +2816,7 @@ describe.skipIf(!testDatabase)(
         snapshot,
         commitment: makeDiscountCommitment({
           product,
+          firstServiceDate: "2099-01-01",
           applications: [
             {
               application: {
@@ -2759,17 +2869,17 @@ describe.skipIf(!testDatabase)(
      * Seeds a voucher whose earlier claim by the customer, on another
      * checkout, has been released.
      */
-    const seedReleasedVoucherClaim = async (customerId: string) => {
+    const seedReleasedVoucherClaim = async (customerId: DotyposCustomerId) => {
       const id = crypto.randomUUID();
       const voucherId = voucherIdSchema.make(`lifecycle-voucher-${id}`);
-      const reservationId = `lifecycle-released-claim-${id}`;
       voucherIds.push(voucherId);
-      reservationIds.push(workspaceReservationIdSchema.make(reservationId));
-      await testDatabase.pool.query(
-        `insert into workspace_reservations (id, checkout_attempt_key, dotypos_customer_id, dotypos_reservation_id, reservation_state, payment_state, fulfillment_state, reservation_details, locale)
-         values ($1, $1, $2, $1, 'cancelled', 'expired', 'not_started', '{"kind":"cowork","entryTier":"open-space","coffee":false}', 'en-US')`,
-        [reservationId, customerId]
+      const { id: reservationId } = await Effect.runPromise(
+        workspaceFixtures(testDatabase.db).reservation({
+          stage: { reservation: "cancelled", payment: "expired" },
+          customer: customerId,
+        })
       );
+      reservationIds.push(reservationId);
       await testDatabase.pool.query(
         `insert into payment_attempts (id, workspace_reservation_id, provider, provider_order_id, state, failure_code, refund_state, amount_value, amount_exponent, currency)
          values ($1, $1, 'nexi', $1, 'expired', 'payment_abandoned_after_provider_cutoff', 'not_required', 29000, 2, 'CZK')`,
@@ -2832,6 +2942,7 @@ describe.skipIf(!testDatabase)(
           snapshot,
           commitment: makeDiscountCommitment({
             product: { kind: "cowork", tier: "basic" },
+            firstServiceDate: "2099-01-01",
             applications: [
               {
                 application: {
@@ -2882,6 +2993,247 @@ describe.skipIf(!testDatabase)(
       expect(rows.applications).toEqual([]);
       expect(rows.reservation?.activePaymentAttemptId).toBeNull();
       expect(rows.reservation?.paymentState).toBe("not_started");
+    });
+  }
+);
+
+const makeCodeAdmission = (input: {
+  readonly reservation: Reservation;
+  readonly dotyposCustomerId: DotyposCustomerId;
+  readonly candidate: DiscountCandidate;
+  readonly firstServiceDate: string;
+}) => {
+  const baseQuote = Effect.runSync(
+    buildCoworkReservationQuote({
+      kind: "cowork",
+      entryTier: "basic",
+      coffee: false,
+    })
+  );
+  const calculation = Effect.runSync(
+    calculateDiscounts({
+      product,
+      discountableSubtotal: baseQuote.payment.expectedPrice,
+      candidates: [input.candidate],
+    })
+  );
+  const snapshot = makeSnapshot(
+    input.reservation,
+    input.dotyposCustomerId,
+    calculation.quote
+  );
+
+  return {
+    locale: "en-US" as const,
+    snapshot,
+    admission: {
+      amount: snapshot.quote.payment.expectedPrice,
+      commitment: makeDiscountCommitment({
+        product,
+        firstServiceDate: input.firstServiceDate,
+        applications: calculation.applications,
+      }),
+    } satisfies Admission,
+  };
+};
+
+const setCodeServiceDates = (
+  codeId: string,
+  serviceDateFrom: string | null,
+  serviceDateUntil: string | null
+) =>
+  testDatabase!.pool.query(
+    "update discount_codes set service_date_from = $2, service_date_until = $3 where id = $1",
+    [codeId, serviceDateFrom, serviceDateUntil]
+  );
+
+const getCandidateCodeId = (candidate: DiscountCandidate) => {
+  if (candidate.claim?.kind !== "discount_code") {
+    throw new Error("Expected a discount-code candidate.");
+  }
+  return candidate.claim.codeId;
+};
+
+describe.skipIf(!testDatabase)(
+  "PaymentLifecycleRepository discount-code service dates on disposable Postgres",
+  () => {
+    // makeSnapshot books the cowork reservation for 2099-01-01.
+    const reservationStartDate = "2099-01-01";
+
+    test("admits a code whose current service dates cover the reservation start date", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const promotion = await createOrdinaryDiscountCode(dotyposCustomerId);
+      try {
+        await setCodeServiceDates(
+          getCandidateCodeId(promotion.candidate),
+          reservationStartDate,
+          reservationStartDate
+        );
+        const reservation = await createHeldReservation(dotyposCustomerId);
+        const attempt = await Effect.runPromise(
+          admit(
+            repository,
+            reservation,
+            makeCodeAdmission({
+              reservation,
+              dotyposCustomerId,
+              candidate: promotion.candidate,
+              firstServiceDate: reservationStartDate,
+            })
+          )
+        );
+        const redemptions = await testDatabase!.pool.query(
+          "select state from discount_code_redemptions where payment_attempt_id = $1",
+          [attempt.id]
+        );
+
+        expect(redemptions.rows).toEqual([{ state: "reserved" }]);
+      } finally {
+        await testDatabase!.pool.query(
+          "delete from discount_code_redemptions where code_id = $1",
+          [getCandidateCodeId(promotion.candidate)]
+        );
+        await promotion.cleanup();
+      }
+    });
+
+    test("refuses a code whose service dates changed after it was affirmed", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const promotion = await createOrdinaryDiscountCode(dotyposCustomerId);
+      try {
+        const reservation = await createHeldReservation(dotyposCustomerId);
+        const admission = makeCodeAdmission({
+          reservation,
+          dotyposCustomerId,
+          candidate: promotion.candidate,
+          firstServiceDate: reservationStartDate,
+        });
+        await setCodeServiceDates(
+          getCandidateCodeId(promotion.candidate),
+          "2099-01-02",
+          "2099-01-31"
+        );
+
+        const result = await Effect.runPromise(
+          Effect.result(admit(repository, reservation, admission))
+        );
+        const attempts = await testDatabase!.pool.query(
+          "select id from payment_attempts where workspace_reservation_id = $1",
+          [reservation.id]
+        );
+
+        expect(result).toMatchObject({
+          _tag: "Failure",
+          failure: {
+            _tag: "DiscountClaimError",
+            reason: "service_date_ineligible",
+          },
+        });
+        expect(attempts.rows).toEqual([]);
+      } finally {
+        await promotion.cleanup();
+      }
+    });
+
+    test("refuses a fully discounting code whose service dates changed before an internal payment", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const promotion = await createOrdinaryDiscountCode(
+        dotyposCustomerId,
+        10_000
+      );
+      try {
+        const reservation = await createHeldReservation(dotyposCustomerId);
+        const admission = makeCodeAdmission({
+          reservation,
+          dotyposCustomerId,
+          candidate: promotion.candidate,
+          firstServiceDate: reservationStartDate,
+        });
+        expect(admission.admission.amount.value).toBe(0);
+        await setCodeServiceDates(
+          getCandidateCodeId(promotion.candidate),
+          "2098-12-01",
+          "2098-12-31"
+        );
+
+        const result = await Effect.runPromise(
+          Effect.result(
+            repository.completeInternalPayment({
+              workspaceReservationId: reservation.id,
+              amount: admission.admission.amount,
+              commitment: admission.admission.commitment,
+              locale: admission.locale,
+              accountingSnapshot: admission.snapshot,
+            })
+          )
+        );
+        const attempts = await testDatabase!.pool.query(
+          "select id from payment_attempts where workspace_reservation_id = $1",
+          [reservation.id]
+        );
+        const applications = await testDatabase!.pool.query(
+          "select id from discount_applications where workspace_reservation_id = $1",
+          [reservation.id]
+        );
+        const claims = await testDatabase!.pool.query(
+          "select id from discount_code_redemptions where code_id = $1",
+          [getCandidateCodeId(promotion.candidate)]
+        );
+        const [reservationRow] = await Effect.runPromise(
+          testDatabase!.db
+            .select({ paymentState: workspaceReservations.paymentState })
+            .from(workspaceReservations)
+            .where(eq(workspaceReservations.id, reservation.id))
+        );
+
+        expect(result).toMatchObject({
+          _tag: "Failure",
+          failure: {
+            _tag: "DiscountClaimError",
+            reason: "service_date_ineligible",
+          },
+        });
+        expect(attempts.rows).toEqual([]);
+        expect(applications.rows).toEqual([]);
+        expect(claims.rows).toEqual([]);
+        expect(reservationRow?.paymentState).toBe(reservation.paymentState);
+      } finally {
+        await promotion.cleanup();
+      }
+    });
+
+    test("refuses a commitment affirmed for another reservation start date", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const promotion = await createOrdinaryDiscountCode(dotyposCustomerId);
+      try {
+        const reservation = await createHeldReservation(dotyposCustomerId);
+
+        const result = await Effect.runPromise(
+          Effect.result(
+            admit(
+              repository,
+              reservation,
+              makeCodeAdmission({
+                reservation,
+                dotyposCustomerId,
+                candidate: promotion.candidate,
+                firstServiceDate: "2099-01-02",
+              })
+            )
+          )
+        );
+
+        expect(result).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "DiscountClaimError", reason: "claim_conflict" },
+        });
+      } finally {
+        await promotion.cleanup();
+      }
     });
   }
 );

@@ -1,37 +1,25 @@
 "use server";
 
-import { Data, Effect, Schema } from "effect";
-import { cookies } from "next/headers";
-import {
-  CustomerAccountAccessError,
-  CustomerAccountResolver,
-} from "@/features/account";
-import { type Locale, locales } from "@/features/i18n";
-import { getLegalAcceptanceSnapshot } from "@/features/legal/acceptance-snapshot";
-import type { MarketingPreferencesMutationFailureReason } from "@/features/legal/marketing-preferences";
-import {
-  marketingManagementLive,
-  marketingPreferencesLive,
-} from "@/features/legal/marketing-preferences-composition.server";
+import { Effect, Layer, Option, Schema } from "effect";
+import { AnalyticsPersonAnonymisation } from "@/features/account/backend/analytics-person-anonymisation";
+import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { locales } from "@/features/i18n";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
-import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
-import { CustomerMarketingConsentRepository } from "./backend/customer-marketing-consent.repository";
+import { toConsentCookieTimestamp } from "@/shared/utils/consent-cookie";
+import { AnalyticsConsentLedger } from "./backend/analytics-consent-ledger";
 import {
-  type MarketingManagementError,
-  MarketingManagementService,
-} from "./backend/marketing-management.service";
-import {
-  createMarketingManagementCookies,
-  type MarketingManagementCookieOperations,
-} from "./backend/marketing-management-cookies.server";
-import {
-  getMarketingManagementDismissalContext,
-  isInvalidMarketingManagementCredential,
-  type MarketingManagementCookies as MarketingManagementCookieValues,
-  type MarketingPreferencesAuthorityError,
-  matchesMarketingManagementContext,
-  resolveMarketingPreferencesAuthority,
-} from "./backend/marketing-preferences-authority";
+  recordSignedInDeviceAnalyticsConsent,
+  resolveSilentAnalyticsGrant,
+} from "./backend/analytics-consent-mirror";
+import { saveAnalyticsPreference } from "./backend/analytics-consent-preference";
+import { MarketingPreferences } from "./backend/marketing-preferences.service";
+
+// An account decision's instant as the device's consent cookie takes it, or
+// null without one.
+const consentCookieTimestampOrNull = Option.match({
+  onNone: () => null,
+  onSome: toConsentCookieTimestamp,
+});
 
 const marketingPreferencesContextSchema = Schema.NonEmptyString;
 
@@ -51,322 +39,172 @@ const marketingManagementContextSchema = Schema.toStandardSchemaV1(
   { parseOptions: { errors: "all", onExcessProperty: "error" } }
 );
 
-class MarketingPreferencesMutationError extends Data.TaggedError(
-  "MarketingPreferencesMutationError"
-)<{
-  readonly reason: MarketingPreferencesMutationFailureReason;
-}> {}
+const saveAction = defineWorkspaceAction(
+  {
+    operation: "legal.marketing-preferences.save",
+    schema: saveMarketingPreferencesSchema,
+    logInput: false,
+  },
+  (input) =>
+    Effect.flatMap(MarketingPreferences, (preferences) =>
+      preferences.save(input)
+    ).pipe(Effect.provide(MarketingPreferences.Live))
+);
 
-type SaveMarketingPreferencesInput = {
-  readonly source: "link" | "account";
-  readonly context: string;
-  readonly granted: boolean;
-  readonly confirmed: true;
-  readonly locale: Locale;
+export const saveMarketingPreferencesAction: typeof saveAction = async (
+  ...args: Parameters<typeof saveAction>
+) => {
+  "use server";
+  return await saveAction(...args);
 };
 
-const saveMarketingPreferences = Effect.fn(function* (
-  input: SaveMarketingPreferencesInput,
-  marketingCookies: MarketingManagementCookieOperations
-) {
-  const authority = yield* loadMarketingPreferencesAuthority(marketingCookies);
-  if (
-    authority.kind === "pending" ||
-    !matchesMarketingManagementContext(authority, input.source, input.context)
-  ) {
-    return yield* mutationFailureError(
-      authority.kind === "pending"
-        ? "pending-confirmation-required"
-        : "stale-context"
-    );
-  }
+const confirmAction = defineWorkspaceAction(
+  {
+    operation: "legal.marketing-preferences.confirm",
+    schema: marketingManagementContextSchema,
+    logInput: false,
+  },
+  (input) =>
+    Effect.flatMap(MarketingPreferences, (preferences) =>
+      preferences.confirm(input)
+    ).pipe(Effect.provide(MarketingPreferences.ManagementLive))
+);
 
-  const documents = yield* getLegalAcceptanceSnapshot(input.locale).pipe(
-    Effect.mapError(() => mutationError("unavailable"))
-  );
+export const confirmMarketingManagementAction: typeof confirmAction = async (
+  ...args: Parameters<typeof confirmAction>
+) => {
+  "use server";
+  return await confirmAction(...args);
+};
 
-  // The rendered context is only a concurrency fence. Re-read the current
-  // authority immediately before writing and use its customer identity, not
-  // anything supplied by the browser.
-  const currentAuthority =
-    yield* loadMarketingPreferencesAuthority(marketingCookies);
-  if (
-    !matchesMarketingManagementContext(
-      currentAuthority,
-      input.source,
-      input.context
-    )
-  ) {
-    return yield* mutationFailureError("stale-context");
-  }
+const clearAction = defineWorkspaceAction(
+  {
+    operation: "legal.marketing-preferences.clear",
+    schema: marketingManagementContextSchema,
+    logInput: false,
+  },
+  (input) =>
+    Effect.flatMap(MarketingPreferences, (preferences) =>
+      preferences.clear(input)
+    ).pipe(Effect.provide(MarketingPreferences.ManagementLive))
+);
 
-  const consents = yield* CustomerMarketingConsentRepository;
-  const consentInput = {
-    dotyposCustomerId: currentAuthority.customerId,
-    documentHash: documents.marketingCommunications.hash,
-    locale: input.locale,
-    grantedAt: Temporal.Now.instant(),
-  };
+export const clearMarketingManagementAction: typeof clearAction = async (
+  ...args: Parameters<typeof clearAction>
+) => {
+  "use server";
+  return await clearAction(...args);
+};
 
-  if (input.granted) {
-    yield* consents
-      .grant(consentInput)
-      .pipe(Effect.mapError(() => mutationError("unavailable")));
-  } else {
-    yield* consents
-      .withdraw(consentInput)
-      .pipe(Effect.mapError(() => mutationError("unavailable")));
-  }
+const deviceAnalyticsConsentSchema = Schema.toStandardSchemaV1(
+  Schema.Struct({ occasion: Schema.Literals(["hydration", "banner_save"]) }),
+  { parseOptions: { errors: "all", onExcessProperty: "error" } }
+);
 
-  return { status: "saved" as const };
-});
-
-type MarketingManagementContextInput = { readonly context: string };
-
-const confirmMarketingManagement = Effect.fn(function* (
-  input: MarketingManagementContextInput,
-  marketingCookies: MarketingManagementCookieOperations
-) {
-  const management = yield* MarketingManagementService;
-  // The pending cookie is read once and its authority resolved once.
-  // Replay protection comes from the atomic single-use conditional update
-  // inside the exchange, not from re-reading the cookie around it, so an
-  // already-exchanged token fails closed instead of installing a session.
-  const cookies = yield* readMarketingManagementCookiesEffect(marketingCookies);
-  const pending = yield* resolvePendingAuthority(cookies, management);
-  if (pending.kind !== "pending" || pending.context !== input.context) {
-    return yield* mutationFailureError("stale-context");
-  }
-
-  const exchanged = yield* management
-    .exchange(pending.rawPending)
-    .pipe(Effect.mapError(mapManagementMutationFailure));
-
-  yield* invokeCookieMutation(() =>
-    marketingCookies.setMarketingManagementSessionCookie(exchanged)
-  );
-  return { status: "confirmed" as const };
-});
-
-const saveMarketingPreferencesEffect = (
-  input: SaveMarketingPreferencesInput,
-  marketingCookies: MarketingManagementCookieOperations,
-  layers = marketingPreferencesLive
-) =>
-  saveMarketingPreferences(input, marketingCookies).pipe(
-    Effect.provide(layers),
-    Effect.mapError((failure) =>
-      failure instanceof MarketingPreferencesMutationError
-        ? failure
-        : mutationError("unavailable")
-    ),
-    Effect.mapError(toPublicMutationError)
-  );
-
-const confirmMarketingManagementEffect = (
-  input: MarketingManagementContextInput,
-  marketingCookies: MarketingManagementCookieOperations,
-  layers = marketingManagementLive
-) =>
-  confirmMarketingManagement(input, marketingCookies).pipe(
-    Effect.provide(layers),
-    Effect.mapError((failure) =>
-      failure instanceof MarketingPreferencesMutationError
-        ? failure
-        : mutationError("unavailable")
-    ),
-    Effect.mapError(toPublicMutationError)
-  );
-
-const clearMarketingManagementEffect = (
-  input: MarketingManagementContextInput,
-  marketingCookies: MarketingManagementCookieOperations,
-  layers = marketingManagementLive
-) =>
-  readMarketingManagementCookiesEffect(marketingCookies).pipe(
-    Effect.flatMap((currentCookies) => {
-      if (
-        getMarketingManagementDismissalContext(currentCookies) !== input.context
-      ) {
-        return mutationFailureError("stale-context");
-      }
-
-      if (currentCookies.session === undefined) {
-        return invokeCookieMutation(
-          marketingCookies.clearMarketingManagementCookies
-        ).pipe(Effect.as({ status: "cleared" as const }));
-      }
-
-      return clearMarketingManagementSession(
-        currentCookies.session,
-        marketingCookies
-      ).pipe(Effect.provide(layers), Effect.as({ status: "cleared" as const }));
-    }),
-    Effect.mapError((failure) =>
-      failure instanceof MarketingPreferencesMutationError
-        ? failure
-        : mutationError("unavailable")
-    ),
-    Effect.mapError(toPublicMutationError)
-  );
-
-const loadMarketingPreferencesAuthority = Effect.fn(function* (
-  marketingCookies: MarketingManagementCookieOperations
-) {
-  const cookieValues =
-    yield* readMarketingManagementCookiesEffect(marketingCookies);
-  const management = yield* MarketingManagementService;
-  const accountResolver = yield* CustomerAccountResolver;
-  return yield* resolveMarketingPreferencesAuthority(cookieValues, {
-    resolveAccount: () => accountResolver.resolve,
-    resolveManagementSession: (rawSession) => management.resolve(rawSession),
-  }).pipe(Effect.mapError(mapAuthorityFailure));
-});
-
-const resolvePendingAuthority = (
-  cookies: MarketingManagementCookieValues,
-  management: MarketingManagementService["Service"]
-) =>
-  resolveMarketingPreferencesAuthority(cookies, {
-    // A pending cookie must not need the account capability. This callback is
-    // never called while pending is present; if it is, fail closed.
-    resolveAccount: () =>
-      Effect.fail(new CustomerAccountAccessError({ reason: "unavailable" })),
-    resolveManagementSession: (rawSession) => management.resolve(rawSession),
-  }).pipe(Effect.mapError(mapAuthorityFailure));
-
-const clearMarketingManagementSession = Effect.fn(function* (
-  session: string,
-  marketingCookies: MarketingManagementCookieOperations
-) {
-  const management = yield* MarketingManagementService;
-  yield* management
-    .revoke(session)
-    .pipe(
-      Effect.catch((cause) =>
-        isInvalidMarketingManagementCredential(cause)
-          ? Effect.void
-          : Effect.fail(mutationError("unavailable"))
+const recordDeviceAnalyticsConsentAction = defineWorkspaceAction(
+  {
+    operation: "legal.analytics-consent.record-device",
+    schema: deviceAnalyticsConsentSchema,
+    logInput: false,
+  },
+  ({ occasion }, { locale }) =>
+    recordSignedInDeviceAnalyticsConsent({ occasion, locale }).pipe(
+      Effect.map(consentCookieTimestampOrNull),
+      Effect.provide(
+        Layer.mergeAll(
+          AnalyticsConsentLedger.Live,
+          CustomerAuthentication.Default
+        )
       )
-    );
-  yield* invokeCookieMutation(marketingCookies.clearMarketingManagementCookies);
-});
+    )
+);
 
-const readMarketingManagementCookiesEffect = (
-  marketingCookies: MarketingManagementCookieOperations
-) =>
-  Effect.tryPromise({
-    try: marketingCookies.readMarketingManagementCookies,
-    catch: () => mutationError("unavailable"),
-  });
-
-const invokeCookieMutation = (operation: () => void | Promise<void>) =>
-  Effect.tryPromise({
-    try: async () => {
-      await operation();
-    },
-    catch: () => mutationError("unavailable"),
-  });
-
-const mutationError = (reason: MarketingPreferencesMutationFailureReason) =>
-  new MarketingPreferencesMutationError({ reason });
-
-const mutationFailureError = (
-  reason: MarketingPreferencesMutationFailureReason
-) => Effect.fail(mutationError(reason));
-
-const mapAuthorityFailure = (
-  failure: MarketingPreferencesAuthorityError
-): MarketingPreferencesMutationError => mutationError(failure.reason);
-
-const mapManagementMutationFailure = (
-  failure: MarketingManagementError
-): MarketingPreferencesMutationError =>
-  isInvalidMarketingManagementCredential(failure)
-    ? mutationError("invalid-link")
-    : mutationError("unavailable");
-
-const toPublicMutationError = (
-  failure: MarketingPreferencesMutationError
-): PublicSafeActionError =>
-  new PublicSafeActionError({
-    // The client maps the reason code to localized copy.
-    message: failure.reason,
-    cause: failure,
-  });
-
-const createSaveMarketingPreferencesAction = (
-  marketingCookies: MarketingManagementCookieOperations
-) =>
-  defineWorkspaceAction(
-    {
-      operation: "legal.marketing-preferences.save",
-      schema: saveMarketingPreferencesSchema,
-      logInput: false,
-    },
-    (input) => saveMarketingPreferencesEffect(input, marketingCookies)
-  );
-
-const createConfirmMarketingManagementAction = (
-  marketingCookies: MarketingManagementCookieOperations
-) =>
-  defineWorkspaceAction(
-    {
-      operation: "legal.marketing-preferences.confirm",
-      schema: marketingManagementContextSchema,
-      logInput: false,
-    },
-    (input) => confirmMarketingManagementEffect(input, marketingCookies)
-  );
-
-const createClearMarketingManagementAction = (
-  marketingCookies: MarketingManagementCookieOperations
-) =>
-  defineWorkspaceAction(
-    {
-      operation: "legal.marketing-preferences.clear",
-      schema: marketingManagementContextSchema,
-      logInput: false,
-    },
-    (input) => clearMarketingManagementEffect(input, marketingCookies)
-  );
-
-type SaveMarketingPreferencesAction = ReturnType<
-  typeof createSaveMarketingPreferencesAction
->;
-type ConfirmMarketingManagementAction = ReturnType<
-  typeof createConfirmMarketingManagementAction
->;
-type ClearMarketingManagementAction = ReturnType<
-  typeof createClearMarketingManagementAction
->;
-
-export const saveMarketingPreferencesAction: SaveMarketingPreferencesAction =
-  async (...args: Parameters<SaveMarketingPreferencesAction>) => {
+/**
+ * Records this device's analytics consent choice on the signed-in account:
+ * as a decision made now after a banner save, or as a mirror of the saved
+ * choice when a signed-in session hydrates. After a hydration, the instant
+ * (ISO 8601) of the account's withdrawal this device still accepts analytics
+ * against, which the device takes; else null. Does nothing when signed out.
+ */
+export const recordDeviceAnalyticsConsent: typeof recordDeviceAnalyticsConsentAction =
+  async (...args: Parameters<typeof recordDeviceAnalyticsConsentAction>) => {
     "use server";
-    const cookieStore = await cookies();
-    const marketingCookies = createMarketingManagementCookies(cookieStore);
-    return await createSaveMarketingPreferencesAction(marketingCookies)(
-      ...args
-    );
+    return await recordDeviceAnalyticsConsentAction(...args);
   };
 
-export const confirmMarketingManagementAction: ConfirmMarketingManagementAction =
-  async (...args: Parameters<ConfirmMarketingManagementAction>) => {
+const silentAnalyticsGrantAction = defineWorkspaceAction(
+  {
+    operation: "legal.analytics-consent.resolve-silent-grant",
+    schema: Schema.toStandardSchemaV1(Schema.Struct({}), {
+      parseOptions: { errors: "all", onExcessProperty: "error" },
+    }),
+    logInput: false,
+  },
+  () =>
+    resolveSilentAnalyticsGrant().pipe(
+      Effect.map(consentCookieTimestampOrNull),
+      Effect.provide(
+        Layer.mergeAll(
+          AnalyticsConsentLedger.Live,
+          CustomerAuthentication.Default
+        )
+      )
+    )
+);
+
+/**
+ * When this device holds no consent cookie and the signed-in account's
+ * current decision is a grant for the current privacy notice, the instant of
+ * that grant (ISO 8601), which the device takes without asking; else null.
+ * Null when signed out.
+ */
+export const resolveSilentAnalyticsGrantForDevice: typeof silentAnalyticsGrantAction =
+  async (...args: Parameters<typeof silentAnalyticsGrantAction>) => {
     "use server";
-    const cookieStore = await cookies();
-    const marketingCookies = createMarketingManagementCookies(cookieStore);
-    return await createConfirmMarketingManagementAction(marketingCookies)(
-      ...args
-    );
+    return await silentAnalyticsGrantAction(...args);
   };
 
-export const clearMarketingManagementAction: ClearMarketingManagementAction =
-  async (...args: Parameters<ClearMarketingManagementAction>) => {
+const analyticsPreferenceSchema = Schema.toStandardSchemaV1(
+  Schema.Struct({ granted: Schema.Boolean }),
+  { parseOptions: { errors: "all", onExcessProperty: "error" } }
+);
+
+const saveAnalyticsPreferenceAction = defineWorkspaceAction(
+  {
+    operation: "legal.analytics-consent.save-preference",
+    schema: analyticsPreferenceSchema,
+    logInput: false,
+  },
+  ({ granted }, { locale }) =>
+    saveAnalyticsPreference({ granted, locale }).pipe(
+      Effect.map(
+        Option.match({
+          onNone: () => null,
+          onSome: ({ accountId, decidedAt }) => ({
+            accountId,
+            decidedAt: toConsentCookieTimestamp(decidedAt),
+          }),
+        })
+      ),
+      Effect.provide(
+        Layer.mergeAll(
+          AnalyticsConsentLedger.Live,
+          AnalyticsPersonAnonymisation.Live,
+          CustomerAuthentication.Default
+        )
+      )
+    )
+);
+
+/**
+ * Records the signed-in account's analytics preference from account
+ * preferences as its decision now; turning it off also requests the
+ * anonymisation of the account's PostHog person. Returns the account the
+ * decision was recorded for and its instant (ISO 8601), which this device's
+ * consent cookie takes; null when signed out, which records nothing.
+ */
+export const saveAccountAnalyticsPreference: typeof saveAnalyticsPreferenceAction =
+  async (...args: Parameters<typeof saveAnalyticsPreferenceAction>) => {
     "use server";
-    const cookieStore = await cookies();
-    const marketingCookies = createMarketingManagementCookies(cookieStore);
-    return await createClearMarketingManagementAction(marketingCookies)(
-      ...args
-    );
+    return await saveAnalyticsPreferenceAction(...args);
   };

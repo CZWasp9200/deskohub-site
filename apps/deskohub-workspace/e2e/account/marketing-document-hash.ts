@@ -1,9 +1,8 @@
-import { createHash } from "node:crypto";
 import { Predicate } from "effect";
 import type { ReactNode } from "react";
 import { cloneElement, createElement, Fragment, isValidElement } from "react";
-import { getCanonicalLegalDocument } from "@/features/legal/canonical-document";
 import { getLegalDocument } from "@/features/legal/content";
+import { hashLegalDocument } from "@/features/legal/document-version";
 
 const unsupportedNodeMessage =
   "Unsupported React node shape in the marketing communications document";
@@ -90,14 +89,14 @@ const normalizeWorkspaceE2EMarketingNode = (node: unknown): ReactNode => {
 /**
  * The single marketing-preferences E2E document hash: the exact shared
  * production canonical JSON over the en-US marketing-communications document
- * with Playwright JSX stubs normalized back into real React nodes.
+ * with Playwright JSX stubs normalized back into real React nodes. Only the
+ * section bodies are replaced; every other field reaches the production
+ * canonicalizer unchanged, so the hash follows what the app hashes.
  */
 export const getWorkspaceE2EMarketingDocumentHash = (): string => {
   const document = getLegalDocument("en-US", "marketing-communications");
   const normalizedDocument = {
-    title: document.title,
-    lead: document.lead,
-    updatedAt: document.updatedAt,
+    ...document,
     sections: document.sections.map((section) => ({
       heading: section.heading,
       body: section.body.map((node) =>
@@ -105,7 +104,5 @@ export const getWorkspaceE2EMarketingDocumentHash = (): string => {
       ),
     })),
   };
-  return createHash("sha256")
-    .update(getCanonicalLegalDocument(normalizedDocument))
-    .digest("hex");
+  return hashLegalDocument(normalizedDocument);
 };

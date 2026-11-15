@@ -1,14 +1,11 @@
 import {
+  type DotyposReadFailure,
   type DotyposReservationId,
   type DotyposReservationInterval,
   DotyposService,
   type DotyposTable,
   type DotyposTableId,
-  type ExternalAPIError,
-  type NetworkError,
-  ValidationError,
 } from "@deskohub/dotypos";
-import type { Table } from "@deskohub/dotypos/generated";
 import { Context, Data, Effect, Layer, Match } from "effect";
 import { workspaceProductMonitorOptionTableTags } from "@/features/checkout/product-catalog";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -17,6 +14,7 @@ import {
   getCoworkReservationIntervalInput,
 } from "@/features/reservation/cowork-reservation";
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
+import { getMeetingRoomOccupiedInterval } from "@/features/reservation/meeting-room-early-setup";
 import type { MeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
 import {
   getOfficeReservationIntervalInput,
@@ -27,8 +25,8 @@ import {
   getReservationIntervalNormalization,
   type ReservationInterval,
 } from "@/features/reservation/reservation-interval";
+import { ReservationIntervalValidationError } from "@/features/reservation/reservation-interval-domain";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import { getAssignableDotyposTableId } from "./dotypos-table-id";
 import {
   excludeDotyposReservationsById,
   getWorkspaceReservationIntervalDates,
@@ -38,6 +36,7 @@ import {
 import {
   getWorkspaceTableCandidatesByPredicate,
   getWorkspaceTableSeatCapacity,
+  type InvalidDotyposTableSeats,
   isWorkspaceCoworkTableCandidate,
   selectWorkspaceTableFromCandidates,
   workspaceCoworkOpenSpaceTableTag,
@@ -80,9 +79,7 @@ const getReservedDeskScoringOccupancyById = Effect.fn(
   const rankingOccupancyByTableId = new Map(actualOccupancyByTableId);
 
   for (const table of tables) {
-    const tableId = getAssignableDotyposTableId(table);
     if (
-      !tableId ||
       table.enabled !== true ||
       table.display !== true ||
       !table.tags?.includes(workspaceCoworkOpenSpaceTableTag)
@@ -92,8 +89,8 @@ const getReservedDeskScoringOccupancyById = Effect.fn(
 
     const seatCapacity = yield* getWorkspaceTableSeatCapacity(table);
     rankingOccupancyByTableId.set(
-      tableId,
-      Math.max(actualOccupancyByTableId.get(tableId) ?? 0, seatCapacity)
+      table.id,
+      Math.max(actualOccupancyByTableId.get(table.id) ?? 0, seatCapacity)
     );
   }
 
@@ -108,11 +105,22 @@ export const getWorkspaceReservationInterval = (
       Match.discriminatorsExhaustive("kind")({
         cowork: ({ entryTier, date }) =>
           getCoworkReservationIntervalInput(entryTier, date),
-        "meeting-room": (meetingRoom) => meetingRoom,
+        "meeting-room": getMeetingRoomOccupiedInterval,
         office: getOfficeReservationIntervalInput,
       })
     )
   );
+
+/**
+ * No active, visible Dotypos table carries the tags a reservation needs, so
+ * Workspace's table configuration can't serve it at all.
+ */
+export class TableAssignmentUnconfigured extends Data.TaggedError(
+  "TableAssignmentUnconfigured"
+)<{
+  readonly requiredTags: readonly string[];
+  readonly message: string;
+}> {}
 
 /** Every matching table is already occupied for the reservation interval. */
 export class TableAssignmentUnavailableError extends Data.TaggedError(
@@ -127,10 +135,11 @@ export interface IWorkspaceTableAssignmentService {
     reservation: WorkspaceTableAssignmentReservation
   ) => Effect.Effect<
     DotyposTableId,
-    | ExternalAPIError
-    | NetworkError
+    | DotyposReadFailure
+    | InvalidDotyposTableSeats
+    | ReservationIntervalValidationError
     | TableAssignmentUnavailableError
-    | ValidationError
+    | TableAssignmentUnconfigured
   >;
 }
 
@@ -315,7 +324,10 @@ const getReservationAssignment = (
 
 const getReservationOccupancyInput = (
   reservation: WorkspaceTableAssignmentReservation
-): Effect.Effect<Temporal.PlainDate | ReservationInterval, ValidationError> =>
+): Effect.Effect<
+  Temporal.PlainDate | ReservationInterval,
+  ReservationIntervalValidationError
+> =>
   Match.value(reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
       // Occupancy must use the tier's authoritative reservation interval
@@ -327,21 +339,20 @@ const getReservationOccupancyInput = (
         ).pipe(
           Effect.mapError(
             (cause) =>
-              new ValidationError({
+              new ReservationIntervalValidationError({
+                path: cause.path,
                 message: `Workspace cowork reservation interval must be valid for date: ${date}`,
                 cause,
               })
           )
         ),
       "meeting-room": (meetingRoomReservation) =>
-        Effect.succeed(meetingRoomReservation),
+        getReservationIntervalNormalization(
+          getMeetingRoomOccupiedInterval(meetingRoomReservation)
+        ),
       office: (officeReservation) =>
         getReservationIntervalNormalization(
           getOfficeReservationIntervalInput(officeReservation)
-        ).pipe(
-          Effect.mapError(
-            (cause) => new ValidationError({ message: cause.message, cause })
-          )
         ),
     })
   );
@@ -359,22 +370,21 @@ const getReservationSeats = (
 
 const validateTableAssignment = (input: {
   readonly assignment: WorkspaceTableAssignment;
-  readonly matchingTable: Table | undefined;
+  readonly matchingTable: DotyposTable | undefined;
   readonly matchingTables: readonly DotyposTable[];
 }) =>
   Effect.succeed(input).pipe(
     Effect.filterOrFail(
       ({ matchingTables }) => matchingTables.length > 0,
       ({ assignment }) =>
-        new ValidationError({
+        new TableAssignmentUnconfigured({
+          requiredTags: assignment.requiredTags,
           message: `No active visible Dotypos workspace table matches tags: ${assignment.requiredTags.join(
             ", "
           )}`,
         })
     ),
-    Effect.let("matchingTableId", ({ matchingTable }) =>
-      matchingTable ? getAssignableDotyposTableId(matchingTable) : undefined
-    ),
+    Effect.let("matchingTableId", ({ matchingTable }) => matchingTable?.id),
     Effect.filterOrFail(
       (
         assignment

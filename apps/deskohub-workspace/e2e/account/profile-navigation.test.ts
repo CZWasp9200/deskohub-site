@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
 import { createServer } from "node:http";
-import { normalizePhoneNumber } from "@deskohub/dotypos";
+import { parsePhoneNumber } from "@deskohub/phone-number";
 import { chromium, errors, type Page } from "@playwright/test";
+import { Option } from "effect";
+import { baseLocale, defaultPhoneRegion } from "@/features/i18n";
+import {
+  accountSectionLabel,
+  accountSections,
+} from "../../features/account/sections";
 import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
 import {
   isWorkspaceE2EDiagnosticCode,
@@ -9,10 +15,7 @@ import {
   type WorkspaceE2EProfileNavigationDiagnosticCode,
 } from "../errors";
 import { formatWorkspaceE2EFailureAnnotation } from "../github-actions";
-import {
-  accountSectionLabels,
-  accountSectionLandmarks,
-} from "./account-sections";
+import { accountSectionLandmarks } from "./account-sections";
 import {
   triggerProfileHistoryBack,
   verifyProfileNavigation,
@@ -61,9 +64,10 @@ const makeProfileNavigationFakePage = (
     lastName: "Example",
     phone: "+420 555 000 111",
   };
-  const normalizedPhone = normalizePhoneNumber(originalProfile.phone);
-  if (normalizedPhone === null)
-    throw new Error("fake profile phone is not a valid canonical phone number");
+  const normalizedPhone = Option.getOrThrowWith(
+    parsePhoneNumber(originalProfile.phone, defaultPhoneRegion(baseLocale)),
+    () => new Error("fake profile phone is not a valid canonical phone number")
+  );
   const serverSnapshot = {
     ...originalProfile,
     phone: normalizedPhone,
@@ -133,13 +137,10 @@ const makeProfileNavigationFakePage = (
   };
 
   // Like the account layout, a section switch records its section in the
-  // account URL, and the default section keeps the canonical one.
+  // account pathname.
   const switchSection = (section: ProfileNavigationSection) => {
     state.section = section;
-    state.url =
-      section === "reservations"
-        ? accountUrl
-        : `${accountUrl}?section=${section}`;
+    state.url = `${accountUrl}/${section}`;
   };
 
   const requestDialog = (kind: "history-back" | "home") => {
@@ -171,7 +172,7 @@ const makeProfileNavigationFakePage = (
       _apiName: "Locator",
       elementHandle: async () => ({
         dispose: async () => {},
-        sectionButton: name,
+        sectionLink: name,
       }),
       _expect: async (
         expression: string,
@@ -277,10 +278,10 @@ const makeProfileNavigationFakePage = (
     options: { readonly name?: string } = {}
   ) => {
     if (role === "banner") return makeLocator("banner");
-    if (role === "button") {
-      const section = Object.entries(accountSectionLabels).find(
-        ([, label]) => options.name === label
-      )?.[0];
+    if (role === "link") {
+      const section = accountSections.find(
+        (candidate) => options.name === accountSectionLabel(candidate, "en-US")
+      );
       if (section) return makeLocator(`section:${section}`);
     }
     if (role === "heading") return makeLocator(`heading:${options.name ?? ""}`);
@@ -333,12 +334,12 @@ const makeProfileNavigationFakePage = (
       if (
         typeof argument === "object" &&
         argument !== null &&
-        "sectionButton" in argument
+        "sectionLink" in argument
       ) {
         if (
           documentReloaded &&
           failurePhase === "profile-handler-wait" &&
-          (argument as { readonly sectionButton: string }).sectionButton ===
+          (argument as { readonly sectionLink: string }).sectionLink ===
             "section:profile"
         ) {
           throw new errors.TimeoutError(privateFailureDetails);
@@ -438,12 +439,12 @@ test("names the section selection stage and failure kind without the private cau
   );
   expect(failure).toMatchObject({
     message:
-      "Profile navigation verification failed at section selection stage button-handler-wait (timeout)",
+      "Profile navigation verification failed at section selection stage link-handler-wait (timeout)",
   });
 });
 
 const closedProfileNavigationFailureMessage =
-  /^Profile navigation verification failed (at section selection stage (button-handler-wait|panel-hydration-wait|native-button-click|selected-landmark-wait) )?\((timeout|strict-mode-violation|error)\)$/;
+  /^Profile navigation verification failed (at section selection stage (link-handler-wait|panel-hydration-wait|native-link-click|selected-landmark-wait) )?\((timeout|strict-mode-violation|error)\)$/;
 
 const expectProfileNavigationFailure = (
   failure: unknown,

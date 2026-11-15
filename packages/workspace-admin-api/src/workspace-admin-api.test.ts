@@ -1,8 +1,32 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema, Struct } from "effect";
+import { HttpRouter, HttpServer } from "effect/unstable/http";
+import {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiGroup,
+} from "effect/unstable/httpapi";
+import {
+  AdministrationOperationBehavior,
+  CliOnly,
+  readOperation,
+} from "./administration-operation";
+import {
+  DhwVersion,
+  MinimumDhwVersion,
+  OutdatedDhwRefusal,
+} from "./dhw-version";
+import { AdministrationCampaignDetail } from "./email-campaigns";
 import {
   AdminCliAdministrationApi,
+  AdminCliInfo,
+  AdministrationAccountId,
+  AdministrationActionRecord,
+  AdministrationActorEmail,
+  AdministrationAuthentication,
   AdministrationCustomerProfile,
   AdministrationCustomerQuery,
   AdministrationCustomerReservationsQuery,
@@ -15,7 +39,10 @@ import {
   AdministrationDotyposCustomerId,
   AdministrationDotyposDiscountGroupId,
   AdministrationInvoiceCreateInput,
+  AdministrationInvoiceDetail,
   AdministrationInvoiceListItem,
+  AdministrationOverview,
+  AdministrationOverviewMetric,
   AdministrationPaymentAttempt,
   AdministrationReservationAccessGrant,
   AdministrationReservationAccessMutation,
@@ -31,7 +58,16 @@ import {
   AdministrationStandaloneAccessCodeResult,
   AdministrationVoucher,
   AdministrationWorkspaceSiteLocalWholeHourDateTime,
+  administrationOperationGroup,
+  CliBuildTarget,
+  CliClientCompatibility,
+  CliClientName,
+  CliSession,
+  CliSessionId,
+  CurrentAdministrationCaller,
   isStandaloneAccessCodeWindowWithinContractDuration,
+  requiresDhw,
+  toAdministrationActorName,
 } from "./workspace-admin-api";
 
 const syntheticAddress = testEmailAddress("synthetic");
@@ -368,6 +404,37 @@ describe("administration contract", () => {
         releaseReason: null,
       }).appliedAmount
     ).toBeNull();
+  });
+
+  test("decodes info from a server without minimum dhw versions", () => {
+    expect(
+      Schema.decodeUnknownSync(AdminCliInfo)({
+        apiVersion: "v1",
+        service: "deskohub-workspace",
+      })
+    ).toEqual({
+      apiVersion: "v1",
+      service: "deskohub-workspace",
+      minimumDhwVersions: {},
+    });
+  });
+
+  test("decodes a campaign from before delivery modes as one-off", () => {
+    // Also the shape of campaign results stored in the CLI mutation ledger.
+    expect(
+      Schema.decodeUnknownSync(AdministrationCampaignDetail)({
+        id: "01980000-0000-7000-8000-000000000001",
+        title: "October news",
+        purpose: "operational",
+        templateKey: "workspace",
+        status: "sent",
+        audienceId: null,
+        locales: [],
+        createdAt: "2026-10-01T10:00:00Z",
+        updatedAt: "2026-10-01T10:00:00Z",
+        content: {},
+      })
+    ).toMatchObject({ delivery: "once", status: "sent" });
   });
 
   test("keeps discount codes and vouchers as separate read models", () => {
@@ -785,5 +852,491 @@ describe("administration contract", () => {
         page: 0,
       })
     ).toThrow();
+  });
+});
+
+describe("overview contract", () => {
+  // `AdministrationOverview` as released dhw binaries decode it, before the
+  // customer counts and refund attention.
+  const ReleasedAdministrationOverview = Schema.Struct({
+    today: AdministrationOverviewMetric,
+    upcoming: AdministrationOverviewMetric,
+    lastSevenDays: AdministrationOverviewMetric,
+  });
+  const reservationMetrics = {
+    today: { completed: 1, unavailable: false, value: 2 },
+    upcoming: { completed: 0, unavailable: false, value: 5 },
+    lastSevenDays: { completed: 3, unavailable: false, value: 4 },
+  };
+  const customerId = AdministrationDotyposCustomerId.make("customer-1");
+
+  test("keeps the overview readable by released dhw", () => {
+    const response = Schema.encodeSync(AdministrationOverview)({
+      ...reservationMetrics,
+      uniqueCustomers: {
+        customers: [
+          {
+            customerId,
+            customer: {
+              id: customerId,
+              displayName: "Synthetic Customer",
+              email: syntheticAddress,
+              phone: null,
+            },
+          },
+        ],
+        unavailable: false,
+        value: 1,
+      },
+      newCustomers: { customers: [], unavailable: false, value: 0 },
+      refundAttention: { unavailable: false, value: 2 },
+    });
+
+    expect(
+      Schema.decodeUnknownSync(ReleasedAdministrationOverview)(response)
+    ).toEqual(reservationMetrics);
+  });
+
+  test("reads an older server's overview as not reporting the newer counts", () => {
+    const unreported = { unavailable: true, value: 0 };
+
+    expect(
+      Schema.decodeUnknownSync(AdministrationOverview)(reservationMetrics)
+    ).toEqual({
+      ...reservationMetrics,
+      uniqueCustomers: { ...unreported, customers: [] },
+      newCustomers: { ...unreported, customers: [] },
+      refundAttention: unreported,
+    });
+  });
+});
+
+describe("reservation summary contract", () => {
+  // `AdministrationReservationSummary` as released dhw binaries decode it,
+  // before the early-setup start.
+  const ReleasedAdministrationReservationSummary =
+    AdministrationReservationSummary.mapFields(Struct.omit(["setupStartsAt"]));
+  const summary = {
+    id: "reservation-id",
+    customerId: "customer-id",
+    customer: null,
+    liveDetailsAvailable: true,
+    startsAt: "2026-08-10T08:00:00Z",
+    endsAt: "2026-08-10T09:00:00Z",
+    date: "2026-08-10",
+    type: "meeting-room",
+    typeLabel: "Meeting Room",
+    purpose: null,
+    status: { group: "complete", label: "Complete" },
+    statusNote: null,
+    createdAt: "2026-08-01T12:00:00Z",
+    latestPayment: null,
+    updatedAt: "2026-08-01T12:00:00Z",
+  } as const;
+
+  test("keeps an early-setup summary readable by released dhw", () => {
+    const response = Schema.encodeSync(AdministrationReservationSummary)(
+      Schema.decodeUnknownSync(AdministrationReservationSummary)({
+        ...summary,
+        setupStartsAt: "2026-08-10T07:45:00Z",
+      })
+    );
+
+    expect(
+      Schema.decodeUnknownSync(ReleasedAdministrationReservationSummary)(
+        response
+      )
+    ).toEqual(
+      Schema.decodeUnknownSync(ReleasedAdministrationReservationSummary)(
+        summary
+      )
+    );
+  });
+
+  test("reads an older server's summary as having no early setup", () => {
+    expect(
+      Schema.decodeUnknownSync(AdministrationReservationSummary)(summary)
+        .setupStartsAt
+    ).toBeNull();
+  });
+});
+
+describe("CLI session contract", () => {
+  // `CliSession` as released dhw-v1.17.0 binaries decode it; they read a null
+  // approver as a legacy session that can't issue invoices or access codes.
+  const ReleasedCliSession = Schema.Struct({
+    id: CliSessionId,
+    approvedBy: Schema.NullOr(
+      Schema.Trim.check(Schema.isNonEmpty(), Schema.isMaxLength(80))
+    ).pipe(Schema.withDecodingDefaultTypeKey(Effect.succeed(null))),
+    clientName: CliClientName,
+    cliVersion: Schema.String,
+    buildTarget: CliBuildTarget,
+    createdAt: Schema.String,
+    lastUsedAt: Schema.String,
+    expiresAt: Schema.NullOr(Schema.String).pipe(
+      Schema.withDecodingDefaultTypeKey(Effect.succeed(null))
+    ),
+  });
+  const shortEmail = AdministrationActorEmail.make(syntheticAddress);
+  const longEmail = AdministrationActorEmail.make(
+    testEmailAddress("a".repeat(120))
+  );
+  const sessionFor = (email: AdministrationActorEmail) =>
+    Schema.encodeSync(CliSession)({
+      id: CliSessionId.make("123e4567-e89b-42d3-a456-426614174000"),
+      approvedBy: toAdministrationActorName(email),
+      approvedByEmail: email,
+      clientName: "synthetic compatibility client",
+      cliVersion: "1.17.0",
+      buildTarget: "linux-x64-baseline",
+      createdAt: "2026-10-16T00:00:00.000Z",
+      lastUsedAt: "2026-10-16T00:00:00.000Z",
+      expiresAt: null,
+    });
+
+  test.each([shortEmail, longEmail])(
+    "keeps a session approved by %s readable by released dhw",
+    (email) => {
+      const released = Schema.decodeUnknownSync(ReleasedCliSession)(
+        sessionFor(email)
+      );
+
+      expect(released.approvedBy).not.toBeNull();
+      expect(released.approvedBy!.length).toBeLessThanOrEqual(80);
+    }
+  );
+
+  test("gives current dhw the full approver email", () => {
+    expect(
+      Schema.decodeUnknownSync(CliSession)(sessionFor(longEmail))
+    ).toMatchObject({
+      approvedBy: `${longEmail.slice(0, 79)}…`,
+      approvedByEmail: longEmail,
+    });
+  });
+
+  test("reads a session from a server without the approver email", () => {
+    const { approvedByEmail: _, ...released } = sessionFor(shortEmail);
+
+    expect(Schema.decodeUnknownSync(CliSession)(released)).toMatchObject({
+      approvedBy: shortEmail,
+      approvedByEmail: null,
+    });
+  });
+
+  test("shortens an approver email without splitting a character", () => {
+    const email = AdministrationActorEmail.make(
+      testEmailAddress(`${"a".repeat(78)}😀`)
+    );
+
+    expect<string>(toAdministrationActorName(email)).toBe(`${"a".repeat(78)}…`);
+    expect<string>(toAdministrationActorName(shortEmail)).toBe(shortEmail);
+  });
+});
+
+describe("administration operation groups", () => {
+  const minimum = DhwVersion.make("1.2.3");
+  const read = <const Name extends string, const Path extends `/${string}`>(
+    name: Name,
+    path: Path
+  ) =>
+    HttpApiEndpoint.get(name, path, { success: Schema.String }).annotate(
+      AdministrationOperationBehavior,
+      readOperation
+    );
+
+  const SampleApi = HttpApi.make("sampleApi")
+    .add(
+      administrationOperationGroup(
+        HttpApiGroup.make("checkedFirst").add(
+          read("read", "/first").annotate(
+            MinimumDhwVersion,
+            Option.some(minimum)
+          )
+        ),
+        { checkDhwVersionBeforeAuthentication: true }
+      )
+    )
+    .add(
+      HttpApiGroup.make("checkedPerEndpoint")
+        .add(read("read", "/unversioned"))
+        .add(read("readVersioned", "/versioned").pipe(requiresDhw(minimum)))
+        .pipe(administrationOperationGroup)
+    );
+
+  const ran: Array<string> = [];
+  const recording =
+    (name: string) =>
+    <A, E, R>(httpEffect: Effect.Effect<A, E, R>) =>
+      Effect.andThen(
+        Effect.sync(() => ran.push(name)),
+        httpEffect
+      );
+  const answered = Effect.succeed("answered");
+
+  const server = HttpRouter.toWebHandler(
+    HttpApiBuilder.layer(SampleApi).pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          HttpApiBuilder.group(SampleApi, "checkedFirst", (handlers) =>
+            handlers.handle("read", () => answered)
+          ),
+          HttpApiBuilder.group(SampleApi, "checkedPerEndpoint", (handlers) =>
+            handlers
+              .handle("read", () => answered)
+              .handle("readVersioned", () => answered)
+          )
+        )
+      ),
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(AdministrationAuthentication, {
+            bearer: (httpEffect) =>
+              recording("authentication")(
+                Effect.provideService(httpEffect, CurrentAdministrationCaller, {
+                  actor: {
+                    accountId: AdministrationAccountId.make("account-1"),
+                    email: syntheticAddress,
+                  },
+                  channel: {
+                    _tag: "CliSession",
+                    sessionId: CliSessionId.make(
+                      "01980000-0000-7000-8000-000000000000"
+                    ),
+                  },
+                })
+              ),
+          }),
+          Layer.succeed(AdministrationActionRecord, recording("action record")),
+          Layer.succeed(CliClientCompatibility, recording("dhw version check"))
+        )
+      ),
+      Layer.provide(HttpServer.layerServices)
+    ),
+    { disableLogger: true }
+  );
+  afterAll(() => server.dispose());
+
+  test.each([
+    ["/first", ["dhw version check", "authentication", "action record"]],
+    ["/unversioned", ["authentication", "action record"]],
+    ["/versioned", ["authentication", "action record", "dhw version check"]],
+  ])(
+    "serves %s under the CLI prefix, recording inside authentication",
+    async (path, expected) => {
+      ran.length = 0;
+      const response = await server.handler(
+        new Request(`https://workspace.deskohub.test/api/v1/cli${path}`)
+      );
+
+      expect(response.status).toBe(200);
+      expect(ran).toEqual(expected);
+    }
+  );
+
+  test("an endpoint requiring a dhw names its refusal only when given one", () => {
+    const defaulted = read("read", "/read").pipe(requiresDhw(minimum));
+    const unavailable = read("read", "/read").pipe(
+      requiresDhw(minimum, "CliServiceUnavailable")
+    );
+
+    expect(Context.get(defaulted.annotations, MinimumDhwVersion)).toEqual(
+      Option.some(minimum)
+    );
+    expect(defaulted.annotations.mapUnsafe.has(OutdatedDhwRefusal.key)).toBe(
+      false
+    );
+    expect(Context.get(unavailable.annotations, OutdatedDhwRefusal)).toBe(
+      "CliServiceUnavailable"
+    );
+    expect(
+      [defaulted, unavailable].map(({ middlewares }) =>
+        middlewares.has(CliClientCompatibility)
+      )
+    ).toEqual([true, true]);
+  });
+
+  test("refuses a minimum nothing checks, a check after a first one, and a CLI-only endpoint", () => {
+    const declare =
+      (
+        group: HttpApiGroup.Any,
+        options?: { readonly checkDhwVersionBeforeAuthentication: true }
+      ) =>
+      () =>
+        administrationOperationGroup(group, options);
+
+    expect(
+      declare(
+        HttpApiGroup.make("unchecked").add(
+          read("read", "/read").annotate(
+            MinimumDhwVersion,
+            Option.some(minimum)
+          )
+        )
+      )
+    ).toThrow("unchecked.read");
+    expect(
+      declare(
+        HttpApiGroup.make("unchecked")
+          .add(read("read", "/read"))
+          .annotate(MinimumDhwVersion, Option.some(minimum))
+      )
+    ).toThrow("unchecked.read");
+    expect(
+      declare(
+        HttpApiGroup.make("checkedTwice").add(
+          read("read", "/read").pipe(requiresDhw(minimum))
+        ),
+        { checkDhwVersionBeforeAuthentication: true }
+      )
+    ).toThrow("checkedTwice.read");
+    expect(
+      declare(
+        HttpApiGroup.make("cli").add(
+          HttpApiEndpoint.get("handshake", "/handshake", {
+            success: Schema.String,
+          }).annotate(CliOnly, { reason: "Signs the CLI in." })
+        )
+      )
+    ).toThrow("cli.handshake");
+    // An endpoint's own annotation overrides its group's.
+    expect(
+      declare(
+        HttpApiGroup.make("exempt")
+          .add(read("read", "/read").annotate(MinimumDhwVersion, Option.none()))
+          .annotate(MinimumDhwVersion, Option.some(minimum))
+      )
+    ).not.toThrow();
+  });
+});
+
+describe("invoice locale contract", () => {
+  test("invoices are written in exactly the supported locales", () => {
+    expect(AdministrationInvoiceCreateInput.fields.locale.literals).toEqual(
+      supportedLocales
+    );
+    expect(AdministrationInvoiceDetail.fields.locale.literals).toEqual(
+      supportedLocales
+    );
+  });
+});
+
+describe("discount code service dates contract", () => {
+  const discountId = "01980000-0000-7000-8000-000000000002";
+  const codeId = "01980000-0000-7000-8000-000000000001";
+  const decodeMutation = Schema.decodeUnknownSync(
+    AdministrationDiscountMutation,
+    { errors: "all", onExcessProperty: "error" }
+  );
+  const codeConfiguration = {
+    code: "SUMMER10",
+    enabled: true,
+    validFrom: null,
+    validUntil: null,
+    maxUses: null,
+  };
+  const updateCode = (serviceDates: object) =>
+    decodeMutation({
+      kind: "update-code",
+      code: { id: codeId, discountId, ...codeConfiguration, ...serviceDates },
+    });
+  const createCode = (serviceDates: object) =>
+    decodeMutation({
+      kind: "create-code",
+      code: { ...codeConfiguration, ...serviceDates },
+      discount: { kind: "existing", discountId },
+    });
+  const storedCode = {
+    id: codeId,
+    discountId,
+    code: "SUMMER10",
+    enabled: true,
+    validFrom: null,
+    validUntil: null,
+    audienceSize: 0,
+    reservedUses: 0,
+    redeemedUses: 0,
+    releasedUses: 0,
+    createdAt: "2026-08-10T10:00:00Z",
+    updatedAt: "2026-08-10T10:00:00Z",
+    maxUses: null,
+    maxUsesPerCustomer: null,
+    remainingUses: null,
+  };
+
+  test("accepts an omitted, cleared, one-day, or longer pair", () => {
+    const omitted = updateCode({});
+    expect(omitted.kind).toBe("update-code");
+    expect(
+      omitted.kind === "update-code" ? Object.keys(omitted.code) : []
+    ).not.toContain("serviceDateFrom");
+    for (const serviceDates of [
+      { serviceDateFrom: null, serviceDateUntil: null },
+      { serviceDateFrom: "2026-07-15", serviceDateUntil: "2026-07-15" },
+      { serviceDateFrom: "2026-07-01", serviceDateUntil: "2026-07-31" },
+    ]) {
+      expect(updateCode(serviceDates)).toMatchObject({ code: serviceDates });
+      expect(createCode(serviceDates)).toMatchObject({ code: serviceDates });
+    }
+  });
+
+  test("rejects half, inverted, and non-canonical pairs", () => {
+    for (const serviceDates of [
+      { serviceDateFrom: "2026-07-01" },
+      { serviceDateUntil: "2026-07-31" },
+      { serviceDateFrom: null },
+      { serviceDateFrom: "2026-07-01", serviceDateUntil: null },
+      { serviceDateFrom: null, serviceDateUntil: "2026-07-31" },
+      { serviceDateFrom: "2026-07-31", serviceDateUntil: "2026-07-01" },
+      { serviceDateFrom: "2026-7-1", serviceDateUntil: "2026-07-31" },
+      { serviceDateFrom: "2026-02-30", serviceDateUntil: "2026-03-31" },
+      {
+        serviceDateFrom: "2026-07-01T00:00:00Z",
+        serviceDateUntil: "2026-07-31",
+      },
+    ]) {
+      expect(() => updateCode(serviceDates)).toThrow();
+      expect(() => createCode(serviceDates)).toThrow();
+    }
+  });
+
+  test("keeps service dates off vouchers", () => {
+    expect(() =>
+      decodeMutation({
+        kind: "create-voucher",
+        voucher: {
+          ...codeConfiguration,
+          credit: { value: 10_000, exponent: 2, currency: "CZK" },
+          serviceDateFrom: "2026-07-01",
+          serviceDateUntil: "2026-07-31",
+        },
+      })
+    ).toThrow();
+  });
+
+  test("keeps a code with service dates readable by released dhw", () => {
+    const {
+      serviceDateFrom: _from,
+      serviceDateUntil: _until,
+      ...released
+    } = AdministrationDiscountCode.fields;
+    const response = Schema.encodeSync(AdministrationDiscountCode)(
+      Schema.decodeUnknownSync(AdministrationDiscountCode)({
+        ...storedCode,
+        serviceDateFrom: "2026-07-01",
+        serviceDateUntil: "2026-07-31",
+      })
+    );
+
+    expect(
+      Schema.decodeUnknownSync(Schema.Struct(released))(response)
+    ).toMatchObject({ id: codeId, code: "SUMMER10" });
+  });
+
+  test("reads an older server's code as having no service dates", () => {
+    expect(
+      Schema.decodeUnknownSync(AdministrationDiscountCode)(storedCode)
+    ).toMatchObject({ serviceDateFrom: null, serviceDateUntil: null });
   });
 });

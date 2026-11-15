@@ -4,11 +4,13 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import type { LatePaymentRecoveryState } from "@/db/schema";
-import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { ReservationRecords } from "@/features/reservation/backend/reservation-records";
+import { SeatingMapReleaseGate } from "@/features/reservation/backend/seating-map-release-gate";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import { ReviewSandboxMock } from "@/features/review-accounts/backend/review-sandbox.service.mock";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
 import { ProviderPaymentFinalizationService } from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
@@ -109,29 +111,36 @@ const makeHarness = (options: {
           ),
         }),
         Layer.mock(LatePaymentVerificationService, { startRecoveryIfSettled }),
-        Layer.mock(DotyposService, {
-          getReservationWithoutCustomer: mock(() =>
-            Effect.succeed({
-              id: "dotypos-original",
-              _customerId: "customer-id",
-              _tableId: "open-table",
-              startDate: "2026-06-20T00:00:00.000+02:00",
-              endDate: "2026-06-20T17:00:00.000+02:00",
-              seats: "1",
-              status: "CANCELLED",
-            } as never)
-          ),
-          getCustomer: mock(() =>
-            Effect.succeed({
-              id: "customer-id",
-              email: testEmailAddressForLate,
-            } as never)
-          ),
-        }),
+        ReservationRecords.Provider.pipe(
+          Layer.provideMerge(
+            Layer.mock(DotyposService, {
+              getReservationWithoutCustomer: mock(() =>
+                Effect.succeed({
+                  id: "dotypos-original",
+                  _customerId: "customer-id",
+                  _tableId: "open-table",
+                  startDate: "2026-06-20T00:00:00.000+02:00",
+                  endDate: "2026-06-20T17:00:00.000+02:00",
+                  seats: "1",
+                  status: "CANCELLED",
+                } as never)
+              ),
+              getCustomer: mock(() =>
+                Effect.succeed(
+                  Option.some({
+                    id: "customer-id",
+                    email: testEmailAddressForLate,
+                  } as never)
+                )
+              ),
+            })
+          )
+        ),
         Layer.mock(AdvisoryAvailabilityInventory, {
           tables: Effect.succeed(tables as never),
         }),
-        SeatingMapFeatureFlagServiceMock({ isEnabled: Effect.succeed(true) })
+        SeatingMapReleaseGate.fromDecision(true),
+        ReviewSandboxMock({})
       )
     )
   );

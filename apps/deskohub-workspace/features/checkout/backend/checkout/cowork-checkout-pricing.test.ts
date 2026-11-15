@@ -3,7 +3,6 @@ import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
-import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
 import { makeDiscountCommitment } from "@/features/discounts/commitment";
 import {
   affirmedDiscountAdvertisementQuoteCodec,
@@ -20,11 +19,12 @@ import {
 } from "@/features/discounts/errors";
 import { getCoworkAdvertisedPriceReservation } from "@/features/reservation/cowork-reservation";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
+import type { Money } from "@/shared/money/money";
 import { coworkCheckoutPricing } from "./cowork-checkout-pricing";
 
 const testEmailAddressForAda = testEmailAddress("ada");
 
-const money = (value: number): WorkspaceMoney => ({
+const money = (value: number): Money => ({
   value,
   exponent: 2,
   currency: "CZK",
@@ -41,6 +41,7 @@ const submittedCode = Schema.decodeUnknownSync(canonicalPromotionCodeSchema)(
 const emptyCommitment = () =>
   makeDiscountCommitment({
     product: { kind: "cowork", tier: "basic" },
+    firstServiceDate: "2099-07-30",
     applications: [],
   });
 
@@ -96,7 +97,7 @@ const bookedAt = Temporal.Instant.from("2099-06-01T10:00:00Z");
 describe("cowork checkout pricing", () => {
   test("quotes the advertised catalog price with anonymous discounts", async () => {
     const discoverAdvertisedDiscounts = mock(() =>
-      Effect.succeed(advertisementQuote)
+      Effect.succeed({ quote: advertisementQuote, complete: true })
     );
 
     const result = await runWithDiscounts(
@@ -118,6 +119,7 @@ describe("cowork checkout pricing", () => {
     expect(discoverAdvertisedDiscounts).toHaveBeenCalledWith({
       product: { kind: "cowork", tier: "basic" },
       discountableSubtotal: money(35_000),
+      firstServiceDate: reservation.date,
       lastServiceDate: reservation.date,
       locale: "en-US",
       bookedAt: expect.any(Temporal.Instant),
@@ -125,6 +127,7 @@ describe("cowork checkout pricing", () => {
     expect(result.kind).toBe("cowork");
     expect(result.reservation).toBe(advertisedReservation);
     expect(result.quote).toEqual(expectedQuote);
+    expect(result.discountsComplete).toBeTrue();
     expect(result.quote.payment.expectedPrice).toEqual(money(22_500));
   });
 
@@ -169,13 +172,15 @@ describe("cowork checkout pricing", () => {
         });
       }),
       DiscountServiceMock({
-        discoverAdvertisedDiscounts: () => Effect.succeed(baseQuote),
+        discoverAdvertisedDiscounts: () =>
+          Effect.succeed({ quote: baseQuote, complete: true }),
         previewDiscountCode,
       })
     );
 
     expect(previewDiscountCode).toHaveBeenCalledWith({
       baseQuote,
+      firstServiceDate: "2099-07-30",
       locale: "en-US",
       submittedCode,
     });
@@ -212,6 +217,7 @@ describe("cowork checkout pricing", () => {
     expect(affirmAdvertisement).toHaveBeenCalledWith({
       product: { kind: "cowork", tier: "basic" },
       discountableSubtotal: money(35_000),
+      firstServiceDate: reservation.date,
       lastServiceDate: reservation.date,
       locale: "en-US",
       bookedAt,
@@ -325,7 +331,8 @@ describe("cowork checkout pricing", () => {
           });
         }),
         DiscountServiceMock({
-          discoverAdvertisedDiscounts: () => Effect.succeed(advertisementQuote),
+          discoverAdvertisedDiscounts: () =>
+            Effect.succeed({ quote: advertisementQuote, complete: true }),
           previewDiscountCode: () =>
             Effect.fail(
               new DiscountProviderError({
@@ -397,6 +404,7 @@ describe("cowork checkout pricing", () => {
     expect(affirmDisplayedDiscounts).toHaveBeenCalledWith({
       product: { kind: "cowork", tier: "basic" },
       discountableSubtotal: money(35_000),
+      firstServiceDate: reservation.date,
       lastServiceDate: reservation.date,
       dotyposCustomerId,
       locale: "en-US",
@@ -407,6 +415,7 @@ describe("cowork checkout pricing", () => {
     expect(applyDiscountCode).toHaveBeenCalledWith({
       baseQuote: affirmedAdvertisement,
       dotyposCustomerId,
+      firstServiceDate: "2099-07-30",
       locale: "en-US",
       submittedCode,
     });
@@ -488,6 +497,7 @@ describe("cowork checkout pricing", () => {
       affirmedDiscountAdvertisementQuoteCodec.make(profiQuote);
     const commitment = makeDiscountCommitment({
       product: { kind: "cowork", tier: "profi" },
+      firstServiceDate: "2099-07-30",
       applications: [],
     });
     const applyCustomerDiscount = mock(() => Effect.succeed(profiQuote));
@@ -514,6 +524,7 @@ describe("cowork checkout pricing", () => {
     expect(applyCustomerDiscount).toHaveBeenCalledWith({
       affirmedAdvertisement: profiAffirmedAdvertisement,
       dotyposCustomerId,
+      firstServiceDate: profiOrder.date,
       locale: "en-US",
     });
     expect(customerQuote.reservation).toBe(profiOrder);
@@ -541,6 +552,7 @@ describe("cowork checkout pricing", () => {
     expect(affirmDisplayedDiscounts).toHaveBeenCalledWith({
       product: { kind: "cowork", tier: "profi" },
       discountableSubtotal: money(55_000),
+      firstServiceDate: profiOrder.date,
       lastServiceDate: profiOrder.date,
       dotyposCustomerId,
       locale: "en-US",
@@ -563,7 +575,7 @@ describe("cowork checkout pricing", () => {
       discountedSubtotal: money(41_000),
     });
     const discoverAdvertisedDiscounts = mock(() =>
-      Effect.succeed(reservedDeskQuote)
+      Effect.succeed({ quote: reservedDeskQuote, complete: true })
     );
     const withMonitor = getCoworkAdvertisedPriceReservation({
       entryTier: "reserved-desk",
@@ -605,6 +617,7 @@ describe("cowork checkout pricing", () => {
     expect(discoverAdvertisedDiscounts).toHaveBeenCalledWith({
       product: { kind: "cowork", tier: "reserved-desk" },
       discountableSubtotal: money(41_000),
+      firstServiceDate: "2099-07-30",
       lastServiceDate: "2099-07-30",
       locale: "en-US",
       bookedAt: expect.any(Temporal.Instant),

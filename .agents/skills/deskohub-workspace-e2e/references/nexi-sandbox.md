@@ -16,7 +16,7 @@
 
 ## Hosted page driver
 
-The sandbox renders each card field in its own iframe and Continue, Pay, 3-D Secure, and Back to the shop in the main document. Drive it from main-document AI snapshots, which include iframe content with frame-scoped refs: locate a field by role and exact accessible name, enter only the iframe that owns it, and restore the main frame in the same scope. Match buttons by role and exact accessible name.
+The sandbox renders each card field in its own iframe and Continue, Pay, 3-D Secure, and Back to the shop in the main document. Drive it through `E2EBrowserSession` using main-document AI snapshots, which include iframe content with frame-scoped refs. Match fields and buttons by role and exact accessible name in the snapshot, then act on the observed ref with native `aria-ref` locators. Fill each field through its owning iframe locator. There is no selected-frame state to restore. Keep each action in its own `session.use` so an interrupted step starts no later action.
 
 The sandbox fails on its own side. Known signs:
 
@@ -25,6 +25,12 @@ The sandbox fails on its own side. Known signs:
 - "OPS! Something went wrong" after a `validateAndPay` HTTP 500.
 
 Fail fast with the `nexi_hosted_<step>_<state>` diagnostic code instead of waiting out the step timeout. Never reload the rejected page or resubmit card data into it.
+
+## Failed and cancelled payments
+
+The hosted page has no cancel control that Nexi records. The card step offers only Continue, and the Pay step's Back stays on Nexi. Browser Back to the cancel URL leaves the order with no operations, so the Workspace payment stays `pending` until hold cleanup. The cancelled cases therefore inject their terminal state after Nexi opens.
+
+A real failure comes from the 3-D Secure stub. Its "Autenticazione fallita" (`challenge_failure`) choice records an `AUTHORIZATION` with result `THREEDS_FAILED` and ends on the `/hpp/nexi/error` "Payment error" page. That page's Back to the shop goes to the result URL. Accept the error page only after the driver has chosen that failure (`challengeOutcome: "failed"`); before that it is still a sandbox rejection. The `payment-authentication-failed` case returns through the real result URL. The status page then reconciles the order with Nexi to `failed` (`nexi_payment_failed`), with no webhook replay, and the case follows Try again.
 
 For failed `/fe/build/` responses, the failure `network.har` keeps only provider error codes (`errors[].code`), workflow enums (`event`, `state`, `workflowState`), and `fieldStatus` events with known field IDs; everything else is redacted. Read those codes before you blame the sandbox. If one case is rejected repeatedly while other paid cases pass, reproduce its order values (amount, currency override, customer info) directly against the sandbox before rerunning.
 
@@ -40,7 +46,7 @@ The `restart-sandbox-rejected-payment` step:
 
 1. Logs the diagnostic code and the code-only Nexi failure lines.
 2. Retires the rejected attempt with `retireRejectedPaymentAttemptForE2E`: marks the attempt and reservation payment state `failed` and releases its discount-code, voucher, and referral invitation claims, keeping the hold so cleanup is unchanged.
-3. Closes the hosted tab and waits `nexiSandboxRetryDelayMs`.
+3. Closes the hosted popup within `browserAction`, activates the checkout page, and waits `nexiSandboxRetryDelayMs`.
 4. Reopens the saved checkout pay page URL, whose `payState` value is registered for redaction.
 
 Normal Pay then creates a new attempt and Nexi order, and the `-retry` steps assert both IDs changed. A second rejection fails the case; rerun the exact-SHA workflow.

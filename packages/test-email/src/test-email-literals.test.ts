@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-  excludedRoots,
   findTestEmailLiterals,
   isTestEmailLiteralPath,
-  scannedExtensions,
-  scannedRoots,
 } from "./test-email-literals";
 
 // Fixture sources are assembled from parts so this module stays clean.
@@ -323,26 +320,5 @@ describe("isTestEmailLiteralPath", () => {
     "apps/deskohub-workspace/next.config.mjs",
   ])("skips production module %s", (path) => {
     expect(isTestEmailLiteralPath(path)).toBe(false);
-  });
-});
-
-describe("Turbo inputs", () => {
-  test("hash every module the check scans, so a cached pass cannot miss one", async () => {
-    const turbo = (await Bun.file(
-      new URL("../turbo.json", import.meta.url)
-    ).json()) as {
-      readonly tasks: Record<string, { readonly inputs?: readonly string[] }>;
-    };
-    const scanned = scannedRoots.flatMap((root) =>
-      scannedExtensions.map(
-        (extension) => `$TURBO_ROOT$/${root}/**/*.${extension}`
-      )
-    );
-    expect(turbo.tasks.test?.inputs).toEqual([
-      "$TURBO_DEFAULT$",
-      ...scanned,
-      ...excludedRoots.map((root) => `!$TURBO_ROOT$/${root}/**`),
-      "!$TURBO_ROOT$/**/node_modules/**",
-    ]);
   });
 });

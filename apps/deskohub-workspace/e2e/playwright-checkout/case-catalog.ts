@@ -1,9 +1,11 @@
 // Cases that never open a Nexi hosted payment, longest median deployed
 // duration first.
 export const workspaceE2ENonPaymentCaseIds = [
+  "automation-reservation-booked",
   "voucher-reuse-and-exhaustion",
   "discount-code-capacity-reached",
   "referral-profile-completion-checkout",
+  "checkout-signed-out-verification",
   "reservation-link-meeting-room-zero-total-en-US",
   "discount-code-already-redeemed",
   "referral-checkout-code-entry",
@@ -20,9 +22,18 @@ export const workspaceE2ENonPaymentCaseIds = [
   "discount-code-expires-before-payment",
   "customer-discount-changes-before-payment",
   "locale-switch",
+  "locale-smoke-de-de",
+  "locale-smoke-uk-ua",
+  "locale-smoke-sk-sk",
+  "locale-smoke-vi-vn",
+  "locale-smoke-hi-in",
   "discount-code-unknown",
   "discount-code-customer-ineligible",
+  "reservation-url-state-cowork",
+  "reservation-url-state-office-starts-on-link",
   "referral-profile-completion-unusable-link",
+  "reservation-url-state-office",
+  "reservation-url-state-meeting-room",
   "contact-form",
 ] as const;
 
@@ -31,17 +42,18 @@ export const workspaceE2ENonPaymentCaseIds = [
 // permit.
 const workspaceE2EPaidCaseIds = [
   "checkout-calendar-sale",
-  "checkout-guest-referral",
+  "checkout-referral-someone-else",
   "payment-late-recovery-recreated",
   "checkout-meeting-room-paid-one-hour",
   "checkout-meeting-room-paid-whole-day",
+  "checkout-agent-booking",
   "checkout-cowork-basic",
   "checkout-all-discounts",
   "checkout-office-paid-multi-day",
   "payment-late-recovery-refund-required",
   "checkout-voucher-full-usage",
   "checkout-discount-code",
-  "payment-failed",
+  "payment-authentication-failed",
   "payment-meeting-room-cancelled",
   "payment-cancelled",
 ] as const;
@@ -67,6 +79,30 @@ export const isWorkspaceE2EReferralCaseId = (
   value: string
 ): value is WorkspaceE2EReferralCaseId =>
   (workspaceE2EReferralCaseIds as readonly string[]).includes(value);
+
+/**
+ * Cases that need the office page. A preview with the office page disabled
+ * plans none of them.
+ */
+const workspaceE2EOfficeCaseIds = [
+  "checkout-office-paid-multi-day",
+  "reservation-url-state-office",
+  "reservation-url-state-office-starts-on-link",
+] as const satisfies readonly WorkspaceE2ECaseId[];
+
+export const isWorkspaceE2EOfficeCaseId = (value: string) =>
+  (workspaceE2EOfficeCaseIds as readonly string[]).includes(value);
+
+/**
+ * Cases too slow for the per-PR gate. They run only when the run opts into
+ * nightly cases, as the nightly run against main does.
+ */
+const workspaceE2ENightlyCaseIds = [
+  "automation-reservation-booked",
+] as const satisfies readonly WorkspaceE2ECaseId[];
+
+export const isWorkspaceE2ENightlyCaseId = (value: string) =>
+  (workspaceE2ENightlyCaseIds as readonly string[]).includes(value);
 
 export const workspaceE2ECaseIds = [
   ...workspaceE2ENonPaymentCaseIds,

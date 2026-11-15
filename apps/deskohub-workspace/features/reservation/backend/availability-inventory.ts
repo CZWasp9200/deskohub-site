@@ -1,27 +1,25 @@
 import {
+  type DotyposReadFailure,
   type DotyposReservationInterval,
   DotyposService,
   type DotyposTable,
-  type ExternalAPIError,
-  type NetworkError,
-  type ValidationError,
 } from "@deskohub/dotypos";
 import type {
   GoogleCalendarError,
   GoogleCalendarEventQuery,
 } from "@deskohub/google-calendar";
 import { Context, Effect, Layer } from "effect";
-import type { OccupancyReservation } from "@/features/checkout/backend/reservation";
+import type { SharedSnapshotLoadFailure } from "@/shared/backend/shared-snapshot";
 import {
   GoogleCalendarWorkspaceLimitationsService,
   type WorkspaceCalendarLimitation,
 } from "./google-calendar-workspace-limitations.service";
+import type { ReservationRecord } from "./reservation-record";
 
 export type AvailabilityInventoryError =
-  | ExternalAPIError
+  | DotyposReadFailure
   | GoogleCalendarError
-  | NetworkError
-  | ValidationError;
+  | SharedSnapshotLoadFailure;
 
 /** The provider reads that availability is computed from. */
 export interface AvailabilityInventory {
@@ -31,10 +29,7 @@ export interface AvailabilityInventory {
   >;
   readonly listActiveReservationsOverlapping: (
     interval: DotyposReservationInterval
-  ) => Effect.Effect<
-    readonly OccupancyReservation[],
-    AvailabilityInventoryError
-  >;
+  ) => Effect.Effect<readonly ReservationRecord[], AvailabilityInventoryError>;
   readonly listLimitations: (
     query: GoogleCalendarEventQuery
   ) => Effect.Effect<

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { Option } from "effect";
 import "@/shared/polyfills/temporal";
 import {
   toCreateDiscountCodeInput,
   toCreateDiscountInput,
+  toDiscountCodeUpdateInput,
+  toVoucherConfigurationInput,
   toVoucherCreditInput,
 } from "./form-input";
 import type {
@@ -23,17 +26,27 @@ const percentageDefinition = (
   ...overrides,
 });
 
+const createdDiscount = (values: DiscountDefinitionFormValues) =>
+  Option.getOrThrow(toCreateDiscountInput(values));
+
 describe("discount administration form input", () => {
   test("converts a percentage value to stored basis points", () => {
-    expect(toCreateDiscountInput(percentageDefinition()).adjustment).toEqual({
+    expect(createdDiscount(percentageDefinition()).adjustment).toEqual({
       kind: "percentage",
       basisPoints: 1025,
     });
   });
 
+  test("ignores the inactive fixed-amount currency of a percentage discount", () => {
+    expect(
+      createdDiscount(percentageDefinition({ fixedAmountCurrency: "ZZZ" }))
+        .adjustment
+    ).toEqual({ kind: "percentage", basisPoints: 1025 });
+  });
+
   test("maps cowork tier keys to tier targets", () => {
     expect(
-      toCreateDiscountInput(
+      createdDiscount(
         percentageDefinition({
           products: ["office", "cowork:reserved-desk", "cowork:open-space"],
         })
@@ -47,14 +60,13 @@ describe("discount administration form input", () => {
 
   test("keeps the broad cowork key as the target covering every tier", () => {
     expect(
-      toCreateDiscountInput(percentageDefinition({ products: ["cowork"] }))
-        .products
+      createdDiscount(percentageDefinition({ products: ["cowork"] })).products
     ).toEqual([{ kind: "cowork" }]);
   });
 
   test("converts a fixed amount in a known catalog currency", () => {
     expect(
-      toCreateDiscountInput(
+      createdDiscount(
         percentageDefinition({
           adjustmentKind: "fixed",
           fixedAmountValue: "10000",
@@ -67,6 +79,19 @@ describe("discount administration form input", () => {
     });
   });
 
+  test("forms no discount for a fixed amount outside the catalog", () => {
+    expect(
+      Option.isNone(
+        toCreateDiscountInput(
+          percentageDefinition({
+            adjustmentKind: "fixed",
+            fixedAmountCurrency: "ZZZ",
+          })
+        )
+      )
+    ).toBe(true);
+  });
+
   test("converts local code times through the Workspace time zone", () => {
     const values: DiscountCodeFormValues = {
       discountId: "019c91dd-c560-7e55-b9d8-c95065efd51d",
@@ -76,6 +101,8 @@ describe("discount administration form input", () => {
       validUntil: "2026-09-01T10:00",
       maxUses: "100",
       maxUsesPerCustomer: "2",
+      serviceDateFrom: "",
+      serviceDateUntil: "",
     };
 
     expect(toCreateDiscountCodeInput(values)).toEqual({
@@ -86,19 +113,107 @@ describe("discount administration form input", () => {
       validUntil: "2026-09-01T08:00:00Z",
       maxUses: 100,
       maxUsesPerCustomer: 2,
+      serviceDateFrom: null,
+      serviceDateUntil: null,
     });
+  });
+
+  test("sends a code's reservation dates as a pair", () => {
+    const values: DiscountCodeFormValues = {
+      discountId: "019c91dd-c560-7e55-b9d8-c95065efd51d",
+      code: "SUMMER10",
+      enabled: true,
+      validFrom: "",
+      validUntil: "",
+      maxUses: "",
+      maxUsesPerCustomer: "",
+      serviceDateFrom: "2026-07-15",
+      serviceDateUntil: "2026-07-15",
+    };
+
+    expect(toCreateDiscountCodeInput(values)).toMatchObject({
+      serviceDateFrom: "2026-07-15",
+      serviceDateUntil: "2026-07-15",
+    });
+    // Emptied fields send explicit nulls, which clear an edited code's dates.
+    expect(
+      toCreateDiscountCodeInput({
+        ...values,
+        serviceDateFrom: "",
+        serviceDateUntil: "",
+      })
+    ).toMatchObject({ serviceDateFrom: null, serviceDateUntil: null });
+  });
+
+  test("leaves reservation dates out of an edit that kept them", () => {
+    const values: DiscountCodeFormValues = {
+      discountId: "019c91dd-c560-7e55-b9d8-c95065efd51d",
+      code: "SUMMER10",
+      enabled: true,
+      validFrom: "",
+      validUntil: "",
+      maxUses: "",
+      maxUsesPerCustomer: "",
+      serviceDateFrom: "2026-07-01",
+      serviceDateUntil: "2026-07-31",
+    };
+    const loaded = {
+      serviceDateFrom: "2026-07-01",
+      serviceDateUntil: "2026-07-31",
+    };
+
+    const kept = toDiscountCodeUpdateInput(values, loaded);
+    expect(Object.keys(kept)).not.toContain("serviceDateFrom");
+    expect(Object.keys(kept)).not.toContain("serviceDateUntil");
+    expect(
+      toDiscountCodeUpdateInput(
+        { ...values, serviceDateUntil: "2026-08-15" },
+        loaded
+      )
+    ).toMatchObject({
+      serviceDateFrom: "2026-07-01",
+      serviceDateUntil: "2026-08-15",
+    });
+    expect(
+      toDiscountCodeUpdateInput(
+        { ...values, serviceDateFrom: "", serviceDateUntil: "" },
+        loaded
+      )
+    ).toMatchObject({ serviceDateFrom: null, serviceDateUntil: null });
+    // A code without dates that stays without them sends nothing either.
+    expect(
+      Object.keys(
+        toDiscountCodeUpdateInput(
+          { ...values, serviceDateFrom: "", serviceDateUntil: "" },
+          { serviceDateFrom: null, serviceDateUntil: null }
+        )
+      )
+    ).not.toContain("serviceDateFrom");
+  });
+
+  test("gives vouchers no usage limits or reservation dates", () => {
+    expect(
+      Object.keys(
+        toVoucherConfigurationInput({
+          voucherValue: "10000",
+          voucherCurrency: "CZK",
+          code: "gift100",
+          enabled: true,
+          validFrom: "",
+          validUntil: "",
+        })
+      ).sort()
+    ).toEqual(["code", "enabled", "validFrom", "validUntil"]);
   });
 
   test("reads voucher credit in the selected catalog currency", () => {
     expect(
       toVoucherCreditInput({ voucherValue: "10000", voucherCurrency: "czk" })
-    ).toEqual({
-      value: 10_000,
-      exponent: 2,
-      currency: "CZK",
-    });
+    ).toEqual(Option.some({ value: 10_000, exponent: 2, currency: "CZK" }));
     expect(
-      toVoucherCreditInput({ voucherValue: "5000", voucherCurrency: "zzz" })
-    ).toEqual({ value: 5000, exponent: -1, currency: "" });
+      Option.isNone(
+        toVoucherCreditInput({ voucherValue: "5000", voucherCurrency: "zzz" })
+      )
+    ).toBe(true);
   });
 });

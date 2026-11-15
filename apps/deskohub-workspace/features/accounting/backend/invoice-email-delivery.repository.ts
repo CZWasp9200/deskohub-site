@@ -1,30 +1,60 @@
+import "@/shared/polyfills/temporal";
+
+import type { DotyposCustomerId } from "@deskohub/dotypos";
 import type { EmailDeliveryId } from "@deskohub/email";
-import { and, eq, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, or, type SQL, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { invoiceEmailDeliveries } from "@/db/schema";
+import { invoiceEmailDeliveries, invoices } from "@/db/schema";
+import type { InvoiceNumber } from "@/features/accounting/invoice";
 import type {
+  InvoiceDeliveryStatus,
   InvoiceEmailDeliveryAudience,
   InvoiceEmailDeliveryFailureCode,
+  InvoiceEmailDeliveryState,
 } from "@/features/accounting/invoice-email-delivery";
+import type { InvoiceId } from "@/features/accounting/manual-invoice";
+import {
+  type ReadLimitExceededError,
+  readLimitSentinel,
+  requireWithinReadLimit,
+} from "@/shared/backend/read-limit";
 
 export interface InvoiceEmailDeliveryClaim {
   readonly attemptNumber: number;
+}
+
+export interface InvoiceDeliverySummary
+  extends Readonly<
+    Record<InvoiceEmailDeliveryAudience, InvoiceDeliveryStatus>
+  > {
+  /** An audience is missing or failed, or its delivery outlived its lease. */
+  readonly needsAttention: boolean;
+}
+
+/**
+ * The state of one invoice email sent to the customer. The operator's
+ * internal copy, the attempt count, the failure code and the provider's
+ * delivery id are not part of it.
+ */
+export interface CustomerInvoiceDelivery {
+  readonly invoiceNumber: InvoiceNumber;
+  readonly state: InvoiceEmailDeliveryState;
+  readonly createdAt: Temporal.Instant;
+  readonly acceptedAt: Temporal.Instant | null;
 }
 
 export interface IInvoiceEmailDeliveryRepository {
   readonly claim: (input: {
     readonly invoiceId: string;
     readonly audience: InvoiceEmailDeliveryAudience;
-    readonly staleProcessingBefore: Temporal.Instant;
   }) => Effect.Effect<
     InvoiceEmailDeliveryClaim | null,
     EffectDrizzleQueryError
   >;
   readonly claimResend: (input: {
     readonly invoiceId: string;
-    readonly staleProcessingBefore: Temporal.Instant;
   }) => Effect.Effect<
     InvoiceEmailDeliveryClaim | null,
     EffectDrizzleQueryError
@@ -42,6 +72,26 @@ export interface IInvoiceEmailDeliveryRepository {
     readonly attemptNumber: number;
     readonly failureCode: InvoiceEmailDeliveryFailureCode;
   }) => Effect.Effect<void, EffectDrizzleQueryError>;
+  /**
+   * The customer-audience deliveries of the Dotypos customer's invoices,
+   * oldest first, scoped by the invoice's own customer column. Fails with
+   * `ReadLimitExceededError`, returning no rows, when there are more than
+   * `limit`.
+   */
+  readonly listForCustomer: (input: {
+    readonly dotyposCustomerId: DotyposCustomerId;
+    readonly limit: number;
+  }) => Effect.Effect<
+    readonly CustomerInvoiceDelivery[],
+    EffectDrizzleQueryError | ReadLimitExceededError
+  >;
+  /** Summarizes every requested invoice, including one with no delivery yet. */
+  readonly status: (
+    invoiceIds: readonly InvoiceId[]
+  ) => Effect.Effect<
+    ReadonlyMap<InvoiceId, InvoiceDeliverySummary>,
+    EffectDrizzleQueryError
+  >;
 }
 
 export class InvoiceEmailDeliveryRepository extends Context.Service<
@@ -57,7 +107,6 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
         claim: Effect.fn("InvoiceEmailDeliveryRepository.claim")(function* ({
           audience,
           invoiceId,
-          staleProcessingBefore,
         }) {
           const now = Temporal.Now.instant();
           const [claimed] = yield* db
@@ -84,10 +133,7 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
               },
               setWhere: or(
                 eq(invoiceEmailDeliveries.state, "failed"),
-                and(
-                  eq(invoiceEmailDeliveries.state, "processing"),
-                  lt(invoiceEmailDeliveries.updatedAt, staleProcessingBefore)
-                )
+                isStaleProcessing()
               ),
             })
             .returning({
@@ -97,7 +143,7 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
           return claimed ?? null;
         }),
         claimResend: Effect.fn("InvoiceEmailDeliveryRepository.claimResend")(
-          function* ({ invoiceId, staleProcessingBefore }) {
+          function* ({ invoiceId }) {
             const now = Temporal.Now.instant();
             const [claimed] = yield* db
               .insert(invoiceEmailDeliveries)
@@ -122,10 +168,7 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
                 setWhere: or(
                   eq(invoiceEmailDeliveries.state, "accepted"),
                   eq(invoiceEmailDeliveries.state, "failed"),
-                  and(
-                    eq(invoiceEmailDeliveries.state, "processing"),
-                    lt(invoiceEmailDeliveries.updatedAt, staleProcessingBefore)
-                  )
+                  isStaleProcessing()
                 ),
               })
               .returning({
@@ -175,7 +218,91 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
               );
           }
         ),
+        listForCustomer: Effect.fn(
+          "InvoiceEmailDeliveryRepository.listForCustomer"
+        )(function* ({ dotyposCustomerId, limit }) {
+          const rows: readonly CustomerInvoiceDelivery[] = yield* db
+            .select({
+              invoiceNumber: invoices.invoiceNumber,
+              state: invoiceEmailDeliveries.state,
+              createdAt: invoiceEmailDeliveries.createdAt,
+              acceptedAt: invoiceEmailDeliveries.acceptedAt,
+            })
+            .from(invoiceEmailDeliveries)
+            .innerJoin(
+              invoices,
+              eq(invoiceEmailDeliveries.invoiceId, invoices.id)
+            )
+            .where(
+              and(
+                eq(invoices.dotyposCustomerId, dotyposCustomerId),
+                eq(invoiceEmailDeliveries.audience, "customer")
+              )
+            )
+            .orderBy(
+              asc(invoiceEmailDeliveries.createdAt),
+              asc(invoiceEmailDeliveries.id)
+            )
+            .limit(readLimitSentinel(limit));
+          return yield* requireWithinReadLimit(rows, limit);
+        }),
+        status: Effect.fn("InvoiceEmailDeliveryRepository.status")(
+          function* (invoiceIds) {
+            const rows =
+              invoiceIds.length === 0
+                ? []
+                : yield* db
+                    .select({
+                      invoiceId: invoiceEmailDeliveries.invoiceId,
+                      audience: invoiceEmailDeliveries.audience,
+                      state: invoiceEmailDeliveries.state,
+                      stale: sql<boolean>`${isStaleProcessing()}`,
+                    })
+                    .from(invoiceEmailDeliveries)
+                    .where(
+                      inArray(invoiceEmailDeliveries.invoiceId, invoiceIds)
+                    );
+            const deliveriesByInvoice = Map.groupBy(
+              rows,
+              ({ invoiceId }) => invoiceId
+            );
+            return new Map(
+              invoiceIds.map((invoiceId) => {
+                const deliveries = deliveriesByInvoice.get(invoiceId) ?? [];
+                const statusOf = (
+                  audience: InvoiceEmailDeliveryAudience
+                ): InvoiceDeliveryStatus =>
+                  deliveries.find((delivery) => delivery.audience === audience)
+                    ?.state ?? "missing";
+                const customer = statusOf("customer");
+                const internal = statusOf("internal");
+                const summary: InvoiceDeliverySummary = {
+                  customer,
+                  internal,
+                  needsAttention:
+                    deliveries.some(({ stale }) => stale) ||
+                    [customer, internal].some(
+                      (status) => status === "missing" || status === "failed"
+                    ),
+                };
+                return [invoiceId, summary] as const;
+              })
+            );
+          }
+        ),
       } satisfies IInvoiceEmailDeliveryRepository;
     })
   );
+
+  static Live = this.Default.pipe(Layer.provide(WorkspaceDatabase.Default));
 }
+
+/** How long a claimed delivery stays processing before another worker may reclaim it. */
+const processingLease = Temporal.Duration.from({ minutes: 1 });
+
+/** Matches a processing delivery whose claim outlived its lease. */
+const isStaleProcessing = (): SQL =>
+  sql`(${eq(invoiceEmailDeliveries.state, "processing")} and ${lt(
+    invoiceEmailDeliveries.updatedAt,
+    Temporal.Now.instant().subtract(processingLease)
+  )})`;

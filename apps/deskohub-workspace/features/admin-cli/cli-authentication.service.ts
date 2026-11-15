@@ -1,6 +1,5 @@
 import {
-  AdministrationActorUsername,
-  type AdministrationActorUsernameType,
+  AdministrationActorEmail,
   CliAccessToken,
   type CliAccessTokenType,
   CliAuthenticationCode,
@@ -17,6 +16,7 @@ import {
   type ExchangeCliGrantType,
   makeCliAuthenticationSecret,
   type StartCliAuthenticationType,
+  toAdministrationActorName,
 } from "@deskohub/workspace-admin-api";
 import { WORKSPACE_SITE_TIME_ZONE } from "@deskohub/workspace-admin-api/site-time-zone";
 import { NodeCrypto } from "@effect/platform-node";
@@ -40,10 +40,15 @@ import {
   cliAuthenticationRequests,
   cliSessions,
 } from "@/db/schema";
+import { authUser } from "@/db/schema/auth";
 import "@/shared/polyfills/temporal";
+import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { CliAuthenticationRequestId } from "@/features/admin-cli/cli-identifiers";
-import { ConfiguredAdministrators } from "@/shared/administrator/configured-administrators.service";
+import { administrationHref } from "@/features/administration/administration-href";
+import type { AdministratorAccountActor } from "@/features/administrators/account-role";
+import { AccountRoleGrants } from "@/features/administrators/backend/account-role-grants.service";
 import { addCalendarDuration, currentInstant } from "@/shared/utils/temporal";
+import { revokeCliSessions } from "./administration-cli-access";
 import { type CliSessionLifetime, cliSessionLifetimeSchema } from "./contracts";
 
 const authenticationLifetimeMinutes = 5;
@@ -90,6 +95,11 @@ interface ICliAuthentication {
     | SqlError
     | CliGrantRejected
   >;
+  /**
+   * Accepts a bearer only while its session is unrevoked and unexpired and
+   * its approving account still holds the administrator role and isn't
+   * awaiting deletion. The grant is read on every call.
+   */
   readonly authenticateSession: (
     authorization: string
   ) => Effect.Effect<
@@ -97,6 +107,13 @@ interface ICliAuthentication {
     | EffectDrizzleQueryError
     | PlatformError.PlatformError
     | CliSessionUnauthorized
+  >;
+  /** The administrator account that approved an authenticated session. */
+  readonly sessionAdministrator: (
+    sessionId: CliSessionIdType
+  ) => Effect.Effect<
+    AdministratorAccountActor,
+    EffectDrizzleQueryError | CliSessionUnauthorized
   >;
   readonly inspectApproval: (
     code: CliAuthenticationCodeType
@@ -106,26 +123,27 @@ interface ICliAuthentication {
   >;
   readonly approve: (input: {
     readonly code: CliAuthenticationCodeType;
-    readonly approvedBy: AdministrationActorUsernameType;
+    readonly approvedBy: AdministratorAccountActor;
     readonly sessionLifetime: CliSessionLifetime;
   }) => Effect.Effect<
     CliApprovalRequest,
     | EffectDrizzleQueryError
     | PlatformError.PlatformError
+    | SqlError
     | CliApprovalUnavailableError
   >;
   readonly listSessions: (
-    owner: AdministrationActorUsernameType
+    owner: CustomerAccountId
   ) => Effect.Effect<
     ReadonlyArray<CliSessionAdministrationItem>,
     EffectDrizzleQueryError
   >;
   readonly revoke: (input: {
-    readonly owner: AdministrationActorUsernameType;
+    readonly owner: CustomerAccountId;
     readonly sessionId: CliSessionIdType;
   }) => Effect.Effect<boolean, EffectDrizzleQueryError>;
   readonly renameSession: (input: {
-    readonly owner: AdministrationActorUsernameType;
+    readonly owner: CustomerAccountId;
     readonly sessionId: CliSessionIdType;
     readonly clientName: CliClientNameType;
   }) => Effect.Effect<boolean, EffectDrizzleQueryError>;
@@ -138,9 +156,12 @@ export class CliAuthentication extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const { db } = yield* WorkspaceDatabase;
+      const database = yield* WorkspaceDatabase;
+      const { db, transaction } = yield* WorkspaceDatabase;
       const crypto = yield* Crypto.Crypto;
-      const administrators = yield* ConfiguredAdministrators;
+      const roleGrants = yield* AccountRoleGrants;
+      const holdsAdministratorRole = (accountId: CustomerAccountId) =>
+        roleGrants.has({ accountId, role: "administrator" });
       const makeSecret = () =>
         makeCliAuthenticationSecret().pipe(
           Effect.provideService(Crypto.Crypto, crypto)
@@ -207,7 +228,10 @@ export class CliAuthentication extends Context.Service<
 
         return {
           code,
-          approvalPath: `/admin/cli/authenticate?code=${encodeURIComponent(code)}`,
+          // The proxy opens this unprefixed CLI URL in the operator's language.
+          approvalPath: `${administrationHref(
+            "/[locale]/admin/cli/authenticate"
+          )}?code=${encodeURIComponent(code)}`,
           expiresAt: toIsoString(expiresAt),
         };
       });
@@ -248,7 +272,7 @@ export class CliAuthentication extends Context.Service<
 
       const approve = Effect.fn("CliAuthentication.approve")(function* (input: {
         readonly code: CliAuthenticationCodeType;
-        readonly approvedBy: AdministrationActorUsernameType;
+        readonly approvedBy: AdministratorAccountActor;
         readonly sessionLifetime: CliSessionLifetime;
       }) {
         const result = yield* loadRequest(input.code);
@@ -266,23 +290,39 @@ export class CliAuthentication extends Context.Service<
 
         const grantToken = CliGrantToken.make(yield* makeSecret());
         const grantExpiresAt = now.add({ minutes: grantLifetimeMinutes });
-        const [approved] = yield* db
-          .update(cliAuthenticationRequests)
-          .set({
-            approvedAt: now,
-            approvedBy: input.approvedBy,
-            grantToken,
-            grantExpiresAt,
-            sessionExpiresAt: toSessionExpiry(input.sessionLifetime, now),
+        const [approved] = yield* transaction(
+          Effect.gen(function* () {
+            // The lock makes a concurrent revoke wait and then withdraw this
+            // grant token, or makes this approval see the grant gone.
+            const approverHoldsRole = yield* roleGrants.lockHeld({
+              accountId: input.approvedBy.accountId,
+              role: "administrator",
+            });
+            if (!approverHoldsRole) {
+              return yield* new CliApprovalUnavailableError({
+                message: "The approving account isn't an administrator.",
+              });
+            }
+            return yield* db
+              .update(cliAuthenticationRequests)
+              .set({
+                approvedAt: now,
+                approvedByAccountId: input.approvedBy.accountId,
+                approvedByAccountEmail: input.approvedBy.email,
+                grantToken: grantToken,
+                grantExpiresAt,
+                sessionExpiresAt: toSessionExpiry(input.sessionLifetime, now),
+              })
+              .where(
+                and(
+                  eq(cliAuthenticationRequests.id, result.request.id),
+                  isNull(cliAuthenticationRequests.approvedAt),
+                  gt(cliAuthenticationRequests.expiresAt, now)
+                )
+              )
+              .returning();
           })
-          .where(
-            and(
-              eq(cliAuthenticationRequests.id, result.request.id),
-              isNull(cliAuthenticationRequests.approvedAt),
-              gt(cliAuthenticationRequests.expiresAt, now)
-            )
-          )
-          .returning();
+        );
 
         if (!approved) {
           const latest = yield* loadRequest(input.code);
@@ -322,16 +362,9 @@ export class CliAuthentication extends Context.Service<
           .limit(1);
         if (!request) return yield* rejectedGrant;
 
-        const approvedBy = Option.getOrUndefined(
-          Schema.decodeUnknownOption(AdministrationActorUsername)(
-            request.approvedBy
-          )
-        );
-        if (
-          !approvedBy ||
-          approvedBy !== request.approvedBy ||
-          !(yield* administrators.hasUsername(approvedBy))
-        ) {
+        // A request approved before accounts carries only a username.
+        const { approvedByAccountId, approvedByAccountEmail } = request;
+        if (approvedByAccountId === null || approvedByAccountEmail === null) {
           return yield* rejectedGrant;
         }
 
@@ -339,11 +372,20 @@ export class CliAuthentication extends Context.Service<
         const tokenHash = yield* digestSecret(accessToken);
         const sessionId = CliSessionId.make(yield* crypto.randomUUIDv7);
 
-        const session = yield* db.transaction(
-          Effect.fn(function* (tx) {
-            yield* tx.insert(cliSessions).values({
+        const session = yield* transaction(
+          Effect.gen(function* () {
+            // The lock makes a concurrent revoke wait for this session and
+            // revoke it too, or makes this exchange see the grant gone.
+            const approverHoldsRole = yield* roleGrants.lockHeld({
+              accountId: approvedByAccountId,
+              role: "administrator",
+            });
+            if (!approverHoldsRole) return yield* rejectedGrant;
+
+            yield* db.insert(cliSessions).values({
               id: sessionId,
-              approvedBy,
+              approvedByAccountId,
+              approvedByAccountEmail: approvedByAccountEmail,
               tokenHash,
               clientName: request.clientName,
               cliVersion: request.cliVersion,
@@ -353,7 +395,7 @@ export class CliAuthentication extends Context.Service<
               expiresAt: request.sessionExpiresAt,
             });
 
-            const consumed = yield* tx
+            const consumed = yield* db
               .update(cliAuthenticationRequests)
               .set({
                 consumedAt: now,
@@ -375,9 +417,9 @@ export class CliAuthentication extends Context.Service<
             if (consumed.length === 0) return yield* rejectedGrant;
             return {
               id: sessionId,
-              approvedBy,
-              approvedByAccountId: null,
-              approvedByAccountEmail: null,
+              approvedBy: null,
+              approvedByAccountId,
+              approvedByAccountEmail,
               tokenHash,
               clientName: request.clientName,
               cliVersion: request.cliVersion,
@@ -401,23 +443,29 @@ export class CliAuthentication extends Context.Service<
 
         const tokenHash = yield* digestSecret(token);
         const now = yield* currentInstant;
-        const [session] = yield* db
-          .select()
+        // The inner join drops sessions without an approving account.
+        const [found] = yield* db
+          .select({ session: cliSessions })
           .from(cliSessions)
+          .innerJoin(authUser, eq(cliSessions.approvedByAccountId, authUser.id))
           .where(
             and(
               eq(cliSessions.tokenHash, tokenHash),
               isNull(cliSessions.revokedAt),
-              unexpiredSession(now)
+              unexpiredSession(now),
+              isNull(authUser.deletionRequestedAt)
             )
           )
           .limit(1);
-        if (!session) return yield* unauthorizedSession;
+        if (!found) return yield* unauthorizedSession;
+        const { session } = found;
 
-        const ownerConfigured = yield* administrators.hasUsername(
-          session.approvedBy
-        );
-        if (!ownerConfigured) return yield* unauthorizedSession;
+        if (
+          session.approvedByAccountId === null ||
+          !(yield* holdsAdministratorRole(session.approvedByAccountId))
+        ) {
+          return yield* unauthorizedSession;
+        }
 
         const writeBefore = now.subtract({
           minutes: lastUsedWriteIntervalMinutes,
@@ -438,13 +486,33 @@ export class CliAuthentication extends Context.Service<
         return toCliSession(updated ?? session);
       });
 
+      const sessionAdministrator = Effect.fn(
+        "CliAuthentication.sessionAdministrator"
+      )(function* (sessionId: CliSessionIdType) {
+        const [session] = yield* db
+          .select({
+            accountId: cliSessions.approvedByAccountId,
+            email: cliSessions.approvedByAccountEmail,
+          })
+          .from(cliSessions)
+          .where(eq(cliSessions.id, sessionId))
+          .limit(1);
+        if (!session?.accountId || !session.email) {
+          return yield* unauthorizedSession;
+        }
+        return {
+          accountId: session.accountId,
+          email: session.email,
+        } satisfies AdministratorAccountActor;
+      });
+
       const listSessions = Effect.fn("CliAuthentication.listSessions")(
-        function* (owner: AdministrationActorUsernameType) {
+        function* (owner: CustomerAccountId) {
           const now = yield* currentInstant;
           const rows = yield* db
             .select()
             .from(cliSessions)
-            .where(eq(cliSessions.approvedBy, owner))
+            .where(eq(cliSessions.approvedByAccountId, owner))
             .orderBy(desc(cliSessions.createdAt));
           return rows.map((row) => ({
             ...toCliSession(row),
@@ -455,27 +523,18 @@ export class CliAuthentication extends Context.Service<
       );
 
       const revoke = Effect.fn("CliAuthentication.revoke")(function* (input: {
-        readonly owner: AdministrationActorUsernameType;
+        readonly owner: CustomerAccountId;
         readonly sessionId: CliSessionIdType;
       }) {
-        const now = yield* currentInstant;
-        const revoked = yield* db
-          .update(cliSessions)
-          .set({ revokedAt: now })
-          .where(
-            and(
-              eq(cliSessions.id, input.sessionId),
-              eq(cliSessions.approvedBy, input.owner),
-              isNull(cliSessions.revokedAt)
-            )
-          )
-          .returning({ id: cliSessions.id });
+        const revoked = yield* revokeCliSessions(input).pipe(
+          Effect.provideService(WorkspaceDatabase, database)
+        );
         return revoked.length > 0;
       });
 
       const renameSession = Effect.fn("CliAuthentication.renameSession")(
         function* (input: {
-          readonly owner: AdministrationActorUsernameType;
+          readonly owner: CustomerAccountId;
           readonly sessionId: CliSessionIdType;
           readonly clientName: CliClientNameType;
         }) {
@@ -485,7 +544,7 @@ export class CliAuthentication extends Context.Service<
             .where(
               and(
                 eq(cliSessions.id, input.sessionId),
-                eq(cliSessions.approvedBy, input.owner)
+                eq(cliSessions.approvedByAccountId, input.owner)
               )
             )
             .returning({ id: cliSessions.id });
@@ -498,6 +557,7 @@ export class CliAuthentication extends Context.Service<
         status,
         exchange,
         authenticateSession,
+        sessionAdministrator,
         inspectApproval,
         approve,
         listSessions,
@@ -512,7 +572,7 @@ export class CliAuthentication extends Context.Service<
       Layer.mergeAll(
         WorkspaceDatabase.Default,
         NodeCrypto.layer,
-        ConfiguredAdministrators.Default
+        AccountRoleGrants.Live
       )
     )
   );
@@ -543,7 +603,7 @@ const toSessionExpiry = (
   });
 
 const toSessionStatus = (
-  row: CliSessionRow,
+  row: Pick<CliSessionRow, "expiresAt" | "revokedAt">,
   now: Temporal.Instant
 ): CliSessionAdministrationItem["status"] => {
   if (row.revokedAt) return "revoked";
@@ -553,9 +613,18 @@ const toSessionStatus = (
   return "active";
 };
 
+const toSessionApprover = (accountEmail: string | null) => {
+  if (accountEmail === null) return { approvedBy: null, approvedByEmail: null };
+  const email = AdministrationActorEmail.make(accountEmail);
+  return {
+    approvedBy: toAdministrationActorName(email),
+    approvedByEmail: email,
+  };
+};
+
 const toCliSession = (row: CliSessionRow): CliSessionType => ({
   id: row.id,
-  approvedBy: row.approvedBy,
+  ...toSessionApprover(row.approvedByAccountEmail),
   clientName: row.clientName,
   cliVersion: row.cliVersion,
   buildTarget: row.buildTarget,
@@ -574,15 +643,26 @@ const toAuthenticationStatus = (
 ): CliAuthenticationStatusType => {
   const { request, revokedAt, sessionExpiresAt } = result;
   if (request.sessionId) {
-    if (revokedAt) return { authStatus: "revoked" };
-    if (
-      sessionExpiresAt &&
-      Temporal.Instant.compare(now, sessionExpiresAt) >= 0
-    ) {
-      return { authStatus: "expired" };
-    }
-    return { authStatus: "granted" };
+    const sessionStatus = toSessionStatus(
+      { expiresAt: sessionExpiresAt, revokedAt },
+      now
+    );
+    return { authStatus: exchangedAuthenticationStatus[sessionStatus] };
   }
+  return toUnexchangedAuthenticationStatus(request, now);
+};
+
+// A request whose grant was exchanged reports the lifecycle of its session.
+const exchangedAuthenticationStatus = {
+  active: "granted",
+  expired: "expired",
+  revoked: "revoked",
+} as const;
+
+const toUnexchangedAuthenticationStatus = (
+  request: CliAuthenticationRequestRow,
+  now: Temporal.Instant
+): CliAuthenticationStatusType => {
   if (
     !request.approvedAt &&
     Temporal.Instant.compare(now, request.expiresAt) < 0
@@ -592,6 +672,14 @@ const toAuthenticationStatus = (
       expiresAt: toIsoString(request.expiresAt),
     };
   }
+  return toApprovedGrantStatus(request, now) ?? { authStatus: "expired" };
+};
+
+/** The approved status while the request's grant token can be exchanged. */
+const toApprovedGrantStatus = (
+  request: CliAuthenticationRequestRow,
+  now: Temporal.Instant
+) => {
   const grantToken = Option.getOrUndefined(
     Schema.decodeUnknownOption(CliGrantToken)(request.grantToken)
   );
@@ -605,9 +693,9 @@ const toAuthenticationStatus = (
       authStatus: "approved",
       grantToken,
       expiresAt: toIsoString(request.grantExpiresAt),
-    };
+    } as const;
   }
-  return { authStatus: "expired" };
+  return undefined;
 };
 
 const toApprovalRequest = (

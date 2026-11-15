@@ -1,15 +1,12 @@
-import {
-  DotyposReservationIdSchema,
-  DotyposTableIdSchema,
-} from "@deskohub/dotypos";
 import type {
-  Reservation as DotyposReservation,
-  Table as DotyposTable,
-} from "@deskohub/dotypos/generated";
-import { Data, Effect, Schema } from "effect";
-import { getDurationMinutes } from "@/features/reservation/reservation-interval-normalization";
+  DotyposReservation,
+  DotyposReservationId,
+  DotyposTable,
+  DotyposTableId,
+} from "@deskohub/dotypos";
+import { Data, Effect, Option, Schema } from "effect";
+import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import { instantStringSchema } from "@/shared/utils/temporal";
 
 const coworkTableTagPrefix = "cowork:";
 
@@ -17,11 +14,6 @@ const positiveIntegerSeatCountSchema = Schema.FiniteFromString.pipe(
   Schema.check(Schema.isInt(), Schema.isGreaterThan(0))
 );
 
-const decodeReservationId = Schema.decodeUnknownEffect(
-  DotyposReservationIdSchema
-);
-const decodeTableId = Schema.decodeUnknownEffect(DotyposTableIdSchema);
-const decodeInstant = Schema.decodeUnknownEffect(instantStringSchema);
 const decodeSeatCount = Schema.decodeUnknownEffect(
   positiveIntegerSeatCountSchema
 );
@@ -55,14 +47,14 @@ export const getFaqOccupancyStats = Effect.fn("getFaqOccupancyStats")(
     now = Temporal.Now.instant(),
   }: FaqOccupancyStatsInput) {
     const month = getPreviousCompleteMonth(now);
-    const coworkTableIds = yield* getCoworkTableIds(tables);
+    const coworkTableIds = getCoworkTableIds(tables);
     const coworkSeatCapacity = yield* getCoworkSeatCapacity(tables);
-    const reservationIds = new Set<string>();
+    const reservationIds = new Set<DotyposReservationId>();
 
     for (const reservation of reservations) {
       if (reservation.status !== "CONFIRMED") continue;
 
-      const tableId = reservation._tableId?.trim();
+      const tableId = reservation._tableId;
       if (!tableId || !coworkTableIds.has(tableId)) continue;
 
       const startsAt = yield* getConfirmedCoworkReservationStart(reservation);
@@ -73,8 +65,7 @@ export const getFaqOccupancyStats = Effect.fn("getFaqOccupancyStats")(
         continue;
       }
 
-      const reservationId = yield* decodeRelevantReservationId(reservation);
-      reservationIds.add(reservationId);
+      reservationIds.add(reservation.id);
     }
 
     return {
@@ -104,23 +95,19 @@ const getPreviousCompleteMonth = (
   };
 };
 
-const getCoworkTableIds = (tables: readonly DotyposTable[]) => {
-  return Effect.forEach(
-    tables.filter(hasCoworkTableTag),
-    decodeRelevantTableId
-  ).pipe(Effect.map((tableIds) => new Set(tableIds)));
-};
+const getCoworkTableIds = (tables: readonly DotyposTable[]) =>
+  new Set(tables.filter(hasCoworkTableTag).map((table) => table.id));
 
 const getCoworkSeatCapacity = Effect.fn("getCoworkSeatCapacity")(function* (
   tables: readonly DotyposTable[]
 ) {
-  const seatsByTableId = new Map<string, number>();
+  const seatsByTableId = new Map<DotyposTableId, number>();
   let capacity = 0;
 
   for (const table of tables) {
     if (!hasCoworkTableTag(table)) continue;
 
-    const tableId = yield* decodeRelevantTableId(table);
+    const tableId = table.id;
     const seats = yield* decodeRelevantTableSeats(table);
     const existingSeats = seatsByTableId.get(tableId);
 
@@ -151,17 +138,6 @@ const getCoworkSeatCapacity = Effect.fn("getCoworkSeatCapacity")(function* (
 const hasCoworkTableTag = (table: DotyposTable) =>
   table.tags?.some((tag) => tag.startsWith(coworkTableTagPrefix)) ?? false;
 
-const decodeRelevantTableId = (table: DotyposTable) =>
-  decodeTableId(table.id?.trim()).pipe(
-    Effect.mapError(
-      (cause) =>
-        new FaqOccupancyError({
-          message: "Cowork-tagged Dotypos table has an invalid ID.",
-          cause,
-        })
-    )
-  );
-
 const decodeRelevantTableSeats = (table: DotyposTable) =>
   decodeSeatCount(table.seats).pipe(
     Effect.mapError(
@@ -183,46 +159,16 @@ const decodeRelevantTableSeats = (table: DotyposTable) =>
     )
   );
 
+/** A confirmed cowork reservation without a readable interval fails the stats. */
 const getConfirmedCoworkReservationStart = Effect.fn(
   "getConfirmedCoworkReservationStart"
 )(function* (reservation: DotyposReservation) {
-  const startsAt = yield* decodeInstant(reservation.startDate).pipe(
-    Effect.mapError(
-      (cause) =>
-        new FaqOccupancyError({
-          message:
-            "Confirmed cowork Dotypos reservation has an invalid interval.",
-          cause,
-        })
-    )
-  );
-  const endsAt = yield* decodeInstant(reservation.endDate).pipe(
-    Effect.mapError(
-      (cause) =>
-        new FaqOccupancyError({
-          message:
-            "Confirmed cowork Dotypos reservation has an invalid interval.",
-          cause,
-        })
-    )
-  );
-
-  if (getDurationMinutes({ startsAt, endsAt }) <= 0) {
+  const interval = decodeBookedReservation(reservation).interval;
+  if (Option.isNone(interval)) {
     return yield* new FaqOccupancyError({
       message: "Confirmed cowork Dotypos reservation has an invalid interval.",
     });
   }
 
-  return Temporal.Instant.from(startsAt);
+  return interval.value.startsAt;
 });
-
-const decodeRelevantReservationId = (reservation: DotyposReservation) =>
-  decodeReservationId(reservation.id?.trim()).pipe(
-    Effect.mapError(
-      (cause) =>
-        new FaqOccupancyError({
-          message: "Confirmed cowork Dotypos reservation has an invalid ID.",
-          cause,
-        })
-    )
-  );

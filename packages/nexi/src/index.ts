@@ -1,7 +1,5 @@
-export {
-  getNexiRequestWorstCaseDuration,
-  NexiService,
-} from "./backend/service";
+export { getNexiRequestWorstCaseDuration } from "./backend/request-policy";
+export { NexiService } from "./backend/service";
 export type { NexiRuntimeConfigObj } from "./config";
 export { NexiRuntimeConfig } from "./config";
 export { ExternalAPIError, NetworkError } from "./errors";
@@ -18,7 +16,6 @@ export type {
   HostedPaymentCustomer,
   ListNexiOperationsInput,
   ListNexiOrdersInput,
-  Locale,
   NexiAmount,
   NexiCorrelationId,
   NexiCurrency,
@@ -47,7 +44,6 @@ export {
   decodeNexiWebhookNotification,
   deriveNexiWebhookEventIdentity,
   getNexiPaymentMetadata,
-  locales,
   NexiAmountSchema,
   NexiCorrelationIdSchema,
   NexiCurrencySchema,

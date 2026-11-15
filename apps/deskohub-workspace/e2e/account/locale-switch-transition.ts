@@ -1,11 +1,16 @@
 import type { Page, Route } from "@playwright/test";
+import {
+  getAccountPath,
+  getAccountSectionPath,
+} from "@/features/account/routes";
 import { type Locale, locales, m } from "@/features/i18n";
+import { languageNames } from "@/features/i18n/language-labels";
 import {
   type WorkspaceE2EAccountLocaleSwitchDiagnosticCode,
   workspaceE2EError,
 } from "../errors";
 import { waitForReactClickHandler } from "../react-handlers";
-import { redact } from "../runtime";
+import { redact } from "../redaction";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
   accountSectionLandmarks,
@@ -13,17 +18,12 @@ import {
   waitForSelectedAccountSection,
 } from "./account-sections";
 
-const accountSuffix = "/account";
-const profileSearch = "?section=profile";
+const accountProfilePath = (locale: Locale) =>
+  getAccountSectionPath(locale, "profile");
 const languageTriggerSelector = `${accountSectionLandmarks.profile} [data-slot="select-trigger"]`;
-const languageOptionLabels = {
-  "cs-CZ": "Čeština",
-  "en-US": "English (US)",
-} as const satisfies Readonly<Record<Locale, string>>;
+const languageMenuTriggerSelector = "button[data-language-menu-trigger]";
 const localeSwitchLinkSelector = (locale: Locale) =>
   `[data-locale-switcher] a[href^="/${locale}"]`;
-const mobileMenuToggleSelector =
-  'button[aria-controls="site-header-mobile-menu"]';
 
 /**
  * The tab's sessionStorage key for the error-page watch. An empty value arms
@@ -85,8 +85,8 @@ const holdLocaleSwitchResponses = async (
   to: Locale
 ): Promise<() => Promise<void>> => {
   const matches = (url: URL) =>
-    url.pathname === `/${from}${accountSuffix}` ||
-    url.pathname === `/${to}${accountSuffix}`;
+    url.pathname === accountProfilePath(from) ||
+    url.pathname === accountProfilePath(to);
   const hold = async (route: Route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
@@ -94,7 +94,7 @@ const holdLocaleSwitchResponses = async (
       request.method() === "POST" &&
       (await request.headerValue("next-action")) !== null;
     const isNewDocument =
-      request.isNavigationRequest() && pathname === `/${to}${accountSuffix}`;
+      request.isNavigationRequest() && pathname === accountProfilePath(to);
     if (isSave || isNewDocument) {
       await new Promise((resolve) =>
         setTimeout(resolve, workspaceE2ETimeouts.localeSwitchHeldResponse)
@@ -118,10 +118,12 @@ type LocaleSwitch = {
   readonly trigger: (page: Page, to: Locale) => Promise<void>;
 };
 
-/** Chooses the language in the profile's preferred-language control. */
-const chooseProfileLanguage = async (page: Page, to: Locale) => {
-  const trigger = page.locator(languageTriggerSelector);
-  await page.waitForFunction(
+/**
+ * Waits until React has attached its `onPointerDown` handler to the element
+ * `selector` matches, so a Radix trigger opens on the click that follows.
+ */
+const waitForPointerDownHandler = (page: Page, selector: string) =>
+  page.waitForFunction(
     (selector) => {
       const element = document.querySelector(selector);
       if (element === null) return false;
@@ -136,26 +138,29 @@ const chooseProfileLanguage = async (page: Page, to: Locale) => {
         typeof Reflect.get(props, "onPointerDown") === "function"
       );
     },
-    languageTriggerSelector,
+    selector,
     { timeout: workspaceE2ETimeouts.uiTransition }
   );
+
+/** Chooses the language in the profile's preferred-language control. */
+const chooseProfileLanguage = async (page: Page, to: Locale) => {
+  const trigger = page.locator(languageTriggerSelector);
+  await waitForPointerDownHandler(page, languageTriggerSelector);
   await trigger.click({ timeout: workspaceE2ETimeouts.browserAction });
   await page
-    .getByRole("option", { name: languageOptionLabels[to] })
+    .getByRole("option", { name: languageNames[to] })
     .click({ timeout: workspaceE2ETimeouts.browserAction });
 };
 
 /**
- * Clicks the visible header language switcher's link, as a visitor's tap
- * does. Below the desktop breakpoint the switcher sits in the collapsed
- * mobile menu, so the menu opens first.
+ * Opens the header's language menu and clicks its link, as a visitor's taps
+ * do. The menu's trigger sits in the header bar at every width and opens on
+ * pointerdown once hydrated.
  */
 export const activateHeaderSwitcher = async (page: Page, to: Locale) => {
-  const menuToggle = page.locator(mobileMenuToggleSelector);
-  if (await menuToggle.isVisible()) {
-    await waitForReactClickHandler(page, menuToggle);
-    await menuToggle.click({ timeout: workspaceE2ETimeouts.browserAction });
-  }
+  const trigger = page.locator(languageMenuTriggerSelector);
+  await waitForPointerDownHandler(page, languageMenuTriggerSelector);
+  await trigger.click({ timeout: workspaceE2ETimeouts.browserAction });
   const link = page
     .locator(localeSwitchLinkSelector(to))
     .filter({ visible: true });
@@ -210,9 +215,7 @@ const verifyLocaleSwitch = async (
     let landingFailure: unknown;
     try {
       await page.waitForURL(
-        (url) =>
-          url.pathname === `/${to}${accountSuffix}` &&
-          url.search === profileSearch,
+        (url) => url.pathname === accountProfilePath(to) && url.search === "",
         { timeout: workspaceE2ETimeouts.browserNavigation }
       );
       await waitForSelectedAccountSection(page, "profile", profileCopy(to));
@@ -272,7 +275,7 @@ export async function verifyAccountLocaleSwitchTransition(
   // Every document the tab loads arms its own watch while the key is set.
   await page.addInitScript(watchLocaleSwitchErrorPage, errorPageWatch);
   try {
-    await page.goto(new URL(`/en-US${accountSuffix}`, baseUrl).toString(), {
+    await page.goto(new URL(getAccountPath("en-US"), baseUrl).toString(), {
       timeout: workspaceE2ETimeouts.browserNavigation,
     });
     await selectAccountSection(page, "profile");

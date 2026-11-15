@@ -1,5 +1,5 @@
 import type {
-  AdministrationActorUsernameType,
+  AdministrationAssistantConnectionIdType,
   AdministrationCampaignAudienceInputType,
   AdministrationCampaignAudienceType,
   AdministrationCampaignCreateInputType,
@@ -7,6 +7,7 @@ import type {
   AdministrationCampaignIdType,
   AdministrationDiscountMutationResultType,
   AdministrationDiscountMutationType,
+  AdministrationLegacyUsernameType,
   AdministrationReservationAccessGrantType,
   AdministrationReservationAccessMutationType,
   AdministrationStandaloneAccessCodeAttemptIdType,
@@ -24,14 +25,15 @@ import {
   index,
   jsonb,
   pgTable,
-  primaryKey,
   text,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { CliAuthenticationRequestId } from "@/features/admin-cli/cli-identifiers";
 import { instant } from "../instant";
+import { sensitiveText } from "../sensitive-text";
 import { postgresUuidV7 } from "../uuid-v7";
+import { administratorAssistantConnections } from "./administrator-assistant-connections";
 import { authUser } from "./auth";
 import { quotedSqlList } from "./sql-list";
 
@@ -42,14 +44,13 @@ export const cliSessions = pgTable(
       .primaryKey()
       .default(postgresUuidV7)
       .$type<CliSessionIdType>(),
-    approvedBy: text("approved_by")
-      .notNull()
-      .$type<AdministrationActorUsernameType>(),
+    /** The approving Basic-auth username of a session issued before accounts. */
+    approvedBy: text("approved_by").$type<AdministrationLegacyUsernameType>(),
     approvedByAccountId: text("approved_by_account_id")
       .$type<CustomerAccountId>()
       .references(() => authUser.id, { onDelete: "set null" }),
-    approvedByAccountEmail: text("approved_by_account_email"),
-    tokenHash: text("token_hash").notNull(),
+    approvedByAccountEmail: sensitiveText("approved_by_account_email"),
+    tokenHash: sensitiveText("token_hash").notNull(),
     clientName: text("client_name").notNull(),
     cliVersion: text("cli_version").notNull(),
     buildTarget: text("build_target").notNull().$type<CliBuildTargetType>(),
@@ -97,6 +98,10 @@ export const cliSessions = pgTable(
       "cli_sessions_approved_by_account_check",
       sql`${t.approvedByAccountId} is null or (${t.approvedByAccountEmail} is not null and btrim(${t.approvedByAccountEmail}) <> '')`
     ),
+    check(
+      "cli_sessions_approver_check",
+      sql`${t.approvedBy} is not null or ${t.approvedByAccountEmail} is not null`
+    ),
   ]
 );
 
@@ -107,7 +112,7 @@ export const cliAuthenticationRequests = pgTable(
       .primaryKey()
       .default(postgresUuidV7)
       .$type<CliAuthenticationRequestId>(),
-    codeHash: text("code_hash").notNull(),
+    codeHash: sensitiveText("code_hash").notNull(),
     challenge: text("challenge").notNull(),
     clientName: text("client_name").notNull(),
     cliVersion: text("cli_version").notNull(),
@@ -115,8 +120,13 @@ export const cliAuthenticationRequests = pgTable(
     createdAt: instant("created_at").notNull().default(sql`now()`),
     expiresAt: instant("expires_at").notNull(),
     approvedAt: instant("approved_at"),
-    approvedBy: text("approved_by").$type<AdministrationActorUsernameType>(),
-    grantToken: text("grant_token"),
+    /** The approving Basic-auth username of a request approved before accounts. */
+    approvedBy: text("approved_by").$type<AdministrationLegacyUsernameType>(),
+    approvedByAccountId: text("approved_by_account_id")
+      .$type<CustomerAccountId>()
+      .references(() => authUser.id, { onDelete: "set null" }),
+    approvedByAccountEmail: sensitiveText("approved_by_account_email"),
+    grantToken: sensitiveText("grant_token"),
     grantExpiresAt: instant("grant_expires_at"),
     sessionExpiresAt: instant("session_expires_at"),
     consumedAt: instant("consumed_at"),
@@ -157,12 +167,18 @@ export const cliAuthenticationRequests = pgTable(
       sql`(
         ${t.approvedAt} is null
         and ${t.approvedBy} is null
+        and ${t.approvedByAccountId} is null
+        and ${t.approvedByAccountEmail} is null
         and ${t.grantToken} is null
         and ${t.grantExpiresAt} is null
       ) or (
         ${t.approvedAt} is not null
         and ${t.grantExpiresAt} is not null
       )`
+    ),
+    check(
+      "cli_authentication_requests_approved_by_account_check",
+      sql`${t.approvedByAccountId} is null or (${t.approvedByAccountEmail} is not null and btrim(${t.approvedByAccountEmail}) <> '')`
     ),
     check(
       "cli_authentication_requests_session_expiry_check",
@@ -184,13 +200,22 @@ export const cliAuthenticationRequests = pgTable(
   ]
 );
 
+/**
+ * The administration mutation ledger: one row per channel scope and request
+ * ID, owned by exactly one CLI session or one assistant connection. The
+ * name predates assistant connections.
+ */
 export const cliMutationRequests = pgTable(
   "cli_mutation_requests",
   {
     sessionId: text("session_id")
-      .notNull()
       .$type<CliSessionIdType>()
       .references(() => cliSessions.id, { onDelete: "cascade" }),
+    assistantConnectionId: text("assistant_connection_id")
+      .$type<AdministrationAssistantConnectionIdType>()
+      .references(() => administratorAssistantConnections.id, {
+        onDelete: "cascade",
+      }),
     requestId: text("request_id").notNull().$type<CliMutationRequestIdType>(),
     mutation: jsonb("mutation").notNull().$type<CliStoredMutation>(),
     result: jsonb("result").$type<CliStoredMutationResult>(),
@@ -198,10 +223,18 @@ export const cliMutationRequests = pgTable(
     completedAt: instant("completed_at"),
   },
   (t) => [
-    primaryKey({
-      name: "cli_mutation_requests_pk",
-      columns: [t.sessionId, t.requestId],
-    }),
+    // Partial unique indexes rather than a key, so a deployment that inserts
+    // with an untargeted `on conflict do nothing` keeps its claim semantics.
+    uniqueIndex("cli_mutation_requests_session_request_idx")
+      .on(t.sessionId, t.requestId)
+      .where(sql`${t.sessionId} is not null`),
+    uniqueIndex("cli_mutation_requests_assistant_connection_request_idx")
+      .on(t.assistantConnectionId, t.requestId)
+      .where(sql`${t.assistantConnectionId} is not null`),
+    check(
+      "cli_mutation_requests_owner_check",
+      sql`num_nonnulls(${t.sessionId}, ${t.assistantConnectionId}) = 1`
+    ),
     index("cli_mutation_requests_created_at_idx").on(t.createdAt),
     check(
       "cli_mutation_requests_request_id_check",

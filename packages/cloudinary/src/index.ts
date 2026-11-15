@@ -6,6 +6,8 @@ export {
   CloudinaryRenameError,
   CloudinarySearchError,
   CloudinaryUploadError,
+  CloudinaryWebhookAuthError,
+  CloudinaryWebhookValidationError,
 } from "./errors";
 export {
   normalizeExpression,
@@ -17,6 +19,7 @@ export {
   type CloudinaryPublicId,
   CloudinaryPublicIdSchema,
   CloudinarySearchResponseSchema,
+  type LocalizedContextField,
   type SearchOptions,
   SearchOptionsSchema,
 } from "./schema";

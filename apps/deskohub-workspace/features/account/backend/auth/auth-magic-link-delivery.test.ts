@@ -2,7 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { resendSimulatorAddress } from "@deskohub/test-email";
-import { Layer } from "effect";
+import { ConfigProvider, Effect, Layer } from "effect";
 import type { Locale } from "@/features/i18n";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 
@@ -12,7 +12,6 @@ const resendSends: {
   readonly subject: string;
   readonly text: string;
 }[] = [];
-const emitWorkspaceLog = mock(() => undefined);
 
 mock.module("next/server", () => ({
   after: (callback: () => unknown) => {
@@ -39,26 +38,24 @@ mock.module("resend", () => ({
   },
 }));
 
-mock.module("@/instrumentation", () => ({
-  postHogLoggerProvider: {
-    forceFlush: () => Promise.resolve(),
-    getLogger: () => ({ emit: emitWorkspaceLog }),
-  },
-}));
-
 // The test environment has no Resend key, so routing would log every send to
 // Console; a synthetic key routes these sends to the mocked Resend client.
-const { EmailConfigTag } = await import("@deskohub/email/backend/service");
 const emailConfig = await import("@/shared/backend/config/email.config");
 mock.module("@/shared/backend/config/email.config", () => ({
   ...emailConfig,
-  EmailConfigLayer: Layer.succeed(EmailConfigTag, {
-    defaultFrom: { email: emailConfig.workspaceDefaultFromAddress },
-    apiKey: "re_test",
-  }),
+  WorkspaceEmailLayer: emailConfig.WorkspaceEmailLayer.pipe(
+    Layer.provide(
+      ConfigProvider.layer(
+        ConfigProvider.fromUnknown({ EMAIL_API_KEY: "re_test" })
+      )
+    )
+  ),
 }));
 
 const { workspaceSendMagicLink } = await import("./auth-server");
+const { workspaceFixtures } = await import(
+  "@/shared/testing/workspace-fixtures.test-utils"
+);
 
 const CS_SUBJECT = "Přihlašovací odkaz do Deskohub Workspace";
 
@@ -69,14 +66,13 @@ const testDatabase = await connectWorkspacePostgresTestDatabase();
 const uniqueEmail = (label: string) =>
   resendSimulatorAddress("delivered", `${label}-${crypto.randomUUID()}`);
 
-const insertVerifiedUser = async (email: string, verified: boolean) => {
-  const id = crypto.randomUUID();
-  await testDatabase!.pool.query(
-    `insert into auth."user" (id, name, email, email_verified) values ($1, '', $2, $3)`,
-    [id, email, verified]
-  );
-  return id;
-};
+const insertVerifiedUser = (email: string, verified: boolean) =>
+  workspaceFixtures(testDatabase!.db)
+    .account("magic-link", { email, verified })
+    .pipe(
+      Effect.map(({ accountId }) => accountId),
+      Effect.runPromise
+    );
 
 const savePreference = async (accountId: string, locale: Locale) => {
   await testDatabase!.pool.query(
@@ -139,7 +135,7 @@ describe.skipIf(!testDatabase)(
       expect(queued).toBe(1);
       const [sent] = resendSends.filter((send) => send.to.includes(email));
       expect(sent?.subject).toBe(CS_SUBJECT);
-      expect(sent?.text).toContain("Nebo zadejte tento kód:");
+      expect(sent?.text).toContain("Nebo zadej tento kód:");
       expect(sent?.text.match(/^[ \t]*\d{6}[ \t]*$/gm)).toEqual(["482913"]);
     });
 

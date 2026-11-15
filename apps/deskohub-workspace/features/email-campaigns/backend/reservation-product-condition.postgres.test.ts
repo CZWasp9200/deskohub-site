@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import type { ReservationProductFilterType } from "@deskohub/workspace-admin-api";
 import { Effect } from "effect";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { CampaignCandidateRepository } from "./campaign-candidate.repository";
 
@@ -36,9 +37,13 @@ const snapshots = {
   bigOffice: { kind: "office", seats: 6, dayCount: 2 },
   smallOffice: { kind: "office", seats: 2, dayCount: 5 },
   unresolvedOffice: { kind: "office" },
+  malformedOffice: { kind: "office" },
 } as const;
 type Role = keyof typeof snapshots;
 const roles = Object.keys(snapshots) as Role[];
+
+/** Replaces the malformed role's snapshot, as only a write outside the encoder could. */
+const malformedOfficeDetails = { kind: "office", seats: "many", dayCount: 2.5 };
 
 describe.skipIf(!testDatabase)(
   "reservation product conditions on disposable Postgres",
@@ -46,17 +51,23 @@ describe.skipIf(!testDatabase)(
     if (!testDatabase) return;
 
     beforeAll(async () => {
-      for (const role of roles) {
-        await testDatabase.pool.query(
-          `insert into workspace_reservations (checkout_attempt_key, dotypos_reservation_id, dotypos_customer_id, reservation_state, reservation_confirmed_at, payment_state, paid_at, fulfillment_state, fulfilled_at, reservation_details, locale)
-           values ($1, $1, $2, 'confirmed', now(), 'paid', now(), 'fulfilled', now(), $3, 'cs-CZ')`,
-          [
-            `product-${role}-${run}`,
-            customer(role),
-            JSON.stringify(snapshots[role]),
-          ]
-        );
-      }
+      await Effect.runPromise(
+        workspaceFixtures(testDatabase.db).reservations(
+          roles.map((role) => ({
+            stage: {
+              reservation: "confirmed",
+              payment: "paid",
+              fulfillment: "fulfilled",
+            },
+            customer: customer(role),
+            details: snapshots[role],
+          }))
+        )
+      );
+      await testDatabase.pool.query(
+        "update workspace_reservations set reservation_details = $1::jsonb where dotypos_customer_id = $2",
+        [JSON.stringify(malformedOfficeDetails), customer("malformedOffice")]
+      );
     });
 
     afterAll(async () => {
@@ -84,6 +95,7 @@ describe.skipIf(!testDatabase)(
         "bigOffice",
         "smallOffice",
         "unresolvedOffice",
+        "malformedOffice",
       ]);
     });
 
@@ -151,6 +163,103 @@ describe.skipIf(!testDatabase)(
           ],
         })
       ).toEqual(["fourHourRoom"]);
+    });
+
+    test("compares every catalog property with every operator it allows", async () => {
+      const cases: readonly [ReservationProductFilterType, readonly Role[]][] =
+        [
+          [
+            {
+              family: "cowork",
+              properties: [{ property: "coffee", operator: "is", value: true }],
+            },
+            ["reservedDesk", "retiredProfi"],
+          ],
+          [
+            {
+              family: "cowork",
+              properties: [
+                { property: "tier", operator: "noneOf", value: ["open-space"] },
+              ],
+            },
+            ["reservedDesk", "retiredProfi"],
+          ],
+          [
+            {
+              family: "cowork",
+              properties: [
+                {
+                  property: "monitor",
+                  operator: "anyOf",
+                  value: ["2x27-4k", "2x32-qhd"],
+                },
+              ],
+            },
+            ["reservedDesk", "retiredProfi"],
+          ],
+          [
+            {
+              family: "meeting-room",
+              properties: [
+                { property: "offer", operator: "noneOf", value: ["hour:4"] },
+              ],
+            },
+            [],
+          ],
+          [
+            {
+              family: "office",
+              properties: [{ property: "seats", operator: "eq", value: 2 }],
+            },
+            ["smallOffice"],
+          ],
+          [
+            {
+              family: "office",
+              properties: [{ property: "seats", operator: "lte", value: 6 }],
+            },
+            ["bigOffice", "smallOffice"],
+          ],
+          [
+            {
+              family: "office",
+              properties: [{ property: "days", operator: "gt", value: 2 }],
+            },
+            ["smallOffice"],
+          ],
+          [
+            {
+              family: "office",
+              properties: [{ property: "days", operator: "gte", value: 2 }],
+            },
+            ["bigOffice", "smallOffice"],
+          ],
+          [
+            {
+              family: "office",
+              properties: [{ property: "days", operator: "ne", value: 5 }],
+            },
+            ["bigOffice"],
+          ],
+        ];
+      for (const [product, expected] of cases) {
+        expect(await matching(product)).toEqual([...expected]);
+      }
+    });
+
+    test("never matches a property condition on a malformed value", async () => {
+      expect(
+        await matching({
+          family: "office",
+          properties: [{ property: "seats", operator: "ne", value: 99 }],
+        })
+      ).toEqual(["bigOffice", "smallOffice"]);
+      expect(
+        await matching({
+          family: "office",
+          properties: [{ property: "days", operator: "gte", value: 1 }],
+        })
+      ).toEqual(["bigOffice", "smallOffice"]);
     });
 
     test("matches nothing for an unknown property", async () => {

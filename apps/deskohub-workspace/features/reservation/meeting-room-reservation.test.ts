@@ -17,9 +17,11 @@ import {
 
 const testEmailAddressForAda = testEmailAddress("ada");
 
-const safeParseForm = Schema.decodeUnknownResult(meetingRoomReservationSchema);
+const safeParseForm = Schema.decodeUnknownResult(
+  meetingRoomReservationSchema("CZ")
+);
 const decodeOrder = Schema.decodeUnknownSync(
-  meetingRoomReservationOrderInputSchema
+  meetingRoomReservationOrderInputSchema("CZ")
 );
 const safeParseStoredDetails = Schema.decodeUnknownResult(
   storedMeetingRoomReservationDetailsSchema,
@@ -66,6 +68,7 @@ describe("meetingRoomReservationSchema", () => {
       startDateTime: "",
       duration: "hour:1",
       ...customer,
+      earlySetup: false,
       marketingConsent: false,
     });
 
@@ -79,6 +82,7 @@ describe("meetingRoomReservationSchema", () => {
       startDateTime: "2099-06-10T12:00",
       duration: "hour:1",
       ...customer,
+      earlySetup: false,
       marketingConsent: false,
     });
     const issues = Effect.runSync(
@@ -113,6 +117,12 @@ describe("meetingRoomReservationSchema", () => {
       { kind: "meeting-room", duration: { unit: "day", amount: 1 } },
       // Written before snapshots recorded the offer.
       { kind: "meeting-room" },
+      // Written by a release that offers early setup.
+      {
+        kind: "meeting-room",
+        duration: { unit: "hour", amount: 1 },
+        earlySetup: true,
+      },
     ]) {
       expect(Result.isSuccess(safeParseStoredDetails(details))).toBe(true);
     }
@@ -132,6 +142,7 @@ describe("meetingRoomReservationSchema", () => {
         startDateTime,
         duration: "hour:1",
         ...customer,
+        earlySetup: false,
         marketingConsent: false,
       });
 
@@ -155,6 +166,7 @@ describe("meetingRoomReservationSchema", () => {
       duration: "hour:4",
       ...customer,
       billing: { purpose: "personal", invoice: "none" },
+      earlySetup: false,
       marketingConsent: false,
     });
     expect(
@@ -221,6 +233,7 @@ describe("meetingRoomReservationSchema", () => {
       startDateTime: "2099-06-10T15:00",
       duration: "day:1",
       ...customer,
+      earlySetup: false,
       marketingConsent: false,
     });
 

@@ -1,22 +1,15 @@
 "use client";
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import { Match } from "effect";
 import { AlertTriangle, Clock3, Coffee, Monitor, Wifi } from "lucide-react";
 import Image, { getImageProps } from "next/image";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useId, useMemo, useRef } from "react";
+import { useId } from "react";
 import { preload } from "react-dom";
-import { type Control, useForm, useWatch } from "react-hook-form";
-import {
-  type AdvertisedPrice,
-  isCoworkAdvertisedPrice,
-  type PreloadedAdvertisedPrice,
-} from "@/features/checkout/advertised-price";
+import { type Control, useForm } from "react-hook-form";
+import type { PreloadedAdvertisedPrice } from "@/features/checkout/advertised-price";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import {
-  getCoworkTierCoffeeAddon,
-  getCoworkTierWorkstationAddon,
   type WorkspaceCoworkCurrentTier,
   type WorkspaceProductMonitorOption,
   workspaceCoworkCurrentTiers,
@@ -31,15 +24,14 @@ import {
   workspaceProductTierCardMessages,
   workspaceProductTierMessages,
 } from "@/features/checkout/product-catalog.i18n";
-import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
 import openSpaceArtwork from "@/features/cowork/assets/open-space.png";
 import reservedDeskArtwork from "@/features/cowork/assets/reserved-desk.png";
 import reservedDeskWorkstationArtwork from "@/features/cowork/assets/reserved-desk-workstation.png";
 import type { CanonicalPromotionCode } from "@/features/discounts";
-import { type Locale, m } from "@/features/i18n";
+import { defaultPhoneRegion, type Locale, m } from "@/features/i18n";
 import { ReservationAdvertisedPrice } from "@/features/reservation/components/reservation-advertised-price";
 import { ReservationCheckoutForm } from "@/features/reservation/components/reservation-checkout-form";
-import { ReservationFormDatePicker } from "@/features/reservation/components/reservation-date-picker";
+import { ReservationFormDateInput } from "@/features/reservation/components/reservation-date-input";
 import {
   ReservationCustomerFieldsFallback,
   ReservationSkeletonBlock,
@@ -53,34 +45,27 @@ import {
   ReservationTypeInput,
   ReservationTypeOption,
 } from "@/features/reservation/components/reservation-type-input";
-import { useAdvertisedPrices } from "@/features/reservation/components/use-advertised-price";
-import { useReservationAvailability } from "@/features/reservation/components/use-reservation-availability";
 import {
-  getCoworkCoffeeAdvertisedPriceRequest,
-  getCoworkFormAdvertisedPriceRequests,
-} from "@/features/reservation/cowork-advertised-price";
+  useReservationSelectionUrl,
+  useWatchedSelection,
+} from "@/features/reservation/components/use-reservation-selection-url";
+import { getCoworkTierOptionPrice } from "@/features/reservation/cowork-advertised-price";
 import {
   type CoworkReservationData,
   type CoworkReservationInput,
   coworkReservationSchema,
   getAllowedMonitorOptionsForCoworkTier,
   getCoworkCurrentReservationOrder,
+  getCoworkReservationDefaultValues,
   type NormalizedCoworkReservationOrder,
 } from "@/features/reservation/cowork-reservation";
-import {
-  getReservationDefaultValuesFromPayState,
-  getReservationDefaultValuesFromSearchParams,
-} from "@/features/reservation/cowork-reservation-checkout-query";
-import { getReservationAvailabilityUnavailableMessage } from "@/features/reservation/reservation.i18n";
+import { coworkSelectionLink } from "@/features/reservation/cowork-selection-link";
 import {
   formatReservationInputDate,
   getCurrentWorkspaceDate,
 } from "@/features/reservation/reservation-date";
-import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
-import {
-  getCoworkAvailabilityQueries,
-  type PreloadedWorkspaceAvailability,
-} from "@/features/reservation/workspace-availability";
+import type { ReservationCheckoutCustomerForm } from "@/features/reservation/reservation-existing-customer";
+import type { PreloadedWorkspaceAvailability } from "@/features/reservation/workspace-availability";
 import {
   FormControl,
   FormField,
@@ -90,6 +75,10 @@ import {
 import { Label } from "@/shared/components/ui/label";
 import { cn } from "@/shared/utils";
 import { CoworkOptionalAddonToggle } from "./cowork-optional-addon-toggle";
+import { getCoworkReservationSelectionSummary } from "./cowork-reservation-selection-summary";
+import { useCoworkAddonNormalization } from "./use-cowork-addon-normalization";
+import { useCoworkAdvertisedPrices } from "./use-cowork-advertised-prices";
+import { useCoworkSelectionAvailability } from "./use-cowork-selection-availability";
 
 type CoworkReservationFormProps = {
   initialReservation?: NormalizedCoworkReservationOrder;
@@ -97,7 +86,7 @@ type CoworkReservationFormProps = {
   initialValues?: CoworkReservationInput;
   locale: Locale;
   checkoutSessionId?: CheckoutSessionId;
-  existingCustomer?: ReservationExistingCustomerForm;
+  checkoutCustomer: ReservationCheckoutCustomerForm;
   initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
   replacementToken?: string;
   submittedCode?: CanonicalPromotionCode;
@@ -150,7 +139,7 @@ export function CoworkReservationForm({
   initialValues,
   locale,
   checkoutSessionId,
-  existingCustomer,
+  checkoutCustomer,
   initialAvailability,
   replacementToken,
   submittedCode,
@@ -160,398 +149,60 @@ export function CoworkReservationForm({
   const defaultValues =
     initialValues ??
     (initialReservation
-      ? getReservationDefaultValuesFromPayState(initialReservation)
-      : getReservationDefaultValuesFromSearchParams(searchParams));
+      ? getCoworkReservationDefaultValues(initialReservation)
+      : coworkSelectionLink.read(searchParams, { locale }));
   const form = useForm<CoworkReservationInput, unknown, CoworkReservationData>({
-    resolver: effectSchemaResolver(coworkReservationSchema),
+    resolver: effectSchemaResolver(
+      coworkReservationSchema(defaultPhoneRegion(locale))
+    ),
     defaultValues,
     mode: "onBlur",
     reValidateMode: "onChange",
   });
-  const [selectedTier, selectedDate, selectedCoffee, selectedMonitorOption] =
-    useWatch({
-      control: form.control,
-      name: ["entryTier", "date", "coffee", "monitorOption"],
-    });
-  const showCoffeeAddon = getCoworkTierCoffeeAddon(selectedTier) === "optional";
-  const showWorkstationAddon =
-    getCoworkTierWorkstationAddon(selectedTier) === "optional";
+  const selection = useWatchedSelection(coworkSelectionLink, form.control);
+  const { entryTier: selectedTier, monitorOption: selectedMonitorOption } =
+    selection;
+  useReservationSelectionUrl(coworkSelectionLink, selection);
   const allowedMonitorOptions =
     getAllowedMonitorOptionsForCoworkTier(selectedTier);
-  const {
-    range: rangeAvailabilityQuery,
-    selection: availabilityQuery,
-    workstationRequirement: workstationRequirementQuery,
-  } = useMemo(
-    () =>
-      getCoworkAvailabilityQueries({
-        date: selectedDate,
-        entryTier: selectedTier,
-        monitorOption: selectedMonitorOption,
-        today,
-      }),
-    [selectedDate, selectedMonitorOption, selectedTier, today]
-  );
-  const availabilityQueryResult = useReservationAvailability(
-    availabilityQuery,
-    { initialAvailability, replacementToken }
-  );
-  const rangeAvailabilityQueryResult = useReservationAvailability(
-    rangeAvailabilityQuery,
-    { initialAvailability, replacementToken }
-  );
-  const workstationRequirementQueryResult = useReservationAvailability(
-    workstationRequirementQuery,
-    { initialAvailability, replacementToken }
-  );
-  const advertisedPriceRequests = useMemo(() => {
-    if (!selectedDate) {
-      return [];
-    }
-
-    return getCoworkFormAdvertisedPriceRequests({
-      coffee: Boolean(selectedCoffee),
-      date: selectedDate,
+  const { advertisedPrices, coffeePriceLabel, workstationPriceLabel } =
+    useCoworkAdvertisedPrices({
+      initialAdvertisedPrices,
       locale,
+      selection,
       submittedCode,
     });
-  }, [locale, selectedCoffee, selectedDate, submittedCode]);
-  const advertisedPriceQueryResults = useAdvertisedPrices(
-    advertisedPriceRequests,
-    initialAdvertisedPrices
-  );
-  const coffeeAdvertisedPriceRequest = useMemo(
-    () =>
-      selectedDate && selectedTier === "open-space"
-        ? getCoworkCoffeeAdvertisedPriceRequest({
-            date: selectedDate,
-            locale,
-            submittedCode,
-            tier: selectedTier,
-          })
-        : undefined,
-    [locale, selectedDate, selectedTier, submittedCode]
-  );
-  const [coffeeAdvertisedPriceQueryResult] = useAdvertisedPrices(
-    coffeeAdvertisedPriceRequest ? [coffeeAdvertisedPriceRequest] : [],
-    initialAdvertisedPrices
-  );
-  const coffeeAdvertisedPrice =
-    coffeeAdvertisedPriceQueryResult?.data &&
-    isCoworkAdvertisedPrice(coffeeAdvertisedPriceQueryResult.data)
-      ? coffeeAdvertisedPriceQueryResult.data
-      : undefined;
-  const coffeePrice = coffeeAdvertisedPrice?.quote.items.find(
-    ({ type }) => type === "coffee"
-  )?.amount;
-  const coffeePriceLabel = coffeePrice
-    ? formatWorkspaceMoney(coffeePrice, locale)
-    : undefined;
-  const advertisedPricesByTier = new Map<
-    string,
-    Extract<AdvertisedPrice, { readonly kind: "cowork" }>
-  >();
-
-  for (const [index, queryResult] of advertisedPriceQueryResults.entries()) {
-    const request = advertisedPriceRequests[index];
-    if (
-      request &&
-      !queryResult.isError &&
-      queryResult.data &&
-      isCoworkAdvertisedPrice(queryResult.data)
-    ) {
-      const { entryTier } = request.reservation.details;
-      // Both Reserved Desk variants share the tier key; the tier card shows
-      // the base product price, identical across the workstation variants.
-      if (!advertisedPricesByTier.has(entryTier)) {
-        advertisedPricesByTier.set(entryTier, queryResult.data);
-      }
-    }
-  }
-
-  const workstationAdvertisedPriceQueryResult =
-    advertisedPriceQueryResults[
-      advertisedPriceRequests.findIndex(({ reservation }) =>
-        Match.value(reservation.details).pipe(
-          Match.when(
-            { entryTier: "reserved-desk", workstation: true },
-            () => true
-          ),
-          Match.when(
-            { entryTier: "reserved-desk", workstation: false },
-            () => false
-          ),
-          Match.when({ entryTier: "open-space" }, () => false),
-          Match.when({ entryTier: "basic" }, () => false),
-          Match.when({ entryTier: "plus" }, () => false),
-          Match.when({ entryTier: "profi" }, () => false),
-          Match.exhaustive
-        )
-      )
-    ];
-  const workstationAdvertisedPrice =
-    workstationAdvertisedPriceQueryResult?.data &&
-    !workstationAdvertisedPriceQueryResult.isError &&
-    isCoworkAdvertisedPrice(workstationAdvertisedPriceQueryResult.data)
-      ? workstationAdvertisedPriceQueryResult.data
-      : undefined;
-  const workstationPrice = workstationAdvertisedPrice?.quote.items.find(
-    ({ type }) => type === "workstation"
-  )?.amount;
-  const workstationPriceLabel = workstationPrice
-    ? formatWorkspaceMoney(workstationPrice, locale)
-    : undefined;
-
-  const selectedAdvertisedPriceIndex = advertisedPriceRequests.findIndex(
-    ({ reservation }) =>
-      Match.value(reservation.details).pipe(
-        Match.when(
-          { entryTier: "open-space" },
-          () => selectedTier === "open-space"
-        ),
-        Match.when(
-          { entryTier: "reserved-desk", workstation: true },
-          () =>
-            selectedTier === "reserved-desk" &&
-            selectedMonitorOption !== undefined
-        ),
-        Match.when(
-          { entryTier: "reserved-desk", workstation: false },
-          () =>
-            selectedTier === "reserved-desk" &&
-            selectedMonitorOption === undefined
-        ),
-        Match.when({ entryTier: "basic" }, () => false),
-        Match.when({ entryTier: "plus" }, () => false),
-        Match.when({ entryTier: "profi" }, () => false),
-        Match.exhaustive
-      )
-  );
-  const advertisedPriceQueryResult =
-    advertisedPriceQueryResults[selectedAdvertisedPriceIndex];
-  const selectedAdvertisedPrice =
-    advertisedPriceQueryResult?.data &&
-    !advertisedPriceQueryResult.isError &&
-    isCoworkAdvertisedPrice(advertisedPriceQueryResult.data)
-      ? advertisedPriceQueryResult.data
-      : undefined;
-  const advertisedPrice = selectedAdvertisedPrice ?? null;
-  const { availability } = availabilityQueryResult;
-  const { availability: rangeAvailability } = rangeAvailabilityQueryResult;
-  const isAvailabilitySettledForCurrentRange = Boolean(
-    rangeAvailabilityQuery &&
-      rangeAvailability?.from === rangeAvailabilityQuery.from &&
-      rangeAvailability?.to === rangeAvailabilityQuery.to &&
-      rangeAvailabilityQueryResult.isSuccess &&
-      !rangeAvailabilityQueryResult.isError &&
-      !rangeAvailabilityQueryResult.isPlaceholderData
-  );
-  const currentRangeAvailability = isAvailabilitySettledForCurrentRange
-    ? rangeAvailability
-    : null;
-  const isAvailabilitySettledForSelectedDate = Boolean(
-    selectedDate &&
-      availabilityQuery?.date === selectedDate &&
-      availability?.date === selectedDate &&
-      availabilityQueryResult.isSuccess &&
-      !availabilityQueryResult.isError &&
-      !availabilityQueryResult.isPlaceholderData
-  );
-  const currentAvailability = isAvailabilitySettledForSelectedDate
-    ? availability
-    : null;
-  const isWorkstationRequirementSettledForSelectedDate = Boolean(
-    selectedDate &&
-      workstationRequirementQuery?.date === selectedDate &&
-      workstationRequirementQueryResult.availability?.date === selectedDate &&
-      workstationRequirementQueryResult.isSuccess &&
-      !workstationRequirementQueryResult.isError &&
-      !workstationRequirementQueryResult.isPlaceholderData
-  );
-  const currentWorkstationRequirementAvailability =
-    isWorkstationRequirementSettledForSelectedDate
-      ? workstationRequirementQueryResult.availability
-      : null;
-  const isSelectedAvailabilityUnsettled = Boolean(
-    selectedDate &&
-      availabilityQuery?.date === selectedDate &&
-      !isAvailabilitySettledForSelectedDate
-  );
-  const isWorkstationRequirementUnsettled = Boolean(
-    workstationRequirementQuery &&
-      !isWorkstationRequirementSettledForSelectedDate
-  );
-  const isSelectionAvailabilityPending =
-    availabilityQueryResult.isPending ||
-    workstationRequirementQueryResult.isPending;
-  const unavailableCalendarDates = new Set(
-    (currentRangeAvailability?.unavailableDates ?? []).filter(
-      (date) =>
-        selectedTier !== "reserved-desk" ||
-        !currentRangeAvailability?.reservedDeskWorkstationRequiredDates.includes(
-          date
-        )
-    )
-  );
-  const currentTierAvailability =
-    currentAvailability ?? currentRangeAvailability;
-  const unavailableCoworkTiers = new Set(
-    currentTierAvailability?.unavailableCoworkTiers ?? []
-  );
-  // Memoized because the workstation normalization effect depends on it.
-  const unavailableMonitorOptions = useMemo(
-    () =>
-      new Set(
-        currentWorkstationRequirementAvailability?.unavailableMonitorOptions ??
-          []
-      ),
-    [currentWorkstationRequirementAvailability]
-  );
-  const selectedDateNotices = (currentAvailability?.notices ?? []).filter(
-    (notice) => notice.date === selectedDate
-  );
-  const firstAvailableMonitorOption = allowedMonitorOptions.find(
-    (option) => !unavailableMonitorOptions.has(option)
-  );
-  const isWorkstationRequiredForDate = Boolean(
-    isWorkstationRequirementSettledForSelectedDate &&
-      selectedTier === "reserved-desk" &&
-      selectedDate &&
-      currentWorkstationRequirementAvailability?.reservedDeskWorkstationRequiredDates.includes(
-        selectedDate
-      ) &&
-      firstAvailableMonitorOption
-  );
-  const isWorkstationNormalizationPending = Boolean(
-    isWorkstationRequiredForDate &&
-      (!selectedMonitorOption ||
-        unavailableMonitorOptions.has(selectedMonitorOption))
-  );
-  const isSelectedTierUnavailable = Boolean(
-    currentAvailability?.unavailableCoworkTiers.includes(selectedTier)
-  );
-  const isSelectedMonitorUnavailable = Boolean(
-    selectedMonitorOption &&
-      unavailableMonitorOptions.has(selectedMonitorOption)
-  );
-  const isSelectedDateUnavailable = Boolean(
-    currentAvailability &&
-      selectedDate &&
-      currentAvailability.unavailableDates.includes(selectedDate) &&
-      !(
-        selectedTier === "reserved-desk" &&
-        currentAvailability.reservedDeskWorkstationRequiredDates.includes(
-          selectedDate
-        )
-      )
-  );
-  const isSelectedReservationUnavailable =
-    isSelectedTierUnavailable ||
-    isSelectedMonitorUnavailable ||
-    isSelectedDateUnavailable;
-  const selectedReservationUnavailableMessage =
-    getReservationAvailabilityUnavailableMessage({
-      date: selectedDate,
-      dateFallback: m.reservationDatePlaceholder({}, { locale }),
-      locale,
-      reservation: { kind: "cowork", entryTier: selectedTier },
-    });
-  const availabilityMessage = isSelectedReservationUnavailable
-    ? selectedReservationUnavailableMessage
-    : undefined;
-  const availabilityConfirmationErrorMessage =
-    (isSelectedAvailabilityUnsettled || isWorkstationRequirementUnsettled) &&
-    !isSelectionAvailabilityPending
-      ? m.reservationAvailabilityError({}, { locale })
-      : undefined;
-
-  const autoAddedWorkstation = useRef(false);
-
-  useEffect(() => {
-    if (showWorkstationAddon) {
-      if (
-        !isAvailabilitySettledForSelectedDate ||
-        !isWorkstationRequirementSettledForSelectedDate ||
-        selectedTier !== "reserved-desk" ||
-        form.getValues("entryTier") !== selectedTier ||
-        form.getValues("date") !== selectedDate ||
-        form.getValues("monitorOption") !== selectedMonitorOption
-      ) {
-        return;
-      }
-
-      if (isWorkstationRequiredForDate) {
-        if (!firstAvailableMonitorOption) return;
-
-        if (!selectedMonitorOption) {
-          autoAddedWorkstation.current = true;
-          form.setValue("monitorOption", firstAvailableMonitorOption, {
-            shouldValidate: true,
-          });
-          return;
-        }
-
-        if (unavailableMonitorOptions.has(selectedMonitorOption)) {
-          form.setValue("monitorOption", firstAvailableMonitorOption, {
-            shouldValidate: true,
-          });
-        }
-        return;
-      }
-
-      if (autoAddedWorkstation.current) {
-        autoAddedWorkstation.current = false;
-        form.setValue("monitorOption", undefined, { shouldValidate: true });
-      }
-      return;
-    }
-
-    autoAddedWorkstation.current = false;
-    form.setValue("monitorOption", undefined, { shouldValidate: true });
-    if (!showCoffeeAddon) {
-      form.setValue("coffee", true, { shouldValidate: true });
-    }
-  }, [
-    firstAvailableMonitorOption,
-    form,
-    isAvailabilitySettledForSelectedDate,
-    isWorkstationRequirementSettledForSelectedDate,
-    isWorkstationRequiredForDate,
-    selectedDate,
-    selectedMonitorOption,
-    selectedTier,
-    showCoffeeAddon,
-    showWorkstationAddon,
-    unavailableMonitorOptions,
-  ]);
+  const selectionAvailability = useCoworkSelectionAvailability({
+    initialAvailability,
+    locale,
+    replacementToken,
+    selection,
+    today,
+  });
+  const { workstation } = selectionAvailability;
+  const isWorkstationRequired = workstation.requiredMonitorOption !== undefined;
+  const {
+    isCoffeeOptional,
+    isWorkstationOptional,
+    onManualWorkstationSelection,
+    onTierChange,
+  } = useCoworkAddonNormalization({ form, selection, workstation });
 
   return (
     <ReservationCheckoutForm
-      existingCustomer={existingCustomer}
-      advertisedPrice={{
-        token: advertisedPrice?.advertisedPriceToken,
-        isFetching: Boolean(advertisedPriceQueryResult?.isFetching),
-        isError: Boolean(advertisedPriceQueryResult?.isError),
-        retry: () => void advertisedPriceQueryResult?.refetch(),
-        sale: advertisedPrice
-          ? {
-              discounts: advertisedPrice.quote.payment.discounts,
-              productLabel: getWorkspaceProductTierTitle(selectedTier, locale),
-            }
-          : undefined,
-      }}
-      availability={{
-        isPending:
-          isSelectionAvailabilityPending ||
-          rangeAvailabilityQueryResult.isPending ||
-          isWorkstationNormalizationPending,
-        unavailableMessage:
-          availabilityMessage ?? availabilityConfirmationErrorMessage,
-      }}
+      checkoutCustomer={checkoutCustomer}
+      advertisedPrice={advertisedPrices.checkout}
+      availability={selectionAvailability.checkoutAvailability}
       checkoutSessionId={checkoutSessionId}
       form={form}
       getReservation={getCoworkCurrentReservationOrder}
       locale={locale}
+      selectionSummary={getCoworkReservationSelectionSummary(selection, locale)}
+      selection={{
+        kind: coworkSelectionLink.kind,
+        fromSearchParams: (searchParams) =>
+          coworkSelectionLink.readSelection(searchParams, { locale }),
+      }}
     >
       <FormField
         control={form.control}
@@ -570,13 +221,7 @@ export function CoworkReservationForm({
                 onBlur={field.onBlur}
                 onChange={(tier) => {
                   field.onChange(tier);
-                  if (getCoworkTierWorkstationAddon(tier) !== "optional") {
-                    autoAddedWorkstation.current = false;
-                    form.setValue("monitorOption", undefined);
-                  }
-                  if (getCoworkTierCoffeeAddon(tier) !== "optional") {
-                    form.setValue("coffee", true);
-                  }
+                  onTierChange(tier);
                 }}
                 presentation="illustrated"
                 value={field.value}
@@ -593,23 +238,13 @@ export function CoworkReservationForm({
                     option.title,
                     locale
                   );
-                  const isUnavailable = unavailableCoworkTiers.has(
+                  const isUnavailable =
+                    selectionAvailability.unavailableTiers.has(option.value);
+                  const tierPrice = getCoworkTierOptionPrice(
+                    advertisedPrices,
                     option.value
                   );
-                  const advertisedProductItem = advertisedPricesByTier
-                    .get(option.value)
-                    ?.summary.sections.find(({ key }) => key === "order")
-                    ?.items.find(
-                      (item) =>
-                        "product" in item &&
-                        item.product.kind === "cowork" &&
-                        item.product.tier === option.value
-                    );
-                  const originalAmount =
-                    advertisedProductItem &&
-                    "originalAmount" in advertisedProductItem
-                      ? advertisedProductItem.originalAmount
-                      : undefined;
+                  const originalAmount = tierPrice?.originalAmount;
                   return (
                     <ReservationTypeOption
                       key={option.value}
@@ -635,9 +270,9 @@ export function CoworkReservationForm({
                         />
                       }
                       price={
-                        advertisedProductItem ? (
+                        tierPrice ? (
                           <ReservationAdvertisedPrice
-                            amount={advertisedProductItem.amount}
+                            amount={tierPrice.amount}
                             originalAmountClassName={
                               originalAmount ? "text-[0.6em]" : undefined
                             }
@@ -656,7 +291,7 @@ export function CoworkReservationForm({
                           <ReservationSkeletonBlock className="h-4 w-24 bg-aquamarine-green/15" />
                         )
                       }
-                      priceReady={Boolean(advertisedProductItem)}
+                      priceReady={Boolean(tierPrice)}
                       title={optionTitle}
                       value={option.value}
                     >
@@ -680,12 +315,12 @@ export function CoworkReservationForm({
           <CoworkReservationDateField
             control={form.control}
             locale={locale}
-            unavailableDates={unavailableCalendarDates}
+            unavailableDates={selectionAvailability.unavailableDates}
           />
 
-          {selectedDateNotices.length > 0 && (
+          {selectionAvailability.selectedDateNotices.length > 0 && (
             <div className="space-y-3">
-              {selectedDateNotices.map((notice) => (
+              {selectionAvailability.selectedDateNotices.map((notice) => (
                 <p
                   key={`${notice.date}-${notice.startsAt}-${notice.endsAt}`}
                   aria-live="polite"
@@ -707,7 +342,7 @@ export function CoworkReservationForm({
           )}
         </div>
 
-        {showCoffeeAddon && (
+        {isCoffeeOptional && (
           <CoworkCoffeeAddonField
             control={form.control}
             locale={locale}
@@ -715,20 +350,16 @@ export function CoworkReservationForm({
           />
         )}
 
-        {showWorkstationAddon && (
+        {isWorkstationOptional && (
           <CoworkWorkstationAddonField
             allowedMonitorOptions={allowedMonitorOptions}
             control={form.control}
-            isWorkstationRequired={isWorkstationRequiredForDate}
-            monitorOptionsAvailabilitySettled={
-              isWorkstationRequirementSettledForSelectedDate
-            }
+            isWorkstationRequired={isWorkstationRequired}
+            monitorOptionsAvailabilitySettled={workstation.settled}
             locale={locale}
-            onManualSelection={() => {
-              autoAddedWorkstation.current = false;
-            }}
+            onManualSelection={onManualWorkstationSelection}
             priceLabel={workstationPriceLabel}
-            unavailableMonitorOptions={unavailableMonitorOptions}
+            unavailableMonitorOptions={workstation.unavailableMonitorOptions}
           />
         )}
       </div>
@@ -736,18 +367,26 @@ export function CoworkReservationForm({
   );
 }
 
+/**
+ * A tier card's description. The loading fallback's `placeholder` copy
+ * leaves out the form's data hooks, so only the form's copy matches them.
+ */
 function CoworkTierDescription({
   locale,
+  placeholder = false,
   tier,
 }: {
   readonly locale: Locale;
+  readonly placeholder?: boolean;
   readonly tier: WorkspaceCoworkCurrentTier;
 }) {
   return (
     <div
       className="relative z-10 col-start-1 row-start-3 mb-3 min-h-[5.625rem] max-w-full break-words pt-1 text-sm leading-5 text-navy-blue/70"
-      data-cowork-tier-showcase={tier}
-      data-reservation-type-description={tier}
+      {...(!placeholder && {
+        "data-cowork-tier-showcase": tier,
+        "data-reservation-type-description": tier,
+      })}
     >
       <span className="box-decoration-clone rounded-sm bg-white/85 px-1 py-0.5 group-has-[input:checked]:bg-[color:color-mix(in_srgb,var(--color-burned-orange)_8%,white)]/85">
         {getWorkspaceProductMessage(
@@ -759,11 +398,17 @@ function CoworkTierDescription({
   );
 }
 
+/**
+ * A tier card's perks. The loading fallback's `placeholder` copy leaves out
+ * the form's data hooks and element IDs.
+ */
 function CoworkTierPerks({
   locale,
+  placeholder = false,
   tier,
 }: {
   readonly locale: Locale;
+  readonly placeholder?: boolean;
   readonly tier: WorkspaceCoworkCurrentTier;
 }) {
   const content: WorkspaceProductTierCardMessages =
@@ -777,12 +422,21 @@ function CoworkTierPerks({
   return (
     <div
       className="relative z-10 col-start-1 col-end-3 row-start-4 pb-1 text-sm leading-5 text-navy-blue/70"
-      data-reservation-type-perks={tier}
+      {...(!placeholder && { "data-reservation-type-perks": tier })}
     >
-      <span id={perksLabelId} className="sr-only">
-        {getWorkspaceProductMessage(content.perksLabel, locale)}
-      </span>
-      <ul aria-labelledby={perksLabelId} className="space-y-2">
+      {placeholder ? (
+        <span className="sr-only">
+          {getWorkspaceProductMessage(content.perksLabel, locale)}
+        </span>
+      ) : (
+        <span id={perksLabelId} className="sr-only">
+          {getWorkspaceProductMessage(content.perksLabel, locale)}
+        </span>
+      )}
+      <ul
+        {...(!placeholder && { "aria-labelledby": perksLabelId })}
+        className="space-y-2"
+      >
         {content.perks.map((perk, index) => {
           const text = getWorkspaceProductMessage(perk.message, locale);
           const PerkIcon = perkIcons[index];
@@ -1027,17 +681,13 @@ function CoworkReservationDateField({
           <ReservationFormLabel required>
             {m.reservationDateLabel({}, { locale })}
           </ReservationFormLabel>
-          <ReservationFormDatePicker
-            ariaLabel={m.reservationDateLabel({}, { locale })}
+          <ReservationFormDateInput
+            {...field}
             displayValue={formatDisplayDate(field.value, locale)}
-            isDateDisabled={(date) => unavailableDates.has(date.toString())}
+            label={m.reservationDateLabel({}, { locale })}
             locale={locale}
             minimum={() => getCurrentWorkspaceDate().toString()}
-            name={field.name}
-            onBlur={field.onBlur}
-            onChange={field.onChange}
-            placeholder={m.reservationDatePlaceholder({}, { locale })}
-            value={field.value}
+            unavailableDates={unavailableDates}
           />
           <FormMessage />
         </FormItem>
@@ -1055,46 +705,48 @@ export function CoworkReservationFormFallback({
   return (
     <SharedReservationFormFallback
       label={m.reservationFormTitle({}, { locale })}
-    >
-      <div className="space-y-2">
-        <ReservationSkeletonBlock className="h-4 w-28" />
-        <div className="grid gap-4 md:grid-cols-2">
-          {workspaceCoworkCurrentTiers.map((tier) => (
-            <div
-              className={cn(
-                illustratedReservationTypeOptionLayout,
-                "bg-white outline outline-1 -outline-offset-1 outline-navy-blue/10"
-              )}
-              key={tier}
-            >
-              <div className="col-start-1 col-end-3 row-start-1 mb-2 flex items-start justify-between gap-2">
-                <ReservationSkeletonBlock className="h-7 w-32 lg:h-8" />
-                <ReservationSkeletonBlock className="mt-1 h-6 w-6 shrink-0 rounded-full sm:h-7 sm:w-7" />
+      overview={
+        <div className="space-y-2">
+          <p className="text-sm font-semibold uppercase tracking-[0.14em] text-navy-blue/72">
+            {m.reservationTierLabel({}, { locale })}
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {workspaceCoworkCurrentTiers.map((tier) => (
+              <div
+                className={cn(
+                  illustratedReservationTypeOptionLayout,
+                  "bg-white outline outline-1 -outline-offset-1 outline-navy-blue/10"
+                )}
+                key={tier}
+              >
+                <div className="col-start-1 col-end-3 row-start-1 mb-2 flex items-start justify-between gap-2">
+                  <p className="min-w-0 flex-1 break-words text-[1.375rem] font-semibold leading-7 lg:text-2xl lg:leading-8">
+                    {getWorkspaceProductTierTitle(tier, locale)}
+                  </p>
+                  <span
+                    aria-hidden="true"
+                    className="mt-1 h-6 w-6 shrink-0 rounded-full border-2 border-navy-blue/25 sm:h-7 sm:w-7"
+                  />
+                </div>
+                {/* Prices load with the form; the copy around them is static. */}
+                <div
+                  aria-hidden="true"
+                  className="col-start-1 row-start-2 mb-2 py-1"
+                >
+                  <ReservationSkeletonBlock className="h-8 w-28 bg-aquamarine-green/15 lg:h-9" />
+                </div>
+                <CoworkTierDescription
+                  locale={locale}
+                  placeholder
+                  tier={tier}
+                />
+                <CoworkTierPerks locale={locale} placeholder tier={tier} />
               </div>
-              <div className="col-start-1 row-start-2 mb-2 py-1">
-                <ReservationSkeletonBlock className="h-8 w-28 bg-aquamarine-green/15 lg:h-9" />
-              </div>
-              <div className="col-start-1 row-start-3 mb-3 min-h-[5.625rem] space-y-2 pt-1">
-                <ReservationSkeletonBlock className="h-3 w-full" />
-                <ReservationSkeletonBlock className="h-3 w-11/12" />
-                <ReservationSkeletonBlock className="h-3 w-4/5" />
-              </div>
-              <div className="col-start-1 col-end-3 row-start-4 space-y-2 pb-1">
-                {workspaceProductTierCardMessages[tier].perks.map((perk) => (
-                  <div
-                    className="flex items-center gap-2"
-                    key={getWorkspaceProductMessage(perk.message, locale)}
-                  >
-                    <ReservationSkeletonBlock className="h-8 w-8 shrink-0 rounded-full" />
-                    <ReservationSkeletonBlock className="h-3 w-40" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
-
+      }
+    >
       <div className="grid gap-5 md:grid-cols-2">
         <ReservationSkeletonField />
         <ReservationSkeletonField />

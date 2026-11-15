@@ -1,9 +1,6 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import type { SupportedLocale } from "@deskohub/i18n/locale-registry";
+import { isMatchingSecret } from "@deskohub/secret-comparison";
 import { type Duration, Effect, Schema } from "effect";
-
-export const locales = ["cs-CZ", "en-US"] as const;
-
-export type Locale = (typeof locales)[number];
 
 export const nexiMinorUnitExponent = 2;
 
@@ -224,18 +221,11 @@ export const checkNexiWebhookSecurityToken = (input: {
   return {
     status:
       expectedSecurityToken &&
-      securityTokensEqual(notificationSecurityToken, expectedSecurityToken)
+      isMatchingSecret(notificationSecurityToken, expectedSecurityToken)
         ? "match"
         : "mismatch",
   };
 };
-
-// Compares fixed-length digests so neither content nor length leaks timing.
-const securityTokensEqual = (received: string, expected: string) =>
-  timingSafeEqual(
-    createHash("sha256").update(received).digest(),
-    createHash("sha256").update(expected).digest()
-  );
 
 export const classifyNexiFailureStatus = (
   providerStatus: string | undefined
@@ -265,7 +255,7 @@ export interface CreateHostedPaymentPageInput {
   /** Integer minor-unit/scaled amount string, e.g. "5000" for 50.00. */
   readonly amount: string;
   readonly currency: NexiCurrency;
-  readonly locale: Locale;
+  readonly locale: SupportedLocale;
   readonly resultUrl: string;
   readonly cancelUrl: string;
   readonly notificationUrl: string;

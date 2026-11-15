@@ -17,7 +17,9 @@ import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date
 import { officeCheckoutPricing } from "./office-checkout-pricing";
 
 const startsOn = getCurrentWorkspaceDate().add({ days: 1 });
-const reservation = Schema.decodeUnknownSync(officeReservationOrderSchema)({
+const reservation = Schema.decodeUnknownSync(
+  officeReservationOrderSchema("CZ")
+)({
   kind: "office",
   startsOn: startsOn.toString(),
   endsOn: startsOn.add({ days: 1 }).toString(),
@@ -54,7 +56,7 @@ const runWithDiscounts = <A, E>(
 describe("office checkout pricing", () => {
   test("quotes with the exact seat and inclusive-day product identity", async () => {
     const discoverAdvertisedDiscounts = mock(() =>
-      Effect.succeed(advertisementQuote)
+      Effect.succeed({ quote: advertisementQuote, complete: true })
     );
 
     const result = await runWithDiscounts(
@@ -71,11 +73,13 @@ describe("office checkout pricing", () => {
     expect(discoverAdvertisedDiscounts).toHaveBeenCalledWith({
       product,
       discountableSubtotal: money,
+      firstServiceDate: reservation.startsOn,
       lastServiceDate: reservation.endsOn,
       locale: "en-US",
       bookedAt: expect.any(Temporal.Instant),
     });
     expect(result.quote.payment.expectedPrice).toEqual(money);
+    expect(result.discountsComplete).toBeTrue();
   });
 
   test.each([
@@ -85,7 +89,7 @@ describe("office checkout pricing", () => {
     "applies a calendar sale only when the office range %s",
     async (_label, extraDays, expectedDiscounts) => {
       const rangeReservation = Schema.decodeUnknownSync(
-        officeReservationOrderSchema
+        officeReservationOrderSchema("CZ")
       )({
         ...reservation,
         endsOn: startsOn.add({ days: extraDays }).toString(),

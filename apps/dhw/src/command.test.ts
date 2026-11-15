@@ -1,8 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
-  AdministrationActorUsername,
+  AdministrationActorEmail,
+  AdministrationCustomerReservationActivity,
   AdministrationDiscountCodeId,
+  AdministrationDiscountGroupList,
+  AdministrationDotyposCustomerId,
+  AdministrationInvoiceCreateInput,
+  AdministrationInvoiceCreationDefaults,
+  AdministrationLegacyUsername,
+  AdministrationOverview,
+  AdministrationReservationActivity,
+  type AdministrationReservationDetailType,
   AdministrationStandaloneAccessCodeAttemptId,
   type AdministrationStandaloneAccessCodeAttemptIdType,
   type AdministrationStandaloneAccessCodeCreateInputType,
@@ -21,6 +33,7 @@ import {
   type CliSessionType,
   CliStandaloneAccessCodeCleanupRequired,
   CliStandaloneAccessCodeReconciled,
+  toAdministrationActorName,
 } from "@deskohub/workspace-admin-api";
 import { BunServices } from "@effect/platform-bun";
 import { Console, Effect, Exit, Layer, Option, Redacted, Schema } from "effect";
@@ -32,6 +45,32 @@ import { dhwCommand } from "./command";
 import { DhwConfig } from "./config/dhw-config.service";
 
 const syntheticEmail = testEmailAddress("synthetic");
+
+const previewInvoiceInput = Schema.decodeUnknownSync(
+  AdministrationInvoiceCreateInput
+)({
+  invoiceId: "01980000-0000-7000-8000-000000000019",
+  customer: {
+    kind: "new",
+    details: {
+      kind: "person",
+      email: syntheticEmail,
+      firstName: "Synthetic",
+      lastName: "Customer",
+      address: {
+        line1: "Test street 1",
+        city: "Prague",
+        postalCode: "100 00",
+        country: "CZ",
+      },
+    },
+  },
+  locale: "cs-CZ",
+  serviceDate: "2026-08-10",
+  payment: { status: "due", date: "2026-08-24" },
+  currency: "CZK",
+  lines: [{ description: "Synthetic service", price: "1000" }],
+});
 
 const accessToken = Schema.decodeUnknownSync(CliAccessToken)("a".repeat(43));
 const sessionId = Schema.decodeUnknownSync(CliSessionId)(
@@ -58,12 +97,20 @@ const cleanupTarget = {
 const session = {
   id: sessionId,
   approvedBy: null,
+  approvedByEmail: null,
   clientName: "test client",
   cliVersion: "1.3.0",
   buildTarget: "development" as const,
   createdAt: "2026-08-10T10:00:00.000Z",
   lastUsedAt: "2026-08-10T10:00:00.000Z",
   expiresAt: null,
+};
+const accountApproverEmail = AdministrationActorEmail.make(
+  testEmailAddress("admin")
+);
+const accountApprover = {
+  approvedBy: toAdministrationActorName(accountApproverEmail),
+  approvedByEmail: accountApproverEmail,
 };
 const createdAccessCodeOutcome = Schema.decodeUnknownSync(
   AdministrationStandaloneAccessCodeCreationOutcome
@@ -111,7 +158,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createInvoice: (_accessToken, input) =>
         Effect.sync(() => {
@@ -173,6 +220,194 @@ describe("dhw mutation commands", () => {
     ]);
   });
 
+  test("previews an invoice from a strict input file and writes the PDF", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "dhw-command-invoice-"));
+    const inputPath = join(directory, "invoice.json");
+    const outputPath = join(directory, "preview.pdf");
+    const pdf = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55]);
+    const previews: unknown[] = [];
+    const { layer, output } = makeCommandLayer({
+      previewInvoice: (_accessToken, input) =>
+        Effect.sync(() => {
+          previews.push(input);
+          return pdf;
+        }),
+    });
+    await writeFile(inputPath, JSON.stringify(previewInvoiceInput));
+
+    try {
+      await runCommand(
+        [
+          "--json",
+          "invoices",
+          "preview",
+          "--input",
+          inputPath,
+          "--output",
+          outputPath,
+        ],
+        layer
+      ).pipe(Effect.runPromise);
+
+      expect(previews).toEqual([previewInvoiceInput]);
+      expect(await readFile(outputPath)).toEqual(Buffer.from(pdf));
+      expect(JSON.parse(output.join(""))).toEqual({
+        invoiceId: previewInvoiceInput.invoiceId,
+        path: outputPath,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects invoice preview input with an unknown property before the API call", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "dhw-command-invoice-"));
+    const inputPath = join(directory, "invoice.json");
+    const previews: unknown[] = [];
+    const { layer } = makeCommandLayer({
+      previewInvoice: (_accessToken, input) =>
+        Effect.sync(() => {
+          previews.push(input);
+          return new Uint8Array();
+        }),
+    });
+    await writeFile(
+      inputPath,
+      JSON.stringify({ ...previewInvoiceInput, unknownProperty: true })
+    );
+
+    try {
+      const error = await runCommand(
+        ["--json", "invoices", "preview", "--input", inputPath],
+        layer
+      ).pipe(Effect.flip, Effect.runPromise);
+
+      expect(error).toMatchObject({ _tag: "InvalidMutationInputError" });
+      expect(previews).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("prints invoice creation defaults as JSON", async () => {
+    const defaults = Schema.decodeUnknownSync(
+      AdministrationInvoiceCreationDefaults
+    )({
+      currencies: [{ code: "CZK", exponent: 2, name: "Czech koruna" }],
+      defaultCurrency: "CZK",
+      defaultServiceDate: "2026-08-10",
+      defaultDueDate: "2026-08-24",
+      suggestedVariableSymbol: "260810",
+    });
+    const { layer, output } = makeCommandLayer({
+      getInvoiceCreationDefaults: () => Effect.succeed(defaults),
+    });
+
+    await runCommand(["--json", "invoices", "defaults"], layer).pipe(
+      Effect.runPromise
+    );
+
+    expect(JSON.parse(output.join(""))).toEqual(defaults);
+  });
+
+  test("passes a decoded customer ID to the activity command and prints its JSON", async () => {
+    const customerId = "customer-1";
+    const decodedCustomerId = Schema.decodeUnknownSync(
+      AdministrationDotyposCustomerId
+    )(customerId);
+    const activity = Schema.decodeUnknownSync(
+      AdministrationCustomerReservationActivity
+    )({
+      from: "2026-08-01",
+      to: "2026-08-02",
+      dates: [{ date: "2026-08-01", count: 2, category: "meeting-room" }],
+    });
+    const requestedCustomerIds: AdministrationDotyposCustomerId[] = [];
+    const { layer, output } = makeCommandLayer({
+      getCustomerReservationActivity: (_accessToken, decodedCustomerId) =>
+        Effect.sync(() => {
+          requestedCustomerIds.push(decodedCustomerId);
+          return activity;
+        }),
+    });
+
+    await runCommand(
+      ["--json", "customers", "activity", customerId],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(requestedCustomerIds).toEqual([decodedCustomerId]);
+    expect(JSON.parse(output.join(""))).toEqual(activity);
+  });
+
+  test("prints global reservation activity as JSON", async () => {
+    const activity = Schema.decodeUnknownSync(
+      AdministrationReservationActivity
+    )({
+      from: "2026-08-01",
+      to: "2026-08-02",
+      dates: [{ date: "2026-08-01", count: 2 }],
+    });
+    const { layer, output } = makeCommandLayer({
+      getReservationActivity: () => Effect.succeed(activity),
+    });
+
+    await runCommand(["--json", "reservations", "activity"], layer).pipe(
+      Effect.runPromise
+    );
+
+    expect(JSON.parse(output.join(""))).toEqual(activity);
+  });
+
+  test("prints unavailable global reservation activity for people", async () => {
+    const activity = Schema.decodeUnknownSync(
+      AdministrationReservationActivity
+    )({
+      from: "2026-08-01",
+      to: "2026-08-02",
+      dates: null,
+    });
+    const { layer, output } = makeCommandLayer({
+      getReservationActivity: () => Effect.succeed(activity),
+    });
+
+    await runCommand(["reservations", "activity"], layer).pipe(
+      Effect.runPromise
+    );
+
+    expect(output.join("")).toBe(
+      "Reservation activity 2026-08-01 to 2026-08-02: unavailable"
+    );
+  });
+
+  test("includes refund attention in overview JSON", async () => {
+    const overview = Schema.decodeUnknownSync(AdministrationOverview)({
+      today: { completed: 1, unavailable: false, value: 2 },
+      upcoming: { completed: 3, unavailable: false, value: 4 },
+      lastSevenDays: { completed: 5, unavailable: false, value: 6 },
+      uniqueCustomers: {
+        customers: [],
+        unavailable: false,
+        value: 7,
+      },
+      newCustomers: {
+        customers: [],
+        unavailable: false,
+        value: 8,
+      },
+      refundAttention: { unavailable: false, value: 9 },
+    });
+    const { layer, output } = makeCommandLayer({
+      getOverview: () => Effect.succeed(overview),
+    });
+
+    await runCommand(["--json", "overview"], layer).pipe(Effect.runPromise);
+
+    expect(JSON.parse(output.join("")).refundAttention).toEqual(
+      overview.refundAttention
+    );
+  });
+
   test("requires explicit confirmation for non-interactive revocation", async () => {
     let revocations = 0;
     const { layer } = makeCommandLayer({
@@ -226,6 +461,102 @@ describe("dhw mutation commands", () => {
           sendCancellationEmail: true,
         },
       },
+    ]);
+  });
+
+  test("shows who booked a reservation for someone else", async () => {
+    const output: string[] = [];
+    const capturedOutput = Layer.succeed(Console.Console, {
+      ...globalThis.console,
+      log: (...args: ReadonlyArray<unknown>) => {
+        output.push(args.join(" "));
+      },
+    } satisfies Console.Console);
+    const detail = (author: AdministrationReservationDetailType["author"]) =>
+      ({
+        author,
+        accessGrant: null,
+        discounts: [],
+        orders: [],
+        paymentAttempts: [],
+        reservation: {
+          id: reservationId,
+          customerId: "booked-for-customer",
+          customer: null,
+          date: "2026-08-10",
+          startsAt: null,
+          typeLabel: "Cowork",
+          status: { label: "Held" },
+        },
+      }) as unknown as AdministrationReservationDetailType;
+
+    for (const author of [
+      {
+        kind: "account" as const,
+        customerId: null,
+        displayName: "Ada Author",
+        email: testEmailAddress("ada-author"),
+      },
+      { kind: "deleted" as const },
+      { kind: "unavailable" as const },
+      null,
+    ]) {
+      const { layer } = makeCommandLayer({
+        getReservation: () => Effect.succeed(detail(author)),
+      });
+      await runCommand(
+        ["reservations", "get", reservationId],
+        Layer.mergeAll(layer, capturedOutput)
+      ).pipe(Effect.runPromise);
+    }
+
+    expect(output.filter((line) => line.startsWith("Booked by"))).toEqual([
+      `Booked by: Ada Author <${testEmailAddress("ada-author")}>`,
+      "Booked by: deleted account",
+      "Booked by: unavailable",
+    ]);
+  });
+
+  test("shows when an early-setup meeting room is held from", async () => {
+    const output: string[] = [];
+    const capturedOutput = Layer.succeed(Console.Console, {
+      ...globalThis.console,
+      log: (...args: ReadonlyArray<unknown>) => {
+        output.push(args.join(" "));
+      },
+    } satisfies Console.Console);
+    const detail = (setupStartsAt: string | null) =>
+      ({
+        author: null,
+        accessGrant: null,
+        discounts: [],
+        orders: [],
+        paymentAttempts: [],
+        reservation: {
+          id: reservationId,
+          customerId: "meeting-room-customer",
+          customer: null,
+          date: "2026-08-10",
+          startsAt: "2026-08-10T08:00:00Z",
+          endsAt: "2026-08-10T09:00:00Z",
+          setupStartsAt,
+          typeLabel: "Meeting Room",
+          status: { label: "Paid" },
+        },
+      }) as unknown as AdministrationReservationDetailType;
+
+    for (const setupStartsAt of ["2026-08-10T07:45:00Z", null]) {
+      const { layer } = makeCommandLayer({
+        getReservation: () => Effect.succeed(detail(setupStartsAt)),
+      });
+      await runCommand(
+        ["reservations", "get", reservationId],
+        Layer.mergeAll(layer, capturedOutput)
+      ).pipe(Effect.runPromise);
+    }
+
+    expect(output.filter((line) => line.startsWith("Early setup"))).toEqual([
+      "Early setup: from 2026-08-10T07:45:00Z, booked 2026-08-10T08:00:00Z to 2026-08-10T09:00:00Z",
     ]);
   });
 
@@ -322,7 +653,7 @@ describe("dhw mutation commands", () => {
   });
 
   test("dry-runs a legacy administrator backfill and prints its JSON result", async () => {
-    const legacyUsername = AdministrationActorUsername.make("legacy-admin");
+    const legacyUsername = AdministrationLegacyUsername.make("legacy-admin");
     const email = testEmailAddress("legacy-admin");
     const requests: unknown[] = [];
     const result = {
@@ -370,7 +701,7 @@ describe("dhw mutation commands", () => {
   });
 
   test("requires confirmation for a real legacy administrator backfill", async () => {
-    const legacyUsername = AdministrationActorUsername.make("legacy-admin");
+    const legacyUsername = AdministrationLegacyUsername.make("legacy-admin");
     const email = testEmailAddress("legacy-admin");
     const requests: unknown[] = [];
     const { layer } = makeCommandLayer({
@@ -535,7 +866,7 @@ describe("dhw mutation commands", () => {
     const { accessCodeCreations, layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
     });
 
@@ -574,7 +905,7 @@ describe("dhw mutation commands", () => {
     const { accessCodeCreations, layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
     });
 
@@ -616,7 +947,7 @@ describe("dhw mutation commands", () => {
     const { accessCodeCreations, layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: () =>
         Effect.succeed(createdAccessCodeOutcome),
@@ -662,7 +993,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: (_accessToken, attemptId) => {
         attemptIds.push(attemptId);
@@ -698,7 +1029,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: (_accessToken, attemptId) => {
         attemptIds.push(attemptId);
@@ -745,7 +1076,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: (_accessToken, attemptId) => {
         attemptIds.push(attemptId);
@@ -793,7 +1124,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: (_accessToken, attemptId) => {
         attemptIds.push(attemptId);
@@ -826,7 +1157,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: (_accessToken, attemptId) => {
         attemptIds.push(attemptId);
@@ -862,7 +1193,7 @@ describe("dhw mutation commands", () => {
     const { accessCodeCreations, layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       stateDirectory: blockedPath,
     });
@@ -897,7 +1228,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: (_accessToken, attemptId) => {
         attemptIds.push(attemptId);
@@ -936,7 +1267,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: (
         _accessToken,
@@ -989,7 +1320,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: (_accessToken, attemptId) => {
         calls.push({ attemptId });
@@ -1034,7 +1365,7 @@ describe("dhw mutation commands", () => {
     const { layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
+        ...accountApprover,
       },
       createStandaloneAccessCode: (
         _accessToken,
@@ -1089,6 +1420,21 @@ describe("dhw mutation commands", () => {
     });
     expect(providerError).toMatchObject({ _tag: "InvalidMutationInputError" });
     expect(accessMutations).toHaveLength(0);
+  });
+
+  test("prints discount groups as the API result in JSON mode", async () => {
+    const discountGroups = Schema.decodeUnknownSync(
+      AdministrationDiscountGroupList
+    )({ discountGroups: [{ id: "group-1", name: "Community" }] });
+    const { layer, output } = makeCommandLayer({
+      listDiscountGroups: () => Effect.succeed(discountGroups),
+    });
+
+    await runCommand(["--json", "discounts", "groups"], layer).pipe(
+      Effect.runPromise
+    );
+
+    expect(JSON.parse(output.join(""))).toEqual(discountGroups.discountGroups);
   });
 
   test("rejects percentages that cannot be represented as whole basis points", async () => {
@@ -1177,6 +1523,138 @@ describe("dhw mutation commands", () => {
     expect(mutations).toHaveLength(0);
   });
 
+  describe("discount code service dates", () => {
+    const discountId = "019c91dd-c560-7e55-b9d8-c95065efd51d";
+    const updateArgs = [
+      "--json",
+      "codes",
+      "update",
+      codeId,
+      "SUMMER10",
+      discountId,
+      "--enabled",
+      "true",
+    ];
+    const createArgs = [
+      "--json",
+      "codes",
+      "create",
+      "existing",
+      "SUMMER10",
+      discountId,
+    ];
+    const sentCode = (mutations: ReadonlyArray<unknown>) =>
+      (mutations[0] as { readonly code: Record<string, unknown> }).code;
+
+    test("sends both dates on create and update", async () => {
+      for (const args of [createArgs, updateArgs]) {
+        const { layer, mutations } = makeCommandLayer();
+
+        await runCommand(
+          [
+            ...args,
+            "--service-date-from",
+            "2026-07-15",
+            "--service-date-until",
+            "2026-07-15",
+          ],
+          layer
+        ).pipe(Effect.runPromise);
+
+        expect(sentCode(mutations)).toMatchObject({
+          serviceDateFrom: "2026-07-15",
+          serviceDateUntil: "2026-07-15",
+        });
+      }
+    });
+
+    test("leaves the dates out without date flags so an update keeps them", async () => {
+      for (const args of [createArgs, updateArgs]) {
+        const { layer, mutations } = makeCommandLayer();
+
+        await runCommand(args, layer).pipe(Effect.runPromise);
+
+        expect(Object.keys(sentCode(mutations))).not.toContain(
+          "serviceDateFrom"
+        );
+        expect(Object.keys(sentCode(mutations))).not.toContain(
+          "serviceDateUntil"
+        );
+      }
+    });
+
+    test("clears the dates with explicit nulls", async () => {
+      const { layer, mutations } = makeCommandLayer();
+
+      await runCommand([...updateArgs, "--clear-service-dates"], layer).pipe(
+        Effect.runPromise
+      );
+
+      expect(sentCode(mutations)).toMatchObject({
+        serviceDateFrom: null,
+        serviceDateUntil: null,
+      });
+    });
+
+    test("rejects incomplete, combined, inverted, or invalid dates before making a request", async () => {
+      for (const args of [
+        [...createArgs, "--service-date-from", "2026-07-01"],
+        [...updateArgs, "--service-date-until", "2026-07-31"],
+        [
+          ...updateArgs,
+          "--clear-service-dates",
+          "--service-date-from",
+          "2026-07-01",
+        ],
+        [
+          ...updateArgs,
+          "--clear-service-dates",
+          "--service-date-from",
+          "2026-07-01",
+          "--service-date-until",
+          "2026-07-31",
+        ],
+        [
+          ...createArgs,
+          "--service-date-from",
+          "2026-07-31",
+          "--service-date-until",
+          "2026-07-01",
+        ],
+        [
+          ...createArgs,
+          "--service-date-from",
+          "2026-02-30",
+          "--service-date-until",
+          "2026-03-31",
+        ],
+      ]) {
+        const { layer, mutations } = makeCommandLayer();
+
+        await expect(
+          runCommand(args, layer).pipe(Effect.runPromise)
+        ).rejects.toBeDefined();
+        expect(mutations).toHaveLength(0);
+      }
+    });
+
+    test("names the conflicting flags as an input error", async () => {
+      const { layer } = makeCommandLayer();
+
+      const error = await runCommand(
+        [
+          ...updateArgs,
+          "--clear-service-dates",
+          "--service-date-until",
+          "2026-07-31",
+        ],
+        layer
+      ).pipe(Effect.flip, Effect.runPromise);
+
+      expect(error).toMatchObject({ _tag: "InvalidMutationInputError" });
+    });
+  });
+
   test("rejects duplicate product flags before making a request", async () => {
     const { layer, mutations } = makeCommandLayer();
 
@@ -1221,6 +1699,16 @@ const makeCommandLayer = ({
   clear = Effect.succeed(true),
   createInvoice = () => Effect.die("not used"),
   createStandaloneAccessCode = () => Effect.die("not used"),
+  getCustomerReservationActivity = () => Effect.die("not used"),
+  getReservationActivity = () => Effect.die("not used"),
+  getInvoiceCreationDefaults = () => Effect.die("not used"),
+  getOverview = () => Effect.die("not used"),
+  listDiscountGroups = () => Effect.die("not used"),
+  previewInvoice = () => Effect.die("not used"),
+  getReservation = () =>
+    Effect.succeed({
+      accessGrant: { updatedAt: "2026-08-10T10:00:00.000Z" },
+    } as never),
   authenticatedSession = session,
   revokeSession = () => Effect.succeed({ changed: false }),
   stateDirectory = `/tmp/dhw-command-test-${crypto.randomUUID()}`,
@@ -1231,6 +1719,13 @@ const makeCommandLayer = ({
   readonly clear?: AuthenticationService["Service"]["clear"];
   readonly createInvoice?: WorkspaceAdminApiClient["Service"]["createInvoice"];
   readonly createStandaloneAccessCode?: WorkspaceAdminApiClient["Service"]["createStandaloneAccessCode"];
+  readonly getCustomerReservationActivity?: WorkspaceAdminApiClient["Service"]["getCustomerReservationActivity"];
+  readonly getReservationActivity?: WorkspaceAdminApiClient["Service"]["getReservationActivity"];
+  readonly getInvoiceCreationDefaults?: WorkspaceAdminApiClient["Service"]["getInvoiceCreationDefaults"];
+  readonly getOverview?: WorkspaceAdminApiClient["Service"]["getOverview"];
+  readonly listDiscountGroups?: WorkspaceAdminApiClient["Service"]["listDiscountGroups"];
+  readonly previewInvoice?: WorkspaceAdminApiClient["Service"]["previewInvoice"];
+  readonly getReservation?: WorkspaceAdminApiClient["Service"]["getReservation"];
   readonly authenticatedSession?: CliSessionType;
   readonly revokeSession?: WorkspaceAdminApiClient["Service"]["revokeSession"];
   readonly stateDirectory?: string;
@@ -1243,6 +1738,7 @@ const makeCommandLayer = ({
     readonly input: AdministrationStandaloneAccessCodeCreateInputType;
     readonly providerCredentialRemovedAttemptId?: AdministrationStandaloneAccessCodeAttemptIdType;
   }> = [];
+  const output: string[] = [];
   const api = Layer.succeed(WorkspaceAdminApiClient, {
     ...({} as WorkspaceAdminApiClient["Service"]),
     backfillLegacyAdministrator,
@@ -1269,10 +1765,12 @@ const makeCommandLayer = ({
           providerCredentialRemovedAttemptId
         );
       }),
-    getReservation: () =>
-      Effect.succeed({
-        accessGrant: { updatedAt: "2026-08-10T10:00:00.000Z" },
-      } as never),
+    getCustomerReservationActivity,
+    getReservationActivity,
+    getInvoiceCreationDefaults,
+    getOverview,
+    getReservation,
+    listDiscountGroups,
     mutateDiscounts: (_accessToken, _requestId, mutation) =>
       Effect.sync(() => {
         mutations.push(mutation);
@@ -1319,8 +1817,15 @@ const makeCommandLayer = ({
           updatedAt: timestamp,
         };
       }),
+    previewInvoice,
     revokeSession,
   });
+  const console = Layer.succeed(Console.Console, {
+    ...globalThis.console,
+    log: (...args: ReadonlyArray<unknown>) => {
+      output.push(args.join(" "));
+    },
+  } satisfies Console.Console);
   const authentication = Layer.succeed(AuthenticationService, {
     current: Effect.succeed(
       Option.some({
@@ -1346,7 +1851,9 @@ const makeCommandLayer = ({
     layer: Layer.mergeAll(
       api,
       authentication,
+      console,
       AccessCodeAttemptStore.Default
     ).pipe(Layer.provideMerge(config), Layer.provideMerge(BunServices.layer)),
+    output,
   };
 };

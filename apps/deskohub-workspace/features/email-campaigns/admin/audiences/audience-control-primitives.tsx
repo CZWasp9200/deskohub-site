@@ -1,8 +1,14 @@
 "use client";
 
-import type { AudienceCountOperatorType } from "@deskohub/workspace-admin-api";
+import type {
+  AudienceCountOperatorType,
+  AudienceSetOperatorType,
+} from "@deskohub/workspace-admin-api";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { m } from "@/features/administration/i18n";
+import type { Locale } from "@/features/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import {
@@ -28,13 +34,39 @@ export type ControlProps<Value> = {
   readonly errorAt: FieldErrorLookup;
 };
 
-export function FieldError({ message }: { readonly message: string }) {
+/**
+ * A control's validation messages under the id its `aria-describedby` points
+ * at (`fieldErrorAttributes`). The alert stays mounted so screen readers
+ * announce a message when it appears; while empty it leaves the flow, so
+ * place it in a flex or grid gap rather than `space-y`.
+ */
+export function FieldError({
+  id,
+  messages,
+}: {
+  readonly id: string;
+  readonly messages: ReadonlyArray<string | undefined>;
+}) {
   return (
-    <p role="alert" className="text-burned-orange text-sm">
-      {message}
-    </p>
+    <div
+      id={id}
+      role="alert"
+      className="flex flex-col gap-2 text-burned-orange text-sm empty:sr-only"
+    >
+      {messages
+        .filter((message) => message !== undefined && message !== "")
+        .map((message) => (
+          <p key={message}>{message}</p>
+        ))}
+    </div>
   );
 }
+
+/** Marks a control invalid and described by its `FieldError` while it has one. */
+export const fieldErrorAttributes = (errorId: string, invalid: boolean) => ({
+  "aria-invalid": invalid,
+  "aria-describedby": invalid ? errorId : undefined,
+});
 
 /** Wording kept apart from the controls so the row reads as a sentence. */
 export function ConditionText({ children }: { readonly children: ReactNode }) {
@@ -50,18 +82,13 @@ export function ConditionLine({ children }: { readonly children: ReactNode }) {
   );
 }
 
-const countOperators: Readonly<
-  Record<
-    AudienceCountOperatorType,
-    { readonly symbol: string; readonly name: string }
-  >
-> = {
-  eq: { symbol: "=", name: "equals" },
-  ne: { symbol: "≠", name: "is not" },
-  lt: { symbol: "<", name: "less than" },
-  lte: { symbol: "≤", name: "at most" },
-  gt: { symbol: ">", name: "more than" },
-  gte: { symbol: "≥", name: "at least" },
+const countOperators: Readonly<Record<AudienceCountOperatorType, string>> = {
+  eq: "=",
+  ne: "≠",
+  lt: "<",
+  lte: "≤",
+  gt: ">",
+  gte: "≥",
 };
 
 const isCountOperator = (value: string): value is AudienceCountOperatorType =>
@@ -75,12 +102,24 @@ export const numberInputValue = (value: number) =>
   Number.isNaN(value) ? "" : String(value);
 
 /**
- * What is wrong with a comparison: an always-true or never-true operator,
- * which the schema explains, or a value that isn't a whole number.
+ * What is wrong with a comparison: a never-true "< 0" or always-true "≥ 0",
+ * which the schema rejects on the operator, or a value that isn't a whole
+ * number.
  */
-export const countComparisonError = (errorAt: FieldErrorLookup) =>
-  errorAt("operator") ??
-  (errorAt("value") && "Enter a whole number, 0 or more.");
+export const countComparisonError = (
+  errorAt: FieldErrorLookup,
+  operator: AudienceCountOperatorType,
+  locale: Locale
+) => {
+  if (errorAt("operator") !== undefined) {
+    return operator === "lt"
+      ? m.emailCampaignsAudienceCountNeverMatchesError({}, { locale })
+      : m.emailCampaignsAudienceCountAlwaysMatchesError({}, { locale });
+  }
+  return errorAt("value") === undefined
+    ? undefined
+    : m.emailCampaignsAudienceCountWholeNumberError({}, { locale });
+};
 
 /** An operator and a non-negative whole number: "≥ 2", "= 0". */
 export function CountComparisonControl({
@@ -88,6 +127,7 @@ export function CountComparisonControl({
   value,
   onChange,
   errorAt,
+  errorId,
   label,
 }: {
   readonly operator: AudienceCountOperatorType;
@@ -97,9 +137,12 @@ export function CountComparisonControl({
     readonly value: number;
   }) => void;
   readonly errorAt: FieldErrorLookup;
+  /** The id of the `FieldError` that explains this comparison's errors. */
+  readonly errorId: string;
   /** What is counted, for screen readers ("Reservation count"). */
   readonly label: string;
 }) {
+  const locale = useRouteLocale();
   const invalid = errorAt("value") !== undefined;
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -110,17 +153,23 @@ export function CountComparisonControl({
         }}
       >
         <SelectTrigger
-          aria-label={`${label} comparison`}
-          aria-invalid={errorAt("operator") !== undefined}
+          aria-label={m.emailCampaignsAudienceCountComparisonLabel(
+            { subject: label },
+            { locale }
+          )}
+          {...fieldErrorAttributes(errorId, errorAt("operator") !== undefined)}
           className={cn(compactSelectClassName, "min-w-16 font-semibold")}
         >
-          <SelectValue>{countOperators[operator].symbol}</SelectValue>
+          <SelectValue>{countOperators[operator]}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {Object.entries(countOperators).map(([key, { symbol, name }]) => (
+          {Object.entries(countOperators).map(([key, symbol]) => (
             <SelectItem key={key} value={key}>
               <span className="inline-block w-5 font-semibold">{symbol}</span>
-              {name}
+              {m.emailCampaignsAudienceCountOperator(
+                { operator: key },
+                { locale }
+              )}
             </SelectItem>
           ))}
         </SelectContent>
@@ -135,7 +184,7 @@ export function CountComparisonControl({
           onChange({ operator, value: numberFromInput(event.target.value) })
         }
         aria-label={label}
-        aria-invalid={invalid}
+        {...fieldErrorAttributes(errorId, invalid)}
         variant={invalid ? "error" : "default"}
         className={cn(compactInputClassName, "w-20")}
       />
@@ -148,15 +197,7 @@ export const withPath =
   (field) =>
     errorAt(field === "" ? prefix : `${prefix}.${field}`);
 
-export const setOperatorLabels = {
-  anyOf: "is any of",
-  allOf: "includes all of",
-  noneOf: "is none of",
-} as const;
-
-export function SetOperatorSelect<
-  Operator extends keyof typeof setOperatorLabels,
->({
+export function SetOperatorSelect<Operator extends AudienceSetOperatorType>({
   operators,
   value,
   onChange,
@@ -167,6 +208,7 @@ export function SetOperatorSelect<
   readonly onChange: (operator: Operator) => void;
   readonly label: string;
 }) {
+  const locale = useRouteLocale();
   return (
     <Select
       value={value}
@@ -176,7 +218,10 @@ export function SetOperatorSelect<
       }}
     >
       <SelectTrigger
-        aria-label={`${label} match`}
+        aria-label={m.emailCampaignsAudienceSetMatchLabel(
+          { subject: label },
+          { locale }
+        )}
         className={compactSelectClassName}
       >
         <SelectValue />
@@ -184,7 +229,7 @@ export function SetOperatorSelect<
       <SelectContent>
         {operators.map((operator) => (
           <SelectItem key={operator} value={operator}>
-            {setOperatorLabels[operator]}
+            {m.emailCampaignsAudienceSetOperator({ operator }, { locale })}
           </SelectItem>
         ))}
       </SelectContent>
@@ -197,12 +242,13 @@ export function ValueChips({
   values,
   labelOf,
   onRemove,
-  noun,
+  removeLabel,
 }: {
   readonly values: readonly string[];
   readonly labelOf: (value: string) => string;
   readonly onRemove: (value: string) => void;
-  readonly noun: string;
+  /** Names a chip's remove button for its value's label. */
+  readonly removeLabel: (label: string) => string;
 }) {
   return values.map((value) => (
     <span
@@ -216,7 +262,7 @@ export function ValueChips({
         tone="muted"
         size="icon-xs"
         onClick={() => onRemove(value)}
-        aria-label={`Remove ${noun} ${labelOf(value)}`}
+        aria-label={removeLabel(labelOf(value))}
       >
         <X className="h-3.5 w-3.5" aria-hidden />
       </Button>

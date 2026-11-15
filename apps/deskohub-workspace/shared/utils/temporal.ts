@@ -1,4 +1,4 @@
-import { Clock, Effect, Option, Schema } from "effect";
+import { Clock, Effect, Option, Schema, SchemaGetter } from "effect";
 
 export const unixTimestampSecondsSchema = Schema.Int.check(
   Schema.isGreaterThanOrEqualTo(0)
@@ -22,6 +22,18 @@ export const currentInstant: Effect.Effect<Temporal.Instant> =
   Clock.currentTimeMillis.pipe(
     Effect.map((epochMilliseconds) =>
       Temporal.Instant.fromEpochMilliseconds(epochMilliseconds)
+    )
+  );
+
+/**
+ * Current instant read from the Effect `Clock` below the millisecond, so
+ * events less than a millisecond apart keep their order. Stored, it keeps
+ * microseconds (`toStoredInstant`).
+ */
+export const currentPreciseInstant: Effect.Effect<Temporal.Instant> =
+  Clock.currentTimeNanos.pipe(
+    Effect.map((epochNanoseconds) =>
+      Temporal.Instant.fromEpochNanoseconds(epochNanoseconds)
     )
   );
 
@@ -93,6 +105,20 @@ export const instantStringSchema = Schema.String.check(
 
 export type Instant = typeof instantStringSchema.Type;
 
+/**
+ * A whole-millisecond instant stored as its ISO string, such as a work
+ * unit subject's window bound or fire time; the ISO form round-trips it
+ * exactly.
+ */
+export const instantFromIsoStringSchema = instantStringSchema.pipe(
+  Schema.decodeTo(TemporalInstantSchema, {
+    decode: SchemaGetter.transform((value) => Temporal.Instant.from(value)),
+    encode: SchemaGetter.transform(
+      (value) => temporalInstantToIsoString(value) as Instant
+    ),
+  })
+);
+
 export const isPlainDateString = (annotations?: Schema.Annotations.Filter) =>
   Schema.makeFilter<string>(
     (value) =>
@@ -108,6 +134,23 @@ export const plainDateStringSchema = Schema.String.check(isPlainDateString())
   });
 
 export type PlainDate = typeof plainDateStringSchema.Type;
+
+/** Every calendar date from `start` through `end`, inclusive. */
+export const getPlainDatesBetween = (
+  start: Temporal.PlainDate,
+  end: Temporal.PlainDate
+): Temporal.PlainDate[] => {
+  const dates: Temporal.PlainDate[] = [];
+  for (
+    let cursor = start;
+    Temporal.PlainDate.compare(cursor, end) <= 0;
+    cursor = cursor.add({ days: 1 })
+  ) {
+    dates.push(cursor);
+  }
+
+  return dates;
+};
 
 export const temporalInstantToDate = (instant: Temporal.Instant) =>
   new Date(instant.epochMilliseconds);
@@ -176,6 +219,19 @@ export const temporalInstantToPlainDate = ({
   readonly instant: Temporal.Instant;
   readonly timeZone: string;
 }) => instant.toZonedDateTimeISO(timeZone).toPlainDate();
+
+/**
+ * Today's calendar date in `timeZone`, read from the Effect `Clock` so tests
+ * can control time.
+ */
+export const currentPlainDate = (timeZone: string): Effect.Effect<PlainDate> =>
+  currentInstant.pipe(
+    Effect.map((instant) =>
+      plainDateStringSchema.make(
+        temporalInstantToPlainDate({ instant, timeZone }).toString()
+      )
+    )
+  );
 
 export const isFuturePlainDateTime = ({
   dateTime,

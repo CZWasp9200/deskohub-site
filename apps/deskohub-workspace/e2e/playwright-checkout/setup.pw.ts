@@ -2,6 +2,7 @@ import "../../shared/polyfills/temporal";
 
 import { expect, test } from "@playwright/test";
 import { Effect } from "effect";
+import { makeWorkspaceE2ECases } from "../cases";
 import { prepareDiscountAvailabilityE2E } from "../cases/discounts";
 import { prepareMeetingRoomE2E } from "../cases/meeting-room";
 import { prepareOfficeE2E } from "../cases/office";
@@ -11,33 +12,32 @@ import {
   workspaceE2EHostedPaymentPermitDirectory,
 } from "../coordination/hosted-payment-permit.service";
 import { makeWorkspaceE2EEnvironment } from "../e2e-env";
+import { assertE2ECalendarSaleCoverage } from "../integrations/calendar-sale-coverage";
 import { seedDiscountE2EFixtures } from "../integrations/discount-fixtures";
 import { resolveE2EDotyposDiscountGroup } from "../integrations/dotypos";
 import { assertPreviewEndpointsReady } from "../preview-readiness";
+import { addDatabaseUrlRedactions } from "../redaction";
+import { assertSafeDatabaseUrl } from "../runtime";
+import { E2ETelemetryService } from "../services/telemetry";
 import {
-  addDatabaseUrlRedactions,
-  assertSafeDatabaseUrl,
-  type Runner,
-} from "../runtime";
-import { WorkspaceE2ECaseService } from "../services/cases";
+  isWorkspaceE2EOfficeCaseId,
+  workspaceE2ECaseIds,
+} from "./case-catalog";
 import {
-  type E2ERunContext,
-  E2ETelemetryService,
-  makeE2ERunContext,
-} from "../services/telemetry";
-import { workspaceE2ECaseIds } from "./case-catalog";
-import { writeWorkspaceE2ERunContext } from "./run-context";
+  resolveWorkspaceE2ERunContext,
+  writeWorkspaceE2ERunContext,
+} from "./run-context";
 import { writeWorkspaceE2ERunPlan } from "./run-plan";
 import { withWorkspaceE2ERuntime } from "./runtime-fixtures";
 
 // Readiness, seeding, availability preparation, and plan construction share
 // one test so the case phase waits for a single Playwright phase barrier and
 // worker start instead of one per preparation stage.
-test("prepare the workspace checkout run", async () => {
+test("prepare the workspace checkout run", async ({ browser }) => {
   const environment = makeWorkspaceE2EEnvironment();
   const config = getConfig(environment);
   const datasourceConfig = getDatasourceConfig(environment);
-  const runContext = readRunContext(environment);
+  const runContext = resolveWorkspaceE2ERunContext(environment);
   assertSafeDatabaseUrl(
     datasourceConfig.databaseUrl,
     "DATABASE_URL",
@@ -59,11 +59,6 @@ test("prepare the workspace checkout run", async () => {
     workspaceE2EHostedPaymentPermitDirectory(runContext.runId)
   );
 
-  const run: Runner = async () => ({
-    exitCode: 0,
-    stderr: "",
-    stdout: "",
-  });
   const { actualCaseIds, preparation } = await withWorkspaceE2ERuntime(
     environment,
     runContext,
@@ -125,14 +120,21 @@ test("prepare the workspace checkout run", async () => {
               { concurrency: "unbounded" }
             );
           const preparation = { ...prepared, customerDiscountGroup };
-          const caseService = yield* WorkspaceE2ECaseService;
-          const cases = yield* caseService.makeCases({
+          yield* assertE2ECalendarSaleCoverage({
+            browser,
+            candidateDates: [
+              ...prepared.discounts.availableBasicDates,
+              ...prepared.discounts.availablePlusDates,
+              ...prepared.discounts.availableReservedDeskDates,
+            ],
+            config,
+          });
+          const cases = yield* makeWorkspaceE2ECases({
             allocation: runContext.allocation,
             config,
             datasourceConfig,
             flowStates: [],
             preparation,
-            run,
           });
           return {
             actualCaseIds: cases.map(({ id }) => id).toSorted(),
@@ -144,26 +146,8 @@ test("prepare the workspace checkout run", async () => {
 
   const expectedCaseIds = workspaceE2ECaseIds.filter(
     (caseId) =>
-      preparation.office !== undefined ||
-      caseId !== "checkout-office-paid-multi-day"
+      preparation.office !== undefined || !isWorkspaceE2EOfficeCaseId(caseId)
   );
   expect(actualCaseIds).toEqual([...expectedCaseIds].toSorted());
   await writeWorkspaceE2ERunPlan({ preparation, runContext, version: 2 });
 });
-
-const readRunContext = (
-  environment: ReturnType<typeof makeWorkspaceE2EEnvironment>
-): E2ERunContext => {
-  const serialized = environment.WORKSPACE_E2E_RUN_CONTEXT;
-  if (!serialized) return makeE2ERunContext(environment);
-  const value: unknown = JSON.parse(serialized);
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("runId" in value) ||
-    !("allocation" in value)
-  ) {
-    throw new Error("Invalid workspace E2E run context");
-  }
-  return value as E2ERunContext;
-};

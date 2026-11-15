@@ -1,8 +1,8 @@
 import { instant } from "@next/playwright";
 import { expect, type Page, test } from "@playwright/test";
 import { m } from "@/features/i18n";
+import { enablePreviewAccess } from "../preview-access";
 import {
-  enablePreviewAccess,
   expectPublicSiteShell,
   hasLoadedResource,
 } from "./navigation-test-helpers";
@@ -36,7 +36,7 @@ test("serves the resolved header and gallery on direct navigation", async ({
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: m.gallerySrTitle({}, { locale }),
+      name: m.galleryPageTitle({}, { locale }),
     })
   ).toBeVisible();
   await expectGalleryContentToResolve(page);
@@ -203,7 +203,7 @@ async function expectGalleryShell(page: Page) {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: m.gallerySrTitle({}, { locale }),
+      name: m.galleryPageTitle({}, { locale }),
     })
   ).toBeVisible();
   await expect(

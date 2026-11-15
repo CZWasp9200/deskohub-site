@@ -1,8 +1,15 @@
 import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  within,
+} from "@testing-library/react";
 import type { LocalePreferenceSaving } from "@/features/account/switch-locale";
-import type { Locale } from "@/features/i18n";
+import { type Locale, m } from "@/features/i18n";
+import { languageNames } from "@/features/i18n/language-labels";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -17,8 +24,8 @@ const updateLocalePreference = mock(async () => ({}));
 mock.module("@/features/account/switch-locale", () => ({ switchLocale }));
 mock.module("@/features/account/actions", () => ({ updateLocalePreference }));
 mock.module("next/navigation", () => ({
-  usePathname: () => "/en-US/account",
-  useSearchParams: () => new URLSearchParams("section=profile"),
+  usePathname: () => "/en-US/account/profile",
+  useSearchParams: () => new URLSearchParams("ref=menu"),
 }));
 
 beforeAll(() => {
@@ -36,9 +43,7 @@ afterAll(async () => {
 });
 
 test("the header switcher and the profile language control switch through the same client path", async () => {
-  const { LocaleSwitcherLinks } = await import(
-    "@/shared/components/locale-switcher-links"
-  );
+  const { LanguageMenu } = await import("@/shared/components/locale-switcher");
   const { ProfileScreen } = await import(
     "@/features/account/components/profile/profile-screen"
   );
@@ -49,22 +54,13 @@ test("the header switcher and the profile language control switch through the sa
   };
   const view = render(
     <>
-      <LocaleSwitcherLinks
-        currentLocale="en-US"
+      <LanguageMenu
+        locale="en-US"
+        triggerLabel="Language menu"
+        tone="inverse"
         localePreference={headerPreference}
-        languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
       />
       <ProfileScreen
-        copy={{
-          emailLabel: "Email",
-          emailVerification: { unverified: "", verified: "" },
-          languageLabel: "Preferred language",
-          languageOptionCs: "Čeština",
-          languageOptionEn: "English (US)",
-          memberFallback: "Workspace member",
-          title: "Member profile and settings",
-          verifiedEmail: "Verified login email",
-        }}
         email={testEmailAddress("ada")}
         firstName="Ada"
         lastName={null}
@@ -76,15 +72,31 @@ test("the header switcher and the profile language control switch through the sa
   );
   await act(() => headerPreference.signedIn);
 
-  fireEvent.click(view.getByRole("link", { name: "Czech" }));
+  // Radix opens the menu on a primary-button pointerdown on its trigger.
+  await act(async () => {
+    fireEvent.pointerDown(view.getByRole("button", { name: "Language menu" }), {
+      button: 0,
+      ctrlKey: false,
+      pointerType: "mouse",
+    });
+  });
+  fireEvent.click(
+    within(await view.findByRole("menu")).getByRole("menuitem", {
+      name: languageNames["cs-CZ"],
+    })
+  );
 
   await act(async () => {
     fireEvent.keyDown(
-      view.getByRole("combobox", { name: "Preferred language" }),
+      view.getByRole("combobox", {
+        name: m.accountProfileScreenLanguageLabel({}, { locale: "en-US" }),
+      }),
       { key: "Enter" }
     );
   });
-  const option = await view.findByRole("option", { name: "Čeština" });
+  const option = await view.findByRole("option", {
+    name: m.accountProfileScreenLanguageOptionCs({}, { locale: "en-US" }),
+  });
   await act(async () => {
     option.focus();
   });

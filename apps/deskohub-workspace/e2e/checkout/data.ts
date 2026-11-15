@@ -23,6 +23,7 @@ import {
   getOfficeReservationMaximumEndsOn,
   officeReservationDetailsSchema,
 } from "@/features/reservation/office-reservation";
+import { reservationCustomerQueryParam } from "@/features/reservation/reservation-checkout-query";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { ReservationInterval } from "@/features/reservation/reservation-interval-domain";
 import {
@@ -33,7 +34,6 @@ import {
   workspaceE2EConcurrentRunTarget,
   workspaceE2EFullDateAllocation,
 } from "../allocation";
-import { getSubmitCoworkReservationScript } from "../browser-scripts";
 import type { WorkspaceE2EConfig } from "../config";
 import {
   toWorkspaceE2EError,
@@ -47,6 +47,7 @@ import {
 } from "../office";
 import { assert, log } from "../runtime";
 import type { CheckoutData, CheckoutFlow } from "../types";
+import { toReservationStep } from "./reservation-form-preparation";
 
 export type MeetingRoomCheckoutSlot = {
   readonly date: string;
@@ -80,6 +81,14 @@ export type CoworkAvailabilitySelection = {
   readonly monitorOption?: WorkspaceProductMonitorOption;
 };
 
+// A planned checkout books for its own contact. A signed-in account with a
+// profile otherwise books as itself, so the meeting-room and office links,
+// whose contact is typed on the contact step, ask for the contact mode;
+// cowork links carry the contact, which asks for it.
+const someoneElseCustomerQuery = new URLSearchParams({
+  [reservationCustomerQueryParam]: "contact",
+}).toString();
+
 let checkoutContactSequence = 0;
 const emailLocalPartLimit = 64;
 const deliveredEmailPrefix = "delivered+";
@@ -92,7 +101,7 @@ export const checkoutFlows: readonly CheckoutFlow[] = [
     id: "cowork-basic",
     makeData: (config, _datasourceConfig, date) =>
       Effect.succeed(makeCoworkCheckoutData(config.baseUrl, date)),
-    submitReservationScript: getSubmitCoworkReservationScript,
+    toReservationPreparation: toReservationStep,
   },
 ];
 
@@ -159,6 +168,19 @@ export const reuseCoworkCheckoutContact = (
     product
   );
 
+/**
+ * The planned checkout booked for `email` instead of its generated one, with
+ * the reservation link carrying it as the contact to prefill.
+ */
+export const withCheckoutContactEmail = (
+  data: CheckoutData,
+  email: string
+): CheckoutData => {
+  const url = new URL(data.checkoutUrl);
+  url.searchParams.set("email", email);
+  return { ...data, checkoutUrl: url.toString(), email };
+};
+
 export const makeMeetingRoomCheckoutData = (
   checkoutBaseUrl: string,
   slot: MeetingRoomCheckoutSlot,
@@ -179,7 +201,7 @@ export const makeOfficeCheckoutData = (
   const locale: CheckoutData["locale"] = "en-US";
 
   return {
-    checkoutUrl: `${checkoutBaseUrl}/${locale}/reservation/office`,
+    checkoutUrl: `${checkoutBaseUrl}/${locale}/reservation/office?${someoneElseCustomerQuery}`,
     date: slot.startsOn,
     email: contact.email,
     expectedReservationDetails: {
@@ -214,7 +236,7 @@ const makeMeetingRoomCheckoutDataWithContact = (
 ): CheckoutData => {
   const locale: CheckoutData["locale"] = "en-US";
   return {
-    checkoutUrl: `${checkoutBaseUrl}/${locale}/reservation/meeting-room`,
+    checkoutUrl: `${checkoutBaseUrl}/${locale}/reservation/meeting-room?${someoneElseCustomerQuery}`,
     date: slot.date,
     email: contact.email,
     expectedReservationDetails: {
@@ -558,15 +580,21 @@ export const selectAvailableMeetingRoomSlots = (
     );
   });
 
-export const selectAvailableOfficeSlot = (
+/**
+ * Selects `count` available, non-overlapping office ranges from the
+ * allocation's own blocks, earliest first, within the office booking horizon.
+ */
+export const selectAvailableOfficeSlots = (
   config: WorkspaceE2EConfig,
+  count: number,
   allocation: WorkspaceE2EDateAllocation = workspaceE2EFullDateAllocation
 ): Effect.Effect<
-  OfficeCheckoutSlot,
+  readonly OfficeCheckoutSlot[],
   WorkspaceE2EError,
   HttpClient.HttpClient
 > =>
   Effect.gen(function* () {
+    const slots: OfficeCheckoutSlot[] = [];
     const allocationLastCandidateDate = getWorkspaceE2ECandidateDate(
       allocation.toOffsetDays
     );
@@ -608,12 +636,13 @@ export const selectAvailableOfficeSlot = (
       log(
         `Selected available office range ${slot.startsOn} through ${slot.endsOn}`
       );
-      return slot;
+      slots.push(slot);
+      if (slots.length === count) return slots;
     }
 
     return yield* workspaceE2EError(
-      `No available reservation:office ${workspaceE2EOfficeReservationDayCount}-day range with ${workspaceE2EOfficeReservationSeats} seats found in ${formatWorkspaceE2EAllocation(allocation)} for supported concurrency ${workspaceE2EConcurrentRunTarget}`,
-      { operation: "select available office checkout range" }
+      `Only found ${slots.length} available reservation:office ${workspaceE2EOfficeReservationDayCount}-day ranges with ${workspaceE2EOfficeReservationSeats} seats in ${formatWorkspaceE2EAllocation(allocation)} for supported concurrency ${workspaceE2EConcurrentRunTarget}, need ${count}`,
+      { operation: "select available office checkout ranges" }
     );
   });
 

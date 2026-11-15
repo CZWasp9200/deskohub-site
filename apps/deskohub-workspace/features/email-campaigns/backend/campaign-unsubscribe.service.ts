@@ -5,12 +5,16 @@ import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
+  emailCampaignAutomationVersions,
   emailCampaignRecipients,
   emailCampaignSends,
   emailCampaigns,
 } from "@/db/schema";
 import { appendVercelPreviewProtectionBypass } from "@/features/checkout/backend/checkout/vercel-preview-protection-bypass";
-import { CustomerMarketingConsentRepository } from "@/features/legal/backend/customer-marketing-consent.repository";
+import {
+  MarketingConsentLedger,
+  type MarketingConsentUnavailable,
+} from "@/features/legal/backend/marketing-consent-ledger";
 import {
   type MarketingManagementError,
   MarketingManagementService,
@@ -20,13 +24,13 @@ import {
   getWorkspaceRuntimeCallbackOrigin,
   type WorkspaceUrlConfigError,
 } from "@/shared/backend/config/workspace-url.config";
-import { currentInstant } from "@/shared/utils/temporal";
 import {
   type CampaignUnsubscribeRecipient,
   openCampaignUnsubscribeToken,
   signCampaignUnsubscribeToken,
 } from "../campaign-unsubscribe-token";
 import { CampaignUnsubscribeTokenInvalid } from "../errors";
+import { sendAutomationVersion, sendPurpose } from "./campaign-send-selection";
 import { loadCampaignSigningKeys } from "./campaign-signing-keys";
 
 /** Path of the one-click unsubscribe endpoint (`List-Unsubscribe`). */
@@ -51,7 +55,9 @@ export interface ICampaignUnsubscribeService {
     token: string
   ) => Effect.Effect<
     CampaignUnsubscribeOutcome,
-    CampaignUnsubscribeTokenInvalid | EffectDrizzleQueryError
+    | CampaignUnsubscribeTokenInvalid
+    | EffectDrizzleQueryError
+    | MarketingConsentUnavailable
   >;
   /** A fresh marketing preferences link for the token's recipient. */
   readonly preferencesUrl: (
@@ -74,7 +80,7 @@ export class CampaignUnsubscribeService extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db } = yield* WorkspaceDatabase;
-      const consents = yield* CustomerMarketingConsentRepository;
+      const consents = yield* MarketingConsentLedger;
       const marketingManagement = yield* MarketingManagementService;
       const keys = yield* loadCampaignSigningKeys("unsubscribe-token");
 
@@ -85,15 +91,16 @@ export class CampaignUnsubscribeService extends Context.Service<
       const findRecipient = Effect.fn(
         "CampaignUnsubscribeService.findRecipient"
       )(function* (token: string) {
-        const recipient = yield* Option.match(
-          openCampaignUnsubscribeToken(keys, token),
-          {
-            onNone: () => Effect.fail(new CampaignUnsubscribeTokenInvalid()),
-            onSome: Effect.succeed,
-          }
+        const recipient = yield* openCampaignUnsubscribeToken(keys, token).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.fail(new CampaignUnsubscribeTokenInvalid()),
+              onSome: Effect.succeed,
+            })
+          )
         );
         const [row] = yield* db
-          .select({ purpose: emailCampaigns.purpose })
+          .select({ purpose: sendPurpose })
           .from(emailCampaignRecipients)
           .innerJoin(
             emailCampaignSends,
@@ -103,6 +110,7 @@ export class CampaignUnsubscribeService extends Context.Service<
             emailCampaigns,
             eq(emailCampaigns.id, emailCampaignSends.campaignId)
           )
+          .leftJoin(emailCampaignAutomationVersions, sendAutomationVersion)
           .where(
             and(
               eq(emailCampaignRecipients.sendId, recipient.sendId),
@@ -127,7 +135,7 @@ export class CampaignUnsubscribeService extends Context.Service<
             );
             url.searchParams.set(
               "token",
-              signCampaignUnsubscribeToken(keys[0], recipient)
+              yield* signCampaignUnsubscribeToken(keys, recipient)
             );
             appendVercelPreviewProtectionBypass(url);
             return url.href;
@@ -136,10 +144,7 @@ export class CampaignUnsubscribeService extends Context.Service<
         unsubscribe: Effect.fn("CampaignUnsubscribeService.unsubscribe")(
           function* (token) {
             const { dotyposCustomerId } = yield* findRecipient(token);
-            const withdrawn = yield* consents.withdrawActive({
-              dotyposCustomerId,
-              withdrawnAt: yield* currentInstant,
-            });
+            const withdrawn = yield* consents.withdrawActive(dotyposCustomerId);
             return withdrawn ? "withdrawn" : "unchanged";
           }
         ),
@@ -158,7 +163,7 @@ export class CampaignUnsubscribeService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
-        CustomerMarketingConsentRepository.Default,
+        MarketingConsentLedger.Default,
         MarketingManagementService.Default
       )
     ),

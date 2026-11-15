@@ -1,10 +1,13 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { IgloohomeService } from "@deskohub/igloohome";
+import { DotyposRejected, DotyposService } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
-  AdministrationActorUsername,
+  AdministrationActorEmail,
+  AdministrationAuthentication,
+  AdministrationDiscountCodeUpdateInput,
+  AdministrationDotyposCustomerId,
   AdministrationInstant,
   AdministrationProviderCredentialId,
   AdministrationStandaloneAccessCodeAttemptId,
@@ -27,53 +30,120 @@ import {
   CliResourceNotFound,
   CliServiceUnavailable,
   CliSessionId,
+  CliSessionUnauthorized,
   CliStandaloneAccessCodeCleanupRequired,
   CliStandaloneAccessCodeReconciled,
+  CurrentAdministrationCaller,
   CurrentCliSession,
+  toAdministrationActorName,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
 import { NodeHttpServer } from "@effect/platform-node";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Effect, Layer, Logger, Option, Result, Schema } from "effect";
+import {
+  Effect,
+  Layer,
+  Logger,
+  Option,
+  Redacted,
+  Result,
+  Schema,
+} from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { HttpApiTest } from "effect/unstable/httpapi";
-import type { CliStoredMutation } from "@/db/schema";
 import {
   StandaloneAccessCodeAdministration,
   StandaloneAccessCodeCreationError,
 } from "@/features/access-codes";
-import { StandaloneAccessCodeAttemptLogRepository } from "@/features/access-codes/backend/standalone-access-code-attempt-log.repository";
+import { customerAccountIdSchema } from "@/features/account/customer-account";
 import {
   InvoiceAdministrationInProgressError,
   InvoiceAdministrationService,
 } from "@/features/accounting/admin/invoice-administration.service";
+import { ManualInvoiceValidationError } from "@/features/accounting/manual-invoice";
 import { AdministrationService } from "@/features/administration/administration.service";
 import {
   ReservationAccessAdministration,
   ReservationAccessAdministrationError,
 } from "@/features/administration/reservation-access-administration.service";
-import { ReservationAdministrationService } from "@/features/administration/reservation-administration.service";
+import {
+  ReservationAdministrationError,
+  ReservationAdministrationService,
+} from "@/features/administration/reservation-administration.service";
+import {
+  AdministratorRoster,
+  LegacyAdministratorBackfill,
+} from "@/features/administrators";
+import type { AdministratorAccountActor } from "@/features/administrators/account-role";
+import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
+import {
+  adminCodeClaim,
+  adminCustomerCode,
+  adminCustomerProfile,
+  adminCustomerVoucher,
+  adminVoucherClaim,
+} from "@/features/discounts/admin/customer-admin-fixtures.test-utils";
 import {
   DiscountAdminConflictError,
   DiscountAdministration,
+  DiscountAdminServiceDatesError,
 } from "@/features/discounts/admin/discount-administration.service";
+import { CampaignOperations } from "@/features/email-campaigns/backend/campaign-operations.service";
+import { featureFlagsByCohort } from "@/features/feature-flags/backend/release-cohorts.test-utils";
 import {
   ReservationProductDetailsBackfill,
   type ReservationProductDetailsBackfillBatch,
 } from "@/features/reservation/backend/reservation-product-details-backfill.service";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import { toWorkspaceWebHandler } from "@/shared/backend/workspace-effect";
+import { makeMeetingPoint } from "@/shared/testing/overlapping-requests.test-utils";
+import { plainDateStringSchema } from "@/shared/utils/temporal";
+import {
+  discountMutationRecovery,
+  reservationAccessRecovery,
+  standaloneAccessCodeRecovery,
+  standaloneAccessCodeStoredResult,
+} from "./administration-mutation-recovery";
+import { AdministrationRequestLedger } from "./administration-request-ledger.service";
+import {
+  ClaimEveryCliMutation,
+  DiscardedAdministrationActionLog,
+  recordingRequestLedger,
+  UnrecordedAdministrationActions,
+  UnusedCliSessionAuthentication,
+} from "./cli-api.test-utils";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
-import { CliMutationIdempotency } from "./cli-mutation-idempotency.service";
+import { CliClientCompatibilityLive } from "./cli-client-version";
 import {
   AdminCliAdministrationApiHandlers,
   AdminCliApiHandlers,
+  CliBearerAuthenticationLive,
+  CliSessionAdministrationAuthenticationLive,
   handleWorkspaceAdminApiRequest,
+  makeWorkspaceAdminApiLayer,
 } from "./workspace-admin-api.server";
 
-const UnusedCliAuthentication = Layer.succeed(
-  CliAuthentication,
-  {} as CliAuthentication["Service"]
-);
+const cliAdministrator: AdministratorAccountActor = {
+  accountId: customerAccountIdSchema.make("cli-administrator-account"),
+  email: testEmailAddress("cli-administrator"),
+};
+// Every session in these tests acts as `cliAdministrator`.
+const SessionAdministratorAuthentication = Layer.succeed(CliAuthentication, {
+  ...({} as CliAuthentication["Service"]),
+  sessionAdministrator: () => Effect.succeed(cliAdministrator),
+});
+// The bearer authenticates, but its session has no approving administrator.
+const UnresolvableSessionAuthentication = Layer.succeed(CliAuthentication, {
+  ...({} as CliAuthentication["Service"]),
+  authenticateSession: () =>
+    Effect.succeed({ ...session, id: CliSessionId.make(session.id) }),
+  sessionAdministrator: () =>
+    Effect.fail(
+      new CliSessionUnauthorized({ message: "No approving administrator." })
+    ),
+});
 const UnusedAdministrationService = Layer.succeed(
   AdministrationService,
   {} as AdministrationService["Service"]
@@ -86,13 +156,6 @@ const UnusedReservationProductDetailsBackfill = Layer.succeed(
   ReservationProductDetailsBackfill,
   { runBatch: () => Effect.die("not expected") }
 );
-const ClaimEveryCliMutation = Layer.succeed(CliMutationIdempotency, {
-  applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-  claim: () => Effect.succeed({ kind: "claimed" as const }),
-  complete: () => Effect.void,
-  reclaimStale: () => Effect.succeed(false),
-  release: () => Effect.void,
-});
 const UnusedReservationAccessAdministration = Layer.succeed(
   ReservationAccessAdministration,
   {} as ReservationAccessAdministration["Service"]
@@ -114,6 +177,7 @@ const UnusedStandaloneAccessCodeAdministration = Layer.succeed(
 const session = {
   id: "01980000-0000-7000-8000-000000000000",
   approvedBy: null,
+  approvedByEmail: null,
   clientName: "test client",
   cliVersion: "1.0.0",
   buildTarget: "development",
@@ -121,17 +185,97 @@ const session = {
   lastUsedAt: "2026-08-10T10:00:00.000Z",
   expiresAt: null,
 } as const;
-const AuthorizedCliRequest = Layer.succeed(CliBearerAuthentication, {
+const cliAdministratorEmail = AdministrationActorEmail.make(
+  cliAdministrator.email
+);
+const cliAdministratorApprover = {
+  approvedBy: toAdministrationActorName(cliAdministratorEmail),
+  approvedByEmail: cliAdministratorEmail,
+};
+// Every request acts as `cliAdministrator` on the session's channel.
+const CliCallerAuthentication = Layer.succeed(AdministrationAuthentication, {
   bearer: (httpEffect) =>
-    Effect.provideService(httpEffect, CurrentCliSession, session),
-});
-const ActorAuthorizedCliRequest = Layer.succeed(CliBearerAuthentication, {
-  bearer: (httpEffect) =>
-    Effect.provideService(httpEffect, CurrentCliSession, {
-      ...session,
-      approvedBy: AdministrationActorUsername.make("admin"),
+    Effect.provideService(httpEffect, CurrentAdministrationCaller, {
+      actor: cliAdministrator,
+      channel: { _tag: "CliSession", sessionId: CliSessionId.make(session.id) },
     }),
 });
+const AuthorizedCliRequest = Layer.mergeAll(
+  CliCallerAuthentication,
+  Layer.succeed(CliBearerAuthentication, {
+    bearer: (httpEffect) =>
+      Effect.provideService(httpEffect, CurrentCliSession, session),
+  })
+);
+const ActorAuthorizedCliRequest = Layer.mergeAll(
+  CliCallerAuthentication,
+  Layer.succeed(CliBearerAuthentication, {
+    bearer: (httpEffect) =>
+      Effect.provideService(httpEffect, CurrentCliSession, {
+        ...session,
+        ...cliAdministratorApprover,
+      }),
+  })
+);
+const administrationClient = HttpApiTest.groups(WorkspaceAdminApi, [
+  "administration",
+]).pipe(Effect.map((client) => client.administration));
+type AdministrationClient = Effect.Success<typeof administrationClient>;
+
+type AdministrationApiServiceLayers = {
+  readonly administration?: Layer.Layer<AdministrationService>;
+  readonly discounts?: Layer.Layer<DiscountAdministration>;
+  readonly invoices?: Layer.Layer<InvoiceAdministrationService>;
+  readonly reservations?: Layer.Layer<ReservationAdministrationService>;
+};
+
+const callAdministrationApi = <A, E>(
+  call: (client: AdministrationClient) => Effect.Effect<A, E>,
+  services: AdministrationApiServiceLayers = {}
+) =>
+  administrationClient.pipe(
+    Effect.flatMap(call),
+    Effect.provide(AdminCliAdministrationApiHandlers),
+    Effect.provide(ActorAuthorizedCliRequest),
+    Effect.provide(UnusedStandaloneAccessCodeAdministration),
+    Effect.provide(ClaimEveryCliMutation),
+    Effect.provide(services.invoices ?? UnusedInvoiceAdministration),
+    Effect.provide(services.reservations ?? UnusedReservationAdministration),
+    Effect.provide(UnusedReservationProductDetailsBackfill),
+    Effect.provide(services.discounts ?? UnusedDiscountAdministration),
+    Effect.provide(SessionAdministratorAuthentication),
+    Effect.provide(services.administration ?? UnusedAdministrationService),
+    Effect.provide(UnusedReservationAccessAdministration),
+    Effect.provide(CliClientCompatibilityLive),
+    Effect.provide(UnrecordedAdministrationActions),
+    Effect.provide(NodeHttpServer.layerHttpServices),
+    Effect.scoped,
+    Effect.runPromise
+  );
+
+const invoicePreviewPayload = {
+  invoiceId: "01980000-0000-7000-8000-000000000009",
+  customer: {
+    kind: "new" as const,
+    details: {
+      kind: "person" as const,
+      email: testEmailAddress("invoice-preview"),
+      firstName: "Synthetic",
+      lastName: "Customer",
+      address: {
+        line1: "Test street 1",
+        city: "Prague",
+        postalCode: "100 00",
+        country: "CZ",
+      },
+    },
+  },
+  locale: "cs-CZ" as const,
+  serviceDate: "2026-08-10",
+  payment: { status: "due" as const, date: "2026-08-24" },
+  currency: "CZK",
+  lines: [{ description: "Space rental", price: "1000" }],
+};
 
 describe("Workspace Admin API", () => {
   test("disables caching for API responses", async () => {
@@ -141,6 +285,287 @@ describe("Workspace Admin API", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  test("returns refund attention and customer metrics in the overview", async () => {
+    const source = {};
+    const sourceInputs: unknown[] = [];
+    const customerId = AdministrationDotyposCustomerId.make("1001");
+    const overview = {
+      today: { completed: 1, unavailable: false, value: 2 },
+      upcoming: { completed: 0, unavailable: false, value: 3 },
+      lastSevenDays: { completed: 4, unavailable: false, value: 5 },
+      uniqueCustomers: {
+        customers: [{ customerId, customer: null }],
+        unavailable: false,
+        value: 1,
+      },
+      newCustomers: {
+        customers: [
+          {
+            customerId,
+            customer: {
+              id: customerId,
+              displayName: "Synthetic Customer",
+              email: testEmailAddress("overview-customer"),
+              phone: null,
+            },
+          },
+        ],
+        unavailable: false,
+        value: 1,
+      },
+    };
+    const administration = Layer.succeed(AdministrationService, {
+      ...({} as AdministrationService["Service"]),
+      loadOverviewSource: () => Effect.succeed(source as never),
+      loadOverview: (input) => {
+        sourceInputs.push(input);
+        return Effect.succeed(overview as never);
+      },
+      countReservationsNeedingRefund: () => Effect.succeed(4),
+    });
+
+    const result = await callAdministrationApi(
+      (client) => client.getOverview({}),
+      { administration }
+    );
+
+    expect(sourceInputs).toEqual([source]);
+    expect(result).toMatchObject({
+      ...overview,
+      refundAttention: { unavailable: false, value: 4 },
+    });
+  });
+
+  test("passes the customer id and returns reservation activity with dates or unavailable dates", async () => {
+    const requests: unknown[] = [];
+    const withDates = {
+      from: "2025-10-23",
+      to: "2026-10-22",
+      dates: [{ date: "2026-10-20", count: 2, category: "meeting-room" }],
+    };
+    const unavailable = {
+      from: "2025-10-23",
+      to: "2026-10-22",
+      dates: null,
+    };
+    const administration = Layer.succeed(AdministrationService, {
+      ...({} as AdministrationService["Service"]),
+      loadCustomerReservationActivity: (customerId) => {
+        requests.push(customerId);
+        return Effect.succeed(requests.length === 1 ? withDates : unavailable);
+      },
+    });
+    const customerId = AdministrationDotyposCustomerId.make("1001");
+    const unavailableCustomerId = AdministrationDotyposCustomerId.make("1002");
+
+    const result = await callAdministrationApi(
+      (client) =>
+        Effect.gen(function* () {
+          const withActivity = yield* client.getCustomerReservationActivity({
+            params: { customerId },
+          });
+          const withoutActivity = yield* client.getCustomerReservationActivity({
+            params: { customerId: unavailableCustomerId },
+          });
+          return { withActivity, withoutActivity };
+        }),
+      { administration }
+    );
+
+    expect(requests).toEqual([customerId, unavailableCustomerId]);
+    expect(result).toEqual({
+      withActivity: withDates,
+      withoutActivity: unavailable,
+    });
+  });
+
+  test("returns reservation activity with dates or unavailable dates", async () => {
+    const withDates = {
+      from: "2025-10-23",
+      to: "2026-10-22",
+      dates: [{ date: "2026-10-20", count: 2 }],
+    };
+    const unavailable = {
+      from: "2025-10-23",
+      to: "2026-10-22",
+      dates: null,
+    };
+    let calls = 0;
+    const administration = Layer.succeed(AdministrationService, {
+      ...({} as AdministrationService["Service"]),
+      loadReservationActivity: () => {
+        calls += 1;
+        return Effect.succeed(calls === 1 ? withDates : unavailable);
+      },
+    });
+
+    const result = await callAdministrationApi(
+      (client) =>
+        Effect.gen(function* () {
+          const withActivity = yield* client.getReservationActivity({});
+          const withoutActivity = yield* client.getReservationActivity({});
+          return { withActivity, withoutActivity };
+        }),
+      { administration }
+    );
+
+    expect(calls).toBe(2);
+    expect(result).toEqual({
+      withActivity: withDates,
+      withoutActivity: unavailable,
+    });
+  });
+
+  test("serves each instance's own caller when instances share a memo map", async () => {
+    const instances = ["first", "second"] as const;
+    type Instance = (typeof instances)[number];
+    const callerOf = (instance: Instance) => ({
+      actor: {
+        accountId: customerAccountIdSchema.make(`account-${instance}`),
+        email: testEmailAddress(instance),
+      },
+      channel: {
+        _tag: "CliSession" as const,
+        sessionId: CliSessionId.make(
+          instance === "first"
+            ? "01980000-0000-7000-8000-0000000000a1"
+            : "01980000-0000-7000-8000-0000000000a2"
+        ),
+      },
+    });
+    // Each instance accepts only the bearer named after it.
+    const authenticationOf = (instance: Instance) =>
+      Layer.succeed(AdministrationAuthentication, {
+        bearer: (httpEffect, { credential }) =>
+          Redacted.value(credential) === instance
+            ? Effect.provideService(
+                httpEffect,
+                CurrentAdministrationCaller,
+                callerOf(instance)
+              )
+            : Effect.fail(
+                new CliSessionUnauthorized({ message: "Not this instance." })
+              ),
+      });
+    const sessionOwners: Array<string> = [];
+    const ledger = recordingRequestLedger(
+      new CliMutationInProgress({
+        message: "Mutation is already running.",
+        requestId: Schema.decodeUnknownSync(CliMutationRequestId)(
+          "01980000-0000-7000-8000-0000000000b1"
+        ),
+      })
+    );
+    const services = Layer.mergeAll(
+      Layer.succeed(CliAuthentication, {
+        ...({} as CliAuthentication["Service"]),
+        listSessions: (owner) =>
+          Effect.sync(() => {
+            sessionOwners.push(owner);
+            return [];
+          }),
+      }),
+      ledger.layer,
+      Layer.succeed(CliAuthenticationAdmission, {} as never),
+      Layer.succeed(AdministrationService, {} as never),
+      Layer.succeed(AdministratorRoster, {} as never),
+      Layer.succeed(LegacyAdministratorBackfill, {} as never),
+      Layer.succeed(CampaignOperations, {} as never),
+      UnusedReservationAdministration,
+      UnusedReservationProductDetailsBackfill,
+      UnusedReservationAccessAdministration,
+      UnusedDiscountAdministration,
+      UnusedInvoiceAdministration,
+      UnusedStandaloneAccessCodeAdministration,
+      DiscardedAdministrationActionLog,
+      NodeHttpServer.layerHttpServices
+    );
+    const request = (
+      handler: (request: Request) => Promise<Response>,
+      bearer: Instance,
+      init: RequestInit & { readonly path: string }
+    ) =>
+      handler(
+        new Request(`https://workspace.deskohub.test/api/v1/cli${init.path}`, {
+          ...init,
+          headers: {
+            authorization: `Bearer ${bearer}`,
+            "content-type": "application/json",
+          },
+        })
+      );
+    const listSessions = { path: "/sessions" };
+    const deleteCode = {
+      path: "/discounts/mutations",
+      method: "POST",
+      body: JSON.stringify({
+        requestId: "01980000-0000-7000-8000-0000000000b1",
+        mutation: {
+          kind: "delete-code",
+          id: "01980000-0000-7000-8000-0000000000c1",
+        },
+      }),
+    };
+
+    for (const order of [instances, [...instances].reverse()]) {
+      sessionOwners.length = 0;
+      ledger.requests.length = 0;
+      const memoMap = Layer.makeMemoMapUnsafe();
+      const handlers = Object.fromEntries(
+        instances.map((instance) => [
+          instance,
+          HttpRouter.toWebHandler(
+            makeWorkspaceAdminApiLayer({
+              authentication: authenticationOf(instance),
+              sessionAuthentication: CliBearerAuthenticationLive,
+              clientCompatibility: CliClientCompatibilityLive,
+            }).pipe(Layer.provide(services)),
+            { disableLogger: true, memoMap }
+          ),
+        ])
+      ) as Record<
+        Instance,
+        ReturnType<typeof HttpRouter.toWebHandler<never, never, never, never>>
+      >;
+
+      const statuses: Array<[string, number, string | null]> = [];
+      for (const instance of [...order, order[0]]) {
+        const other = instance === "first" ? "second" : "first";
+        const { handler } = handlers[instance];
+        for (const [name, response] of [
+          ["own sessions", await request(handler, instance, listSessions)],
+          ["other's sessions", await request(handler, other, listSessions)],
+          ["own mutation", await request(handler, instance, deleteCode)],
+        ] as const) {
+          statuses.push([
+            `${instance} ${name}`,
+            response.status,
+            response.headers.get("cache-control"),
+          ]);
+        }
+      }
+      await Promise.all(
+        Object.values(handlers).map((handler) => handler.dispose())
+      );
+
+      expect(statuses).toEqual(
+        [...order, order[0]].flatMap((instance) => [
+          [`${instance} own sessions`, 200, "private, no-store"],
+          [`${instance} other's sessions`, 401, "private, no-store"],
+          [`${instance} own mutation`, 409, "private, no-store"],
+        ])
+      );
+      expect(sessionOwners).toEqual(
+        [...order, order[0]].map(
+          (instance) => callerOf(instance).actor.accountId
+        )
+      );
+      expect(ledger.requests.map((request) => request.channel)).toEqual(
+        [...order, order[0]].map((instance) => callerOf(instance).channel)
+      );
+    }
   });
 
   test("runs one product-details backfill batch with the requested options", async () => {
@@ -183,9 +608,11 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(backfill),
       Effect.provide(UnusedDiscountAdministration),
-      Effect.provide(UnusedCliAuthentication),
+      Effect.provide(SessionAdministratorAuthentication),
       Effect.provide(Layer.succeed(AdministrationService, {} as never)),
       Effect.provide(UnusedReservationAccessAdministration),
+      Effect.provide(CliClientCompatibilityLive),
+      Effect.provide(UnrecordedAdministrationActions),
       Effect.provide(NodeHttpServer.layerHttpServices),
       Effect.scoped,
       Effect.runPromise
@@ -193,6 +620,49 @@ describe("Workspace Admin API", () => {
 
     expect(requests).toEqual([{ dryRun: true, after: "reservation-a" }]);
     expect(result).toEqual(batch);
+  });
+
+  test("lists discount groups and maps a failed service to unavailable", async () => {
+    const calls: string[] = [];
+    const discounts = Layer.succeed(DiscountAdministration, {
+      ...({} as DiscountAdministration["Service"]),
+      listDiscountGroups: () => {
+        calls.push("list");
+        return calls.length === 1
+          ? Effect.succeed([
+              { id: "10", name: "  Group Ten  " },
+              { id: "11", name: null },
+            ])
+          : Effect.fail(
+              new DotyposRejected({
+                operation: "getDiscountGroups",
+                reason: "invalid-response",
+                message: "Synthetic provider failure",
+              })
+            );
+      },
+    });
+
+    const result = await callAdministrationApi(
+      (client) =>
+        Effect.gen(function* () {
+          const groups = yield* client.listDiscountGroups({});
+          const unavailable = yield* client
+            .listDiscountGroups({})
+            .pipe(Effect.flip);
+          return { groups, unavailable };
+        }),
+      { discounts }
+    );
+
+    expect(result.groups).toEqual({
+      discountGroups: [
+        { id: "10", name: "  Group Ten  " },
+        { id: "11", name: null },
+      ],
+    });
+    expect(result.unavailable).toBeInstanceOf(CliServiceUnavailable);
+    expect(calls).toEqual(["list", "list"]);
   });
 
   test("logs the original failure before reporting the service as unavailable", async () => {
@@ -230,9 +700,11 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedDiscountAdministration),
-      Effect.provide(UnusedCliAuthentication),
+      Effect.provide(SessionAdministratorAuthentication),
       Effect.provide(failingAdministration),
       Effect.provide(UnusedReservationAccessAdministration),
+      Effect.provide(CliClientCompatibilityLive),
+      Effect.provide(UnrecordedAdministrationActions),
       Effect.provide(NodeHttpServer.layerHttpServices),
       Effect.scoped,
       Effect.withLogger(capturingLogger),
@@ -247,6 +719,74 @@ describe("Workspace Admin API", () => {
           text.includes("select from workspace reservations")
       )
     ).toBe(true);
+  });
+
+  test("returns invoice creation defaults", async () => {
+    const defaults = {
+      currencies: [{ code: "CZK", exponent: 2, name: "Czech koruna" }],
+      defaultCurrency: "CZK",
+      defaultServiceDate: "2026-10-22",
+      defaultDueDate: "2026-11-05",
+      suggestedVariableSymbol: "26000001",
+    };
+    const invoices = Layer.succeed(InvoiceAdministrationService, {
+      ...({} as InvoiceAdministrationService["Service"]),
+      getCreationDefaults: () => Effect.succeed(defaults),
+    });
+
+    const result = await callAdministrationApi(
+      (client) => client.getInvoiceCreationDefaults({}),
+      { invoices }
+    );
+
+    expect(result).toEqual(defaults);
+  });
+
+  test("previews an invoice with CLI administrator provenance", async () => {
+    const pdf = new Uint8Array([37, 80, 68, 70]);
+    const previews: unknown[] = [];
+    const invoices = Layer.succeed(InvoiceAdministrationService, {
+      ...({} as InvoiceAdministrationService["Service"]),
+      preview: (input, provenance) => {
+        previews.push({ input, provenance });
+        return Effect.succeed(pdf);
+      },
+    });
+
+    const result = await callAdministrationApi(
+      (client) => client.previewInvoice({ payload: invoicePreviewPayload }),
+      { invoices }
+    );
+
+    expect(result).toEqual(pdf);
+    expect(previews).toEqual([
+      {
+        input: invoicePreviewPayload,
+        provenance: { source: "dhw-cli", administrator: cliAdministrator },
+      },
+    ]);
+  });
+
+  test("maps invoice preview validation failures to a rejected mutation", async () => {
+    const invoices = Layer.succeed(InvoiceAdministrationService, {
+      ...({} as InvoiceAdministrationService["Service"]),
+      preview: () =>
+        Effect.fail(
+          new ManualInvoiceValidationError({
+            message: "Synthetic invoice validation failure.",
+          })
+        ),
+    });
+
+    const error = await callAdministrationApi(
+      (client) =>
+        client
+          .previewInvoice({ payload: invoicePreviewPayload })
+          .pipe(Effect.flip),
+      { invoices }
+    );
+
+    expect(error).toBeInstanceOf(CliMutationRejected);
   });
 
   test("maps an in-progress invoice claim for retry without changing provenance", async () => {
@@ -314,7 +854,9 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationAccessAdministration),
       Effect.provide(UnusedDiscountAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
-      Effect.provide(UnusedCliAuthentication),
+      Effect.provide(SessionAdministratorAuthentication),
+      Effect.provide(CliClientCompatibilityLive),
+      Effect.provide(UnrecordedAdministrationActions),
       Effect.provide(NodeHttpServer.layerHttpServices),
       Effect.scoped,
       Effect.runPromise
@@ -324,8 +866,14 @@ describe("Workspace Admin API", () => {
     expect(result.pending.requestId).toBe(payload.invoiceId);
     expect(result.created.invoiceId).toBe(payload.invoiceId);
     expect(creations).toEqual([
-      { input: payload, provenance: { source: "dhw-cli", actor: "admin" } },
-      { input: payload, provenance: { source: "dhw-cli", actor: "admin" } },
+      {
+        input: payload,
+        provenance: { source: "dhw-cli", administrator: cliAdministrator },
+      },
+      {
+        input: payload,
+        provenance: { source: "dhw-cli", administrator: cliAdministrator },
+      },
     ]);
   });
 
@@ -379,6 +927,8 @@ describe("Workspace Admin API", () => {
       Effect.provide(AuthorizedCliRequest),
       Effect.provide(admission),
       Effect.provide(authentication),
+      Effect.provide(CliClientCompatibilityLive),
+      Effect.provide(UnrecordedAdministrationActions),
       Effect.provide(NodeHttpServer.layerHttpServices),
       Effect.scoped,
       Effect.runPromise
@@ -396,15 +946,6 @@ describe("Workspace Admin API", () => {
     const rejectedRequestId = Schema.decodeUnknownSync(CliMutationRequestId)(
       "01980000-0000-7000-8000-000000000021"
     );
-    const retryableRequestId = Schema.decodeUnknownSync(CliMutationRequestId)(
-      "01980000-0000-7000-8000-000000000022"
-    );
-    const staleRequestId = Schema.decodeUnknownSync(CliMutationRequestId)(
-      "01980000-0000-7000-8000-000000000023"
-    );
-    const currentRequestId = Schema.decodeUnknownSync(CliMutationRequestId)(
-      "01980000-0000-7000-8000-000000000024"
-    );
     const grant = {
       id: "access-1" as ReservationAccessGrant["id"],
       reservationId: "reservation-1",
@@ -413,6 +954,7 @@ describe("Workspace Admin API", () => {
       deviceId: "EK1X16f8898a",
       state: "issued" as const,
       providerCredentialId: "pin-1",
+      accessName: "Deskohub reservation-1",
       scheduledAccessStartsAt: instant,
       accessStartsAt: instant,
       accessEndsAt: instant,
@@ -423,32 +965,14 @@ describe("Workspace Admin API", () => {
       createdAt: instant,
       updatedAt: instant,
     } satisfies ReservationAccessGrant;
-    let executions = 0;
-    let retryableExecutions = 0;
-    let staleExecutions = 0;
+    const domainInputs: Array<
+      Parameters<ReservationAccessAdministration["Service"]["mutate"]>[0]
+    > = [];
     const reservationAccess = Layer.succeed(ReservationAccessAdministration, {
-      resumeInterruptedMutation: () =>
-        Effect.sync(() => {
-          staleExecutions += 1;
-          return grant;
-        }),
-      mutate: (mutation) => {
-        if (mutation.reservationId === "transient-reservation") {
-          retryableExecutions += 1;
-          return retryableExecutions === 1
-            ? Effect.fail(
-                new ReservationAccessAdministrationError({
-                  reason: "retryable_failure",
-                  message: "Dotypos is temporarily unavailable.",
-                })
-              )
-            : Effect.succeed(grant);
-        }
-        return mutation.kind === "retry-failed"
-          ? Effect.sync(() => {
-              executions += 1;
-              return grant;
-            })
+      mutate: (input) => {
+        domainInputs.push(input);
+        return input.kind === "retry-failed"
+          ? Effect.succeed(grant)
           : Effect.fail(
               new ReservationAccessAdministrationError({
                 reason: "invalid_state",
@@ -456,51 +980,14 @@ describe("Workspace Admin API", () => {
               })
             );
       },
+      resumeInterruptedMutation: () => Effect.succeed(grant),
     });
-    const completed = new Map<string, unknown>();
-    const claims = new Set<string>();
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: ({ requestId: claimedRequestId }) =>
-        Effect.sync(() => {
-          if (
-            claimedRequestId === staleRequestId ||
-            claimedRequestId === currentRequestId
-          ) {
-            return { kind: "in-progress" as const };
-          }
-          if (completed.has(claimedRequestId)) {
-            return {
-              kind: "completed" as const,
-              result: completed.get(claimedRequestId) as never,
-            };
-          }
-          if (claims.has(claimedRequestId)) {
-            return { kind: "in-progress" as const };
-          }
-          claims.add(claimedRequestId);
-          return { kind: "claimed" as const };
-        }),
-      complete: ({ requestId: completedRequestId, result }) =>
-        Effect.sync(() => {
-          completed.set(completedRequestId, result);
-        }),
-      reclaimStale: ({ requestId: reclaimedRequestId }) =>
-        Effect.succeed(reclaimedRequestId === staleRequestId),
-      release: ({ requestId: releasedRequestId }) =>
-        Effect.sync(() => {
-          claims.delete(releasedRequestId);
-        }),
-    });
+    const ledger = recordingRequestLedger();
     const result = await Effect.gen(function* () {
       const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
         "administration",
       ]);
       const recovered = yield* client.administration.mutateReservationAccess({
-        params: { reservationId: grant.reservationId },
-        payload: { requestId, mutation: { kind: "retry-failed" } },
-      });
-      const replayed = yield* client.administration.mutateReservationAccess({
         params: { reservationId: grant.reservationId },
         payload: { requestId, mutation: { kind: "retry-failed" } },
       });
@@ -516,57 +1003,17 @@ describe("Workspace Admin API", () => {
           },
         })
         .pipe(Effect.flip);
-      const retryable = yield* client.administration
-        .mutateReservationAccess({
-          params: { reservationId: "transient-reservation" },
-          payload: {
-            requestId: retryableRequestId,
-            mutation: { kind: "retry-failed" },
-          },
-        })
-        .pipe(Effect.flip);
-      const retried = yield* client.administration.mutateReservationAccess({
-        params: { reservationId: "transient-reservation" },
-        payload: {
-          requestId: retryableRequestId,
-          mutation: { kind: "retry-failed" },
-        },
-      });
-      const reclaimed = yield* client.administration.mutateReservationAccess({
-        params: { reservationId: "stale-reservation" },
-        payload: {
-          requestId: staleRequestId,
-          mutation: { kind: "retry-failed" },
-        },
-      });
-      const current = yield* client.administration
-        .mutateReservationAccess({
-          params: { reservationId: "current-reservation" },
-          payload: {
-            requestId: currentRequestId,
-            mutation: { kind: "retry-failed" },
-          },
-        })
-        .pipe(Effect.flip);
-      return {
-        current,
-        reclaimed,
-        recovered,
-        rejected,
-        replayed,
-        retried,
-        retryable,
-      };
+      return { recovered, rejected };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
       Effect.provide(AuthorizedCliRequest),
-      Effect.provide(idempotency),
+      Effect.provide(ledger.layer),
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedDiscountAdministration),
-      Effect.provide(UnusedCliAuthentication),
+      Effect.provide(SessionAdministratorAuthentication),
       Effect.provide(
         Layer.succeed(
           AdministrationService,
@@ -574,22 +1021,40 @@ describe("Workspace Admin API", () => {
         )
       ),
       Effect.provide(reservationAccess),
+      Effect.provide(CliClientCompatibilityLive),
+      Effect.provide(UnrecordedAdministrationActions),
       Effect.provide(NodeHttpServer.layerHttpServices),
       Effect.scoped,
       Effect.runPromise
     );
 
     expect(result.recovered.state).toBe("issued");
-    expect(result.replayed).toEqual(result.recovered);
-    expect(executions).toBe(1);
+    expect(result.recovered.accessName).toBe("Deskohub reservation-1");
     expect("accessCode" in result.recovered).toBe(false);
     expect(result.rejected).toBeInstanceOf(CliMutationRejected);
-    expect(result.retryable).toBeInstanceOf(CliServiceUnavailable);
-    expect(result.retried.state).toBe("issued");
-    expect(retryableExecutions).toBe(2);
-    expect(result.reclaimed.state).toBe("issued");
-    expect(staleExecutions).toBe(1);
-    expect(result.current).toBeInstanceOf(CliMutationInProgress);
+    expect(domainInputs).toEqual([
+      { reservationId: grant.reservationId, kind: "retry-failed" },
+      {
+        reservationId: grant.reservationId,
+        kind: "confirm-provider-credential-removed",
+        providerCredentialRemoved: true,
+      },
+    ]);
+    expect(ledger.requests).toHaveLength(2);
+    expect(ledger.requests[0]).toMatchObject({
+      requestId,
+      mutation: {
+        kind: "reservation-access",
+        reservationId: grant.reservationId,
+        mutation: { kind: "retry-failed" },
+      },
+      inProgressMessage:
+        "This reservation access mutation is still being applied. Retrying with the same request identifier is safe.",
+    });
+    expect(ledger.requests[0]?.recovery).toBe(reservationAccessRecovery);
+    expect(ledger.requests[0]?.resume).toBeDefined();
+    expect(ledger.requests[1]?.recovery).toBe(reservationAccessRecovery);
+    expect(ledger.requests[1]?.resume).toBeDefined();
   });
 
   test("scopes every session control operation to the authenticated session owner", async () => {
@@ -609,12 +1074,13 @@ describe("Workspace Admin API", () => {
       });
     const authentication = Layer.succeed(CliAuthentication, {
       ...({} as CliAuthentication["Service"]),
+      sessionAdministrator: () => Effect.succeed(cliAdministrator),
       listSessions: (owner) =>
         record("listSessions", owner).pipe(
           Effect.as([
             {
               ...session,
-              approvedBy: owner,
+              ...cliAdministratorApprover,
               revokedAt: null,
               status: "active" as const,
             },
@@ -686,13 +1152,15 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(ClaimEveryCliMutation),
+      Effect.provide(CliClientCompatibilityLive),
+      Effect.provide(UnrecordedAdministrationActions),
       Effect.provide(NodeHttpServer.layerHttpServices),
       Effect.scoped,
       Effect.runPromise
     );
 
     expect(result.sessions).toEqual([
-      { ...session, approvedBy: "admin", revokedAt: null },
+      { ...session, ...cliAdministratorApprover, revokedAt: null },
     ]);
     expect(result.renamed).toEqual({ changed: true });
     expect(result.revoked).toEqual({ changed: true });
@@ -701,11 +1169,11 @@ describe("Workspace Admin API", () => {
     expect(result.foreignRevoke).toEqual({ changed: false });
     expect(result.unknownRevoke).toEqual({ changed: false });
     expect(calls).toEqual([
-      ["listSessions", "admin"],
+      ["listSessions", cliAdministrator.accountId],
       [
         "renameSession",
         {
-          owner: "admin",
+          owner: cliAdministrator.accountId,
           sessionId: ownedSessionId,
           clientName: "Alice laptop",
         },
@@ -713,25 +1181,44 @@ describe("Workspace Admin API", () => {
       [
         "renameSession",
         {
-          owner: "admin",
+          owner: cliAdministrator.accountId,
           sessionId: foreignSessionId,
           clientName: "Stolen label",
         },
       ],
       [
         "renameSession",
-        { owner: "admin", sessionId: unknownSessionId, clientName: "Nobody" },
+        {
+          owner: cliAdministrator.accountId,
+          sessionId: unknownSessionId,
+          clientName: "Nobody",
+        },
       ],
-      ["revokeSession", { owner: "admin", sessionId: ownedSessionId }],
-      ["revokeSession", { owner: "admin", sessionId: foreignSessionId }],
-      ["revokeSession", { owner: "admin", sessionId: unknownSessionId }],
+      [
+        "revokeSession",
+        { owner: cliAdministrator.accountId, sessionId: ownedSessionId },
+      ],
+      [
+        "revokeSession",
+        { owner: cliAdministrator.accountId, sessionId: foreignSessionId },
+      ],
+      [
+        "revokeSession",
+        { owner: cliAdministrator.accountId, sessionId: unknownSessionId },
+      ],
     ]);
   });
 
-  test("denies session control to ownerless legacy sessions without touching the service", async () => {
+  test("fails session control closed without touching the service when the session's administrator can't be resolved", async () => {
     let serviceCalls = 0;
     const authentication = Layer.succeed(CliAuthentication, {
       ...({} as CliAuthentication["Service"]),
+      authenticateSession: () =>
+        Effect.succeed({ ...session, id: CliSessionId.make(session.id) }),
+      sessionAdministrator: () =>
+        Effect.fail(
+          new CliSessionUnauthorized({ message: "No approving administrator." })
+        ),
       listSessions: () =>
         Effect.sync(() => {
           serviceCalls += 1;
@@ -756,20 +1243,27 @@ describe("Workspace Admin API", () => {
       const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
         "administration",
       ]);
-      const sessions = yield* client.administration.listSessions({});
+      const sessions = yield* client.administration
+        .listSessions({})
+        .pipe(Effect.flip);
       const renamed = yield* client.administration
         .renameSession({
           params: { sessionId },
           payload: { clientName: "Legacy" },
         })
         .pipe(Effect.flip);
-      const revoked = yield* client.administration.revokeSession({
-        params: { sessionId },
-      });
+      const revoked = yield* client.administration
+        .revokeSession({ params: { sessionId } })
+        .pipe(Effect.flip);
       return { renamed, revoked, sessions };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
-      Effect.provide(AuthorizedCliRequest),
+      Effect.provide(
+        Layer.mergeAll(
+          CliSessionAdministrationAuthenticationLive,
+          UnusedCliSessionAuthentication
+        )
+      ),
       Effect.provide(authentication),
       Effect.provide(
         Layer.succeed(
@@ -784,100 +1278,60 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(ClaimEveryCliMutation),
+      Effect.provide(CliClientCompatibilityLive),
+      Effect.provide(UnrecordedAdministrationActions),
       Effect.provide(NodeHttpServer.layerHttpServices),
       Effect.scoped,
       Effect.runPromise
     );
 
-    expect(result.sessions).toEqual([]);
-    expect(result.renamed).toBeInstanceOf(CliResourceNotFound);
-    expect(result.revoked).toEqual({ changed: false });
+    expect(result.sessions).toBeInstanceOf(CliSessionUnauthorized);
+    expect(result.renamed).toBeInstanceOf(CliSessionUnauthorized);
+    expect(result.revoked).toBeInstanceOf(CliSessionUnauthorized);
     expect(serviceCalls).toBe(0);
   });
 
-  test("replays completed mutations and preserves deterministic conflicts", async () => {
+  test("records the discount mutation request and maps domain conflicts", async () => {
     const discountId = Schema.decodeUnknownSync(AdministrationStoredDiscountId)(
       "01980000-0000-7000-8000-000000000001"
     );
-    const replayRequestId = Schema.decodeUnknownSync(CliMutationRequestId)(
+    const requestId = Schema.decodeUnknownSync(CliMutationRequestId)(
       "01980000-0000-7000-8000-000000000010"
     );
-    const conflictRequestId = Schema.decodeUnknownSync(CliMutationRequestId)(
-      "01980000-0000-7000-8000-000000000011"
-    );
-    const pendingRequestId = Schema.decodeUnknownSync(CliMutationRequestId)(
-      "01980000-0000-7000-8000-000000000012"
-    );
-    let executions = 0;
-    let releases = 0;
     const mutation = { kind: "delete-discount" as const, id: discountId };
-    const replayedResult = {
-      kind: mutation.kind,
-      createdDiscountId: null,
-      createdCodeId: null,
-      createdVoucherId: null,
-    };
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: ({ requestId }) =>
-        Effect.sync(() => {
-          if (requestId === replayRequestId) {
-            return { kind: "completed" as const, result: replayedResult };
-          }
-          if (requestId === pendingRequestId) {
-            return { kind: "in-progress" as const };
-          }
-          return { kind: "claimed" as const };
-        }),
-      complete: () => Effect.void,
-      reclaimStale: () => Effect.succeed(false),
-      release: () =>
-        Effect.sync(() => {
-          releases += 1;
-        }),
-    });
+    const ledger = recordingRequestLedger();
+    const domainInputs: Array<{ readonly id: AdministrationStoredDiscountId }> =
+      [];
     const discounts = Layer.succeed(DiscountAdministration, {
       ...({} as DiscountAdministration["Service"]),
-      deleteDiscount: () =>
-        Effect.sync(() => {
-          executions += 1;
-        }).pipe(
+      deleteDiscount: (input) =>
+        Effect.sync(() => domainInputs.push(input)).pipe(
           Effect.andThen(
             new DiscountAdminConflictError({
+              reason: "discount-referenced",
               message: "This discount is still referenced.",
             })
           )
         ),
     });
 
-    const result = await Effect.gen(function* () {
+    const error = await Effect.gen(function* () {
       const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
         "administration",
       ]);
-      const replayed = yield* client.administration.mutateDiscounts({
-        payload: { requestId: replayRequestId, mutation },
-      });
-      const conflict = yield* client.administration
-        .mutateDiscounts({
-          payload: { requestId: conflictRequestId, mutation },
-        })
+      return yield* client.administration
+        .mutateDiscounts({ payload: { requestId, mutation } })
         .pipe(Effect.flip);
-      const pending = yield* client.administration
-        .mutateDiscounts({
-          payload: { requestId: pendingRequestId, mutation },
-        })
-        .pipe(Effect.flip);
-      return { conflict, pending, replayed };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
       Effect.provide(AuthorizedCliRequest),
-      Effect.provide(idempotency),
+      Effect.provide(ledger.layer),
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(discounts),
-      Effect.provide(UnusedCliAuthentication),
+      Effect.provide(SessionAdministratorAuthentication),
       Effect.provide(
         Layer.succeed(
           AdministrationService,
@@ -885,16 +1339,499 @@ describe("Workspace Admin API", () => {
         )
       ),
       Effect.provide(UnusedReservationAccessAdministration),
+      Effect.provide(CliClientCompatibilityLive),
+      Effect.provide(UnrecordedAdministrationActions),
       Effect.provide(NodeHttpServer.layerHttpServices),
       Effect.scoped,
       Effect.runPromise
     );
 
-    expect(result.replayed).toEqual(replayedResult);
-    expect(result.conflict).toBeInstanceOf(CliMutationRejected);
-    expect(result.pending).toBeInstanceOf(CliMutationInProgress);
-    expect(executions).toBe(1);
-    expect(releases).toBe(1);
+    expect(error).toBeInstanceOf(CliMutationRejected);
+    expect(domainInputs).toEqual([{ id: discountId }]);
+    expect(ledger.requests).toHaveLength(1);
+    expect(ledger.requests[0]).toMatchObject({
+      requestId,
+      mutation,
+      recovery: discountMutationRecovery,
+    });
+  });
+
+  test("passes a code update's service dates through and rejects ones the service refuses", async () => {
+    const requestId = Schema.decodeUnknownSync(CliMutationRequestId)(
+      "01980000-0000-7000-8000-000000000011"
+    );
+    const updates: unknown[] = [];
+    const discounts = Layer.succeed(DiscountAdministration, {
+      ...({} as DiscountAdministration["Service"]),
+      updateCode: (input) =>
+        Effect.sync(() => updates.push(input)).pipe(
+          Effect.andThen(
+            new DiscountAdminServiceDatesError({
+              message: "serviceDateUntil must not be before serviceDateFrom",
+            })
+          )
+        ),
+    });
+    const serviceDates = {
+      serviceDateFrom: "2026-07-01",
+      serviceDateUntil: "2026-07-31",
+    };
+
+    const error = await callAdministrationApi(
+      (client) =>
+        client
+          .mutateDiscounts({
+            payload: {
+              requestId,
+              mutation: {
+                kind: "update-code",
+                code: Schema.decodeUnknownSync(
+                  AdministrationDiscountCodeUpdateInput
+                )({
+                  id: "01980000-0000-7000-8000-000000000002",
+                  discountId: "01980000-0000-7000-8000-000000000001",
+                  code: "SUMMER10",
+                  enabled: true,
+                  validFrom: null,
+                  validUntil: null,
+                  maxUses: null,
+                  ...serviceDates,
+                }),
+              },
+            },
+          })
+          .pipe(Effect.flip),
+      { discounts }
+    );
+
+    expect(error).toBeInstanceOf(CliMutationRejected);
+    expect(updates).toEqual([expect.objectContaining(serviceDates)]);
+  });
+});
+
+describe("customer and reservation administration endpoints", () => {
+  const instant = (value: string) => Temporal.Instant.from(value);
+
+  test("returns the customer's discount profile with API timestamps", async () => {
+    const customerId = AdministrationDotyposCustomerId.make("dotypos-customer");
+    const activity = {
+      reservations: [],
+      reservationHistoryTruncated: false,
+      transactions: [],
+      transactionHistoryTruncated: false,
+      stats: {
+        reservationCount: 0,
+        favoriteProduct: null,
+        revenue: [],
+        discountSavings: [],
+      },
+      marketingConsent: null,
+    };
+    const profileRequests: unknown[] = [];
+    const profile = adminCustomerProfile({
+      codes: [
+        adminCustomerCode(),
+        adminCustomerCode({
+          validFrom: null,
+          validUntil: null,
+          serviceDateFrom: plainDateStringSchema.make("2026-08-03"),
+          serviceDateUntil: plainDateStringSchema.make("2026-08-28"),
+        }),
+      ],
+      claims: [
+        adminCodeClaim(),
+        adminCodeClaim({
+          state: "released",
+          redeemedAt: instant("2026-08-10T08:10:00Z"),
+          releasedAt: instant("2026-08-10T08:20:00Z"),
+        }),
+      ],
+      vouchers: [
+        adminCustomerVoucher(),
+        adminCustomerVoucher({
+          validFrom: instant("2026-08-01T08:00:00Z"),
+          validUntil: instant("2026-09-01T08:00:00Z"),
+        }),
+      ],
+      voucherClaims: [
+        adminVoucherClaim(),
+        adminVoucherClaim({
+          state: "released",
+          redeemedAt: instant("2026-08-10T08:10:00Z"),
+          releasedAt: instant("2026-08-10T08:20:00Z"),
+        }),
+      ],
+    });
+    const administration = Layer.succeed(AdministrationService, {
+      ...({} as AdministrationService["Service"]),
+      loadCustomerActivity: () => Effect.succeed(activity as never),
+    });
+    const discounts = Layer.succeed(DiscountAdministration, {
+      ...({} as DiscountAdministration["Service"]),
+      loadCustomerProfile: (input) => {
+        profileRequests.push(input);
+        return Effect.succeed(profile);
+      },
+    });
+
+    const result = await callAdministrationApi(
+      (client) => client.getCustomer({ params: { customerId } }),
+      { administration, discounts }
+    );
+
+    expect(profileRequests).toEqual([{ customerId }]);
+    expect(result.activity).toEqual(activity);
+    const datedRange = {
+      validFrom: "2026-08-01T08:00:00Z",
+      validUntil: "2026-09-01T08:00:00Z",
+    };
+    const openRange = { validFrom: null, validUntil: null };
+    const audit = {
+      createdAt: "2026-07-01T08:00:00Z",
+      updatedAt: "2026-07-02T08:00:00Z",
+    };
+    const reservedClaim = {
+      reservationExpiresAt: "2026-08-10T09:00:00Z",
+      reservedAt: "2026-08-10T08:00:00Z",
+      redeemedAt: null,
+      releasedAt: null,
+    };
+    const settledClaim = {
+      ...reservedClaim,
+      redeemedAt: "2026-08-10T08:10:00Z",
+      releasedAt: "2026-08-10T08:20:00Z",
+    };
+    expect(result.profile).toMatchObject({
+      codes: [
+        {
+          code: "SUMMER10",
+          ...datedRange,
+          ...audit,
+          serviceDateFrom: null,
+          serviceDateUntil: null,
+        },
+        {
+          code: "SUMMER10",
+          ...openRange,
+          ...audit,
+          serviceDateFrom: "2026-08-03",
+          serviceDateUntil: "2026-08-28",
+        },
+      ],
+      claims: [reservedClaim, settledClaim],
+      vouchers: [
+        { code: "GIFT100", ...openRange, ...audit },
+        { code: "GIFT100", ...datedRange, ...audit },
+      ],
+      voucherClaims: [reservedClaim, settledClaim],
+    });
+  });
+
+  test("maps each reservation cancellation failure to its API error", async () => {
+    const reservationId = AdministrationWorkspaceReservationId.make(
+      "01980000-0000-7000-8000-000000000001"
+    );
+    const failures = [
+      { code: "not_found", reason: "not_found" },
+      { code: "not_cancellable", reason: "invalid_state" },
+      { code: "cancellation_failed", reason: "reservation_unavailable" },
+    ] as const;
+    const cancellations: unknown[] = [];
+    const reservations = Layer.succeed(ReservationAdministrationService, {
+      ...({} as ReservationAdministrationService["Service"]),
+      cancel: (input) => {
+        const failure = failures[cancellations.length];
+        cancellations.push(input);
+        return Effect.fail(
+          new ReservationAdministrationError({
+            code: failure?.code ?? "cancellation_failed",
+            reason: failure?.reason ?? "reservation_unavailable",
+            message: `Synthetic ${failure?.code} failure`,
+          })
+        );
+      },
+    });
+
+    const errors = await callAdministrationApi(
+      (client) =>
+        Effect.forEach(failures, () =>
+          client
+            .cancelReservation({
+              params: { reservationId },
+              payload: {
+                accessGrantUpdatedAt: null,
+                providerCredentialRemoved: false,
+                sendCancellationEmail: true,
+              },
+            })
+            .pipe(Effect.flip)
+        ),
+      { reservations }
+    );
+
+    expect(cancellations).toHaveLength(3);
+    expect(cancellations[0]).toEqual({
+      accessGrantUpdatedAt: null,
+      force: false,
+      providerCredentialRemoved: false,
+      reservationId,
+      sendCancellationEmail: true,
+    });
+    expect(errors[0]).toBeInstanceOf(CliResourceNotFound);
+    expect(errors[0]).toMatchObject({ message: "Synthetic not_found failure" });
+    expect(errors[1]).toBeInstanceOf(CliMutationRejected);
+    expect(errors[1]).toMatchObject({
+      message: "Synthetic not_cancellable failure",
+    });
+    expect(errors[2]).toBeInstanceOf(CliServiceUnavailable);
+  });
+
+  /**
+   * One administration API handler whose cancellations run through
+   * `ReservationAdministrationService.perOperationOver`, as `Live`'s do, over
+   * fakes of what it shares that count their builds. Each bearer acts as its
+   * cohort's administrator, every flag is on for the open cohort's, and the
+   * stored reservation sits on a table the seating map shows.
+   */
+  const cancellationHandler = (overlapping: number) => {
+    const builds = { dotypos: 0, emails: 0, featureFlags: 0, reservations: 0 };
+    const counted = <I>(name: keyof typeof builds, layer: Layer.Layer<I>) =>
+      Layer.unwrap(
+        Effect.sync(() => {
+          builds[name] += 1;
+          return layer;
+        })
+      );
+    const administratorOf = (cohort: string) =>
+      customerAccountIdSchema.make(`administrator-${cohort}`);
+    const authentication = Layer.succeed(AdministrationAuthentication, {
+      bearer: (httpEffect, { credential }) => {
+        const cohort = Redacted.value(credential);
+        return Effect.provideService(httpEffect, CurrentAdministrationCaller, {
+          actor: {
+            accountId: administratorOf(cohort),
+            email: testEmailAddress(`administrator-${cohort}`),
+          },
+          channel: {
+            _tag: "CliSession",
+            sessionId: CliSessionId.make(session.id),
+          },
+        });
+      },
+    });
+    const meetingPoint = makeMeetingPoint(overlapping);
+    const featureFlags = featureFlagsByCohort(
+      meetingPoint,
+      Effect.map(Effect.serviceOption(CurrentAdministrationCaller), (caller) =>
+        Option.isSome(caller) &&
+        caller.value.actor.accountId === administratorOf("open")
+          ? "open"
+          : "closed"
+      )
+    );
+    const emails: Array<{ readonly id: string; readonly tableMap: boolean }> =
+      [];
+    const stored = (id: string) =>
+      ({
+        id,
+        activePaymentAttemptId: null,
+        dotyposCustomerId: "customer-id",
+        dotyposReservationId: `dotypos-${id}`,
+        failureCode: null,
+        fulfillmentState: "fulfilled",
+        locale: "cs-CZ",
+        paymentState: "paid",
+        reservationDetails: {
+          kind: "cowork",
+          entryTier: "profi",
+          coffee: false,
+          monitorOption: "none",
+        },
+        reservationState: "confirmed",
+        updatedAt: Temporal.Now.instant(),
+      }) as never;
+    const shared = Layer.mergeAll(
+      counted(
+        "dotypos",
+        Layer.mock(DotyposService, {
+          cancelReservation: () => Effect.void,
+          getReservation: (id) =>
+            Effect.succeed(
+              Option.some({
+                reservation: {
+                  id,
+                  _branchId: "branch",
+                  _cloudId: "cloud",
+                  _customerId: "customer-id",
+                  _tableId: "table-id",
+                  startDate: "2026-06-15T22:00:00.000Z",
+                  endDate: "2026-06-16T22:00:00.000Z",
+                  seats: "1",
+                  status: "CONFIRMED",
+                },
+                customer: {
+                  _cloudId: "cloud",
+                  email: testEmailAddress("customer"),
+                  firstName: "Synthetic",
+                  lastName: "Customer",
+                },
+              }) as never
+            ),
+          getTables: () =>
+            Effect.succeed([
+              {
+                _cloudId: "cloud",
+                id: "table-id",
+                name: "12",
+                display: true,
+                enabled: true,
+                locationName: "Main room",
+                seats: "1",
+                tags: ["tier:profi"],
+              },
+            ] as never),
+        })
+      ),
+      counted(
+        "emails",
+        Layer.mock(WorkspaceReservationEmailService, {
+          sendCancellationEmail: ({ reservation }) =>
+            Effect.sync(() => {
+              emails.push({
+                id: reservation.id,
+                tableMap: reservation.placement.tableMap !== undefined,
+              });
+            }),
+        })
+      ),
+      counted("featureFlags", featureFlags),
+      counted(
+        "reservations",
+        Layer.mock(WorkspaceReservationRepository, {
+          findById: (id) => Effect.succeed(stored(id)),
+          claimAdministrationCancellation: ({ id }) =>
+            Effect.succeed(stored(id)),
+          markAdministrationCancelled: () => Effect.void,
+          markAdministrationCancellationFailed: () => Effect.void,
+        })
+      )
+    );
+    const handle = toWorkspaceWebHandler(
+      makeWorkspaceAdminApiLayer({
+        authentication,
+        sessionAuthentication: UnusedCliSessionAuthentication,
+        clientCompatibility: CliClientCompatibilityLive,
+      }).pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            ReservationAdministrationService.perOperationOver(shared),
+            ClaimEveryCliMutation,
+            DiscardedAdministrationActionLog,
+            Layer.succeed(CliAuthentication, {} as never),
+            Layer.succeed(CliAuthenticationAdmission, {} as never),
+            UnusedAdministrationService,
+            Layer.succeed(AdministratorRoster, {} as never),
+            Layer.succeed(LegacyAdministratorBackfill, {} as never),
+            Layer.succeed(CampaignOperations, {} as never),
+            UnusedReservationProductDetailsBackfill,
+            UnusedReservationAccessAdministration,
+            UnusedDiscountAdministration,
+            UnusedInvoiceAdministration,
+            UnusedStandaloneAccessCodeAdministration
+          )
+        )
+      )
+    );
+    /** Cancels `reservationId` as the administrator of `cohort`. */
+    const cancel = (cohort: string, reservationId: string) =>
+      handle(
+        new Request(
+          `https://workspace.deskohub.test/api/v1/cli/reservations/${reservationId}/cancellation`,
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${cohort}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              accessGrantUpdatedAt: null,
+              providerCredentialRemoved: false,
+              sendCancellationEmail: true,
+            }),
+          }
+        )
+      ).then(({ status }) => status);
+    const sentEmails = () =>
+      emails.toSorted((a, b) => a.id.localeCompare(b.id));
+    return { builds, cancel, meetingPoint, sentEmails };
+  };
+  const cancelledReservationId = (suffix: string) =>
+    AdministrationWorkspaceReservationId.make(
+      `01980000-0000-7000-8000-0000000000${suffix}`
+    );
+
+  test("cancels overlapping requests' reservations under each request's own seating-map release", async () => {
+    const cohorts = ["open", "closed"];
+    const reservationIds = [
+      cancelledReservationId("d1"),
+      cancelledReservationId("d2"),
+    ];
+    const { cancel, meetingPoint, sentEmails } = cancellationHandler(
+      cohorts.length
+    );
+
+    const statuses = await Promise.all(
+      cohorts.map((cohort, index) =>
+        cancel(cohort, reservationIds[index] ?? "")
+      )
+    );
+
+    expect(statuses).toEqual([200, 200]);
+    expect(sentEmails()).toEqual([
+      { id: reservationIds[0], tableMap: true },
+      { id: reservationIds[1], tableMap: false },
+    ]);
+    expect(Object.values(meetingPoint.arrivals())).toEqual([cohorts.length]);
+  });
+
+  test("builds what cancellations share once for overlapping and later requests", async () => {
+    const overlapping = [
+      { cohort: "open", reservationId: cancelledReservationId("e1") },
+      { cohort: "closed", reservationId: cancelledReservationId("e2") },
+    ];
+    const later = [
+      { cohort: "closed", reservationId: cancelledReservationId("e3") },
+      { cohort: "open", reservationId: cancelledReservationId("e4") },
+    ];
+    const { builds, cancel, meetingPoint, sentEmails } = cancellationHandler(
+      overlapping.length
+    );
+
+    const statuses = await Promise.all(
+      overlapping.map(({ cohort, reservationId }) =>
+        cancel(cohort, reservationId)
+      )
+    );
+    for (const { cohort, reservationId } of later) {
+      statuses.push(await cancel(cohort, reservationId));
+    }
+
+    expect(statuses).toEqual([200, 200, 200, 200]);
+    expect(builds).toEqual({
+      dotypos: 1,
+      emails: 1,
+      featureFlags: 1,
+      reservations: 1,
+    });
+    expect(sentEmails()).toEqual(
+      [...overlapping, ...later].map(({ cohort, reservationId }) => ({
+        id: reservationId,
+        tableMap: cohort === "open",
+      }))
+    );
+    expect(Object.values(meetingPoint.arrivals())).toEqual([
+      overlapping.length + later.length,
+    ]);
   });
 });
 
@@ -958,21 +1895,23 @@ describe("standalone access-code CLI endpoint", () => {
     });
 
   const runAdministration = <A, E, R>(
-    bearer: Layer.Layer<CliBearerAuthentication>,
+    bearer: Layer.Layer<AdministrationAuthentication, never, CliAuthentication>,
     standalone: Layer.Layer<StandaloneAccessCodeAdministration>,
-    idempotency: Layer.Layer<CliMutationIdempotency>,
-    operation: Effect.Effect<A, E, R>
+    idempotency: Layer.Layer<AdministrationRequestLedger>,
+    operation: Effect.Effect<A, E, R>,
+    authentication: Layer.Layer<CliAuthentication> = SessionAdministratorAuthentication
   ) =>
     operation.pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
       Effect.provide(bearer),
+      Effect.provide(UnusedCliSessionAuthentication),
       Effect.provide(standalone),
       Effect.provide(idempotency),
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedDiscountAdministration),
-      Effect.provide(UnusedCliAuthentication),
+      Effect.provide(authentication),
       Effect.provide(
         Layer.succeed(
           AdministrationService,
@@ -980,314 +1919,138 @@ describe("standalone access-code CLI endpoint", () => {
         )
       ),
       Effect.provide(UnusedReservationAccessAdministration),
+      Effect.provide(CliClientCompatibilityLive),
+      Effect.provide(UnrecordedAdministrationActions),
       Effect.provide(NodeHttpServer.layerHttpServices),
       Effect.scoped
     );
 
-  const createAccessCodeError = Effect.gen(function* () {
-    const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
-      "administration",
-    ]);
-    return yield* client.administration
-      .createStandaloneAccessCode({ payload })
-      .pipe(Effect.flip);
-  });
+  const createAccessCode = (
+    requestPayload: typeof payload & {
+      readonly providerCredentialRemovedAttemptId?: AdministrationStandaloneAccessCodeAttemptIdType;
+    } = payload
+  ) =>
+    Effect.gen(function* () {
+      const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
+        "administration",
+      ]);
+      return yield* client.administration.createStandaloneAccessCode({
+        payload: requestPayload,
+      });
+    });
+  const createAccessCodeError = (
+    requestPayload?: Parameters<typeof createAccessCode>[0]
+  ) => createAccessCode(requestPayload).pipe(Effect.flip);
 
-  test("discloses the PIN once and stores only PIN-free completion metadata", async () => {
+  test("returns the PIN once and wires the standalone mutation", async () => {
     const creations: unknown[] = [];
-    const completions: unknown[] = [];
-    const completedResults = new Map<string, unknown>();
-    let claimedOnce = false;
     const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
       create: (input) =>
-        Effect.sync(() => {
-          creations.push(input);
-          return createdOutcome;
-        }),
+        Effect.sync(() => creations.push(input)).pipe(
+          Effect.as(createdOutcome)
+        ),
     });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: ({ requestId }) =>
-        Effect.sync(() => {
-          if (completedResults.has(requestId)) {
-            return {
-              kind: "completed" as const,
-              result: completedResults.get(requestId) as never,
-            };
-          }
-          if (claimedOnce) return { kind: "in-progress" as const };
-          claimedOnce = true;
-          return { kind: "claimed" as const };
-        }),
-      complete: ({ requestId, result }) =>
-        Effect.sync(() => {
-          completions.push(result);
-          completedResults.set(requestId, result);
-        }),
-      reclaimStale: () => Effect.succeed(false),
-      release: () => Effect.die("not expected"),
-    });
-
-    const [created, replayed] = await runAdministration(
+    const ledger = recordingRequestLedger();
+    const created = await runAdministration(
       ActorAuthorizedCliRequest,
       standalone,
-      idempotency,
-      Effect.gen(function* () {
-        const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
-          "administration",
-        ]);
-        const first = yield* client.administration.createStandaloneAccessCode({
-          payload,
-        });
-        const second = yield* client.administration.createStandaloneAccessCode({
-          payload,
-        });
-        return [first, second] as const;
-      })
+      ledger.layer,
+      createAccessCode()
     ).pipe(Effect.runPromise);
 
     expect(created).toMatchObject({ outcome: "created", pin: "7654321" });
-    expect(completions).toHaveLength(1);
-    expect(JSON.stringify(completions[0])).not.toContain("7654321");
-    expect(completions[0]).toEqual({
-      attemptId,
-      providerCredentialId: "pin-1",
-      name: "Booth A",
-      startsAt: "2026-09-10T10:00",
-      endsAt: "2026-09-10T12:00",
-      issuedAt: "2026-09-10T08:00:00Z",
-    });
-    expect(replayed).toMatchObject({ outcome: "already-created" });
-    expect("pin" in replayed).toBe(false);
-    expect(JSON.stringify(replayed)).not.toContain("7654321");
     expect(creations).toHaveLength(1);
     expect(creations[0]).toMatchObject({
       attemptId,
       source: "dhw-cli",
-      actor: "admin",
+      actor: cliAdministrator,
+      request: payload.input,
     });
+    expect(ledger.requests).toHaveLength(1);
+    expect(ledger.requests[0]).toMatchObject({
+      requestId: attemptId,
+      mutation: { kind: "standalone-access-code", request: payload.input },
+      inProgressMessage:
+        "This standalone access-code creation is still being applied. Retrying with the same attempt identifier is safe.",
+    });
+    expect(ledger.requests[0]?.stored).toBe(standaloneAccessCodeStoredResult);
+    expect(ledger.requests[0]?.recovery).toBe(standaloneAccessCodeRecovery);
   });
 
-  test("returns the created PIN even when the ledger completion write fails", async () => {
-    const releases: unknown[] = [];
-    const logRecords: string[] = [];
-    const capturingLogger = Logger.make<unknown, void>(({ message }) => {
-      logRecords.push(JSON.stringify(message));
-    });
-    const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
-      create: () => Effect.succeed(createdOutcome),
-    });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "claimed" as const }),
-      complete: () =>
-        Effect.fail(
-          new EffectDrizzleQueryError({
-            query: "update cli mutation requests",
-            params: [],
-            cause: new Error("write unavailable"),
-          })
-        ),
-      reclaimStale: () => Effect.succeed(false),
-      release: (request) =>
-        Effect.sync(() => {
-          releases.push(request);
-        }),
-    });
-
-    const created = await runAdministration(
-      ActorAuthorizedCliRequest,
-      standalone,
-      idempotency,
-      Effect.gen(function* () {
-        const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
-          "administration",
-        ]);
-        return yield* client.administration.createStandaloneAccessCode({
-          payload,
-        });
-      })
-    ).pipe(Effect.withLogger(capturingLogger), Effect.runPromise);
-
-    expect(created).toMatchObject({ outcome: "created", pin: "7654321" });
-    expect(releases).toHaveLength(1);
-    expect(
-      logRecords.some(
-        (record) => record.includes("completion") && record.includes(attemptId)
-      )
-    ).toBe(true);
-    expect(logRecords.join("\n")).not.toContain("7654321");
-  });
-
-  test("rejects a legacy CLI session before claiming the mutation ledger", async () => {
-    let claims = 0;
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () =>
-        Effect.sync(() => {
-          claims += 1;
-          return { kind: "claimed" as const };
-        }),
-      complete: () => Effect.void,
-      reclaimStale: () => Effect.succeed(false),
-      release: () => Effect.void,
-    });
-
-    const error = await runAdministration(
-      AuthorizedCliRequest,
-      UnusedStandaloneAccessCodeAdministration,
-      idempotency,
-      createAccessCodeError
-    ).pipe(Effect.runPromise);
-
-    expect(error).toBeInstanceOf(CliMutationRejected);
-    expect(error.message).toContain("dhw auth");
-    expect(claims).toBe(0);
-  });
-
-  test("rejects a mismatched attempt identity without calling the provider", async () => {
-    let creations = 0;
-    let releases = 0;
+  test("replays stored metadata without a PIN or another provider call", async () => {
+    let providerCalls = 0;
+    const storedResult = standaloneAccessCodeStoredResult.from(createdOutcome);
     const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
       create: () =>
         Effect.sync(() => {
-          creations += 1;
+          providerCalls += 1;
           return createdOutcome;
         }),
     });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "mismatch" as const }),
-      complete: () => Effect.void,
-      reclaimStale: () => Effect.succeed(false),
-      release: () =>
-        Effect.sync(() => {
-          releases += 1;
-        }),
-    });
+    const idempotency = Layer.succeed(AdministrationRequestLedger, {
+      applyOnce: ({ apply }) => apply,
+      applyOnceWithEffects: ({ stored }) =>
+        Effect.succeed(stored.replay(storedResult as never)),
+    } as AdministrationRequestLedger["Service"]);
 
-    const error = await runAdministration(
+    const replayed = await runAdministration(
       ActorAuthorizedCliRequest,
       standalone,
       idempotency,
-      createAccessCodeError
+      createAccessCode()
     ).pipe(Effect.runPromise);
 
-    expect(error).toBeInstanceOf(CliMutationRejected);
-    expect(error.message).toContain("different input");
-    expect(creations).toBe(0);
-    expect(releases).toBe(0);
+    expect(replayed.outcome).toBe("already-created");
+    expect("pin" in replayed).toBe(false);
+    expect(providerCalls).toBe(0);
   });
 
-  test("releases the claim and rejects when creation is definitively rejected", async () => {
-    let releases = 0;
-    let completions = 0;
-    const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
-      create: () =>
-        Effect.fail(
-          creationFailure(
-            "rejected",
-            "The standalone access-code request was rejected."
-          )
-        ),
-    });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "claimed" as const }),
-      complete: () =>
-        Effect.sync(() => {
-          completions += 1;
-        }),
-      reclaimStale: () => Effect.succeed(false),
-      release: () =>
-        Effect.sync(() => {
-          releases += 1;
-        }),
-    });
+  test("maps provider rejection and unavailability", async () => {
+    const runFailure = (
+      outcome: StandaloneAccessCodeCreationError["outcome"],
+      message: string
+    ) => {
+      const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
+        create: () => Effect.fail(creationFailure(outcome, message)),
+      });
+      return runAdministration(
+        ActorAuthorizedCliRequest,
+        standalone,
+        recordingRequestLedger().layer,
+        createAccessCodeError()
+      ).pipe(Effect.runPromise);
+    };
 
-    const error = await runAdministration(
-      ActorAuthorizedCliRequest,
-      standalone,
-      idempotency,
-      createAccessCodeError
-    ).pipe(Effect.runPromise);
+    const rejected = await runFailure(
+      "rejected",
+      "The standalone access-code request was rejected."
+    );
+    const unavailable = await runFailure(
+      "unavailable",
+      "Standalone access-code creation is temporarily unavailable."
+    );
 
-    expect(error).toBeInstanceOf(CliMutationRejected);
-    expect(error.message).toContain("rejected");
-    expect(releases).toBe(1);
-    expect(completions).toBe(0);
+    expect(rejected).toBeInstanceOf(CliMutationRejected);
+    expect(rejected.message).toContain("rejected");
+    expect(unavailable).toBeInstanceOf(CliServiceUnavailable);
   });
 
-  test("releases the claim and reports unavailability without completion", async () => {
-    let releases = 0;
-    const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
-      create: () =>
-        Effect.fail(
-          creationFailure(
-            "unavailable",
-            "Standalone access-code creation is temporarily unavailable."
-          )
-        ),
-    });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "claimed" as const }),
-      complete: () => Effect.void,
-      reclaimStale: () => Effect.succeed(false),
-      release: () =>
-        Effect.sync(() => {
-          releases += 1;
-        }),
-    });
-
-    const error = await runAdministration(
-      ActorAuthorizedCliRequest,
-      standalone,
-      idempotency,
-      createAccessCodeError
-    ).pipe(Effect.runPromise);
-
-    expect(error).toBeInstanceOf(CliServiceUnavailable);
-    expect(releases).toBe(1);
-  });
-
-  test("keeps the claim and reports uncertainty naming the ambiguous target without a PIN", async () => {
-    let releases = 0;
-    let completions = 0;
+  test("maps ambiguity to reconciliation instructions without disclosing a PIN", async () => {
     const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
       create: () =>
         Effect.fail(
           creationFailure(
             "ambiguous",
             "The standalone access-code creation outcome is ambiguous.",
-            {
-              cleanupTarget: {
-                attemptId,
-                name: payload.input.name,
-              },
-            }
+            { cleanupTarget: { attemptId, name: payload.input.name } }
           )
         ),
     });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "claimed" as const }),
-      complete: () =>
-        Effect.sync(() => {
-          completions += 1;
-        }),
-      reclaimStale: () => Effect.succeed(false),
-      release: () =>
-        Effect.sync(() => {
-          releases += 1;
-        }),
-    });
-
     const error = await runAdministration(
       ActorAuthorizedCliRequest,
       standalone,
-      idempotency,
-      createAccessCodeError
+      recordingRequestLedger().layer,
+      createAccessCodeError()
     ).pipe(Effect.runPromise);
 
     expect(error).toBeInstanceOf(CliMutationUncertain);
@@ -1299,106 +2062,22 @@ describe("standalone access-code CLI endpoint", () => {
       );
     }
     expect(JSON.stringify(error)).not.toContain("7654321");
-    expect(releases).toBe(0);
-    expect(completions).toBe(0);
   });
 
-  test("reports unavailability when the ambiguous outcome carries no cleanup target", async () => {
-    let releases = 0;
+  test("requires cleanup of the stored prior target", async () => {
     const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
       create: () =>
         Effect.fail(
-          creationFailure(
-            "ambiguous",
-            "The standalone access-code creation outcome is ambiguous."
-          )
+          creationFailure("cleanup-required", "Cleanup is required.", {
+            cleanupTarget: priorCleanupTarget,
+          })
         ),
     });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "claimed" as const }),
-      complete: () => Effect.void,
-      reclaimStale: () => Effect.succeed(false),
-      release: () =>
-        Effect.sync(() => {
-          releases += 1;
-        }),
-    });
-
     const error = await runAdministration(
       ActorAuthorizedCliRequest,
       standalone,
-      idempotency,
-      createAccessCodeError
-    ).pipe(Effect.runPromise);
-
-    expect(error).toBeInstanceOf(CliServiceUnavailable);
-    expect(releases).toBe(1);
-  });
-
-  test("reports an unexpired in-progress claim without resuming", async () => {
-    let creations = 0;
-    let reclaims = 0;
-    const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
-      create: () =>
-        Effect.sync(() => {
-          creations += 1;
-          return createdOutcome;
-        }),
-    });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "in-progress" as const }),
-      complete: () => Effect.void,
-      reclaimStale: () =>
-        Effect.sync(() => {
-          reclaims += 1;
-          return false;
-        }),
-      release: () => Effect.void,
-    });
-
-    const error = await runAdministration(
-      ActorAuthorizedCliRequest,
-      standalone,
-      idempotency,
-      createAccessCodeError
-    ).pipe(Effect.runPromise);
-
-    expect(error).toBeInstanceOf(CliMutationInProgress);
-    expect(error.requestId).toBe(attemptId);
-    expect(reclaims).toBe(1);
-    expect(creations).toBe(0);
-  });
-
-  test("reports required at-lock cleanup with the stored prior target and releases the ledger claim", async () => {
-    let releases = 0;
-    const cleanupRequired = Layer.succeed(StandaloneAccessCodeAdministration, {
-      create: () =>
-        Effect.fail(
-          creationFailure(
-            "cleanup-required",
-            "A previous attempt for this window is ambiguous.",
-            { cleanupTarget: priorCleanupTarget }
-          )
-        ),
-    });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "claimed" as const }),
-      complete: () => Effect.void,
-      reclaimStale: () => Effect.succeed(false),
-      release: () =>
-        Effect.sync(() => {
-          releases += 1;
-        }),
-    });
-
-    const error = await runAdministration(
-      ActorAuthorizedCliRequest,
-      cleanupRequired,
-      idempotency,
-      createAccessCodeError
+      recordingRequestLedger().layer,
+      createAccessCodeError()
     ).pipe(Effect.runPromise);
 
     expect(error).toBeInstanceOf(CliStandaloneAccessCodeCleanupRequired);
@@ -1414,322 +2093,91 @@ describe("standalone access-code CLI endpoint", () => {
       expect(error.message).not.toContain(attemptId);
     }
     expect(JSON.stringify(error)).not.toContain("7654321");
-    expect(releases).toBe(1);
   });
 
-  test("reports unavailability when the cleanup-required outcome carries no target", async () => {
-    let releases = 0;
-    const cleanupRequired = Layer.succeed(StandaloneAccessCodeAdministration, {
-      create: () =>
-        Effect.fail(
-          creationFailure(
-            "cleanup-required",
-            "A previous attempt for this window is ambiguous."
-          )
-        ),
-    });
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "claimed" as const }),
-      complete: () => Effect.void,
-      reclaimStale: () => Effect.succeed(false),
-      release: () =>
-        Effect.sync(() => {
-          releases += 1;
-        }),
-    });
+  test("maps cleanup and reconciliation outcomes without targets", async () => {
+    const runFailure = (
+      outcome: StandaloneAccessCodeCreationError["outcome"]
+    ) => {
+      const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
+        create: () => Effect.fail(creationFailure(outcome, "Cleanup needed.")),
+      });
+      return runAdministration(
+        ActorAuthorizedCliRequest,
+        standalone,
+        recordingRequestLedger().layer,
+        createAccessCodeError()
+      ).pipe(Effect.runPromise);
+    };
 
-    const error = await runAdministration(
-      ActorAuthorizedCliRequest,
-      cleanupRequired,
-      idempotency,
-      createAccessCodeError
-    ).pipe(Effect.runPromise);
+    const ambiguous = await runFailure("ambiguous");
+    const cleanupRequired = await runFailure("cleanup-required");
+    const reconciled = await runFailure("reconciled");
 
-    expect(error).toBeInstanceOf(CliServiceUnavailable);
-    expect(JSON.stringify(error)).not.toContain("Booth A");
-    expect(releases).toBe(1);
+    expect(ambiguous).toBeInstanceOf(CliServiceUnavailable);
+    expect(cleanupRequired).toBeInstanceOf(CliServiceUnavailable);
+    expect(JSON.stringify(cleanupRequired)).not.toContain("Booth A");
+    expect(reconciled).toBeInstanceOf(CliStandaloneAccessCodeReconciled);
+    expect(reconciled.message).toContain("Run the same command again");
   });
 
-  test("reports a confirmed reconciled replay as a typed error and releases the ledger claim", async () => {
-    let releases = 0;
-    const reconciled = Layer.succeed(StandaloneAccessCodeAdministration, {
-      create: () =>
-        Effect.fail(
-          creationFailure(
-            "reconciled",
-            "Your confirmed cleanup was recorded for the earlier ambiguous attempt, which created no access code."
-          )
-        ),
-    } as never);
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "claimed" as const }),
-      complete: () => Effect.void,
-      reclaimStale: () => Effect.succeed(false),
-      release: () =>
-        Effect.sync(() => {
-          releases += 1;
-        }),
-    });
-
-    const error = await runAdministration(
-      ActorAuthorizedCliRequest,
-      reconciled,
-      idempotency,
-      createAccessCodeError
-    ).pipe(Effect.runPromise);
-
-    expect(error).toBeInstanceOf(CliStandaloneAccessCodeReconciled);
-    expect(error.message).toContain("Run the same command again");
-    expect(releases).toBe(1);
-  });
-
-  test("resumes a stale claim through the standalone attempt log without another provider call", async () => {
-    const providerCredentialId = Schema.decodeUnknownSync(
-      AdministrationProviderCredentialId
-    )("pin-already-issued");
-    const occurredAt = Temporal.Now.instant();
-    let providerCalls = 0;
-    let claimCalls = 0;
-    let appendTerminalCalls = 0;
-    const reclaims: Array<{
-      readonly requestId: string;
-      readonly staleMilliseconds: bigint;
-    }> = [];
-    const completions: unknown[] = [];
-    const attemptLog = Layer.mock(StandaloneAccessCodeAttemptLogRepository, {
-      claim: (input: { readonly attempt: { readonly attemptId: string } }) =>
-        Effect.sync(() => {
-          claimCalls += 1;
-          if (input.attempt.attemptId !== attemptId) {
-            return { kind: "mismatch" } as const;
-          }
-          return {
-            kind: "created" as const,
-            terminal: {
-              name: Schema.decodeUnknownSync(
-                AdministrationStandaloneAccessCodeName
-              )("Booth A"),
-              startsAtLocal: payload.input.startsAt,
-              endsAtLocal: payload.input.endsAt,
-              providerCredentialId,
-              occurredAt,
-            },
-          } as const;
-        }),
-      appendTerminal: () =>
-        Effect.sync(() => {
-          appendTerminalCalls += 1;
-          return { kind: "appended" as const };
-        }),
-    });
-    const igloohome = Layer.mock(IgloohomeService, {
-      issueHourlyAlgoPin: () =>
-        Effect.sync(() => {
-          providerCalls += 1;
-          return { pin: "0000000", pinId: "unexpected" };
-        }),
-    });
-    const standalone = StandaloneAccessCodeAdministration.Default.pipe(
-      Layer.provide(Layer.mergeAll(attemptLog, igloohome))
-    );
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: () => Effect.succeed({ kind: "in-progress" as const }),
-      complete: ({ result }) =>
-        Effect.sync(() => {
-          completions.push(result);
-        }),
-      reclaimStale: ({ requestId, reclaimedAt, staleBefore }) =>
-        Effect.sync(() => {
-          reclaims.push({
-            requestId,
-            staleMilliseconds:
-              reclaimedAt.epochNanoseconds - staleBefore.epochNanoseconds,
-          });
-          return true;
-        }),
-      release: () => Effect.die("not expected"),
-    });
-
-    const [outcome, storedResult] = await runAdministration(
-      ActorAuthorizedCliRequest,
-      standalone,
-      idempotency,
-      Effect.gen(function* () {
-        const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
-          "administration",
-        ]);
-        const replayed =
-          yield* client.administration.createStandaloneAccessCode({
-            payload,
-          });
-        return [replayed, completions[0]] as const;
+  test("does not call the provider when the ledger refuses and records explicit cleanup confirmation", async () => {
+    const requestId = Schema.decodeUnknownSync(CliMutationRequestId)(attemptId);
+    const ledger = recordingRequestLedger(
+      new CliMutationInProgress({
+        message:
+          "This standalone access-code creation is still being applied. Retrying with the same attempt identifier is safe.",
+        requestId,
       })
-    ).pipe(Effect.runPromise);
-
-    expect(outcome).toMatchObject({
-      outcome: "already-created",
-      attemptId,
-      providerCredentialId: "pin-already-issued",
-    });
-    expect("pin" in outcome).toBe(false);
-    expect(providerCalls).toBe(0);
-    expect(claimCalls).toBe(1);
-    expect(appendTerminalCalls).toBe(0);
-    expect(reclaims).toEqual([
-      { requestId: attemptId, staleMilliseconds: 60_000_000_000n },
-    ]);
-    expect(storedResult).toEqual({
-      attemptId,
-      providerCredentialId: "pin-already-issued",
-      name: "Booth A",
-      startsAt: "2026-09-10T10:00",
-      endsAt: "2026-09-10T12:00",
-      issuedAt: occurredAt.toString(),
-    });
-    expect(JSON.stringify(storedResult)).not.toContain("7654321");
-  });
-
-  test("rejects a stale retry that confirms a different cleanup target without sharing the claim", async () => {
-    const otherAttemptId = Schema.decodeUnknownSync(
-      AdministrationStandaloneAccessCodeAttemptId
-    )("01980000-0000-7000-8000-000000000043");
+    );
     let creations = 0;
-    const claims: CliStoredMutation[] = [];
-    const reclaims: CliStoredMutation[] = [];
-    const ledger = new Map<
-      string,
-      { readonly mutation: CliStoredMutation; result: unknown }
-    >();
-    const ledgerKey = (request: {
-      readonly sessionId: string;
-      readonly requestId: string;
-    }) => `${request.sessionId}/${request.requestId}`;
-    const sameStoredMutation = (
-      stored: CliStoredMutation,
-      incoming: CliStoredMutation
-    ) => JSON.stringify(stored) === JSON.stringify(incoming);
-    const idempotency = Layer.succeed(CliMutationIdempotency, {
-      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
-      claim: (request) =>
-        Effect.sync(() => {
-          claims.push(request.mutation);
-          const row = ledger.get(ledgerKey(request));
-          if (!row) {
-            ledger.set(ledgerKey(request), {
-              mutation: request.mutation,
-              result: null,
-            });
-            return { kind: "claimed" as const };
-          }
-          if (!sameStoredMutation(row.mutation, request.mutation)) {
-            return { kind: "mismatch" as const };
-          }
-          return row.result === null
-            ? { kind: "in-progress" as const }
-            : { kind: "completed" as const, result: row.result as never };
-        }),
-      complete: (request) =>
-        Effect.sync(() => {
-          const row = ledger.get(ledgerKey(request));
-          if (row) row.result = request.result;
-        }),
-      reclaimStale: (request) =>
-        Effect.sync(() => {
-          const row = ledger.get(ledgerKey(request));
-          if (!row || !sameStoredMutation(row.mutation, request.mutation)) {
-            return false;
-          }
-          reclaims.push(request.mutation);
-          row.result = null;
-          return true;
-        }),
-      release: (request) =>
-        Effect.sync(() => {
-          ledger.delete(ledgerKey(request));
-        }),
-    });
     const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
       create: () =>
-        Effect.suspend(() => {
+        Effect.sync(() => {
           creations += 1;
-          return creations === 1
-            ? Effect.fail(
-                creationFailure(
-                  "ambiguous",
-                  "The standalone access-code creation outcome is ambiguous.",
-                  { cleanupTarget: priorCleanupTarget }
-                )
-              )
-            : Effect.succeed(createdOutcome);
+          return createdOutcome;
         }),
     });
-    const confirmTarget = (
-      cleanupAttemptId: AdministrationStandaloneAccessCodeAttemptIdType
-    ) => ({
+    const confirmedPayload = {
       ...payload,
-      providerCredentialRemovedAttemptId: cleanupAttemptId,
-    });
-
-    const [firstAttempt, secondAttempt, thirdAttempt] = await runAdministration(
+      providerCredentialRemovedAttemptId: priorAttemptId,
+    };
+    const error = await runAdministration(
       ActorAuthorizedCliRequest,
       standalone,
-      idempotency,
-      Effect.gen(function* () {
-        const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
-          "administration",
-        ]);
-        const first = yield* client.administration
-          .createStandaloneAccessCode({
-            payload: confirmTarget(priorAttemptId),
-          })
-          .pipe(Effect.flip);
-        const second = yield* client.administration
-          .createStandaloneAccessCode({
-            payload: confirmTarget(otherAttemptId),
-          })
-          .pipe(Effect.flip);
-        const third = yield* client.administration
-          .createStandaloneAccessCode({
-            payload: confirmTarget(priorAttemptId),
-          })
-          .pipe(Effect.result);
-        return [first, second, third] as const;
-      })
+      ledger.layer,
+      createAccessCodeError(confirmedPayload)
     ).pipe(Effect.runPromise);
 
-    expect(firstAttempt).toBeInstanceOf(CliMutationUncertain);
-    expect(secondAttempt).toBeInstanceOf(CliMutationRejected);
-    expect(secondAttempt.message).toContain("different input");
-    expect(Result.isSuccess(thirdAttempt)).toBe(true);
-    if (Result.isSuccess(thirdAttempt)) {
-      expect(
-        Option.getOrUndefined(Result.getSuccess(thirdAttempt))
-      ).toMatchObject({
-        outcome: "created",
-        attemptId,
-      });
-    }
-    expect(creations).toBe(2);
-    expect(claims).toEqual([
-      {
-        kind: "standalone-access-code",
-        request: payload.input,
-        providerCredentialRemovedAttemptId: priorAttemptId,
-      },
-      {
-        kind: "standalone-access-code",
-        request: payload.input,
-        providerCredentialRemovedAttemptId: otherAttemptId,
-      },
-      {
-        kind: "standalone-access-code",
-        request: payload.input,
-        providerCredentialRemovedAttemptId: priorAttemptId,
-      },
-    ]);
-    expect(reclaims).toEqual([claims[0]]);
+    expect(error).toBeInstanceOf(CliMutationInProgress);
+    expect(creations).toBe(0);
+    expect(ledger.requests[0]?.mutation).toEqual({
+      kind: "standalone-access-code",
+      request: payload.input,
+      providerCredentialRemovedAttemptId: priorAttemptId,
+    });
+  });
+
+  test("fails closed before the ledger when the session's administrator can't be resolved", async () => {
+    let calls = 0;
+    const idempotency = Layer.succeed(AdministrationRequestLedger, {
+      applyOnce: () => Effect.die("Unused database-only mutation ledger"),
+      applyOnceWithEffects: () =>
+        Effect.sync(() => {
+          calls += 1;
+          return createdOutcome;
+        }),
+    } as AdministrationRequestLedger["Service"]);
+
+    const error = await runAdministration(
+      CliSessionAdministrationAuthenticationLive,
+      UnusedStandaloneAccessCodeAdministration,
+      idempotency,
+      createAccessCodeError(),
+      UnresolvableSessionAuthentication
+    ).pipe(Effect.runPromise);
+
+    expect(error).toBeInstanceOf(CliSessionUnauthorized);
+    expect(calls).toBe(0);
   });
 });

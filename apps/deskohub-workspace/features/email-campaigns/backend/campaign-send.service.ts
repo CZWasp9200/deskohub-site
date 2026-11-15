@@ -1,8 +1,7 @@
 import "server-only";
 
-import { EmailServiceTag } from "@deskohub/email";
+import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
 import { NodeCrypto } from "@effect/platform-node";
-import { and, eq, inArray, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import {
   Array as Arr,
@@ -17,32 +16,16 @@ import {
 } from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
-import {
-  type CampaignAudienceRow,
-  type CampaignRow,
-  emailCampaignRecipients,
-  emailCampaignSends,
-  emailCampaigns,
-} from "@/db/schema";
-import { type Locale, locales } from "@/features/i18n";
+import type { CampaignAudienceRow, CampaignRow } from "@/db/schema";
+import type { Locale } from "@/features/i18n";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
-import { EmailConfigLayer } from "@/shared/backend/config/email.config";
-import {
-  getWorkspaceRuntimeCallbackOrigin,
-  type WorkspaceUrlConfigError,
-} from "@/shared/backend/config/workspace-url.config";
+import { WorkspaceEmailLayer } from "@/shared/backend/config/email.config";
+import type { WorkspaceUrlConfigError } from "@/shared/backend/config/workspace-url.config";
 import { currentInstant } from "@/shared/utils/temporal";
 import type { AudienceFilter } from "../audience-filter";
 import { hashCampaignContent } from "../body/campaign-content-hash";
-import {
-  CampaignEmailFooter,
-  renderCampaignEmail,
-} from "../body/render-campaign-email";
-import {
-  campaignTestMessage,
-  type RenderedCampaignEmail,
-} from "../campaign-email-message";
+import { CampaignEmailOccasion, campaignEmailMessage } from "../campaign-email";
 import type {
   CampaignAudienceId,
   CampaignConfirmationCode,
@@ -54,13 +37,14 @@ import {
   type CampaignAudienceNotFound,
   type CampaignConfirmationRejected,
   CampaignContentMissing,
+  type CampaignDeliveryMismatch,
   CampaignDeliveryQueueFailed,
   CampaignEmailDeliveryFailed,
   type CampaignEmailNotConfigured,
   CampaignFallbackContentMissing,
   CampaignNoRecipients,
-  CampaignNotFound,
-  CampaignNotRetryable,
+  type CampaignNotFound,
+  type CampaignNotRetryable,
   CampaignReadOnly,
   type CampaignRecipientResolutionError,
   type CampaignRecipientsOutsideTestDomain,
@@ -68,18 +52,22 @@ import {
   CampaignTestRecipientInvalid,
 } from "../errors";
 import { ensureCampaignRecipientsAllowed } from "../recipient-domain-guard";
-import { campaignContentCoversAudience } from "../recipient-locale";
+import {
+  campaignContentCoversAudience,
+  campaignContentLocales,
+} from "../recipient-locale";
 import { AudienceFactsService } from "./audience-facts.service";
 import { CampaignService } from "./campaign.service";
 import { CampaignAudienceService } from "./campaign-audience.service";
 import { CampaignCandidateRepository } from "./campaign-candidate.repository";
-import {
-  CampaignConfirmationCodeService,
-  type CampaignSendFreeze,
-} from "./campaign-confirmation-code.service";
+import { CampaignConfirmationCodeService } from "./campaign-confirmation-code.service";
 import { CampaignEmailConfig } from "./campaign-email.config";
 import { CampaignRecipientService } from "./campaign-recipient.service";
 import { CampaignSendQueueService } from "./campaign-send-queue.service";
+import {
+  type CampaignSendFreeze,
+  OnceCampaignLifecycle,
+} from "./once-campaign-lifecycle";
 
 type DatabaseError = EffectDrizzleQueryError | SqlError.SqlError;
 
@@ -126,6 +114,7 @@ export interface ICampaignSendService {
   }) => Effect.Effect<
     CampaignTestSend,
     | CampaignNotFound
+    | CampaignDeliveryMismatch
     | CampaignReadOnly
     | CampaignTestRecipientInvalid
     | CampaignRecipientsOutsideTestDomain
@@ -149,6 +138,7 @@ export interface ICampaignSendService {
   }) => Effect.Effect<
     CampaignSendStarted,
     | CampaignNotFound
+    | CampaignDeliveryMismatch
     | CampaignReadOnly
     | CampaignConfirmationRejected
     | CampaignAudienceMissing
@@ -173,6 +163,7 @@ export interface ICampaignSendService {
   }) => Effect.Effect<
     CampaignRetryStarted,
     | CampaignNotFound
+    | CampaignDeliveryMismatch
     | CampaignNotRetryable
     | CampaignDeliveryQueueFailed
     | DatabaseError
@@ -188,7 +179,7 @@ export class CampaignSendService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const { db } = yield* WorkspaceDatabase;
+      const { transaction } = yield* WorkspaceDatabase;
       const campaigns = yield* CampaignService;
       const audiences = yield* CampaignAudienceService;
       const recipientResolution = yield* CampaignRecipientService;
@@ -198,7 +189,7 @@ export class CampaignSendService extends Context.Service<
       const queue = yield* CampaignSendQueueService;
 
       const getDraft = (campaignId: CampaignId) =>
-        campaigns.get(campaignId).pipe(
+        campaigns.getOnce(campaignId).pipe(
           Effect.flatMap((campaign) =>
             Match.value(campaign.status).pipe(
               Match.when("draft", () => Effect.succeed(campaign)),
@@ -234,11 +225,9 @@ export class CampaignSendService extends Context.Service<
           emails,
         });
 
-      /** The locales the campaign has content for, in locale order. */
+      /** The locales the campaign has content for, in content order. */
       const requireContentLocales = (campaign: CampaignRow) =>
-        Effect.succeed(
-          locales.filter((locale) => campaign.content[locale] !== undefined)
-        ).pipe(
+        Effect.succeed(campaignContentLocales(campaign.content)).pipe(
           Effect.filterOrFail(
             (contentLocales) => contentLocales.length > 0,
             () => new CampaignContentMissing({ campaignId: campaign.id })
@@ -301,52 +290,42 @@ export class CampaignSendService extends Context.Service<
             )
           );
 
-      /** One `[TEST]` email per content locale, each with the new code. */
-      const renderTestEmails = (input: {
+      /**
+       * One `[TEST]` email per recipient and content locale, each with the
+       * new code. All are rendered before any is sent.
+       */
+      const testEmails = (input: {
         readonly campaign: CampaignRow;
+        readonly recipients: readonly string[];
         readonly contentLocales: readonly Locale[];
         readonly issued: { readonly code: CampaignConfirmationCode };
       }) =>
-        getWorkspaceRuntimeCallbackOrigin.pipe(
-          Effect.map((origin) => new URL("/account/legal", origin).href),
-          Effect.flatMap((preferencesPreviewUrl) =>
-            Effect.forEach(input.contentLocales, (locale) =>
-              renderCampaignEmail({
-                templateKey: input.campaign.templateKey,
-                locale,
-                content: input.campaign.content[locale]!,
-                footer:
-                  input.campaign.purpose === "marketing"
-                    ? CampaignEmailFooter.Marketing({
-                        marketingPreferencesUrl: preferencesPreviewUrl,
-                      })
-                    : CampaignEmailFooter.Operational(),
-                confirmationCode: input.issued.code,
-              })
-            ).pipe(
-              Effect.mapError(
-                (cause) => new CampaignEmailDeliveryFailed({ cause })
-              )
-            )
+        Effect.forEach(input.recipients, (to) =>
+          Effect.forEach(input.contentLocales, (locale) =>
+            campaignEmailMessage({
+              templateKey: input.campaign.templateKey,
+              locale,
+              content: input.campaign.content[locale]!,
+              occasion: CampaignEmailOccasion.Test({
+                to,
+                purpose: input.campaign.purpose,
+                code: input.issued.code,
+              }),
+              sender: config,
+              deploymentEnvironment: config.deploymentEnvironment,
+            })
+          )
+        ).pipe(
+          Effect.map(Arr.flatten),
+          Effect.catchTag("EmailServiceError", (cause) =>
+            Effect.fail(new CampaignEmailDeliveryFailed({ cause }))
           )
         );
 
       const mailTestEmails = (input: {
-        readonly recipients: readonly string[];
-        readonly emails: readonly RenderedCampaignEmail[];
+        readonly emails: readonly EmailMessage[];
       }) =>
-        Effect.forEach(input.recipients, (to) =>
-          Effect.forEach(input.emails, (rendered) =>
-            email.send(
-              campaignTestMessage({
-                sender: config,
-                to,
-                email: rendered,
-                deploymentEnvironment: config.deploymentEnvironment,
-              })
-            )
-          )
-        ).pipe(
+        Effect.forEach(input.emails, (message) => email.send(message)).pipe(
           Effect.mapError((cause) => new CampaignEmailDeliveryFailed({ cause }))
         );
 
@@ -423,15 +402,14 @@ export class CampaignSendService extends Context.Service<
               Effect.catchTag("CampaignSendQueueError", (cause) =>
                 currentInstant.pipe(
                   Effect.flatMap((updatedAt) =>
-                    db
-                      .update(emailCampaigns)
-                      .set({ status: "failed", updatedAt })
-                      .where(
-                        and(
-                          eq(emailCampaigns.id, input.campaignId),
-                          eq(emailCampaigns.status, "sending")
-                        )
-                      )
+                    transaction(
+                      OnceCampaignLifecycle.abandon({
+                        campaignId: input.campaignId,
+                        sendId: input.sendId,
+                        deliveryAttempt: input.deliveryAttempt,
+                        now: updatedAt,
+                      })
+                    )
                   ),
                   Effect.andThen(
                     Effect.fail(
@@ -446,73 +424,6 @@ export class CampaignSendService extends Context.Service<
             );
         }
       );
-
-      type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-      /**
-       * Under the campaign row lock, moves a Failed campaign back to Sending
-       * and puts its undelivered recipients into a new delivery attempt.
-       */
-      const startRetry = Effect.fn("CampaignSendService.startRetry")(function* (
-        tx: Transaction,
-        input: {
-          readonly campaignId: CampaignId;
-          readonly includeUnconfirmed: boolean;
-          readonly now: Temporal.Instant;
-        }
-      ) {
-        const { campaignId, now } = input;
-        const [campaign] = yield* tx
-          .select({ status: emailCampaigns.status })
-          .from(emailCampaigns)
-          .where(eq(emailCampaigns.id, campaignId))
-          .for("update");
-        if (!campaign) {
-          return yield* new CampaignNotFound({ campaignId });
-        }
-        if (campaign.status !== "failed") {
-          return yield* new CampaignNotRetryable({
-            campaignId,
-            status: campaign.status,
-          });
-        }
-        const [send] = yield* tx
-          .update(emailCampaignSends)
-          .set({
-            deliveryAttempt: sql`${emailCampaignSends.deliveryAttempt} + 1`,
-          })
-          .where(eq(emailCampaignSends.campaignId, campaignId))
-          .returning({
-            sendId: emailCampaignSends.id,
-            deliveryAttempt: emailCampaignSends.deliveryAttempt,
-          });
-        const retried = yield* tx
-          .update(emailCampaignRecipients)
-          .set({
-            deliveryAttempt: send!.deliveryAttempt,
-            status: "pending",
-            statusUpdatedAt: now,
-          })
-          .where(
-            and(
-              eq(emailCampaignRecipients.sendId, send!.sendId),
-              inArray(
-                emailCampaignRecipients.status,
-                input.includeUnconfirmed
-                  ? ["pending", "failed", "unconfirmed"]
-                  : ["pending", "failed"]
-              )
-            )
-          )
-          .returning({
-            dotyposCustomerId: emailCampaignRecipients.dotyposCustomerId,
-          });
-        yield* tx
-          .update(emailCampaigns)
-          .set({ status: "sending", updatedAt: now })
-          .where(eq(emailCampaigns.id, campaignId));
-        return { ...send!, retriedCount: retried.length };
-      });
 
       return {
         testSend: Effect.fn("CampaignSendService.testSend")((input) =>
@@ -530,7 +441,7 @@ export class CampaignSendService extends Context.Service<
             ),
             Effect.tap(ensureContentCoversAudience),
             Effect.bind("issued", ({ campaign }) => issueTestCode(campaign)),
-            Effect.bind("emails", renderTestEmails),
+            Effect.bind("emails", testEmails),
             Effect.tap(mailTestEmails),
             Effect.map(
               ({ recipients, contentLocales, issued }): CampaignTestSend => ({
@@ -572,8 +483,12 @@ export class CampaignSendService extends Context.Service<
           ({ campaignId, includeUnconfirmed = false }) =>
             currentInstant.pipe(
               Effect.flatMap((now) =>
-                db.transaction((tx) =>
-                  startRetry(tx, { campaignId, includeUnconfirmed, now })
+                transaction(
+                  OnceCampaignLifecycle.retry({
+                    campaignId,
+                    includeUnconfirmed,
+                    now,
+                  })
                 )
               ),
               Effect.tap(({ sendId, deliveryAttempt }) =>
@@ -626,8 +541,8 @@ export class CampaignSendService extends Context.Service<
             Layer.provide(NodeCrypto.layer)
           ),
           CampaignEmailConfig.Default,
-          CampaignSendQueueService.Default,
-          EmailServiceTag.RecipientRouted.pipe(Layer.provide(EmailConfigLayer))
+          CampaignSendQueueService.Live,
+          WorkspaceEmailLayer
         )
       ),
       Layer.provide(WorkspaceDatabase.Default)

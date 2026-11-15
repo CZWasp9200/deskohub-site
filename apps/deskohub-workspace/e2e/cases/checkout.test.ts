@@ -5,6 +5,8 @@ import type { Customer } from "@deskohub/dotypos/generated";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
+import type { WorkspaceE2EStepRunner } from "../case-runner";
+import { preparedReservationForm } from "../checkout/reservation-form-preparation";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { makeWorkspaceE2EHostedPaymentPermitRecorder } from "../coordination/hosted-payment-permit.service.mock";
 import {
@@ -13,20 +15,18 @@ import {
   workspaceE2ETimeoutError,
 } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
-import type { Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
-import type {
-  CheckoutData,
-  CheckoutFlowState,
-  CheckoutRow,
-  WorkspaceE2EStepRunner,
-} from "../types";
+import type { CheckoutData, CheckoutFlowState, CheckoutRow } from "../types";
 import {
   assertFreshPaymentAttempt,
-  assertFulfilledStatusPage,
   completeHostedCheckoutPayment,
   executeCheckoutFlow,
 } from "./checkout";
+
+// The step contract tests fake every step, so no step may open a browser.
+const unopenedBrowserSession = Effect.fail(
+  workspaceE2EError("the step contract test opens no browser session")
+);
 
 const customer: Customer = {
   _cloudId: "customer-id",
@@ -50,7 +50,7 @@ const checkoutRow = {
     duration: { unit: "day", amount: 1 },
   },
   reservation_id: "workspace-reservation-id",
-} as const;
+} as CheckoutRow;
 
 const wholeDayData = {
   expectedReservationDetails: {
@@ -63,7 +63,7 @@ const wholeDayData = {
     endsAt: "2027-03-28T22:00:00Z",
     startDateTime: "2027-03-28T00:00",
   },
-} as const;
+} as Pick<CheckoutData, "expectedReservationDetails" | "meetingRoom">;
 
 describe("whole-day meeting-room checkout proof", () => {
   test("renders both shared email detail projections from the confirmed DST calendar day", async () => {
@@ -109,51 +109,6 @@ describe("whole-day meeting-room checkout proof", () => {
   });
 });
 
-test("observes fulfillment across server and runner whitespace variants", async () => {
-  const commands: string[][] = [];
-  const run = (async (_command: string, args: string[]) => {
-    commands.push(args);
-    const readsUrl = args.at(-2) === "get" && args.at(-1) === "url";
-
-    return {
-      exitCode: 0,
-      stderr: "",
-      stdout: readsUrl
-        ? "https://workspace.test/en-US/reservation/status/order-id?outcome=success"
-        : "Your reservation is confirmed. Your payment is complete and the secure access link has been sent by email. Tuesday, August 25, 2026 10:00\u202fAM\u2009–\u20092:00\u202fPM CZK\u00a00",
-    };
-  }) as Runner;
-
-  await Effect.runPromise(
-    assertFulfilledStatusPage({
-      checkoutRow: {
-        amount_exponent: 2,
-        amount_value: 0,
-        currency: "CZK",
-      } as CheckoutRow,
-      config: {
-        expectedHost: "workspace.test",
-        timeouts: workspaceE2ETimeouts,
-      } as WorkspaceE2EConfig,
-      data: {
-        locale: "en-US",
-        meetingRoom: {},
-      } as CheckoutData,
-      dotyposReservation: {
-        reservedFrom: Temporal.Instant.from("2026-08-25T08:00:00Z"),
-        reservedUntil: Temporal.Instant.from("2026-08-25T12:00:00Z"),
-      } as never,
-      orderId: "order-id",
-      run,
-      session: "existing-status-page",
-    }).pipe(
-      Effect.provideService(E2EDatabase, E2EDatabase.of({ db: {} as never }))
-    )
-  );
-
-  expect(commands.some((args) => args.includes("open"))).toBe(false);
-});
-
 const runCheckoutFlowSteps = async (
   options: Pick<
     Parameters<typeof executeCheckoutFlow>[0],
@@ -162,7 +117,7 @@ const runCheckoutFlowSteps = async (
 ) => {
   const hostedPaymentPermit = makeWorkspaceE2EHostedPaymentPermitRecorder();
   const observedSteps: Array<{
-    readonly capacity: "provider-verification" | undefined;
+    readonly permit: "provider-verification" | undefined;
     readonly hosted: boolean;
     readonly id: string;
   }> = [];
@@ -172,7 +127,7 @@ const runCheckoutFlowSteps = async (
   } as CheckoutRow;
   const runStep = ((step) => {
     observedSteps.push({
-      capacity: step.capacity,
+      permit: step.permit,
       hosted: hostedPaymentPermit.isHolding(),
       id: step.id,
     });
@@ -194,10 +149,16 @@ const runCheckoutFlowSteps = async (
   const state: CheckoutFlowState = { data };
   const httpClientLayer = FetchHttpClient.layer.pipe(
     Layer.provide(
-      Layer.succeed(FetchHttpClient.Fetch, (() =>
-        Promise.reject(
-          new Error("HTTP must not execute in the step contract test")
-        )) as typeof globalThis.fetch)
+      Layer.succeed(
+        FetchHttpClient.Fetch,
+        Object.assign(
+          () =>
+            Promise.reject(
+              new Error("HTTP must not execute in the step contract test")
+            ),
+          { preconnect: globalThis.fetch.preconnect }
+        )
+      )
     )
   );
 
@@ -209,7 +170,7 @@ const runCheckoutFlowSteps = async (
       datasourceConfig: {} as DatasourceConfig,
       flow: {
         id: "checkout-capacity-contract",
-        submitReservationScript: () => "unused",
+        toReservationPreparation: () => preparedReservationForm,
       },
       payPageSteps: () => [
         {
@@ -218,10 +179,9 @@ const runCheckoutFlowSteps = async (
           timeoutMs: workspaceE2ETimeouts.uiTransition,
         },
       ],
-      run: (() =>
-        Promise.reject(new Error("runner must not execute"))) as Runner,
+      openSeparateSession: () => unopenedBrowserSession,
+      openSession: unopenedBrowserSession,
       runStep,
-      session: "checkout-capacity-contract",
       state,
     }).pipe(
       Effect.provide(Layer.mergeAll(httpClientLayer, hostedPaymentPermit.layer))
@@ -253,12 +213,12 @@ test("holds the provider-verification permit only for the webhook replay", async
   });
 
   expect(
-    observedSteps.flatMap(({ capacity, id }) =>
-      capacity === undefined ? [] : [{ capacity, id }]
+    observedSteps.flatMap(({ id, permit }) =>
+      permit === undefined ? [] : [{ id, permit }]
     )
   ).toEqual([
     {
-      capacity: "provider-verification",
+      permit: "provider-verification",
       id: "replay-payment-webhook",
     },
   ]);
@@ -282,8 +242,8 @@ test("runs the post-fulfillment paths only for an opted-in case, after every ful
   expect(defaultSteps).not.toContain(
     "mark-fulfillment-failed-for-support-path"
   );
-  // Cookie isolation starts from the support path's failed-fulfillment state.
-  expect(optedInSteps.indexOf("assert-reservation-cookie-isolation")).toBe(
+  // Status isolation starts from the support path's failed-fulfillment state.
+  expect(optedInSteps.indexOf("assert-reservation-status-isolation")).toBe(
     optedInSteps.length - 1
   );
   expect(
@@ -304,8 +264,8 @@ describe("Nexi sandbox payment restart", () => {
   } as CheckoutRow;
   const hostedPaymentPage = {
     checkoutPageUrl: "https://workspace.test/en-US/reservation/order-id",
-    checkoutTabId: "checkout-tab",
-    hostedPaymentTabId: "checkout-tab",
+    checkoutPage: {} as never,
+    page: {} as never,
     url: "https://xpay.nexigroup.com/hpp/nexi/",
   };
   const sandboxRejection = () =>
@@ -343,11 +303,9 @@ describe("Nexi sandbox payment restart", () => {
       completeHostedCheckoutPayment({
         config: { timeouts: workspaceE2ETimeouts } as WorkspaceE2EConfig,
         data,
-        orderId: "order-id",
-        run: (() =>
-          Promise.reject(new Error("runner must not execute"))) as Runner,
+        orderId: "order-id" as CheckoutRow["reservation_id"],
+        openSession: unopenedBrowserSession,
         runStep,
-        session: "nexi-sandbox-restart",
         state: { data },
       }).pipe(
         Effect.provideService(E2EDatabase, E2EDatabase.of({ db: {} as never })),

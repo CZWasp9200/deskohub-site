@@ -6,6 +6,7 @@ import {
   coworkCurrentReservationOrderSchema,
   coworkReservationSchema,
   getCoworkAdvertisedPriceReservation,
+  getCoworkReservationDefaultValues,
   getCoworkReservationDetails,
   getCoworkReservationInterval,
   getCoworkReservationIntervalInput,
@@ -19,10 +20,10 @@ import {
 } from "./reservation-interval";
 
 const safeParseCoworkReservation = Schema.decodeUnknownResult(
-  coworkReservationSchema
+  coworkReservationSchema("CZ")
 );
 const safeParseCoworkReservationOrder = Schema.decodeUnknownResult(
-  coworkCurrentReservationOrderSchema
+  coworkCurrentReservationOrderSchema("CZ")
 );
 
 describe("cowork reservation schema", () => {
@@ -246,5 +247,34 @@ describe("cowork advertised-price reservation", () => {
         monitorOption: "2x32-4k",
       })
     );
+  });
+});
+
+describe("getCoworkReservationDefaultValues", () => {
+  test("restores all reservation details while resetting marketing consent", () => {
+    const reservation = Schema.decodeUnknownSync(
+      normalizedCoworkReservationOrderSchema
+    )({
+      kind: "cowork",
+      entryTier: "reserved-desk",
+      date: "2099-06-10",
+      coffee: true,
+      monitorOption: "2x27-qhd",
+      name: "Ada Lovelace",
+      email: testEmailAddress("ada"),
+      phone: "+420 777 000 111",
+    });
+
+    expect(getCoworkReservationDefaultValues(reservation)).toEqual({
+      entryTier: "reserved-desk",
+      date: "2099-06-10",
+      coffee: true,
+      monitorOption: "2x27-qhd",
+      name: "Ada Lovelace",
+      email: testEmailAddress("ada"),
+      phone: "+420 777 000 111",
+      billing: { purpose: "personal", invoice: "none" },
+      marketingConsent: false,
+    });
   });
 });

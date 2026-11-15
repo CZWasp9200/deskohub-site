@@ -115,6 +115,13 @@ export const getMeetingRoomLastServiceDate = ({
   );
 };
 
+/** The Prague wall-clock start that the meeting-room form and links use. */
+export const getMeetingRoomStartDateTime = (startsAt: Temporal.Instant) =>
+  startsAt
+    .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
+    .toPlainDateTime()
+    .toString({ smallestUnit: "minute" });
+
 export const getMeetingRoomReservationDate = ({
   startsAt,
 }: Pick<ReservationInterval, "startsAt">) =>
@@ -131,10 +138,7 @@ export const findMeetingRoomReservationDuration = (interval: {
   readonly startsAt: Temporal.Instant;
   readonly endsAt: Temporal.Instant;
 }): MeetingRoomReservationDuration | undefined => {
-  const startDateTime = interval.startsAt
-    .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
-    .toPlainDateTime()
-    .toString({ smallestUnit: "minute" });
+  const startDateTime = getMeetingRoomStartDateTime(interval.startsAt);
 
   return meetingRoomReservationDurations.find((duration) => {
     const candidate = getMeetingRoomReservationInterval(
@@ -146,5 +150,77 @@ export const findMeetingRoomReservationDuration = (interval: {
       Temporal.Instant.compare(candidate.startsAt, interval.startsAt) === 0 &&
       Temporal.Instant.compare(candidate.endsAt, interval.endsAt) === 0
     );
+  });
+};
+
+/** The form offers whole-hour starts up to this hour of each Prague date. */
+const lastMeetingRoomStartHour = 23;
+
+/**
+ * Last Prague date any meeting-room booking starting on a date can occupy:
+ * the date's last start booked for the longest duration. Every availability
+ * read for a start date loads inventory through this date, so single checks
+ * and the date's start-times list share one shared-snapshot entry.
+ */
+export const getMeetingRoomDayLastServiceDate = (
+  date: PlainDate
+): PlainDate => {
+  const lastStartDateTime = Temporal.PlainDate.from(date)
+    .toPlainDateTime({ hour: lastMeetingRoomStartHour })
+    .toString({ smallestUnit: "minute" });
+
+  return meetingRoomReservationDurations.reduce((lastServiceDate, duration) => {
+    const interval = getMeetingRoomReservationInterval(
+      lastStartDateTime,
+      duration
+    );
+    const durationLastServiceDate = interval
+      ? getMeetingRoomLastServiceDate(interval)
+      : lastServiceDate;
+    return durationLastServiceDate > lastServiceDate
+      ? durationLastServiceDate
+      : lastServiceDate;
+  }, date);
+};
+
+/** A start the meeting-room form accepts, with the interval it books. */
+export type MeetingRoomStartTime = {
+  readonly startDateTime: LocalDateTime;
+  readonly interval: ReservationInterval;
+};
+
+/**
+ * Every start the meeting-room form accepts on a Prague date for a duration:
+ * each whole hour from the earliest start, or the date's midnight for a whole
+ * day. Wall times that daylight saving skips or repeats book no interval, so
+ * they are left out.
+ */
+export const getMeetingRoomDayStartTimes = ({
+  date,
+  duration,
+  now,
+}: {
+  readonly date: PlainDate;
+  readonly duration: MeetingRoomReservationDuration;
+  readonly now: Temporal.Instant;
+}): ReadonlyArray<MeetingRoomStartTime> => {
+  const earliestStart = Temporal.PlainDateTime.from(
+    getEarliestMeetingRoomStartDateTime(duration, now)
+  );
+  const midnight = Temporal.PlainDate.from(date).toPlainDateTime();
+  const candidates = isMeetingRoomWholeDayReservationDuration(duration)
+    ? [midnight]
+    : Array.from({ length: lastMeetingRoomStartHour + 1 }, (_, hour) =>
+        midnight.with({ hour })
+      );
+
+  return candidates.flatMap((candidate) => {
+    if (Temporal.PlainDateTime.compare(candidate, earliestStart) < 0) return [];
+
+    const startDateTime = localDateTimeSchema.make(
+      candidate.toString({ smallestUnit: "minute" })
+    );
+    const interval = getMeetingRoomReservationInterval(startDateTime, duration);
+    return interval ? [{ startDateTime, interval }] : [];
   });
 };

@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -12,6 +13,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { DiscountLabels } from "@/features/discounts/discount-label";
 import type {
   CanonicalPromotionCode,
   DiscountCodeId,
@@ -20,11 +22,12 @@ import type {
   VoucherId,
 } from "@/features/discounts/persistence-contracts";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
-import type { Locale } from "@/features/i18n";
+import type { PlainDate } from "@/shared/utils/temporal";
 import { instant } from "../instant";
+import { sensitiveText } from "../sensitive-text";
 import { postgresUuidV7 } from "../uuid-v7";
 
-export type DiscountLabels = Readonly<Record<Locale, string>>;
+export type { DiscountLabels };
 
 export const promotionCodeKinds = ["discount", "voucher", "referral"] as const;
 export type PromotionCodeKind = (typeof promotionCodeKinds)[number];
@@ -101,7 +104,7 @@ export const promotionCodes = pgTable(
       .default(postgresUuidV7)
       .$type<PromotionCodeId>(),
     kind: text("kind").notNull().$type<PromotionCodeKind>(),
-    code: text("code").notNull().$type<CanonicalPromotionCode>(),
+    code: sensitiveText("code").notNull().$type<CanonicalPromotionCode>(),
     enabled: boolean("enabled").notNull(),
     validFrom: instant("valid_from"),
     validUntil: instant("valid_until"),
@@ -153,7 +156,7 @@ export const discountCodes = pgTable(
   "discount_codes",
   {
     id: text("id").primaryKey().default(postgresUuidV7).$type<DiscountCodeId>(),
-    code: text("code").notNull().$type<CanonicalPromotionCode>(),
+    code: sensitiveText("code").notNull().$type<CanonicalPromotionCode>(),
     enabled: boolean("enabled").notNull(),
     validFrom: instant("valid_from"),
     validUntil: instant("valid_until"),
@@ -171,6 +174,14 @@ export const discountCodes = pgTable(
       .references(() => discounts.id),
     maxUses: integer("max_uses"),
     maxUsesPerCustomer: integer("max_uses_per_customer"),
+    /** First Prague reservation start date the code covers, inclusive. */
+    serviceDateFrom: date("service_date_from", {
+      mode: "string",
+    }).$type<PlainDate>(),
+    /** Last Prague reservation start date the code covers, inclusive. */
+    serviceDateUntil: date("service_date_until", {
+      mode: "string",
+    }).$type<PlainDate>(),
     createdAt: instant("created_at").notNull().default(sql`now()`),
     updatedAt: instant("updated_at").notNull().default(sql`now()`),
   },
@@ -193,6 +204,10 @@ export const discountCodes = pgTable(
     check(
       "discount_codes_valid_window_check",
       sql`${t.validFrom} is null or ${t.validUntil} is null or ${t.validUntil} > ${t.validFrom}`
+    ),
+    check(
+      "discount_codes_service_date_window_check",
+      sql`(${t.serviceDateFrom} is null and ${t.serviceDateUntil} is null) or (${t.serviceDateFrom} is not null and ${t.serviceDateUntil} is not null and ${t.serviceDateUntil} >= ${t.serviceDateFrom})`
     ),
     check(
       "discount_codes_max_uses_check",

@@ -4,15 +4,24 @@ import type {
   IgloohomePinId,
 } from "@deskohub/igloohome";
 import { AlgoPinSchema } from "@deskohub/igloohome";
-import { and, eq, inArray, lte, ne, or } from "drizzle-orm";
-import { Context, Data, Effect, Layer, Schema } from "effect";
+import { NodeCrypto } from "@effect/platform-node";
+import { and, asc, eq, inArray, lte, or } from "drizzle-orm";
+import { Context, Crypto, Data, Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { equalsAny } from "@/db/equals-any";
 import { reservationAccessGrants } from "@/db/schema";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
-import { sensitiveDatabaseParameter } from "@/shared/backend/logging/database-query-parameter-classifier";
-import type {
-  ReservationAccessGrant,
-  ReservationAccessGrantId,
+import {
+  type ReadLimitExceededError,
+  readLimitSentinel,
+  requireWithinReadLimit,
+} from "@/shared/backend/read-limit";
+import {
+  makeReservationAccessName,
+  type ReservationAccessGrant,
+  type ReservationAccessGrantId,
+  type ReservationAccessGrantState,
+  reservationAccessGrantIdSchema,
 } from "../reservation-access";
 
 const reservationAccessGrantSelection = {
@@ -23,6 +32,7 @@ const reservationAccessGrantSelection = {
   deviceId: reservationAccessGrants.deviceId,
   state: reservationAccessGrants.state,
   providerCredentialId: reservationAccessGrants.providerCredentialId,
+  accessName: reservationAccessGrants.accessName,
   scheduledAccessStartsAt: reservationAccessGrants.scheduledAccessStartsAt,
   accessStartsAt: reservationAccessGrants.accessStartsAt,
   accessEndsAt: reservationAccessGrants.accessEndsAt,
@@ -44,18 +54,57 @@ export class ReservationAccessStorageError extends Data.TaggedError(
     | "mark_failed"
     | "mark_issued"
     | "mark_uncertain"
-    | "reconcile_uncertain";
+    | "reconcile_uncertain"
+    | "reschedule_issued";
   readonly reservationId?: WorkspaceReservationId;
   readonly message: string;
 }> {}
 
+interface ReservationAccessBounds {
+  readonly scheduledAccessStartsAt: Temporal.Instant;
+  readonly accessStartsAt: Temporal.Instant;
+  readonly accessEndsAt: Temporal.Instant;
+}
+
+const hasBounds = (bounds: ReservationAccessBounds) =>
+  and(
+    eq(
+      reservationAccessGrants.scheduledAccessStartsAt,
+      bounds.scheduledAccessStartsAt
+    ),
+    eq(reservationAccessGrants.accessStartsAt, bounds.accessStartsAt),
+    eq(reservationAccessGrants.accessEndsAt, bounds.accessEndsAt)
+  );
+
+/**
+ * A reservation's door-access grant state and access window. The access
+ * code, the provider credential id, the device id, the access name and the
+ * failure code are not part of it.
+ */
+export interface ReservationAccessGrantStatus {
+  readonly workspaceReservationId: WorkspaceReservationId;
+  readonly state: ReservationAccessGrantState;
+  readonly scheduledAccessStartsAt: Temporal.Instant;
+  readonly accessStartsAt: Temporal.Instant;
+  readonly accessEndsAt: Temporal.Instant;
+  readonly issuedAt: Temporal.Instant | null;
+}
+
 export interface IReservationAccessRepository {
+  /**
+   * Creates the grant, or resets a retryable one, for a target. An issued
+   * grant is reset only when it still holds `replacingIssued`, the bounds of
+   * the issued grant the caller read and decided to replace. Callers replace
+   * only a grant programmed for other Igloohome hours, so a grant any
+   * deployment issued for the requested hours is never reset.
+   */
   readonly ensure: (input: {
     readonly reservationId: WorkspaceReservationId;
     readonly deviceId: IgloohomeDeviceId;
     readonly scheduledAccessStartsAt: Temporal.Instant;
     readonly accessStartsAt: Temporal.Instant;
     readonly accessEndsAt: Temporal.Instant;
+    readonly replacingIssued: ReservationAccessBounds | null;
   }) => Effect.Effect<ReservationAccessGrant, ReservationAccessStorageError>;
   readonly findByReservationId: (
     reservationId: WorkspaceReservationId
@@ -63,9 +112,27 @@ export interface IReservationAccessRepository {
     ReservationAccessGrant | null,
     ReservationAccessStorageError
   >;
+  /**
+   * The grant status of each listed reservation that has a grant, oldest
+   * grant first. Callers pass reservation ids they already scoped to one
+   * customer; an empty list reads nothing. Fails with
+   * `ReadLimitExceededError`, returning no rows, when the reservations have
+   * more than `limit` grants together.
+   */
+  readonly listForReservations: (input: {
+    readonly workspaceReservationIds: readonly WorkspaceReservationId[];
+    readonly limit: number;
+  }) => Effect.Effect<
+    readonly ReservationAccessGrantStatus[],
+    ReservationAccessStorageError | ReadLimitExceededError
+  >;
   readonly claim: (input: {
     readonly id: ReservationAccessGrantId;
     readonly reservationId: WorkspaceReservationId;
+    readonly scheduledAccessStartsAt: Temporal.Instant;
+    readonly accessStartsAt: Temporal.Instant;
+    readonly accessEndsAt: Temporal.Instant;
+    readonly accessName: string;
     readonly startedAt: Temporal.Instant;
   }) => Effect.Effect<boolean, ReservationAccessStorageError>;
   readonly markIssued: (input: {
@@ -87,9 +154,27 @@ export interface IReservationAccessRepository {
     readonly failureCode: string;
     readonly failedAt: Temporal.Instant;
   }) => Effect.Effect<void, ReservationAccessStorageError>;
+  /**
+   * Records a reservation span that moved within the hours its issued
+   * credential covers. Returns null when the grant holds neither span,
+   * because a concurrent request moved or reset it.
+   */
+  readonly rescheduleIssued: (input: {
+    readonly id: ReservationAccessGrantId;
+    readonly reservationId: WorkspaceReservationId;
+    readonly from: ReservationAccessBounds;
+    readonly to: ReservationAccessBounds;
+    readonly rescheduledAt: Temporal.Instant;
+  }) => Effect.Effect<
+    ReservationAccessGrant | null,
+    ReservationAccessStorageError
+  >;
   readonly loadIssuedCode: (input: {
     readonly id: ReservationAccessGrantId;
     readonly reservationId: WorkspaceReservationId;
+    readonly scheduledAccessStartsAt: Temporal.Instant;
+    readonly accessStartsAt: Temporal.Instant;
+    readonly accessEndsAt: Temporal.Instant;
   }) => Effect.Effect<AlgoPin, ReservationAccessStorageError>;
   readonly reconcileUncertain: (input: {
     readonly reservationId: WorkspaceReservationId;
@@ -106,6 +191,7 @@ export class ReservationAccessRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db } = yield* WorkspaceDatabase;
+      const crypto = yield* Crypto.Crypto;
 
       const findByReservationId = Effect.fn(
         "ReservationAccessRepository.findByReservationId"
@@ -130,13 +216,73 @@ export class ReservationAccessRepository extends Context.Service<
         return row ?? null;
       });
 
+      const listForReservations = Effect.fn(
+        "ReservationAccessRepository.listForReservations"
+      )(function* (input: {
+        readonly workspaceReservationIds: readonly WorkspaceReservationId[];
+        readonly limit: number;
+      }) {
+        if (input.workspaceReservationIds.length === 0) return [];
+        const rows: readonly ReservationAccessGrantStatus[] = yield* db
+          .select({
+            workspaceReservationId:
+              reservationAccessGrants.workspaceReservationId,
+            state: reservationAccessGrants.state,
+            scheduledAccessStartsAt:
+              reservationAccessGrants.scheduledAccessStartsAt,
+            accessStartsAt: reservationAccessGrants.accessStartsAt,
+            accessEndsAt: reservationAccessGrants.accessEndsAt,
+            issuedAt: reservationAccessGrants.issuedAt,
+          })
+          .from(reservationAccessGrants)
+          .where(
+            equalsAny(
+              reservationAccessGrants.workspaceReservationId,
+              input.workspaceReservationIds
+            )
+          )
+          .orderBy(
+            asc(reservationAccessGrants.createdAt),
+            asc(reservationAccessGrants.id)
+          )
+          .limit(readLimitSentinel(input.limit))
+          .pipe(
+            Effect.mapError(
+              () =>
+                new ReservationAccessStorageError({
+                  operation: "load",
+                  message: "Reservation access grants could not be loaded.",
+                })
+            )
+          );
+        return yield* requireWithinReadLimit(rows, input.limit);
+      });
+
       return ReservationAccessRepository.of({
         findByReservationId,
+        listForReservations,
         ensure: Effect.fn("ReservationAccessRepository.ensure")(
           function* (input) {
+            const id = yield* crypto.randomUUIDv7.pipe(
+              Effect.map(reservationAccessGrantIdSchema.make),
+              Effect.mapError(
+                () =>
+                  new ReservationAccessStorageError({
+                    operation: "ensure",
+                    reservationId: input.reservationId,
+                    message:
+                      "Reservation access grant ID could not be generated.",
+                  })
+              )
+            );
             yield* db
               .insert(reservationAccessGrants)
               .values({
+                id,
+                // A new grant carries the name its first request will use. A
+                // grant created by a deployment that predates stored names
+                // has none, and a reset keeps the name of the latest request.
+                accessName: makeReservationAccessName(id),
                 workspaceReservationId: input.reservationId,
                 deviceId: input.deviceId,
                 state: "pending",
@@ -159,25 +305,18 @@ export class ReservationAccessRepository extends Context.Service<
                   failedAt: null,
                   failureCode: null,
                 },
-                // Reset an issued grant only for a moved schedule. A request
-                // that raced a concurrent issuance for the same target must
-                // reuse the stored PIN rather than wipe it and provision a
-                // second credential.
+                // Reset an issued grant only for the moved schedule the
+                // caller read. A request that raced a concurrent issuance or
+                // reschedule must reuse the stored PIN rather than wipe it
+                // and provision a second credential.
                 setWhere: or(
                   inArray(reservationAccessGrants.state, ["pending", "failed"]),
-                  and(
-                    eq(reservationAccessGrants.state, "issued"),
-                    or(
-                      ne(
-                        reservationAccessGrants.scheduledAccessStartsAt,
-                        input.scheduledAccessStartsAt
-                      ),
-                      ne(
-                        reservationAccessGrants.accessEndsAt,
-                        input.accessEndsAt
+                  input.replacingIssued
+                    ? and(
+                        eq(reservationAccessGrants.state, "issued"),
+                        hasBounds(input.replacingIssued)
                       )
-                    )
-                  )
+                    : undefined
                 ),
               })
               .pipe(
@@ -226,15 +365,27 @@ export class ReservationAccessRepository extends Context.Service<
               .update(reservationAccessGrants)
               .set({
                 state: "provisioning",
+                accessName: input.accessName,
                 provisioningStartedAt: input.startedAt,
                 failedAt: null,
                 failureCode: null,
                 updatedAt: input.startedAt,
               })
+              // Claim only the exact reservation bounds this request read.
+              // A concurrent request may have changed the grant's target.
               .where(
                 and(
                   eq(reservationAccessGrants.id, input.id),
-                  inArray(reservationAccessGrants.state, ["pending", "failed"])
+                  inArray(reservationAccessGrants.state, ["pending", "failed"]),
+                  eq(
+                    reservationAccessGrants.scheduledAccessStartsAt,
+                    input.scheduledAccessStartsAt
+                  ),
+                  eq(
+                    reservationAccessGrants.accessStartsAt,
+                    input.accessStartsAt
+                  ),
+                  eq(reservationAccessGrants.accessEndsAt, input.accessEndsAt)
                 )
               )
               .returning({ id: reservationAccessGrants.id })
@@ -258,7 +409,7 @@ export class ReservationAccessRepository extends Context.Service<
               .set({
                 state: "issued",
                 providerCredentialId: input.pinId,
-                accessCode: sensitiveDatabaseParameter(input.accessCode),
+                accessCode: input.accessCode,
                 issuedAt: input.issuedAt,
                 failedAt: null,
                 failureCode: null,
@@ -359,6 +510,39 @@ export class ReservationAccessRepository extends Context.Service<
               );
           }
         ),
+        rescheduleIssued: Effect.fn(
+          "ReservationAccessRepository.rescheduleIssued"
+        )(function* (input) {
+          const [grant] = yield* db
+            .update(reservationAccessGrants)
+            .set({
+              scheduledAccessStartsAt: input.to.scheduledAccessStartsAt,
+              accessStartsAt: input.to.accessStartsAt,
+              accessEndsAt: input.to.accessEndsAt,
+              updatedAt: input.rescheduledAt,
+            })
+            .where(
+              and(
+                eq(reservationAccessGrants.id, input.id),
+                eq(reservationAccessGrants.state, "issued"),
+                // A concurrent request recording the same span succeeds too.
+                or(hasBounds(input.from), hasBounds(input.to))
+              )
+            )
+            .returning(reservationAccessGrantSelection)
+            .pipe(
+              Effect.mapError(
+                () =>
+                  new ReservationAccessStorageError({
+                    operation: "reschedule_issued",
+                    reservationId: input.reservationId,
+                    message:
+                      "Rescheduled reservation access could not be recorded.",
+                  })
+              )
+            );
+          return grant ?? null;
+        }),
         reconcileUncertain: Effect.fn(
           "ReservationAccessRepository.reconcileUncertain"
         )(function* (input) {
@@ -419,10 +603,21 @@ export class ReservationAccessRepository extends Context.Service<
                 pin: reservationAccessGrants.accessCode,
               })
               .from(reservationAccessGrants)
+              // Never disclose a PIN for other exact reservation bounds
+              // than the request read and will show.
               .where(
                 and(
                   eq(reservationAccessGrants.id, input.id),
-                  eq(reservationAccessGrants.state, "issued")
+                  eq(reservationAccessGrants.state, "issued"),
+                  eq(
+                    reservationAccessGrants.scheduledAccessStartsAt,
+                    input.scheduledAccessStartsAt
+                  ),
+                  eq(
+                    reservationAccessGrants.accessStartsAt,
+                    input.accessStartsAt
+                  ),
+                  eq(reservationAccessGrants.accessEndsAt, input.accessEndsAt)
                 )
               )
               .limit(1)
@@ -463,5 +658,7 @@ export class ReservationAccessRepository extends Context.Service<
     })
   );
 
-  static Live = this.Default.pipe(Layer.provide(WorkspaceDatabase.Default));
+  static Live = this.Default.pipe(
+    Layer.provide(Layer.mergeAll(WorkspaceDatabase.Default, NodeCrypto.layer))
+  );
 }

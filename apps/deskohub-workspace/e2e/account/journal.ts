@@ -1,16 +1,21 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { writeReservationJournal } from "../reservation-journal";
 import { workspaceDir } from "../runtime";
 
-// Referral-lane owners are checkout case IDs, so these journals keep their own
-// directory: sharing the checkout case journals' `<case id>.json` names let
-// each kind overwrite the other.
-const journalRoot = resolve(
-  workspaceDir,
-  "e2e-artifacts",
-  "checkout",
-  "account-journals"
-);
+/**
+ * The account identity journal directory of one Playwright suite's artifact
+ * root. Referral-lane owners are checkout case IDs, so these journals keep
+ * their own directory: sharing the checkout case journals' `<case id>.json`
+ * names let each kind overwrite the other. Suites that run concurrently keep
+ * separate roots, because Playwright clears each config's output directory.
+ */
+export const workspaceE2EAccountJournalDirectory = (
+  suite: "accessibility" | "checkout" | "instant-navigation"
+) => resolve(workspaceDir, "e2e-artifacts", suite, "account-journals");
+
+const checkoutJournalDirectory =
+  workspaceE2EAccountJournalDirectory("checkout");
 const formatVersion = 1;
 export const workspaceE2EAccountLaneId = "account-lane";
 
@@ -22,11 +27,14 @@ export type WorkspaceE2EAccountJournalOwnerId = string;
 
 const ownerIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-const journalPath = (ownerId: WorkspaceE2EAccountJournalOwnerId) => {
+const journalPath = (
+  ownerId: WorkspaceE2EAccountJournalOwnerId,
+  directory: string
+) => {
   if (!ownerIdPattern.test(ownerId)) {
     throw new Error("Invalid workspace E2E account journal owner");
   }
-  return resolve(journalRoot, `${ownerId}.json`);
+  return resolve(directory, `${ownerId}.json`);
 };
 
 /**
@@ -45,6 +53,13 @@ export type WorkspaceE2EAccountJournal = {
   /** Exact synthetic Dotypos reservations; finalizers cancel and converge. */
   readonly dotyposReservationIds: readonly string[];
   readonly laneId: WorkspaceE2EAccountJournalOwnerId;
+  /**
+   * Exact issued invoices, journaled by owners that issue one. The database
+   * refuses every change or deletion of an issued invoice, so their cleanup
+   * disposition is retention: each names a journaled synthetic profile,
+   * which cleanup expires, and the invoice itself stays.
+   */
+  readonly retainedInvoiceIds?: readonly string[];
   readonly startedAt: string;
   readonly version: typeof formatVersion;
 };
@@ -62,21 +77,19 @@ export const emptyWorkspaceE2EAccountJournal = (
 });
 
 export const writeWorkspaceE2EAccountJournal = async (
-  journal: WorkspaceE2EAccountJournal
+  journal: WorkspaceE2EAccountJournal,
+  directory: string = checkoutJournalDirectory
 ) => {
-  await mkdir(journalRoot, { recursive: true });
-  const path = journalPath(journal.laneId);
-  const temporaryPath = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(journal, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  await rename(temporaryPath, path);
+  const path = journalPath(journal.laneId, directory);
+  await writeReservationJournal(path, journal);
 };
 
 type WorkspaceE2EAccountJournalIds = Pick<
   WorkspaceE2EAccountJournal,
-  "authUserIds" | "dotyposCustomerIds" | "dotyposReservationIds"
+  | "authUserIds"
+  | "dotyposCustomerIds"
+  | "dotyposReservationIds"
+  | "retainedInvoiceIds"
 >;
 
 /**
@@ -85,7 +98,8 @@ type WorkspaceE2EAccountJournalIds = Pick<
  * for suite cleanup.
  */
 export const makeWorkspaceE2EAccountJournalRecorder = (
-  ownerId: WorkspaceE2EAccountJournalOwnerId
+  ownerId: WorkspaceE2EAccountJournalOwnerId,
+  directory: string = checkoutJournalDirectory
 ) => {
   let journal = emptyWorkspaceE2EAccountJournal(ownerId);
   const merge = (
@@ -108,18 +122,25 @@ export const makeWorkspaceE2EAccountJournalRecorder = (
           journal.dotyposReservationIds,
           update.dotyposReservationIds
         ),
+        ...((journal.retainedInvoiceIds ?? update.retainedInvoiceIds) && {
+          retainedInvoiceIds: merge(
+            journal.retainedInvoiceIds ?? [],
+            update.retainedInvoiceIds
+          ),
+        }),
       };
-      await writeWorkspaceE2EAccountJournal(journal);
+      await writeWorkspaceE2EAccountJournal(journal, directory);
     },
   };
 };
 
 export const readWorkspaceE2EAccountJournal = async (
-  ownerId: WorkspaceE2EAccountJournalOwnerId = workspaceE2EAccountLaneId
+  ownerId: WorkspaceE2EAccountJournalOwnerId = workspaceE2EAccountLaneId,
+  directory: string = checkoutJournalDirectory
 ): Promise<WorkspaceE2EAccountJournal | undefined> => {
   try {
     return parseWorkspaceE2EAccountJournal(
-      await readFile(journalPath(ownerId), "utf8"),
+      await readFile(journalPath(ownerId, directory), "utf8"),
       ownerId
     );
   } catch (cause) {
@@ -143,7 +164,9 @@ export const parseWorkspaceE2EAccountJournal = (
     typeof value.completed !== "boolean" ||
     !isStringArray(value.authUserIds) ||
     !isStringArray(value.dotyposCustomerIds) ||
-    !isStringArray(value.dotyposReservationIds)
+    !isStringArray(value.dotyposReservationIds) ||
+    (value.retainedInvoiceIds !== undefined &&
+      !isStringArray(value.retainedInvoiceIds))
   ) {
     throw new Error("Invalid workspace E2E account journal");
   }
@@ -153,6 +176,9 @@ export const parseWorkspaceE2EAccountJournal = (
     dotyposCustomerIds: value.dotyposCustomerIds,
     dotyposReservationIds: value.dotyposReservationIds,
     laneId: value.laneId,
+    ...(value.retainedInvoiceIds !== undefined && {
+      retainedInvoiceIds: value.retainedInvoiceIds,
+    }),
     startedAt: value.startedAt,
     version: value.version,
   } satisfies WorkspaceE2EAccountJournal;

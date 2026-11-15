@@ -32,6 +32,8 @@ The summary page's code form is an independent action (`features/checkout/action
 1. Affirm every displayed discount. A change returns `pricing_changed`.
 2. An invalid or unavailable code returns a field error and leaves the current summary payable.
 3. A valid code returns a new signed summary. It creates no payment attempt, persists no application, and reserves no capacity.
+4. Ordinary and referral codes are priced between two live payable-reservation guards. An active payment attempt at either guard returns `payment_in_progress` and signs no repriced summary.
+5. A referral verdict (inactive, unknown, self-referral and the like) is a code failure. A referral store or Dotypos outage reaches no verdict and is a provider failure the customer can retry, never an unavailable code.
 
 Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. Every reservation family quotes and affirms through its own canonical product identity; dispatch family-owned quote, summary, persistence, and checkout-details projections exhaustively, with no implicit cowork default.
 
@@ -71,7 +73,7 @@ Meeting-room advertised-price details carry `lastServiceDate` rather than clock 
 
 ## Calendar time budgets
 
-Each Calendar request attempt times out after 5 seconds in production and 15 seconds elsewhere (`getGoogleCalendarRequestTimeout`, built on `getDeploymentRequestTimeout`). `listEvents` retries a transient failure once and bounds the whole load, all pages included, by `getGoogleCalendarRequestWorstCaseDuration`.
+Each Calendar request attempt times out after 5 seconds in production and 15 seconds elsewhere (`getGoogleCalendarRequestTimeout`, selected with `byStage` from `shared/deployment/deployment-stage.ts`). `listEvents` retries a transient failure once and bounds the whole load, all pages included, by `getGoogleCalendarRequestWorstCaseDuration`.
 
 An action that awaits Calendar in sequence with other work adds one worst-case load per sequential Calendar load to its deadline:
 
@@ -94,3 +96,11 @@ When you change a deadline, make the action select it through its getter and mak
 ## Currency
 
 Keep the catalog currency through advertisement, signed summary, affirmation, and local payment attempts. Apply the non-production Nexi sandbox currency override only at Nexi call sites: HPP creation and verification arguments. It never changes customer-visible quotes or persisted payment facts and is unavailable in production.
+
+## Money
+
+Every Workspace amount is a `Money` from `apps/deskohub-workspace/shared/money/money.ts`: a scaled integer `value`, its decimal `exponent`, and an ISO `currency`. Build, combine, convert, and display amounts through that module instead of restating its rules:
+
+- Check that amounts share a currency and exponent with `sameMoneyUnit`, and total them with `sumMoney`, which fails with `MoneyUnitMismatch`. Keep a separate currency or exponent check only where the caller reports which one differs.
+- Convert exactly with `moneyToBigDecimal` and `moneyFromBigDecimal`, which fails with `MoneyPrecisionError` rather than rounding. Write plain decimal text with every minor digit, such as `125.50`, with `moneyToDecimalString`. Use `moneyMajorAmount` only where a JavaScript number is required, such as `Intl` or an external contract.
+- Display amounts with `formatMoney(money, locale)` in customer pages, emails, and the administration alike.

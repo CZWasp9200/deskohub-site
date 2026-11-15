@@ -1,5 +1,6 @@
 "use client";
 
+import { stripLocaleFromPathname } from "@deskohub/i18n/pathname";
 import {
   BadgePercent,
   CalendarRange,
@@ -11,6 +12,7 @@ import {
   ListFilter,
   Mail,
   Menu,
+  ShieldCheck,
   SquareTerminal,
   Ticket,
   Users,
@@ -21,7 +23,10 @@ import {
   type ReactNode,
   Suspense,
   type SVGProps,
+  useId,
 } from "react";
+import { type Locale, locales } from "@/features/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import { SkipLink } from "@/shared/components/skip-link";
 import { Button } from "@/shared/components/ui/button";
 import { NavItem } from "@/shared/components/ui/nav-item";
@@ -34,50 +39,78 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/shared/components/ui/sheet";
+import { cn } from "@/shared/utils";
 import { AdministrationLink as Link } from "./admin-link";
-import { useCredentialFreeDocumentUrl } from "./credential-free-url";
+import {
+  type AdministrationLabel,
+  administrationAreas,
+  administrationOverview,
+  getAdministrationTrail,
+} from "./administration-areas";
+import type { AdministrationHref } from "./administration-href";
+import { m } from "./i18n";
 import { AdministrationBreadcrumbLoading } from "./loading";
 
 type NavigationEntry = {
-  readonly href: string;
   readonly icon: ComponentType<SVGProps<SVGSVGElement>>;
-  readonly label: string;
+  readonly page: {
+    readonly href: AdministrationHref;
+    readonly label: AdministrationLabel;
+  };
 };
 
+// An area's entry links to its collection under its breadcrumb label.
 const navigation = [
   {
-    label: "Operations",
+    label: m.shellNavigationSectionOperations,
     items: [
-      { href: "/admin", icon: CircleGauge, label: "Overview" },
-      {
-        href: "/admin/reservations",
-        icon: CalendarRange,
-        label: "Reservations",
-      },
-      { href: "/admin/customers", icon: Users, label: "Customers" },
-      { href: "/admin/invoices", icon: FileText, label: "Invoices" },
-      { href: "/admin/codes", icon: Ticket, label: "Codes" },
-      { href: "/admin/access-codes", icon: KeyRound, label: "Access codes" },
-      { href: "/admin/vouchers", icon: Gift, label: "Vouchers" },
-      { href: "/admin/sales", icon: BadgePercent, label: "Sales" },
-      {
-        href: "/admin/cli/sessions",
-        icon: SquareTerminal,
-        label: "CLI sessions",
-      },
+      { icon: CircleGauge, page: administrationOverview },
+      { icon: CalendarRange, page: administrationAreas.reservations },
+      { icon: Users, page: administrationAreas.customers },
     ],
   },
   {
-    label: "Email",
+    label: m.shellNavigationSectionDiscounts,
     items: [
-      { href: "/admin/email-campaigns", icon: Mail, label: "Campaigns" },
-      { href: "/admin/email-audiences", icon: ListFilter, label: "Audiences" },
+      { icon: Ticket, page: administrationAreas.codes },
+      { icon: Gift, page: administrationAreas.vouchers },
+      { icon: BadgePercent, page: administrationAreas.sales },
     ],
   },
-] as const;
+  {
+    label: m.shellNavigationSectionEmail,
+    items: [
+      { icon: Mail, page: administrationAreas["email-campaigns"] },
+      { icon: ListFilter, page: administrationAreas["email-audiences"] },
+    ],
+  },
+  {
+    label: m.shellNavigationSectionAdministration,
+    items: [
+      { icon: FileText, page: administrationAreas.invoices },
+      { icon: KeyRound, page: administrationAreas["access-codes"] },
+      { icon: ShieldCheck, page: administrationAreas.administrators },
+      {
+        icon: SquareTerminal,
+        page: {
+          href: administrationAreas.cli.pages.sessions.href,
+          label: m.shellNavigationCliSessions,
+        },
+      },
+    ],
+  },
+] as const satisfies readonly {
+  readonly label: AdministrationLabel;
+  readonly items: readonly NavigationEntry[];
+}[];
 
-const isActive = (pathname: string, href: string) =>
-  href === "/admin" ? pathname === href : pathname.startsWith(href);
+// Navigation hrefs are unprefixed; the current pathname carries the locale.
+const isActive = (pathname: string, href: AdministrationHref) => {
+  const unprefixedPathname = stripLocaleFromPathname(pathname, locales);
+  return href === administrationOverview.href
+    ? unprefixedPathname === href
+    : unprefixedPathname.startsWith(href);
+};
 
 function ActiveNavigation({ mobile = false }: { readonly mobile?: boolean }) {
   const pathname = usePathname();
@@ -91,19 +124,30 @@ function Navigation({
   readonly mobile?: boolean;
   readonly pathname?: string;
 }) {
+  const locale = useRouteLocale();
+  // The desktop and mobile navigation render together, so headings need ids
+  // unique to each instance.
+  const id = useId();
   return (
-    <nav aria-label="Administration" className="space-y-7">
-      {navigation.map((section) => (
-        <div key={section.label}>
-          <p className="mb-2 px-3 text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-navy-blue/65">
-            {section.label}
+    <nav
+      aria-label={m.shellNavigationLabel({}, { locale })}
+      className="space-y-7"
+    >
+      {navigation.map((section, index) => (
+        <div key={section.items[0].page.href}>
+          <p
+            className="mb-2 px-3 text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-navy-blue/65"
+            id={`${id}-${index}`}
+          >
+            {section.label({}, { locale })}
           </p>
-          <ul className="space-y-1">
+          <ul aria-labelledby={`${id}-${index}`} className="space-y-1">
             {section.items.map((item) => {
               return (
-                <li key={item.href}>
+                <li key={item.page.href}>
                   <NavigationLink
                     item={item}
+                    locale={locale}
                     mobile={mobile}
                     pathname={pathname}
                   />
@@ -119,87 +163,67 @@ function Navigation({
 
 function NavigationLink({
   item,
+  locale,
   mobile,
   pathname,
 }: {
   readonly item: NavigationEntry;
+  readonly locale: Locale;
   readonly mobile: boolean;
   readonly pathname?: string;
 }) {
-  const active = pathname ? isActive(pathname, item.href) : false;
+  const active = pathname ? isActive(pathname, item.page.href) : false;
   const Icon = item.icon;
   const link = (
     <NavItem active={active} asChild>
-      <Link href={item.href}>
+      <Link href={item.page.href}>
         <Icon aria-hidden />
-        {item.label}
+        {item.page.label({}, { locale })}
       </Link>
     </NavItem>
   );
   return mobile ? <SheetClose asChild>{link}</SheetClose> : link;
 }
 
-const breadcrumbNames = new Map([
-  ["admin", "Overview"],
-  ["access-codes", "Access codes"],
-  ["bookings", "Bookings"],
-  ["cli", "CLI"],
-  ["codes", "Codes"],
-  ["customers", "Customers"],
-  ["create-code", "Create discount code"],
-  ["create-voucher", "Create voucher"],
-  ["discounts", "Discounts"],
-  ["email-audiences", "Audiences"],
-  ["email-campaigns", "Campaigns"],
-  ["recipients", "Recipients"],
-  ["invoices", "Invoices"],
-  ["new", "New invoice"],
-  ["authenticate", "Authenticate"],
-  ["operations", "Operations"],
-  ["orders", "Orders"],
-  ["reservations", "Reservations"],
-  ["sales", "Sales"],
-  ["vouchers", "Vouchers"],
-  ["sessions", "Sessions"],
-]);
-
 export function AdministrationBreadcrumbs({
-  entityLabel,
-  segmentLabels,
-  segments,
+  recordLabel,
+  segments = [],
 }: {
-  readonly entityLabel?: string;
-  readonly segmentLabels?: Readonly<Record<string, string>>;
-  readonly segments: readonly string[];
+  readonly recordLabel?: string;
+  /** The path under `/admin`; none for the overview. */
+  readonly segments?: readonly string[];
 }) {
-  const crumbs = segments.map((segment, index) => ({
-    href: `/${segments.slice(0, index + 1).join("/")}`,
-    label:
-      segmentLabels?.[segment] ||
-      (index === segments.length - 1 && entityLabel) ||
-      breadcrumbNames.get(segment) ||
-      ({
-        codes: "Code",
-        bookings: "Booking",
-        customers: "Customer",
-        "email-audiences": "Audience",
-        "email-campaigns": "Campaign",
-        invoices: "Invoice",
-        operations: "Operation",
-        orders: "Order",
-        reservations: "Reservation",
-        vouchers: "Voucher",
-      }[segments[index - 1] ?? ""] ??
-        segment),
-  }));
+  const locale = useRouteLocale();
+  const crumbs = getAdministrationTrail(segments, locale, recordLabel);
   return (
-    <nav aria-label="Breadcrumb" className="min-w-0">
-      <ol className="flex min-w-0 items-center gap-1.5 text-sm text-navy-blue/65">
+    <nav
+      aria-label={m.shellBreadcrumbLabel({}, { locale })}
+      className="min-w-0"
+    >
+      {/* Below lg the trail has its own row, so it wraps instead of
+          truncating every label; a phone drops the Overview root, which the
+          brand already links to. */}
+      <ol className="flex min-w-0 items-center gap-1.5 text-sm text-navy-blue/65 max-lg:flex-wrap max-lg:gap-y-1">
         {crumbs.map((crumb, index) => {
           const last = index === crumbs.length - 1;
+          const phoneRoot = index === 0 && !last;
           return (
-            <li className="flex min-w-0 items-center gap-1.5" key={crumb.href}>
-              {index > 0 && <ChevronRight aria-hidden className="size-3.5" />}
+            <li
+              className={cn(
+                "flex min-w-0 items-center gap-1.5 max-lg:max-w-full",
+                phoneRoot && "max-sm:hidden"
+              )}
+              key={crumb.href}
+            >
+              {index > 0 && (
+                <ChevronRight
+                  aria-hidden
+                  className={cn(
+                    "size-3.5 max-lg:shrink-0",
+                    index === 1 && "max-sm:hidden"
+                  )}
+                />
+              )}
               {last ? (
                 <span className="truncate font-semibold text-navy-blue">
                   {crumb.label}
@@ -220,18 +244,27 @@ export function AdministrationBreadcrumbs({
   );
 }
 
-function Brand() {
+function Brand({
+  labelClassName,
+  locale,
+}: {
+  readonly labelClassName?: string;
+  readonly locale: Locale;
+}) {
   return (
-    <Link className="flex items-center gap-3" href="/admin">
-      <span className="grid size-9 place-items-center rounded-lg bg-burned-orange text-sm font-semibold text-white">
+    <Link
+      className="flex min-w-0 items-center gap-3"
+      href={administrationOverview.href}
+    >
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-burned-orange text-sm font-semibold text-white">
         D
       </span>
-      <span>
-        <span className="block text-sm font-semibold leading-none">
+      <span className={cn("min-w-0", labelClassName)}>
+        <span className="block truncate text-sm font-semibold leading-none">
           Deskohub
         </span>
-        <span className="mt-1 block text-xs text-navy-blue/65">
-          Workspace admin
+        <span className="mt-1 block overflow-hidden text-ellipsis text-xs text-navy-blue/65">
+          {m.shellBrandSubtitle({}, { locale })}
         </span>
       </span>
     </Link>
@@ -241,18 +274,20 @@ function Brand() {
 export function AdminShell({
   breadcrumb,
   children,
+  localeSwitcher,
 }: {
   readonly breadcrumb: ReactNode;
   readonly children: ReactNode;
+  readonly localeSwitcher: ReactNode;
 }) {
-  useCredentialFreeDocumentUrl();
+  const locale = useRouteLocale();
 
   return (
     <div className="min-h-screen bg-[#f6f6f3] text-navy-blue lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
-      <SkipLink label="Skip to main content" />
+      <SkipLink label={m.shellSkipToMainContent({}, { locale })} />
       <aside className="hidden border-r border-navy-blue/10 bg-white lg:block">
         <div className="sticky top-0 max-h-screen overflow-y-auto px-4 py-5">
-          <Brand />
+          <Brand locale={locale} />
           <div className="mt-9">
             <Suspense fallback={<Navigation />}>
               <ActiveNavigation />
@@ -267,22 +302,28 @@ export function AdminShell({
             <Sheet>
               <SheetTrigger asChild>
                 <Button
-                  aria-label="Open navigation"
-                  className="lg:hidden"
+                  aria-label={m.shellOpenNavigation({}, { locale })}
+                  className="shrink-0 lg:hidden"
                   size="icon"
                   variant="ghost"
                 >
                   <Menu aria-hidden className="size-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent className="px-4 py-5" side="left">
+              <SheetContent
+                className="overflow-y-auto px-4 py-5"
+                locale={locale}
+                side="left"
+              >
                 <SheetHeader className="sr-only">
-                  <SheetTitle>Administration navigation</SheetTitle>
+                  <SheetTitle>
+                    {m.shellMobileNavigationTitle({}, { locale })}
+                  </SheetTitle>
                   <SheetDescription>
-                    Choose an administration page.
+                    {m.shellMobileNavigationDescription({}, { locale })}
                   </SheetDescription>
                 </SheetHeader>
-                <Brand />
+                <Brand locale={locale} />
                 <div className="mt-9">
                   <Suspense fallback={<Navigation mobile />}>
                     <ActiveNavigation mobile />
@@ -290,14 +331,15 @@ export function AdminShell({
                 </div>
               </SheetContent>
             </Sheet>
-            <div className="lg:hidden">
-              <Brand />
+            <div className="min-w-0 lg:hidden">
+              <Brand labelClassName="max-[379px]:sr-only" locale={locale} />
             </div>
             <div className="hidden min-w-0 lg:block">
               <Suspense fallback={<AdministrationBreadcrumbLoading />}>
                 {breadcrumb}
               </Suspense>
             </div>
+            <div className="ml-auto shrink-0">{localeSwitcher}</div>
           </div>
         </header>
         <div className="border-b border-navy-blue/10 bg-white px-4 py-3 lg:hidden">

@@ -17,33 +17,33 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CampaignRow,
   emailCampaignConfirmationCodes,
-  emailCampaignRecipients,
-  emailCampaignSends,
   emailCampaigns,
 } from "@/db/schema";
 import "@/shared/polyfills/temporal";
-import type { DotyposCustomerId } from "@deskohub/dotypos";
-import type { Locale } from "@/features/i18n";
 import { currentInstant } from "@/shared/utils/temporal";
-import type { AudienceFilter } from "../audience-filter";
 import {
   type CampaignContentHash,
   hashCampaignContent,
 } from "../body/campaign-content-hash";
 import {
-  type CampaignAudienceId,
   type CampaignConfirmationCode,
   type CampaignId,
   type CampaignSendId,
   campaignConfirmationCodeSchema,
 } from "../campaign-identifiers";
+import { isOnceCampaign } from "../campaign-states";
 import {
   CampaignConfirmationRejected,
   type CampaignConfirmationRejection,
+  CampaignDeliveryMismatch,
   CampaignNotFound,
   CampaignReadOnly,
 } from "../errors";
 import { loadCampaignSigningKeys } from "./campaign-signing-keys";
+import {
+  type CampaignSendFreeze,
+  OnceCampaignLifecycle,
+} from "./once-campaign-lifecycle";
 
 const campaignConfirmationCodeLifetime = Temporal.Duration.from({
   hours: 24,
@@ -74,16 +74,6 @@ type IssuedCampaignConfirmationCode = {
   readonly expiresAt: Temporal.Instant;
 };
 
-/** The recipients and audience snapshot a confirmed send freezes. */
-export type CampaignSendFreeze = {
-  readonly audienceId: CampaignAudienceId | null;
-  readonly audienceFilter: AudienceFilter;
-  readonly recipients: readonly {
-    readonly dotyposCustomerId: DotyposCustomerId;
-    readonly locale: Locale;
-  }[];
-};
-
 type ConfirmedCampaignSend = {
   readonly campaign: CampaignRow;
   readonly sendId: CampaignSendId;
@@ -92,6 +82,7 @@ type ConfirmedCampaignSend = {
 type CampaignDraftError =
   | CampaignNotFound
   | CampaignReadOnly
+  | CampaignDeliveryMismatch
   | EffectDrizzleQueryError
   | SqlError.SqlError;
 
@@ -183,11 +174,9 @@ export class CampaignConfirmationCodeService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const { db } = yield* WorkspaceDatabase;
+      const { db, transaction } = yield* WorkspaceDatabase;
       const crypto = yield* Crypto.Crypto;
       const codeHashKey = yield* loadCodeHashKey;
-
-      type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
       const hashCode = (campaignId: CampaignId, code: string) =>
         createHmac("sha256", codeHashKey)
@@ -208,18 +197,24 @@ export class CampaignConfirmationCodeService extends Context.Service<
         );
 
       /**
-       * Locks the Draft's row for the rest of the transaction. Content edits
+       * Locks a one-off Draft's row for the rest of the transaction. Content edits
        * update the same row, so they wait for the lock and then see the
        * campaign's new status.
        */
       const lockDraft = Effect.fn("CampaignConfirmationCodeService.lockDraft")(
-        function* (tx: Transaction, campaignId: CampaignId) {
-          const [campaign] = yield* tx
+        function* (campaignId: CampaignId) {
+          const [campaign] = yield* db
             .select()
             .from(emailCampaigns)
             .where(eq(emailCampaigns.id, campaignId))
             .for("update");
           if (!campaign) return yield* new CampaignNotFound({ campaignId });
+          if (!isOnceCampaign(campaign)) {
+            return yield* new CampaignDeliveryMismatch({
+              campaignId,
+              delivery: campaign.delivery,
+            });
+          }
           if (campaign.status !== "draft") {
             return yield* new CampaignReadOnly({
               campaignId,
@@ -230,8 +225,8 @@ export class CampaignConfirmationCodeService extends Context.Service<
         }
       );
 
-      const findCurrentCode = (tx: Transaction, campaignId: CampaignId) =>
-        tx
+      const findCurrentCode = (campaignId: CampaignId) =>
+        db
           .select()
           .from(emailCampaignConfirmationCodes)
           .where(
@@ -243,11 +238,11 @@ export class CampaignConfirmationCodeService extends Context.Service<
           .pipe(Effect.map(([current]) => current));
 
       /** Explains a typed code that isn't the current one. */
-      const explainStaleCode = (
-        tx: Transaction,
-        input: { readonly campaignId: CampaignId; readonly codeHash: string }
-      ) =>
-        tx
+      const explainStaleCode = (input: {
+        readonly campaignId: CampaignId;
+        readonly codeHash: string;
+      }) =>
+        db
           .select()
           .from(emailCampaignConfirmationCodes)
           .where(
@@ -258,19 +253,16 @@ export class CampaignConfirmationCodeService extends Context.Service<
           )
           .pipe(Effect.map(([row]) => staleCodeRejection(row)));
 
-      const replaceCurrentCode = (
-        tx: Transaction,
-        code: {
-          readonly campaignId: CampaignId;
-          readonly codeHash: string;
-          readonly contentHash: CampaignContentHash;
-          readonly issuedAt: Temporal.Instant;
-          readonly expiresAt: Temporal.Instant;
-        }
-      ) =>
-        lockDraft(tx, code.campaignId).pipe(
+      const replaceCurrentCode = (code: {
+        readonly campaignId: CampaignId;
+        readonly codeHash: string;
+        readonly contentHash: CampaignContentHash;
+        readonly issuedAt: Temporal.Instant;
+        readonly expiresAt: Temporal.Instant;
+      }) =>
+        lockDraft(code.campaignId).pipe(
           Effect.andThen(
-            tx
+            db
               .update(emailCampaignConfirmationCodes)
               .set({ supersededAt: code.issuedAt })
               .where(
@@ -283,20 +275,16 @@ export class CampaignConfirmationCodeService extends Context.Service<
                 )
               )
           ),
-          Effect.andThen(tx.insert(emailCampaignConfirmationCodes).values(code))
+          Effect.andThen(db.insert(emailCampaignConfirmationCodes).values(code))
         );
 
-      const consumeCode = (
-        tx: Transaction,
-        input: {
-          readonly campaign: CampaignRow;
-          readonly codeHash: string;
-          readonly contentHash: CampaignContentHash;
-          readonly now: Temporal.Instant;
-          readonly send: CampaignSendFreeze;
-        }
-      ) =>
-        tx
+      const consumeCode = (input: {
+        readonly campaign: CampaignRow;
+        readonly codeHash: string;
+        readonly contentHash: CampaignContentHash;
+        readonly now: Temporal.Instant;
+      }) =>
+        db
           .update(emailCampaignConfirmationCodes)
           .set({ confirmedAt: input.now })
           .where(
@@ -306,65 +294,24 @@ export class CampaignConfirmationCodeService extends Context.Service<
             )
           )
           .pipe(
-            Effect.andThen(
-              tx
-                .update(emailCampaigns)
-                .set({ status: "sending", updatedAt: input.now })
-                .where(eq(emailCampaigns.id, input.campaign.id))
-                .returning()
-            ),
-            Effect.map(([campaign]) => campaign!),
-            Effect.bindTo("campaign"),
-            Effect.bind("sendId", () => freezeSend(tx, input))
+            Effect.as({
+              _tag: "Confirm" as const,
+              contentHash: input.contentHash,
+              now: input.now,
+            })
           );
-
-      const freezeSend = Effect.fn(
-        "CampaignConfirmationCodeService.freezeSend"
-      )(function* (
-        tx: Transaction,
-        input: {
-          readonly campaign: CampaignRow;
-          readonly contentHash: CampaignContentHash;
-          readonly now: Temporal.Instant;
-          readonly send: CampaignSendFreeze;
-        }
-      ) {
-        const [send] = yield* tx
-          .insert(emailCampaignSends)
-          .values({
-            campaignId: input.campaign.id,
-            audienceId: input.send.audienceId,
-            audienceFilter: input.send.audienceFilter,
-            contentHash: input.contentHash,
-            createdAt: input.now,
-          })
-          .returning({ id: emailCampaignSends.id });
-        if (input.send.recipients.length > 0) {
-          yield* tx.insert(emailCampaignRecipients).values(
-            input.send.recipients.map((recipient) => ({
-              ...recipient,
-              sendId: send!.id,
-              statusUpdatedAt: input.now,
-            }))
-          );
-        }
-        return send!.id;
-      });
 
       /** Counts a failed attempt; the last allowed one supersedes the code. */
       const recordFailedAttempt = Effect.fn(
         "CampaignConfirmationCodeService.recordFailedAttempt"
-      )(function* (
-        tx: Transaction,
-        input: {
-          readonly current: CampaignConfirmationCodeRow;
-          readonly codeHash: string;
-          readonly now: Temporal.Instant;
-        }
-      ) {
+      )(function* (input: {
+        readonly current: CampaignConfirmationCodeRow;
+        readonly codeHash: string;
+        readonly now: Temporal.Instant;
+      }) {
         const failedAttempts = input.current.failedAttempts + 1;
         const exhausted = failedAttempts >= maxFailedConfirmationAttempts;
-        yield* tx
+        yield* db
           .update(emailCampaignConfirmationCodes)
           .set({
             failedAttempts,
@@ -383,7 +330,7 @@ export class CampaignConfirmationCodeService extends Context.Service<
             )
           );
         if (exhausted) return "too-many-attempts" as const;
-        return yield* explainStaleCode(tx, {
+        return yield* explainStaleCode({
           campaignId: input.current.campaignId,
           codeHash: input.codeHash,
         });
@@ -393,60 +340,53 @@ export class CampaignConfirmationCodeService extends Context.Service<
        * Runs in one transaction under the campaign lock, and returns a
        * rejection instead of failing so a counted attempt commits.
        */
-      const confirmLocked = (
-        tx: Transaction,
-        input: {
-          readonly campaignId: CampaignId;
-          readonly codeHash: string;
-          readonly send: CampaignSendFreeze;
-        }
-      ) =>
-        Effect.succeed(input).pipe(
-          Effect.bind("campaign", ({ campaignId }) =>
-            lockDraft(tx, campaignId)
-          ),
-          Effect.let("contentHash", ({ campaign }) =>
-            hashCampaignContent({
-              purpose: campaign.purpose,
-              templateKey: campaign.templateKey,
-              locales: campaign.content,
-            })
-          ),
-          Effect.bind("now", () => currentInstant),
-          Effect.bind("current", ({ campaignId }) =>
-            findCurrentCode(tx, campaignId)
-          ),
-          Effect.let("verdict", judgeConfirmation),
-          Effect.flatMap(({ verdict, ...confirmation }) =>
-            Match.value(verdict).pipe(
-              Match.tagsExhaustive({
-                Confirm: () =>
-                  consumeCode(tx, confirmation).pipe(
-                    Effect.map((confirmed) => ({
-                      _tag: "Confirmed" as const,
-                      ...confirmed,
-                    }))
-                  ),
-                Reject: ({ reason }) =>
-                  Effect.succeed({ _tag: "Rejected" as const, reason }),
-                FailAttempt: ({ current }) =>
-                  recordFailedAttempt(tx, { ...confirmation, current }).pipe(
-                    Effect.map((reason) => ({
-                      _tag: "Rejected" as const,
-                      reason,
-                    }))
-                  ),
-                NoCurrentCode: () =>
-                  explainStaleCode(tx, confirmation).pipe(
-                    Effect.map((reason) => ({
-                      _tag: "Rejected" as const,
-                      reason,
-                    }))
-                  ),
-              })
-            )
-          )
-        );
+      const confirmLocked = (input: {
+        readonly campaignId: CampaignId;
+        readonly codeHash: string;
+        readonly send: CampaignSendFreeze;
+      }) =>
+        OnceCampaignLifecycle.startSending({
+          campaignId: input.campaignId,
+          send: input.send,
+          check: (campaign) =>
+            Effect.succeed({ ...input, campaign }).pipe(
+              Effect.let("contentHash", ({ campaign }) =>
+                hashCampaignContent({
+                  purpose: campaign.purpose,
+                  templateKey: campaign.templateKey,
+                  locales: campaign.content,
+                })
+              ),
+              Effect.bind("now", () => currentInstant),
+              Effect.bind("current", ({ campaignId }) =>
+                findCurrentCode(campaignId)
+              ),
+              Effect.let("verdict", judgeConfirmation),
+              Effect.flatMap(({ verdict, ...confirmation }) =>
+                Match.value(verdict).pipe(
+                  Match.tagsExhaustive({
+                    Confirm: () => consumeCode(confirmation),
+                    Reject: ({ reason }) =>
+                      Effect.succeed({ _tag: "Rejected" as const, reason }),
+                    FailAttempt: ({ current }) =>
+                      recordFailedAttempt({ ...confirmation, current }).pipe(
+                        Effect.map((reason) => ({
+                          _tag: "Rejected" as const,
+                          reason,
+                        }))
+                      ),
+                    NoCurrentCode: () =>
+                      explainStaleCode(confirmation).pipe(
+                        Effect.map((reason) => ({
+                          _tag: "Rejected" as const,
+                          reason,
+                        }))
+                      ),
+                  })
+                )
+              )
+            ),
+        });
 
       return {
         issue: (input) =>
@@ -457,8 +397,8 @@ export class CampaignConfirmationCodeService extends Context.Service<
               issuedAt.add(campaignConfirmationCodeLifetime)
             ),
             Effect.tap(({ code, ...issued }) =>
-              db.transaction((tx) =>
-                replaceCurrentCode(tx, {
+              transaction(
+                replaceCurrentCode({
                   ...issued,
                   codeHash: hashCode(issued.campaignId, code),
                 })
@@ -468,30 +408,28 @@ export class CampaignConfirmationCodeService extends Context.Service<
             Effect.withSpan("CampaignConfirmationCodeService.issue")
           ),
         confirm: ({ campaignId, code, send }) =>
-          db
-            .transaction((tx) =>
-              confirmLocked(tx, {
+          transaction(
+            confirmLocked({
+              campaignId,
+              send,
+              codeHash: hashCode(
                 campaignId,
-                send,
-                codeHash: hashCode(
-                  campaignId,
-                  normalizeCampaignConfirmationCode(code)
-                ),
-              })
-            )
-            .pipe(
-              Effect.flatMap((outcome) =>
-                Match.valueTags(outcome, {
-                  Confirmed: ({ campaign, sendId }) =>
-                    Effect.succeed({ campaign, sendId }),
-                  Rejected: ({ reason }) =>
-                    Effect.fail(
-                      new CampaignConfirmationRejected({ campaignId, reason })
-                    ),
-                })
+                normalizeCampaignConfirmationCode(code)
               ),
-              Effect.withSpan("CampaignConfirmationCodeService.confirm")
+            })
+          ).pipe(
+            Effect.flatMap((outcome) =>
+              Match.valueTags(outcome, {
+                Confirmed: ({ campaign, sendId }) =>
+                  Effect.succeed({ campaign, sendId }),
+                Rejected: ({ reason }) =>
+                  Effect.fail(
+                    new CampaignConfirmationRejected({ campaignId, reason })
+                  ),
+              })
             ),
+            Effect.withSpan("CampaignConfirmationCodeService.confirm")
+          ),
       } satisfies ICampaignConfirmationCodeService;
     })
   );

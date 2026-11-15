@@ -1,3 +1,4 @@
+import { baseLocale } from "@deskohub/i18n/locale-registry";
 import type { PlaywrightTestConfig } from "@playwright/test";
 import { env } from "../env";
 import { resolvePlaywrightChromiumExecutable } from "../shared/testing/playwright-browser";
@@ -36,13 +37,18 @@ export const workspaceE2EPlaywrightDefaults = {
         command: "bun --cwd ../.. turbo dev --filter=deskohub-workspace",
         reuseExistingServer: true,
         timeout: workspaceE2ETimeouts.checkoutStart,
-        url: `${baseUrl}/en-US`,
+        url: `${baseUrl}/${baseLocale}`,
       },
 } satisfies PlaywrightTestConfig;
 
+// Traces are sanitized before any other reporter reads their paths.
 export const workspaceE2EPlaywrightReporter = (
   title: string
 ): PlaywrightTestConfig["reporter"] => [
+  [
+    "./e2e/playwright-trace-reporter.ts",
+    { origins: remoteBaseUrl ? [new URL(baseUrl).origin] : [] },
+  ],
   ["line"],
   [
     "./e2e/playwright-github-summary.ts",

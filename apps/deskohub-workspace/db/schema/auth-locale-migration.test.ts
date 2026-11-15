@@ -32,9 +32,18 @@ ALTER TABLE "customer_locale_preferences" ADD CONSTRAINT "customer_locale_prefer
 
 const testDatabaseUrl = process.env.WORKSPACE_TEST_DATABASE_URL;
 
-const insertLegacyAccounts = async (pool: Pool) => {
+const insertLegacyAccounts = async (
+  pool: Pool,
+  ensureCustomerAccounts = false
+) => {
   const ids = [crypto.randomUUID(), crypto.randomUUID()];
   for (const id of ids) {
+    if (ensureCustomerAccounts) {
+      await pool.query(
+        `insert into customer_accounts (id) values ($1) on conflict do nothing`,
+        [id]
+      );
+    }
     await pool.query(
       `insert into auth."user" (id, name, email, email_verified) values ($1, '', $2, true)`,
       [id, testEmailAddress(`legacy-${id}`)]
@@ -97,7 +106,7 @@ describe.skipIf(!testDatabaseUrl)(
     );
 
     test(
-      "accepts only en-US and cs-CZ as a locale preference",
+      "accepts only a supported locale as a locale preference",
       async () => {
         await withScratchDatabase(
           testDatabaseUrl!,
@@ -106,7 +115,7 @@ describe.skipIf(!testDatabaseUrl)(
             await migrate(drizzle({ client: pool }), {
               migrationsFolder: workspaceMigrationsFolder,
             });
-            const [account] = await insertLegacyAccounts(pool);
+            const [account] = await insertLegacyAccounts(pool, true);
 
             await pool.query(
               `update auth."user" set locale = 'cs-CZ' where id = $1`,
@@ -114,7 +123,7 @@ describe.skipIf(!testDatabaseUrl)(
             );
             await expect(
               pool.query(
-                `update auth."user" set locale = 'de-DE' where id = $1`,
+                `update auth."user" set locale = 'fr-FR' where id = $1`,
                 [account]
               )
             ).rejects.toMatchObject({ code: "23514" });

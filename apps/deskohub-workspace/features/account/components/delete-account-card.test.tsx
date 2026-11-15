@@ -33,13 +33,16 @@ const deleteCustomerAccount = mock(
   (): Promise<ActionResult> => Promise.resolve({ data: { status: "deleted" } })
 );
 const analyticsEvents: string[] = [];
-const beginAnalyticsAccountTransition = mock(() => {
+const accountExitLeft = mock(() => {
+  analyticsEvents.push("left");
+});
+const accountExitStayed = mock(() => {
+  analyticsEvents.push("stayed");
+});
+const beginAccountExit = mock(() => {
   analyticsEvents.push("begin");
+  return { left: accountExitLeft, stayed: accountExitStayed };
 });
-const completeAnalyticsAccountSignOut = mock(() => {
-  analyticsEvents.push("complete");
-});
-const refreshAnalyticsAccountIdentity = mock(() => Promise.resolve());
 mock.module("@/features/account/actions", () => ({
   acknowledgeSignupReferralNotice: mock(() =>
     Promise.resolve({ data: { status: "acknowledged" } })
@@ -47,10 +50,8 @@ mock.module("@/features/account/actions", () => ({
   deleteCustomerAccount,
 }));
 
-mock.module("@/features/account/analytics-identity", () => ({
-  beginAnalyticsAccountTransition,
-  completeAnalyticsAccountSignOut,
-  refreshAnalyticsAccountIdentity,
+mock.module("@/features/account/account-exit", () => ({
+  beginAccountExit,
 }));
 
 type AuthResponse = {
@@ -150,9 +151,9 @@ describe("DeleteAccountCard", () => {
   afterEach(() => {
     cleanup();
     analyticsEvents.length = 0;
-    beginAnalyticsAccountTransition.mockClear();
-    completeAnalyticsAccountSignOut.mockClear();
-    refreshAnalyticsAccountIdentity.mockClear();
+    beginAccountExit.mockClear();
+    accountExitLeft.mockClear();
+    accountExitStayed.mockClear();
     deleteCustomerAccount.mockClear();
     signInMagicLink.mockClear();
     signInEmailOtp.mockClear();
@@ -258,15 +259,10 @@ describe("DeleteAccountCard", () => {
     });
 
     expect(deleteCustomerAccount).toHaveBeenCalledWith({ confirmed: true });
-    expect(analyticsEvents).toEqual([
-      "begin",
-      "request",
-      "complete",
-      "navigation",
-    ]);
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).not.toHaveBeenCalled();
+    expect(analyticsEvents).toEqual(["begin", "request", "left", "navigation"]);
+    expect(beginAccountExit).toHaveBeenCalledTimes(1);
+    expect(accountExitLeft).toHaveBeenCalledTimes(1);
+    expect(accountExitStayed).not.toHaveBeenCalled();
     expect(assigned).toBe("/en-US/account/deleted");
     window.location.assign = originalAssign;
   });
@@ -304,9 +300,9 @@ describe("DeleteAccountCard", () => {
       });
 
       expect(assigned).toBe("/en-US/account/deleted");
-      expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-      expect(completeAnalyticsAccountSignOut).toHaveBeenCalledTimes(1);
-      expect(refreshAnalyticsAccountIdentity).not.toHaveBeenCalled();
+      expect(beginAccountExit).toHaveBeenCalledTimes(1);
+      expect(accountExitLeft).toHaveBeenCalledTimes(1);
+      expect(accountExitStayed).not.toHaveBeenCalled();
       expect(dispatchBeforeUnload().defaultPrevented).toBe(false);
       expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
     } finally {
@@ -339,9 +335,9 @@ describe("DeleteAccountCard", () => {
     });
 
     expect(deleteCustomerAccount).not.toHaveBeenCalled();
-    expect(beginAnalyticsAccountTransition).not.toHaveBeenCalled();
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).not.toHaveBeenCalled();
+    expect(beginAccountExit).not.toHaveBeenCalled();
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).not.toHaveBeenCalled();
     expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
   });
 
@@ -373,22 +369,19 @@ describe("DeleteAccountCard", () => {
       fireEvent.click(view.getByText("Delete permanently"));
     });
 
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
-      settleTransition: true,
-    });
+    expect(beginAccountExit).toHaveBeenCalledTimes(1);
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).toHaveBeenCalledTimes(1);
     expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
     expect(view.getByText("Sign in again to delete")).toBeTruthy();
     expect(
       view.getByText(
         "Your sign-in is too old for deleting the account. Use a new magic link, then confirm the deletion again."
-      )
-    ).toBeTruthy();
+      ).className
+    ).not.toContain("sr-only");
 
     await act(async () => {
-      fireEvent.click(view.getByText("Email me a new link"));
+      fireEvent.click(view.getByText("Confirm by email"));
     });
 
     expect(signInMagicLink).toHaveBeenCalledWith(
@@ -398,6 +391,91 @@ describe("DeleteAccountCard", () => {
       })
     );
     expect(view.getByText(/a new link is on its way/)).toBeTruthy();
+  });
+
+  const requestStaleDeletion = async (view: ReturnType<typeof render>) => {
+    deleteCustomerAccount.mockImplementationOnce(() =>
+      Promise.resolve({ data: { status: "reauthentication-required" } })
+    );
+    await openDialog(view);
+    await act(async () => {
+      fireEvent.click(
+        view.getByLabelText(
+          m.accountDeletionConfirmLabel({}, { locale: "en-US" })
+        )
+      );
+    });
+    await act(async () => {
+      fireEvent.click(view.getByText("Delete permanently"));
+    });
+  };
+
+  test("presents the passkey-era confirmation while passkeys are on, even without one", async () => {
+    const { DeleteAccountCard } = await import("./delete-account-card");
+    const view = render(
+      <DeleteAccountCard
+        email={adaAddress}
+        locale="en-US"
+        deletionPending={false}
+        passkeys={{ confirmWithPasskey: undefined }}
+      />
+    );
+    await requestStaleDeletion(view);
+
+    expect(
+      view.getByRole("heading", { name: "Sign in again to delete" })
+    ).toBeTruthy();
+    expect(
+      view.getByText(m.accountDeletionReauthBody({}, { locale: "en-US" }))
+        .className
+    ).toContain("sr-only");
+    expect(
+      view.container.ownerDocument.querySelector("svg.lucide-shield-check")
+    ).toBeTruthy();
+    expect(
+      view.queryByRole("button", {
+        name: m.accountReauthPasskey({}, { locale: "en-US" }),
+      })
+    ).toBeNull();
+    expect(
+      view.getByRole("button", {
+        name: m.accountReauthSendEmail({}, { locale: "en-US" }),
+      }).id
+    ).toBe("delete-account-reauth-send");
+  });
+
+  test("confirms with a passkey and returns to the final confirmation", async () => {
+    const confirmWithPasskey = mock(() =>
+      Promise.resolve("confirmed" as const)
+    );
+    const { DeleteAccountCard } = await import("./delete-account-card");
+    const view = render(
+      <DeleteAccountCard
+        email={adaAddress}
+        locale="en-US"
+        deletionPending={false}
+        passkeys={{ confirmWithPasskey }}
+      />
+    );
+    await requestStaleDeletion(view);
+
+    expect(
+      view.getByText(
+        m.accountDeletionReauthPasskeyBody({}, { locale: "en-US" })
+      ).className
+    ).toContain("sr-only");
+    const passkey = view.getByRole("button", {
+      name: m.accountReauthPasskey({}, { locale: "en-US" }),
+    });
+    expect(passkey.id).toBe("delete-account-reauth-passkey");
+    await act(async () => {
+      fireEvent.click(passkey);
+    });
+
+    expect(confirmWithPasskey).toHaveBeenCalledTimes(1);
+    expect(
+      view.getByText(m.accountDeletionConfirmTitle({}, { locale: "en-US" }))
+    ).toBeTruthy();
   });
 
   test("re-authenticates with a typed code and returns to the final confirmation", async () => {
@@ -439,7 +517,7 @@ describe("DeleteAccountCard", () => {
       fireEvent.click(view.getByText("Delete permanently"));
     });
     await act(async () => {
-      fireEvent.click(view.getByText("Email me a new link"));
+      fireEvent.click(view.getByText("Confirm by email"));
     });
 
     expect(
@@ -525,7 +603,7 @@ describe("DeleteAccountCard", () => {
       fireEvent.click(view.getByText("Delete permanently"));
     });
     await act(async () => {
-      fireEvent.click(view.getByText("Email me a new link"));
+      fireEvent.click(view.getByText("Confirm by email"));
     });
     const resend = view.getByText(
       m.accountSignInCodeResend({}, { locale: "en-US" })
@@ -591,15 +669,12 @@ describe("DeleteAccountCard", () => {
       fireEvent.click(view.getByText("Delete permanently"));
     });
 
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
-      settleTransition: true,
-    });
+    expect(beginAccountExit).toHaveBeenCalledTimes(1);
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).toHaveBeenCalledTimes(1);
     expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
     const send = view.getByRole("button", {
-      name: "Email me a new link",
+      name: "Confirm by email",
     }) as HTMLButtonElement;
     await act(async () => {
       fireEvent.click(send);
@@ -648,17 +723,12 @@ describe("DeleteAccountCard", () => {
       fireEvent.click(view.getByText("Delete permanently"));
     });
 
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
-      settleTransition: true,
-    });
+    expect(beginAccountExit).toHaveBeenCalledTimes(1);
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).toHaveBeenCalledTimes(1);
     expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
     await act(async () => {
-      fireEvent.click(
-        view.getByRole("button", { name: "Email me a new link" })
-      );
+      fireEvent.click(view.getByRole("button", { name: "Confirm by email" }));
     });
 
     expect(view.getByRole("alert").textContent).toBe(
@@ -667,7 +737,7 @@ describe("DeleteAccountCard", () => {
     expect(
       (
         view.getByRole("button", {
-          name: "Email me a new link",
+          name: "Confirm by email",
         }) as HTMLButtonElement
       ).disabled
     ).toBe(false);
@@ -709,15 +779,12 @@ describe("DeleteAccountCard", () => {
       fireEvent.click(view.getByText("Delete permanently"));
     });
 
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
-      settleTransition: true,
-    });
+    expect(beginAccountExit).toHaveBeenCalledTimes(1);
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).toHaveBeenCalledTimes(1);
     expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
     const send = view.getByRole("button", {
-      name: "Email me a new link",
+      name: "Confirm by email",
     }) as HTMLButtonElement;
     await act(async () => {
       fireEvent.click(send);
@@ -775,12 +842,9 @@ describe("DeleteAccountCard", () => {
       fireEvent.click(view.getByText("Delete permanently"));
     });
 
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
-      settleTransition: true,
-    });
+    expect(beginAccountExit).toHaveBeenCalledTimes(1);
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).toHaveBeenCalledTimes(1);
     expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
     expect(
       view.getByText(
@@ -790,6 +854,44 @@ describe("DeleteAccountCard", () => {
     expect(
       (view.getByText("Delete permanently") as HTMLButtonElement).disabled
     ).toBe(false);
+  });
+
+  test("reports a refused deletion without offering a retry", async () => {
+    deleteCustomerAccount.mockImplementationOnce(() =>
+      Promise.resolve({ data: { status: "refused" } })
+    );
+    const { DeleteAccountCard } = await import("./delete-account-card");
+
+    const view = render(
+      <DeleteAccountCard
+        email={adaAddress}
+        locale="en-US"
+        deletionPending={false}
+      />
+    );
+    await openDialog(view);
+    await act(async () => {
+      fireEvent.click(
+        view.getByLabelText(
+          "I understand that my account and every session will be permanently deleted."
+        )
+      );
+    });
+    await act(async () => {
+      fireEvent.click(view.getByText("Delete permanently"));
+    });
+
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).toHaveBeenCalledTimes(1);
+    expect(
+      document
+        .querySelector("[role='dialog'] [aria-live='assertive']")
+        ?.textContent?.trim()
+    ).toBeTruthy();
+    expect(
+      (document.querySelector("#delete-account-confirm") as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
   });
 
   test("shows an explicit server error while keeping the dialog open", async () => {
@@ -824,12 +926,9 @@ describe("DeleteAccountCard", () => {
 
     expect(view.getByText(serverError)).toBeTruthy();
     expect(view.getByRole("dialog")).toBeTruthy();
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
-      settleTransition: true,
-    });
+    expect(beginAccountExit).toHaveBeenCalledTimes(1);
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).toHaveBeenCalledTimes(1);
   });
 
   test("shows a retryable error and refreshes identity after a transport failure", async () => {
@@ -874,12 +973,9 @@ describe("DeleteAccountCard", () => {
       ).disabled
     ).toBe(false);
     expect(view.getByRole("dialog")).toBeTruthy();
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
-      settleTransition: true,
-    });
+    expect(beginAccountExit).toHaveBeenCalledTimes(1);
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).toHaveBeenCalledTimes(1);
   });
 
   test("ignores close requests while deletion is in flight and still redirects", async () => {
@@ -939,7 +1035,7 @@ describe("DeleteAccountCard", () => {
         await pendingDeletion;
       });
 
-      expect(completeAnalyticsAccountSignOut).toHaveBeenCalledTimes(1);
+      expect(accountExitLeft).toHaveBeenCalledTimes(1);
       expect(assigned).toBe("/en-US/account/deleted");
     } finally {
       window.location.assign = originalAssign;
@@ -1037,12 +1133,9 @@ describe("DeleteAccountCard", () => {
         }) as HTMLButtonElement
       ).disabled
     ).toBe(false);
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
-      settleTransition: true,
-    });
+    expect(beginAccountExit).toHaveBeenCalledTimes(1);
+    expect(accountExitLeft).not.toHaveBeenCalled();
+    expect(accountExitStayed).toHaveBeenCalledTimes(1);
   });
 
   test("resets confirmation after cancelling and reopening the dialog", async () => {

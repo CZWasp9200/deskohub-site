@@ -1,34 +1,32 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { Effect } from "effect";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
-import {
-  formatWorkspaceMoney,
-  type WorkspaceMoney,
-} from "@/features/checkout/workspace-money";
 import { m } from "@/features/i18n";
 import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { reservationCustomerQueryParam } from "@/features/reservation/reservation-checkout-query";
-import {
-  evalBrowserScript,
-  openBrowserPage,
-  readBrowserUrl,
-  waitForBrowserCondition,
-} from "../browser";
-import { getSubmitCoworkReservationScript } from "../browser-scripts";
+import { formatMoney, type Money } from "@/shared/money/money";
+import { openPage, readPageUrl } from "../browser";
+import type { E2EBrowserSession } from "../browser-session";
 import {
   applyDiscountCode,
   submitDiscountCode,
 } from "../checkout/discount-code";
 import { submitReservationForPayPage } from "../checkout/payment";
+import { toReservationStep } from "../checkout/reservation-form-preparation";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
-import { tryWorkspaceE2ESync, workspaceE2EError } from "../errors";
+import {
+  tryWorkspaceE2ESync,
+  type WorkspaceE2EError,
+  workspaceE2EError,
+} from "../errors";
 import {
   type ExpectedDiscountApplication,
   waitForCheckoutRow,
 } from "../integrations/database";
 import { pollUntil } from "../polling";
-import { addRedaction, assert, parseUrl, type Runner } from "../runtime";
+import { addRedaction } from "../redaction";
+import { assert, parseUrl } from "../runtime";
 import { workspaceE2EPollIntervalMs } from "../timeouts";
 import type {
   CheckoutData,
@@ -61,8 +59,8 @@ type OrdinaryCodeSlotObservation = {
 };
 
 export const calculateSingleInviteeReferralDiscount = (
-  remainingSubtotal: WorkspaceMoney
-): WorkspaceMoney => ({
+  remainingSubtotal: Money
+): Money => ({
   ...remainingSubtotal,
   value: Number((BigInt(remainingSubtotal.value) + 10n) / 20n),
 });
@@ -78,7 +76,7 @@ export type WorkspaceE2EReferralCheckoutCapture = (input: {
   readonly expectedPayUrl: string;
   readonly orderId: WorkspaceReservationId;
   readonly target: WorkspaceE2EReferralCheckoutReviewTarget;
-}) => Promise<void>;
+}) => Effect.Effect<void, WorkspaceE2EError>;
 
 /** The voucher fixture redeemed after a share-link referral. */
 export const referralVoucherAdjustment = {
@@ -102,14 +100,13 @@ export const ordinaryCodeAppliedMessage = (
   );
 
 export const startPayPage = ({
+  browserSession,
   config,
   contact,
   data,
   datasourceConfig,
   referralCode,
-  run,
   runStep,
-  session,
   state,
   stepPrefix,
 }: {
@@ -119,11 +116,11 @@ export const startPayPage = ({
   readonly datasourceConfig: DatasourceConfig;
   /** Starts the reservation from a share link carrying this code. */
   readonly referralCode?: string;
-  readonly run: Runner;
   readonly runStep: Parameters<WorkspaceE2ECase["execute"]>[0]["runStep"];
-  readonly session: string;
   readonly state: CheckoutFlowState;
   readonly stepPrefix: string;
+  /** The browser session obtained inside the case step. */
+  readonly browserSession: E2EBrowserSession;
 }) =>
   runStep({
     execute: Effect.gen(function* () {
@@ -133,20 +130,20 @@ export const startPayPage = ({
         addRedaction(referralCode, true);
         checkoutUrl.searchParams.set("ref", referralCode);
       }
-      yield* openBrowserPage(config, run, session, checkoutUrl.toString(), {
+      yield* openPage(browserSession, config, checkoutUrl.toString(), {
         timeoutMs: config.timeouts.browserNavigation,
       });
       const orderId = yield* submitReservationForPayPage({
+        data,
         onOrderId: (value) => {
           state.orderId = value;
         },
-        run,
-        session,
-        submitReservationScript: getSubmitCoworkReservationScript(data),
+        session: browserSession,
+        preparation: toReservationStep(data),
         timeouts: config.timeouts,
       });
       state.orderId = orderId;
-      const payUrl = yield* readBrowserUrl(run, session);
+      const payUrl = yield* readPageUrl(browserSession);
       if (!payUrl) {
         return yield* workspaceE2EError(
           "checkout did not reach its signed pay page",
@@ -173,14 +170,13 @@ export const startPayPage = ({
 
 export const applyCodeAndReadFreshPayUrl = ({
   appliedMessage,
+  browserSession,
   code,
   config,
   currentPayUrl,
   locale,
   orderId,
-  run,
   runStep,
-  session,
   stepId,
 }: {
   readonly appliedMessage: string;
@@ -189,10 +185,10 @@ export const applyCodeAndReadFreshPayUrl = ({
   readonly currentPayUrl: string;
   readonly locale: CheckoutData["locale"];
   readonly orderId: WorkspaceReservationId;
-  readonly run: Runner;
   readonly runStep: Parameters<WorkspaceE2ECase["execute"]>[0]["runStep"];
-  readonly session: string;
   readonly stepId: string;
+  /** The browser session obtained inside the case step. */
+  readonly browserSession: E2EBrowserSession;
 }) =>
   runStep({
     execute: Effect.gen(function* () {
@@ -200,16 +196,14 @@ export const applyCodeAndReadFreshPayUrl = ({
         appliedMessage,
         code,
         config,
-        run,
-        session,
+        session: browserSession,
       });
       return yield* waitForFreshPayStateUrl({
         config,
         locale,
         orderId,
         previousUrl: currentPayUrl,
-        run,
-        session,
+        session: browserSession,
       });
     }),
     id: stepId,
@@ -221,18 +215,16 @@ const waitForFreshPayStateUrl = ({
   locale,
   orderId,
   previousUrl,
-  run,
   session,
 }: {
   readonly config: WorkspaceE2EConfig;
   readonly locale: CheckoutData["locale"];
   readonly orderId: WorkspaceReservationId;
   readonly previousUrl: string;
-  readonly run: Runner;
-  readonly session: string;
+  readonly session: E2EBrowserSession;
 }) =>
   pollUntil(
-    readBrowserUrl(run, session).pipe(
+    readPageUrl(session).pipe(
       Effect.map((url) =>
         url &&
         isFreshOwnedPayStateUrl(url, previousUrl, config, locale, orderId)
@@ -248,6 +240,7 @@ const waitForFreshPayStateUrl = ({
   );
 
 export const rejectReferralCode = ({
+  browserSession,
   code,
   config,
   currentPayUrl,
@@ -255,8 +248,6 @@ export const rejectReferralCode = ({
   locale,
   message,
   orderId,
-  run,
-  session,
 }: {
   readonly code: string;
   readonly config: WorkspaceE2EConfig;
@@ -265,13 +256,13 @@ export const rejectReferralCode = ({
   readonly locale: CheckoutData["locale"];
   readonly message: string;
   readonly orderId: WorkspaceReservationId;
-  readonly run: Runner;
-  readonly session: string;
+  /** The browser session obtained inside the case step. */
+  readonly browserSession: E2EBrowserSession;
 }) =>
   Effect.gen(function* () {
-    yield* submitDiscountCode({ code, config, run, session });
+    yield* submitDiscountCode({ code, config, session: browserSession });
     const rejectedUrl = yield* pollUntil(
-      readBrowserUrl(run, session).pipe(
+      readPageUrl(browserSession).pipe(
         Effect.map((url) =>
           url &&
           isRejectedReferralCodeUrl({
@@ -292,20 +283,26 @@ export const rejectReferralCode = ({
         timeoutMs: config.timeouts.uiTransition,
       }
     );
-    yield* waitForBrowserCondition(
-      run,
-      session,
-      "rejected referral code kept in the field with its alert",
-      `(() => {
-        const alert = document.querySelector("#checkout-discount-code-error");
-        const input = document.querySelector("#checkout-discount-code");
-        return alert?.getAttribute("role") === "alert" &&
-          alert.textContent?.includes(${JSON.stringify(message)}) === true &&
-          input?.getAttribute("aria-invalid") === "true" &&
-          input instanceof HTMLInputElement &&
-          input.value.toUpperCase() === ${JSON.stringify(code.toUpperCase())};
-      })()`,
-      { timeoutMs: config.timeouts.uiTransition }
+    yield* browserSession.use(
+      "wait for rejected referral code kept in the field with its alert",
+      (page) =>
+        page.waitForFunction(
+          ({ expectedCode, expectedMessage }) => {
+            const alert = document.querySelector(
+              "#checkout-discount-code-error"
+            );
+            const input = document.querySelector("#checkout-discount-code");
+            return (
+              alert?.getAttribute("role") === "alert" &&
+              alert.textContent?.includes(expectedMessage) === true &&
+              input?.getAttribute("aria-invalid") === "true" &&
+              input instanceof HTMLInputElement &&
+              input.value.toUpperCase() === expectedCode
+            );
+          },
+          { expectedCode: code.toUpperCase(), expectedMessage: message },
+          { timeout: config.timeouts.uiTransition }
+        )
     );
     return rejectedUrl;
   });
@@ -315,15 +312,13 @@ export const assertShareLinkReferralApplied = ({
   locale,
   orderId,
   payUrl,
-  run,
   session,
 }: {
   readonly config: WorkspaceE2EConfig;
   readonly locale: CheckoutData["locale"];
   readonly orderId: WorkspaceReservationId;
   readonly payUrl: string;
-  readonly run: Runner;
-  readonly session: string;
+  readonly session: E2EBrowserSession;
 }) =>
   Effect.gen(function* () {
     if (
@@ -340,129 +335,120 @@ export const assertShareLinkReferralApplied = ({
       );
     }
     const message = referralAppliedMessage(locale);
-    yield* waitForBrowserCondition(
-      run,
-      session,
-      "share-link referral applied notice",
-      `(() => {
-        const notice = document.querySelector("[data-checkout-referral-applied]");
-        return notice?.textContent?.includes(${JSON.stringify(message)}) === true;
-      })()`,
-      { timeoutMs: config.timeouts.uiTransition }
+    yield* session.use("wait for share-link referral applied notice", (page) =>
+      page.waitForFunction(
+        (expectedMessage) =>
+          document
+            .querySelector("[data-checkout-referral-applied]")
+            ?.textContent?.includes(expectedMessage) === true,
+        message,
+        { timeout: config.timeouts.uiTransition }
+      )
     );
   });
 
 export const assertOrdinaryCodeSlotAvailable = ({
   config,
-  run,
   session,
 }: {
   readonly config: WorkspaceE2EConfig;
-  readonly run: Runner;
-  readonly session: string;
+  readonly session: E2EBrowserSession;
 }) =>
-  waitForBrowserCondition(
-    run,
-    session,
-    "ordinary code slot after referral acceptance",
-    `(() => {
-      const formSelector = "#checkout-discount-code-form";
-      const inputSelector = 'input[name="submittedCode"]';
-      const buttonSelector = 'button[type="submit"]';
-      const forms = document.querySelectorAll(formSelector);
-      const form = document.querySelector("#checkout-discount-code-form");
-      const input = form?.querySelector(inputSelector);
-      const submit = form?.querySelector(buttonSelector);
-      const inputIsPresent = input instanceof HTMLInputElement;
-      const submitIsPresent = submit instanceof HTMLButtonElement;
-      const formStyle = form ? window.getComputedStyle(form) : undefined;
-      const observation = {
-        formCount: Math.min(forms.length, ${ordinaryCodeSlotObservationMaximumCount}),
-        namedFieldCount: Math.min(
-          document.querySelectorAll(inputSelector).length,
-          ${ordinaryCodeSlotObservationMaximumCount}
-        ),
-        selectedFormPresent: form === null ? 0 : 1,
-        selectedFormVisible:
-          form !== null &&
-          form.getClientRects().length > 0 &&
-          formStyle?.display !== "none" &&
-          formStyle?.visibility === "visible"
-            ? 1
-            : 0,
-        namedInputPresent: inputIsPresent ? 1 : 0,
-        namedInputEnabled: inputIsPresent && !input.disabled ? 1 : 0,
-        namedInputEmpty: inputIsPresent && input.value === "" ? 1 : 0,
-        submitPresent: submitIsPresent ? 1 : 0,
-        submitEnabled: submitIsPresent && !submit.disabled ? 1 : 0,
-      };
-      window[${JSON.stringify(ordinaryCodeSlotObservationKey)}] = observation;
-      return input instanceof HTMLInputElement &&
-        !input.disabled &&
-        input.value === "" &&
-        submit instanceof HTMLButtonElement &&
-        !submit.disabled;
-    })()`,
-    { timeoutMs: config.timeouts.uiTransition }
-  ).pipe(
-    Effect.ensuring(annotateOrdinaryCodeSlotObservation({ run, session }))
-  );
-
-const annotateOrdinaryCodeSlotObservation = ({
-  run,
-  session,
-}: {
-  readonly run: Runner;
-  readonly session: string;
-}) =>
-  Effect.exit(
-    evalBrowserScript(
-      "read bounded referral discount form observation",
-      run,
-      session,
-      `(() => {
-        const key = ${JSON.stringify(ordinaryCodeSlotObservationKey)};
-        const observation = window[key];
-        delete window[key];
-        return observation;
-      })()`,
-      {
-        logCommand: false,
-        logOutput: false,
-        timeoutMs: workspaceE2EPollIntervalMs.browser,
-      }
-    ).pipe(
-      Effect.flatMap(({ stdout }) =>
-        Effect.try({
-          catch: () => undefined,
-          try: () => JSON.parse(stdout) as unknown,
-        })
-      ),
-      Effect.flatMap((value) => {
-        const observation = parseOrdinaryCodeSlotObservation(value);
-        return observation
-          ? Effect.annotateCurrentSpan({
-              "e2e.account.discount_form.form_count": observation.formCount,
-              "e2e.account.discount_form.named_field_count":
-                observation.namedFieldCount,
-              "e2e.account.discount_form.selected_form_present":
-                observation.selectedFormPresent,
-              "e2e.account.discount_form.selected_form_visible":
-                observation.selectedFormVisible,
-              "e2e.account.discount_form.named_input_present":
-                observation.namedInputPresent,
-              "e2e.account.discount_form.named_input_enabled":
-                observation.namedInputEnabled,
-              "e2e.account.discount_form.named_input_empty":
-                observation.namedInputEmpty,
-              "e2e.account.discount_form.submit_present":
-                observation.submitPresent,
-              "e2e.account.discount_form.submit_enabled":
-                observation.submitEnabled,
-            })
-          : Effect.void;
-      })
+  session
+    .use("wait for ordinary code slot after referral acceptance", (page) =>
+      page.waitForFunction(
+        ({ maximumCount, observationKey }) => {
+          const inputSelector = 'input[name="submittedCode"]';
+          const forms = document.querySelectorAll(
+            "#checkout-discount-code-form"
+          );
+          const form = document.querySelector("#checkout-discount-code-form");
+          const input = form?.querySelector(inputSelector);
+          const submit = form?.querySelector('button[type="submit"]');
+          const inputIsPresent = input instanceof HTMLInputElement;
+          const submitIsPresent = submit instanceof HTMLButtonElement;
+          const formStyle = form ? window.getComputedStyle(form) : undefined;
+          // Counts and flags only, so the span never carries a typed code.
+          const observation = {
+            formCount: Math.min(forms.length, maximumCount),
+            namedFieldCount: Math.min(
+              document.querySelectorAll(inputSelector).length,
+              maximumCount
+            ),
+            selectedFormPresent: form === null ? 0 : 1,
+            selectedFormVisible:
+              form !== null &&
+              form.getClientRects().length > 0 &&
+              formStyle?.display !== "none" &&
+              formStyle?.visibility === "visible"
+                ? 1
+                : 0,
+            namedInputPresent: inputIsPresent ? 1 : 0,
+            namedInputEnabled: inputIsPresent && !input.disabled ? 1 : 0,
+            namedInputEmpty: inputIsPresent && input.value === "" ? 1 : 0,
+            submitPresent: submitIsPresent ? 1 : 0,
+            submitEnabled: submitIsPresent && !submit.disabled ? 1 : 0,
+          };
+          Reflect.set(window, observationKey, observation);
+          return (
+            input instanceof HTMLInputElement &&
+            !input.disabled &&
+            input.value === "" &&
+            submit instanceof HTMLButtonElement &&
+            !submit.disabled
+          );
+        },
+        {
+          maximumCount: ordinaryCodeSlotObservationMaximumCount,
+          observationKey: ordinaryCodeSlotObservationKey,
+        },
+        { timeout: config.timeouts.uiTransition }
+      )
     )
+    .pipe(
+      Effect.asVoid,
+      Effect.ensuring(annotateOrdinaryCodeSlotObservation(session))
+    );
+
+const annotateOrdinaryCodeSlotObservation = (session: E2EBrowserSession) =>
+  Effect.exit(
+    session
+      .evaluate(
+        "read bounded referral discount form observation",
+        (observationKey) => {
+          const observation: unknown = Reflect.get(window, observationKey);
+          Reflect.deleteProperty(window, observationKey);
+          return observation;
+        },
+        ordinaryCodeSlotObservationKey,
+        { timeoutMs: workspaceE2EPollIntervalMs.browser }
+      )
+      .pipe(
+        Effect.flatMap((value) => {
+          const observation = parseOrdinaryCodeSlotObservation(value);
+          return observation
+            ? Effect.annotateCurrentSpan({
+                "e2e.account.discount_form.form_count": observation.formCount,
+                "e2e.account.discount_form.named_field_count":
+                  observation.namedFieldCount,
+                "e2e.account.discount_form.selected_form_present":
+                  observation.selectedFormPresent,
+                "e2e.account.discount_form.selected_form_visible":
+                  observation.selectedFormVisible,
+                "e2e.account.discount_form.named_input_present":
+                  observation.namedInputPresent,
+                "e2e.account.discount_form.named_input_enabled":
+                  observation.namedInputEnabled,
+                "e2e.account.discount_form.named_input_empty":
+                  observation.namedInputEmpty,
+                "e2e.account.discount_form.submit_present":
+                  observation.submitPresent,
+                "e2e.account.discount_form.submit_enabled":
+                  observation.submitEnabled,
+              })
+            : Effect.void;
+        })
+      )
   ).pipe(Effect.asVoid);
 
 const parseOrdinaryCodeSlotObservation = (
@@ -508,67 +494,62 @@ const parseOrdinaryCodeSlotObservation = (
 export const assertReferralConfirmationCleared = ({
   config,
   locale,
-  run,
   session,
 }: {
   readonly config: WorkspaceE2EConfig;
   readonly locale: CheckoutData["locale"];
-  readonly run: Runner;
-  readonly session: string;
-}) => {
-  const message = referralAppliedMessage(locale);
-  return waitForBrowserCondition(
-    run,
-    session,
-    "referral confirmation cleared after ordinary code application",
-    `(() => !(document.body?.innerText.includes(${JSON.stringify(message)})))()`,
-    { timeoutMs: config.timeouts.uiTransition }
-  );
-};
+  readonly session: E2EBrowserSession;
+}) =>
+  session
+    .use(
+      "wait for referral confirmation cleared after ordinary code application",
+      (page) =>
+        page.waitForFunction(
+          (message) => !document.body?.innerText.includes(message),
+          referralAppliedMessage(locale),
+          { timeout: config.timeouts.uiTransition }
+        )
+    )
+    .pipe(Effect.asVoid);
 
 export const assertReferrerDiscountMatchesRemainingSubtotal = Effect.fn(
   "WorkspaceE2EReferralCheckout.assertReferrerDiscount"
 )(function* ({
   locale,
   requireVoucherAfterReferrer = false,
-  run,
   session,
 }: {
   readonly locale: CheckoutData["locale"];
   readonly requireVoucherAfterReferrer?: boolean;
-  readonly run: Runner;
-  readonly session: string;
+  readonly session: E2EBrowserSession;
 }) {
-  const result = yield* evalBrowserScript(
+  // Every caller's step deadline is shorter than two minutes, so the step
+  // alone bounds this read.
+  const snapshot = yield* session.evaluate(
     "read visible checkout discount amounts",
-    run,
-    session,
-    `(() => {
-        const trigger = document.querySelector('[data-checkout-discount-details]');
-        const contentId = trigger?.getAttribute('aria-describedby');
-        const content = contentId ? document.getElementById(contentId) : undefined;
-        const originalPrice = document.querySelector('del[aria-hidden="true"]')?.textContent?.trim();
-        const rows = [...(content?.querySelectorAll('li') ?? [])].map((row) => {
-          const details = row.firstElementChild;
-          return {
-            label: details?.firstElementChild?.textContent?.trim() ?? '',
-            adjustment: details?.children.item(1)?.textContent?.trim() ?? '',
-            amount: row.lastElementChild?.textContent?.trim() ?? '',
-          };
-        });
-        return JSON.stringify({ originalPrice, rows });
-      })()`,
-    { logOutput: false }
+    () => {
+      const trigger = document.querySelector(
+        "[data-checkout-discount-details]"
+      );
+      const contentId = trigger?.getAttribute("aria-describedby");
+      const content = contentId ? document.getElementById(contentId) : null;
+      const originalPrice =
+        document
+          .querySelector('del[aria-hidden="true"]')
+          ?.textContent?.trim() ?? null;
+      const rows = [...(content?.querySelectorAll("li") ?? [])].map((row) => {
+        const details = row.firstElementChild;
+        return {
+          label: details?.firstElementChild?.textContent?.trim() ?? "",
+          adjustment: details?.children.item(1)?.textContent?.trim() ?? "",
+          amount: row.lastElementChild?.textContent?.trim() ?? "",
+        };
+      });
+      return { originalPrice, rows };
+    },
+    undefined
   );
   yield* tryWorkspaceE2ESync("assert visible fixed referral discount", () => {
-    const snapshot = JSON.parse(result.stdout) as {
-      readonly originalPrice: string | null;
-      readonly rows: readonly {
-        readonly adjustment: string;
-        readonly amount: string;
-        readonly label: string;
-      }[];
-    };
     assert(snapshot.originalPrice, "discounted product price is missing");
     const invitationLabel = m.checkoutSummaryItemReferralInvitationDiscount(
       {},
@@ -629,7 +610,7 @@ export const assertReferrerDiscountMatchesRemainingSubtotal = Effect.fn(
     );
     assert(
       referrerRow.amount ===
-        formatWorkspaceMoney(
+        formatMoney(
           { ...expectedAmount, value: -expectedAmount.value },
           locale
         ),
@@ -831,13 +812,14 @@ export const captureReviewStep = ({
   readonly runStep: Parameters<WorkspaceE2ECase["execute"]>[0]["runStep"];
 }) =>
   runStep({
-    execute: Effect.tryPromise({
-      catch: () =>
+    // Any failure, a Playwright timeout included, fails the capture plainly.
+    execute: captureReview({ expectedPayUrl, orderId, target }).pipe(
+      Effect.mapError(() =>
         workspaceE2EError("referral checkout review capture failed", {
           operation: "capture account referral checkout review",
-        }),
-      try: () => captureReview({ expectedPayUrl, orderId, target }),
-    }),
+        })
+      )
+    ),
     id: `capture-${target.replaceAll("account-referral-", "")}`,
     timeoutMs: 30_000,
   });

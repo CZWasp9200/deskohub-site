@@ -1,5 +1,5 @@
 import { Context, Data, Effect, Layer, Match } from "effect";
-import { WorkspacePaidFulfillmentService } from "@/features/checkout/backend/fulfillment/paid-fulfillment.service";
+import { ReservationFulfillment } from "@/features/checkout/backend/fulfillment/reservation-fulfillment.service";
 import {
   type WorkspaceReservationDetailsError,
   WorkspaceReservationService,
@@ -11,6 +11,7 @@ import {
   type ReservationAccessIssuanceError,
   ReservationAccessService,
 } from "@/features/reservation-access";
+import { servicePerOperation } from "@/shared/backend/service-per-operation";
 
 type ReservationAccessAdministrationMutation =
   | {
@@ -58,7 +59,7 @@ export class ReservationAccessAdministration extends Context.Service<
     this,
     Effect.gen(function* () {
       const access = yield* ReservationAccessService;
-      const fulfillment = yield* WorkspacePaidFulfillmentService;
+      const fulfillment = yield* ReservationFulfillment;
       const reservations = yield* WorkspaceReservationService;
 
       const recover = Effect.fn("ReservationAccessAdministration.recover")(
@@ -74,7 +75,7 @@ export class ReservationAccessAdministration extends Context.Service<
             })
             .pipe(Effect.asVoid, mapIssuanceFailure);
           yield* fulfillment
-            .fulfillPaidOrder({ orderId: reservationId })
+            .run(reservationId)
             .pipe(
               Effect.catch(() =>
                 Effect.logWarning(
@@ -162,10 +163,32 @@ export class ReservationAccessAdministration extends Context.Service<
     })
   );
 
-  static Live = this.Default.pipe(
-    Layer.provide(ReservationAccessService.Live),
-    Layer.provide(WorkspaceReservationService.Live),
-    Layer.provide(WorkspacePaidFulfillmentService.Live)
+  /**
+   * The service whose every operation runs on its own instance of
+   * `implementation`, built for that operation over what its run or request
+   * already built. An administration API builds its services once per
+   * process, so state an instance keeps for its request, such as the consent
+   * decisions its fulfillment's analytics read, would otherwise reach every
+   * later request.
+   */
+  static perOperation = (
+    implementation: Layer.Layer<ReservationAccessAdministration>
+  ) =>
+    servicePerOperation(
+      this,
+      { mutate: true, resumeInterruptedMutation: true },
+      implementation
+    );
+
+  // A configuration that can't be read fails the operation as a defect, as
+  // it failed the API's build before each operation built its own instance.
+  static Live = this.perOperation(
+    this.Default.pipe(
+      Layer.provide(ReservationAccessService.Live),
+      Layer.provide(WorkspaceReservationService.Live),
+      Layer.provide(ReservationFulfillment.Live),
+      Layer.orDie
+    )
   );
 }
 

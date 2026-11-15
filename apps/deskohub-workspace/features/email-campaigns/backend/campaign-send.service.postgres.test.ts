@@ -11,6 +11,7 @@ import {
 import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { NodeCrypto } from "@effect/platform-node";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import type { AudienceFilter } from "../audience-filter";
 import type { CampaignLocalizedContent } from "../body/campaign-content";
@@ -31,8 +32,14 @@ import {
 import { CampaignSendStatusService } from "./campaign-send-status.service";
 import {
   campaignContentFixture,
+  deleteAutomatedCampaigns,
   everyoneFilter,
+  seedAutomatedCampaign,
+  seedAutomatedSend,
+  seedAutomationVersion,
+  seedCampaignSend,
 } from "./email-campaigns.test-utils";
+import { OnceCampaignLifecycle } from "./once-campaign-lifecycle";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
@@ -74,9 +81,11 @@ describe.skipIf(!testDatabase)(
   () => {
     if (!testDatabase) return;
     const campaignIds: CampaignId[] = [];
+    const automatedCampaignIds: CampaignId[] = [];
     const audienceIds: string[] = [];
 
     afterAll(async () => {
+      await deleteAutomatedCampaigns(testDatabase.db, automatedCampaignIds);
       await testDatabase.pool.query(
         "delete from email_campaign_sends where campaign_id = any($1)",
         [campaignIds]
@@ -507,7 +516,130 @@ describe.skipIf(!testDatabase)(
       ]);
     });
 
-    test("refuses English-only content when the audience can reach Czech fallback recipients", async () => {
+    const sendAttempts = async (campaignId: CampaignId) =>
+      (
+        await testDatabase.pool.query(
+          "select s.automation_version_id is null as once, s.delivery_attempt, r.status from email_campaign_sends s join email_campaign_recipients r on r.send_id = s.id where s.campaign_id = $1 order by once desc",
+          [campaignId]
+        )
+      ).rows;
+
+    test("stale settlement and abandonment cannot change a later attempt", async () => {
+      const first = await seedCampaignSend(testDatabase.db, {
+        purpose: "marketing",
+        deliveryAttempt: 2,
+        recipients: [],
+      });
+      const other = await seedCampaignSend(testDatabase.db, {
+        purpose: "marketing",
+        recipients: [],
+      });
+      campaignIds.push(first.campaignId, other.campaignId);
+      const now = Temporal.Now.instant();
+      const runTransition = <A, E>(
+        effect: Effect.Effect<
+          A,
+          E,
+          import("@/db/database.service").WorkspaceTransaction
+        >
+      ) =>
+        Effect.runPromise(
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(effect)
+          ).pipe(Effect.provide(testDatabase.layer))
+        );
+      for (const attempt of [
+        { sendId: first.sendId, deliveryAttempt: 1 },
+        { sendId: other.sendId, deliveryAttempt: 2 },
+      ]) {
+        const input = { campaignId: first.campaignId, ...attempt, now };
+        expect(await runTransition(OnceCampaignLifecycle.settle(input))).toBe(
+          "stale"
+        );
+        await runTransition(OnceCampaignLifecycle.abandon(input));
+        expect(await storedStatus(first.campaignId)).toBe("sending");
+      }
+      expect(
+        await runTransition(
+          OnceCampaignLifecycle.settle({
+            campaignId: first.campaignId,
+            sendId: first.sendId,
+            deliveryAttempt: 2,
+            now,
+          })
+        )
+      ).toBe("sent");
+      expect(await storedStatus(first.campaignId)).toBe("sent");
+    });
+
+    test("retries only a one-off campaign's own send, never an automated send beside it", async () => {
+      const { campaignId, sendId } = await seedCampaignSend(testDatabase.db, {
+        purpose: "marketing",
+        status: "failed",
+        recipients: [
+          { dotyposCustomerId: customerId("retry-once"), status: "failed" },
+        ],
+      });
+      automatedCampaignIds.push(campaignId);
+      const versionId = await seedAutomationVersion(testDatabase.db, {
+        campaignId,
+        purpose: "marketing",
+      });
+      await seedAutomatedSend(testDatabase.db, {
+        campaignId,
+        versionId,
+        purpose: "marketing",
+        recipients: [
+          {
+            dotyposCustomerId: customerId("retry-automated"),
+            status: "failed",
+          },
+        ],
+      });
+
+      const retried = await retry(campaignId);
+
+      expect(Exit.isSuccess(retried) && retried.value).toEqual({
+        sendId,
+        retriedCount: 1,
+      });
+      expect(enqueued).toEqual([{ sendId, deliveryAttempt: 2 }]);
+      expect(await sendAttempts(campaignId)).toEqual([
+        { once: true, delivery_attempt: 2, status: "pending" },
+        { once: false, delivery_attempt: 1, status: "failed" },
+      ]);
+    });
+
+    test("refuses to retry an automated campaign's sends", async () => {
+      const campaignId = await seedAutomatedCampaign(testDatabase.db, {
+        purpose: "marketing",
+      });
+      automatedCampaignIds.push(campaignId);
+      const versionId = await seedAutomationVersion(testDatabase.db, {
+        campaignId,
+        purpose: "marketing",
+      });
+      await seedAutomatedSend(testDatabase.db, {
+        campaignId,
+        versionId,
+        purpose: "marketing",
+        recipients: [
+          { dotyposCustomerId: customerId("refused-retry"), status: "failed" },
+        ],
+      });
+
+      expect(failure(await retry(campaignId))).toMatchObject({
+        _tag: "CampaignDeliveryMismatch",
+        campaignId,
+        delivery: "automated",
+      });
+      expect(enqueued).toEqual([]);
+      expect(await sendAttempts(campaignId)).toEqual([
+        { once: false, delivery_attempt: 1, status: "failed" },
+      ]);
+    });
+
+    test("refuses content without Czech, which every fallback chain reaches, unless the audience is one covered locale", async () => {
       const unrestricted = await createDraft({ content: englishOnlyContent });
       const withoutAudience = await createDraft({
         content: englishOnlyContent,

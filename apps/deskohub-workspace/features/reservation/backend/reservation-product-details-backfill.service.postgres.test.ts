@@ -1,8 +1,8 @@
+import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
 import {
-  DotyposCustomerIdSchema,
   type DotyposReservationId,
   DotyposReservationIdSchema,
   type DotyposService,
@@ -11,8 +11,8 @@ import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { inArray } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { workspaceReservations } from "@/db/schema";
-import { checkoutAttemptKeySchema } from "@/features/checkout/checkout-identifiers";
 import { workspaceMeetingRoomCatalog } from "@/features/checkout/product-catalog";
+import { getMeetingRoomSetupStart } from "@/features/reservation/meeting-room-early-setup";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
 import {
@@ -20,6 +20,7 @@ import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   ReservationProductDetailsBackfill,
@@ -73,20 +74,17 @@ describe.skipIf(!testDatabase)(
         });
       }
       await Effect.runPromise(
-        testDatabase.db.insert(workspaceReservations).values({
-          id,
-          checkoutAttemptKey: checkoutAttemptKeySchema.make(id),
-          dotyposCustomerId: DotyposCustomerIdSchema.make(`customer-${runId}`),
-          dotyposReservationId: input.dotypos ? dotyposId(input.label) : null,
-          reservationState: input.dotypos ? "confirmed" : "hold_expired",
-          paymentState: input.dotypos ? "paid" : "not_started",
-          paidAt: input.dotypos
-            ? Temporal.Instant.from("2001-01-01T00:00:00Z")
-            : null,
-          fulfillmentState: "not_started",
-          reservationDetails: input.details,
-          locale: "en-US",
-          updatedAt: Temporal.Instant.from("2001-01-01T00:00:00Z"),
+        workspaceFixtures(testDatabase.db).reservation({
+          stage: input.dotypos
+            ? { reservation: "confirmed", payment: "paid" }
+            : { reservation: "hold_expired" },
+          details: input.details,
+          overrides: {
+            id,
+            ...(input.dotypos && {
+              dotyposReservationId: dotyposId(input.label),
+            }),
+          },
         })
       );
       return id;
@@ -108,6 +106,22 @@ describe.skipIf(!testDatabase)(
             return reservation ? [reservation] : [];
           });
         }),
+      getReservationsByIds: (ids, readOptions) => {
+        const options = { ...readOptions, ids: [...ids] };
+        return Effect.sync(() => {
+          listedIds.push([...(options?.ids ?? [])]);
+          return (options?.ids ?? []).flatMap((id) => {
+            const reservation = dotyposReservations.get(id);
+            return reservation ? [reservation] : [];
+          });
+        }).pipe(
+          Effect.flatMap((records) =>
+            makeInMemoryDotypos({
+              reservations: records,
+            }).service.getReservationsByIds(ids)
+          )
+        );
+      },
     });
 
     /** Runs every batch, as `dhw` does, and keeps this suite's rows only. */
@@ -318,6 +332,53 @@ describe.skipIf(!testDatabase)(
       expect(rerun.updated).toBe(0);
       expect(sortById(rerun.unresolved)).toEqual(sortById(expectedUnresolved));
       expect(await loadRows()).toEqual(after);
+    });
+
+    test("fills an early-setup meeting room's offer from its booked interval and keeps the flag", async () => {
+      const [{ duration }] = workspaceMeetingRoomCatalog;
+      const interval = getMeetingRoomReservationInterval(
+        "2026-03-11T10:00",
+        duration
+      );
+      if (!interval) throw new Error("catalog interval missing");
+      // Dotypos holds the room from the setup start, before the booked start.
+      const reservationId = await insert({
+        label: "early-setup",
+        details: { kind: "meeting-room", earlySetup: true },
+        dotypos: {
+          startDate: getMeetingRoomSetupStart(
+            Temporal.Instant.from(interval.startsAt)
+          ).toString(),
+          endDate: Temporal.Instant.from(interval.endsAt).toString(),
+          seats: "1",
+        },
+      });
+
+      await runBackfill(false);
+
+      expect((await loadRows()).get(reservationId)?.reservationDetails).toEqual(
+        { kind: "meeting-room", duration, earlySetup: true }
+      );
+    });
+
+    test("leaves a meeting-room row unresolved for a reversed Dotypos interval", async () => {
+      const reservationId = await insert({
+        label: "reversed-interval",
+        details: { kind: "meeting-room" },
+        dotypos: {
+          startDate: "2026-03-10T12:00:00Z",
+          endDate: "2026-03-10T10:00:00Z",
+          seats: "1",
+        },
+      });
+
+      const { unresolved } = await runBackfill(true);
+
+      expect(unresolved).toContainEqual({
+        reservationId,
+        family: "meeting-room",
+        reason: "dotypos_interval_invalid",
+      });
     });
   }
 );

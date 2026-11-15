@@ -1,5 +1,6 @@
 import {
   AdministrationCampaignAudienceId,
+  AdministrationCampaignDelivery,
   type AdministrationCampaignDetailType,
   AdministrationCampaignId,
   type AdministrationCampaignLocaleType,
@@ -25,6 +26,7 @@ import { campaignAudiencesCommand } from "./campaign-audiences.command";
 import {
   campaignBodyFileName,
   campaignLocaleFlag,
+  campaignLocaleShortNames,
   localizedFlag,
   makeCampaignContent,
   makeCampaignContentPatch,
@@ -200,11 +202,20 @@ const campaignsCreateCommand = Command.make(
       Flag.optional,
       Flag.withDescription("Saved audience ID")
     ),
+    delivery: Flag.choice(
+      "delivery",
+      AdministrationCampaignDelivery.literals
+    ).pipe(
+      Flag.optional,
+      Flag.withDescription(
+        "once sends it once; automated sends it from an automation flow. Default: once"
+      )
+    ),
     ...localizedContentFlags,
     subject: localizedFlag("subject", "Email subject", 1),
     body: localizedFlag("body", "Markdown body file", 1),
   },
-  ({ audience, template, title, purpose, ...content }) =>
+  ({ audience, delivery, template, title, purpose, ...content }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const campaignTitle = yield* requireText("title", title);
@@ -216,6 +227,7 @@ const campaignsCreateCommand = Command.make(
             title: campaignTitle,
             purpose,
             templateKey: template,
+            ...(Option.isSome(delivery) && { delivery: delivery.value }),
             audienceId: Option.getOrNull(audience),
             content: campaignContent,
           }
@@ -224,6 +236,34 @@ const campaignsCreateCommand = Command.make(
       })
     )
 ).pipe(Command.withDescription("Create a draft campaign"));
+
+type CampaignUpdateField<
+  Key extends keyof AdministrationCampaignUpdateInputType,
+> = Option.Option<NonNullable<AdministrationCampaignUpdateInputType[Key]>>;
+
+/** The update request: only the given changes, with a cleared audience as null. */
+const campaignUpdateInput = ({
+  audience,
+  clearAudience,
+  contentPatch,
+  purpose,
+  template,
+  title,
+}: {
+  readonly audience: CampaignUpdateField<"audienceId">;
+  readonly clearAudience: boolean;
+  readonly contentPatch: CampaignUpdateField<"content">;
+  readonly purpose: CampaignUpdateField<"purpose">;
+  readonly template: CampaignUpdateField<"templateKey">;
+  readonly title: CampaignUpdateField<"title">;
+}): AdministrationCampaignUpdateInputType => ({
+  ...(Option.isSome(title) && { title: title.value }),
+  ...(Option.isSome(purpose) && { purpose: purpose.value }),
+  ...(Option.isSome(template) && { templateKey: template.value }),
+  ...(Option.isSome(audience) && { audienceId: audience.value }),
+  ...(clearAudience && { audienceId: null }),
+  ...(Option.isSome(contentPatch) && { content: contentPatch.value }),
+});
 
 const campaignsUpdateCommand = Command.make(
   "update",
@@ -253,12 +293,14 @@ const campaignsUpdateCommand = Command.make(
     clearOperationalReason: campaignLocaleFlag("clear-operational-reason").pipe(
       Flag.atLeast(0),
       Flag.withDescription(
-        "Restore the default footer reason line of a locale: cs or en"
+        `Restore the default footer reason line of a locale: ${campaignLocaleShortNames}`
       )
     ),
     removeLocale: campaignLocaleFlag("remove-locale").pipe(
       Flag.atLeast(0),
-      Flag.withDescription("Remove a locale's content: cs or en")
+      Flag.withDescription(
+        `Remove a locale's content: ${campaignLocaleShortNames}`
+      )
     ),
   },
   ({
@@ -281,14 +323,14 @@ const campaignsUpdateCommand = Command.make(
           Option.map(title, (value) => requireText("title", value))
         );
         const contentPatch = yield* makeCampaignContentPatch(content);
-        const update: AdministrationCampaignUpdateInputType = {
-          ...(Option.isSome(campaignTitle) && { title: campaignTitle.value }),
-          ...(Option.isSome(purpose) && { purpose: purpose.value }),
-          ...(Option.isSome(template) && { templateKey: template.value }),
-          ...(Option.isSome(audience) && { audienceId: audience.value }),
-          ...(clearAudience && { audienceId: null }),
-          ...(Option.isSome(contentPatch) && { content: contentPatch.value }),
-        };
+        const update = campaignUpdateInput({
+          audience,
+          clearAudience,
+          contentPatch,
+          purpose,
+          template,
+          title: campaignTitle,
+        });
         if (Object.keys(update).length === 0) {
           return yield* new InvalidMutationInputError({
             message:
@@ -328,6 +370,7 @@ const campaignsDeleteCommand = Command.make(
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const confirmed = yield* confirmChange(
+          "campaigns.deleteCampaign",
           yes,
           json,
           `Delete campaign ${campaignId}? This cannot be undone.`
@@ -385,6 +428,21 @@ const formatRecipientPreview = (
     ),
   ].join("\n");
 
+const campaignsSettingsCommand = Command.make("settings", {}, () =>
+  runAuthenticatedCommand((api, accessToken, json) =>
+    Effect.gen(function* () {
+      const settings = yield* api.getCampaignSettings(accessToken);
+      yield* Console.log(
+        json
+          ? JSON.stringify(settings)
+          : `Test-send inbox: ${settings.testSendInbox ?? "not configured"}`
+      );
+    })
+  )
+).pipe(
+  Command.withDescription("Show the inbox every campaign test send reaches")
+);
+
 const campaignsTestSendCommand = Command.make(
   "test-send",
   {
@@ -440,6 +498,7 @@ const campaignsSendCommand = Command.make(
         if (!yes) {
           const campaign = yield* api.getCampaign(accessToken, campaignId);
           const confirmed = yield* confirmChange(
+            "campaigns.sendCampaign",
             yes,
             json,
             `Send campaign "${campaign.title}" (${campaign.id}) to its audience now? This cannot be undone.`
@@ -479,6 +538,7 @@ const campaignsRetryCommand = Command.make(
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const confirmed = yield* confirmChange(
+          "campaigns.retryCampaign",
           yes,
           json,
           includeUnconfirmed
@@ -564,6 +624,7 @@ export const campaignsCommand = Command.make("campaigns").pipe(
     campaignsDuplicateCommand,
     campaignsDeleteCommand,
     campaignsRecipientsCommand,
+    campaignsSettingsCommand,
     campaignsTestSendCommand,
     campaignsSendCommand,
     campaignsRetryCommand,

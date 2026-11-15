@@ -41,9 +41,12 @@ mock.module("@/features/checkout/actions/apply-discount-code", () => ({
 mock.module("@/features/reservation/actions/submit-reservation", () => ({
   submitReservation: mock(),
 }));
-mock.module("posthog-js", () => ({ default: { capture } }));
+mock.module("@/features/cookie-consent/analytics-events", () => ({
+  captureAnalyticsEvent: capture,
+}));
 mock.module("@/features/cookie-consent", () => ({
-  useCookieConsent: () => ({ isAccepted: () => analyticsAccepted }),
+  useVisitorConsent: () => analyticsAccepted,
+  visitorConsent: { accepts: () => analyticsAccepted },
 }));
 
 describe("CheckoutDiscountCodeForm", () => {
@@ -347,6 +350,28 @@ describe("CheckoutDiscountCodeForm", () => {
     });
   });
 
+  test.each(["en-US", "cs-CZ"] as const)(
+    "renders the automated-request rejection in %s",
+    async (locale) => {
+      const { CheckoutDiscountCodeForm } = await import(
+        "./checkout-discount-code-form"
+      );
+      const view = render(
+        <CheckoutDiscountCodeForm
+          defaultCode="SAVE20"
+          enabled
+          rejection="automated-request"
+          locale={locale}
+          payStateToken="signed-state"
+        />
+      );
+
+      expect(view.getByRole("alert").textContent).toBe(
+        m.automatedRequestRejected({}, { locale })
+      );
+    }
+  );
+
   test.each([
     ["referral-already-attributed", m.checkoutReferralCodeAlreadyAttributed],
     ["referral-ineligible", m.checkoutReferralCodeIneligible],
@@ -495,7 +520,10 @@ describe("CheckoutDiscountCodeForm", () => {
     fireEvent.click(view.getByRole("checkbox"));
     expect(
       view.getByRole("button", {
-        name: m.checkoutPayOrderAndPayButton({}, { locale: "en-US" }),
+        name: (name) =>
+          name.startsWith(
+            m.checkoutPayOrderAndPayButton({}, { locale: "en-US" })
+          ),
       })
     ).toHaveProperty("disabled", false);
 

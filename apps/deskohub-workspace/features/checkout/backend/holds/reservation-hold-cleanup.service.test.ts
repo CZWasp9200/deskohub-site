@@ -4,7 +4,6 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
-import type { CapturePostHogEventInput } from "@/shared/backend/analytics/posthog-event.service";
 import type { ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType } from "../payment/provider-payment-finalization.service";
 
 describe("ReservationHoldCleanupService", () => {
@@ -18,11 +17,12 @@ describe("ReservationHoldCleanupService", () => {
     const { ReservationHoldCleanupService } = await import(
       "./reservation-hold-cleanup.service"
     );
+    const { UnpaidHoldRelease } = await import("./unpaid-hold-release.service");
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
 
     const orderId = "reservation-cleanup-provider-paid";
@@ -58,6 +58,7 @@ describe("ReservationHoldCleanupService", () => {
     }).pipe(
       Effect.provide(
         ReservationHoldCleanupService.Default.pipe(
+          Layer.provide(UnpaidHoldRelease.Default),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -65,9 +66,7 @@ describe("ReservationHoldCleanupService", () => {
                 markTerminal: mock(() => Effect.die("not used")),
               }),
               Layer.mock(WorkspaceReservationRepository, reservations),
-              Layer.mock(PostHogEventService, {
-                capture: () => Effect.void,
-              }),
+              recordCheckoutAnalytics().layer,
               Layer.mock(DotyposService, dotypos)
             )
           )
@@ -96,11 +95,12 @@ describe("ReservationHoldCleanupService", () => {
     const { ReservationHoldCleanupService } = await import(
       "./reservation-hold-cleanup.service"
     );
+    const { UnpaidHoldRelease } = await import("./unpaid-hold-release.service");
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
 
     const orderId = "reservation-cleanup-provider-pending";
@@ -138,6 +138,7 @@ describe("ReservationHoldCleanupService", () => {
       }).pipe(
         Effect.provide(
           ReservationHoldCleanupService.Default.pipe(
+            Layer.provide(UnpaidHoldRelease.Default),
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -145,9 +146,7 @@ describe("ReservationHoldCleanupService", () => {
                   markTerminal: mock(() => Effect.die("not used")),
                 }),
                 Layer.mock(WorkspaceReservationRepository, reservations),
-                Layer.mock(PostHogEventService, {
-                  capture: () => Effect.void,
-                }),
+                recordCheckoutAnalytics().layer,
                 Layer.mock(DotyposService, dotypos)
               )
             )
@@ -190,11 +189,12 @@ describe("ReservationHoldCleanupService", () => {
     const { ReservationHoldCleanupService } = await import(
       "./reservation-hold-cleanup.service"
     );
+    const { UnpaidHoldRelease } = await import("./unpaid-hold-release.service");
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
 
     const orderId = "reservation-cleanup-abandoned";
@@ -217,13 +217,14 @@ describe("ReservationHoldCleanupService", () => {
         timestamp: Temporal.Now.instant(),
       })
     );
-    const capture = mock((_input: CapturePostHogEventInput) => Effect.void);
+    const analytics = recordCheckoutAnalytics();
     await Effect.gen(function* () {
       const cleanup = yield* ReservationHoldCleanupService;
       return yield* cleanup.cancelOrderHold({ orderId, checkedAt });
     }).pipe(
       Effect.provide(
         ReservationHoldCleanupService.Default.pipe(
+          Layer.provide(UnpaidHoldRelease.Default),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {
@@ -246,9 +247,7 @@ describe("ReservationHoldCleanupService", () => {
                 claimCancellation,
                 markCancelled,
               }),
-              Layer.mock(PostHogEventService, {
-                capture,
-              }),
+              analytics.layer,
               Layer.mock(DotyposService, {
                 cancelReservation,
               })
@@ -273,7 +272,7 @@ describe("ReservationHoldCleanupService", () => {
       cancelledAt: expect.any(Temporal.Instant),
       holdExpiredAt: checkedAt,
     });
-    expect(capture).toHaveBeenCalledWith(
+    expect(analytics.messages).toContainEqual(
       expect.objectContaining({
         distinctId: orderId,
         event: "reservation abandoned",
@@ -291,11 +290,12 @@ describe("ReservationHoldCleanupService", () => {
     const { ReservationHoldCleanupService } = await import(
       "./reservation-hold-cleanup.service"
     );
+    const { UnpaidHoldRelease } = await import("./unpaid-hold-release.service");
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
 
     const orderId = "reservation-cleanup-provider-failed";
@@ -310,6 +310,7 @@ describe("ReservationHoldCleanupService", () => {
     }).pipe(
       Effect.provide(
         ReservationHoldCleanupService.Default.pipe(
+          Layer.provide(UnpaidHoldRelease.Default),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {
@@ -331,9 +332,7 @@ describe("ReservationHoldCleanupService", () => {
                 ),
                 claimCancellation,
               }),
-              Layer.mock(PostHogEventService, {
-                capture: () => Effect.void,
-              }),
+              recordCheckoutAnalytics().layer,
               Layer.mock(DotyposService, {
                 cancelReservation,
               })

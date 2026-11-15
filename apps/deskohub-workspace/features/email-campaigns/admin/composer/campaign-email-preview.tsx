@@ -1,22 +1,38 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { m } from "@/features/administration/i18n";
 import type { Locale } from "@/features/i18n";
-import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import type {
   CampaignPurpose,
   CampaignTemplateKey,
 } from "../../body/campaign-content";
+import type { CampaignOperationFailureCopy } from "../campaign-operation-failure";
 import { CampaignInboxPreview } from "../email-preview/campaign-inbox-preview";
-import { campaignLocaleNames } from "../sending/campaign-locale-names";
-import { previewCampaignEmail } from "./actions";
+import { useCampaignOperation } from "../use-campaign-operation";
 import {
   type CampaignComposerLocaleFields,
   hasLocaleContent,
-  toCampaignLocaleContent,
+  toCampaignPreviewInput,
 } from "./campaign-composer-fields";
 
 const previewDelayMs = 500;
+
+const missingContentMessages = {
+  "cs-CZ": m.emailCampaignsEmailPreviewMissingContentCzech,
+  "en-US": m.emailCampaignsEmailPreviewMissingContentEnglish,
+  "de-DE": m.emailCampaignsEmailPreviewMissingContentGerman,
+  "uk-UA": m.emailCampaignsEmailPreviewMissingContentUkrainian,
+  "sk-SK": m.emailCampaignsEmailPreviewMissingContentSlovak,
+  "vi-VN": m.emailCampaignsEmailPreviewMissingContentVietnamese,
+  "hi-IN": m.emailCampaignsEmailPreviewMissingContentHindi,
+} as const satisfies Record<Locale, (...args: never) => string>;
+
+const previewFailureCopy: CampaignOperationFailureCopy = {
+  fallback: (locale) =>
+    m.emailCampaignsEmailPreviewRenderFailed({}, { locale }),
+};
 
 /**
  * The unsaved locale content rendered through the campaign template, as a
@@ -37,19 +53,16 @@ export function CampaignEmailPreview({
   readonly purpose: CampaignPurpose;
   readonly templateKey: CampaignTemplateKey;
 }) {
-  const [preview, setPreview] = useState<{
-    readonly html: string;
-    readonly subject: string;
-    readonly preheader: string;
-  }>();
+  const routeLocale = useRouteLocale();
+  const [html, setHtml] = useState<string>();
   const [error, setError] = useState<string>();
   const hasContent = hasLocaleContent(fields);
-  const request = {
-    templateKey,
-    purpose,
-    locale,
-    content: toCampaignLocaleContent(fields, purpose),
-  };
+  // Exporting the body to Markdown walks the whole document, so only an edit
+  // redoes it, not the renders the pending state causes.
+  const request = useMemo(
+    () => toCampaignPreviewInput({ templateKey, purpose, locale, fields }),
+    [templateKey, purpose, locale, fields]
+  );
   const requestKey = JSON.stringify(request);
   // Responses can arrive out of order; only the latest request's applies.
   const latestRequestKey = useRef(requestKey);
@@ -57,19 +70,14 @@ export function CampaignEmailPreview({
     latestRequestKey.current = requestKey;
   }, [requestKey]);
 
-  const render = useWorkspaceAction(previewCampaignEmail, {
-    actionName: "previewCampaignEmail",
-    onSuccess: ({ data, input }) => {
+  const render = useCampaignOperation("previewCampaignTemplate", {
+    failureCopy: previewFailureCopy,
+    onSuccess: (output, input) => {
       if (JSON.stringify(input) !== latestRequestKey.current) return;
       setError(undefined);
-      setPreview({
-        html: data.html,
-        subject: data.subject,
-        preheader: input.content.preheader,
-      });
+      setHtml(output.html);
     },
-    onError: ({ error }) =>
-      setError(error.serverError ?? "The preview could not be rendered."),
+    onFailure: setError,
   });
   // The hook returns a new `execute` on every render, including the renders
   // its own pending state causes; an effect event keeps those from
@@ -86,14 +94,14 @@ export function CampaignEmailPreview({
   return (
     <CampaignInboxPreview
       error={error}
-      html={hasContent ? preview?.html : undefined}
+      html={hasContent ? html : undefined}
       locale={locale}
       locales={locales}
       onLocaleChange={onLocaleChange}
       placeholder={
         hasContent
-          ? "Rendering the preview…"
-          : `Add ${campaignLocaleNames[locale]} content to see the email.`
+          ? m.emailCampaignsEmailPreviewRendering({}, { locale: routeLocale })
+          : missingContentMessages[locale]({}, { locale: routeLocale })
       }
       preheader={fields.preheader}
       subject={fields.subject}

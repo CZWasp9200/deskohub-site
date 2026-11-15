@@ -4,15 +4,17 @@ import {
   getWorkspaceProductKey,
   type WorkspaceProductIdentity,
 } from "@/features/checkout/product-identity";
-import { workspaceMoneyWithValue } from "@/features/checkout/workspace-money";
 import { workspaceProductTargetMatches } from "@/features/discounts/product-target";
 import { m } from "@/features/i18n";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
+import { staffLocale } from "@/shared/backend/staff-locale";
+import { moneyWithValue, sameMoneyUnit } from "@/shared/money/money";
 import { currentInstant } from "@/shared/utils/temporal";
 import type { CanonicalPromotionCode, DiscountQuoteInput } from "./contracts";
 import type { DiscountDefinition } from "./discount-definition";
 import { DiscountDefinitionRepository } from "./discount-definition.repository";
 import { toDiscountDefinitionProviderError } from "./discount-definition-provider-error";
+import { discountLabelFor } from "./discount-label";
 import {
   DiscountCalculationError,
   DiscountProviderError,
@@ -30,11 +32,13 @@ import {
 } from "./promotion-code";
 import { PromotionCodeRepository } from "./promotion-code.repository";
 import type { DiscountCandidate } from "./provider";
+import { isFirstServiceDateEligible } from "./service-date-eligibility";
 
 export type PromotionCodeProviderInput = Pick<
   DiscountQuoteInput,
   | "discountableSubtotal"
   | "dotyposCustomerId"
+  | "firstServiceDate"
   | "locale"
   | "product"
   | "submittedCode"
@@ -114,6 +118,7 @@ export class PromotionCodeProvider extends Context.Service<
                     Effect.tap(validateCustomerAllowed),
                     Effect.tap(validateUsageAvailable),
                     Effect.tap(validateCustomerUsageAvailable),
+                    Effect.tap(validateDiscountCodeServiceDate),
                     Effect.bind("definition", loadDiscountDefinition),
                     Effect.tap(validateDiscountCodeProduct),
                     Effect.tap(validateFixedAdjustmentCompatibility),
@@ -165,6 +170,7 @@ export class PromotionCodeProvider extends Context.Service<
                       configuration,
                     })),
                     Effect.tap(validateUsageAvailable),
+                    Effect.tap(validateDiscountCodeServiceDate),
                     Effect.bind("definition", loadDiscountDefinition),
                     Effect.tap(validateDiscountCodeProduct),
                     Effect.tap(validateFixedAdjustmentCompatibility),
@@ -332,6 +338,14 @@ const validateCustomerAllowed = (input: {
     ? unavailable(input.configuration, "customer_ineligible")
     : Effect.void;
 
+const validateDiscountCodeServiceDate = (input: {
+  readonly configuration: DiscountCodeConfiguration;
+  readonly firstServiceDate: PromotionCodeProviderInput["firstServiceDate"];
+}) =>
+  isFirstServiceDateEligible(input.configuration, input.firstServiceDate)
+    ? Effect.void
+    : unavailable(input.configuration, "service_date_ineligible");
+
 const validateDiscountCodeProduct = (input: {
   readonly configuration: DiscountCodeConfiguration;
   readonly definition: DiscountDefinition;
@@ -356,9 +370,7 @@ const validateFixedAdjustmentCompatibility = (input: {
       fixed: (fixedAdjustment) =>
         Option.liftPredicate(
           fixedAdjustment.amount,
-          (amount) =>
-            amount.currency !== input.discountableSubtotal.currency ||
-            amount.exponent !== input.discountableSubtotal.exponent
+          (amount) => !sameMoneyUnit(amount, input.discountableSubtotal)
         ).pipe(
           Option.map(
             (amount) =>
@@ -397,7 +409,8 @@ const toDiscountCodeCandidate = (input: {
   return {
     discount: {
       id: input.definition.id,
-      label: input.definition.labels[input.locale],
+      label: discountLabelFor(input.definition.labels, input.locale),
+      staffLabel: discountLabelFor(input.definition.labels, staffLocale),
       adjustment: input.definition.adjustment,
       ...timing,
     },
@@ -434,17 +447,14 @@ const toVoucherCandidate = (input: {
   DiscountCandidate,
   PromotionCodeUnavailableError | DiscountProviderError
 > => {
-  const availableAmount = workspaceMoneyWithValue(
+  const availableAmount = moneyWithValue(
     input.configuration.amount.value - input.availability.usedValue,
     input.configuration.amount
   );
   if (availableAmount.value <= 0) {
     return unavailable(input.configuration, "usage_limit_reached");
   }
-  if (
-    availableAmount.currency !== input.discountableSubtotal.currency ||
-    availableAmount.exponent !== input.discountableSubtotal.exponent
-  ) {
+  if (!sameMoneyUnit(availableAmount, input.discountableSubtotal)) {
     return Effect.fail(
       new DiscountProviderError({
         reason: "malformed_configuration",
@@ -470,6 +480,7 @@ const toVoucherCandidate = (input: {
     discount: {
       id,
       label: m.checkoutVoucherLabel({}, { locale: input.locale }),
+      staffLabel: m.checkoutVoucherLabel({}, { locale: staffLocale }),
       adjustment: { kind: "fixed", amount: availableAmount },
       ...getPromotionTiming(input.configuration.validUntil),
     },

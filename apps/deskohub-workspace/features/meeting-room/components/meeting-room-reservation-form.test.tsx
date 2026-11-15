@@ -10,7 +10,14 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { Schema } from "effect";
 import type { ComponentProps } from "react";
 import type {
@@ -24,6 +31,10 @@ import {
 } from "@/features/checkout/product-catalog";
 import { discountIdSchema } from "@/features/discounts/contracts";
 import {
+  continueAndSubmitReservation,
+  mockReservationCheckoutStep,
+} from "@/features/reservation/components/reservation-checkout-step.test-utils";
+import {
   meetingRoomReservationDefaultValues,
   normalizedMeetingRoomReservationOrderSchema,
 } from "@/features/reservation/meeting-room-reservation";
@@ -32,7 +43,11 @@ import {
   type MeetingRoomReservationDuration,
 } from "@/features/reservation/meeting-room-reservation-duration";
 import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
-import { getMeetingRoomSelectionAvailabilityQuery } from "@/features/reservation/workspace-availability";
+import {
+  getMeetingRoomSelectionAvailabilityQuery,
+  getMeetingRoomStartTimesQuery,
+  workspaceAvailabilityKeys,
+} from "@/features/reservation/workspace-availability";
 import {
   workspaceUseAction,
   workspaceUseSearchParams,
@@ -44,22 +59,28 @@ import {
 
 const testEmailAddressForAda = testEmailAddress("ada");
 
-const execute = mock(() => undefined);
+const executeAsync = mock(() => Promise.resolve({}));
 const getAdvertisedPrices = mock(
   (requests: ReadonlyArray<AdvertisedPriceRequest>) =>
     Promise.resolve(advertisedPricesResult(requests))
 );
 
 mock.module("@/features/cookie-consent", () => ({
-  useCookieConsent: () => ({ isAccepted: () => false }),
+  useVisitorConsent: () => false,
+  visitorConsent: { accepts: () => false },
 }));
 
 mock.module("@/features/reservation/actions/get-advertised-price", () => ({
   getAdvertisedPrices,
 }));
 
+mockReservationCheckoutStep();
+
 const { MeetingRoomReservationForm } = await import(
   "./meeting-room-reservation-form"
+);
+const { typeTimeAsBrowsers } = await import(
+  "@/shared/components/date-time/time-input.test-utils"
 );
 
 const money = (value: number) => ({
@@ -185,6 +206,41 @@ const jsonResponse = <T,>(body: T) =>
     headers: { "Content-Type": "application/json" },
   });
 
+const startTimesResponse = {
+  date: "2099-07-30",
+  duration: "hour:1",
+  startTimes: ["10:00", "14:00", "15:00"].map((time) => {
+    const startsAt = Temporal.PlainDateTime.from(`2099-07-30T${time}`)
+      .toZonedDateTime("Europe/Prague")
+      .toInstant();
+    return {
+      startDateTime: `2099-07-30T${time}`,
+      startsAt: startsAt.toString(),
+      endsAt: startsAt.add({ hours: 1 }).toString(),
+      // The room is booked just before 14:00.
+      earlySetupAvailable: time !== "14:00",
+    };
+  }),
+};
+
+const isStartTimesRequest = (request: RequestInfo | URL) =>
+  String(request).includes("mode=start-times");
+
+/** Answers start-times requests with the given list and others with `body`. */
+const availabilityFetch = <T,>(
+  body: T,
+  startTimes: typeof startTimesResponse = startTimesResponse
+) =>
+  mock((request: RequestInfo | URL, _init?: RequestInit) =>
+    Promise.resolve(
+      jsonResponse(isStartTimesRequest(request) ? startTimes : body)
+    )
+  );
+
+const getIntervalAvailabilityCalls = (
+  fetchMock: ReturnType<typeof availabilityFetch>
+) => fetchMock.mock.calls.filter(([request]) => !isStartTimesRequest(request));
+
 const renderForm = (
   props: Partial<ComponentProps<typeof MeetingRoomReservationForm>> = {},
   queryClient = new QueryClient({
@@ -194,6 +250,11 @@ const renderForm = (
   const renderElement = () => (
     <QueryClientProvider client={queryClient}>
       <MeetingRoomReservationForm
+        checkoutCustomer={{
+          status: "profile-missing",
+          email: testEmailAddressForAda,
+          continuesCheckout: false,
+        }}
         checkoutSessionId="restored-checkout-session"
         initialReservation={initialReservation}
         locale="en-US"
@@ -218,7 +279,7 @@ describe("MeetingRoomReservationForm", () => {
       new URLSearchParams("utm_source=meeting-room-test")
     );
     workspaceUseAction.mockReturnValue({
-      execute,
+      executeAsync,
       isExecuting: false,
       result: {},
     });
@@ -229,7 +290,7 @@ describe("MeetingRoomReservationForm", () => {
 
   afterEach(() => {
     cleanup();
-    execute.mockClear();
+    executeAsync.mockClear();
     getAdvertisedPrices.mockClear();
   });
 
@@ -276,10 +337,8 @@ describe("MeetingRoomReservationForm", () => {
     expect(getAdvertisedPrices).not.toHaveBeenCalled();
   });
 
-  test("renders page-loaded availability on the first paint without a client request", () => {
-    const fetchCalls = mock((_request: RequestInfo | URL) =>
-      Promise.resolve(jsonResponse(availabilityResponse))
-    );
+  test("renders page-loaded availability on the first paint without an availability request", () => {
+    const fetchCalls = availabilityFetch(availabilityResponse);
     globalThis.fetch = fetchCalls as typeof fetch;
     const query = getMeetingRoomSelectionAvailabilityQuery({
       duration: "hour:1",
@@ -306,7 +365,7 @@ describe("MeetingRoomReservationForm", () => {
     });
 
     expect(view.getByText(/meeting room is not available/i)).toBeDefined();
-    expect(fetchCalls).not.toHaveBeenCalled();
+    expect(getIntervalAvailabilityCalls(fetchCalls)).toEqual([]);
   });
 
   test("loads cancellable availability and submits the current advertised reservation", async () => {
@@ -316,6 +375,9 @@ describe("MeetingRoomReservationForm", () => {
     } | null = null;
     globalThis.fetch = mock(
       (request: RequestInfo | URL, init?: RequestInit) => {
+        if (isStartTimesRequest(request)) {
+          return Promise.resolve(jsonResponse(startTimesResponse));
+        }
         availabilityRequest = {
           url: String(request),
           signal: init?.signal,
@@ -354,10 +416,10 @@ describe("MeetingRoomReservationForm", () => {
     ).toEqual(["1 hour", "4 hours", "whole day"]);
     expect(availabilityRequest?.signal).toBeInstanceOf(AbortSignal);
 
-    fireEvent.click(continueButton);
+    await continueAndSubmitReservation(continueButton);
 
-    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
-    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+    await waitFor(() => expect(executeAsync).toHaveBeenCalledTimes(1));
+    expect(executeAsync.mock.calls[0]?.[0]).toMatchObject({
       locale: "en-US",
       checkoutSessionId: "restored-checkout-session",
       advertisedPriceToken: "sealed-advertised-price",
@@ -391,6 +453,9 @@ describe("MeetingRoomReservationForm", () => {
     }
     let availabilityUrl = "";
     globalThis.fetch = mock((request: RequestInfo | URL) => {
+      if (isStartTimesRequest(request)) {
+        return Promise.resolve(jsonResponse(startTimesResponse));
+      }
       availabilityUrl = String(request);
       return Promise.resolve(jsonResponse(availabilityResponse));
     }) as typeof fetch;
@@ -439,10 +504,12 @@ describe("MeetingRoomReservationForm", () => {
       ).toBe(false);
     });
 
-    fireEvent.click(view.getByRole("button", { name: "Continue" }));
+    await continueAndSubmitReservation(
+      view.getByRole("button", { name: "Continue" }) as HTMLButtonElement
+    );
 
-    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
-    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+    await waitFor(() => expect(executeAsync).toHaveBeenCalledTimes(1));
+    expect(executeAsync.mock.calls[0]?.[0]).toMatchObject({
       advertisedPriceToken: advertisedPrice.advertisedPriceToken,
       marketingConsent: false,
       reservation: {
@@ -513,25 +580,87 @@ describe("MeetingRoomReservationForm", () => {
             .value
         ).toBe("16:00");
         expect(
-          view.getByRole("button", { name: /^Meeting room start date/ })
-            .textContent
-        ).toContain("July 30, 2099");
+          view.getByRole<HTMLInputElement>("combobox", {
+            name: "Start date and time",
+          }).value
+        ).toBe("7/30/2099");
       });
 
       const continueButton = view.getByRole("button", { name: "Continue" });
       await waitFor(() => {
         expect(continueButton.hasAttribute("disabled")).toBe(false);
       });
-      fireEvent.click(continueButton);
+      await continueAndSubmitReservation(continueButton as HTMLButtonElement);
 
-      await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
-      expect(execute.mock.calls[0]?.[0].reservation).toMatchObject({
+      await waitFor(() => expect(executeAsync).toHaveBeenCalledTimes(1));
+      expect(executeAsync.mock.calls[0]?.[0].reservation).toMatchObject({
         kind: "meeting-room",
         duration: { unit: "hour", amount: 1 },
         reservationDate: "2099-07-30",
         startsAt: "2099-07-30T14:00:00Z",
         endsAt: "2099-07-30T15:00:00Z",
       });
+    } finally {
+      Temporal.Now.instant = originalNow;
+    }
+  });
+
+  test("stays on the space with a typed start time before the earliest start", async () => {
+    const originalNow = Temporal.Now.instant;
+    Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T12:37:00Z");
+    globalThis.fetch = availabilityFetch(availabilityResponse) as typeof fetch;
+
+    try {
+      const view = renderForm({
+        initialReservation: undefined,
+        initialValues: {
+          ...meetingRoomReservationDefaultValues,
+          email: testEmailAddressForAda,
+          name: "Ada Lovelace",
+          phone: "+420777777777",
+          startDateTime: "2099-07-30T16:00",
+        },
+      });
+      const continueButton = view.getByRole("button", { name: "Continue" });
+      const timeField = view.getByLabelText(
+        /^Meeting room start time/
+      ) as HTMLInputElement;
+      const submittedStart = () =>
+        new FormData(continueButton.form as HTMLFormElement).getAll(
+          "startDateTime"
+        );
+      await waitFor(
+        () => expect(continueButton.hasAttribute("disabled")).toBe(false),
+        { timeout: 5000 }
+      );
+
+      timeField.focus();
+      await typeTimeAsBrowsers(timeField, "10:00");
+      // Pressing Continue moves focus out of the time field first.
+      fireEvent.blur(timeField);
+      await act(async () => {
+        fireEvent.click(continueButton);
+        // Continuing waits for the form's own validation.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      });
+
+      expect(continueButton.id).toBe("reservation-continue");
+      expect(timeField.value).toBe("10:00");
+      expect(timeField.getAttribute("aria-invalid")).toBe("true");
+      expect(document.activeElement === timeField).toBe(true);
+      expect(submittedStart()).toEqual([""]);
+      expect(executeAsync).not.toHaveBeenCalled();
+
+      // A time the room takes moves the form on once its availability loads.
+      await typeTimeAsBrowsers(timeField, "15:00");
+      fireEvent.blur(timeField);
+      await waitFor(
+        () => expect(continueButton.hasAttribute("disabled")).toBe(false),
+        { timeout: 5000 }
+      );
+      fireEvent.click(continueButton);
+      await waitFor(() => expect(continueButton.id).toBe("reservation-submit"));
+      expect(submittedStart()).toEqual(["2099-07-30T15:00"]);
     } finally {
       Temporal.Now.instant = originalNow;
     }
@@ -558,18 +687,20 @@ describe("MeetingRoomReservationForm", () => {
         initialReservation: restoredWholeDayReservation,
       });
       expect(
-        view.getByRole("button", { name: /^Meeting room start date/ })
-          .textContent
-      ).toContain("July 31, 2099");
+        view.getByRole<HTMLInputElement>("combobox", {
+          name: "Reservation date",
+        }).value
+      ).toBe("7/31/2099");
 
       now = Temporal.Instant.from("2099-07-30T22:37:00Z");
       view.rerenderForm();
 
       await waitFor(() => {
         expect(
-          view.getByRole("button", { name: /^Meeting room start date/ })
-            .textContent
-        ).toContain("July 31, 2099");
+          view.getByRole<HTMLInputElement>("combobox", {
+            name: "Reservation date",
+          }).value
+        ).toBe("7/31/2099");
       });
     } finally {
       Temporal.Now.instant = originalNow;
@@ -630,13 +761,14 @@ describe("MeetingRoomReservationForm", () => {
   });
 
   test("collapses rapid interval edits into one availability request", async () => {
-    globalThis.fetch = mock(() =>
-      Promise.resolve(jsonResponse(availabilityResponse))
-    ) as typeof fetch;
+    const fetchCalls = availabilityFetch(availabilityResponse);
+    globalThis.fetch = fetchCalls as typeof fetch;
 
     const view = renderForm();
 
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(getIntervalAvailabilityCalls(fetchCalls)).toHaveLength(1)
+    );
 
     fireEvent.input(
       view.container.querySelector(
@@ -650,10 +782,11 @@ describe("MeetingRoomReservationForm", () => {
       ) as HTMLInputElement
     );
 
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2), {
-      timeout: 5000,
-    });
-    expect(String(globalThis.fetch.mock.calls[1]?.[0])).toContain(
+    await waitFor(
+      () => expect(getIntervalAvailabilityCalls(fetchCalls)).toHaveLength(2),
+      { timeout: 5000 }
+    );
+    expect(String(getIntervalAvailabilityCalls(fetchCalls)[1]?.[0])).toContain(
       "startsAt=2099-07-30T09%3A00%3A00Z&endsAt=2099-07-30T13%3A00%3A00Z"
     );
   });
@@ -731,5 +864,318 @@ describe("MeetingRoomReservationForm", () => {
     expect(
       view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
     ).toBe(true);
+  });
+
+  describe("free start times", () => {
+    test("lists the day's free starts as a labelled group that sets the start time", async () => {
+      const fetchCalls = availabilityFetch(availabilityResponse);
+      globalThis.fetch = fetchCalls as typeof fetch;
+
+      const view = renderForm();
+      const group = await view.findByRole("radiogroup", {
+        name: "Free start times",
+      });
+      const options = within(group).getAllByRole("radio") as HTMLInputElement[];
+
+      expect(options.map(({ value }) => value)).toEqual([
+        "2099-07-30T10:00",
+        "2099-07-30T14:00",
+        "2099-07-30T15:00",
+      ]);
+      expect(options.map(({ checked }) => checked)).toEqual([
+        true,
+        false,
+        false,
+      ]);
+      expect(
+        fetchCalls.mock.calls.some(([request]) =>
+          String(request).endsWith(
+            "?kind=meeting-room&mode=start-times&date=2099-07-30&duration=hour%3A1"
+          )
+        )
+      ).toBe(true);
+
+      fireEvent.click(options[1] as HTMLInputElement);
+
+      const timeInput = view.container.querySelector(
+        'input[aria-label^="Meeting room start time"]'
+      ) as HTMLInputElement;
+      await waitFor(() => expect(timeInput.value).toBe("14:00"));
+      expect((options[1] as HTMLInputElement).checked).toBe(true);
+      await waitFor(() =>
+        expect(
+          getIntervalAvailabilityCalls(fetchCalls).some(([request]) =>
+            String(request).includes(
+              "startsAt=2099-07-30T12%3A00%3A00Z&endsAt=2099-07-30T13%3A00%3A00Z"
+            )
+          )
+        ).toBe(true)
+      );
+    });
+
+    test("says when the day has no free start", async () => {
+      globalThis.fetch = availabilityFetch(availabilityResponse, {
+        ...startTimesResponse,
+        startTimes: [],
+      }) as typeof fetch;
+
+      const view = renderForm();
+
+      expect(
+        await view.findByText(
+          "No free start times on this day for this duration. Try another date or a shorter duration."
+        )
+      ).toBeDefined();
+      expect(view.queryByRole("radiogroup", { name: "Free start times" })).toBe(
+        null
+      );
+    });
+
+    test("lists no start times for a whole-day booking", async () => {
+      globalThis.fetch = availabilityFetch(
+        availabilityResponse
+      ) as typeof fetch;
+
+      const view = renderForm();
+      await view.findByRole("radiogroup", { name: "Free start times" });
+
+      fireEvent.click(
+        view.container.querySelector(
+          'input[type="radio"][value="day:1"]'
+        ) as HTMLInputElement
+      );
+
+      await waitFor(() =>
+        expect(view.queryByText("Free start times")).toBe(null)
+      );
+    });
+  });
+
+  describe("early setup", () => {
+    const getEarlySetupCheckbox = (view: ReturnType<typeof renderForm>) =>
+      view.getByRole("checkbox", {
+        name: "I'd like to come 15 minutes early to set up",
+      });
+    const isChecked = (checkbox: HTMLElement) =>
+      checkbox.getAttribute("aria-checked") === "true";
+    const isDisabled = (checkbox: HTMLElement) =>
+      checkbox.hasAttribute("disabled");
+    const getReason = (checkbox: HTMLElement) => {
+      const reasonId = checkbox.getAttribute("aria-describedby");
+      return reasonId ? document.getElementById(reasonId)?.textContent : "";
+    };
+    const selectStart = (view: ReturnType<typeof renderForm>, time: string) =>
+      fireEvent.click(
+        view
+          .getByRole("radiogroup", { name: "Free start times" })
+          .querySelector(`input[value="2099-07-30T${time}"]`) as HTMLElement
+      );
+
+    test("starts unchecked, enables for a free setup time, and submits it", async () => {
+      globalThis.fetch = availabilityFetch(
+        availabilityResponse
+      ) as typeof fetch;
+
+      const view = renderForm();
+      const checkbox = getEarlySetupCheckbox(view);
+      expect(isChecked(checkbox)).toBe(false);
+      await waitFor(() => expect(isDisabled(checkbox)).toBe(false));
+      expect(getReason(checkbox)).toBeFalsy();
+
+      fireEvent.click(checkbox);
+      await waitFor(() => expect(isChecked(checkbox)).toBe(true));
+
+      const continueButton = view.getByRole("button", { name: "Continue" });
+      await waitFor(() =>
+        expect(continueButton.hasAttribute("disabled")).toBe(false)
+      );
+      await continueAndSubmitReservation(continueButton);
+
+      await waitFor(() => expect(executeAsync).toHaveBeenCalledTimes(1));
+      expect(executeAsync.mock.calls[0]?.[0]).toMatchObject({
+        reservation: { ...initialReservation, earlySetup: true },
+      });
+    });
+
+    test("turns off and explains itself when the room is booked just before the new start", async () => {
+      globalThis.fetch = availabilityFetch(
+        availabilityResponse
+      ) as typeof fetch;
+
+      const view = renderForm();
+      const checkbox = getEarlySetupCheckbox(view);
+      await waitFor(() => expect(isDisabled(checkbox)).toBe(false));
+      fireEvent.click(checkbox);
+      await waitFor(() => expect(isChecked(checkbox)).toBe(true));
+
+      selectStart(view, "14:00");
+
+      await waitFor(() => {
+        expect(isChecked(checkbox)).toBe(false);
+        expect(isDisabled(checkbox)).toBe(true);
+        expect(getReason(checkbox)).toBeTruthy();
+      });
+
+      selectStart(view, "15:00");
+
+      await waitFor(() => expect(isDisabled(checkbox)).toBe(false));
+      expect(isChecked(checkbox)).toBe(false);
+      expect(getReason(checkbox)).toBeFalsy();
+    });
+
+    test("follows the midnight start's setup time for a whole day", async () => {
+      const midnight = Temporal.PlainDate.from("2099-07-30")
+        .toZonedDateTime("Europe/Prague")
+        .toInstant();
+      const wholeDayStartTimes = {
+        date: "2099-07-30",
+        duration: "day:1",
+        startTimes: [
+          {
+            startDateTime: "2099-07-30T00:00",
+            startsAt: midnight.toString(),
+            endsAt: midnight.add({ hours: 24 }).toString(),
+            earlySetupAvailable: false,
+          },
+        ],
+      };
+      const fetchCalls = mock((request: RequestInfo | URL) => {
+        if (!isStartTimesRequest(request)) {
+          return Promise.resolve(jsonResponse(availabilityResponse));
+        }
+        return Promise.resolve(
+          jsonResponse(
+            String(request).includes("duration=day")
+              ? wholeDayStartTimes
+              : startTimesResponse
+          )
+        );
+      });
+      globalThis.fetch = fetchCalls as typeof fetch;
+
+      const view = renderForm();
+      const checkbox = getEarlySetupCheckbox(view);
+      await waitFor(() => expect(isDisabled(checkbox)).toBe(false));
+      fireEvent.click(checkbox);
+      await waitFor(() => expect(isChecked(checkbox)).toBe(true));
+
+      fireEvent.click(
+        view.container.querySelector(
+          'input[type="radio"][value="day:1"]'
+        ) as HTMLInputElement
+      );
+
+      await waitFor(() => {
+        expect(isChecked(checkbox)).toBe(false);
+        expect(isDisabled(checkbox)).toBe(true);
+        expect(getReason(checkbox)).toBeTruthy();
+      });
+      expect(
+        fetchCalls.mock.calls.some(([request]) =>
+          String(request).includes(
+            "mode=start-times&date=2099-07-30&duration=day%3A1"
+          )
+        )
+      ).toBe(true);
+    });
+
+    test("keeps a restored choice while the free starts load", async () => {
+      globalThis.fetch = mock((request: RequestInfo | URL) =>
+        isStartTimesRequest(request)
+          ? new Promise<Response>(() => undefined)
+          : Promise.resolve(jsonResponse(availabilityResponse))
+      ) as typeof fetch;
+
+      const view = renderForm({
+        initialReservation: { ...initialReservation, earlySetup: true },
+      });
+      const checkbox = getEarlySetupCheckbox(view);
+
+      await waitFor(() =>
+        expect(
+          view
+            .getByRole("button", { name: "Continue" })
+            .hasAttribute("disabled")
+        ).toBe(false)
+      );
+      expect(isChecked(checkbox)).toBe(true);
+      expect(getReason(checkbox)).toBeFalsy();
+
+      // The customer can still remove it, but not choose it again.
+      fireEvent.click(checkbox);
+      await waitFor(() => expect(isChecked(checkbox)).toBe(false));
+      expect(isDisabled(checkbox)).toBe(true);
+    });
+
+    test("keeps setup selected while stale unavailable starts are rechecked and become eligible", async () => {
+      const queryClient = new QueryClient();
+      const queryKey = [
+        ...workspaceAvailabilityKeys.meetingRoomStartTimes(
+          getMeetingRoomStartTimesQuery({
+            duration: "hour:1",
+            startDateTime: "2099-07-30T10:00",
+          })
+        ),
+        null,
+      ];
+      queryClient.setQueryData(
+        queryKey,
+        {
+          ...startTimesResponse,
+          startTimes: startTimesResponse.startTimes.map((start) => ({
+            ...start,
+            earlySetupAvailable: false,
+          })),
+        },
+        { updatedAt: 0 }
+      );
+      const recheck = Promise.withResolvers<Response>();
+      globalThis.fetch = mock((request: RequestInfo | URL) =>
+        isStartTimesRequest(request)
+          ? recheck.promise
+          : Promise.resolve(jsonResponse(availabilityResponse))
+      ) as typeof fetch;
+
+      const view = renderForm(
+        { initialReservation: { ...initialReservation, earlySetup: true } },
+        queryClient
+      );
+      const checkbox = getEarlySetupCheckbox(view);
+      await waitFor(() => expect(queryClient.isFetching({ queryKey })).toBe(1));
+      expect(isChecked(checkbox)).toBe(true);
+      expect(getReason(checkbox)).toBeFalsy();
+
+      recheck.resolve(jsonResponse(startTimesResponse));
+      await waitFor(() => expect(queryClient.isFetching({ queryKey })).toBe(0));
+      expect(isDisabled(checkbox)).toBe(false);
+      expect(isChecked(checkbox)).toBe(true);
+      expect(getReason(checkbox)).toBeFalsy();
+    });
+
+    test("explains a whole day's setup time it couldn't check", async () => {
+      globalThis.fetch = mock((request: RequestInfo | URL) =>
+        Promise.resolve(
+          isStartTimesRequest(request)
+            ? new Response(null, { status: 503 })
+            : jsonResponse(availabilityResponse)
+        )
+      ) as typeof fetch;
+
+      const view = renderForm({
+        initialReservation: {
+          ...initialReservation,
+          duration: { unit: "day", amount: 1 },
+          startsAt: "2099-07-29T22:00:00Z",
+          endsAt: "2099-07-30T22:00:00Z",
+        },
+      });
+      const checkbox = getEarlySetupCheckbox(view);
+
+      await waitFor(() => expect(getReason(checkbox)).toBeTruthy(), {
+        timeout: 5000,
+      });
+      expect(isChecked(checkbox)).toBe(false);
+      expect(isDisabled(checkbox)).toBe(true);
+    });
   });
 });

@@ -1,7 +1,6 @@
 import type {
   DotyposCustomer,
   DotyposCustomerId,
-  DotyposReservation,
   DotyposReservationId,
 } from "@deskohub/dotypos";
 import type {
@@ -9,55 +8,81 @@ import type {
   AudienceAttributeDefinition,
   AudienceConditionIn,
   AudienceConditionOf,
-  ReservationProductFilterType,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Match } from "effect";
-import type { AudienceCandidate, AudienceDateFacts } from "../audience-filter";
+import type {
+  AudienceCandidate,
+  AudienceDateFacts,
+  AudienceDateRequest,
+  ConcreteCountParams,
+} from "../audience-filter";
 import {
   type DatePeriodBounds,
-  datePeriodBounds,
+  isUnboundedPeriod,
   isWithinDatePeriodBounds,
 } from "../date-period";
 import { CampaignRecipientResolutionError } from "../errors";
+import {
+  type AudienceScope,
+  scopedCustomers,
+} from "./audience-evaluation-context";
 import type { ICampaignCandidateRepository } from "./campaign-candidate.repository";
 
-/** What a resolver can query while resolving one audience as of `now`. */
+/** What a resolver can query while resolving one audience. */
 export type AudienceResolution = {
-  readonly now: Temporal.Instant;
   readonly candidates: ICampaignCandidateRepository;
+  /** Facts outside the scope may be missing, never wrong. */
+  readonly scope: AudienceScope;
   /**
-   * Dotypos reservations, any status, starting in the bounds. Without a
-   * start of its own the query starts just before the earliest Workspace
-   * reservation, so it never reads unbounded history.
+   * The Dotypos reservations, any status, starting in the bounds. A live
+   * query without a start of its own starts just before the earliest
+   * Workspace reservation, so it never reads unbounded history.
    */
   readonly visitsIn: (
     bounds: DatePeriodBounds
-  ) => Resolved<readonly DotyposReservation[]>;
-  /** Every Dotypos reservation that has begun by `now`, with its start. */
-  readonly pastVisits: Resolved<
-    ReadonlyMap<DotyposReservationId, Temporal.Instant>
-  >;
+  ) => Resolved<readonly DotyposReservationId[]>;
+  /** Valid visit ends in the bounds; booked counts exclude provider cancellations. */
+  readonly visitEndsIn: (
+    bounds: DatePeriodBounds,
+    includeCancelled: boolean
+  ) => Resolved<readonly DotyposReservationId[]>;
+  /** Every Dotypos reservation that has begun by `asOf`, with its start. */
+  readonly pastVisits: (
+    asOf: Temporal.Instant
+  ) => Resolved<ReadonlyMap<DotyposReservationId, Temporal.Instant>>;
 };
 
 type Resolved<Value> = Effect.Effect<Value, CampaignRecipientResolutionError>;
 
-/** Counts each customer's records for a count condition's params. */
+/**
+ * Counts each customer's records for a count condition's request.
+ * `readsVisits` says whether the request reads Dotypos visits, so a unit
+ * fetches them only when needed.
+ */
 export type AudienceCountResolver<Params> = {
   readonly count: (
-    params: Params,
-    resolution: AudienceResolution
-  ) => Resolved<ReadonlyMap<DotyposCustomerId, number>>;
-};
-
-/** Customers with a date value, and those whose value lies in the bounds. */
-type AudienceDateResolver = {
-  readonly dates: (
     request: {
-      readonly bounds: DatePeriodBounds;
-      readonly product?: ReservationProductFilterType;
+      readonly attribute: string;
+      readonly params: ConcreteCountParams<Params>;
+      readonly reservationsAsOf?: Temporal.Instant;
     },
     resolution: AudienceResolution
+  ) => Resolved<ReadonlyMap<DotyposCustomerId, number>>;
+  readonly readsVisits: (request: {
+    readonly params: ConcreteCountParams<Params>;
+  }) => boolean;
+};
+
+/**
+ * Customers with a date value, and those whose value lies in the bounds.
+ * `readsVisits` says whether it reads Dotypos visits.
+ */
+type AudienceDateResolver = {
+  readonly dates: (
+    request: AudienceDateRequest<string>,
+    resolution: AudienceResolution
   ) => Resolved<AudienceDateFacts>;
+  readonly readsVisits: boolean;
 };
 
 /**
@@ -134,25 +159,32 @@ export type AudienceAttributeResolvers<
 
 const database = CampaignRecipientResolutionError.database;
 
-const reservationIds = (reservations: readonly DotyposReservation[]) =>
-  reservations.flatMap(({ id }) => (id === undefined ? [] : [id]));
-
 /**
  * Booked reservations by booking date count from local data; by visit date
  * in a bounded period they count among the Dotypos reservations starting in
- * it; by visit date at any time every booked reservation counts.
+ * it; by visit date at any time every booked reservation counts. A replay
+ * counts the reservations as they stood at its moment. Visit-end counts
+ * always read valid ends; `Past` makes them completed intervals. Without
+ * an explicit status they also exclude provider-cancelled visits.
  */
 const countReservations = (
   {
-    dateBasis,
-    period,
-    status,
-    product,
-  }: AudienceConditionOf<"reservationCount">["params"],
-  { candidates, now, visitsIn }: AudienceResolution
+    params: { dateBasis, period, status, product },
+    reservationsAsOf,
+  }: {
+    readonly params: ConcreteCountParams<
+      AudienceConditionOf<"reservationCount">["params"]
+    >;
+    readonly reservationsAsOf?: Temporal.Instant;
+  },
+  { candidates, scope, visitsIn, visitEndsIn }: AudienceResolution
 ) => {
-  const selection = { ...(status && { status }), ...(product && { product }) };
-  const bounds = datePeriodBounds(period, now);
+  const selection = {
+    ...(status && { status }),
+    ...(product && { product }),
+    ...(reservationsAsOf && { asOf: reservationsAsOf }),
+    customers: scopedCustomers(scope),
+  };
   const countSelected = (
     extra: Pick<
       Parameters<ICampaignCandidateRepository["countReservations"]>[0],
@@ -162,81 +194,129 @@ const countReservations = (
     candidates
       .countReservations({ ...selection, ...extra })
       .pipe(Effect.mapError(database));
-  return Match.value({ dateBasis, period }).pipe(
-    Match.when({ dateBasis: "booking" }, () =>
-      countSelected({ booked: bounds })
-    ),
-    Match.when({ period: { _tag: "AnyTime" } }, () => countSelected({})),
-    Match.orElse(() =>
-      visitsIn(bounds).pipe(
-        Effect.flatMap((visits) =>
-          countSelected({ dotyposReservationIds: reservationIds(visits) })
+  return Match.value(dateBasis).pipe(
+    Match.when("booking", () => countSelected({ booked: period })),
+    Match.when("visitEnd", () =>
+      visitEndsIn(period, status !== undefined).pipe(
+        Effect.flatMap((dotyposReservationIds) =>
+          countSelected({ dotyposReservationIds })
         )
       )
-    )
+    ),
+    Match.when("visit", () =>
+      isUnboundedPeriod(period)
+        ? countSelected({})
+        : visitsIn(period).pipe(
+            Effect.flatMap((dotyposReservationIds) =>
+              countSelected({ dotyposReservationIds })
+            )
+          )
+    ),
+    Match.exhaustive
   );
 };
 
-/** Each customer's latest booked visit among the past visits, of the product if given. */
-const lastVisits = (
-  { bounds, product }: Parameters<AudienceDateResolver["dates"]>[0],
-  { candidates, pastVisits }: AudienceResolution
-) =>
-  pastVisits.pipe(
-    Effect.flatMap((startById) =>
-      candidates.listBookedReservations([...startById.keys()], product).pipe(
-        Effect.mapError(database),
-        Effect.map((booked) => {
-          const latestByCustomer = new Map<
-            DotyposCustomerId,
-            Temporal.Instant
-          >();
-          for (const { dotyposReservationId, dotyposCustomerId } of booked) {
-            const startsAt = startById.get(dotyposReservationId);
-            const latest = latestByCustomer.get(dotyposCustomerId);
-            if (
-              startsAt &&
-              (!latest || Temporal.Instant.compare(startsAt, latest) > 0)
-            ) {
-              latestByCustomer.set(dotyposCustomerId, startsAt);
-            }
-          }
-          return latestByCustomer;
+/**
+ * Each customer's earliest or latest booked visit among the visits begun by
+ * the request's `asOf`, of the product, and booked as reservations stood at
+ * `reservationsAsOf` if given.
+ */
+const visitDates =
+  (pick: "earliest" | "latest"): AudienceDateResolver["dates"] =>
+  (
+    { bounds, asOf, product, reservationsAsOf },
+    { candidates, scope, pastVisits }
+  ) =>
+    pastVisits(asOf).pipe(
+      Effect.flatMap((startById) =>
+        candidates
+          .listBookedReservations([...startById.keys()], {
+            ...(product && { product }),
+            ...(reservationsAsOf && { asOf: reservationsAsOf }),
+            customers: scopedCustomers(scope),
+          })
+          .pipe(
+            Effect.mapError(database),
+            Effect.map((booked) => {
+              const visitByCustomer = new Map<
+                DotyposCustomerId,
+                Temporal.Instant
+              >();
+              const replaces = (
+                startsAt: Temporal.Instant,
+                chosen: Temporal.Instant
+              ) => {
+                const order = Temporal.Instant.compare(startsAt, chosen);
+                return pick === "latest" ? order > 0 : order < 0;
+              };
+              for (const {
+                dotyposReservationId,
+                dotyposCustomerId,
+              } of booked) {
+                const startsAt = startById.get(dotyposReservationId);
+                const chosen = visitByCustomer.get(dotyposCustomerId);
+                if (startsAt && (!chosen || replaces(startsAt, chosen))) {
+                  visitByCustomer.set(dotyposCustomerId, startsAt);
+                }
+              }
+              return visitByCustomer;
+            })
+          )
+      ),
+      Effect.map(
+        (visitByCustomer): AudienceDateFacts => ({
+          withValue: new Set(visitByCustomer.keys()),
+          inPeriod: new Set(
+            [...visitByCustomer].flatMap(([id, startsAt]) =>
+              isWithinDatePeriodBounds(bounds, startsAt) ? [id] : []
+            )
+          ),
         })
       )
-    ),
-    Effect.map(
-      (latest): AudienceDateFacts => ({
-        withValue: new Set(latest.keys()),
-        inPeriod: new Set(
-          [...latest].flatMap(([id, startsAt]) =>
-            isWithinDatePeriodBounds(bounds, startsAt) ? [id] : []
-          )
-        ),
-      })
-    )
-  );
+    );
 
 /**
  * How Workspace resolves each catalogued attribute. Count and date
- * attributes query local data and bounded Dotypos ranges once per audience;
- * set and boolean attributes read each candidate.
+ * attributes query local data and bounded Dotypos ranges once per distinct
+ * request; set and boolean attributes read each candidate.
  */
 export const audienceAttributeResolvers: AudienceAttributeResolvers = {
-  reservationCount: { count: countReservations },
+  reservationCount: {
+    count: countReservations,
+    readsVisits: ({ params: { dateBasis, period } }) =>
+      dateBasis === "visitEnd" ||
+      (dateBasis === "visit" && !isUnboundedPeriod(period)),
+  },
   campaignEmailCount: {
-    count: ({ purpose, period }, { candidates, now }) =>
+    // The evaluating campaign without one (`null`) has sent nobody anything.
+    count: (
+      { params: { purpose, period, campaign } },
+      { candidates, scope }
+    ) =>
+      campaign === null
+        ? Effect.succeed(new Map<DotyposCustomerId, number>())
+        : candidates
+            .countReceivedCampaignEmails({
+              ...(purpose !== "any" && { purpose }),
+              ...(campaign && { campaignId: campaign }),
+              dispatched: period,
+              customers: scopedCustomers(scope),
+            })
+            .pipe(Effect.mapError(database)),
+    readsVisits: () => false,
+  },
+  firstVisit: { dates: visitDates("earliest"), readsVisits: true },
+  lastVisit: { dates: visitDates("latest"), readsVisits: true },
+  accountCreated: {
+    dates: ({ bounds, asOf }, { candidates, scope }) =>
       candidates
-        .countReceivedCampaignEmails({
-          ...(purpose !== "any" && { purpose }),
-          dispatched: datePeriodBounds(period, now),
+        .accountCreations({
+          created: bounds,
+          asOf,
+          customers: scopedCustomers(scope),
         })
         .pipe(Effect.mapError(database)),
-  },
-  lastVisit: { dates: lastVisits },
-  accountCreated: {
-    dates: ({ bounds }, { candidates }) =>
-      candidates.accountCreations(bounds).pipe(Effect.mapError(database)),
+    readsVisits: false,
   },
   locale: { from: "candidate", read: ({ locale }) => [locale] },
   dotyposTags: { from: "profile", read: ({ tags }) => tags ?? [] },

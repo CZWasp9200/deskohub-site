@@ -11,17 +11,33 @@ backfill or invent a default.
 Write code lives in `features/account/backend/customer-locale-preference.ts`
 and the hooks in `auth-server.ts`.
 
-- The `user.create.before` hook puts the callback locale (else the site
+- The `user.create.before` hook puts the sign-in locale (else the site
   default) into the user insert, so no new account lacks one.
-- Every session creation captures the callback locale with an update that only
+- Every session creation captures the sign-in locale with an update that only
   matches a NULL locale, so sign-in never overwrites a saved preference. A
   capture failure logs `account-locale-preference.capture-failed` and never
   blocks login.
+- The sign-in locale is the callback URL's locale segment, else the app's
+  `x-deskohub-locale` header (`customerSignInLocaleHeader`). `/app/` paths
+  carry no locale, so the app sends the header on the two requests that can
+  create its account: `POST /sign-in/email-otp` and `GET /magic-link/verify`.
+  `appSignInLocale` (`native-sign-in.ts`) reads it only on those paths. The
+  auth guard refuses any other value than a supported locale with 400
+  `INVALID_LOCALE` before it claims the code or link, so a corrected retry
+  still works. Never accept the locale as a body or query field: Better Auth
+  rejects a `locale` user field on code sign-up after it consumes the code,
+  and drops unknown verify query keys.
 - The profile language control and the header switcher share `switchLocale`
   (`features/account/switch-locale.ts`); callers pass the
   `updateLocalePreference` Server Action as `save`. It saves under the account
   lock with the deletion-marker recheck, then navigates to the current URL in
   the new locale with a document navigation, even when the save fails.
+- The app saves it with the customer API's `PUT /account/locale`
+  (`updateLocale`), through `CustomerLocalePreference`: the same
+  `saveAccountLocalePreference` section, over sections that read the
+  request's authentication (`CustomerAccountSections.ForProvidedAuthentication`).
+  It writes no cookie and navigates nowhere; the app applies the language
+  itself.
 - The action writes no cookie. Next treats a cookie write in a Server Action
   as a revalidation: the save's response re-renders the referring page under
   its old locale, and the client applies it while the document navigation
@@ -45,6 +61,9 @@ and the hooks in `auth-server.ts`.
   (`features/account/backend/saved-locale-preference.ts`) takes it from that
   session, so a deletion-pending account keeps its preference. Never read the
   `locale` column yourself on a request path.
+- `loadAccountState` keeps the session's preference as the
+  `localePreference` session setting; the customer API answers it as
+  `locale` on every signed-in account state, null when there is none.
 - Every failure resolves to no preference, so the guest chain serves the page.
   Only an unavailable session read logs `account.locale-preference.read`.
 - `pageLocalePreference`

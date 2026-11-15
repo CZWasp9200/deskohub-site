@@ -1,12 +1,11 @@
 import "@/shared/testing/workspace-test-env";
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
-import { Deferred, Effect, Fiber, Layer, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
-import { waitForAdvisoryLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
 import { getManualInvoiceCreationRequestJson } from "./invoice-administration.service";
@@ -24,7 +23,7 @@ const getRequests = () =>
           Layer.mergeAll(
             Layer.succeed(
               WorkspaceDatabase,
-              WorkspaceDatabase.of({ db: testDatabase!.db })
+              WorkspaceDatabase.make(testDatabase!.db)
             ),
             AccountingSnapshotKeyService.Default
           )
@@ -34,7 +33,26 @@ const getRequests = () =>
     Effect.runPromise
   );
 
-const uniqueInvoiceId = () => invoiceIdSchema.make(crypto.randomUUID());
+const createdInvoiceIds: string[] = [];
+
+const uniqueInvoiceId = () => {
+  const invoiceId = invoiceIdSchema.make(crypto.randomUUID());
+  createdInvoiceIds.push(invoiceId);
+  return invoiceId;
+};
+
+const syntheticRequestJson = () =>
+  JSON.stringify({ request: crypto.randomUUID() });
+
+const readClaimedAtEpoch = async (invoiceId: string) => {
+  const { rows } = await testDatabase!.pool.query<{ epoch: number }>(
+    `select extract(epoch from claimed_at)::float8 as epoch
+     from manual_invoice_creation_requests
+     where invoice_id = $1`,
+    [invoiceId]
+  );
+  return rows[0]!.epoch;
+};
 
 const customerDetails = {
   kind: "business",
@@ -57,6 +75,117 @@ const customerDetails = {
 describe.skipIf(!testDatabase)(
   "ManualInvoiceCreationRequests on disposable Postgres",
   () => {
+    afterAll(async () => {
+      await testDatabase!.pool.query(
+        "delete from manual_invoice_creation_requests where invoice_id = any($1)",
+        [createdInvoiceIds]
+      );
+    });
+
+    test("reports an identical retry of a fresh claim as in progress", async () => {
+      const requests = await getRequests();
+      const invoiceId = uniqueInvoiceId();
+      const normalizedRequestJson = syntheticRequestJson();
+
+      const first = await Effect.runPromise(
+        requests.claim({ invoiceId, normalizedRequestJson })
+      );
+      const claimedAt = await readClaimedAtEpoch(invoiceId);
+      const retry = await Effect.runPromise(
+        requests.claim({ invoiceId, normalizedRequestJson })
+      );
+
+      expect(first).toEqual({ kind: "claimed" });
+      expect(retry).toEqual({ kind: "in-progress" });
+      expect(await readClaimedAtEpoch(invoiceId)).toEqual(claimedAt);
+    });
+
+    test("rejects a retry whose request differs from the claim", async () => {
+      const requests = await getRequests();
+      const invoiceId = uniqueInvoiceId();
+
+      await Effect.runPromise(
+        requests.claim({
+          invoiceId,
+          normalizedRequestJson: syntheticRequestJson(),
+        })
+      );
+      const retry = await Effect.runPromise(
+        requests.claim({
+          invoiceId,
+          normalizedRequestJson: syntheticRequestJson(),
+        })
+      );
+
+      expect(retry).toEqual({ kind: "mismatch" });
+    });
+
+    test("reports a completed request as completed and completes it only once", async () => {
+      const requests = await getRequests();
+      const invoiceId = uniqueInvoiceId();
+      const normalizedRequestJson = syntheticRequestJson();
+
+      await Effect.runPromise(
+        requests.claim({ invoiceId, normalizedRequestJson })
+      );
+      await Effect.runPromise(requests.complete(invoiceId));
+      const retry = await Effect.runPromise(
+        requests.claim({ invoiceId, normalizedRequestJson })
+      );
+      const secondCompletion = await Effect.runPromise(
+        Effect.flip(requests.complete(invoiceId))
+      );
+      const { rows } = await testDatabase!.pool.query<{ completed: boolean }>(
+        `select completed_at is not null as completed
+         from manual_invoice_creation_requests
+         where invoice_id = $1`,
+        [invoiceId]
+      );
+
+      expect(retry).toEqual({ kind: "completed" });
+      expect(secondCompletion).toMatchObject({
+        _tag: "ManualInvoiceCreationRequestError",
+      });
+      expect(rows).toEqual([{ completed: true }]);
+    });
+
+    test("cannot complete a request that was never claimed", async () => {
+      const requests = await getRequests();
+
+      const error = await Effect.runPromise(
+        Effect.flip(requests.complete(uniqueInvoiceId()))
+      );
+
+      expect(error).toMatchObject({
+        _tag: "ManualInvoiceCreationRequestError",
+      });
+    });
+
+    test("reclaims an identical request whose claim is older than a minute", async () => {
+      const requests = await getRequests();
+      const invoiceId = uniqueInvoiceId();
+      const normalizedRequestJson = syntheticRequestJson();
+
+      await Effect.runPromise(
+        requests.claim({ invoiceId, normalizedRequestJson })
+      );
+      await testDatabase!.pool.query(
+        `update manual_invoice_creation_requests
+         set claimed_at = claimed_at - interval '2 minutes'
+         where invoice_id = $1`,
+        [invoiceId]
+      );
+      const staleClaimedAt = await readClaimedAtEpoch(invoiceId);
+      const retry = await Effect.runPromise(
+        requests.claim({ invoiceId, normalizedRequestJson })
+      );
+
+      expect(retry).toEqual({ kind: "claimed" });
+      expect(await readClaimedAtEpoch(invoiceId)).toBeGreaterThan(
+        staleClaimedAt
+      );
+    });
+
     test("stores a claim without the customer contact details it binds", async () => {
       const requests = await getRequests();
       const invoiceId = uniqueInvoiceId();
@@ -76,7 +205,7 @@ describe.skipIf(!testDatabase)(
           invoiceId,
           normalizedRequestJson: getManualInvoiceCreationRequestJson(input, {
             source: "admin-ui",
-            actor: "admin",
+            actor: testEmailAddress("invoice-claim-administrator"),
           }),
         })
       );
@@ -102,51 +231,6 @@ describe.skipIf(!testDatabase)(
       ]) {
         expect(stored).not.toContain(value.toLowerCase());
       }
-    });
-
-    test("serializes creation per invoice ID", async () => {
-      const requests = await getRequests();
-      const invoiceId = uniqueInvoiceId();
-      const events: string[] = [];
-
-      await Effect.runPromise(
-        Effect.gen(function* () {
-          const acquired = yield* Deferred.make<void>();
-          const release = yield* Deferred.make<void>();
-          const holder = yield* Effect.forkChild(
-            requests.withLock(
-              invoiceId,
-              Deferred.succeed(acquired, undefined).pipe(
-                Effect.andThen(Deferred.await(release)),
-                Effect.andThen(Effect.sync(() => events.push("holder")))
-              )
-            )
-          );
-          yield* Deferred.await(acquired);
-          const contender = yield* Effect.forkChild(
-            requests.withLock(
-              invoiceId,
-              Effect.sync(() => events.push("contender"))
-            )
-          );
-          yield* Effect.promise(() =>
-            waitForAdvisoryLockWaiter(testDatabase!.pool, [
-              "manual-invoice-creation",
-              invoiceId,
-            ])
-          );
-
-          yield* requests.withLock(
-            uniqueInvoiceId(),
-            Effect.sync(() => events.push("other invoice"))
-          );
-          yield* Deferred.succeed(release, undefined);
-          yield* Fiber.join(holder);
-          yield* Fiber.join(contender);
-        })
-      );
-
-      expect(events).toEqual(["other invoice", "holder", "contender"]);
     });
   }
 );

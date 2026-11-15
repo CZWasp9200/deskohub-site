@@ -40,6 +40,10 @@ export type CustomerAccountFailureCode =
   | "account-locale-preference.read"
   | "account-locale-preference.write"
   | "account.deletion-state"
+  | "account.review"
+  | "authentication.agent-connections"
+  | "authentication.agent-token"
+  | "authentication.passkeys"
   | "authentication.session"
   | "dotypos.customer-expiration"
   | "dotypos.customer-lookup"
@@ -85,3 +89,41 @@ export const mapCustomerAccountFailure =
     error instanceof CustomerAccountAccessError
       ? error
       : customerAccountUnavailable(code);
+
+/**
+ * No Dotypos customer matches the verified email, so the account completes
+ * its profile, which creates one.
+ */
+export const isCustomerProfileMissing = (error: CustomerAccountAccessError) =>
+  error.reason === "link-required" && error.linkReason === "not-found";
+
+/**
+ * Whether the session is refused rather than unreadable. The `unavailable`
+ * reason means a session, link, lock, or Dotypos read failed, except for a
+ * review account, which never has a Dotypos customer.
+ */
+export const isCustomerAccountAccessDenial = (
+  error: CustomerAccountAccessError
+) => error.reason !== "unavailable" || error.cause?.code === "account.review";
+
+/** Why only support can link the account to its Dotypos customer. */
+export type CustomerAccountSupportReason = Extract<
+  CustomerAccountLinkFailure,
+  "ambiguous" | "unusable" | "claimed"
+>;
+
+const supportLinkReasons: ReadonlySet<CustomerAccountLinkFailure> =
+  new Set<CustomerAccountLinkFailure>(["ambiguous", "unusable", "claimed"]);
+
+/**
+ * The verified email's Dotypos customers can't be linked safely, so only
+ * support can connect the account to its history.
+ */
+export const isCustomerAccountSupportRequired = (
+  error: CustomerAccountAccessError
+): error is CustomerAccountAccessError & {
+  readonly linkReason: CustomerAccountSupportReason;
+} =>
+  error.reason === "link-required" &&
+  error.linkReason !== undefined &&
+  supportLinkReasons.has(error.linkReason);

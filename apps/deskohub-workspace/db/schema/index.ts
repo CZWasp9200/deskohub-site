@@ -1,5 +1,8 @@
+export { accountAnalyticsConsentDecisions } from "./account-analytics-consent-decisions";
 export { accountRoleGrants } from "./account-role-grants";
 export { accountingDocumentSnapshots } from "./accounting-document-snapshots";
+export { administrationActions } from "./administration-actions";
+export { administratorAssistantConnections } from "./administrator-assistant-connections";
 export {
   type CliAuthenticationRequestRow,
   type CliSessionRow,
@@ -9,7 +12,8 @@ export {
   cliMutationRequests,
   cliSessions,
 } from "./cli-authentication";
-export { customerAccountLinks } from "./customer-account-links";
+export { customerAccounts } from "./customer-accounts";
+export { customerEventSweeps, customerEvents } from "./customer-events";
 export { customerMarketingConsents } from "./customer-marketing-consents";
 export { customerMarketingManagementTokens } from "./customer-marketing-management-tokens";
 export {
@@ -38,6 +42,19 @@ export {
   vouchers,
 } from "./discounts";
 export {
+  emailCampaignAutomationEngine,
+  emailCampaignAutomationPreviewRows,
+  emailCampaignAutomationPreviews,
+  emailCampaignAutomationRunEvents,
+  emailCampaignAutomationRuns,
+  emailCampaignAutomationScheduleFires,
+  emailCampaignAutomations,
+  emailCampaignAutomationTriggerReceipts,
+  emailCampaignAutomationVersionProvenance,
+  emailCampaignAutomationVersions,
+  emailCampaignAutomationWorkUnits,
+} from "./email-campaign-automations";
+export {
   type CampaignAudienceRow,
   type CampaignRecipientRow,
   type CampaignRow,
@@ -49,6 +66,17 @@ export {
   emailCampaignSends,
   emailCampaigns,
 } from "./email-campaigns";
+export {
+  type EmailDiscountIssuanceRow,
+  type EmailPreparationRow,
+  type EmailRow,
+  type EmailVersionRow,
+  emailDiscountIssuances,
+  emailPreparations,
+  emails,
+  emailValueSnapshots,
+  emailVersions,
+} from "./emails";
 export {
   invoiceEmailDeliveries,
   invoiceEmailDeliveryAudiences,
@@ -68,6 +96,8 @@ export {
 } from "./legal-evidence-events";
 export { manualInvoiceActors } from "./manual-invoice-actors";
 export { manualInvoiceCreationRequests } from "./manual-invoice-creation-requests";
+export { mobileUpdatePublications } from "./mobile-update-publications";
+export { type NewOrder, type Order, orders } from "./orders";
 export {
   type PaymentAttemptRow,
   type PaymentAttemptState,
@@ -85,7 +115,12 @@ export {
   referralInvitationClaims,
   referralSignupIntents,
 } from "./referrals";
+export { requestBudgetSpends } from "./request-budget-spends";
 export { reservationAccessGrants } from "./reservation-access-grants";
+export {
+  type ReviewAccountHold,
+  reviewAccountHolds,
+} from "./review-account-holds";
 export {
   type StandaloneAccessCodeAttemptEventRow,
   standaloneAccessCodeAttemptEvents,
@@ -103,6 +138,6 @@ export {
   paymentStates,
   type ReservationState,
   reservationStates,
-  type WorkspaceReservation,
+  type WorkspaceReservationRow,
   workspaceReservations,
 } from "./workspace-reservations";

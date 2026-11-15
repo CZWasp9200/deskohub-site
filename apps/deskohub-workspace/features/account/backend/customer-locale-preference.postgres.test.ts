@@ -5,16 +5,20 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   type CustomerAccountAccessError,
+  type CustomerAccountId,
   customerAccountIdSchema,
 } from "../customer-account";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
+import { CustomerAccountSections } from "./customer-account-sections";
 import {
   type CustomerAccountSession,
   CustomerAuthentication,
 } from "./customer-authentication.service";
+import { testSessionProfile } from "./customer-authentication.test-utils";
 import {
   captureAccountLocalePreference,
   lookupMagicLinkDeliveryLocale,
@@ -32,19 +36,14 @@ let currentTestSession: CustomerAccountSession | null = null;
 const makeRepositoryLayer = () => {
   const testDatabaseLayer = Layer.succeed(
     WorkspaceDatabase,
-    WorkspaceDatabase.of({ db: testDatabase!.db })
+    WorkspaceDatabase.make(testDatabase!.db)
   );
 
-  // The link repository must see the disposable test database and the test
-  // advisory-lock pool too: `CustomerAccountLinkRepository.Live` would drag
-  // in the application `WorkspaceDatabase.Default`/lock defaults instead.
+  // The section must see the disposable test database and its advisory-lock
+  // pool: `CustomerAccountSections.Live` would drag in the application
+  // `WorkspaceDatabase.Default`/lock defaults instead.
   const testLinkRepository = CustomerAccountLinkRepository.Default.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        testDatabaseLayer,
-        WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
-      )
-    )
+    Layer.provide(testDatabaseLayer)
   );
 
   const testAuthenticationLayer = Layer.succeed(
@@ -62,25 +61,35 @@ const makeRepositoryLayer = () => {
       accountId: customerAccountIdSchema.make(accountId),
       email: testEmailAddress(`pref-${accountId}`),
       deletionRequested: false,
+      ...testSessionProfile,
     };
   };
 
   return {
     layer: Layer.mergeAll(
       testDatabaseLayer,
-      testLinkRepository,
-      testAuthenticationLayer
+      CustomerAccountSections.Default.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            testLinkRepository,
+            testAuthenticationLayer,
+            WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+          )
+        )
+      )
     ),
     setSessionAccount,
   };
 };
 
-const insertAuthUser = async (id: string, email: string) => {
-  await testDatabase!.pool.query(
-    `insert into auth."user" (id, name, email) values ($1, '', $2)`,
-    [id, email]
+const insertAuthUser = (id: CustomerAccountId, email: string) =>
+  Effect.runPromise(
+    workspaceFixtures(testDatabase!.db).account("locale-preference", {
+      id,
+      email,
+      verified: false,
+    })
   );
-};
 
 const uniqueId = () => crypto.randomUUID();
 
@@ -172,17 +181,18 @@ describe.skipIf(!testDatabase)(
     test("capture fills only a missing locale, and the lookup resolves the magic-link delivery locale", async () => {
       const dbLayer = Layer.succeed(
         WorkspaceDatabase,
-        WorkspaceDatabase.of({ db: testDatabase!.db })
+        WorkspaceDatabase.make(testDatabase!.db)
       );
       const verifiedEmail = testEmailAddress(`lookup-${crypto.randomUUID()}`);
       const unverifiedEmail = testEmailAddress(
         `unverified-${crypto.randomUUID()}`
       );
       const captureAccount = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(captureAccount, verifiedEmail);
-      await testDatabase!.pool.query(
-        `update auth."user" set email_verified = true where id = $1`,
-        [captureAccount]
+      await Effect.runPromise(
+        workspaceFixtures(testDatabase!.db).account("locale-preference", {
+          id: captureAccount,
+          email: verifiedEmail,
+        })
       );
       await insertAuthUser(
         customerAccountIdSchema.make(uniqueId()),

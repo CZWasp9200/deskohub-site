@@ -1,27 +1,32 @@
 import { describe, expect, test } from "bun:test";
-import { memoryAdapter } from "better-auth/adapters/memory";
 import { Effect } from "effect";
 import {
   BotDetectedError,
   type VerifyHumanInput,
 } from "@/shared/backend/bot-protection/bot-protection.service";
+import { customerAgentNames } from "@/shared/bot-protection/customer-agents";
 import {
   buildDatabaseAdapter,
   type CapturedMagicLink,
   callHandler,
+  callNativeHandler,
   cookieJar,
   getSessionCookie,
   makeMemoryTestAuth,
   makeTestAuth,
+  realCreateCustomerAccount,
   type TestAuth,
   type TestAuthOptions,
+  testAccountDeletion,
   testDatabase,
+  unavailableFlag,
+  unbuildableFlagProvider,
   uniqueEmail,
   uniqueIp,
   userIdForEmail,
   verifyMagicLink,
 } from "./auth-handler.test-utils";
-import { digestVerificationKey } from "./auth-options";
+import { digestVerificationKey, signInEmailLimit } from "./auth-options";
 import { renderMagicLinkEmail } from "./magic-link-email";
 
 /** Every field these tests send, including the ones the guard rejects. */
@@ -76,6 +81,12 @@ const signInWithCode = (
 ) => postJson(auth, "/sign-in/email-otp", { email, otp, callbackURL });
 
 const wrongCode = (code: string) => (code === "000000" ? "111111" : "000000");
+
+const expectedSignInBotCheck: VerifyHumanInput = {
+  verificationFailurePolicy: "allow",
+  verifiedBots: { allow: customerAgentNames },
+  callSite: "account.sign-in",
+};
 
 const errorCode = async (response: Response) =>
   ((await response.json()) as { readonly code?: string }).code;
@@ -253,14 +264,14 @@ describe("sign-in code gate", () => {
     expect(sentLinks).toHaveLength(1);
     expect(sentLinks[0]!.code).toBeUndefined();
     expect(store.verification).toHaveLength(1);
-    expect(botChecks).toBe(0);
+    expect(botChecks).toBe(1);
   });
 
   test("fails closed to link-only when the flag cannot be read", async () => {
     const sentLinks: CapturedMagicLink[] = [];
     const { auth } = makeMemoryTestAuth({
       sentLinks,
-      isSignInCodeEnabled: () => Promise.reject(new Error("unreadable")),
+      signInCodeFlag: unavailableFlag,
     });
 
     const response = await sendSignInEmail(auth, uniqueEmail("code-flag-down"));
@@ -269,11 +280,73 @@ describe("sign-in code gate", () => {
     expect(sentLinks[0]!.code).toBeUndefined();
   });
 
+  test("fails closed to link-only when the gate itself fails", async () => {
+    const sentLinks: CapturedMagicLink[] = [];
+    const { auth } = makeMemoryTestAuth({
+      sentLinks,
+      signInCodeFlag: Effect.die(new Error("synthetic gate defect")),
+    });
+
+    const response = await sendSignInEmail(
+      auth,
+      uniqueEmail("code-gate-fails")
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: true, signInCode: false });
+    expect(sentLinks).toHaveLength(1);
+    expect(sentLinks[0]!.code).toBeUndefined();
+  });
+
+  test("fails closed to link-only when the flag provider can't be built, and the link signs in", async () => {
+    const sentLinks: CapturedMagicLink[] = [];
+    const { auth, store } = makeMemoryTestAuth({
+      sentLinks,
+      flagProvider: unbuildableFlagProvider,
+    });
+
+    const response = await sendSignInEmail(
+      auth,
+      uniqueEmail("code-provider-unbuildable")
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: true, signInCode: false });
+    expect(sentLinks).toHaveLength(1);
+    expect(sentLinks[0]!.code).toBeUndefined();
+    expect(store.verification).toHaveLength(1);
+
+    const verified = await verifyMagicLink(auth, sentLinks[0]!);
+    expect(verified.status).toBe(302);
+    expect(getSessionCookie(verified)).toBeDefined();
+  });
+
+  test("decides the flag once per sign-in email and not again to sign in", async () => {
+    const sentLinks: CapturedMagicLink[] = [];
+    let reads = 0;
+    const { auth } = makeMemoryTestAuth({
+      sentLinks,
+      signInCodeFlag: Effect.sync(() => {
+        reads += 1;
+        return true;
+      }),
+    });
+
+    await sendSignInEmail(auth, uniqueEmail("code-decided-once"));
+    expect(reads).toBe(1);
+    expect(sentLinks[0]!.code).toMatch(/^\d{6}$/);
+
+    const verified = await verifyMagicLink(auth, sentLinks[0]!);
+    expect(verified.status).toBe(302);
+    expect(getSessionCookie(verified)).toBeDefined();
+    expect(reads).toBe(1);
+  });
+
   test("sends a six-digit code with the link and says so when the flag is on", async () => {
     const sentLinks: CapturedMagicLink[] = [];
     const { auth } = makeMemoryTestAuth({
       sentLinks,
-      isSignInCodeEnabled: async () => true,
+      signInCodeFlag: Effect.succeed(true),
     });
 
     const response = await sendSignInEmail(auth, uniqueEmail("code-on"), {
@@ -312,7 +385,7 @@ describe("sign-in code gate", () => {
     const sentLinks: CapturedMagicLink[] = [];
     const { auth, store } = makeMemoryTestAuth({
       sentLinks,
-      isSignInCodeEnabled: async () => true,
+      signInCodeFlag: Effect.succeed(true),
     });
     const email = uniqueEmail("code-fields");
     await sendSignInEmail(auth, email);
@@ -340,55 +413,58 @@ describe("sign-in code gate", () => {
     expect(store.user[0]!.name).toBe("");
   });
 
-  test("closes code sign-in while accounts are disabled", async () => {
-    const { auth } = makeMemoryTestAuth({
-      areAccountsEnabled: async () => false,
-    });
-
-    const response = await signInWithCode(
-      auth,
-      uniqueEmail("code-accounts-off"),
-      "123456"
-    );
-
-    expect(response.status).toBe(503);
-  });
-
-  test("BotID-checks code sign-in always and sign-in emails only while codes are on", async () => {
+  test("BotID-checks magic-link sends regardless of the flag and code sign-in", async () => {
     const checks: VerifyHumanInput[] = [];
     const bot = (input: VerifyHumanInput) =>
       Effect.suspend(() => {
         checks.push(input);
         return Effect.fail(
-          new BotDetectedError({ message: "Automated request detected" })
+          new BotDetectedError({
+            message: "Automated request detected",
+            reason: "unverified_bot",
+          })
         );
       });
-    const sentLinks: CapturedMagicLink[] = [];
-    const off = makeMemoryTestAuth({ sentLinks, verifyHuman: bot });
-    const on = makeTestAuth({
-      database: memoryAdapter(off.store),
-      sentLinks,
+    const offSentLinks: CapturedMagicLink[] = [];
+    const onSentLinks: CapturedMagicLink[] = [];
+    const off = makeMemoryTestAuth({
+      sentLinks: offSentLinks,
       verifyHuman: bot,
-      isSignInCodeEnabled: async () => true,
     });
-    const email = uniqueEmail("code-bot");
+    const on = makeMemoryTestAuth({
+      sentLinks: onSentLinks,
+      verifyHuman: bot,
+      signInCodeFlag: Effect.succeed(true),
+    });
 
-    const linkOnly = await sendSignInEmail(off.auth, email);
-    expect(linkOnly.status).toBe(200);
-    expect(checks).toHaveLength(0);
+    const blockedLinkOnly = await sendSignInEmail(
+      off.auth,
+      uniqueEmail("code-bot-off")
+    );
+    expect(blockedLinkOnly.status).toBe(403);
+    expect(await errorCode(blockedLinkOnly)).toBe("BOT_DETECTED");
+    expect(offSentLinks).toHaveLength(0);
 
-    const blockedSend = await sendSignInEmail(on, email);
+    const blockedSend = await sendSignInEmail(
+      on.auth,
+      uniqueEmail("code-bot-on")
+    );
     expect(blockedSend.status).toBe(403);
     expect(await errorCode(blockedSend)).toBe("BOT_DETECTED");
-    expect(sentLinks).toHaveLength(1);
+    expect(onSentLinks).toHaveLength(0);
 
-    const blockedSignIn = await signInWithCode(off.auth, email, "123456");
+    const blockedSignIn = await signInWithCode(
+      off.auth,
+      uniqueEmail("code-bot-sign-in"),
+      "123456"
+    );
     expect(blockedSignIn.status).toBe(403);
     expect(await errorCode(blockedSignIn)).toBe("BOT_DETECTED");
 
     expect(checks).toEqual([
-      { verificationFailurePolicy: "allow" },
-      { verificationFailurePolicy: "allow" },
+      expectedSignInBotCheck,
+      expectedSignInBotCheck,
+      expectedSignInBotCheck,
     ]);
   });
 });
@@ -397,7 +473,45 @@ describe.skipIf(!testDatabase)(
   "sign-in codes on the migrated disposable Postgres",
   () => {
     const makeCodeAuth = (sentLinks: CapturedMagicLink[]) =>
-      makeTestAuth({ sentLinks, isSignInCodeEnabled: async () => true });
+      makeTestAuth({ sentLinks, signInCodeFlag: Effect.succeed(true) });
+
+    test("signs the app in with the emailed code and hands it the session cookie", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const auth = makeCodeAuth(sentLinks);
+      const email = uniqueEmail("code-native");
+      const callbackURL = "deskohub://account";
+      const nativePost = (path: string, body: AuthRequestBody) =>
+        callNativeHandler(auth, path, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-vercel-forwarded-for": uniqueIp(),
+          },
+          body: JSON.stringify(body),
+        });
+
+      const sent = await nativePost("/sign-in/magic-link", {
+        email,
+        callbackURL,
+      });
+      expect(await sent.json()).toEqual({ status: true, signInCode: true });
+      const response = await nativePost("/sign-in/email-otp", {
+        email,
+        otp: sentLinks[0]!.code,
+        callbackURL,
+      });
+
+      // The app reads the session from the response; nothing redirects.
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+      expect(await sessionCount(email)).toBe(1);
+      const session = await callNativeHandler(auth, "/get-session", {
+        headers: { cookie: cookieJar(getSessionCookie(response)!) },
+      });
+      expect(
+        ((await session.json()) as { user?: { id: string } } | null)?.user?.id
+      ).toBe(await userIdForEmail(email));
+    });
 
     test("signs in with the code read from the rendered email, as the browser sends it", async () => {
       const sentLinks: CapturedMagicLink[] = [];
@@ -583,8 +697,9 @@ describe.skipIf(!testDatabase)(
       const restore = pausedVerificationCreate();
       const auth = makeTestAuth({
         sentLinks,
-        isSignInCodeEnabled: async () => true,
+        signInCodeFlag: Effect.succeed(true),
         database: restore.database,
+        createCustomerAccount: realCreateCustomerAccount,
       });
       const email = uniqueEmail("code-restore-race");
 
@@ -617,7 +732,7 @@ describe.skipIf(!testDatabase)(
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({
         sentLinks,
-        isSignInCodeEnabled: async () => true,
+        signInCodeFlag: Effect.succeed(true),
       });
       const consume = await pausedVerificationConsume(auth);
       const email = uniqueEmail("code-restore-displace");
@@ -650,7 +765,7 @@ describe.skipIf(!testDatabase)(
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({
         sentLinks,
-        isSignInCodeEnabled: async () => true,
+        signInCodeFlag: Effect.succeed(true),
       });
       const consume = await pausedVerificationConsume(auth);
       const email = uniqueEmail("code-restore-skew");
@@ -695,8 +810,9 @@ describe.skipIf(!testDatabase)(
       const failing = failingVerificationWrites();
       const auth = makeTestAuth({
         sentLinks,
-        isSignInCodeEnabled: async () => true,
+        signInCodeFlag: Effect.succeed(true),
         database: failing.database,
+        createCustomerAccount: realCreateCustomerAccount,
       });
       const email = uniqueEmail("code-claim-failure");
 
@@ -715,8 +831,9 @@ describe.skipIf(!testDatabase)(
       const failing = failingVerificationWrites();
       const auth = makeTestAuth({
         sentLinks,
-        isSignInCodeEnabled: async () => true,
+        signInCodeFlag: Effect.succeed(true),
         database: failing.database,
+        createCustomerAccount: realCreateCustomerAccount,
       });
       const email = uniqueEmail("link-revoke-failure");
 
@@ -787,19 +904,33 @@ describe.skipIf(!testDatabase)(
       expect(await userIdForEmail(email.toLowerCase())).toBeUndefined();
     });
 
-    test("caps sign-in emails per address per rolling hour while codes are on", async () => {
+    test("caps sign-in emails per address only while codes are on", async () => {
       const sentLinks: CapturedMagicLink[] = [];
-      const auth = makeCodeAuth(sentLinks);
-      const email = uniqueEmail("code-cap");
+      const checks: VerifyHumanInput[] = [];
+      const auth = makeTestAuth({
+        sentLinks,
+        signInCodeFlag: Effect.succeed(true),
+        verifyHuman: (input) =>
+          Effect.sync(() => {
+            checks.push(input);
+          }),
+      });
+      const email = uniqueEmail("code-cap-on");
 
-      for (let send = 0; send < 5; send += 1) {
+      for (let send = 0; send < signInEmailLimit.max; send += 1) {
         const accepted = await sendSignInEmail(auth, email);
         expect(accepted.status).toBe(200);
       }
       const capped = await sendSignInEmail(auth, email.toUpperCase());
       expect(capped.status).toBe(429);
       expect(await errorCode(capped)).toBe("SIGN_IN_EMAIL_LIMIT_REACHED");
-      expect(sentLinks).toHaveLength(5);
+      expect(sentLinks).toHaveLength(signInEmailLimit.max);
+      expect(checks).toEqual(
+        Array.from(
+          { length: signInEmailLimit.max + 1 },
+          () => expectedSignInBotCheck
+        )
+      );
 
       // Rejected sends don't extend the window; aged-out sends free it.
       await testDatabase!.pool.query(
@@ -808,11 +939,33 @@ describe.skipIf(!testDatabase)(
         [`sign-in-email-${await digestVerificationKey(email.toLowerCase())}`]
       );
       expect((await sendSignInEmail(auth, email)).status).toBe(200);
+      expect(checks).toHaveLength(signInEmailLimit.max + 2);
 
-      const linkOnly = makeTestAuth({ sentLinks });
-      for (let send = 0; send < 6; send += 1) {
-        expect((await sendSignInEmail(linkOnly, email)).status).toBe(200);
+      const linkOnlySentLinks: CapturedMagicLink[] = [];
+      const linkOnlyChecks: VerifyHumanInput[] = [];
+      const linkOnly = makeTestAuth({
+        sentLinks: linkOnlySentLinks,
+        signInCodeFlag: Effect.succeed(false),
+        verifyHuman: (input) =>
+          Effect.sync(() => {
+            linkOnlyChecks.push(input);
+          }),
+      });
+      // Counted, these sends would push the same address past its cap.
+      for (let send = 0; send <= signInEmailLimit.max; send += 1) {
+        const response = await sendSignInEmail(linkOnly, email);
+        expect(response.status).toBe(200);
+        expect(await errorCode(response)).not.toBe(
+          "SIGN_IN_EMAIL_LIMIT_REACHED"
+        );
       }
+      expect(linkOnlySentLinks).toHaveLength(signInEmailLimit.max + 1);
+      expect(linkOnlyChecks).toEqual(
+        Array.from(
+          { length: signInEmailLimit.max + 1 },
+          () => expectedSignInBotCheck
+        )
+      );
     });
 
     test("a code sign-in satisfies the fresh session that deletion requires", async () => {
@@ -820,11 +973,12 @@ describe.skipIf(!testDatabase)(
       let deletions = 0;
       const auth = makeTestAuth({
         sentLinks,
-        isSignInCodeEnabled: async () => true,
-        beforeDeleteUser: () =>
+        signInCodeFlag: Effect.succeed(true),
+        accountDeletion: testAccountDeletion(() =>
           Effect.sync(() => {
             deletions += 1;
-          }),
+          })
+        ),
       });
       const email = uniqueEmail("code-reauth");
 

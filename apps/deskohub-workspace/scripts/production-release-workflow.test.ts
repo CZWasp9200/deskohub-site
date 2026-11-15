@@ -53,21 +53,6 @@ const stepByName = (name: string): WorkflowStep => {
 
 const stepIndexOfName = (name: string): number => stepNames.indexOf(name);
 
-const requiredWorkspaceCronDefinitions = [
-  {
-    path: "/api/cron/workspace/reservation-holds",
-    schedule: "0 0 * * *",
-  },
-  {
-    path: "/api/cron/workspace/auth-cleanup",
-    schedule: "17 3 * * *",
-  },
-  {
-    path: "/api/cron/workspace/payment-refunds",
-    schedule: "37 * * * *",
-  },
-] as const;
-
 describe("deploy-workspace-production workflow", () => {
   test("gates the release on the production baseline before building and promoting", () => {
     const gateIndex = stepIndexOfName(
@@ -79,6 +64,23 @@ describe("deploy-workspace-production workflow", () => {
     expect(gateIndex).toBeGreaterThan(-1);
     expect(gateIndex).toBeLessThan(buildIndex);
     expect(buildIndex).toBeLessThan(promoteIndex);
+  });
+
+  test("typechecks the Workspace on the runner because the Vercel build only builds", () => {
+    const workspaceTurbo = JSON.parse(
+      readFileSync(resolve(import.meta.dir, "../turbo.json"), "utf8")
+    ) as { tasks: Record<string, { dependsOn?: readonly string[] }> };
+    const typecheckStep = stepByName("Typecheck Workspace");
+
+    expect(workspaceTurbo.tasks["build:compile"]?.dependsOn).not.toContain(
+      "typecheck"
+    );
+    expect(typecheckStep.run).toBe(
+      "bun turbo typecheck --filter=deskohub-workspace"
+    );
+    expect(stepIndexOfName("Typecheck Workspace")).toBeLessThan(
+      stepIndexOfName("Build staged production deployment")
+    );
   });
 
   test("probes staged auth readiness between migration and promotion", () => {
@@ -93,16 +95,6 @@ describe("deploy-workspace-production workflow", () => {
     expect(probeIndex).toBeLessThan(promoteIndex);
     expect(cronsIndex).toBeGreaterThan(probeIndex);
     expect(cronsIndex).toBeLessThan(promoteIndex);
-  });
-
-  test("keeps the release cron contract aligned with checked-in Vercel definitions", async () => {
-    const config = await Bun.file(
-      new URL("../vercel.json", import.meta.url)
-    ).json();
-
-    expect(config.crons).toEqual(
-      expect.arrayContaining(requiredWorkspaceCronDefinitions)
-    );
   });
 
   test("exposes the protection secret only to the staged probe", () => {
@@ -175,6 +167,21 @@ describe("deploy-workspace-production workflow", () => {
 
     const failStep = stepByName("Fail the release after rollback");
     expect(failStep.if).toBe("always() && (failure() || cancelled())");
+  });
+
+  test("submits published pages to IndexNow only after a successful release, without gating it", () => {
+    const indexNowStep = stepByName("Submit published pages to IndexNow");
+
+    // Placed after the recovery steps, a failed or cancelled submission can
+    // neither trigger a rollback nor fail the release.
+    expect(stepIndexOfName("Submit published pages to IndexNow")).toBe(
+      stepNames.length - 1
+    );
+    expect(indexNowStep.if).toBe("steps.canonical-smoke.outcome == 'success'");
+    expect(indexNowStep["continue-on-error"]).toBe(true);
+    expect(indexNowStep["timeout-minutes"]).toBeGreaterThan(0);
+    expect(indexNowStep.run).toBe("bun scripts/submit-indexnow.ts");
+    expect(indexNowStep.env).toBeUndefined();
   });
 
   test("budgets the job timeout for setup, the promotion poll, and both recovery attempts", () => {

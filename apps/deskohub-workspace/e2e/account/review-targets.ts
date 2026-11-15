@@ -1,4 +1,4 @@
-import type { AccountSection } from "@/features/account/components/shell/account-shell";
+import type { AccountSection } from "@/features/account/sections";
 import type { ReservationCustomerMode } from "@/features/reservation/reservation-existing-customer";
 import type { WorkspaceE2EAccountCaseId } from "./catalog";
 import type { AccountReviewTarget } from "./review-screenshots";
@@ -14,6 +14,8 @@ export const accountReviewTargetBySection = {
   reservations: "linked-reservations-desktop",
   referrals: "linked-referrals-desktop",
   profile: "linked-profile-desktop",
+  security: "linked-security-desktop",
+  assistants: "linked-assistants-desktop",
   billing: "linked-billing-desktop",
   legal: "linked-legal-desktop",
   danger: "linked-danger-desktop",
@@ -27,6 +29,8 @@ export const mobileAccountReviewTargetBySection: Readonly<
   billing: "linked-billing-mobile",
   danger: "linked-danger-mobile",
   profile: "linked-profile-language-mobile",
+  security: undefined,
+  assistants: undefined,
   legal: undefined,
 };
 
@@ -34,9 +38,9 @@ export const accountReviewTargetByCaseId: Partial<
   Record<WorkspaceE2EAccountCaseId, AccountReviewTarget>
 > = {
   "account-anonymous-redirect": "sign-in-desktop",
+  "account-data-export": "legal-export-delivered-desktop",
   "account-sign-in-form": "sign-in-accepted-desktop",
   "account-magic-link-delivery": "completion-mobile375x900",
-  "account-session-lifecycle": "callback-failed-desktop",
   "account-linking-variants": "support-desktop",
   "account-locale-preference": "linked-profile-language-desktop",
 };
@@ -56,6 +60,24 @@ export const languagePreferenceReviewTargetByStage = {
 
 export type LanguagePreferenceReviewStage =
   keyof typeof languagePreferenceReviewTargetByStage;
+
+/**
+ * The cross-browser sign-in's review moments in the assistant's browser: the
+ * Czech card its accepted request shows, and the failure card the link it
+ * replays after another browser consumed it lands on. The signed-in callback
+ * between them is captured by the lane's callback handoff hold.
+ */
+export const signInHandoffReviewTargetByStage = {
+  "sign-in-accepted": "sign-in-accepted-cs-desktop",
+  "callback-failed": "callback-failed-cs-desktop",
+} as const satisfies Readonly<Record<string, AccountReviewTarget>>;
+
+export type SignInHandoffReviewStage =
+  keyof typeof signInHandoffReviewTargetByStage;
+
+export type SignInHandoffReviewCapture = (
+  stage: SignInHandoffReviewStage
+) => Promise<void>;
 
 /**
  * The cowork reservation customer section in each mode: the signed-in

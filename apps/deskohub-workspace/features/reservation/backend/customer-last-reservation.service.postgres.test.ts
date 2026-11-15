@@ -1,3 +1,4 @@
+import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -5,32 +6,25 @@ import {
   type DotyposCustomerId,
   DotyposCustomerIdSchema,
   type DotyposReservation,
-  type DotyposReservationId,
-  DotyposReservationIdSchema,
   DotyposReservationSchema,
   DotyposService,
 } from "@deskohub/dotypos";
 import { Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { workspaceReservations } from "@/db/schema";
-import { checkoutAttemptKeySchema } from "@/features/checkout/checkout-identifiers";
 import type { StoredWorkspaceReservationDetails } from "@/features/reservation/persistence-contracts";
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { CustomerLastReservationService } from "./customer-last-reservation.service";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
-const uniqueId = () => crypto.randomUUID();
 const uniqueCustomerId = () =>
   DotyposCustomerIdSchema.make(
     `${Math.floor(Math.random() * 900000) + 100000}${Math.floor(
       Math.random() * 900
     )}`
   );
-const uniqueDotyposReservationId = () =>
-  DotyposReservationIdSchema.make(`dotypos-${uniqueId()}`);
-
 const makeDotyposReservation = (
   overrides: Partial<DotyposReservation> = {}
 ): DotyposReservation =>
@@ -44,36 +38,34 @@ const makeDotyposReservation = (
     ...overrides,
   });
 
-const insertReservation = async (input: {
+/**
+ * Inserts a reservation, paid and confirmed unless `confirmed` is false, and
+ * returns its Dotypos reservation id, which only a confirmed one has.
+ */
+const insertReservation = async ({
+  dotyposCustomerId,
+  reservationDetails,
+  createdAt,
+  confirmed = true,
+}: {
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly reservationDetails: StoredWorkspaceReservationDetails;
   readonly createdAt: string;
   readonly confirmed?: boolean;
-  readonly dotyposReservationId?: DotyposReservationId;
 }) => {
-  const confirmed = input.confirmed ?? true;
-  const dotyposReservationId =
-    input.dotyposReservationId ?? uniqueDotyposReservationId();
-  await Effect.runPromise(
-    testDatabase!.db.insert(workspaceReservations).values({
-      checkoutAttemptKey: checkoutAttemptKeySchema.make(
-        `attempt-${uniqueId()}`
-      ),
-      dotyposCustomerId: input.dotyposCustomerId,
-      dotyposReservationId: confirmed ? dotyposReservationId : null,
-      reservationState: confirmed ? "confirmed" : "draft",
-      paymentState: confirmed ? "paid" : "not_started",
-      paidAt: confirmed ? Temporal.Instant.from(input.createdAt) : null,
-      fulfillmentState: "not_started",
-      reservationConfirmedAt: confirmed
-        ? Temporal.Instant.from(input.createdAt)
-        : null,
-      reservationDetails: input.reservationDetails,
-      locale: "en-US",
-      createdAt: Temporal.Instant.from(input.createdAt),
+  const at = Temporal.Instant.from(createdAt);
+  const reservation = await Effect.runPromise(
+    workspaceFixtures(testDatabase!.db).reservation({
+      stage: confirmed
+        ? { reservation: "confirmed", payment: "paid" }
+        : { reservation: "draft" },
+      customer: dotyposCustomerId,
+      details: reservationDetails,
+      at,
+      overrides: { createdAt: at },
     })
   );
-  return dotyposReservationId;
+  return reservation.dotyposReservationId!;
 };
 
 const loadLastReservation = async (
@@ -94,10 +86,17 @@ const loadLastReservation = async (
       Layer.mergeAll(
         Layer.succeed(
           WorkspaceDatabase,
-          WorkspaceDatabase.of({ db: testDatabase!.db })
+          WorkspaceDatabase.make(testDatabase!.db)
         ),
         Layer.mock(DotyposService, {
-          listReservations,
+          getReservationsByIds: (ids) =>
+            listReservations({ ids: [...ids] }).pipe(
+              Effect.flatMap((records) =>
+                makeInMemoryDotypos({
+                  reservations: records,
+                }).service.getReservationsByIds(ids)
+              )
+            ),
         } as Partial<DotyposService["Service"]>)
       )
     )
@@ -149,6 +148,34 @@ describe.skipIf(!testDatabase)(
 
       expect(lastReservation).toBeNull();
       expect(listReservations).not.toHaveBeenCalled();
+    });
+
+    test("returns null when the latest reservation's stored details are malformed", async () => {
+      const customerId = uniqueCustomerId();
+      const dotyposReservationId = await insertReservation({
+        dotyposCustomerId: customerId,
+        reservationDetails: {
+          kind: "cowork",
+          entryTier: "open-space",
+          coffee: true,
+        },
+        createdAt: "2026-07-01T09:00:00.000Z",
+      });
+      // Only a write outside the encoder could store this.
+      await testDatabase!.pool.query(
+        "update workspace_reservations set reservation_details = $1::jsonb where dotypos_reservation_id = $2",
+        [
+          JSON.stringify({ kind: "cowork", entryTier: "open-space" }),
+          dotyposReservationId,
+        ]
+      );
+
+      const { lastReservation } = await loadLastReservation(
+        customerId,
+        "cowork"
+      );
+
+      expect(lastReservation).toBeNull();
     });
 
     test("repeats the latest confirmed current cowork tier with its monitor option", async () => {
@@ -256,6 +283,28 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    test("returns null when a booked meeting-room end is unreadable", async () => {
+      const customerId = uniqueCustomerId();
+      const dotyposReservationId = await insertReservation({
+        dotyposCustomerId: customerId,
+        reservationDetails: { kind: "meeting-room" },
+        createdAt: "2026-07-01T09:00:00.000Z",
+      });
+      const reservation = makeDotyposReservation({
+        id: dotyposReservationId,
+        startDate: "2026-07-01T08:00:00.000Z",
+        endDate: "2026-07-01T12:00:00.000Z",
+      });
+
+      const { lastReservation } = await loadLastReservation(
+        customerId,
+        "meeting-room",
+        [{ ...reservation, endDate: "not-a-date" }]
+      );
+
+      expect(lastReservation).toBeNull();
+    });
+
     test("returns null when Dotypos no longer lists the booked meeting room", async () => {
       const customerId = uniqueCustomerId();
       await insertReservation({
@@ -273,34 +322,38 @@ describe.skipIf(!testDatabase)(
       expect(listReservations).toHaveBeenCalledTimes(1);
     });
 
-    test("maps a booked office interval and seats to a day count and seats", async () => {
-      const customerId = uniqueCustomerId();
-      const dotyposReservationId = await insertReservation({
-        dotyposCustomerId: customerId,
-        reservationDetails: { kind: "office" },
-        createdAt: "2026-07-01T09:00:00.000Z",
-      });
+    // Any spelling JavaScript reads as a positive whole number counts.
+    test.each([["4"], ["4.0"], ["4e0"]] as const)(
+      "maps a booked office interval and seats %p to a day count and seats",
+      async (seats) => {
+        const customerId = uniqueCustomerId();
+        const dotyposReservationId = await insertReservation({
+          dotyposCustomerId: customerId,
+          reservationDetails: { kind: "office" },
+          createdAt: "2026-07-01T09:00:00.000Z",
+        });
 
-      const { lastReservation } = await loadLastReservation(
-        customerId,
-        "office",
-        [
-          makeDotyposReservation({
-            id: dotyposReservationId,
-            // Prague midnight on 1 July to midnight on 4 July.
-            startDate: "2026-06-30T22:00:00.000Z",
-            endDate: "2026-07-03T22:00:00.000Z",
-            seats: "4",
-          }),
-        ]
-      );
+        const { lastReservation } = await loadLastReservation(
+          customerId,
+          "office",
+          [
+            makeDotyposReservation({
+              id: dotyposReservationId,
+              // Prague midnight on 1 July to midnight on 4 July.
+              startDate: "2026-06-30T22:00:00.000Z",
+              endDate: "2026-07-03T22:00:00.000Z",
+              seats,
+            }),
+          ]
+        );
 
-      expect(lastReservation).toEqual({
-        kind: "office",
-        dayCount: 3,
-        seats: 4,
-      });
-    });
+        expect(lastReservation).toEqual({
+          kind: "office",
+          dayCount: 3,
+          seats: 4,
+        });
+      }
+    );
 
     test.each([
       ["non-numeric seats", "four", "2026-06-30T22:00:00.000Z"],

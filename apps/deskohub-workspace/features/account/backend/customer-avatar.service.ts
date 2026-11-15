@@ -6,24 +6,21 @@ import {
   CloudinaryPublicIdSchema,
 } from "@deskohub/cloudinary";
 import { buildVersionedDeliveryUrl } from "@deskohub/cloudinary/delivery";
+import { CloudinaryService } from "@deskohub/cloudinary/server";
 import {
-  CloudinaryService,
-  makeCloudinaryRuntimeConfigLayer,
-} from "@deskohub/cloudinary/server";
+  customerAvatarMaxUploadBytes,
+  customerAvatarMediaTypes,
+} from "@deskohub/workspace-customer-api";
 import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import { env } from "@/env";
-import {
+import { WorkspaceCloudinaryLayer } from "@/shared/backend/cloudinary";
+import type {
   CustomerAccountAccessError,
-  type CustomerAccountId,
-  customerAccountUnavailable,
+  CustomerAccountId,
 } from "../customer-account";
-import { requireAccountActivity } from "./customer-account-activity";
-import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import { CustomerAuthentication } from "./customer-authentication.service";
+import { CustomerAccountSections } from "./customer-account-sections";
 import {
   CustomerAvatarRejectedError,
-  customerAvatarAllowedMediaTypes,
-  customerAvatarMaxUploadBytes,
   normalizeCustomerAvatar,
 } from "./customer-avatar-normalization";
 
@@ -108,22 +105,6 @@ export class CustomerAvatarSettings extends Context.Service<
   }));
 }
 
-const WorkspaceCloudinaryLayer = CloudinaryService.Live.pipe(
-  Layer.provide(
-    makeCloudinaryRuntimeConfigLayer({
-      cloudName: env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-      apiKey: env.CLOUDINARY_API_KEY,
-      apiSecret: env.CLOUDINARY_API_SECRET,
-      defaultPageSize: 60,
-      serviceName: "workspace",
-    })
-  )
-);
-
-class GuardedSectionError<E> extends Data.TaggedError("GuardedSectionError")<{
-  readonly error: E;
-}> {}
-
 interface ICustomerAvatarService {
   /**
    * Normalizes and stores the upload as the account's single avatar. The
@@ -181,8 +162,7 @@ export class CustomerAvatarService extends Context.Service<
     this,
     Effect.gen(function* () {
       const cloudinary = yield* CloudinaryService;
-      const links = yield* CustomerAccountLinkRepository;
-      const authentication = yield* CustomerAuthentication;
+      const sections = yield* CustomerAccountSections;
       const settings = yield* CustomerAvatarSettings;
 
       const requireNamespace: Effect.Effect<
@@ -196,25 +176,12 @@ export class CustomerAvatarService extends Context.Service<
       const destroyById = (publicId: CloudinaryPublicId) =>
         destroyAssetById(cloudinary, publicId);
 
-      const requireSameVerifiedAccount = (accountId: CustomerAccountId) =>
-        authentication.currentUser.pipe(
-          Effect.flatMap((session) =>
-            session?.accountId === accountId
-              ? Effect.void
-              : Effect.fail(
-                  new CustomerAccountAccessError({ reason: "unauthenticated" })
-                )
-          )
-        );
-
       /**
-       * Runs an avatar mutation under the account advisory lock after
-       * re-reading the verified session and authoritative activity state, so
-       * a concurrent revocation or deletion marker stops provider work.
-       * A concurrent deletion marker can only land before or after the whole
-       * mutation.
-       * The lock's own SqlError maps to the shared account-unavailable
-       * failure; the section's typed errors pass through unchanged.
+       * Runs an avatar mutation in the account's section, which re-reads the
+       * verified session and the authoritative account state under the
+       * lock, so a concurrent revocation or deletion marker stops provider
+       * work. A concurrent deletion marker can only land before or after the
+       * whole mutation.
        *
        * The whole media critical section — provider calls, reconciliation,
        * and cleanup — is uninterruptible while the lock is held: a timed-out
@@ -228,28 +195,12 @@ export class CustomerAvatarService extends Context.Service<
       const guarded = <A, E, R>(
         accountId: CustomerAccountId,
         mutation: Effect.Effect<A, E, R>
-      ): Effect.Effect<
-        A,
-        E | CustomerAvatarUnavailableError | CustomerAccountAccessError,
-        R
-      > =>
-        links
-          .withAccountLock(
-            accountId,
-            requireAccountActivity(links, accountId).pipe(
-              Effect.andThen(requireSameVerifiedAccount(accountId)),
-              Effect.andThen(mutation),
-              Effect.uninterruptible,
-              Effect.mapError((error) => new GuardedSectionError({ error }))
-            )
-          )
-          .pipe(
-            Effect.catch((failure) =>
-              failure._tag === "GuardedSectionError"
-                ? Effect.fail(failure.error)
-                : Effect.fail(customerAccountUnavailable("account-link.lock"))
-            )
-          );
+      ): Effect.Effect<A, E | CustomerAccountAccessError, R> =>
+        sections.withActiveAccount(
+          accountId,
+          Effect.uninterruptible(mutation),
+          { recheck: "session" }
+        );
 
       /**
        * Bare asset destroy for the deletion hook: the live asset goes first,
@@ -347,8 +298,7 @@ export class CustomerAvatarService extends Context.Service<
     Layer.provide(
       Layer.mergeAll(
         CustomerAvatarSettings.Live,
-        CustomerAuthentication.Default,
-        CustomerAccountLinkRepository.Live,
+        CustomerAccountSections.Live,
         WorkspaceCloudinaryLayer
       )
     )
@@ -356,7 +306,7 @@ export class CustomerAvatarService extends Context.Service<
 }
 
 const allowedMediaTypes: ReadonlySet<string> = new Set(
-  customerAvatarAllowedMediaTypes
+  customerAvatarMediaTypes
 );
 
 /**

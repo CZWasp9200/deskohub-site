@@ -9,6 +9,7 @@ import type {
   NexiWebhookEventId,
 } from "@deskohub/nexi";
 import type { Effect } from "effect";
+import type { Locale } from "@/features/i18n";
 import type {
   CheckoutAttemptKey,
   CheckoutSessionKey,
@@ -21,8 +22,12 @@ import type {
   WorkspaceReservationId,
 } from "../features/reservation/persistence-contracts";
 import type { ReservationInterval } from "../features/reservation/reservation-interval";
+import type { OpenE2EBrowserSession } from "./browser-session";
+import type { WorkspaceE2EStepRunner } from "./case-runner";
+import type { ReservationFormPreparation } from "./checkout/reservation-form-preparation";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "./config";
 import type { WorkspaceE2EHostedPaymentPermitService } from "./coordination/hosted-payment-permit.service";
+import type { WorkspaceE2EProviderVerificationPermitService } from "./coordination/provider-verification-permit.service";
 import type { WorkspaceE2EError } from "./errors";
 import type { E2EDatabase } from "./integrations/database.service";
 
@@ -76,7 +81,7 @@ export type CheckoutData = {
   readonly date: string;
   readonly email: string;
   readonly expectedReservationDetails: StoredWorkspaceReservationDetails;
-  readonly locale: "en-US" | "cs-CZ";
+  readonly locale: Locale;
   readonly meetingRoom?: {
     readonly duration: MeetingRoomReservationDuration;
     readonly endsAt: ReservationInterval["endsAt"];
@@ -102,7 +107,9 @@ export type CheckoutFlow = {
     datasourceConfig: DatasourceConfig,
     date: string
   ) => Effect.Effect<CheckoutData | undefined, WorkspaceE2EError>;
-  readonly submitReservationScript: (data: CheckoutData) => string;
+  readonly toReservationPreparation: (
+    data: CheckoutData
+  ) => ReservationFormPreparation;
 };
 
 export type CheckoutFlowState = {
@@ -115,32 +122,47 @@ export type CheckoutFlowState = {
 };
 
 export type PaymentTerminalScenario = {
+  readonly failureCode: string;
+  readonly id: string;
   readonly providerStatus: string;
   readonly state: "cancelled" | "failed";
   readonly titlePattern: RegExp;
+  /**
+   * How the payment attempt ends. `hosted_authentication_failure` fails the
+   * 3-D Secure challenge on the Nexi hosted page and returns through the
+   * provider; `injected` writes the terminal state after Nexi opens, because
+   * the hosted page offers no cancellation that Nexi records.
+   */
+  readonly trigger: "hosted_authentication_failure" | "injected";
+};
+
+/** What a running case gets from the case pool. */
+export type WorkspaceE2ECaseContext = {
+  /**
+   * The case's own browser session, opened on first use; a session that
+   * fails to open fails the step that first needs it.
+   */
+  readonly openSession: OpenE2EBrowserSession;
+  /**
+   * Another session in its own browser context, such as a second visitor's;
+   * the test's Scope owns it as it owns the case's session. Each run of the
+   * returned effect opens a new session, which `name` labels.
+   */
+  readonly openSeparateSession: (name: string) => OpenE2EBrowserSession;
+  readonly runStep: WorkspaceE2EStepRunner;
 };
 
 export type WorkspaceE2ECase = {
   readonly checkoutStates: readonly CheckoutFlowState[];
   readonly id: string;
   readonly timeoutMs: number;
-  readonly execute: (context: {
-    readonly runStep: WorkspaceE2EStepRunner;
-    readonly session: string;
-  }) => Effect.Effect<
+  readonly execute: (
+    context: WorkspaceE2ECaseContext
+  ) => Effect.Effect<
     void,
     WorkspaceE2EError,
-    E2EDatabase | WorkspaceE2EHostedPaymentPermitService
+    | E2EDatabase
+    | WorkspaceE2EHostedPaymentPermitService
+    | WorkspaceE2EProviderVerificationPermitService
   >;
 };
-
-export type WorkspaceE2EStep<A, R = never> = {
-  readonly capacity?: "provider-verification";
-  readonly execute: Effect.Effect<A, WorkspaceE2EError, R>;
-  readonly id: string;
-  readonly timeoutMs: number;
-};
-
-export type WorkspaceE2EStepRunner = <A, R>(
-  step: WorkspaceE2EStep<A, R>
-) => Effect.Effect<A, WorkspaceE2EError, R>;

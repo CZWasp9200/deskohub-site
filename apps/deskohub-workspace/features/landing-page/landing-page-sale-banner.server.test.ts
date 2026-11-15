@@ -1,16 +1,14 @@
 import "@/shared/testing/workspace-test-env";
 import "@/shared/polyfills/temporal";
 import { describe, expect, mock, test } from "bun:test";
-import {
-  type Context,
-  Effect,
-  Layer,
-  Logger,
-  References,
-  Schema,
-} from "effect";
+import { type Context, Effect, Logger, References, Schema } from "effect";
 import { type ActiveSale, discountIdSchema } from "@/features/discounts";
-import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import {
+  type WorkspaceProductFamily,
+  type WorkspaceProductTarget,
+  workspaceProductFamilies,
+} from "@/features/discounts/product-target";
+import { m } from "@/features/i18n";
 import { getLandingPageSaleBannerLabel } from "./landing-page-sale-banner-content";
 
 type LogAnnotations = Context.Service.Shape<
@@ -30,8 +28,8 @@ mock.module("@/features/discounts/active-public-sales.server", () => ({
   getActivePublicSales,
 }));
 
-const { OfficeReservationFeatureFlagService } = await import(
-  "@/features/office/backend/office-reservation-feature-flag.service"
+const { OfficeReleaseGate } = await import(
+  "@/features/office/backend/office-release-gate"
 );
 const { getActiveLandingPageSaleBanner } = await import(
   "./landing-page-sale-banner.server"
@@ -60,15 +58,32 @@ const sale = (
   products,
 });
 
-const advertisedLabel = (products: readonly WorkspaceProductTarget[]) =>
+const bookableWithoutOffice = workspaceProductFamilies.filter(
+  (family) => family !== "office"
+);
+
+const advertisedLabel = (
+  products: readonly WorkspaceProductTarget[],
+  bookableProducts: readonly WorkspaceProductFamily[] = workspaceProductFamilies
+) =>
   getLandingPageSaleBannerLabel(
     {
       title: "Summer focus",
       adjustment: { kind: "percentage", basisPoints: 2000 },
       products,
     },
-    "en-US"
+    "en-US",
+    bookableProducts
   );
+
+const allProductsTemplate = m.landingSaleBannerAllProducts(
+  { title: "{title}", adjustment: "{adjustment}" },
+  { locale: "en-US" }
+);
+const selectedProductsTemplate = m.landingSaleBannerSelectedProducts(
+  { title: "{title}", adjustment: "{adjustment}" },
+  { locale: "en-US" }
+);
 
 let officePageEnabled = true;
 const isOfficePageEnabled = mock(() => officePageEnabled);
@@ -90,9 +105,7 @@ const getBannerEffect = (
     return { banner };
   }).pipe(
     Effect.provide(
-      Layer.succeed(OfficeReservationFeatureFlagService, {
-        isEnabled: Effect.sync(isOfficePageEnabled),
-      })
+      OfficeReleaseGate.fromEvaluation(Effect.sync(isOfficePageEnabled))
     )
   );
 };
@@ -108,21 +121,13 @@ const getBanner = (
 
 describe("getActiveLandingPageSaleBanner", () => {
   test.each([
-    [
-      "mixed",
-      [coworkProduct, meetingRoomProduct],
-      "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-    ],
+    ["mixed", [coworkProduct, meetingRoomProduct], "/en-US/reservation/cowork"],
     [
       "mixed without cowork",
       [officeProduct, meetingRoomProduct],
-      "/en-US/reservation/meeting-room?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
+      "/en-US/reservation/meeting-room",
     ],
-    [
-      "office-only",
-      [officeProduct],
-      "/en-US/reservation/office?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-    ],
+    ["office-only", [officeProduct], "/en-US/reservation/office"],
   ] as const)("builds the %s sale CTA", async (_label, products, href) => {
     const { banner } = await getBanner([sale(products)]);
 
@@ -147,9 +152,33 @@ describe("getActiveLandingPageSaleBanner", () => {
     );
 
     expect(banner).toMatchObject({
-      href: "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-      label: advertisedLabel([coworkProduct, meetingRoomProduct]),
+      href: "/en-US/reservation/cowork",
+      label: advertisedLabel(
+        [coworkProduct, meetingRoomProduct],
+        bookableWithoutOffice
+      ),
     });
+    expect(banner?.label.template).toBe(allProductsTemplate);
+  });
+
+  test("advertises a sale on every bookable product as all products while office reservations are disabled", async () => {
+    const { banner } = await getBanner(
+      [sale([coworkProduct, meetingRoomProduct])],
+      "en-US",
+      false
+    );
+
+    expect(banner?.label.template).toBe(allProductsTemplate);
+  });
+
+  test("advertises a sale without the bookable office as selected products", async () => {
+    const { banner } = await getBanner(
+      [sale([coworkProduct, meetingRoomProduct])],
+      "en-US",
+      true
+    );
+
+    expect(banner?.label.template).toBe(selectedProductsTemplate);
   });
 
   test("links a mixed office sale to its bookable family while office reservations are disabled", async () => {
@@ -160,8 +189,8 @@ describe("getActiveLandingPageSaleBanner", () => {
     );
 
     expect(banner).toMatchObject({
-      href: "/en-US/reservation/meeting-room?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-      label: advertisedLabel([meetingRoomProduct]),
+      href: "/en-US/reservation/meeting-room",
+      label: advertisedLabel([meetingRoomProduct], bookableWithoutOffice),
     });
   });
 
@@ -173,13 +202,14 @@ describe("getActiveLandingPageSaleBanner", () => {
     );
 
     expect(banner).toMatchObject({
-      href: "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
+      href: "/en-US/reservation/cowork",
       label: advertisedLabel([
         coworkProduct,
         meetingRoomProduct,
         officeProduct,
       ]),
     });
+    expect(banner?.label.template).toBe(allProductsTemplate);
     expect(isOfficePageEnabled).toHaveBeenCalledTimes(1);
   });
 

@@ -46,17 +46,7 @@ export const renderPostHogFeatureFlagContract = Effect.fn(
     });
   }
 
-  const template = yield* Effect.tryPromise({
-    try: () =>
-      Bun.file(
-        new URL("./feature-flag-contract.ts.mustache", import.meta.url)
-      ).text(),
-    catch: (cause) =>
-      new PostHogFeatureFlagError({
-        message: "Could not read the feature flag contract template.",
-        cause,
-      }),
-  });
+  const template = yield* readTemplate("feature-flag-contract.ts.mustache");
 
   return Mustache.render(template, {
     featureFlags: sortedDefinitions.map((definition) => ({
@@ -69,6 +59,58 @@ export const renderPostHogFeatureFlagContract = Effect.fn(
     })),
   } satisfies PostHogFeatureFlagContractTemplateView);
 });
+
+interface PostHogFeatureFlagSnapshotTemplateView {
+  readonly generatedAtLiteral: string;
+  readonly featureFlags: readonly {
+    readonly keyLiteral: string;
+    readonly constantValueLiteral: string;
+  }[];
+}
+
+/**
+ * Renders the constant value of each of `keys` from `definitions`, read at
+ * `generatedAt`. A key without a definition depends on the request.
+ */
+export const renderPostHogFeatureFlagSnapshot = Effect.fn(
+  "renderPostHogFeatureFlagSnapshot"
+)(function* ({
+  definitions,
+  generatedAt,
+  keys,
+}: {
+  readonly definitions: readonly PostHogFeatureFlagDefinition[];
+  readonly generatedAt: Date;
+  readonly keys: readonly string[];
+}) {
+  const constantValues = new Map(
+    definitions.map(({ constantEnabledValue, key }) => [
+      key,
+      constantEnabledValue,
+    ])
+  );
+  const template = yield* readTemplate("feature-flag-snapshot.ts.mustache");
+
+  return Mustache.render(template, {
+    generatedAtLiteral: JSON.stringify(generatedAt.toISOString()),
+    featureFlags: [...new Set(keys)]
+      .toSorted((left, right) => left.localeCompare(right))
+      .map((key) => ({
+        keyLiteral: JSON.stringify(key),
+        constantValueLiteral: JSON.stringify(constantValues.get(key) ?? null),
+      })),
+  } satisfies PostHogFeatureFlagSnapshotTemplateView);
+});
+
+const readTemplate = (name: string) =>
+  Effect.tryPromise({
+    try: () => Bun.file(new URL(`./${name}`, import.meta.url)).text(),
+    catch: (cause) =>
+      new PostHogFeatureFlagError({
+        message: `Could not read the feature flag template ${name}.`,
+        cause,
+      }),
+  });
 
 const renderPayloadTypeForFlag = (definition: PostHogFeatureFlagDefinition) =>
   renderPayloadTypeUnion([
@@ -144,24 +186,28 @@ const renderPayloadTypeUnion = (types: readonly PayloadType[]) => {
 const renderPayloadType = (type: PayloadType): string => {
   switch (type.kind) {
     case "array":
-      return `readonly (${renderPayloadTypeUnion(type.items.length > 0 ? type.items : [{ kind: "unknown" }])})[]`;
-    case "boolean":
-    case "null":
-    case "number":
-    case "string":
-    case "undefined":
-    case "unknown":
-      return type.kind;
+      return renderArrayPayloadType(type.items);
     case "object":
-      return type.properties.length === 0
-        ? "Readonly<Record<string, never>>"
-        : [
-            "{",
-            ...type.properties.map(
-              (property) =>
-                `readonly ${JSON.stringify(property.key)}: ${renderPayloadType(property.value)};`
-            ),
-            "}",
-          ].join(" ");
+      return renderObjectPayloadType(type.properties);
+    default:
+      // Every other kind is the TypeScript type of the same name.
+      return type.kind;
   }
 };
+
+const renderArrayPayloadType = (items: readonly PayloadType[]) =>
+  `readonly (${renderPayloadTypeUnion(items.length > 0 ? items : [{ kind: "unknown" }])})[]`;
+
+const renderObjectPayloadType = (
+  properties: Extract<PayloadType, { readonly kind: "object" }>["properties"]
+) =>
+  properties.length === 0
+    ? "Readonly<Record<string, never>>"
+    : [
+        "{",
+        ...properties.map(
+          (property) =>
+            `readonly ${JSON.stringify(property.key)}: ${renderPayloadType(property.value)};`
+        ),
+        "}",
+      ].join(" ");

@@ -11,6 +11,11 @@ import {
   resolve,
 } from "node:path";
 import {
+  baseLocale,
+  supportedLocales as mobileLocales,
+  type SupportedLocale,
+} from "@deskohub/i18n/locale-registry";
+import {
   type Browser,
   type BrowserContext,
   chromium,
@@ -47,7 +52,6 @@ const baseUrl = `http://localhost:${rendererPort}`;
 const stickyGapPx = 16;
 const desktopWidths = [1440, 1024] as const;
 const mobileWidths = [320, 375, 480] as const;
-const mobileLocales = ["en-US", "cs-CZ"] as const;
 const contentVariants = ["short", "tall"] as const;
 const sidebarVariants = ["normal", "tall"] as const;
 const scrollPositions = ["top", "middle", "bottom"] as const;
@@ -55,7 +59,7 @@ const accountAsideStickyClasses =
   "sticky top-(--site-header-height) z-40 min-w-0 md:sticky md:top-[calc(var(--site-header-height)+1rem)] md:max-h-[calc(100dvh-var(--site-header-height)-2rem)] md:overflow-y-auto";
 
 type ContentVariant = (typeof contentVariants)[number];
-type FixtureLocale = (typeof mobileLocales)[number];
+type FixtureLocale = SupportedLocale;
 type SidebarVariant = (typeof sidebarVariants)[number];
 type ScrollPosition = (typeof scrollPositions)[number];
 type BuildKind = "production" | "nonsticky";
@@ -764,12 +768,12 @@ const readMobileNavigation = async (
     const strip = document.querySelector<HTMLElement>(
       "[data-account-mobile-navigation]"
     );
-    const active = strip?.querySelector<HTMLButtonElement>(
-      "button[aria-current='page']"
+    const active = strip?.querySelector<HTMLAnchorElement>(
+      "a[aria-current='page']"
     );
     if (!strip || !active) {
       throw new Error(
-        "Account sticky mobile navigation active button is missing"
+        "Account sticky mobile navigation active link is missing"
       );
     }
     const rect = (element: Element): Rect => {
@@ -803,8 +807,8 @@ const waitForMobileActiveVisible = async (
       const strip = document.querySelector<HTMLElement>(
         "[data-account-mobile-navigation]"
       );
-      const active = strip?.querySelector<HTMLButtonElement>(
-        `button[data-account-section="${section}"][aria-current='page']`
+      const active = strip?.querySelector<HTMLAnchorElement>(
+        `a[data-account-section="${section}"][aria-current='page']`
       );
       if (!strip || !active) return false;
       const stripRect = strip.getBoundingClientRect();
@@ -959,7 +963,7 @@ const readFocusedStepEvidence = async (
       asideScrollTop: aside.scrollTop,
       headerBottom: header.getBoundingClientRect().bottom,
       isNavOrFooterControl: element.matches(
-        "aside nav button, aside [data-account-sticky-sidebar-footer] button"
+        "aside nav a, aside [data-account-sticky-sidebar-footer] button"
       ),
       pageScrollY: window.scrollY,
       rect: rect(element.getBoundingClientRect()),
@@ -1005,20 +1009,20 @@ const traverseDesktopFocus = async (
   const start = await readGeometry(page);
   const asideScrollTopBefore = start.asideStyle.scrollTop;
   const steps: FocusStepEvidence[] = [];
-  const visibleNavButtons = page.locator("aside nav button:visible");
-  const expectedLabels = (await visibleNavButtons.allTextContents()).map(
+  const visibleNavLinks = page.locator("aside nav a:visible");
+  const expectedLabels = (await visibleNavLinks.allTextContents()).map(
     (label) => label.trim().replace(/\s+/g, " ")
   );
-  const navButtonCount = await visibleNavButtons.count();
-  if (navButtonCount !== 5) {
+  const navLinkCount = await visibleNavLinks.count();
+  if (navLinkCount !== 5) {
     failures.push(
-      `${scenario.width}x${scenario.height}/${scenario.content}/${scenario.sidebar}/${traversal.label}: expected five account nav buttons, got ${navButtonCount}`
+      `${scenario.width}x${scenario.height}/${scenario.content}/${scenario.sidebar}/${traversal.label}: expected five account nav links, got ${navLinkCount}`
     );
   }
   try {
-    await visibleNavButtons.first().evaluate((element) => {
-      if (!(element instanceof HTMLButtonElement))
-        throw new Error("first account nav button is not a button");
+    await visibleNavLinks.first().evaluate((element) => {
+      if (!(element instanceof HTMLAnchorElement))
+        throw new Error("first account nav item is not a link");
       element.focus({ preventScroll: true });
     });
     for (let index = 0; index < 16; index += 1) {
@@ -1311,7 +1315,7 @@ const checkMobileNavigation = async (
   }
 
   const dangerButton = page.locator(
-    "aside nav button[data-account-section='danger']:visible"
+    "aside nav a[data-account-section='danger']:visible"
   );
   let afterSectionChange = initial;
   try {
@@ -1319,7 +1323,7 @@ const checkMobileNavigation = async (
     await page.waitForFunction(
       () =>
         document.querySelector(
-          "[data-account-mobile-navigation] button[data-account-section='danger'][aria-current='page']"
+          "[data-account-mobile-navigation] a[data-account-section='danger'][aria-current='page']"
         ) !== null
     );
     await waitForMobileActiveVisible(page, "danger");
@@ -1617,14 +1621,14 @@ const runRegressionProbe = async (
     {
       content: "tall",
       height: 900,
-      locale: "en-US",
+      locale: baseLocale,
       sidebar: "normal",
       width: 1440,
     },
     {
       content: "tall",
       height: 900,
-      locale: "en-US",
+      locale: baseLocale,
       sidebar: "normal",
       width: 375,
     },
@@ -1711,7 +1715,7 @@ const main = async () => {
           const evidence = await runDesktopScenario(
             browser,
             makeScenario(
-              "en-US",
+              baseLocale,
               width,
               width === 1440 ? 900 : 600,
               content,
@@ -1773,7 +1777,7 @@ const main = async () => {
     desktop,
     failures,
     matrix: {
-      desktopLocales: ["en-US"],
+      desktopLocales: [baseLocale],
       desktopPositions: desktop.reduce(
         (count, scenario) => count + scenario.positions.length,
         0

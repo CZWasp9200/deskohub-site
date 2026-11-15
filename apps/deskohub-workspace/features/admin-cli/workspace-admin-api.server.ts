@@ -1,11 +1,11 @@
 import {
+  AdministrationAuthentication,
+  type AdministrationChannel,
   AdministrationDiscountMutationResult,
   AdministrationReservationAccessGrant,
-  type AdministrationStandaloneAccessCodeCreationOutcomeType,
-  AdministrationStandaloneAccessCodeResult,
-  type AdministrationStandaloneAccessCodeResultType,
   CliAuthenticationRateLimited,
   CliBearerAuthentication,
+  type CliClientCompatibility,
   CliGrantRejected,
   CliMutationInProgress,
   CliMutationRejected,
@@ -13,21 +13,19 @@ import {
   type CliMutationRequestIdType,
   CliMutationUncertain,
   CliResourceNotFound,
-  CliServiceUnavailable,
   CliSessionUnauthorized,
   CliStandaloneAccessCodeCleanupRequired,
   CliStandaloneAccessCodeReconciled,
+  CurrentAdministrationCaller,
   CurrentCliSession,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
-import { NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Match, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   StandaloneAccessCodeAdministration,
   type StandaloneAccessCodeCreationError,
-  standaloneAccessCodeAttemptStaleAfterMilliseconds,
 } from "@/features/access-codes";
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/invoice-administration-identifier";
@@ -45,7 +43,10 @@ import {
   type ReservationAdministrationError,
   ReservationAdministrationService,
 } from "@/features/administration/reservation-administration.service";
-import { LegacyAdministratorBackfill } from "@/features/administrators";
+import {
+  AdministratorRoster,
+  LegacyAdministratorBackfill,
+} from "@/features/administrators";
 import { refreshCalendarDiscountSourceAfterMutation } from "@/features/discounts/admin/calendar-discount-source-maintenance.server";
 import {
   type AdminCustomerProfile,
@@ -59,29 +60,40 @@ import {
   DiscountAdministration,
 } from "@/features/discounts/admin/discount-administration.service";
 import { executeDiscountAdminMutation } from "@/features/discounts/admin/execute-discount-admin-mutation";
+import { CampaignOperations } from "@/features/email-campaigns/backend/campaign-operations.service";
 import { ReservationProductDetailsBackfill } from "@/features/reservation/backend/reservation-product-details-backfill.service";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import {
+  getReservationAccessName,
   type ReservationAccessGrant,
-  reservationAccessProvisioningStaleAfterMilliseconds,
 } from "@/features/reservation-access";
-import {
-  WorkspaceObservabilityLive,
-  workspaceMemoMap,
-} from "@/shared/backend/workspace-effect";
+import { toWorkspaceWebHandler } from "@/shared/backend/workspace-effect";
+import { AdministrationActionLog } from "./administration-action-log.service";
+import { AdministrationActionRecordLive } from "./administration-action-record.server";
 import {
   makeServiceUnavailable,
   mapAdministrationApiFailure,
   mapServiceFailure,
 } from "./administration-api-failure";
+import {
+  discountMutationRecovery,
+  reservationAccessRecovery,
+  standaloneAccessCodeRecovery,
+  standaloneAccessCodeStoredResult,
+} from "./administration-mutation-recovery";
+import {
+  AdministrationRequestLedger,
+  StoredResult,
+} from "./administration-request-ledger.service";
 import { AdminCliAdministratorsApiHandlers } from "./administrators-api.server";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
-import { CliMutationIdempotency } from "./cli-mutation-idempotency.service";
 import {
-  AdminCliCampaignsApiHandlers,
-  EmailCampaignsApiServicesLive,
-} from "./email-campaigns-api.server";
+  CliClientCompatibilityLive,
+  minimumDhwVersions,
+} from "./cli-client-version";
+import { AdminCliAutomationsApiHandlers } from "./email-automations-api.server";
+import { AdminCliCampaignsApiHandlers } from "./email-campaigns-api.server";
 
 export const AdminCliApiHandlers = HttpApiBuilder.group(
   WorkspaceAdminApi,
@@ -94,6 +106,7 @@ export const AdminCliApiHandlers = HttpApiBuilder.group(
         Effect.succeed({
           apiVersion: "v1" as const,
           service: "deskohub-workspace" as const,
+          minimumDhwVersions,
         })
       )
       .handle(
@@ -139,14 +152,30 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
     const discounts = yield* DiscountAdministration;
     const invoices = yield* InvoiceAdministrationService;
     const standaloneAccessCodes = yield* StandaloneAccessCodeAdministration;
-    const mutationIdempotency = yield* CliMutationIdempotency;
+    const ledger = yield* AdministrationRequestLedger;
     const productDetailsBackfill = yield* ReservationProductDetailsBackfill;
     return handlers
       .handle("getOverview", () =>
-        administration.loadOverviewSource().pipe(
-          Effect.flatMap((source) => administration.loadOverview(source)),
+        Effect.all(
+          {
+            overview: administration
+              .loadOverviewSource()
+              .pipe(
+                Effect.flatMap((source) => administration.loadOverview(source))
+              ),
+            refundsNeeded: administration.countReservationsNeedingRefund(),
+          },
+          { concurrency: "unbounded" }
+        ).pipe(
+          Effect.map(({ overview, refundsNeeded }) => ({
+            ...overview,
+            refundAttention: { unavailable: false, value: refundsNeeded },
+          })),
           mapServiceFailure
         )
+      )
+      .handle("getReservationActivity", () =>
+        administration.loadReservationActivity().pipe(mapServiceFailure)
       )
       .handle("listReservations", ({ query }) =>
         administration.listReservations(query).pipe(mapServiceFailure)
@@ -177,98 +206,38 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle("backfillReservationProductDetails", ({ payload }) =>
         productDetailsBackfill.runBatch(payload).pipe(mapServiceFailure)
       )
-      .handle(
-        "mutateReservationAccess",
-        Effect.fn(function* ({ params, payload }) {
-          const session = yield* CurrentCliSession;
-          const request = {
-            sessionId: session.id,
+      .handle("mutateReservationAccess", ({ params, payload }) =>
+        ledger
+          .applyOnceWithEffects({
             requestId: payload.requestId,
             mutation: {
-              kind: "reservation-access" as const,
+              kind: "reservation-access",
               reservationId: params.reservationId,
               mutation: payload.mutation,
             },
-          };
-          const claim = yield* mutationIdempotency
-            .claim(request)
-            .pipe(mapServiceFailure);
-          const applyMutation = reservationAccess
-            .mutate({
-              reservationId: params.reservationId,
-              ...payload.mutation,
-            })
-            .pipe(
-              Effect.map(toCliReservationAccessGrant),
-              Effect.tapError((cause) =>
-                cause.reason === "recovery_failed"
-                  ? Effect.void
-                  : mutationIdempotency
-                      .release(request)
-                      .pipe(Effect.catch(() => Effect.void))
-              ),
-              mapAdministrationApiFailure(mapReservationAccessMutationFailure),
-              Effect.tap((result) =>
-                mutationIdempotency
-                  .complete({ ...request, result })
-                  .pipe(mapServiceFailure)
-              )
-            );
-          const resumeInterruptedMutation = Effect.gen(function* () {
-            const reclaimedAt = Temporal.Now.instant();
-            const reclaimed = yield* mutationIdempotency
-              .reclaimStale({
-                ...request,
-                reclaimedAt,
-                staleBefore: reclaimedAt.subtract({
-                  milliseconds:
-                    reservationAccessProvisioningStaleAfterMilliseconds,
-                }),
+            stored: StoredResult.unchanged(
+              AdministrationReservationAccessGrant
+            ),
+            apply: reservationAccess
+              .mutate({
+                reservationId: params.reservationId,
+                ...payload.mutation,
               })
-              .pipe(mapServiceFailure);
-            if (!reclaimed) {
-              return yield* new CliMutationInProgress({
-                requestId: payload.requestId,
-                message:
-                  "This reservation access mutation is still being applied. Retrying with the same request identifier is safe.",
-              });
-            }
-            return yield* reservationAccess
+              .pipe(Effect.map(toCliReservationAccessGrant)),
+            resume: reservationAccess
               .resumeInterruptedMutation(params.reservationId)
-              .pipe(
-                Effect.map(toCliReservationAccessGrant),
-                Effect.tapError(() =>
-                  mutationIdempotency
-                    .release(request)
-                    .pipe(Effect.catch(() => Effect.void))
-                ),
-                mapAdministrationApiFailure(
-                  mapReservationAccessMutationFailure
-                ),
-                Effect.tap((result) =>
-                  mutationIdempotency
-                    .complete({ ...request, result })
-                    .pipe(mapServiceFailure)
-                )
-              );
-          });
-
-          return yield* Match.value(claim).pipe(
-            Match.discriminatorsExhaustive("kind")({
-              claimed: () => applyMutation,
-              completed: ({ result }) =>
-                Schema.decodeUnknownEffect(
-                  AdministrationReservationAccessGrant
-                )(result).pipe(mapServiceFailure),
-              "in-progress": () => resumeInterruptedMutation,
-              mismatch: () =>
-                new CliMutationRejected({
-                  message:
-                    "This mutation request identifier was already used for different input.",
-                }),
-            })
-          );
-        })
+              .pipe(Effect.map(toCliReservationAccessGrant)),
+            recovery: reservationAccessRecovery,
+            inProgressMessage:
+              "This reservation access mutation is still being applied. Retrying with the same request identifier is safe.",
+          })
+          .pipe(
+            Effect.catchTag("ReservationAccessAdministrationError", (cause) =>
+              Effect.fail(cause).pipe(
+                mapAdministrationApiFailure(mapReservationAccessMutationFailure)
+              )
+            )
+          )
       )
       .handle("findReservation", ({ query }) =>
         administration.findReservationId(query.identifier).pipe(
@@ -352,6 +321,11 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
           { concurrency: "unbounded" }
         ).pipe(mapServiceFailure)
       )
+      .handle("getCustomerReservationActivity", ({ params }) =>
+        administration
+          .loadCustomerReservationActivity(params.customerId)
+          .pipe(mapServiceFailure)
+      )
       .handle("listCustomerReservations", ({ params, query }) =>
         administration
           .loadCustomerReservations({
@@ -364,6 +338,12 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         discounts
           .loadDashboard()
           .pipe(Effect.map(toCliDiscountDashboard), mapServiceFailure)
+      )
+      .handle("listDiscountGroups", () =>
+        discounts.listDiscountGroups().pipe(
+          Effect.map((discountGroups) => ({ discountGroups })),
+          mapServiceFailure
+        )
       )
       .handle("getDiscountCode", ({ params }) =>
         discounts.loadCodeDetail({ codeId: params.codeId }).pipe(
@@ -413,20 +393,26 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
           mapAdministrationApiFailure(mapInvoiceReadFailure)
         )
       )
+      .handle("getInvoiceCreationDefaults", () =>
+        invoices.getCreationDefaults().pipe(mapServiceFailure)
+      )
+      .handle(
+        "previewInvoice",
+        Effect.fn(function* ({ payload }) {
+          const { actor } = yield* CurrentAdministrationCaller;
+          return yield* invoices
+            .preview(payload, { source: "dhw-cli", administrator: actor })
+            .pipe(mapAdministrationApiFailure(mapInvoicePreviewFailure));
+        })
+      )
       .handle(
         "createInvoice",
         Effect.fn(function* ({ payload }) {
-          const session = yield* CurrentCliSession;
-          if (session.approvedBy === null) {
-            return yield* new CliMutationRejected({
-              message:
-                "This legacy CLI session cannot issue invoices. Run dhw auth again.",
-            });
-          }
+          const { actor, channel } = yield* CurrentAdministrationCaller;
           return yield* invoices
             .create(payload, {
-              source: "dhw-cli",
-              actor: session.approvedBy,
+              source: provenanceSourceOf(channel),
+              administrator: actor,
             })
             .pipe(mapAdministrationApiFailure(mapInvoiceMutationFailure));
         })
@@ -434,125 +420,38 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "createStandaloneAccessCode",
         Effect.fn(function* ({ payload }) {
-          const session = yield* CurrentCliSession;
-          if (session.approvedBy === null) {
-            return yield* new CliMutationRejected({
-              message:
-                "This legacy CLI session cannot create standalone access codes. Run dhw auth again.",
-            });
-          }
+          const caller = yield* CurrentAdministrationCaller;
           const requestId = Schema.decodeUnknownSync(CliMutationRequestId)(
             payload.attemptId
           );
-          const request = {
-            sessionId: session.id,
+          return yield* ledger.applyOnceWithEffects({
             requestId,
             mutation: {
-              kind: "standalone-access-code" as const,
+              kind: "standalone-access-code",
               request: payload.input,
               ...(payload.providerCredentialRemovedAttemptId !== undefined && {
                 providerCredentialRemovedAttemptId:
                   payload.providerCredentialRemovedAttemptId,
               }),
             },
-          };
-          const executeCreation = standaloneAccessCodes
-            .create({
-              attemptId: payload.attemptId,
-              actor: session.approvedBy,
-              source: "dhw-cli",
-              request: payload.input,
-              providerCredentialRemovedAttemptId:
-                payload.providerCredentialRemovedAttemptId,
-            })
-            .pipe(
-              mapAdministrationApiFailure((cause) =>
-                mapStandaloneAccessCodeCreationFailure(cause, requestId)
-              ),
-              Effect.tapError((cause) =>
-                cause instanceof CliMutationRejected ||
-                cause instanceof CliServiceUnavailable ||
-                cause instanceof CliStandaloneAccessCodeCleanupRequired ||
-                cause instanceof CliStandaloneAccessCodeReconciled
-                  ? mutationIdempotency
-                      .release(request)
-                      .pipe(Effect.catch(() => Effect.void))
-                  : Effect.void
-              ),
-              Effect.tap((outcome) =>
-                mutationIdempotency
-                  .complete({
-                    ...request,
-                    result: toStandaloneAccessCodeResult(outcome),
-                  })
-                  .pipe(
-                    Effect.catch((cause) =>
-                      Effect.logWarning(
-                        "Standalone access-code mutation-ledger completion failed after creation concluded",
-                        {
-                          requestId,
-                          sessionId: session.id,
-                          outcome: outcome.outcome,
-                          cause,
-                        }
-                      ).pipe(
-                        Effect.andThen(
-                          mutationIdempotency
-                            .release(request)
-                            .pipe(Effect.catch(() => Effect.void))
-                        )
-                      )
-                    )
-                  )
-              )
-            );
-          const resumeInterruptedCreation = Effect.gen(function* () {
-            const reclaimedAt = Temporal.Now.instant();
-            const reclaimed = yield* mutationIdempotency
-              .reclaimStale({
-                ...request,
-                reclaimedAt,
-                staleBefore: reclaimedAt.subtract({
-                  milliseconds:
-                    standaloneAccessCodeAttemptStaleAfterMilliseconds,
-                }),
+            stored: standaloneAccessCodeStoredResult,
+            apply: standaloneAccessCodes
+              .create({
+                attemptId: payload.attemptId,
+                actor: caller.actor,
+                source: provenanceSourceOf(caller.channel),
+                request: payload.input,
+                providerCredentialRemovedAttemptId:
+                  payload.providerCredentialRemovedAttemptId,
               })
-              .pipe(mapServiceFailure);
-            if (!reclaimed) {
-              return yield* new CliMutationInProgress({
-                requestId,
-                message:
-                  "This standalone access-code creation is still being applied. Retrying with the same attempt identifier is safe.",
-              });
-            }
-            return yield* executeCreation;
+              .pipe(
+                mapAdministrationApiFailure((cause) =>
+                  mapStandaloneAccessCodeCreationFailure(cause, requestId)
+                )
+              ),
+            recovery: standaloneAccessCodeRecovery,
+            inProgressMessage: standaloneAccessCodeInProgressMessage,
           });
-
-          const claim = yield* mutationIdempotency
-            .claim(request)
-            .pipe(mapServiceFailure);
-
-          return yield* Match.value(claim).pipe(
-            Match.discriminatorsExhaustive("kind")({
-              claimed: () => executeCreation,
-              completed: ({ result }) =>
-                Schema.decodeUnknownEffect(
-                  AdministrationStandaloneAccessCodeResult
-                )(result).pipe(
-                  mapServiceFailure,
-                  Effect.map((safeResult) => ({
-                    outcome: "already-created" as const,
-                    ...safeResult,
-                  }))
-                ),
-              "in-progress": () => resumeInterruptedCreation,
-              mismatch: () =>
-                new CliMutationRejected({
-                  message:
-                    "This mutation request identifier was already used for different input.",
-                }),
-            })
-          );
         })
       )
       .handle("resendInvoice", ({ params }) =>
@@ -569,85 +468,34 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "listSessions",
         Effect.fn(function* () {
-          const session = yield* CurrentCliSession;
-          if (session.approvedBy === null) return [];
+          const { actor } = yield* CurrentAdministrationCaller;
           return yield* authentication
-            .listSessions(session.approvedBy)
+            .listSessions(actor.accountId)
             .pipe(mapServiceFailure);
         })
       )
-      .handle(
-        "mutateDiscounts",
-        Effect.fn(function* ({ payload }) {
-          const session = yield* CurrentCliSession;
-          const request = {
-            sessionId: session.id,
-            requestId: payload.requestId,
-            mutation: payload.mutation,
-          };
-          const claim = yield* mutationIdempotency
-            .claim(request)
-            .pipe(mapServiceFailure);
-
-          return yield* Match.value(claim).pipe(
-            Match.discriminatorsExhaustive("kind")({
-              claimed: () =>
-                executeDiscountAdminMutation(payload.mutation).pipe(
-                  Effect.provideService(DiscountAdministration, discounts),
-                  mapAdministrationApiFailure(mapDiscountMutationFailure),
-                  Effect.tap(() =>
-                    refreshCalendarDiscountSourceAfterMutation(payload.mutation)
-                  ),
-                  Effect.tapError((cause) =>
-                    cause instanceof CliResourceNotFound ||
-                    cause instanceof CliMutationRejected
-                      ? mutationIdempotency
-                          .release(request)
-                          .pipe(Effect.catch(() => Effect.void))
-                      : Effect.void
-                  ),
-                  Effect.tap((result) =>
-                    mutationIdempotency
-                      .complete({ ...request, result })
-                      .pipe(mapServiceFailure)
-                  )
-                ),
-              completed: ({ result }) =>
-                Schema.decodeUnknownEffect(
-                  AdministrationDiscountMutationResult
-                )(result).pipe(
-                  mapServiceFailure,
-                  Effect.tap(() =>
-                    refreshCalendarDiscountSourceAfterMutation(payload.mutation)
-                  )
-                ),
-              "in-progress": () =>
-                new CliMutationInProgress({
-                  requestId: payload.requestId,
-                  message:
-                    "This mutation is still being applied. Retrying with the same request identifier is safe.",
-                }),
-              mismatch: () =>
-                new CliMutationRejected({
-                  message:
-                    "This mutation request identifier was already used for different input.",
-                }),
-            })
-          );
+      .handle("mutateDiscounts", ({ payload }) =>
+        ledger.applyOnceWithEffects({
+          requestId: payload.requestId,
+          mutation: payload.mutation,
+          stored: StoredResult.unchanged(AdministrationDiscountMutationResult),
+          apply: executeDiscountAdminMutation(payload.mutation).pipe(
+            Effect.provideService(DiscountAdministration, discounts),
+            mapAdministrationApiFailure(mapDiscountMutationFailure)
+          ),
+          afterSettled: refreshCalendarDiscountSourceAfterMutation(
+            payload.mutation
+          ),
+          recovery: discountMutationRecovery,
         })
       )
       .handle(
         "renameSession",
         Effect.fn(function* ({ params, payload }) {
-          const session = yield* CurrentCliSession;
-          if (session.approvedBy === null) {
-            return yield* new CliResourceNotFound({
-              message: "The CLI session was not found.",
-            });
-          }
+          const { actor } = yield* CurrentAdministrationCaller;
           const changed = yield* authentication
             .renameSession({
-              owner: session.approvedBy,
+              owner: actor.accountId,
               sessionId: params.sessionId,
               clientName: payload.clientName,
             })
@@ -663,11 +511,10 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "revokeSession",
         Effect.fn(function* ({ params }) {
-          const session = yield* CurrentCliSession;
-          if (session.approvedBy === null) return { changed: false };
+          const { actor } = yield* CurrentAdministrationCaller;
           const changed = yield* authentication
             .revoke({
-              owner: session.approvedBy,
+              owner: actor.accountId,
               sessionId: params.sessionId,
             })
             .pipe(mapServiceFailure);
@@ -677,7 +524,8 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
   })
 );
 
-const CliBearerAuthenticationLive = Layer.effect(
+/** Authenticates a CLI session's bearer for `cli.getCurrentSession`. */
+export const CliBearerAuthenticationLive = Layer.effect(
   CliBearerAuthentication,
   Effect.gen(function* () {
     const authentication = yield* CliAuthentication;
@@ -699,6 +547,48 @@ const CliBearerAuthenticationLive = Layer.effect(
   })
 );
 
+/**
+ * Authenticates a CLI session's bearer for an administration operation and
+ * provides its caller: the session's approving administrator, on the CLI
+ * session channel. The session and the grant are read on every request.
+ */
+export const CliSessionAdministrationAuthenticationLive = Layer.effect(
+  AdministrationAuthentication,
+  Effect.gen(function* () {
+    const authentication = yield* CliAuthentication;
+    return {
+      bearer: (httpEffect, { credential }) =>
+        authentication
+          .authenticateSession(`Bearer ${Redacted.value(credential)}`)
+          .pipe(
+            Effect.flatMap((session) =>
+              authentication.sessionAdministrator(session.id).pipe(
+                Effect.map((actor) => ({
+                  actor,
+                  channel: {
+                    _tag: "CliSession" as const,
+                    sessionId: session.id,
+                  },
+                }))
+              )
+            ),
+            mapAdministrationApiFailure((cause) =>
+              cause instanceof CliSessionUnauthorized
+                ? cause
+                : makeServiceUnavailable()
+            ),
+            Effect.flatMap((caller) =>
+              Effect.provideService(
+                httpEffect,
+                CurrentAdministrationCaller,
+                caller
+              )
+            )
+          ),
+    } satisfies AdministrationAuthentication["Service"];
+  })
+);
+
 const mapDiscountMutationFailure = (
   cause: Effect.Error<ReturnType<typeof executeDiscountAdminMutation>>
 ) =>
@@ -713,6 +603,7 @@ const mapDiscountMutationFailure = (
     ),
     Match.tag(
       "DiscountAdminConflictError",
+      "DiscountAdminServiceDatesError",
       ({ message }) => new CliMutationRejected({ message })
     ),
     Match.orElse(makeServiceUnavailable)
@@ -727,6 +618,18 @@ const mapInvoiceReadFailure = (
     Match.tag(
       "InvoiceAdministrationNotFoundError",
       () => new CliResourceNotFound({ message: "The invoice was not found." })
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
+const mapInvoicePreviewFailure = (
+  cause: Effect.Error<ReturnType<InvoiceAdministration["preview"]>>
+) =>
+  Match.value(cause).pipe(
+    Match.tag(
+      "InvoiceAdministrationCustomerError",
+      "ManualInvoiceValidationError",
+      ({ message }) => new CliMutationRejected({ message })
     ),
     Match.orElse(makeServiceUnavailable)
   );
@@ -751,6 +654,9 @@ const mapInvoiceMutationFailure = (
     ),
     Match.orElse(makeServiceUnavailable)
   );
+
+const standaloneAccessCodeInProgressMessage =
+  "This standalone access-code creation is still being applied. Retrying with the same attempt identifier is safe.";
 
 const mapStandaloneAccessCodeCreationFailure = (
   cause: StandaloneAccessCodeCreationError,
@@ -785,8 +691,7 @@ const mapStandaloneAccessCodeCreationFailure = (
       "in-progress",
       () =>
         new CliMutationInProgress({
-          message:
-            "This standalone access-code creation is still being applied. Retrying with the same attempt identifier is safe.",
+          message: standaloneAccessCodeInProgressMessage,
           requestId,
         })
     ),
@@ -798,17 +703,6 @@ const mapStandaloneAccessCodeCreationFailure = (
     Match.exhaustive
   );
 };
-
-const toStandaloneAccessCodeResult = (
-  outcome: AdministrationStandaloneAccessCodeCreationOutcomeType
-): AdministrationStandaloneAccessCodeResultType => ({
-  attemptId: outcome.attemptId,
-  providerCredentialId: outcome.providerCredentialId,
-  name: outcome.name,
-  startsAt: outcome.startsAt,
-  endsAt: outcome.endsAt,
-  issuedAt: outcome.issuedAt,
-});
 
 const mapReservationCancellationFailure = (
   cause: ReservationAdministrationError
@@ -846,7 +740,7 @@ const toCliReservationAccessGrant = (grant: ReservationAccessGrant) => ({
   credentialType: grant.credentialType,
   deviceId: grant.deviceId,
   providerCredentialId: grant.providerCredentialId,
-  accessName: `Deskohub ${grant.reservationId}`.slice(0, 60),
+  accessName: getReservationAccessName(grant),
   scheduledStartsAt: grant.scheduledAccessStartsAt.toString(),
   startsAt: grant.accessStartsAt.toString(),
   endsAt: grant.accessEndsAt.toString(),
@@ -921,6 +815,18 @@ const toCliVoucherDetail = (detail: AdminVoucherDetail) => ({
   claims: detail.claims.map(toCliVoucherClaim),
 });
 
+/**
+ * The provenance source invoices and access-code events record for an
+ * administration channel.
+ */
+const provenanceSourceOf = (channel: AdministrationChannel) =>
+  Match.value(channel).pipe(
+    Match.tagsExhaustive({
+      CliSession: () => "dhw-cli" as const,
+      AssistantConnection: () => "assistant" as const,
+    })
+  );
+
 const noStore = HttpRouter.middleware(
   (effect) =>
     Effect.map(effect, (response) =>
@@ -933,34 +839,82 @@ const noStore = HttpRouter.middleware(
   { global: true }
 );
 
-const WorkspaceAdminApiLive = Layer.mergeAll(
-  HttpApiBuilder.layer(WorkspaceAdminApi).pipe(
-    Layer.provide(AdminCliApiHandlers),
-    Layer.provide(AdminCliAdministrationApiHandlers),
-    Layer.provide(AdminCliCampaignsApiHandlers),
-    Layer.provide(AdminCliAdministratorsApiHandlers),
-    Layer.provide(CliBearerAuthenticationLive),
+/**
+ * The administration API's HTTP app, with the given authentication for its
+ * operations, the given CLI session authentication for
+ * `cli.getCurrentSession`, and the given client compatibility check. Each
+ * call builds its own router, group handlers and global middleware: group
+ * handlers capture the middleware they were built with, so instances sharing
+ * the Workspace memo map must not share them. The domain services, and the action log
+ * that records every state-changing operation, come from the caller.
+ */
+export const makeWorkspaceAdminApiLayer = <R, R2>({
+  authentication,
+  sessionAuthentication,
+  clientCompatibility,
+}: {
+  readonly authentication: Layer.Layer<AdministrationAuthentication, never, R>;
+  readonly sessionAuthentication: Layer.Layer<
+    CliBearerAuthentication,
+    never,
+    R2
+  >;
+  readonly clientCompatibility: Layer.Layer<CliClientCompatibility>;
+}) =>
+  Layer.mergeAll(
+    HttpApiBuilder.layer(WorkspaceAdminApi).pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.fresh(AdminCliApiHandlers),
+          Layer.fresh(AdminCliAdministrationApiHandlers),
+          Layer.fresh(AdminCliCampaignsApiHandlers),
+          Layer.fresh(AdminCliAutomationsApiHandlers),
+          Layer.fresh(AdminCliAdministratorsApiHandlers)
+        )
+      ),
+      Layer.provide(
+        Layer.mergeAll(
+          sessionAuthentication,
+          authentication,
+          clientCompatibility,
+          AdministrationActionRecordLive
+        )
+      )
+    ),
+    Layer.fresh(noStore)
+  ).pipe(
+    // Overrides the router `HttpRouter.toWebHandler` provides, which the
+    // memo map would share between instances.
+    Layer.provideMerge(Layer.fresh(HttpRouter.layer))
+  );
+
+/** The Workspace services behind the administration API. */
+export const provideWorkspaceAdminApiServices = <A, E, R>(
+  layer: Layer.Layer<A, E, R>
+) =>
+  layer.pipe(
     Layer.provide(AdministrationService.Live),
     Layer.provide(ReservationAdministrationService.Live),
     Layer.provide(ReservationProductDetailsBackfill.Live),
+    Layer.provide(AdministratorRoster.Live),
     Layer.provide(LegacyAdministratorBackfill.Live),
     Layer.provide(ReservationAccessAdministration.Live),
     Layer.provide(DiscountAdministration.Live),
     Layer.provide(InvoiceAdministrationService.Live),
     Layer.provide(StandaloneAccessCodeAdministration.Live),
-    Layer.provide(CliMutationIdempotency.Live),
-    Layer.provide(EmailCampaignsApiServicesLive),
+    Layer.provide(AdministrationRequestLedger.Live),
+    Layer.provide(AdministrationActionLog.Live),
+    Layer.provide(CampaignOperations.Live),
     Layer.provide(CliAuthenticationAdmission.Default),
     Layer.provide(CliAuthentication.Live)
-  ),
-  noStore,
-  // This handler runs outside the route's Effect runtime, so it needs the
-  // censoring Workspace logger and tracer. Building with the Workspace memo
-  // map reuses the instance the route runtime already built.
-  WorkspaceObservabilityLive
-).pipe(Layer.provide(NodeHttpServer.layerHttpServices));
+  );
 
-export const handleWorkspaceAdminApiRequest = HttpRouter.toWebHandler(
-  WorkspaceAdminApiLive,
-  { disableLogger: true, memoMap: workspaceMemoMap }
-).handler;
+export const handleWorkspaceAdminApiRequest = toWorkspaceWebHandler(
+  provideWorkspaceAdminApiServices(
+    makeWorkspaceAdminApiLayer({
+      authentication: CliSessionAdministrationAuthenticationLive,
+      sessionAuthentication: CliBearerAuthenticationLive,
+      clientCompatibility: CliClientCompatibilityLive,
+    })
+  )
+);

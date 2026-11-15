@@ -1,16 +1,20 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
+import type { BrowserContext } from "@playwright/test";
 import { makeSignature } from "better-auth/crypto";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { authSession, authUser } from "@/db/schema/auth";
-import { customerAccountLinks } from "@/db/schema/customer-account-links";
+import { accountRoleGrants } from "@/db/schema/account-role-grants";
+import { authSession } from "@/db/schema/auth";
 import { parseBetterAuthSecrets } from "@/features/account/backend/auth/auth-secrets";
-import { sensitiveDatabaseParameter } from "@/shared/backend/logging/database-query-parameter-classifier";
-import { setBrowserCookie } from "../browser";
+import type { CustomerAccountId } from "@/features/account/customer-account";
+import type { AccountRole } from "@/features/administrators/account-role";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
+import type { E2EBrowserSession } from "../browser-session";
 import type { WorkspaceE2EEnvironment } from "../e2e-env";
 import { type WorkspaceE2EError, workspaceE2EError } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
 import { runDatabaseOperation } from "../integrations/database-operation";
-import { addRedaction, type Runner } from "../runtime";
+import { addRedaction } from "../redaction";
 
 /**
  * Better Auth's session cookie on an HTTPS deployment. Workspace keeps the
@@ -19,6 +23,32 @@ import { addRedaction, type Runner } from "../runtime";
  */
 export const workspaceE2ESessionCookieName =
   "__Secure-better-auth.session_token";
+
+/**
+ * Local `next dev` serves plain HTTP with HTTPS-only cookies off, so Better
+ * Auth names its session cookie without the `__Secure-` prefix there.
+ */
+const developmentSessionCookieName = "better-auth.session_token";
+const developmentHosts = new Set(["127.0.0.1", "localhost"]);
+
+/**
+ * The session cookie the deployment at `origin` reads: the `__Secure-`
+ * cookie on HTTPS, the unprefixed one on a local development server. Any
+ * other plain-HTTP origin is refused.
+ */
+export const workspaceE2ESessionCookieFor = (origin: string) => {
+  const url = new URL(origin);
+  if (url.protocol === "https:") {
+    return { name: workspaceE2ESessionCookieName, secure: true } as const;
+  }
+  if (url.protocol === "http:" && developmentHosts.has(url.hostname)) {
+    return { name: developmentSessionCookieName, secure: false } as const;
+  }
+  throw workspaceE2EError(
+    "Seeded sessions need an HTTPS deployment or a local development server",
+    { operation: "resolve synthetic account session cookie" }
+  );
+};
 
 /**
  * Seeded sessions only need to outlive one case; a short expiry bounds the
@@ -48,7 +78,7 @@ export const resolveWorkspaceE2ESessionSigningSecret = (
   const parsed = parseBetterAuthSecrets(raw);
   if (parsed.kind === "invalid") {
     throw workspaceE2EError(
-      "WORKSPACE_E2E_BETTER_AUTH_SECRETS must hold the Preview deployment's versioned BETTER_AUTH_SECRETS value. Provision it as a secret of the protected workspace-checkout-e2e GitHub Actions environment, copied from the deskohub-workspace Vercel project's Preview-only BETTER_AUTH_SECRETS (never the Production value), before running the referral lane. Referral coverage fails closed instead of skipping",
+      "WORKSPACE_E2E_BETTER_AUTH_SECRETS must hold the Preview deployment's versioned BETTER_AUTH_SECRETS value. Provision it as a secret of the protected workspace-checkout-e2e GitHub Actions environment, copied from the deskohub-workspace Vercel project's Preview-only BETTER_AUTH_SECRETS (never the Production value), before running seeded-session cases (checkout, referral, and administrator coverage). They fail closed instead of skipping",
       { operation: "configure workspace e2e session seeding" }
     );
   }
@@ -75,11 +105,17 @@ export type WorkspaceE2ESyntheticAccount = {
   /** The completed profile's customer; absent while profile completion is still required. */
   readonly linkedCustomerId?: DotyposCustomerId;
   readonly name: string;
+  /**
+   * Account roles granted with the user, such as `administrator`. Deleting
+   * the journaled user cascades the grants away.
+   */
+  readonly roles?: readonly AccountRole[];
 };
 
 /**
- * Inserts one verified synthetic Better Auth user, and its customer link when
- * the profile counts as completed. The caller journals the account id first.
+ * Inserts one verified synthetic customer account, linked to its customer when
+ * the profile counts as completed, its Better Auth user, and its role grants. The caller journals the
+ * account id first.
  */
 export const seedWorkspaceE2ESyntheticAccount = (
   account: WorkspaceE2ESyntheticAccount
@@ -88,46 +124,46 @@ export const seedWorkspaceE2ESyntheticAccount = (
     const { db } = yield* E2EDatabase;
     yield* runDatabaseOperation(
       "seed synthetic account",
-      db.transaction(
-        Effect.fn(function* (tx) {
-          yield* tx.insert(authUser).values({
-            deletionRequestedAt: null,
-            email: sensitiveDatabaseParameter(account.email),
-            emailVerified: true,
-            id: account.accountId,
-            name: account.name,
-          });
-          if (account.linkedCustomerId) {
-            yield* tx.insert(customerAccountLinks).values({
-              customerAccountId: account.accountId,
-              dotyposCustomerId: account.linkedCustomerId,
-            });
-          }
-        })
-      )
+      workspaceFixtures(db).account("e2e-synthetic-account", {
+        id: account.accountId as CustomerAccountId,
+        email: account.email,
+        name: account.name,
+        linkedCustomer: account.linkedCustomerId,
+        roles: account.roles,
+      })
     );
   });
 
 /**
- * Signs a browser session in as one journaled synthetic account without a
- * magic link: it inserts a short-lived Better Auth session row into the exact
- * preview database and sets the matching signed cookie for the preview origin
- * in that session's own browser context. Nothing changes in the deployment;
- * the app authenticates the cookie through its normal session lookup.
+ * Removes every role grant of one seeded synthetic account, as an
+ * administrator's revocation does; its sessions and agent tokens stay.
  */
-export const signInWorkspaceE2ESyntheticAccount = ({
+export const revokeWorkspaceE2ESyntheticAccountRoles = (
+  accountId: string
+): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
+  Effect.gen(function* () {
+    const { db } = yield* E2EDatabase;
+    yield* runDatabaseOperation(
+      "revoke synthetic account roles",
+      db
+        .delete(accountRoleGrants)
+        .where(eq(accountRoleGrants.accountId, accountId as CustomerAccountId))
+    );
+  });
+
+/**
+ * Inserts a short-lived Better Auth session row for one journaled synthetic
+ * account into the exact preview database and returns the matching signed
+ * session cookie value. Nothing changes in the deployment; the app
+ * authenticates the cookie through its normal session lookup.
+ */
+const issueWorkspaceE2ESyntheticSession = ({
   accountId,
-  baseUrl,
-  run,
   secret,
-  session,
 }: {
   readonly accountId: string;
-  readonly baseUrl: string;
-  readonly run: Runner;
   readonly secret: WorkspaceE2ESessionSigningSecret;
-  readonly session: string;
-}): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
+}): Effect.Effect<string, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
     const token = generateSessionToken();
     addRedaction(token, true);
@@ -140,9 +176,7 @@ export const signInWorkspaceE2ESyntheticAccount = ({
         expiresAt: new Date(now.getTime() + seededSessionLifetimeMs),
         id: crypto.randomUUID(),
         ipAddress: "",
-        // The database query logger keeps its own censor, so the bearer
-        // token must be marked sensitive rather than only redacted here.
-        token: sensitiveDatabaseParameter(token),
+        token,
         updatedAt: now,
         userAgent: "",
         userId: accountId,
@@ -157,9 +191,114 @@ export const signInWorkspaceE2ESyntheticAccount = ({
       try: () => signWorkspaceE2ESessionToken(token, secret),
     });
     addRedaction(value, true);
-    yield* setBrowserCookie(run, session, {
+    return value;
+  });
+
+/**
+ * Signs an E2E browser session in as one journaled synthetic account
+ * without a magic link, setting the seeded session's HTTP-only, Secure, Lax
+ * cookie for the preview's HTTPS origin.
+ */
+export const signInWorkspaceE2ESyntheticAccount = ({
+  accountId,
+  baseUrl,
+  secret,
+  session,
+}: {
+  readonly accountId: string;
+  readonly baseUrl: string;
+  readonly secret: WorkspaceE2ESessionSigningSecret;
+  readonly session: E2EBrowserSession;
+}): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
+  Effect.gen(function* () {
+    const value = yield* issueWorkspaceE2ESyntheticSession({
+      accountId,
+      secret,
+    });
+    yield* session.setSessionCookie({
       name: workspaceE2ESessionCookieName,
       url: baseUrl,
       value,
     });
   });
+
+/**
+ * Signs an E2E browser session in as one journaled synthetic account, with
+ * the same cookie `signInWorkspaceE2ESyntheticBrowserContext` sets.
+ */
+export const signInWorkspaceE2ESyntheticBrowserSession = ({
+  accountId,
+  origin,
+  secret,
+  session,
+}: {
+  readonly accountId: string;
+  readonly origin: string;
+  readonly secret: WorkspaceE2ESessionSigningSecret;
+  readonly session: E2EBrowserSession;
+}): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
+  Effect.gen(function* () {
+    const cookie = workspaceE2ESessionCookieFor(origin);
+    const value = yield* issueWorkspaceE2ESyntheticSession({
+      accountId,
+      secret,
+    });
+    yield* session
+      .use(syntheticSessionCookieOperation, (page) =>
+        page
+          .context()
+          .addCookies([toSyntheticSessionCookie(cookie, origin, value)])
+      )
+      .pipe(Effect.mapError(syntheticSessionCookieFailure));
+  });
+
+/**
+ * Signs a Playwright browser context in as one journaled synthetic account:
+ * the seeded session's HTTP-only, Lax cookie is added for the target origin
+ * only, Secure on a preview.
+ */
+export const signInWorkspaceE2ESyntheticBrowserContext = ({
+  accountId,
+  context,
+  origin,
+  secret,
+}: {
+  readonly accountId: string;
+  readonly context: Pick<BrowserContext, "addCookies">;
+  readonly origin: string;
+  readonly secret: WorkspaceE2ESessionSigningSecret;
+}): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
+  Effect.gen(function* () {
+    const cookie = workspaceE2ESessionCookieFor(origin);
+    const value = yield* issueWorkspaceE2ESyntheticSession({
+      accountId,
+      secret,
+    });
+    yield* Effect.tryPromise({
+      // Playwright causes can echo the cookie, so the cause is discarded.
+      catch: syntheticSessionCookieFailure,
+      try: () =>
+        context.addCookies([toSyntheticSessionCookie(cookie, origin, value)]),
+    });
+  });
+
+const syntheticSessionCookieOperation = "set synthetic account session cookie";
+
+const syntheticSessionCookieFailure = () =>
+  workspaceE2EError(`${syntheticSessionCookieOperation} failed`, {
+    operation: syntheticSessionCookieOperation,
+  });
+
+/** The seeded session's HTTP-only, Lax cookie for one origin. */
+const toSyntheticSessionCookie = (
+  cookie: ReturnType<typeof workspaceE2ESessionCookieFor>,
+  origin: string,
+  value: string
+): Parameters<BrowserContext["addCookies"]>[0][number] => ({
+  httpOnly: true,
+  name: cookie.name,
+  sameSite: "Lax",
+  secure: cookie.secure,
+  url: origin,
+  value,
+});

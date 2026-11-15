@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { m } from "@/features/administration/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import {
   Dialog,
@@ -9,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/components/ui/dialog";
+import { discountDialogContentClassName } from "./creation-dialogs";
 import { CustomerDiscountCodeCreationForm } from "./customer-code-creation";
 import type { AdminDiscount } from "./discount-administration.service";
 
@@ -22,6 +25,7 @@ export function CustomerDiscountCodeCreationDialog({
   readonly discounts: readonly Pick<AdminDiscount, "id" | "labels">[];
 }) {
   const router = useRouter();
+  const locale = useRouteLocale();
 
   return (
     <Dialog
@@ -30,12 +34,13 @@ export function CustomerDiscountCodeCreationDialog({
       }}
       open
     >
-      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-4xl overflow-y-auto">
+      <DialogContent className={discountDialogContentClassName} locale={locale}>
         <DialogHeader>
-          <DialogTitle>Create discount code for {customerName}</DialogTitle>
+          <DialogTitle>
+            {m.discountsCustomerCodeCreateTitle({ customerName }, { locale })}
+          </DialogTitle>
           <DialogDescription>
-            Create a code restricted to this customer and choose the discount it
-            applies.
+            {m.discountsCustomerCodeCreateDescription({}, { locale })}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5">

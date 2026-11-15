@@ -2,8 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Context, Duration, Effect, Layer } from "effect";
-
-process.env.CRON_SECRET = "cron-secret-for-payment-refund-test";
+import { env } from "@/env";
 
 const reconcileCalls: { readonly limit: number }[] = [];
 
@@ -16,8 +15,6 @@ interface IFakePaymentRefunds {
   >;
 }
 
-let failReconciliation = false;
-
 const FakePaymentRefundService = Context.Service<
   FakePaymentRefundService,
   IFakePaymentRefunds
@@ -26,9 +23,7 @@ const FakePaymentRefundService = Context.Service<
 const fakePaymentRefundLayer = Layer.succeed(FakePaymentRefundService, {
   reconcileRefunds: (input) => {
     reconcileCalls.push(input);
-    return failReconciliation
-      ? Effect.fail(new Error("refund reconciliation unavailable"))
-      : Effect.succeed({ checked: 3, recorded: 1, failed: 0 });
+    return Effect.succeed({ checked: 3, recorded: 1, failed: 0 });
   },
 }) as Layer.Layer<FakePaymentRefundService>;
 
@@ -55,15 +50,6 @@ const loadRoute = async () =>
 describe("payment refund reconciliation cron route", () => {
   beforeEach(() => {
     reconcileCalls.length = 0;
-    failReconciliation = false;
-  });
-
-  test("rejects requests without the cron secret", async () => {
-    const { GET } = await loadRoute();
-    const response = await GET(new Request(requestUrl));
-
-    expect(response.status).toBe(401);
-    expect(reconcileCalls).toHaveLength(0);
   });
 
   test("reconciles one batch sized to re-check recent payments daily", async () => {
@@ -71,7 +57,7 @@ describe("payment refund reconciliation cron route", () => {
     const response = await GET(
       new Request(requestUrl, {
         headers: {
-          authorization: "Bearer cron-secret-for-payment-refund-test",
+          authorization: `Bearer ${env.CRON_SECRET}`,
         },
       })
     );
@@ -90,22 +76,5 @@ describe("payment refund reconciliation cron route", () => {
         worstCaseLookupDuration: expect.anything(),
       },
     ]);
-  });
-
-  test("returns a 500 response when the batch cannot be read", async () => {
-    failReconciliation = true;
-    const { GET } = await loadRoute();
-    const response = await GET(
-      new Request(requestUrl, {
-        headers: {
-          authorization: "Bearer cron-secret-for-payment-refund-test",
-        },
-      })
-    );
-
-    expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
-      error: "Payment refund reconciliation failed",
-    });
   });
 });

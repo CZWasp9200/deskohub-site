@@ -1,5 +1,6 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
+import { DotyposUnavailable } from "@deskohub/dotypos";
 import { PostHogFeatureFlagEvaluationError } from "@deskohub/posthog/feature-flags/node";
 import {
   type Context,
@@ -11,17 +12,13 @@ import {
   Schema,
 } from "effect";
 import type { WorkspaceProductIdentity } from "@/features/checkout/product-identity";
-import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
 import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
 import type { ReferralService as ReferralServiceTag } from "@/features/referrals";
-import {
-  getReferralInvitationDiscountId,
-  getReferralReferrerDiscountId,
-} from "@/features/referrals/discount-identifiers";
 import {
   ReferralServiceMock,
   WithheldReferralService,
 } from "@/features/referrals/referral.service.mock";
+import { getReferralBenefitIds } from "@/features/referrals/referral-benefits";
 import { CalendarDiscountProviderMock } from "./calendar-discount-provider.service.mock";
 import { getDiscountCommitmentPayload } from "./commitment";
 import { PromotionCodeProviderMock } from "./promotion-code-provider.service.mock";
@@ -30,6 +27,7 @@ type LogAnnotations = Context.Service.Shape<
   typeof References.CurrentLogAnnotations
 >;
 
+import type { Money } from "@/shared/money/money";
 import {
   type ActiveSale,
   affirmedDiscountAdvertisementQuoteCodec,
@@ -67,7 +65,7 @@ const product = {
   tier: "basic",
 } satisfies WorkspaceProductIdentity;
 
-const money = (value: number): WorkspaceMoney => ({
+const money = (value: number): Money => ({
   value,
   exponent: 2,
   currency: "CZK",
@@ -546,63 +544,54 @@ describe("DiscountService", () => {
     });
   });
 
-  test.each([["discover_advertised_discounts", "discover"]] as const)(
-    "omits a failed Calendar source during %s and logs safely",
-    async (operation, providerOperation) => {
-      const failure = new DiscountProviderError({
-        reason: "provider_failure",
-        message: "Calendar failed.",
-        cause: new Error("private provider detail"),
+  test("omits a failed Calendar source during discover_advertised_discounts and logs safely", async () => {
+    const failure = new DiscountProviderError({
+      reason: "provider_failure",
+      message: "Calendar failed.",
+      cause: new Error("private provider detail"),
+    });
+    const logRecords: {
+      readonly annotations: LogAnnotations;
+      readonly level: string;
+    }[] = [];
+    const logger = Logger.make((options) => {
+      logRecords.push({
+        annotations: options.fiber.getRef(References.CurrentLogAnnotations),
+        level: options.logLevel,
       });
-      const logRecords: {
-        readonly annotations: LogAnnotations;
-        readonly level: string;
-      }[] = [];
-      const logger = Logger.make((options) => {
-        logRecords.push({
-          annotations: options.fiber.getRef(References.CurrentLogAnnotations),
-          level: options.logLevel,
-        });
-      });
-      const providers = Layer.mergeAll(
-        CalendarDiscountProviderMock({
-          [providerOperation]: () => Effect.fail(failure),
-        }),
-        CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
-        PromotionCodeProviderMock({
-          revalidate: () => Effect.succeed([]),
-        })
-      );
+    });
+    const providers = Layer.mergeAll(
+      CalendarDiscountProviderMock({
+        discover: () => Effect.fail(failure),
+      }),
+      CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
+      PromotionCodeProviderMock({
+        revalidate: () => Effect.succeed([]),
+      })
+    );
 
-      const result = await runWithProviders(
-        Effect.gen(function* () {
-          const discounts = yield* DiscountService;
-          return yield* operation === "discover_advertised_discounts"
-            ? discounts.discoverAdvertisedDiscounts(advertisementInput)
-            : discounts.affirmAdvertisement({
-                ...advertisementInput,
-                advertisedDiscountIds: [discountId("advertised")],
-              });
-        }).pipe(Effect.provide(Logger.layer([logger]))),
-        providers
-      );
+    const result = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        return yield* discounts.discoverAdvertisedDiscounts(advertisementInput);
+      }).pipe(Effect.provide(Logger.layer([logger]))),
+      providers
+    );
 
-      expect(result.discounts).toEqual([]);
-      expect(logRecords).toContainEqual({
-        level: "Error",
-        annotations: expect.objectContaining({
-          discountBoundary: "resolution",
-          discountProvider: "calendar",
-          discountOperation: operation,
-          discountErrorTag: "DiscountProviderError",
-          discountErrorReason: "provider_failure",
-        }),
-      });
-      expect(JSON.stringify(logRecords)).not.toContain(
-        "private provider detail"
-      );
-    }
-  );
+    expect(result.quote.discounts).toEqual([]);
+    expect(result.complete).toBeFalse();
+    expect(logRecords).toContainEqual({
+      level: "Error",
+      annotations: expect.objectContaining({
+        discountBoundary: "resolution",
+        discountProvider: "calendar",
+        discountOperation: "discover_advertised_discounts",
+        discountErrorTag: "DiscountProviderError",
+        discountErrorReason: "provider_failure",
+      }),
+    });
+    expect(JSON.stringify(logRecords)).not.toContain("private provider detail");
+  });
 
   test("fails an advertised Calendar discount it cannot affirm and logs safely", async () => {
     const failure = new DiscountProviderError({
@@ -688,7 +677,7 @@ describe("DiscountService", () => {
     const customerResolve = mock(() =>
       Effect.succeed([percentage("customer", 500, "customer")])
     );
-    const calendarDiscover = mock(() => Effect.succeed([]));
+    const calendarDiscover = mock(() => Effect.succeed(calendarResolution([])));
     const codeRevalidate = mock(() => Effect.succeed([]));
     const providers = Layer.mergeAll(
       CalendarDiscountProviderMock({ discover: calendarDiscover }),
@@ -834,6 +823,56 @@ describe("DiscountService", () => {
     });
   });
 
+  test("keeps an advertised query code whose revalidation differs only in its staff label", async () => {
+    const codeId = discountId("query-code");
+    const code = percentage("query-code", 1000, "code");
+    const providers = Layer.mergeAll(
+      CalendarDiscountProviderMock(),
+      CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
+      PromotionCodeProviderMock({
+        revalidate: () =>
+          Effect.succeed([
+            {
+              ...code,
+              discount: { ...code.discount, staffLabel: "Kódová sleva" },
+            },
+          ]),
+      })
+    );
+    const affirmedAdvertisement = affirmedDiscountAdvertisementQuoteCodec.make({
+      product,
+      discountableSubtotal: money(10_000),
+      discounts: [
+        {
+          discount: code.discount,
+          subtotalBefore: money(10_000),
+          amount: money(1000),
+          subtotalAfter: money(9000),
+        },
+      ],
+      totalDiscount: money(1000),
+      discountedSubtotal: money(9000),
+    });
+
+    const result = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        return yield* discounts.applyCustomerDiscount({
+          affirmedAdvertisement,
+          dotyposCustomerId: paymentInput.dotyposCustomerId,
+          locale: paymentInput.locale,
+          submittedCode: paymentInput.submittedCode,
+          submittedCodeDiscountId: codeId,
+        });
+      }),
+      providers
+    );
+
+    expect(code.discount).not.toHaveProperty("staffLabel");
+    expect(result.advertisedPriceChanged).toBeFalse();
+    expect(result.submittedCodeDiscountId).toBe(codeId);
+  });
+
   test("keeps a validated query code after the identified customer's discount", async () => {
     const codeId = discountId("query-code");
     const providers = Layer.mergeAll(
@@ -921,7 +960,9 @@ describe("DiscountService", () => {
     "$operation gates calendar=$gates.calendarSales customer=$gates.customerDiscounts code=$gates.discountCodes",
     async ({ operation, gates }) => {
       const calendarDiscover = mock(() =>
-        Effect.succeed([percentage("calendar", 1000, "calendar")])
+        Effect.succeed(
+          calendarResolution([percentage("calendar", 1000, "calendar")])
+        )
       );
       const calendarRevalidate = mock(() =>
         Effect.succeed(
@@ -944,20 +985,26 @@ describe("DiscountService", () => {
         PromotionCodeProviderMock({ revalidate: codeRevalidate })
       );
 
-      const appliedIds = await runWithProviders(
+      const applied = await runWithProviders(
         Effect.gen(function* () {
           const discounts = yield* DiscountService;
           if (operation === "discover_advertised_discounts") {
             const result =
               yield* discounts.discoverAdvertisedDiscounts(advertisementInput);
-            return result.discounts.map(({ discount }) => discount.id);
+            return {
+              complete: result.complete,
+              ids: result.quote.discounts.map(({ discount }) => discount.id),
+            };
           }
           if (operation === "affirm_advertisement") {
             const result = yield* discounts.affirmAdvertisement({
               ...advertisementInput,
               advertisedDiscountIds: [discountId("calendar")],
             });
-            return result.discounts.map(({ discount }) => discount.id);
+            return {
+              complete: undefined,
+              ids: result.discounts.map(({ discount }) => discount.id),
+            };
           }
           if (operation === "apply_customer_discount") {
             const result = yield* discounts.applyCustomerDiscount({
@@ -965,7 +1012,10 @@ describe("DiscountService", () => {
               dotyposCustomerId: paymentInput.dotyposCustomerId,
               locale: paymentInput.locale,
             });
-            return result.discounts.map(({ discount }) => discount.id);
+            return {
+              complete: undefined,
+              ids: result.discounts.map(({ discount }) => discount.id),
+            };
           }
           const result = yield* discounts.affirmDisplayedDiscounts({
             ...paymentInput,
@@ -975,7 +1025,10 @@ describe("DiscountService", () => {
               discountId("code"),
             ],
           });
-          return result.quote.discounts.map(({ discount }) => discount.id);
+          return {
+            complete: undefined,
+            ids: result.quote.discounts.map(({ discount }) => discount.id),
+          };
         }),
         providers,
         DiscountReleaseGateServiceMock({ evaluate })
@@ -1020,7 +1073,10 @@ describe("DiscountService", () => {
       } else if (operation === "apply_customer_discount") {
         expectedAppliedIds = gates.customerDiscounts ? ["customer"] : [];
       }
-      expect(appliedIds).toEqual(expectedAppliedIds);
+      expect(applied.ids).toEqual(expectedAppliedIds);
+      if (operation === "discover_advertised_discounts") {
+        expect(applied.complete).toBeTrue();
+      }
     }
   );
 
@@ -1035,7 +1091,9 @@ describe("DiscountService", () => {
     const providers = Layer.mergeAll(
       CalendarDiscountProviderMock({
         discover: () =>
-          Effect.succeed([percentage("calendar", 1000, "calendar")]),
+          Effect.succeed(
+            calendarResolution([percentage("calendar", 1000, "calendar")])
+          ),
         revalidate: () =>
           Effect.succeed(
             calendarResolution([percentage("calendar", 1000, "calendar")])
@@ -1052,7 +1110,7 @@ describe("DiscountService", () => {
           yield* discounts.discoverAdvertisedDiscounts(advertisementInput);
         const affirmation = yield* discounts.affirmAdvertisement({
           ...advertisementInput,
-          advertisedDiscountIds: advertisement.discounts.map(
+          advertisedDiscountIds: advertisement.quote.discounts.map(
             ({ discount }) => discount.id
           ),
         });
@@ -1062,7 +1120,8 @@ describe("DiscountService", () => {
       DiscountReleaseGateServiceMock({ evaluate })
     );
 
-    expect(result.advertisement.discounts).toHaveLength(1);
+    expect(result.advertisement.quote.discounts).toHaveLength(1);
+    expect(result.advertisement.complete).toBeTrue();
     expect(result.affirmation.discounts).toEqual([]);
   });
 
@@ -1173,7 +1232,7 @@ describe("DiscountService", () => {
     const promotionCodeId = promotionCodeIdSchema.make("referral-promotion");
     const invitation: DiscountCandidate = {
       discount: {
-        id: getReferralInvitationDiscountId(invitedCustomerId),
+        id: getReferralBenefitIds(invitedCustomerId).invitation,
         label: "Invitation discount",
         adjustment: { kind: "percentage", basisPoints: 1_500 },
       },
@@ -1190,7 +1249,7 @@ describe("DiscountService", () => {
     };
     const referrer: DiscountCandidate = {
       discount: {
-        id: getReferralReferrerDiscountId(invitedCustomerId),
+        id: getReferralBenefitIds(invitedCustomerId).referrer,
         label: "Referrer discount",
         adjustment: { kind: "fixed", amount: money(551) },
       },
@@ -1199,7 +1258,7 @@ describe("DiscountService", () => {
         providerReference: invitedCustomerId,
       },
     };
-    let referrerSubtotal: WorkspaceMoney | undefined;
+    let referrerSubtotal: Money | undefined;
     const referralService = ReferralServiceMock({
       resolveInvitationCandidate: () => Effect.succeed(invitation),
       resolveReferrerCandidate: (input) => {
@@ -1209,7 +1268,10 @@ describe("DiscountService", () => {
     });
     const providers = Layer.mergeAll(
       CalendarDiscountProviderMock({
-        discover: () => Effect.succeed([percentage("sale", 1_000, "calendar")]),
+        discover: () =>
+          Effect.succeed(
+            calendarResolution([percentage("sale", 1_000, "calendar")])
+          ),
       }),
       CustomerDiscountProviderMock({
         resolve: () =>
@@ -1239,13 +1301,110 @@ describe("DiscountService", () => {
       "sale",
       "customer",
       "code",
-      getReferralInvitationDiscountId(invitedCustomerId),
-      getReferralReferrerDiscountId(invitedCustomerId),
+      getReferralBenefitIds(invitedCustomerId).invitation,
+      getReferralBenefitIds(invitedCustomerId).referrer,
     ]);
     expect(
       quote.discounts.map(({ subtotalBefore }) => subtotalBefore.value)
     ).toEqual([10_000, 9_000, 8_100, 6_480, 5_508]);
     expect(quote.discountedSubtotal).toEqual(money(4_957));
+  });
+
+  test("keeps each referral benefit when the other's resolution fails", async () => {
+    const invitedCustomerId = paymentInput.dotyposCustomerId;
+    const promotionCodeId = promotionCodeIdSchema.make("referral-promotion");
+    const invitation: DiscountCandidate = {
+      discount: {
+        id: getReferralBenefitIds(invitedCustomerId).invitation,
+        label: "Invitation discount",
+        adjustment: { kind: "percentage", basisPoints: 1_500 },
+      },
+      provenance: {
+        providerNamespace: "referral-invitation",
+        providerReference: promotionCodeId,
+      },
+      claim: {
+        kind: "referral_invitation",
+        invitedDotyposCustomerId: invitedCustomerId,
+        referrerDotyposCustomerId: "referrer-1" as typeof invitedCustomerId,
+        promotionCodeId,
+      },
+    };
+    const referrer: DiscountCandidate = {
+      discount: {
+        id: getReferralBenefitIds(invitedCustomerId).referrer,
+        label: "Referrer discount",
+        adjustment: { kind: "fixed", amount: money(500) },
+      },
+      provenance: {
+        providerNamespace: "referral-referrer",
+        providerReference: invitedCustomerId,
+      },
+    };
+    const unavailable = Effect.fail(
+      new DotyposUnavailable({
+        operation: "listReservations",
+        reason: "server",
+      })
+    );
+    const providers = Layer.mergeAll(
+      CalendarDiscountProviderMock({
+        discover: () => Effect.succeed(calendarResolution([])),
+      }),
+      CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
+      PromotionCodeProviderMock({ revalidate: () => Effect.succeed([]) })
+    );
+    const quoteWith = async (
+      overrides: Parameters<typeof ReferralServiceMock>[0]
+    ) => {
+      const logRecords: LogAnnotations[] = [];
+      const logger = Logger.make((options) => {
+        logRecords.push(options.fiber.getRef(References.CurrentLogAnnotations));
+      });
+      const quote = await runWithProviders(
+        Effect.gen(function* () {
+          const discounts = yield* DiscountService;
+          return yield* discounts.quote({
+            ...advertisementInput,
+            dotyposCustomerId: invitedCustomerId,
+          });
+        }).pipe(Effect.provide(Logger.layer([logger]))),
+        providers,
+        allReleaseGatesEnabled,
+        ReferralServiceMock(overrides)
+      );
+      return { quote, logRecords };
+    };
+    const referralFailureLog = expect.objectContaining({
+      discountBoundary: "resolution",
+      discountProvider: "referral",
+      discountOperation: "quote",
+      discountErrorTag: "DotyposUnavailable",
+      discountErrorReason: "server",
+    });
+
+    const withoutReferrer = await quoteWith({
+      resolveInvitationCandidate: () => Effect.succeed(invitation),
+      resolveReferrerCandidate: () => unavailable,
+    });
+    expect(
+      withoutReferrer.quote.discounts.map(({ discount }) => discount.id)
+    ).toEqual([getReferralBenefitIds(invitedCustomerId).invitation]);
+    expect(withoutReferrer.logRecords).toContainEqual(referralFailureLog);
+
+    let referrerSubtotal: Money | undefined;
+    const withoutInvitation = await quoteWith({
+      resolveInvitationCandidate: () => unavailable,
+      resolveReferrerCandidate: (input) => {
+        referrerSubtotal = input.remainingSubtotal;
+        return Effect.succeed(referrer);
+      },
+    });
+    expect(referrerSubtotal).toEqual(money(10_000));
+    expect(
+      withoutInvitation.quote.discounts.map(({ discount }) => discount.id)
+    ).toEqual([getReferralBenefitIds(invitedCustomerId).referrer]);
+    expect(withoutInvitation.logRecords).toContainEqual(referralFailureLog);
   });
 
   test("prices the invitation from the checkout's carried referral code", async () => {
@@ -1260,7 +1419,7 @@ describe("DiscountService", () => {
     });
     const providers = Layer.mergeAll(
       CalendarDiscountProviderMock({
-        discover: () => Effect.succeed([]),
+        discover: () => Effect.succeed(calendarResolution([])),
         revalidate: () => Effect.succeed(calendarResolution([])),
       }),
       CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
@@ -1322,7 +1481,7 @@ describe("DiscountService", () => {
     };
     const invitation: DiscountCandidate = {
       discount: {
-        id: getReferralInvitationDiscountId(invitedCustomerId),
+        id: getReferralBenefitIds(invitedCustomerId).invitation,
         label: "Invitation discount",
         adjustment: { kind: "percentage", basisPoints: 1_500 },
       },
@@ -1337,7 +1496,7 @@ describe("DiscountService", () => {
         promotionCodeId: referralPromotionCodeId,
       },
     };
-    let referrerSubtotal: WorkspaceMoney | undefined;
+    let referrerSubtotal: Money | undefined;
     const referralService = ReferralServiceMock({
       resolveInvitationCandidate: () => Effect.succeed(invitation),
       resolveReferrerCandidate: (input) => {
@@ -1345,7 +1504,7 @@ describe("DiscountService", () => {
         const amount = money(Math.round(input.remainingSubtotal.value / 20));
         return Effect.succeed({
           discount: {
-            id: getReferralReferrerDiscountId(invitedCustomerId),
+            id: getReferralBenefitIds(invitedCustomerId).referrer,
             label: "Referral discount (1 eligible people)",
             adjustment: { kind: "fixed", amount },
           },
@@ -1358,7 +1517,7 @@ describe("DiscountService", () => {
     });
     const providers = Layer.mergeAll(
       CalendarDiscountProviderMock({
-        discover: () => Effect.succeed([]),
+        discover: () => Effect.succeed(calendarResolution([])),
         revalidate: () => Effect.succeed(calendarResolution([])),
       }),
       CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
@@ -1391,8 +1550,8 @@ describe("DiscountService", () => {
 
     expect(referrerSubtotal).toEqual(money(8_500));
     expect(result.quote.discounts.map(({ discount }) => discount.id)).toEqual([
-      getReferralInvitationDiscountId(invitedCustomerId),
-      getReferralReferrerDiscountId(invitedCustomerId),
+      getReferralBenefitIds(invitedCustomerId).invitation,
+      getReferralBenefitIds(invitedCustomerId).referrer,
       voucherCandidate.discount.id,
     ]);
     expect(result.quote.discounts.map(({ amount }) => amount)).toEqual([
@@ -1420,8 +1579,8 @@ describe("DiscountService", () => {
       referralService
     );
     expect(quoted.discounts.map(({ discount }) => discount.id)).toEqual([
-      getReferralInvitationDiscountId(invitedCustomerId),
-      getReferralReferrerDiscountId(invitedCustomerId),
+      getReferralBenefitIds(invitedCustomerId).invitation,
+      getReferralBenefitIds(invitedCustomerId).referrer,
       voucherCandidate.discount.id,
     ]);
     expect(quoted.discounts.map(({ amount }) => amount.value)).toEqual([
@@ -1445,8 +1604,8 @@ describe("DiscountService", () => {
       referralService
     );
     expect(customerQuote.discounts.map(({ discount }) => discount.id)).toEqual([
-      getReferralInvitationDiscountId(invitedCustomerId),
-      getReferralReferrerDiscountId(invitedCustomerId),
+      getReferralBenefitIds(invitedCustomerId).invitation,
+      getReferralBenefitIds(invitedCustomerId).referrer,
       voucherCandidate.discount.id,
     ]);
     expect(customerQuote.discounts.map(({ amount }) => amount.value)).toEqual([
@@ -1485,7 +1644,7 @@ describe("DiscountService", () => {
     const referralCode = canonicalPromotionCodeSchema.make("RFL12345");
     const providers = Layer.mergeAll(
       CalendarDiscountProviderMock({
-        discover: () => Effect.succeed([]),
+        discover: () => Effect.succeed(calendarResolution([])),
         revalidate: () => Effect.succeed(calendarResolution([])),
       }),
       CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
@@ -1509,8 +1668,8 @@ describe("DiscountService", () => {
           ...paymentInput,
           displayedDiscountIds: [
             discountId("code"),
-            getReferralInvitationDiscountId(invitedCustomerId),
-            getReferralReferrerDiscountId(invitedCustomerId),
+            getReferralBenefitIds(invitedCustomerId).invitation,
+            getReferralBenefitIds(invitedCustomerId).referrer,
           ],
           referralCode,
         });
@@ -1540,7 +1699,7 @@ describe("DiscountService", () => {
     const promotionCodeId = promotionCodeIdSchema.make("tiny-referral");
     const invitation: DiscountCandidate = {
       discount: {
-        id: getReferralInvitationDiscountId(invitedCustomerId),
+        id: getReferralBenefitIds(invitedCustomerId).invitation,
         label: "Invitation discount",
         adjustment: { kind: "percentage", basisPoints: 1_500 },
       },

@@ -1,5 +1,5 @@
 import { Data, Effect } from "effect";
-import { redact } from "./runtime";
+import { redact, redactDiagnosticText } from "./redaction";
 
 const nexiWebhookDiagnosticCodes = [
   "nexi_webhook_parse_failed",
@@ -84,6 +84,8 @@ const accountLayoutSections = [
   "reservations",
   "referrals",
   "profile",
+  "security",
+  "assistants",
   "billing",
   "legal",
   "danger",
@@ -98,6 +100,20 @@ const accountLayoutNavigationDiagnosticCodes =
       (section) => `account_layout_${phase}_${section}_failed` as const
     )
   ) as AccountLayoutNavigationDiagnosticCode[];
+
+const workspaceE2EAccountPasskeyDiagnosticCodes = [
+  "account_passkey_authenticator_failed",
+  "account_passkey_sign_in_offer_failed",
+  "account_passkey_prompt_failed",
+  "account_passkey_sign_in_failed",
+  "account_passkey_rename_failed",
+  "account_passkey_delete_failed",
+  "account_passkey_settings_create_failed",
+  "account_passkey_deletion_reauth_failed",
+] as const;
+
+export type WorkspaceE2EAccountPasskeyDiagnosticCode =
+  (typeof workspaceE2EAccountPasskeyDiagnosticCodes)[number];
 
 const workspaceE2EReservationExistingCustomerDiagnosticCodes = [
   "account_reservation_existing_customer_page_failed",
@@ -126,6 +142,7 @@ const workspaceE2EAccountDiagnosticCodes = [
   ...workspaceE2EAccountLocaleSwitchDiagnosticCodes,
   ...accountLayoutNavigationDiagnosticCodes,
   ...workspaceE2EReservationExistingCustomerDiagnosticCodes,
+  ...workspaceE2EAccountPasskeyDiagnosticCodes,
 ] as const;
 
 // The Nexi hosted payment page step that failed, paired with the provider page
@@ -135,6 +152,7 @@ const nexiHostedPaymentSteps = [
   "continue",
   "pay",
   "challenge",
+  "challenge_failure",
   "return",
 ] as const;
 
@@ -151,6 +169,8 @@ const nexiHostedPaymentPageStates = [
   "pay_disabled",
   "challenge_enabled",
   "challenge_disabled",
+  "challenge_failure_enabled",
+  "challenge_failure_disabled",
   "return_enabled",
   "return_disabled",
   "unknown",
@@ -267,6 +287,24 @@ export const withWorkspaceE2EDiagnosticCode =
       )
     );
 
+/**
+ * Reports `effect` running out of time as an ordinary `<operation> failed`,
+ * for a bound that is a safety net rather than the case's timing contract,
+ * such as a page evaluation's deadline.
+ */
+export const withoutWorkspaceE2ETimeout =
+  (operation: string) =>
+  <A, R>(
+    effect: Effect.Effect<A, WorkspaceE2EError, R>
+  ): Effect.Effect<A, WorkspaceE2EError, R> =>
+    effect.pipe(
+      Effect.mapError((error) =>
+        error.reason === "timeout"
+          ? workspaceE2EError(`${operation} failed`, { operation })
+          : error
+      )
+    );
+
 export const failWorkspaceE2E = (
   message: string,
   options: {
@@ -356,6 +394,19 @@ const formatUnknownFailure = (cause: unknown, seen: Set<unknown>): string => {
 
 const getCauseMessage = (cause: unknown) =>
   cause instanceof Error ? cause.message : String(cause);
+
+/**
+ * The first line of a browser failure, with registered secrets, URLs, and
+ * token-like runs redacted, so a boundary that keeps Playwright messages out
+ * of its reports can still say which failure it met.
+ */
+export const describeBrowserFailure = (cause: unknown) => {
+  const name = cause instanceof Error ? cause.name : "failure";
+  const [firstLine = ""] = redactDiagnosticText(getCauseMessage(cause)).split(
+    "\n"
+  );
+  return `${name}: ${firstLine.slice(0, 200)}`;
+};
 
 const indent = (value: string) =>
   value

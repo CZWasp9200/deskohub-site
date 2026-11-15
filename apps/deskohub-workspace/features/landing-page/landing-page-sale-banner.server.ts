@@ -2,9 +2,12 @@ import "server-only";
 import { Effect } from "effect";
 import type { ActiveSale } from "@/features/discounts";
 import { getActivePublicSales } from "@/features/discounts/active-public-sales.server";
-import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import {
+  type WorkspaceProductFamily,
+  workspaceProductFamilies,
+} from "@/features/discounts/product-target";
 import type { Locale } from "@/features/i18n";
-import { OfficeReservationFeatureFlagService } from "@/features/office/backend/office-reservation-feature-flag.service";
+import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import type { ReservationOrderData } from "@/features/reservation/reservation-order";
 import type { LandingPageSaleBannerContent } from "./components/landing-page-sale-banner";
 import { getLandingPageSaleBannerContent } from "./landing-page-sale-banner-content";
@@ -16,8 +19,7 @@ export const getActiveLandingPageSaleBanner = Effect.fn(
     Effect.bind("activeSales", ({ locale }) =>
       getActivePublicSales({ locale })
     ),
-    Effect.tap(logAmbiguousActiveSales),
-    Effect.flatMap(getEligibleLandingPageSaleBanner),
+    Effect.flatMap(getLandingPageSaleBanner),
     Effect.tapError((cause) =>
       Effect.logWarning("Landing sale banner lookup failed").pipe(
         Effect.annotateLogs({
@@ -31,6 +33,20 @@ export const getActiveLandingPageSaleBanner = Effect.fn(
   )
 );
 
+/**
+ * The home page's sale banner for the sales running now: one sale on a
+ * product visitors can book, or none.
+ */
+export const getLandingPageSaleBanner = Effect.fn("LandingPage.getSaleBanner")(
+  (input: {
+    readonly activeSales: readonly ActiveSale[];
+    readonly locale: Locale;
+  }) =>
+    logAmbiguousActiveSales(input).pipe(
+      Effect.andThen(getEligibleLandingPageSaleBanner(input))
+    )
+);
+
 const getEligibleLandingPageSaleBanner = Effect.fn(
   "LandingPage.getEligibleSaleBanner"
 )(function* (input: {
@@ -41,26 +57,27 @@ const getEligibleLandingPageSaleBanner = Effect.fn(
 
   const sale = input.activeSales[0];
   if (!sale) return undefined;
-  const products = yield* getBookableSaleProducts(sale.products);
+  const bookableProducts = yield* getBookableProducts();
+  const products = sale.products.filter(({ kind }) =>
+    bookableProducts.includes(kind)
+  );
   if (products.length === 0) return undefined;
 
   return toLandingPageSaleBannerContent({
+    bookableProducts,
     locale: input.locale,
     sale: { ...sale, products },
   });
 });
 
-/** Drops office products while visitors cannot reserve an office. */
-const getBookableSaleProducts = Effect.fn(
-  "LandingPage.getBookableSaleProducts"
-)(function* (products: readonly WorkspaceProductTarget[]) {
-  if (!products.some(({ kind }) => kind === "office")) return products;
+/** The product families visitors can reserve; offices only while switched on. */
+const getBookableProducts = Effect.fn("LandingPage.getBookableProducts")(
+  function* () {
+    if (yield* OfficeReleaseGate.isOpen) return workspaceProductFamilies;
 
-  const officeFeatureFlag = yield* OfficeReservationFeatureFlagService;
-  if (yield* officeFeatureFlag.isEnabled) return products;
-
-  return products.filter(({ kind }) => kind !== "office");
-});
+    return workspaceProductFamilies.filter((family) => family !== "office");
+  }
+);
 
 const logAmbiguousActiveSales = (input: {
   readonly activeSales: readonly ActiveSale[];
@@ -75,13 +92,16 @@ const logAmbiguousActiveSales = (input: {
   );
 
 const toLandingPageSaleBannerContent = (input: {
+  readonly bookableProducts: readonly WorkspaceProductFamily[];
   readonly locale: Locale;
   readonly sale: ActiveSale;
 }): LandingPageSaleBannerContent =>
   getLandingPageSaleBannerContent({
+    bookableProducts: input.bookableProducts,
     locale: input.locale,
     reservationKind: getBannerReservationKind(input.sale),
     sale: {
+      id: input.sale.discount.id,
       title: input.sale.discount.label,
       adjustment: input.sale.discount.adjustment,
       products: input.sale.products,

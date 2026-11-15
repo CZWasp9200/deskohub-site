@@ -1,18 +1,25 @@
-import { Schema } from "effect";
-import type { CampaignRow } from "@/db/schema";
+import { mapSupportedLocales } from "@deskohub/i18n/locale-registry";
+import type {
+  AdministrationCampaignContentInputType,
+  AdministrationCampaignEditorContentType,
+  AdministrationCampaignEditorLocaleContentType,
+  AdministrationCampaignUpdateInputType,
+  CampaignTemplatePreviewInputType,
+} from "@deskohub/workspace-admin-api";
+import { Data, Match, type Option, Schema } from "effect";
+import { m } from "@/features/administration/i18n";
 import type { Locale } from "@/features/i18n";
 import {
-  type CampaignBodyNode,
   CampaignBodyNode as CampaignBodyNodeSchema,
   campaignBodyFormatVersion,
 } from "../../body/campaign-body-document";
 import {
   type CampaignBodyIssue,
   campaignBodyIssues,
+  emptyCampaignBody,
+  isCampaignBodyEmpty,
 } from "../../body/campaign-body-rules";
 import {
-  type CampaignLocaleContent,
-  type CampaignLocalizedContent,
   CampaignPurpose,
   CampaignTemplateKey,
 } from "../../body/campaign-content";
@@ -32,29 +39,31 @@ const CampaignComposerLocaleFields = Schema.Struct({
 export type CampaignComposerLocaleFields =
   typeof CampaignComposerLocaleFields.Type;
 
-/** The composer form: one set of localized fields per supported locale. */
-export const CampaignComposerFields = Schema.Struct({
-  title: Schema.String.check(
-    Schema.makeFilter(
-      (title) => title.trim().length > 0 || "Give the campaign a title."
-    )
-  ),
-  purpose: CampaignPurpose,
-  templateKey: CampaignTemplateKey,
-  /** Empty means no audience yet. */
-  audienceId: Schema.String,
-  locales: Schema.Struct({
-    "cs-CZ": CampaignComposerLocaleFields,
-    "en-US": CampaignComposerLocaleFields,
-  }),
-});
+/**
+ * The composer form: one set of localized fields per supported locale.
+ * `locale` is the admin's language for validation messages.
+ */
+export const createCampaignComposerFields = (locale: Locale) =>
+  Schema.Struct({
+    title: Schema.String.check(
+      Schema.makeFilter(
+        (title) =>
+          title.trim().length > 0 ||
+          m.emailCampaignsComposerTitleRequired({}, { locale })
+      )
+    ),
+    purpose: CampaignPurpose,
+    templateKey: CampaignTemplateKey,
+    /** Empty means no audience yet. */
+    audienceId: Schema.String,
+    locales: Schema.Struct(
+      mapSupportedLocales(() => CampaignComposerLocaleFields)
+    ),
+  });
 
-export type CampaignComposerFields = typeof CampaignComposerFields.Type;
-
-const emptyCampaignBody: CampaignBodyNode = {
-  type: "doc",
-  content: [{ type: "paragraph" }],
-};
+export type CampaignComposerFields = ReturnType<
+  typeof createCampaignComposerFields
+>["Type"];
 
 const emptyLocaleFields: CampaignComposerLocaleFields = {
   subject: "",
@@ -68,44 +77,33 @@ export const newCampaignComposerFields: CampaignComposerFields = {
   purpose: "marketing",
   templateKey: "workspace",
   audienceId: "",
-  locales: { "cs-CZ": emptyLocaleFields, "en-US": emptyLocaleFields },
+  locales: mapSupportedLocales(() => emptyLocaleFields),
 };
 
 const localeFieldsFromContent = (
-  content: CampaignLocaleContent | undefined
+  content: AdministrationCampaignEditorLocaleContentType | undefined
 ): CampaignComposerLocaleFields =>
   content
     ? {
         subject: content.subject,
         preheader: content.preheader,
-        body: content.body.doc,
+        body: content.bodyDocument.doc,
         operationalReason: content.operationalReason ?? "",
       }
     : emptyLocaleFields;
 
+/** The composer's fields for a saved campaign, as the campaign port reads it. */
 export const campaignComposerFieldsFromCampaign = (
-  campaign: CampaignRow
+  campaign: AdministrationCampaignEditorContentType
 ): CampaignComposerFields => ({
   title: campaign.title,
   purpose: campaign.purpose,
   templateKey: campaign.templateKey,
   audienceId: campaign.audienceId ?? "",
-  locales: {
-    "cs-CZ": localeFieldsFromContent(campaign.content["cs-CZ"]),
-    "en-US": localeFieldsFromContent(campaign.content["en-US"]),
-  },
+  locales: mapSupportedLocales((locale) =>
+    localeFieldsFromContent(campaign.content[locale])
+  ),
 });
-
-const contentNodeTypes: ReadonlySet<string> = new Set([
-  "image",
-  "ctaButton",
-  "horizontalRule",
-]);
-
-const isCampaignBodyEmpty = (node: CampaignBodyNode): boolean =>
-  !contentNodeTypes.has(node.type) &&
-  (node.text ?? "").trim().length === 0 &&
-  (node.content ?? []).every(isCampaignBodyEmpty);
 
 /** The locale has any text, so saving keeps it as campaign content. */
 export const hasLocaleContent = (fields: CampaignComposerLocaleFields) =>
@@ -116,50 +114,169 @@ export const hasLocaleContent = (fields: CampaignComposerLocaleFields) =>
 
 /**
  * The locales the composer edits. An audience restricted to one locale needs
- * only that locale; otherwise every locale is editable and Czech, the
- * fallback for recipients without covered content, is required.
+ * only that locale; otherwise every locale is editable and Czech, which
+ * every recipient's fallback chain reaches, is required.
  */
 export const composerLocales = (singleLocale: Locale | undefined) =>
   singleLocale
     ? { editable: [singleLocale], required: singleLocale }
     : { editable: campaignLocales, required: campaignFallbackLocale };
 
-export const toCampaignLocaleContent = (
+/**
+ * Whether recipients whose fallback chain tries English before Czech
+ * (German and Ukrainian ones) get Czech because English has no content. An
+ * audience restricted to one locale never reaches them through English.
+ */
+export const englishFallbackMissing = (
+  singleLocale: Locale | undefined,
+  localeFields: CampaignComposerFields["locales"]
+) => singleLocale === undefined && !hasLocaleContent(localeFields["en-US"]);
+
+/**
+ * One locale's texts as the campaign port takes them: the body crosses as
+ * the editor's document, unchanged.
+ */
+const toAdministrationLocaleContent = (
   fields: CampaignComposerLocaleFields,
   purpose: CampaignPurpose
-): CampaignLocaleContent => {
+): AdministrationCampaignEditorLocaleContentType => {
   const operationalReason = fields.operationalReason.trim();
   return {
     subject: fields.subject.trim(),
     preheader: fields.preheader.trim(),
-    body: { formatVersion: campaignBodyFormatVersion, doc: fields.body },
+    bodyDocument: {
+      formatVersion: campaignBodyFormatVersion,
+      doc: fields.body,
+    },
     ...(purpose === "operational" &&
       operationalReason.length > 0 && { operationalReason }),
   };
 };
 
-/** The saved content: each editable locale that has any text. */
-export const toCampaignLocalizedContent = (
+/**
+ * The campaign port's preview of one locale still being written. The body
+ * crosses as the editor's document, as saving sends it, and may hold
+ * unfinished links, buttons and images.
+ */
+export const toCampaignPreviewInput = ({
+  templateKey,
+  purpose,
+  locale,
+  fields,
+}: {
+  readonly templateKey: CampaignTemplateKey;
+  readonly purpose: CampaignPurpose;
+  readonly locale: Locale;
+  readonly fields: CampaignComposerLocaleFields;
+}): CampaignTemplatePreviewInputType => ({
+  templateKey,
+  preview: {
+    _tag: "UnfinishedContent",
+    purpose,
+    locale,
+    content: toAdministrationLocaleContent(fields, purpose),
+  },
+});
+
+/** A new campaign's content: each editable locale that has any text. */
+export const toAdministrationCampaignContent = (
   fields: CampaignComposerFields,
   editableLocales: readonly Locale[]
-): CampaignLocalizedContent =>
+): AdministrationCampaignContentInputType =>
   Object.fromEntries(
     editableLocales
       .filter((locale) => hasLocaleContent(fields.locales[locale]))
       .map((locale) => [
         locale,
-        toCampaignLocaleContent(fields.locales[locale], fields.purpose),
+        toAdministrationLocaleContent(fields.locales[locale], fields.purpose),
       ])
   );
 
-/** Problems in one locale's content that a send would trip over. */
+/**
+ * A draft edit that replaces the saved content: each editable locale with
+ * text is rewritten, without a reason line unless one is set, and every other
+ * locale loses any content it has. It doesn't depend on which locales the
+ * last save left, which a save still in flight can change.
+ */
+export const toAdministrationCampaignContentChange = (
+  fields: CampaignComposerFields,
+  editableLocales: readonly Locale[]
+): NonNullable<AdministrationCampaignUpdateInputType["content"]> => {
+  const content = toAdministrationCampaignContent(fields, editableLocales);
+  return Object.fromEntries(
+    campaignLocales.map((locale) => {
+      const localeContent = content[locale];
+      return [
+        locale,
+        localeContent === undefined
+          ? null
+          : { operationalReason: null, ...localeContent },
+      ];
+    })
+  );
+};
+
+/**
+ * What the composer asks for before a send, besides the body rules: a subject
+ * and a body. `path` names the field.
+ */
+type CampaignComposerContentIssue = Data.TaggedEnum<{
+  SubjectMissing: { readonly path: readonly ["subject"] };
+  BodyMissing: { readonly path: readonly ["body"] };
+}>;
+
+const CampaignComposerContentIssue =
+  Data.taggedEnum<CampaignComposerContentIssue>();
+
+/**
+ * A problem in one locale's content that a send would trip over. A body rule
+ * issue's `path` points into the body.
+ */
+export type LocaleContentIssue =
+  | CampaignComposerContentIssue
+  | CampaignBodyIssue;
+
+/**
+ * Problems in one locale's content that a send would trip over. Images must
+ * come from the Cloudinary account `imageCloudName`.
+ */
 export const localeContentIssues = (
-  fields: CampaignComposerLocaleFields
-): readonly CampaignBodyIssue[] => [
+  fields: CampaignComposerLocaleFields,
+  imageCloudName: Option.Option<string>
+): readonly LocaleContentIssue[] => [
   ...(fields.subject.trim().length === 0
-    ? [{ path: ["subject"], issue: "Add a subject." }]
+    ? [CampaignComposerContentIssue.SubjectMissing({ path: ["subject"] })]
     : []),
   ...(isCampaignBodyEmpty(fields.body)
-    ? [{ path: ["body"], issue: "Write the email body." }]
-    : campaignBodyIssues(fields.body)),
+    ? [CampaignComposerContentIssue.BodyMissing({ path: ["body"] })]
+    : campaignBodyIssues(fields.body, imageCloudName)),
 ];
+
+/** The issue described in the admin's `locale`. */
+export const localeContentIssueMessage = (
+  issue: LocaleContentIssue,
+  locale: Locale
+): string =>
+  Match.value(issue).pipe(
+    Match.tagsExhaustive({
+      SubjectMissing: () =>
+        m.emailCampaignsComposerSubjectMissing({}, { locale }),
+      BodyMissing: () => m.emailCampaignsBodyMissing({}, { locale }),
+      NotDocument: () => m.emailCampaignsBodyNotDocument({}, { locale }),
+      // The schema's own message is internal, so it isn't shown.
+      StructureInvalid: () =>
+        m.emailCampaignsBodyStructureInvalid({}, { locale }),
+      LinkHrefInvalid: () =>
+        m.emailCampaignsBodyLinkHrefInvalid({}, { locale }),
+      ImageSourceInvalid: () =>
+        m.emailCampaignsBodyImageSourceInvalid({}, { locale }),
+      ImageLayoutInvalid: () =>
+        m.emailCampaignsBodyImageLayoutInvalid({}, { locale }),
+      ButtonLabelMissing: () =>
+        m.emailCampaignsBodyButtonLabelMissing({}, { locale }),
+      ButtonLabelLineBreaks: () =>
+        m.emailCampaignsBodyButtonLabelLineBreaks({}, { locale }),
+      ButtonHrefInvalid: () =>
+        m.emailCampaignsBodyButtonHrefInvalid({}, { locale }),
+    })
+  );

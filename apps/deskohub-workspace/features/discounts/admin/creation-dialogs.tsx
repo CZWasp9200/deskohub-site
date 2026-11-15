@@ -2,6 +2,8 @@
 
 import { Plus } from "lucide-react";
 import { useState } from "react";
+import { m } from "@/features/administration/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import { Button } from "@/shared/components/ui/button";
 import {
   Dialog,
@@ -16,27 +18,34 @@ import { CreateDiscountForm, CreateVoucherForm } from "./admin-tables";
 import { DiscountCodeCreationForm } from "./customer-code-creation";
 import type { AdminDiscount } from "./discount-administration.service";
 
-const dialogContentClassName =
-  "max-h-[calc(100vh-2rem)] max-w-4xl overflow-y-auto";
+/**
+ * The discount dialogs' frame. Its narrower padding on phones leaves each
+ * half of a date pair room for a whole date.
+ */
+export const discountDialogContentClassName =
+  "max-h-[calc(100vh-2rem)] max-w-4xl overflow-y-auto p-4 sm:p-6";
 
 export function DiscountCodeCreationDialog({
   discounts,
 }: {
   readonly discounts: readonly Pick<AdminDiscount, "id" | "labels">[];
 }) {
+  const locale = useRouteLocale();
   return (
     <Dialog>
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus aria-hidden className="size-4" />
-          Create a discount code
+          {m.discountsCodeCreateButton({}, { locale })}
         </Button>
       </DialogTrigger>
-      <DialogContent className={dialogContentClassName}>
+      <DialogContent className={discountDialogContentClassName} locale={locale}>
         <DialogHeader>
-          <DialogTitle>Create a discount code</DialogTitle>
+          <DialogTitle>
+            {m.discountsCodeCreateTitle({}, { locale })}
+          </DialogTitle>
           <DialogDescription>
-            Pair a new code with an existing discount or define both together.
+            {m.discountsCodeCreateDescription({}, { locale })}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5">
@@ -48,6 +57,7 @@ export function DiscountCodeCreationDialog({
 }
 
 export function SaleDiscountCreationDialog() {
+  const locale = useRouteLocale();
   const [completion, setCompletion] = useState<string | null>(null);
 
   return (
@@ -59,15 +69,16 @@ export function SaleDiscountCreationDialog() {
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus aria-hidden className="size-4" />
-          Create a sale discount
+          {m.discountsSaleCreateButton({}, { locale })}
         </Button>
       </DialogTrigger>
-      <DialogContent className={dialogContentClassName}>
+      <DialogContent className={discountDialogContentClassName} locale={locale}>
         <DialogHeader>
-          <DialogTitle>Create a sale discount</DialogTitle>
+          <DialogTitle>
+            {m.discountsSaleCreateTitle({}, { locale })}
+          </DialogTitle>
           <DialogDescription>
-            Define the discount, then use its Calendar ID in an all-day sale
-            event.
+            {m.discountsSaleCreateDescription({}, { locale })}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5">
@@ -79,14 +90,16 @@ export function SaleDiscountCreationDialog() {
               <p className="font-semibold">{completion}</p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <DialogClose asChild>
-                  <Button type="button">Close</Button>
+                  <Button type="button">
+                    {m.discountsDialogClose({}, { locale })}
+                  </Button>
                 </DialogClose>
                 <Button
                   onClick={() => setCompletion(null)}
                   type="button"
                   variant="secondary"
                 >
-                  Create another discount
+                  {m.discountsSaleCreateAnother({}, { locale })}
                 </Button>
               </div>
             </output>
@@ -100,19 +113,22 @@ export function SaleDiscountCreationDialog() {
 }
 
 export function VoucherCreationDialog() {
+  const locale = useRouteLocale();
   return (
     <Dialog>
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus aria-hidden className="size-4" />
-          Create a voucher
+          {m.discountsVoucherCreateButton({}, { locale })}
         </Button>
       </DialogTrigger>
-      <DialogContent className={dialogContentClassName}>
+      <DialogContent className={discountDialogContentClassName} locale={locale}>
         <DialogHeader>
-          <DialogTitle>Create a voucher</DialogTitle>
+          <DialogTitle>
+            {m.discountsVoucherCreateTitle({}, { locale })}
+          </DialogTitle>
           <DialogDescription>
-            Issue promotional credit that remains available until it is spent.
+            {m.discountsVoucherCreateDescription({}, { locale })}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5">

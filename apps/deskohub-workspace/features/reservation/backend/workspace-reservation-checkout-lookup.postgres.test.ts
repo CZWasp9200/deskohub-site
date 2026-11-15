@@ -4,8 +4,7 @@ import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { ConfigProvider, Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { type ReservationState, workspaceReservations } from "@/db/schema";
 import {
   deriveCheckoutAttemptKeys,
@@ -30,9 +29,15 @@ import {
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
+import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
+import {
+  fixtureReservationAuthorId,
+  workspaceFixtures,
+} from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   connectWorkspacePostgresTestDatabase,
   type WorkspacePostgresTestDatabase,
+  withHeldTransaction,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   type CreateWorkspaceReservationDraftInput,
@@ -58,30 +63,15 @@ describe.skipIf(!postgresDatabase)(
       readonly createdAt: string;
     }) =>
       Effect.gen(function* () {
-        const id = workspaceReservationIdSchema.make(
-          `reservation-${crypto.randomUUID()}`
-        );
-        yield* postgres.db.insert(workspaceReservations).values({
-          id,
-          checkoutSessionKey: input.checkoutSessionKey,
-          checkoutAttemptKey: input.checkoutAttemptKey,
-          dotyposCustomerId: DotyposCustomerIdSchema.make(
-            `customer-${crypto.randomUUID()}`
-          ),
-          reservationState: input.reservationState,
-          paymentState: "not_started",
-          fulfillmentState: "not_started",
-          ...(input.reservationState === "cancelled" && {
-            dotyposReservationId: `dotypos-${crypto.randomUUID()}` as never,
-            reservationCancelledAt: Temporal.Instant.from(input.createdAt),
-          }),
-          reservationDetails: {
-            kind: "cowork",
-            entryTier: "basic",
-            coffee: false,
+        const createdAt = Temporal.Instant.from(input.createdAt);
+        const { id } = yield* workspaceFixtures(postgres.db).reservation({
+          stage: { reservation: input.reservationState },
+          at: createdAt,
+          overrides: {
+            checkoutSessionKey: input.checkoutSessionKey,
+            checkoutAttemptKey: input.checkoutAttemptKey,
+            createdAt,
           },
-          locale: "en-US",
-          createdAt: Temporal.Instant.from(input.createdAt),
         });
         fixtureReservationIds.push(id);
         return id;
@@ -168,7 +158,7 @@ describe.skipIf(!postgresDatabase)(
 
     const keyRing = `original:${Buffer.alloc(32, 1).toString("base64url")}`;
     const rotatedKeyRing = `rotated:${Buffer.alloc(32, 2).toString("base64url")}`;
-    const reservation = Schema.decodeUnknownSync(reservationOrderSchema)({
+    const reservation = Schema.decodeUnknownSync(reservationOrderSchema("CZ"))({
       kind: "cowork",
       name: "Ada Lovelace",
       email: testEmailAddress("ada"),
@@ -221,16 +211,12 @@ describe.skipIf(!postgresDatabase)(
           attemptKeys: yield* deriveCheckoutAttemptKeys(submission),
         };
       }).pipe(
-        Effect.provideService(
-          ConfigProvider.ConfigProvider,
-          ConfigProvider.fromUnknown({
-            CHECKOUT_PAY_STATE_KEYS: options.keyRing,
-          })
-        ),
+        Effect.provide(SealedStateKeys.fromConfiguration(options.keyRing)),
         Effect.runSync
       );
 
       return {
+        authorAccountId: fixtureReservationAuthorId,
         ...draftDetails,
         ...{
           "ring-keyed": {
@@ -283,6 +269,7 @@ describe.skipIf(!postgresDatabase)(
         const [inserted] = yield* postgres.db
           .insert(workspaceReservations)
           .values({
+            authorAccountId: fixtureReservationAuthorId,
             id: workspaceReservationIdSchema.make(
               `reservation-${crypto.randomUUID()}`
             ),
@@ -385,19 +372,21 @@ describe.skipIf(!postgresDatabase)(
       let pendingDraft: Promise<unknown> | undefined;
       try {
         await writer.query("begin");
-        await drizzle({ client: writer })
-          .insert(workspaceReservations)
-          .values({
-            id: writerId,
-            checkoutSessionKey: input.checkoutSessionKey,
-            checkoutAttemptKey: input.checkoutAttemptKey,
-            reservationState: "cancelled",
-            paymentState: "not_started",
-            fulfillmentState: "not_started",
-            dotyposReservationId: `dotypos-${crypto.randomUUID()}` as never,
-            reservationCancelledAt: Temporal.Now.instant(),
-            ...draftDetails,
-          });
+        await Effect.runPromise(
+          withHeldTransaction(writer, (db) =>
+            workspaceFixtures(db).reservation({
+              stage: { reservation: "cancelled" },
+              customer: draftDetails.dotyposCustomerId,
+              details: draftDetails.reservationDetails,
+              overrides: {
+                id: writerId,
+                checkoutSessionKey: input.checkoutSessionKey,
+                checkoutAttemptKey: input.checkoutAttemptKey,
+                reservationPurpose: draftDetails.reservationPurpose,
+              },
+            })
+          )
+        );
         const { rows } = await writer.query<{ readonly pid: number }>(
           "select pg_backend_pid()::int as pid"
         );

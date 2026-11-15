@@ -1,14 +1,25 @@
 export { dotyposApiTimeoutDefaultMilliseconds } from "./api-timeout";
+export type { DotyposIdReadOptions } from "./backend/id-reads";
+export { getDotyposRequestWorstCase } from "./backend/request-profiles";
 export type {
+  CustomerChanges,
+  CustomerChangesOptions,
   CustomerLookupField,
   DotyposCustomerBillingDetails,
   DotyposCustomerDetails,
-  DotyposCustomerDiscount,
   DotyposCustomerDiscountGroup,
   DotyposCustomerLookupData,
+  DotyposCustomerProfile,
   FindCustomerOptions,
+  IDotyposService,
+  ReservationListOptions,
+  ReservationPage,
 } from "./backend/service";
-export { DotyposService, FindCustomerResult } from "./backend/service";
+export {
+  CustomerVersionSelection,
+  DotyposService,
+  FindCustomerResult,
+} from "./backend/service";
 export type { DotyposRuntimeConfigObj } from "./config";
 export {
   DotyposRuntimeConfig,
@@ -16,12 +27,32 @@ export {
   makeDotyposRuntimeConfigLayer,
 } from "./config";
 
-export {
-  DotyposReservationCancelledError,
-  ExternalAPIError,
-  NetworkError,
-  ValidationError,
+export type {
+  DotyposConditionalWriteFailure,
+  DotyposFailure,
+  DotyposReadFailure,
+  DotyposWriteFailure,
 } from "./errors";
+export {
+  DotyposFailureCode,
+  DotyposOperation,
+  DotyposRejected,
+  DotyposRequest,
+  DotyposReservationCancelledError,
+  DotyposUnavailable,
+  DotyposUncertain,
+  DotyposVersionConflict,
+  dotyposFailureCode,
+  dotyposFailureLogFields,
+} from "./errors";
+export { dotyposIdReadBatchSize, dotyposIdReadRequests } from "./id-reads";
+export type { DotyposTimestamp } from "./timestamp";
+export {
+  DotyposTimestampFromString,
+  DotyposTimestampSchema,
+  dotyposTimestampFromDateTime,
+  formatDotyposTimestamp,
+} from "./timestamp";
 export type {
   CreateDotyposReservationInput,
   DotyposBranchId,
@@ -31,6 +62,7 @@ export type {
   DotyposCloudId,
   DotyposCustomer,
   DotyposCustomerId,
+  DotyposCustomerWriteRecord,
   DotyposDiscountGroup,
   DotyposDiscountGroupId,
   DotyposEmployeeId,
@@ -67,4 +99,9 @@ export {
   DotyposTableIdSchema,
   DotyposTableSchema,
 } from "./types";
-export { normalizePhoneNumber } from "./utils/phone-formatting";
+export { toCustomerEmailIdentity } from "./utils/customer-email";
+export {
+  customerLifecycle,
+  type DotyposCustomerLifecycle,
+} from "./utils/customer-lifecycle";
+export { getCustomerDisplayName } from "./utils/customer-name";

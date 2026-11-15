@@ -7,7 +7,6 @@ import {
 import { createEnv } from "@t3-oss/env-core";
 import { Schema } from "effect";
 import { urlStringSchema } from "../shared/utils/url-schema";
-import { isAdminBasicAuthCredentialPair } from "./admin-basic-auth";
 
 const toEnvironmentSchema = <S extends Schema.Decoder<unknown>>(schema: S) =>
   Schema.toStandardSchemaV1(schema);
@@ -45,18 +44,9 @@ const optionalDirectPostgresUrl = toEnvironmentSchema(
   )
 );
 const nonEmptyString = toEnvironmentSchema(Schema.NonEmptyString);
-const optionalAdminBasicAuthPair = toEnvironmentSchema(
-  Schema.optional(
-    Schema.String.check(
-      Schema.makeFilter(isAdminBasicAuthCredentialPair, {
-        expected: "a Basic auth username:password credential",
-      })
-    )
-  )
-);
 const optionalUrl = toEnvironmentSchema(Schema.optional(urlStringSchema));
 const url = toEnvironmentSchema(urlStringSchema);
-const optionalReviewScreenshotOptIn = toEnvironmentSchema(
+const optionalOptIn = toEnvironmentSchema(
   Schema.optional(Schema.Literals(["true"]))
 );
 type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
@@ -90,8 +80,8 @@ const e2eEnvironmentSchema = Schema.Struct({
   TMPDIR: optionalNonEmptyString,
   USER: optionalNonEmptyString,
   VERCEL_AUTOMATION_BYPASS_SECRET: optionalNonEmptyString,
-  WORKSPACE_E2E_ADMIN_BASIC_AUTH: optionalAdminBasicAuthPair,
   WORKSPACE_E2E_BETTER_AUTH_SECRETS: optionalNonEmptyString,
+  WORKSPACE_E2E_CRON_SECRET: optionalNonEmptyString,
   WORKSPACE_E2E_VERCEL_TOKEN: optionalNonEmptyString,
   WORKSPACE_E2E_VERCEL_PROJECT: optionalNonEmptyString,
   WORKSPACE_E2E_EXECUTION_CONTEXT: toEnvironmentSchema(
@@ -107,8 +97,10 @@ const e2eEnvironmentSchema = Schema.Struct({
   WORKSPACE_E2E_DATABASE_URL_UNPOOLED: nonEmptyString,
   WORKSPACE_E2E_POSTHOG_HOST: optionalUrl,
   WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN: optionalNonEmptyString,
+  WORKSPACE_E2E_NIGHTLY_CASES: optionalOptIn,
   WORKSPACE_E2E_PR_NUMBER: optionalPositiveInteger,
-  WORKSPACE_E2E_REVIEW_SCREENSHOTS: optionalReviewScreenshotOptIn,
+  WORKSPACE_E2E_REVIEW_SCREENSHOTS: optionalOptIn,
+  WORKSPACE_E2E_CAMPAIGN_REVIEW_SCREENSHOTS: optionalOptIn,
   WORKSPACE_E2E_RUN_CONTEXT: optionalNonEmptyString,
   WORKSPACE_E2E_TRACE_PARENT: optionalNonEmptyString,
 });
@@ -146,10 +138,9 @@ export const makeE2EEnvironment = (
       USER: runtimeEnvironment.USER,
       VERCEL_AUTOMATION_BYPASS_SECRET:
         runtimeEnvironment.VERCEL_AUTOMATION_BYPASS_SECRET,
-      WORKSPACE_E2E_ADMIN_BASIC_AUTH:
-        runtimeEnvironment.WORKSPACE_E2E_ADMIN_BASIC_AUTH,
       WORKSPACE_E2E_BETTER_AUTH_SECRETS:
         runtimeEnvironment.WORKSPACE_E2E_BETTER_AUTH_SECRETS,
+      WORKSPACE_E2E_CRON_SECRET: runtimeEnvironment.WORKSPACE_E2E_CRON_SECRET,
       WORKSPACE_E2E_VERCEL_TOKEN: runtimeEnvironment.WORKSPACE_E2E_VERCEL_TOKEN,
       WORKSPACE_E2E_VERCEL_PROJECT:
         runtimeEnvironment.WORKSPACE_E2E_VERCEL_PROJECT,
@@ -169,9 +160,13 @@ export const makeE2EEnvironment = (
       WORKSPACE_E2E_POSTHOG_HOST: runtimeEnvironment.WORKSPACE_E2E_POSTHOG_HOST,
       WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN:
         runtimeEnvironment.WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN,
+      WORKSPACE_E2E_NIGHTLY_CASES:
+        runtimeEnvironment.WORKSPACE_E2E_NIGHTLY_CASES,
       WORKSPACE_E2E_PR_NUMBER: runtimeEnvironment.WORKSPACE_E2E_PR_NUMBER,
       WORKSPACE_E2E_REVIEW_SCREENSHOTS:
         runtimeEnvironment.WORKSPACE_E2E_REVIEW_SCREENSHOTS,
+      WORKSPACE_E2E_CAMPAIGN_REVIEW_SCREENSHOTS:
+        runtimeEnvironment.WORKSPACE_E2E_CAMPAIGN_REVIEW_SCREENSHOTS,
       WORKSPACE_E2E_RUN_CONTEXT: runtimeEnvironment.WORKSPACE_E2E_RUN_CONTEXT,
       WORKSPACE_E2E_TRACE_PARENT: runtimeEnvironment.WORKSPACE_E2E_TRACE_PARENT,
     },
@@ -223,7 +218,7 @@ export const makeReviewScreenshotEnvironment = (
       WORKSPACE_E2E_REVIEW_SCREENSHOTS:
         runtimeEnvironment.WORKSPACE_E2E_REVIEW_SCREENSHOTS,
     },
-    server: { WORKSPACE_E2E_REVIEW_SCREENSHOTS: optionalReviewScreenshotOptIn },
+    server: { WORKSPACE_E2E_REVIEW_SCREENSHOTS: optionalOptIn },
   });
 
 /**
@@ -233,3 +228,45 @@ export const makeReviewScreenshotEnvironment = (
 export const reviewScreenshotsEnabled = (
   environment: Pick<E2EEnvironment, "WORKSPACE_E2E_REVIEW_SCREENSHOTS">
 ): boolean => environment.WORKSPACE_E2E_REVIEW_SCREENSHOTS === "true";
+
+/**
+ * Nightly cases are too slow for the per-PR gate, so a run includes them
+ * only when it sets WORKSPACE_E2E_NIGHTLY_CASES=true.
+ */
+export const nightlyCasesEnabled = (
+  environment: Pick<E2EEnvironment, "WORKSPACE_E2E_NIGHTLY_CASES">
+): boolean => environment.WORKSPACE_E2E_NIGHTLY_CASES === "true";
+
+/**
+ * Agent evals run on the devbox only. Their harness list is local wiring
+ * (agent runtimes, models, paths), so the repository reads only its path.
+ * The preview guard needs Vercel deployment read access and the exact commit
+ * the preview must be built from.
+ */
+export const makeAgentEvalEnvironment = (
+  runtimeEnvironment: RuntimeEnvironment = process.env
+) =>
+  createEnv({
+    emptyStringAsUndefined: true,
+    onValidationError: () => {
+      throw new Error(
+        "Agent evals need WORKSPACE_AGENT_EVAL_HARNESSES, WORKSPACE_E2E_VERCEL_TOKEN, WORKSPACE_E2E_VERCEL_PROJECT, and TARGET_SHA (the preview's full commit SHA)."
+      );
+    },
+    runtimeEnv: {
+      TARGET_SHA: runtimeEnvironment.TARGET_SHA,
+      WORKSPACE_AGENT_EVAL_HARNESSES:
+        runtimeEnvironment.WORKSPACE_AGENT_EVAL_HARNESSES,
+      WORKSPACE_E2E_VERCEL_PROJECT:
+        runtimeEnvironment.WORKSPACE_E2E_VERCEL_PROJECT,
+      WORKSPACE_E2E_VERCEL_TOKEN: runtimeEnvironment.WORKSPACE_E2E_VERCEL_TOKEN,
+    },
+    server: {
+      TARGET_SHA: toEnvironmentSchema(
+        Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/))
+      ),
+      WORKSPACE_AGENT_EVAL_HARNESSES: nonEmptyString,
+      WORKSPACE_E2E_VERCEL_PROJECT: nonEmptyString,
+      WORKSPACE_E2E_VERCEL_TOKEN: nonEmptyString,
+    },
+  });

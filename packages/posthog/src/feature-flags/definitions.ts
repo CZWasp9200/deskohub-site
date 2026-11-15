@@ -1,11 +1,12 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Predicate, Redacted, Schema } from "effect";
 import {
   FetchHttpClient,
   HttpClient,
-  HttpClientRequest,
+  HttpClientError,
 } from "effect/unstable/http";
-import { type FeatureFlag, make } from "../generated/effect.gen";
+import type { FeatureFlag } from "../generated/effect.gen";
 import type { PostHogProjectId } from "../identifiers";
+import { makePostHogManagementClient } from "../management-client";
 import {
   PostHogFeatureFlagConfig,
   type PostHogFeatureFlagConfigInput,
@@ -89,18 +90,10 @@ export class PostHogFeatureFlagService extends Context.Service<
     Effect.gen(function* () {
       const config = yield* PostHogFeatureFlagConfig;
       const httpClient = yield* HttpClient.HttpClient;
-      const authenticatedClient = httpClient.pipe(
-        HttpClient.mapRequestInput((request) =>
-          request.pipe(
-            HttpClientRequest.prependUrl(config.host.origin),
-            HttpClientRequest.setHeader(
-              "Authorization",
-              `Bearer ${config.apiKey}`
-            )
-          )
-        )
-      );
-      const client = make(authenticatedClient);
+      const client = makePostHogManagementClient(httpClient, {
+        apiKey: Redacted.make(config.apiKey),
+        host: config.host,
+      });
 
       return {
         listDefinitions: listPostHogFeatureFlagDefinitions(
@@ -156,6 +149,7 @@ export const listPostHogFeatureFlagDefinitions = (
             new PostHogFeatureFlagError({
               message: "Could not list PostHog feature flags.",
               cause,
+              ...describeListFailure(cause),
             })
         ),
         Effect.timeoutOrElse({
@@ -164,6 +158,7 @@ export const listPostHogFeatureFlagDefinitions = (
             Effect.fail(
               new PostHogFeatureFlagError({
                 message: "PostHog feature flag request timed out.",
+                failureCode: "Timeout",
               })
             ),
         })
@@ -192,6 +187,26 @@ export const listPostHogFeatureFlagDefinitions = (
       }
     }
   });
+
+/**
+ * The status and failed step of a page request, which logs keep while they
+ * redact the provider's error text.
+ */
+const describeListFailure = (
+  cause: unknown
+): Pick<PostHogFeatureFlagError, "failureCode" | "httpStatus"> => {
+  if (!HttpClientError.isHttpClientError(cause)) {
+    return Predicate.isTagged(cause, "SchemaError")
+      ? { failureCode: "SchemaError" }
+      : {};
+  }
+
+  const httpStatus = cause.response?.status;
+  return {
+    failureCode: cause.reason._tag,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+  };
+};
 
 const toPostHogFeatureFlagDefinition = (featureFlag: FeatureFlagSummary) =>
   Effect.gen(function* () {
@@ -229,7 +244,7 @@ const toPostHogFeatureFlagDefinition = (featureFlag: FeatureFlagSummary) =>
 
 const getConstantEnabledValue = (
   featureFlag: FeatureFlagSummary,
-  filters: typeof FeatureFlagFilters.Type
+  filters: FeatureFlagFilters
 ): boolean | undefined => {
   if (featureFlag.active === false) return false;
   if (
@@ -239,28 +254,65 @@ const getConstantEnabledValue = (
     return undefined;
   }
 
+  return getConstantReleaseValue(filters);
+};
+
+type FeatureFlagFilters = typeof FeatureFlagFilters.Type;
+type FeatureFlagReleaseGroup = NonNullable<
+  FeatureFlagFilters["groups"]
+>[number];
+
+/**
+ * The value every person gets from an active flag's release conditions, when
+ * the conditions alone settle it.
+ */
+const getConstantReleaseValue = (
+  filters: FeatureFlagFilters
+): boolean | undefined => {
   const groups = filters.groups ?? [];
-  if (
-    groups.length > 0 &&
-    groups.every((group) => (group.rollout_percentage ?? 100) <= 0)
-  ) {
-    return false;
-  }
+  if (groups.length > 0 && groups.every(releasesToNobody)) return false;
   if (filters.aggregation_group_type_index != null) return undefined;
   if ((filters.multivariate?.variants.length ?? 0) > 0) return undefined;
 
-  const unconditionalIndex = groups.findIndex(
-    (group) =>
-      group.aggregation_group_type_index == null &&
-      (group.properties?.length ?? 0) === 0 &&
-      (group.rollout_percentage ?? 100) >= 100
-  );
-  if (unconditionalIndex < 0) return undefined;
-  if (filters.early_exit !== true) return true;
+  return getUnconditionalReleaseValue(groups, filters.early_exit === true);
+};
 
-  return groups
-    .slice(0, unconditionalIndex)
-    .every((group) => (group.rollout_percentage ?? 100) >= 100)
+/**
+ * True when a group releasing to everyone is reached by every person: with
+ * early exit, each earlier group must release to everyone it matches too.
+ */
+const getUnconditionalReleaseValue = (
+  groups: readonly FeatureFlagReleaseGroup[],
+  earlyExit: boolean
+): true | undefined => {
+  const unconditionalIndex = groups.findIndex(releasesToEveryone);
+  if (unconditionalIndex < 0) return undefined;
+  if (!earlyExit) return true;
+
+  return groups.slice(0, unconditionalIndex).every(releasesToAllMatched)
     ? true
     : undefined;
 };
+
+const releasePercentage = (group: FeatureFlagReleaseGroup) =>
+  group.rollout_percentage ?? 100;
+
+const releasesToNobody = (group: FeatureFlagReleaseGroup) =>
+  releasePercentage(group) <= 0;
+
+const releasesToAllMatched = (group: FeatureFlagReleaseGroup) =>
+  releasePercentage(group) >= 100;
+
+const releasesToEveryone = (group: FeatureFlagReleaseGroup) =>
+  group.aggregation_group_type_index == null &&
+  (group.properties?.length ?? 0) === 0 &&
+  releasesToAllMatched(group);
+
+export { PostHogFeatureFlagError } from "./errors";
+
+/** The log fields that classify a flag failure without its provider text. */
+export const postHogFeatureFlagFailureLogFields = ({
+  cause,
+  failureCode,
+  httpStatus,
+}: PostHogFeatureFlagError) => ({ cause, failureCode, httpStatus });

@@ -2,7 +2,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { Schema } from "effect";
+import workspacePackage from "../package.json";
 import { runCommand } from "./shared/command";
+import { shardTimingsRecordingPattern } from "./test-shard";
 
 const testTimingsSchema = Schema.Struct({
   version: Schema.Literal(1),
@@ -26,6 +28,29 @@ const workspaceRoot = resolve(import.meta.dir, "..");
 export const testTimingsPath = join(workspaceRoot, "test-timings.json");
 export const shardTimingsArtifactPattern = "workspace-test-timings-shard-*";
 const testFilePattern = "**/*{.,_}{test,spec}.{ts,tsx,js,jsx,mjs,cjs}";
+
+/** Reads the `--path-ignore-patterns` globs from a `bun test` command line. */
+export const testPathIgnorePatterns = (
+  testCommand: string
+): ReadonlyArray<string> =>
+  Array.from(
+    testCommand.matchAll(
+      /--path-ignore-patterns(?:=|\s+)(?:'([^']*)'|"([^"]*)"|(\S+))/g
+    ),
+    ([, singleQuoted, doubleQuoted, bare]) =>
+      singleQuoted ?? doubleQuoted ?? bare ?? ""
+  );
+
+// Every shard runs the `test` script, so its ignores, such as the
+// build-output checks CI runs after a build, decide which files get timed.
+const shardIgnoredTestPatterns = testPathIgnorePatterns(
+  workspacePackage.scripts.test
+).map((pattern) => new Bun.Glob(pattern));
+
+/** Whether the sharded `test` script runs this workspace-relative file. */
+export const isShardedTestFile = (file: string) =>
+  !file.split("/").includes("node_modules") &&
+  !shardIgnoredTestPatterns.some((pattern) => pattern.match(file));
 
 /** Orders entries by path code units, as Bun orders test files. */
 const byPath = (
@@ -60,6 +85,35 @@ export const mergeTestTimings = (
     version: 1,
     files: Object.fromEntries([...files].sort(byPath)),
   };
+};
+
+/**
+ * Explains how a run's recorded files differ from the checkout's test files,
+ * or returns undefined when they match. A pull request run tests the branch
+ * merged with its base, so a test file the base added or renamed after the
+ * branch diverged shows up as a mismatch.
+ */
+export const describeRecordingMismatch = (
+  testFiles: ReadonlyArray<string>,
+  timings: TestTimings
+): string | undefined => {
+  const checkoutFiles = new Set(testFiles);
+  const unrecorded = testFiles.filter((file) => !(file in timings.files));
+  const absent = Object.keys(timings.files).filter(
+    (file) => !checkoutFiles.has(file)
+  );
+  if (unrecorded.length === 0 && absent.length === 0) return undefined;
+  return [
+    ...(unrecorded.length > 0
+      ? [`No duration for ${unrecorded.length} local test file(s):`]
+      : []),
+    ...unrecorded,
+    ...(absent.length > 0
+      ? [`Durations for ${absent.length} file(s) this checkout lacks:`]
+      : []),
+    ...absent,
+    "Refresh from a run of the checked-out commit where every shard finished. Pull request runs test the branch merged with its base, so merge the base branch and push before that run.",
+  ].join("\n");
 };
 
 export const formatTestTimings = (timings: TestTimings): string =>
@@ -98,7 +152,7 @@ export const predictShardDurations = (
 const discoverTestFiles = async (): Promise<ReadonlyArray<string>> => {
   const files: string[] = [];
   for await (const file of new Bun.Glob(testFilePattern).scan(workspaceRoot)) {
-    if (!file.split("/").includes("node_modules")) files.push(file);
+    if (isShardedTestFile(file)) files.push(file);
   }
   return files;
 };
@@ -124,9 +178,9 @@ const downloadShardTimings = async (
       );
     }
     const shards: TestTimings[] = [];
-    for await (const file of new Bun.Glob("*/test-timings.json").scan(
-      directory
-    )) {
+    for await (const file of new Bun.Glob(
+      `*/${shardTimingsRecordingPattern}`
+    ).scan(directory)) {
       const path = join(directory, file);
       shards.push(
         parseTestTimings(
@@ -144,12 +198,13 @@ const downloadShardTimings = async (
 const refreshTestTimings = async (runId: string) => {
   const shards = await downloadShardTimings(runId);
   const timings = mergeTestTimings(shards);
-  const missing = (await discoverTestFiles()).filter(
-    (file) => !(file in timings.files)
+  const mismatch = describeRecordingMismatch(
+    await discoverTestFiles(),
+    timings
   );
-  if (missing.length > 0) {
+  if (mismatch) {
     throw new Error(
-      `Run ${runId} recorded no duration for ${missing.length} local test file(s); refresh from a run of the checked-out commit where every shard finished:\n${missing.join("\n")}`
+      `Run ${runId} did not time this checkout's test files.\n${mismatch}`
     );
   }
   await writeFile(testTimingsPath, formatTestTimings(timings));

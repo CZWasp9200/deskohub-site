@@ -13,12 +13,12 @@ import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace
 import { hashCampaignContent } from "../body/campaign-content-hash";
 import type { CampaignId } from "../campaign-identifiers";
 import { CampaignService } from "./campaign.service";
-import type { CampaignSendFreeze } from "./campaign-confirmation-code.service";
 import { CampaignConfirmationCodeService } from "./campaign-confirmation-code.service";
 import {
   campaignContentFixture,
   everyoneFilter,
 } from "./email-campaigns.test-utils";
+import type { CampaignSendFreeze } from "./once-campaign-lifecycle";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
@@ -213,6 +213,38 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    test("rolls back code consumption and status when freezing recipients fails", async () => {
+      const campaign = await createDraft();
+      const { code } = await issueFor(campaign);
+      const failed = await runAt(
+        { minutes: 5 },
+        CampaignConfirmationCodeService.pipe(
+          Effect.flatMap((codes) =>
+            codes.confirm({
+              campaignId: campaign.id,
+              code,
+              send: {
+                ...frozenSend,
+                recipients: [
+                  frozenSend.recipients[0]!,
+                  frozenSend.recipients[0]!,
+                ],
+              },
+            })
+          )
+        )
+      );
+      expect(Exit.isFailure(failed)).toBe(true);
+      expect((await storedCampaign(campaign.id)).status).toBe("draft");
+      expect((await storedCodes(campaign.id))[0].confirmed_at).toBeNull();
+      const { rows } = await testDatabase.pool.query(
+        "select id from email_campaign_sends where campaign_id = $1",
+        [campaign.id]
+      );
+      expect(rows).toEqual([]);
+      expect(Exit.isSuccess(await confirm(campaign.id, code))).toBe(true);
+    });
+
     test("stores only a keyed hash of the code", async () => {
       const campaign = await createDraft();
       const { code } = await issueFor(campaign);
@@ -355,6 +387,57 @@ describe.skipIf(!testDatabase)(
         _tag: "CampaignReadOnly",
         status: "sending",
       });
+    });
+
+    test("refuses codes for an automated campaign", async () => {
+      // Nothing writes automated campaigns yet, so the test inserts them by SQL.
+      const campaign = await createDraft();
+      for (const status of ["draft", "active", "paused", "archived"] as const) {
+        const { rows } = await testDatabase.pool.query<{ id: CampaignId }>(
+          `insert into email_campaigns (title, purpose, template_key, delivery, status)
+           values ('Weekly come-back', 'marketing', 'workspace', 'automated', $1)
+           returning id`,
+          [status]
+        );
+        const campaignId = rows[0]!.id;
+        campaignIds.push(campaignId);
+        const mismatch = {
+          _tag: "CampaignDeliveryMismatch",
+          campaignId,
+          delivery: "automated",
+        };
+
+        const issued = await runAt(
+          { seconds: 0 },
+          CampaignConfirmationCodeService.pipe(
+            Effect.flatMap((codes) =>
+              codes.issue({
+                campaignId,
+                contentHash: hashCampaignContent({
+                  purpose: campaign.purpose,
+                  templateKey: campaign.templateKey,
+                  locales: campaign.content,
+                }),
+              })
+            )
+          )
+        );
+        expect(failure(issued)).toMatchObject(mismatch);
+        expect(failure(await confirm(campaignId, "AAAAAAAA"))).toMatchObject(
+          mismatch
+        );
+
+        const { rows: state } = await testDatabase.pool.query(
+          `select c.status,
+             (select count(*)::int from email_campaign_confirmation_codes k
+              where k.campaign_id = c.id) as codes,
+             (select count(*)::int from email_campaign_sends s
+              where s.campaign_id = c.id) as sends
+           from email_campaigns c where c.id = $1`,
+          [campaignId]
+        );
+        expect(state).toEqual([{ status, codes: 0, sends: 0 }]);
+      }
     });
   }
 );

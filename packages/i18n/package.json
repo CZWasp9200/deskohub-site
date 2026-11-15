@@ -17,13 +17,14 @@
     "./effect": "./src/effect.ts",
     "./action": "./src/action.ts",
     "./currency": "./src/currency.ts",
-    "./request-locale": "./src/request-locale.ts"
+    "./request-locale": "./src/request-locale.ts",
+    "./locale-registry": "./src/locale-registry.ts"
   },
   "dependencies": {
     "effect": "4.0.0-beta.85"
   },
   "peerDependencies": {
-    "next": "^16.4.0",
+    "next": "^16.4.3",
     "next-safe-action": "^8.0.7",
     "react": "^19.2.7"
   },

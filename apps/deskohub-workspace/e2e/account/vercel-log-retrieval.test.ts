@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
   BasicTracerProvider,
@@ -9,15 +10,15 @@ import { Effect, Layer, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { renderMagicLinkEmail } from "../../features/account/backend/auth/magic-link-email";
 import { createCensoredOtelSpanExporter } from "../../shared/backend/logging/censorship";
-import { createTracingLive } from "../../shared/backend/observability/otel-tracing";
+import { createTracingLive } from "../../shared/backend/observability/telemetry-sinks";
 import { withInstantSleeps } from "../../shared/testing/workspace-test-clock.test-utils";
 import { makeWorkspaceE2EEnvironment } from "../e2e-env";
 import {
   makeTestE2EEnvironment,
   validE2ERuntimeEnvironment,
 } from "../e2e-env.test-fixture";
+import { redact } from "../redaction";
 import { workspaceE2ERunIdSchema } from "../run-identifiers";
-import { redact } from "../runtime";
 import {
   E2ERunContextService,
   E2ETelemetryService,
@@ -1129,7 +1130,7 @@ describe("workspace e2e Vercel log retrieval", () => {
     await expect(result).resolves.toEqual({ link, code: "482913" });
   });
 
-  test.each(["en-US", "cs-CZ"] as const)(
+  test.each([...supportedLocales])(
     "retrieves the sign-in link and code from the rendered %s email",
     async (locale) => {
       const link = magicLink(`rendered-${locale}`);

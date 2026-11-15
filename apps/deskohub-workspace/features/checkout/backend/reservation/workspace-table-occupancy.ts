@@ -4,39 +4,13 @@ import type {
   DotyposReservationInterval,
   DotyposTableId,
 } from "@deskohub/dotypos";
-import { Option, Schema } from "effect";
+import { Option } from "effect";
+import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
+import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import type { ReservationInterval } from "@/features/reservation/reservation-interval";
-import { dotyposReservationSeatsSchema } from "@/features/reservation/reservation-seats";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 
 export const workspaceBookingSeatCount = 1;
-
-const decodeReservationSeats = Schema.decodeUnknownOption(
-  dotyposReservationSeatsSchema
-);
-
-/** The Dotypos reservation fields occupancy and replacement checks read. */
-export type OccupancyReservation = Pick<
-  DotyposReservation,
-  "id" | "status" | "_tableId" | "startDate" | "endDate" | "seats"
->;
-
-/** Drops customer links and free-text notes before sharing a reservation. */
-export const toOccupancyReservation = ({
-  id,
-  status,
-  _tableId,
-  startDate,
-  endDate,
-  seats,
-}: OccupancyReservation): OccupancyReservation => ({
-  ...(id !== undefined && { id }),
-  status,
-  ...(_tableId !== undefined && { _tableId }),
-  startDate,
-  endDate,
-  seats,
-});
 
 /** An active Dotypos reservation's table hold, parsed once for occupancy. */
 export type TableBooking = {
@@ -53,7 +27,7 @@ export type OccupancyWindow = {
 };
 
 export const getWorkspaceTableOccupancyById = (
-  reservations: readonly OccupancyReservation[],
+  reservations: readonly ReservationRecord[],
   input: ReservationInterval | Temporal.PlainDate
 ) =>
   getTableBookingOccupancyById(
@@ -63,37 +37,30 @@ export const getWorkspaceTableOccupancyById = (
 
 /**
  * Keeps only reservations that hold a table: `NEW` or `CONFIRMED`, assigned to
- * a table, and with parseable bounds. Unparseable seat counts hold one seat.
+ * a table, and with readable bounds. The bounds aren't checked for order.
+ * Unreadable seat counts hold one seat.
  */
 export const toTableBookings = (
-  reservations: readonly OccupancyReservation[]
-): readonly TableBooking[] => {
-  const bookings: TableBooking[] = [];
-
-  for (const reservation of reservations) {
+  reservations: readonly ReservationRecord[]
+): readonly TableBooking[] =>
+  reservations.flatMap((reservation) => {
     if (reservation.status !== "NEW" && reservation.status !== "CONFIRMED") {
-      continue;
+      return [];
     }
     const tableId = reservation._tableId;
-    if (!tableId) continue;
+    if (!tableId) return [];
 
-    const startsAt = Date.parse(reservation.startDate);
-    const endsAt = Date.parse(reservation.endDate);
-    if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt)) continue;
-
-    bookings.push({
-      tableId,
-      startsAt,
-      endsAt,
-      seats: Option.getOrElse(
-        decodeReservationSeats(reservation.seats),
-        () => 1
-      ),
-    });
-  }
-
-  return bookings;
-};
+    const booked = decodeBookedReservation(reservation);
+    return Option.all({ startsAt: booked.start, endsAt: booked.end }).pipe(
+      Option.map(({ startsAt, endsAt }) => ({
+        tableId,
+        startsAt: startsAt.epochMilliseconds,
+        endsAt: endsAt.epochMilliseconds,
+        seats: Option.getOrElse(booked.seats, () => 1),
+      })),
+      Option.toArray
+    );
+  });
 
 export const getTableBookingOccupancyById = (
   bookings: readonly TableBooking[],
@@ -151,7 +118,5 @@ export const excludeDotyposReservationsById = <
   if (excludedDotyposReservationIds.length === 0) return reservations;
 
   const excludedIds = new Set(excludedDotyposReservationIds);
-  return reservations.filter(
-    (reservation) => !reservation.id || !excludedIds.has(reservation.id)
-  );
+  return reservations.filter((reservation) => !excludedIds.has(reservation.id));
 };

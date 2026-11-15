@@ -1,19 +1,27 @@
 "use client";
 
 import { Option, Schema } from "effect";
-import posthog from "posthog-js";
+import { captureAnalyticsEvent } from "@/features/cookie-consent/analytics-events";
+import { visitorConsent } from "@/features/cookie-consent/visitor-consent";
 import {
   readSessionStorageItem,
   writeSessionStorageItem,
 } from "@/shared/browser/session-storage";
-import { isConsentCategoryAcceptedInCookie } from "@/shared/utils/consent-cookie";
 
 /** A customer finished signing in; `method` says how. */
 export const SIGN_IN_COMPLETED_EVENT = "sign-in completed";
 /** The server refused a typed sign-in code; `reason` says why. */
 export const SIGN_IN_CODE_REJECTED_EVENT = "sign-in code rejected";
+/** A customer created a passkey; `source` says where they started. */
+export const PASSKEY_ADDED_EVENT = "passkey added";
+/** A customer deleted one of their passkeys. */
+export const PASSKEY_REMOVED_EVENT = "passkey removed";
+/** A customer declined the post-sign-in passkey prompt on this device. */
+export const PASSKEY_PROMPT_DISMISSED_EVENT = "passkey prompt dismissed";
 
-export type SignInMethod = "link" | "code";
+export type SignInMethod = "link" | "code" | "passkey";
+/** The post-sign-in prompt or the Sign-in & security section. */
+export type PasskeyAddedSource = "prompt" | "settings";
 export type SignInCodeRejectionReason =
   | "wrong"
   | "expired"
@@ -24,16 +32,14 @@ const completionStorageKey = "deskohub:account-sign-in-completion";
 const COMPLETION_TTL_MS = 5 * 60 * 1000;
 
 const recordedCompletionSchema = Schema.Struct({
-  method: Schema.Literals(["link", "code"]),
+  method: Schema.Literals(["link", "code", "passkey"]),
   recordedAt: Schema.Finite,
 });
 const decodeRecordedCompletion = Schema.decodeUnknownOption(
   Schema.fromJsonString(recordedCompletionSchema)
 );
 
-const hasAnalyticsConsent = () =>
-  globalThis.document !== undefined &&
-  isConsentCategoryAcceptedInCookie(globalThis.document.cookie, "analytics");
+const hasAnalyticsConsent = () => visitorConsent.accepts("analytics");
 
 const readRecordedMethod = (): SignInMethod | undefined => {
   const raw = readSessionStorageItem(completionStorageKey);
@@ -46,9 +52,10 @@ const readRecordedMethod = (): SignInMethod | undefined => {
 };
 
 /**
- * Notes a finished sign-in in this tab. PostHog drops events until the new
- * account identity settles, which happens only after the next page load, so
- * the completion event is captured later by
+ * Notes a finished sign-in in this tab. The new account identity settles only
+ * after the next page load, and an event captured now would go out under the
+ * identity analytics settles on first, so the completion event is captured
+ * later by
  * `captureRecordedSignInCompletion`. Without analytics consent nothing is
  * stored. `keepRecorded` leaves an earlier fresh record (a code sign-in that
  * passes through the link callback) in place.
@@ -73,12 +80,18 @@ export const captureRecordedSignInCompletion = (): void => {
   const method = readRecordedMethod();
   writeSessionStorageItem(completionStorageKey, null);
   if (method === undefined) return;
-  posthog.capture(SIGN_IN_COMPLETED_EVENT, { method });
+  captureAnalyticsEvent(SIGN_IN_COMPLETED_EVENT, { method });
 };
 
 export const captureSignInCodeRejection = (
   reason: SignInCodeRejectionReason
-): void => {
-  if (!hasAnalyticsConsent()) return;
-  posthog.capture(SIGN_IN_CODE_REJECTED_EVENT, { reason });
-};
+): void => captureAnalyticsEvent(SIGN_IN_CODE_REJECTED_EVENT, { reason });
+
+export const capturePasskeyAdded = (source: PasskeyAddedSource): void =>
+  captureAnalyticsEvent(PASSKEY_ADDED_EVENT, { source });
+
+export const capturePasskeyRemoved = (): void =>
+  captureAnalyticsEvent(PASSKEY_REMOVED_EVENT);
+
+export const capturePasskeyPromptDismissed = (): void =>
+  captureAnalyticsEvent(PASSKEY_PROMPT_DISMISSED_EVENT);

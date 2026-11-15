@@ -3,11 +3,17 @@ import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import type { Schema } from "effect";
 import type { FieldValues } from "react-hook-form";
 import {
+  createDiscountCodeCreationFormSchema,
+  createDiscountCodeFormSchema,
+  createDiscountDefinitionFormSchema,
   type DiscountCodeCreationFormValues,
   type DiscountDefinitionFormValues,
-  discountCodeCreationFormSchema,
-  discountDefinitionFormSchema,
 } from "./form-schemas";
+
+const discountDefinitionFormSchema =
+  createDiscountDefinitionFormSchema("en-US");
+const discountCodeCreationFormSchema =
+  createDiscountCodeCreationFormSchema("en-US");
 
 // Resolves through the same resolver the administration forms use, so each
 // failing field is one that would render its message beside that input.
@@ -42,6 +48,8 @@ const codeConfiguration = {
   validUntil: "",
   maxUses: "",
   maxUsesPerCustomer: "",
+  serviceDateFrom: "",
+  serviceDateUntil: "",
 };
 
 const discountCodeCreation = (
@@ -121,6 +129,25 @@ describe("discount definition form schema", () => {
       "Choose either all cowork tiers or specific cowork tiers, not both."
     );
   });
+
+  test("explains validation failures in the operator's locale", async () => {
+    const { errors } = await effectSchemaResolver(
+      createDiscountDefinitionFormSchema("cs-CZ")
+    )(
+      discountDefinition({
+        labelCs: " ",
+        percentage: "120",
+        products: ["cowork", "cowork:open-space"],
+      }),
+      undefined,
+      { fields: {}, shouldUseNativeValidation: false }
+    );
+    expect(errors.labelCs?.message).toBe("Zadejte český název.");
+    expect(errors.percentage?.message).toBe("Zadejte procento od 0,01 do 100.");
+    expect(errors.products?.message).toBe(
+      "Zvolte buď všechny úrovně coworku, nebo konkrétní úrovně, ne obojí."
+    );
+  });
 });
 
 describe("discount code creation form schema", () => {
@@ -168,5 +195,56 @@ describe("discount code creation form schema", () => {
         discountCodeCreation({ discountKind: "new", products })
       )
     ).toEqual(["products"]);
+  });
+
+  test("accepts no reservation dates, one day, or a longer range", async () => {
+    for (const dates of [
+      { serviceDateFrom: "", serviceDateUntil: "" },
+      { serviceDateFrom: "2026-07-15", serviceDateUntil: "2026-07-15" },
+      { serviceDateFrom: "2026-07-01", serviceDateUntil: "2026-07-31" },
+    ]) {
+      expect(
+        await failingFields(
+          discountCodeCreationFormSchema,
+          discountCodeCreation(dates)
+        )
+      ).toEqual([]);
+    }
+  });
+
+  test("marks the missing or inverted reservation date", async () => {
+    const editFormSchema = createDiscountCodeFormSchema("en-US");
+    const editedCode = {
+      discountId: "019c91dd-c560-7e55-b9d8-c95065efd51d",
+      ...codeConfiguration,
+    };
+    for (const [dates, field] of [
+      [
+        { serviceDateFrom: "2026-07-01", serviceDateUntil: "" },
+        "serviceDateUntil",
+      ],
+      [
+        { serviceDateFrom: "", serviceDateUntil: "2026-07-31" },
+        "serviceDateFrom",
+      ],
+      [
+        { serviceDateFrom: "2026-07-31", serviceDateUntil: "2026-07-01" },
+        "serviceDateUntil",
+      ],
+      [
+        { serviceDateFrom: "2026-02-30", serviceDateUntil: "2026-03-01" },
+        "serviceDateFrom",
+      ],
+    ] as const) {
+      expect(
+        await failingFields(
+          discountCodeCreationFormSchema,
+          discountCodeCreation(dates)
+        )
+      ).toEqual([field]);
+      expect(
+        await failingFields(editFormSchema, { ...editedCode, ...dates })
+      ).toEqual([field]);
+    }
   });
 });

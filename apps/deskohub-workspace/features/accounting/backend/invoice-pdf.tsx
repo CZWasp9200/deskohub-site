@@ -13,16 +13,13 @@ import {
 } from "@react-pdf/renderer";
 import { Data, Effect } from "effect";
 import type { ReactElement } from "react";
-import {
-  type InvoiceDocument,
-  isManualInvoiceDocument,
-} from "@/features/accounting/invoice";
+import type { InvoiceDocument } from "@/features/accounting/invoice";
 import {
   getInvoicePresentation,
   type InvoicePresentation,
   type InvoicePresentationParty,
 } from "@/features/accounting/invoice-presentation";
-import { m } from "@/features/i18n";
+import { type Locale, m } from "@/features/i18n";
 import {
   getInvoicePaymentRequest,
   type InvoicePaymentRequest,
@@ -52,13 +49,29 @@ export class InvoicePdfRenderingError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
+/** An issued invoice's PDF as a file to download, named by its number. */
+export interface InvoicePdfFile {
+  readonly bytes: Uint8Array;
+  /** `<invoice number>.pdf`; invoice numbers are ASCII letters, digits and hyphens. */
+  readonly fileName: string;
+}
+
+export const renderInvoicePdfFile = (
+  document: InvoiceDocument
+): Effect.Effect<InvoicePdfFile, InvoicePdfRenderingError> =>
+  renderInvoicePdf(document).pipe(
+    Effect.map(
+      (bytes): InvoicePdfFile => ({
+        bytes,
+        fileName: `${document.invoiceNumber}.pdf`,
+      })
+    )
+  );
+
 export const renderInvoicePdf = (
   document: InvoiceDocument
 ): Effect.Effect<Buffer, InvoicePdfRenderingError> =>
-  (isManualInvoiceDocument(document)
-    ? getInvoicePaymentRequest(document)
-    : Effect.succeed(null)
-  ).pipe(
+  getInvoicePaymentRequest(document).pipe(
     Effect.mapError(
       () =>
         new InvoicePdfRenderingError({
@@ -179,7 +192,7 @@ const PaymentRequest = ({
   locale,
 }: {
   readonly payment: InvoicePaymentRequest;
-  readonly locale: "cs-CZ" | "en-US";
+  readonly locale: Locale;
 }): ReactElement => {
   const labels = {
     heading: m.invoicePaymentRequestHeading({}, { locale }),

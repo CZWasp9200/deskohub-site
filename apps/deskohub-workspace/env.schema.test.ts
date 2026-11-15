@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import { Predicate } from "effect";
+import { testEmailAddress } from "@deskohub/test-email";
+import { LogLevel, Predicate } from "effect";
 import { workspaceClientEnvSchema } from "./client-env.schema";
 import { createWorkspaceEnv } from "./env";
 import {
@@ -62,6 +62,10 @@ const environmentError = (
 
   throw new Error("Expected the workspace environment to be rejected.");
 };
+
+/** A synthetic address outside the test domain, on the reserved `.invalid` TLD. */
+const offTestDomain = (localPart: string) =>
+  testEmailAddress(localPart).replace(/\.test$/, ".invalid");
 
 describe("workspace environment schemas", () => {
   test("always requires the Igloohome target device and requires credentials only in production", () => {
@@ -174,6 +178,57 @@ describe("workspace environment schemas", () => {
     expect(productionError).not.toContain(overrides);
   });
 
+  test("serves the ChatGPT domain token without pasted surrounding whitespace", () => {
+    expect(
+      createWorkspaceEnv(
+        workspaceRuntimeEnv({ OPENAI_APPS_CHALLENGE_TOKEN: " token-value\n" })
+      ).OPENAI_APPS_CHALLENGE_TOKEN
+    ).toBe("token-value");
+    expect(
+      createWorkspaceEnv(
+        workspaceRuntimeEnv({ OPENAI_APPS_CHALLENGE_TOKEN: undefined })
+      ).OPENAI_APPS_CHALLENGE_TOKEN
+    ).toBeUndefined();
+    expect(invalidVariables({ OPENAI_APPS_CHALLENGE_TOKEN: " \n" })).toEqual([
+      "OPENAI_APPS_CHALLENGE_TOKEN",
+    ]);
+  });
+
+  test("leaves PostHog log export to its default unless a deployment opts in", () => {
+    expect(
+      createWorkspaceEnv(
+        workspaceRuntimeEnv({ POSTHOG_LOGS_EXPORT: undefined })
+      ).POSTHOG_LOGS_EXPORT
+    ).toBeUndefined();
+    for (const logsExport of ["production-only", "always"] as const) {
+      expect(
+        createWorkspaceEnv(
+          workspaceRuntimeEnv({ POSTHOG_LOGS_EXPORT: logsExport })
+        ).POSTHOG_LOGS_EXPORT
+      ).toBe(logsExport);
+    }
+    expect(invalidVariables({ POSTHOG_LOGS_EXPORT: "preview" })).toEqual([
+      "POSTHOG_LOGS_EXPORT",
+    ]);
+  });
+
+  test("accepts Effect log level names as the Workspace log level", () => {
+    expect(
+      createWorkspaceEnv(
+        workspaceRuntimeEnv({ WORKSPACE_LOG_LEVEL: undefined })
+      ).WORKSPACE_LOG_LEVEL
+    ).toBeUndefined();
+    for (const level of LogLevel.values) {
+      expect(
+        createWorkspaceEnv(workspaceRuntimeEnv({ WORKSPACE_LOG_LEVEL: level }))
+          .WORKSPACE_LOG_LEVEL
+      ).toBe(level);
+    }
+    expect(invalidVariables({ WORKSPACE_LOG_LEVEL: "verbose" })).toEqual([
+      "WORKSPACE_LOG_LEVEL",
+    ]);
+  });
+
   test("tolerates unknown override keys only outside production", () => {
     const overrides =
       '{"discount_codes":true,"loyalty_points":true,"seasonal_menu":"synthetic-variant"}';
@@ -217,10 +272,114 @@ describe("workspace environment schemas", () => {
     expect(error).not.toContain("synthetic-variant");
   });
 
+  test("reads the optional native app signing settings", () => {
+    const debugCertificate = Array.from({ length: 32 }, () => "AB").join(":");
+
+    expect(
+      createWorkspaceEnv(
+        workspaceRuntimeEnv({
+          APPLE_TEAM_ID: undefined,
+          ANDROID_DEBUG_SIGNING_CERT_SHA256: undefined,
+        })
+      )
+    ).toEqual(
+      expect.objectContaining({
+        APPLE_TEAM_ID: undefined,
+        ANDROID_DEBUG_SIGNING_CERT_SHA256: undefined,
+      })
+    );
+    expect(
+      createWorkspaceEnv(
+        workspaceRuntimeEnv({
+          APPLE_TEAM_ID: "ABCDE12345",
+          ANDROID_DEBUG_SIGNING_CERT_SHA256: debugCertificate.toLowerCase(),
+        })
+      )
+    ).toEqual(
+      expect.objectContaining({
+        APPLE_TEAM_ID: "ABCDE12345",
+        ANDROID_DEBUG_SIGNING_CERT_SHA256: debugCertificate,
+      })
+    );
+    for (const APPLE_TEAM_ID of [
+      "",
+      "abcde12345",
+      "ABCDE1234",
+      "ABCDE12345.",
+    ]) {
+      expect(invalidVariables({ APPLE_TEAM_ID })).toEqual(["APPLE_TEAM_ID"]);
+    }
+    for (const ANDROID_DEBUG_SIGNING_CERT_SHA256 of [
+      "",
+      debugCertificate.replaceAll(":", ""),
+      debugCertificate.slice(3),
+    ]) {
+      expect(invalidVariables({ ANDROID_DEBUG_SIGNING_CERT_SHA256 })).toEqual([
+        "ANDROID_DEBUG_SIGNING_CERT_SHA256",
+      ]);
+    }
+  });
+
+  test("accepts review logins only on lowercase test addresses with long passwords", () => {
+    const password = `review-${crypto.randomUUID()}`;
+    const reviewLogins = (
+      ...logins: readonly {
+        readonly email: string;
+        readonly password: string;
+      }[]
+    ) => ({ REVIEW_ACCOUNT_CREDENTIALS: JSON.stringify(logins) });
+    const email = testEmailAddress(`reviewer-${crypto.randomUUID()}`);
+
+    expect(invalidVariables({ REVIEW_ACCOUNT_CREDENTIALS: undefined })).toEqual(
+      []
+    );
+    expect(invalidVariables(reviewLogins({ email, password }))).toEqual([]);
+    expect(
+      createWorkspaceEnv(workspaceRuntimeEnv(reviewLogins({ email, password })))
+        .REVIEW_ACCOUNT_CREDENTIALS
+    ).toEqual([{ email, password }]);
+
+    for (const rejected of [
+      reviewLogins({ email: offTestDomain("reviewer"), password }),
+      reviewLogins({ email: email.toUpperCase(), password }),
+      reviewLogins({ email: testEmailAddress("reviewer@"), password }),
+      reviewLogins({ email, password: "too-short-12" }),
+      reviewLogins({ email, password }, { email, password: `${password}-2` }),
+      { REVIEW_ACCOUNT_CREDENTIALS: "not json" },
+    ]) {
+      expect(
+        invalidVariables(rejected).some((path) =>
+          path.startsWith("REVIEW_ACCOUNT_CREDENTIALS")
+        )
+      ).toBe(true);
+    }
+  });
+
+  test("reports invalid review logins without echoing configured values", () => {
+    const password = `leaked-review-password-${crypto.randomUUID()}`;
+    const email = offTestDomain("leaked-reviewer");
+
+    for (const credentials of [
+      [{ email, password }],
+      [
+        {
+          email: testEmailAddress("leaked-reviewer"),
+          password: "leaked-short",
+        },
+      ],
+    ]) {
+      const error = environmentError({
+        REVIEW_ACCOUNT_CREDENTIALS: JSON.stringify(credentials),
+      });
+
+      expect(error).toContain(
+        "Invalid review account credential configuration."
+      );
+      expect(error).not.toContain("leaked");
+    }
+  });
+
   test("reports invalid secrets without echoing configured values", () => {
-    const administratorDigest = createHash("sha256")
-      .update("hushhush:quiet-synthetic-password")
-      .digest("hex");
     const cases: readonly {
       readonly overrides: Partial<
         Record<keyof WorkspaceRuntimeEnv, string | undefined>
@@ -228,21 +387,6 @@ describe("workspace environment schemas", () => {
       readonly expected: string;
       readonly neverEcho?: readonly string[];
     }[] = [
-      {
-        overrides: { ADMIN_BASIC_AUTH_CREDENTIALS: undefined },
-        expected: "Invalid administrator credential registry configuration.",
-      },
-      {
-        overrides: { ADMIN_BASIC_AUTH_CREDENTIALS: "" },
-        expected: "Invalid administrator credential registry configuration.",
-      },
-      {
-        overrides: {
-          ADMIN_BASIC_AUTH_CREDENTIALS: `hushhush:${administratorDigest}\nnonsense`,
-        },
-        expected: "Invalid administrator credential registry configuration.",
-        neverEcho: ["hushhush", administratorDigest, "nonsense"],
-      },
       {
         overrides: {
           BETTER_AUTH_SECRETS: "leaked-malformed-secret-token",

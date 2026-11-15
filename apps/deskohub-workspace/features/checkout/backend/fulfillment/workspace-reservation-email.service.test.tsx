@@ -17,9 +17,10 @@ import {
 import type { EmailService } from "@deskohub/email/backend/service";
 import { testEmailAddress } from "@deskohub/test-email";
 import { getQueriesForElement } from "@testing-library/react";
-import { Context, Effect, Layer, Logger } from "effect";
-import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
+import { Context, Effect, Layer, Logger, Option } from "effect";
+import type { ReservationAuthor } from "@/features/account/backend/reservation-author-directory.service";
 import { type Locale, m } from "@/features/i18n";
+import { SeatingMapReleaseGate } from "@/features/reservation/backend/seating-map-release-gate";
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
@@ -80,8 +81,12 @@ Object.assign(TestCustomerEmailLocaleService, {
     byDotyposCustomer: () => Effect.succeed({ kind: "guest" }),
   }),
 });
+const { isCustomerOwnAuthor } = await import(
+  "@/features/account/backend/reservation-author-directory.service"
+);
 mock.module("@/features/account", () => ({
   CustomerEmailLocaleService: TestCustomerEmailLocaleService,
+  isCustomerOwnAuthor,
 }));
 
 // The paid-fulfillment send path must never fetch the location map: fresh
@@ -117,6 +122,7 @@ const makeReservation = (
 ): WorkspaceReservationDetails => ({
   id: "reservation-id",
   dotyposCustomerId: "dotypos-customer-id",
+  authorAccountId: null,
   dotyposReservationId: "dotypos-reservation-id",
   reservationDetails: {
     kind: "cowork",
@@ -128,6 +134,7 @@ const makeReservation = (
   reservedFrom: Temporal.Instant.from("2026-06-12T07:00:00Z"),
   reservedUntil: Temporal.Instant.from("2026-06-12T11:00:00Z"),
   seats: 1,
+  placement: {},
   ...overrides,
 });
 
@@ -156,8 +163,7 @@ const sendPaidReservationEmail = async (
       sentMessages.push(message);
       return Effect.succeed(sentResult(`email-${sentMessages.length}`));
     }),
-    sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
-    verify: Effect.succeed(true),
+    sendBatch: () => Effect.die("Reservation email tests do not send batches."),
   };
   const emailConfig: EmailProviderConfig = {
     provider: "console",
@@ -272,19 +278,19 @@ const loadOpenSpaceReservationFromSyntheticSnapshot = async () => {
             Layer.mock(DotyposService, {
               getReservation: mock(() => {
                 providerReads.push("getReservation");
-                return Effect.succeed({
-                  reservation: dotyposReservation,
-                  customer,
-                });
+                return Effect.succeed(
+                  Option.some({
+                    reservation: dotyposReservation,
+                    customer,
+                  })
+                );
               }),
               getTables: mock(() => {
                 providerReads.push("getTables");
                 return Effect.succeed(tables);
               }),
             }),
-            SeatingMapFeatureFlagServiceMock({
-              isEnabled: Effect.succeed(false),
-            })
+            SeatingMapReleaseGate.fromDecision(false)
           )
         )
       )
@@ -292,7 +298,7 @@ const loadOpenSpaceReservationFromSyntheticSnapshot = async () => {
     Effect.runPromise
   );
 
-  return { details, providerReads, names };
+  return { details, providerReads };
 };
 
 const extractEmailUrls = (body: string) => {
@@ -355,47 +361,9 @@ const getTextValueAfterLabel = (text: string, label: string) => {
   return labelIndex === -1 ? undefined : lines[labelIndex + 1];
 };
 
-describe("createCustomerEmailRecoveryIdempotencyKey", () => {
-  test("derives distinct stable keys for long prior delivery ids beyond the provider key limit", async () => {
-    const { createCustomerEmailRecoveryIdempotencyKey } = await import(
-      "./workspace-reservation-email.service"
-    );
-    const sharedLongPrefix = "resend-email-id".padEnd(213, "0");
-    const firstPriorDeliveryId = EmailDeliveryIdSchema.make(
-      `${sharedLongPrefix}first`
-    );
-    const secondPriorDeliveryId = EmailDeliveryIdSchema.make(
-      `${sharedLongPrefix}second`
-    );
-
-    const firstKey =
-      createCustomerEmailRecoveryIdempotencyKey(firstPriorDeliveryId);
-    const secondKey = createCustomerEmailRecoveryIdempotencyKey(
-      secondPriorDeliveryId
-    );
-
-    const legacyTruncationLength =
-      `workspace-paid-reservation-access-recovery-${firstPriorDeliveryId}`
-        .length;
-    expect(legacyTruncationLength).toBeGreaterThan(256);
-    expect(firstKey).toMatch(
-      /^workspace-paid-reservation-access-recovery-[0-9a-f]{64}$/
-    );
-    expect(firstKey.length).toBeLessThanOrEqual(256);
-    expect(secondKey.length).toBeLessThanOrEqual(256);
-    expect(firstKey).not.toBe(secondKey);
-    expect(firstKey).toBe(
-      createCustomerEmailRecoveryIdempotencyKey(firstPriorDeliveryId)
-    );
-    expect(secondKey).toBe(
-      createCustomerEmailRecoveryIdempotencyKey(secondPriorDeliveryId)
-    );
-  });
-});
-
 describe("Open Space customer reservation emails", () => {
   test("renders the eligible table names from loaded reservation details in HTML and text", async () => {
-    const { details, names, providerReads } =
+    const { details, providerReads } =
       await loadOpenSpaceReservationFromSyntheticSnapshot();
     const message = await sendPaidReservationEmail(details);
     const { createWorkspaceReservationCustomerEmailPreviewHtml } = await import(
@@ -403,6 +371,7 @@ describe("Open Space customer reservation emails", () => {
     );
     const previewHtml =
       await createWorkspaceReservationCustomerEmailPreviewHtml({
+        locale: "en-US",
         accessUrl:
           "https://workspace.deskohub.cz/en-US/reservation/access/preview",
         invoiceUrl:
@@ -411,8 +380,10 @@ describe("Open Space customer reservation emails", () => {
       }).pipe(Effect.runPromise);
     const expectedTableNames = "9-12, 15, 16, wallee, gromice";
 
-    expect(details.openSpaceTableNames).toEqual(names);
-    expect(details.tableName).toBe("assigned-only-sentinel-raw-table-id");
+    expect(details.placement.table).toEqual({
+      mode: "shared",
+      name: expectedTableNames,
+    });
     expect(providerReads.toSorted()).toEqual(["getReservation", "getTables"]);
     expect(message.html).toContain("Tables");
     expect(message.text).toContain("Tables");
@@ -435,8 +406,7 @@ describe("Open Space customer reservation emails", () => {
           entryTier: "open-space",
           coffee: false,
         },
-        tableName: "assigned-only-sentinel-raw-table-id",
-        openSpaceTableNames: [],
+        placement: {},
       })
     );
 
@@ -470,7 +440,10 @@ describe("Open Space customer reservation emails", () => {
 
     for (const reservationDetails of assignedProducts) {
       const message = await sendPaidReservationEmail(
-        makeReservation({ reservationDetails, tableName: "12" })
+        makeReservation({
+          reservationDetails,
+          placement: { table: { mode: "assigned", name: "12" } },
+        })
       );
 
       expect(message.html).toContain(">Table<");
@@ -484,15 +457,16 @@ describe("Open Space customer reservation emails", () => {
 
 describe("workspace reservation email details", () => {
   test("renders the Dotypos meeting-room interval without cowork details", async () => {
-    const {
-      createReservationRows,
-      createWorkspaceReservationNotificationEmailPreviewHtml,
-    } = await import("./workspace-reservation-email.service");
+    const { createWorkspaceReservationNotificationEmailPreviewHtml } =
+      await import("./workspace-reservation-email.service");
+    const { reservationEmailDetails } = await import(
+      "@/emails/_components/reservation-email-details"
+    );
     const reservation = makeReservation({
       reservationDetails: { kind: "meeting-room" },
     });
 
-    expect(createReservationRows(reservation, "en-US")).toEqual([
+    expect(reservationEmailDetails(reservation, "en-US")).toEqual([
       { label: "Reservation", value: "Meeting Room" },
       { label: "Reservation date", value: "Friday, June 12, 2026" },
       { label: "Reservation time", value: "9:00 AM – 1:00 PM" },
@@ -514,35 +488,13 @@ describe("workspace reservation email details", () => {
     expect(internalHtml).not.toContain("Monitory");
   });
 
-  test("renders the inclusive office date range and seats", async () => {
-    const { createReservationRows } = await import(
+  test("renders localized whole-day reservation and cancellation emails", async () => {
+    const { WorkspaceReservationEmailService } = await import(
       "./workspace-reservation-email.service"
     );
-    const reservation = makeReservation({
-      reservationDetails: { kind: "office" },
-      reservedFrom: Temporal.Instant.from("2026-06-11T22:00:00Z"),
-      reservedUntil: Temporal.Instant.from("2026-06-14T22:00:00Z"),
-      seats: 3,
-    });
-
-    expect(createReservationRows(reservation, "en-US")).toEqual([
-      { label: "Reservation", value: "Private office" },
-      {
-        label: "Reservation date",
-        value: "Friday, June 12 – Sunday, June 14, 2026",
-      },
-      { label: "Seats", value: "3" },
-      {
-        label: "Reservation reference",
-        value: "dotypos-reservation-id",
-      },
-      { label: "Order reference", value: "reservation-id" },
-    ]);
-  });
-
-  test("renders localized whole-day reservation and cancellation emails", async () => {
-    const { createReservationRows, WorkspaceReservationEmailService } =
-      await import("./workspace-reservation-email.service");
+    const { reservationEmailDetails } = await import(
+      "@/emails/_components/reservation-email-details"
+    );
     const { EmailConfigTag, EmailServiceTag } = await import(
       "@deskohub/email/backend/service"
     );
@@ -555,7 +507,7 @@ describe("workspace reservation email details", () => {
       reservedUntil: Temporal.Instant.from("2027-03-28T22:00:00Z"),
     });
 
-    expect(createReservationRows(reservation, "en-US")).toEqual([
+    expect(reservationEmailDetails(reservation, "en-US")).toEqual([
       { label: "Reservation", value: "Meeting Room" },
       { label: "Reservation date", value: "Sunday, March 28, 2027" },
       { label: "Reservation time", value: "whole day" },
@@ -572,8 +524,8 @@ describe("workspace reservation email details", () => {
         sentMessages.push(message);
         return Effect.succeed(sentResult(`email-${sentMessages.length}`));
       }),
-      sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
-      verify: Effect.succeed(true),
+      sendBatch: () =>
+        Effect.die("Reservation email tests do not send batches."),
     };
     const emailConfig: EmailProviderConfig = {
       provider: "console",
@@ -684,21 +636,23 @@ describe("sendPaidReservationEmails internal notification failure", () => {
     );
     const reservation = makeReservation({
       customer: { ...customer, phone: "123456789" },
-      tableName: "12",
-      tableMap: {
-        assignedTableId: "desk-12",
-        roomName: "Main room",
-        tables: [
-          {
-            _cloudId: "cloud-id",
-            id: "desk-12",
-            name: "12",
-            locationName: "Main room",
-            positionX: "40",
-            positionY: "80",
-            type: "SQUARE",
-          },
-        ],
+      placement: {
+        table: { mode: "assigned", name: "12" },
+        tableMap: {
+          assignedTableId: "desk-12",
+          roomName: "Main room",
+          tables: [
+            {
+              _cloudId: "cloud-id",
+              id: "desk-12",
+              name: "12",
+              locationName: "Main room",
+              positionX: "40",
+              positionY: "80",
+              type: "SQUARE",
+            },
+          ],
+        },
       },
     });
     const sentMessages: EmailMessage[] = [];
@@ -711,8 +665,8 @@ describe("sendPaidReservationEmails internal notification failure", () => {
     });
     const emailService: EmailService = {
       send,
-      sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
-      verify: Effect.succeed(true),
+      sendBatch: () =>
+        Effect.die("Reservation email tests do not send batches."),
     };
     const emailConfig: EmailProviderConfig = {
       provider: "console",
@@ -917,12 +871,272 @@ describe("sendPaidReservationEmails internal notification failure", () => {
   });
 });
 
+describe("sendPaidReservationEmails author confirmation", () => {
+  const authorAddress = testEmailAddress("author");
+  const authorConfirmationTag = "workspace-reservation-author-confirmation";
+  const activeAuthor = (
+    overrides: Partial<Extract<ReservationAuthor, { kind: "active" }>> = {}
+  ): ReservationAuthor => ({
+    kind: "active",
+    accountId: "author-account-id",
+    dotyposCustomerId: "author-dotypos-customer-id",
+    email: authorAddress,
+    locale: "cs-CZ",
+    ...overrides,
+  });
+
+  const sendWithAuthor = async (input: {
+    readonly author: ReservationAuthor | null;
+    readonly reservation?: WorkspaceReservationDetails;
+    readonly failAuthorSend?: boolean;
+  }) => {
+    const { EmailConfigTag, EmailServiceError, EmailServiceTag } = await import(
+      "@deskohub/email/backend/service"
+    );
+    const { WorkspaceCheckoutNetworkDetailsService } = await import(
+      "./network-details.service"
+    );
+    const { WorkspaceReservationEmailService } = await import(
+      "./workspace-reservation-email.service"
+    );
+    const reservation = input.reservation ?? makeReservation({});
+    const sentMessages: EmailMessage[] = [];
+    const emailService: EmailService = {
+      send: mock((message: EmailMessage) => {
+        sentMessages.push(message);
+        return input.failAuthorSend &&
+          message.tags?.includes(authorConfirmationTag)
+          ? Effect.fail(new EmailServiceError("Author send failed."))
+          : Effect.succeed(sentResult(`email-${sentMessages.length}`));
+      }),
+      sendBatch: () =>
+        Effect.die("Reservation email tests do not send batches."),
+    };
+    const emailConfig: EmailProviderConfig = {
+      provider: "console",
+      defaultFrom: {
+        email: workspaceDefaultFromAddress,
+        name: "Deskohub Workspace",
+      },
+    };
+    const errorMessages: string[] = [];
+    const logger = Logger.make((options) => {
+      if (options.logLevel === "Error") {
+        errorMessages.push(
+          String(
+            Array.isArray(options.message)
+              ? options.message[0]
+              : options.message
+          )
+        );
+      }
+    });
+
+    const customerDeliveryId = await Effect.gen(function* () {
+      const service = yield* WorkspaceReservationEmailService;
+      return yield* service.sendPaidReservationEmails({
+        reservation,
+        customerEmailLocale: "en-US",
+        author: input.author,
+      });
+    }).pipe(
+      Effect.provide(
+        WorkspaceReservationEmailService.Default.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(EmailServiceTag, emailService),
+              Layer.succeed(EmailConfigTag, emailConfig),
+              WorkspaceCheckoutNetworkDetailsService.Default,
+              TestCustomerEmailLocaleService.Default
+            )
+          )
+        )
+      ),
+      Effect.provide(Logger.layer([logger])),
+      Effect.runPromise
+    );
+
+    return {
+      customerDeliveryId,
+      errorMessages,
+      tags: sentMessages.map((message) => message.tags),
+      authorMessage: sentMessages.find((message) =>
+        message.tags?.includes(authorConfirmationTag)
+      ),
+    };
+  };
+
+  test("sends only the customer and staff emails for the customer's own booking", async () => {
+    const sent = await sendWithAuthor({
+      author: activeAuthor({ dotyposCustomerId: "dotypos-customer-id" }),
+    });
+
+    expect(sent.tags).toEqual([
+      ["workspace-paid-reservation-access"],
+      ["workspace-paid-reservation-internal"],
+    ]);
+  });
+
+  test("sends no author confirmation for a deleted author or an authorless reservation", async () => {
+    for (const author of [
+      { kind: "deleted", accountId: "author-account-id" } as const,
+      null,
+    ]) {
+      const sent = await sendWithAuthor({ author });
+
+      expect(sent.authorMessage).toBeUndefined();
+      expect(sent.tags).toHaveLength(2);
+    }
+  });
+
+  test("confirms a booking for someone else to the author's login email in the author's language, linking only the status page", async () => {
+    const sent = await sendWithAuthor({ author: activeAuthor() });
+    const message = sent.authorMessage;
+    if (!message) throw new Error("author confirmation was not sent");
+
+    expect(sent.tags).toEqual([
+      ["workspace-paid-reservation-access"],
+      [authorConfirmationTag],
+      ["workspace-paid-reservation-internal"],
+    ]);
+    expect(message.to).toEqual({ email: authorAddress });
+    expect(message.subject).toBe(
+      m.checkoutEmailAuthorSubject(
+        { customer: "Ada Lovelace" },
+        { locale: "cs-CZ" }
+      )
+    );
+    expect(message.idempotencyKey).toBe(
+      "workspace-reservation-author-confirmation-reservation-id"
+    );
+    expect(message.metadata).toEqual({
+      deploymentEnvironment: "development",
+      source: "workspace-paid-fulfillment",
+      workspaceReservationId: "reservation-id",
+    });
+
+    const html = message.html ?? "";
+    const text = message.text ?? "";
+    for (const content of [html, text]) {
+      expect(content).not.toContain("accessToken");
+      expect(content).not.toContain("/reservation/access/");
+      expect(content).not.toContain("/reservation/invoice/");
+    }
+
+    registerWorkspaceComponentTestEnv();
+    try {
+      const emailView = renderEmailHtml(html);
+      expect(
+        emailView.getByText(
+          m.checkoutEmailAuthorHeading(
+            {
+              customer: "Ada Lovelace",
+              product: m.reservationTierBasicTitle({}, { locale: "cs-CZ" }),
+            },
+            { locale: "cs-CZ" }
+          )
+        )
+      ).toBeDefined();
+      const statusLink = emailView.getByRole("link", {
+        name: m.checkoutEmailAuthorStatusButton({}, { locale: "cs-CZ" }),
+      });
+      const statusUrl = new URL(statusLink.getAttribute("href") ?? "");
+      expect(statusUrl.pathname).toBe(
+        "/cs-CZ/reservation/status/reservation-id"
+      );
+      expect(statusUrl.searchParams.has("accessToken")).toBe(false);
+      for (const link of emailView.getAllByRole("link")) {
+        const href = link.getAttribute("href") ?? "";
+        expect(href).not.toContain("/reservation/access/");
+        expect(href).not.toContain("/reservation/invoice/");
+      }
+    } finally {
+      await unregisterWorkspaceComponentTestEnv();
+    }
+  });
+
+  test("falls back to the reservation language and a neutral customer name", async () => {
+    const sent = await sendWithAuthor({
+      author: activeAuthor({ locale: null }),
+      reservation: makeReservation({
+        customer: { ...customer, firstName: null, lastName: null },
+      }),
+    });
+    const message = sent.authorMessage;
+    if (!message) throw new Error("author confirmation was not sent");
+
+    const someoneElse = m.checkoutEmailAuthorCustomerFallback(
+      {},
+      { locale: "en-US" }
+    );
+    expect(message.subject).toBe(
+      m.checkoutEmailAuthorSubject(
+        { customer: someoneElse },
+        { locale: "en-US" }
+      )
+    );
+    expect(message.html).toContain(
+      m.checkoutEmailAuthorHeading(
+        {
+          customer: someoneElse,
+          product: m.reservationTierBasicTitle({}, { locale: "en-US" }),
+        },
+        { locale: "en-US" }
+      )
+    );
+    expect(message.text).toContain("/en-US/reservation/status/reservation-id");
+  });
+
+  test("renders the author confirmation preview in each shipped locale", async () => {
+    const { createReservationAuthorEmailPreviewHtml } = await import(
+      "./workspace-reservation-email.service"
+    );
+
+    for (const locale of ["en-US", "cs-CZ"] as const) {
+      const statusUrl = `https://workspace.deskohub.test/${locale}/reservation/status/reservation-id`;
+      const html = await createReservationAuthorEmailPreviewHtml({
+        locale,
+        statusUrl,
+        reservation: makeReservation({ locale }),
+      }).pipe(Effect.runPromise);
+
+      expect(html).toContain(`lang="${locale}"`);
+      expect(html).toContain(
+        m.checkoutEmailAuthorHeading(
+          {
+            customer: "Ada Lovelace",
+            product: m.reservationTierBasicTitle({}, { locale }),
+          },
+          { locale }
+        )
+      );
+      expect(html).toContain(`href="${statusUrl}"`);
+      expect(html).toContain(m.checkoutEmailAuthorStatusButton({}, { locale }));
+    }
+  });
+
+  test("keeps the customer delivery and logs when the author confirmation fails", async () => {
+    const sent = await sendWithAuthor({
+      author: activeAuthor(),
+      failAuthorSend: true,
+    });
+
+    expect(sent.customerDeliveryId).toBe(EmailDeliveryIdSchema.make("email-1"));
+    expect(sent.errorMessages).toContain(
+      "Workspace reservation author confirmation failed"
+    );
+    expect(sent.tags).toContainEqual(["workspace-paid-reservation-internal"]);
+  });
+});
+
 describe("sendPaidReservationEmails idempotency", () => {
   test("passes the explicit initial customer key to the provider message only", async () => {
-    const {
-      createCustomerEmailInitialIdempotencyKey,
-      WorkspaceReservationEmailService,
-    } = await import("./workspace-reservation-email.service");
+    const { WorkspaceReservationEmailService } = await import(
+      "./workspace-reservation-email.service"
+    );
+    const { createCustomerEmailInitialIdempotencyKey } = await import(
+      "./customer-email-idempotency-key"
+    );
     const { EmailConfigTag, EmailServiceTag } = await import(
       "@deskohub/email/backend/service"
     );
@@ -936,8 +1150,8 @@ describe("sendPaidReservationEmails idempotency", () => {
         sentMessages.push(message);
         return Effect.succeed(sentResult(`email-${sentMessages.length}`));
       }),
-      sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
-      verify: Effect.succeed(true),
+      sendBatch: () =>
+        Effect.die("Reservation email tests do not send batches."),
     };
     const emailConfig: EmailProviderConfig = {
       provider: "console",
@@ -1000,10 +1214,12 @@ describe("sendPaidReservationEmails idempotency", () => {
 
 describe("sendPaidReservationEmails idempotent retry stability", () => {
   test("sends byte-identical complete customer requests under one idempotency key while the clock advances", async () => {
-    const {
-      createCustomerEmailInitialIdempotencyKey,
-      WorkspaceReservationEmailService,
-    } = await import("./workspace-reservation-email.service");
+    const { WorkspaceReservationEmailService } = await import(
+      "./workspace-reservation-email.service"
+    );
+    const { createCustomerEmailInitialIdempotencyKey } = await import(
+      "./customer-email-idempotency-key"
+    );
     const { EmailConfigTag, EmailServiceTag } = await import(
       "@deskohub/email/backend/service"
     );
@@ -1021,8 +1237,8 @@ describe("sendPaidReservationEmails idempotent retry stability", () => {
         sentMessages.push(message);
         return Effect.succeed(sentResult(`email-${sentMessages.length}`));
       }),
-      sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
-      verify: Effect.succeed(true),
+      sendBatch: () =>
+        Effect.die("Reservation email tests do not send batches."),
     };
     const emailConfig: EmailProviderConfig = {
       provider: "console",
@@ -1136,8 +1352,8 @@ describe("sendPaidReservationEmails reservation access capability", () => {
         sentMessages.push(message);
         return Effect.succeed(sentResult("preference-email-1"));
       }),
-      sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
-      verify: Effect.succeed(true),
+      sendBatch: () =>
+        Effect.die("Reservation email tests do not send batches."),
     };
     const emailConfig: EmailProviderConfig = {
       provider: "console",
@@ -1260,8 +1476,8 @@ describe("sendPaidReservationEmails reservation access capability", () => {
           sentResult(`captured-email-${sentMessages.length}`)
         );
       }),
-      sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
-      verify: Effect.succeed(true),
+      sendBatch: () =>
+        Effect.die("Reservation email tests do not send batches."),
     };
     const emailConfig: EmailProviderConfig = {
       provider: "console",
@@ -1454,8 +1670,8 @@ describe("reservation customer email language", () => {
         sentMessages.push(message);
         return Effect.succeed(sentResult(`email-${sentMessages.length}`));
       }),
-      sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
-      verify: Effect.succeed(true),
+      sendBatch: () =>
+        Effect.die("Reservation email tests do not send batches."),
     };
     const emailConfig: EmailProviderConfig = {
       provider: "console",

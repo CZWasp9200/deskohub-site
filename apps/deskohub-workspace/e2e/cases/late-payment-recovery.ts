@@ -1,18 +1,18 @@
 import { Effect } from "effect";
 import { HttpClient } from "effect/unstable/http";
-import {
-  openBrowserPage,
-  waitForBrowserText,
-  waitForBrowserUrl,
-} from "../browser";
+import { openPage, waitForPageText, waitForPageUrl } from "../browser";
+import type { OpenE2EBrowserSession } from "../browser-session";
 import { getWorkspaceE2EDateInterval } from "../capacity";
+import type { WorkspaceE2EStepRunner } from "../case-runner";
 import { completeNexiHostedPayment } from "../checkout/nexi-hosted-payment";
 import {
   prepareCheckoutPaymentAttempt,
   submitPaymentAndWaitForHostedPage,
 } from "../checkout/payment";
+import type { ReservationFormPreparation } from "../checkout/reservation-form-preparation";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
+import type { WorkspaceE2EProviderVerificationPermitService } from "../coordination/provider-verification-permit.service";
 import { tryWorkspaceE2ESync, type WorkspaceE2EError } from "../errors";
 import {
   markPreviewFulfillmentDeliveredForE2E,
@@ -28,13 +28,8 @@ import {
   validateDotypos,
   waitForCancelledDotyposReservations,
 } from "../integrations/dotypos";
-import type { Runner } from "../runtime";
 import { assert, log } from "../runtime";
-import type {
-  CheckoutData,
-  CheckoutFlowState,
-  WorkspaceE2EStepRunner,
-} from "../types";
+import type { CheckoutData, CheckoutFlowState } from "../types";
 import { isExpectedCheckoutStatusUrl, makeUrl, setSearchParams } from "../urls";
 import { assertFulfilledStatusPage } from "./checkout";
 
@@ -61,26 +56,27 @@ export const executeLatePaymentRecovery = ({
   config,
   data,
   datasourceConfig,
-  run,
   runStep,
   scenario,
-  session,
+  openSession,
   state,
-  submitReservationScript,
+  preparation,
 }: {
   readonly config: WorkspaceE2EConfig;
   readonly data: CheckoutData;
   readonly datasourceConfig: DatasourceConfig;
-  readonly run: Runner;
   readonly runStep: WorkspaceE2EStepRunner;
   readonly scenario: LatePaymentRecoveryScenario;
-  readonly session: string;
+  readonly openSession: OpenE2EBrowserSession;
   readonly state: CheckoutFlowState;
-  readonly submitReservationScript: string;
+  readonly preparation: ReservationFormPreparation;
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
-  E2EDatabase | HttpClient.HttpClient | WorkspaceE2EHostedPaymentPermitService
+  | E2EDatabase
+  | HttpClient.HttpClient
+  | WorkspaceE2EHostedPaymentPermitService
+  | WorkspaceE2EProviderVerificationPermitService
 > =>
   Effect.gen(function* () {
     const httpClient = yield* HttpClient.HttpClient;
@@ -88,15 +84,17 @@ export const executeLatePaymentRecovery = ({
     state.startedAt = new Date();
 
     const orderId = yield* runStep({
-      execute: prepareCheckoutPaymentAttempt({
-        config,
-        data,
-        onOrderId: (startedOrderId) => {
-          state.orderId = startedOrderId;
-        },
-        run,
-        session,
-        submitReservationScript,
+      execute: Effect.gen(function* () {
+        const browser = yield* openSession;
+        return yield* prepareCheckoutPaymentAttempt({
+          config,
+          data,
+          onOrderId: (startedOrderId) => {
+            state.orderId = startedOrderId;
+          },
+          preparation,
+          session: browser,
+        });
       }),
       id: "prepare-late-payment-checkout",
       timeoutMs: config.timeouts.checkoutStart,
@@ -107,14 +105,15 @@ export const executeLatePaymentRecovery = ({
     // the hosted-payment permit spans submission through the status page.
     const { originalDotyposReservationId, providerSessionRow } =
       yield* hostedPaymentPermit.withPermit(
-        session,
+        "late hosted payment recovery",
         Effect.gen(function* () {
           const hostedPaymentPage = yield* runStep({
-            execute: submitPaymentAndWaitForHostedPage({
-              run,
-              session,
-              timeouts: config.timeouts,
-            }),
+            execute: Effect.flatMap(openSession, (browser) =>
+              submitPaymentAndWaitForHostedPage({
+                session: browser,
+                timeouts: config.timeouts,
+              })
+            ),
             id: "start-late-payment",
             timeoutMs: config.timeouts.providerTransition,
           });
@@ -179,23 +178,23 @@ export const executeLatePaymentRecovery = ({
           state.checkoutRow = releasedRow;
 
           yield* runStep({
-            execute: completeNexiHostedPayment({
-              data,
-              hostedPaymentPage,
-              run,
-              session,
-              timeouts: config.timeouts,
-            }),
+            execute: Effect.flatMap(openSession, (browser) =>
+              completeNexiHostedPayment({
+                data,
+                hostedPaymentPage,
+                session: browser,
+                timeouts: config.timeouts,
+              })
+            ),
             id: "complete-late-hosted-payment",
             timeoutMs: config.timeouts.hostedPayment,
           });
           yield* runStep({
-            execute: waitForBrowserUrl({
+            execute: waitForPageUrl({
               description: "late-payment checkout status page",
               matches: (url) =>
                 isExpectedCheckoutStatusUrl(url, config.expectedHost),
-              run,
-              session,
+              session: openSession,
               timeoutMs: config.timeouts.providerTransition,
             }).pipe(Effect.asVoid),
             id: "reach-late-payment-status-page",
@@ -206,7 +205,7 @@ export const executeLatePaymentRecovery = ({
       );
 
     yield* runStep({
-      capacity: "provider-verification",
+      permit: "provider-verification",
       execute: replayNexiWebhook(config, providerSessionRow).pipe(
         Effect.provideService(HttpClient.HttpClient, httpClient)
       ),
@@ -234,7 +233,7 @@ export const executeLatePaymentRecovery = ({
             `${config.baseUrl}/en-US/reservation/status/${orderId}`
           );
           yield* setSearchParams(statusUrl, { e2eAt: String(Date.now()) });
-          yield* openBrowserPage(config, run, session, statusUrl.toString(), {
+          yield* openPage(yield* openSession, config, statusUrl.toString(), {
             timeoutMs: config.timeouts.browserNavigation,
           });
         }),
@@ -244,7 +243,7 @@ export const executeLatePaymentRecovery = ({
       yield* runStep({
         // The customer must learn the payment will be refunded, never that a
         // paid reservation is still awaiting confirmation.
-        execute: waitForBrowserText({
+        execute: waitForPageText({
           description: "late-payment refund status copy",
           matches: (text) =>
             /We will refund your payment\./.test(text) &&
@@ -252,8 +251,7 @@ export const executeLatePaymentRecovery = ({
               text
             ) &&
             !/We.re finishing your reservation/.test(text),
-          run,
-          session,
+          session: openSession,
           timeoutMs: config.timeouts.uiTransition,
         }),
         id: "assert-refund-status-page",
@@ -290,7 +288,7 @@ export const executeLatePaymentRecovery = ({
           `${config.baseUrl}/${data.locale}/reservation/status/${orderId}`
         );
         yield* setSearchParams(statusUrl, { e2eAt: String(Date.now()) });
-        yield* openBrowserPage(config, run, session, statusUrl.toString(), {
+        yield* openPage(yield* openSession, config, statusUrl.toString(), {
           timeoutMs: config.timeouts.browserNavigation,
         });
       }),
@@ -304,8 +302,7 @@ export const executeLatePaymentRecovery = ({
         data,
         dotyposReservation,
         orderId,
-        run,
-        session,
+        openSession,
       }),
       id: "assert-recovered-status-page",
       timeoutMs: config.timeouts.uiTransition,

@@ -3,22 +3,28 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, chromium, type Page } from "@playwright/test";
+import {
+  type AccountSection,
+  accountSectionLabel,
+} from "@/features/account/sections";
 import { m } from "@/features/i18n";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
 import { compileWorkspaceAppStyles } from "@/shared/testing/workspace-app-styles.test-utils";
-import type { AccountSection } from "./account-shell";
 
 const locale = "en-US" as const;
 const navigationLabel = m.accountNavigationLabel({}, { locale });
-const sectionLabels = {
-  reservations: m.accountSectionReservations({}, { locale }),
-  referrals: m.accountSectionReferrals({}, { locale }),
-  profile: m.accountSectionProfile({}, { locale }),
-  billing: m.accountSectionBilling({}, { locale }),
-  legal: m.accountSectionLegal({}, { locale }),
-  danger: m.accountSectionDanger({}, { locale }),
-} as const satisfies Readonly<Record<AccountSection, string>>;
-const sections = Object.keys(sectionLabels) as AccountSection[];
+const sections = [
+  "reservations",
+  "referrals",
+  "profile",
+  "assistants",
+  "billing",
+  "legal",
+  "danger",
+] as const satisfies readonly AccountSection[];
+// Matches the harness's section links.
+const sectionHref = (section: AccountSection) =>
+  `/${locale}/account/${section}`;
 
 const chromiumAvailable = await playwrightChromiumAvailable();
 let browser: Browser | undefined;
@@ -83,11 +89,11 @@ const readShellLayout = (page: Page) =>
     const contentRect = content.getBoundingClientRect();
 
     return {
-      activeButtonLabels: Array.from(
-        navigation.querySelectorAll('button[aria-current="page"]')
+      activeItemHrefs: Array.from(
+        navigation.querySelectorAll('a[aria-current="page"]')
       )
         .filter(isRendered)
-        .map((button) => button.textContent?.trim() ?? ""),
+        .map((link) => link.getAttribute("href")),
       contentLeft: contentRect.left,
       contentTop: contentRect.top,
       contentWidth: contentRect.width,
@@ -105,7 +111,7 @@ const readShellLayout = (page: Page) =>
 const selectSection = async (page: Page, section: AccountSection) => {
   await page
     .getByRole("navigation", { name: navigationLabel })
-    .getByRole("button", { name: sectionLabels[section] })
+    .getByRole("link", { name: accountSectionLabel(section, locale) })
     .filter({ visible: true })
     .click();
 };
@@ -123,10 +129,7 @@ test.skipIf(!chromiumAvailable)(
         expect(layout.navigationWidth).toBeGreaterThan(0);
         expect(layout.contentWidth).toBeGreaterThan(0);
         expect(layout.navigationRight).toBeLessThanOrEqual(layout.contentLeft);
-        expect(layout.activeButtonLabels).toHaveLength(1);
-        expect(layout.activeButtonLabels[0]).toStartWith(
-          sectionLabels[section]
-        );
+        expect(layout.activeItemHrefs).toEqual([sectionHref(section)]);
       }
     } finally {
       await page.close();
@@ -146,7 +149,7 @@ test.skipIf(!chromiumAvailable)(
         expect(layout.horizontalOverflow).toBeLessThanOrEqual(1);
         expect(layout.contentWidth).toBeGreaterThan(0);
         expect(layout.navigationBottom).toBeLessThanOrEqual(layout.contentTop);
-        expect(layout.activeButtonLabels).toEqual([sectionLabels[section]]);
+        expect(layout.activeItemHrefs).toEqual([sectionHref(section)]);
       }
     } finally {
       await page.close();

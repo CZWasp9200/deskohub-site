@@ -8,9 +8,12 @@ export const workspaceE2EAccountCaseIds = [
   "account-magic-link-delivery",
   "account-profile-completion",
   "account-reservation-transitions",
+  "account-data-export",
   "account-deletion-marker-reauth",
   "account-session-lifecycle",
   "account-deletion-and-reactivation",
+  "account-passkey-sign-in",
+  "account-passkey-management",
   "account-locale-preference",
   "account-linking-variants",
 ] as const;
@@ -39,28 +42,56 @@ export const workspaceE2EAccountMagicLinkLedger = {
   "account-magic-link-delivery": ["verify"],
   "account-profile-completion": [],
   "account-reservation-transitions": [],
+  // Reuses the linked main account's session; the signed-out request opens
+  // no sign-in.
+  "account-data-export": [],
   "account-deletion-marker-reauth": ["send"],
   // The reauthentication sign-in, which must land on the pending account's
-  // saved Czech site from its English callback, and the rejected replay.
-  "account-session-lifecycle": ["verify", "verify"],
-  "account-deletion-and-reactivation": ["send", "verify"],
-  // Reuses the session the reactivation sign-in opened; the saved-locale
-  // sign-in landing is proved by the session-lifecycle reauthentication.
+  // saved Czech site from its English callback.
+  "account-session-lifecycle": ["verify"],
+  // The cross-browser sign-in: the assistant's browser requests the link,
+  // the lane browser opens it, and the assistant's browser replays it into
+  // the rejected-link card. With passkeys on, the reactivation sign-in also
+  // creates the prompt passkey, so the passkey cases spend no link of their
+  // own.
+  "account-deletion-and-reactivation": ["send", "verify", "verify"],
+  // Passkey sign-in and passkey reauthentication send no email.
+  "account-passkey-sign-in": [],
+  "account-passkey-management": [],
+  // Reuses the session the reactivation or passkey sign-in opened; the
+  // saved-locale sign-in landing is proved by the session-lifecycle
+  // reauthentication.
   "account-locale-preference": [],
   "account-linking-variants": [],
 } as const satisfies Readonly<
   Record<WorkspaceE2EAccountCaseId, readonly MagicLinkOperation[]>
 >;
 
+const workspaceE2EAccountPasskeyCaseIds: readonly WorkspaceE2EAccountCaseId[] =
+  ["account-passkey-sign-in", "account-passkey-management"];
+
 /**
  * Why the lane skips a case on this preview, if it does. The sign-in code
  * case needs the code step the preview's `login_email_code` flag adds, and
- * the sign-in form case records which step the preview showed.
+ * the passkey cases need the passkey sign-in its `login_passkeys` flag adds.
+ * The sign-in form case records both from what the preview showed.
  */
 export const workspaceE2EAccountCaseSkipReason = (
   caseId: WorkspaceE2EAccountCaseId,
-  handoff: Pick<WorkspaceE2EAccountLifecycleHandoff, "signInConfirmation">
-): string | undefined =>
-  caseId === "account-sign-in-code" && handoff.signInConfirmation === "inbox"
-    ? "Sign-in codes (login_email_code) are off on this preview"
-    : undefined;
+  handoff: Pick<
+    WorkspaceE2EAccountLifecycleHandoff,
+    "passkeySignIn" | "signInConfirmation"
+  >
+): string | undefined => {
+  if (
+    caseId === "account-sign-in-code" &&
+    handoff.signInConfirmation === "inbox"
+  )
+    return "Sign-in codes (login_email_code) are off on this preview";
+  if (
+    workspaceE2EAccountPasskeyCaseIds.includes(caseId) &&
+    handoff.passkeySignIn === "absent"
+  )
+    return "Passkeys (login_passkeys) are off on this preview";
+  return undefined;
+};

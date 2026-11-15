@@ -8,6 +8,7 @@ import {
   AdministrationCampaignDetail,
   AdministrationCampaignRecipientPreview,
   AdministrationCampaignSendStatusResult,
+  AdministrationCampaignSettings,
   CliAccessToken,
   CliInputInvalid,
   CliSessionId,
@@ -30,6 +31,7 @@ const session = {
     "01980000-0000-7000-8000-000000000000"
   ),
   approvedBy: null,
+  approvedByEmail: null,
   clientName: "test client",
   cliVersion: "1.3.0",
   buildTarget: "development" as const,
@@ -199,6 +201,7 @@ type CampaignApi = Pick<
   | "sendCampaign"
   | "retryCampaign"
   | "getCampaignSendStatus"
+  | "getCampaignSettings"
 >;
 
 const makeCampaignLayer = (overrides: Partial<CampaignApi> = {}) => {
@@ -277,6 +280,9 @@ const makeCampaignLayer = (overrides: Partial<CampaignApi> = {}) => {
       retriedCount: 1,
     })),
     getCampaignSendStatus: record("getCampaignSendStatus", () => sendStatus),
+    getCampaignSettings: record("getCampaignSettings", () => ({
+      testSendInbox: adminEmail,
+    })),
     ...overrides,
   };
   const api = Layer.succeed(WorkspaceAdminApiClient, {
@@ -323,6 +329,22 @@ const run = (args: ReadonlyArray<string>, layer: CampaignLayer) =>
 
 const runFailure = (args: ReadonlyArray<string>, layer: CampaignLayer) =>
   run(args, layer).pipe(Effect.flip, Effect.runPromise);
+
+describe("dhw campaign settings", () => {
+  test("prints campaign settings as JSON", async () => {
+    const settings = Schema.decodeUnknownSync(AdministrationCampaignSettings)({
+      testSendInbox: adminEmail,
+    });
+    const { calls, layer, output } = makeCampaignLayer();
+
+    await run(["--json", "campaigns", "settings"], layer).pipe(
+      Effect.runPromise
+    );
+
+    expect(calls).toEqual([["getCampaignSettings"]]);
+    expect(JSON.parse(output.join(""))).toEqual(settings);
+  });
+});
 
 describe("dhw campaigns create and update", () => {
   test("builds per-locale content from Markdown files and trims text", async () => {
@@ -389,7 +411,7 @@ describe("dhw campaigns create and update", () => {
   });
 
   test.each([
-    [["--subject", "de=Hallo", "--body", "de=./de.md"], "unknown locale"],
+    [["--subject", "fr=Bonjour", "--body", "fr=./fr.md"], "unknown locale"],
     [
       ["--subject", "Hello", "--body", "en=./en.md"],
       "expects <locale>=<value>",
@@ -485,6 +507,38 @@ describe("dhw campaigns create and update", () => {
             },
             "cs-CZ": null,
           },
+        },
+      ],
+    ]);
+  });
+
+  test("sends only the given settings, without content", async () => {
+    const { calls, layer } = makeCampaignLayer();
+
+    await run(
+      [
+        "--json",
+        "campaigns",
+        "update",
+        "campaign-1",
+        "--purpose",
+        "marketing",
+        "--template",
+        "workspace",
+        "--audience",
+        "audience-2",
+      ],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(calls).toEqual([
+      [
+        "updateCampaign",
+        "campaign-1",
+        {
+          purpose: "marketing",
+          templateKey: "workspace",
+          audienceId: "audience-2",
         },
       ],
     ]);
@@ -926,6 +980,132 @@ describe("dhw campaigns audiences", () => {
     expect(output).toEqual(["Created audience Czech visitors (audience-1)."]);
   });
 
+  // Shapes the Workspace can store before the builder writes them, so dhw
+  // must read and pass them through whichever side rejects them.
+  const upcomingFilter = {
+    _tag: "Group",
+    operator: "or",
+    filters: [
+      {
+        attribute: "firstVisit",
+        _tag: "Condition",
+        params: { product: { family: "cowork", properties: [] } },
+        operator: "in",
+        value: { _tag: "Past" },
+      },
+      {
+        attribute: "reservationCount",
+        _tag: "Condition",
+        params: {
+          dateBasis: "visit",
+          period: {
+            _tag: "TriggerWindow",
+            side: "before",
+            count: 1,
+            unit: "month",
+          },
+        },
+        operator: "gt",
+        value: 0,
+      },
+      {
+        attribute: "campaignEmailCount",
+        _tag: "Condition",
+        params: {
+          purpose: "any",
+          period: { _tag: "Last", count: 30, unit: "day" },
+          campaign: { _tag: "Specific", campaignId: "campaign-1" },
+        },
+        operator: "eq",
+        value: 0,
+      },
+      {
+        attribute: "campaignEmailCount",
+        _tag: "Condition",
+        params: {
+          purpose: "any",
+          period: {
+            _tag: "TriggerWindow",
+            side: "after",
+            count: 2,
+            unit: "week",
+          },
+          campaign: { _tag: "This" },
+        },
+        operator: "gte",
+        value: 1,
+      },
+    ],
+  };
+
+  test("decodes upcoming audience shapes from a filter file and inline", async () => {
+    const directory = await makeTemporaryDirectory();
+    const filterPath = join(directory, "filter.json");
+    await writeFile(filterPath, JSON.stringify(upcomingFilter));
+    const { calls, layer } = makeCampaignLayer();
+
+    await run(
+      [
+        "--json",
+        "campaigns",
+        "audiences",
+        "create",
+        "--title",
+        "Upcoming",
+        "--filter-file",
+        filterPath,
+      ],
+      layer
+    ).pipe(Effect.runPromise);
+    await run(
+      [
+        "--json",
+        "campaigns",
+        "audiences",
+        "update",
+        "audience-1",
+        "--filter",
+        JSON.stringify(upcomingFilter),
+      ],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(calls).toEqual([
+      [
+        "createCampaignAudience",
+        anyRequestId,
+        { title: "Upcoming", filter: upcomingFilter },
+      ],
+      ["updateCampaignAudience", "audience-1", { filter: upcomingFilter }],
+    ]);
+  });
+
+  test("shows a returned filter with upcoming shapes unchanged", async () => {
+    const audience = Schema.decodeUnknownSync(AdministrationCampaignAudience)({
+      ...activeAudience,
+      filter: upcomingFilter,
+    });
+    const human = makeCampaignLayer({
+      getCampaignAudience: () => Effect.succeed(audience),
+    });
+    await run(
+      ["campaigns", "audiences", "show", "audience-1"],
+      human.layer
+    ).pipe(Effect.runPromise);
+    expect(human.output.join("\n")).toContain(
+      `Filter\n${JSON.stringify(upcomingFilter, null, 2)}`
+    );
+
+    const json = makeCampaignLayer({
+      getCampaignAudience: () => Effect.succeed(audience),
+    });
+    await run(
+      ["--json", "campaigns", "audiences", "show", "audience-1"],
+      json.layer
+    ).pipe(Effect.runPromise);
+    expect(JSON.parse(json.output.join("")).filter).toEqual(upcomingFilter);
+  });
+
   test("unarchives an audience", async () => {
     const human = makeCampaignLayer();
     await run(
@@ -982,9 +1162,9 @@ describe("dhw campaigns audiences", () => {
     [
       [
         "--filter",
-        '{"attribute":"locale","_tag":"Condition","operator":"anyOf","value":["de-DE"]}',
+        '{"attribute":"locale","_tag":"Condition","operator":"anyOf","value":["xx-XX"]}',
       ],
-      'Expected "cs-CZ" | "en-US", got "de-DE"\n  at ["value"][0]',
+      'got "xx-XX"\n  at ["value"][0]',
     ],
     [
       [

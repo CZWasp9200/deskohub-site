@@ -1,12 +1,43 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
+  describeRecordingMismatch,
   formatTestTimings,
+  isShardedTestFile,
   mergeTestTimings,
   parseTestTimings,
   predictShardDurations,
+  testPathIgnorePatterns,
   testTimingsPath,
 } from "./refresh-test-timings";
+
+test("skips build-output checks and dependencies like the test script", () => {
+  expect(isShardedTestFile("features/checkout/discount-code.test.ts")).toBe(
+    true
+  );
+  expect(
+    isShardedTestFile(
+      "features/administration/i18n/administration-messages.build.test.ts"
+    )
+  ).toBe(false);
+  expect(isShardedTestFile("node_modules/pkg/index.test.ts")).toBe(false);
+});
+
+test("reads every quoting of --path-ignore-patterns", () => {
+  expect(
+    testPathIgnorePatterns(
+      `bun test --path-ignore-patterns='**/*.build.test.ts' --path-ignore-patterns="a b/**" --path-ignore-patterns c/**`
+    )
+  ).toEqual(["**/*.build.test.ts", "a b/**", "c/**"]);
+});
+
+test("reads --path-ignore-patterns followed by repeated spaces", () => {
+  expect(
+    testPathIgnorePatterns(
+      "bun test --path-ignore-patterns   **/*.build.test.ts"
+    )
+  ).toEqual(["**/*.build.test.ts"]);
+});
 
 describe("mergeTestTimings", () => {
   test("combines shard recordings sorted by path with whole milliseconds", () => {
@@ -28,6 +59,45 @@ describe("mergeTestTimings", () => {
         { version: 1, files: { "a.test.ts": 2 } },
       ])
     ).toThrow("a.test.ts was recorded by more than one shard");
+  });
+});
+
+describe("describeRecordingMismatch", () => {
+  test("accepts a run that timed exactly the checkout's test files", () => {
+    expect(
+      describeRecordingMismatch(["a.test.ts", "b.test.ts"], {
+        version: 1,
+        files: { "a.test.ts": 1, "b.test.ts": 2 },
+      })
+    ).toBeUndefined();
+  });
+
+  test("names both paths of a test file the base branch renamed", () => {
+    const mismatch = describeRecordingMismatch(
+      ["a.test.ts", "old-name.test.ts"],
+      { version: 1, files: { "a.test.ts": 1, "new-name.test.ts": 2 } }
+    );
+    expect(mismatch).toContain("old-name.test.ts");
+    expect(mismatch).toContain("new-name.test.ts");
+    expect(mismatch).not.toContain("a.test.ts");
+  });
+
+  test("rejects a run that skipped a local test file", () => {
+    expect(
+      describeRecordingMismatch(["a.test.ts", "b.test.ts"], {
+        version: 1,
+        files: { "a.test.ts": 1 },
+      })
+    ).toContain("b.test.ts");
+  });
+
+  test("rejects a run that timed a file the checkout lacks", () => {
+    expect(
+      describeRecordingMismatch(["a.test.ts"], {
+        version: 1,
+        files: { "a.test.ts": 1, "deleted.test.ts": 2 },
+      })
+    ).toContain("deleted.test.ts");
   });
 });
 

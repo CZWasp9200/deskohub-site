@@ -8,6 +8,10 @@ import { makeAuthDatabase } from "@/db/auth-database-client";
 import { drizzleAuthTables } from "@/db/schema/auth";
 import { env } from "@/env";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import {
+  postgresAuthHookServices,
+  testAccountDeletion,
+} from "./auth/auth-hook-services.test-utils";
 import { makeWorkspaceAuth } from "./auth/auth-server";
 import {
   CustomerAuthentication,
@@ -47,13 +51,19 @@ describe.skipIf(!testDatabase)(
         }),
         secrets: [{ version: 1, value: SECRET }],
         allowedHosts: [HOST],
+        nativeAppLinkOrigin: `https://${HOST}`,
+        passkeyRelyingParty: { rpID: HOST, origins: [`https://${HOST}`] },
+        customerMcpResource: `https://${HOST}/api/mcp`,
         httpsOnly: true,
-        areAccountsEnabled: async () => true,
         sendMagicLink: (data) => {
           sentMagicLinks.push(data.url);
         },
-        beforeDeleteUser: () => Effect.void,
-        captureAccountLocalePreference: () => Effect.void,
+        reviewAccountCredentials: [],
+        services: postgresAuthHookServices(testDatabase!, {
+          passkeyFlag: Effect.succeed(false),
+          captureLocalePreference: () => Effect.void,
+        }),
+        accountDeletion: testAccountDeletion(),
       });
 
     const callHandler = (
@@ -118,8 +128,9 @@ describe.skipIf(!testDatabase)(
             CustomerAuthentication.fromEnvironment({
               readBetterAuthSecretsRaw: () => env.BETTER_AUTH_SECRETS,
               readCurrentSession: makeAuthoritySessionRead({
-                readRequestHeaders: async () =>
-                  new Headers({ host: HOST, cookie }),
+                requestHeaders: Effect.sync(
+                  () => new Headers({ host: HOST, cookie })
+                ),
                 loadAuthority: async () => ({ auth }),
               }),
             })

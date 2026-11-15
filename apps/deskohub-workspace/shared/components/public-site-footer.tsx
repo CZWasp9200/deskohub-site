@@ -1,17 +1,30 @@
 import { cacheLife } from "next/cache";
+import { Suspense } from "react";
+import type { LocalePreferenceSaving } from "@/features/account/switch-locale";
 import { type Locale, m } from "@/features/i18n";
 import { getRequestLocale } from "@/features/i18n/server/request-locale";
-import { getCoworkReservationPath } from "@/features/reservation/routes";
+import { AppInstallCallToAction } from "@/features/mobile-distribution/app-install-call-to-action";
+import {
+  getCoworkReservationPath,
+  getMeetingRoomReservationPath,
+} from "@/features/reservation/routes";
 import { Container } from "@/shared/components/container";
 import { GuardedLink as Link } from "@/shared/components/guarded-link";
+import { LanguageLinks } from "@/shared/components/locale-switcher";
 import { workspaceSiteConstants } from "@/shared/utils";
 
-export async function PublicSiteFooter() {
+type PublicSiteFooterProps = {
+  /** The header's preference saving, shared so one session check serves both. */
+  readonly localePreference: LocalePreferenceSaving;
+};
+
+export async function PublicSiteFooter({
+  localePreference,
+}: PublicSiteFooterProps) {
   const locale = await getRequestLocale();
   const copyrightYear = await getCopyrightYear(locale);
   const localePath = `/${locale}`;
-  const reservationPath = getCoworkReservationPath(locale);
-  const companyExtractPath = "/official-company-extract";
+  const companyExtractPath = "/official-company-extract.pdf";
   const companyAddress = `${workspaceSiteConstants.location.address.street}, ${workspaceSiteConstants.location.address.postalCode} ${workspaceSiteConstants.location.address.city} - ${workspaceSiteConstants.location.address.cityDistrict}`;
 
   return (
@@ -129,23 +142,69 @@ export async function PublicSiteFooter() {
                 {m.footerContactLink({}, { locale })}
               </Link>
               <Link
-                href={reservationPath}
+                href={`${localePath}/pricing`}
                 className="transition-colors hover:text-sunset-yellow"
               >
-                {m.footerReservationLink({}, { locale })}
+                {m.footerPricingLink({}, { locale })}
+              </Link>
+              <Link
+                href={getCoworkReservationPath(locale)}
+                className="transition-colors hover:text-sunset-yellow"
+              >
+                {m.coworkReservationLink({}, { locale })}
+              </Link>
+              <Link
+                href={getMeetingRoomReservationPath(locale)}
+                className="transition-colors hover:text-sunset-yellow"
+              >
+                {m.meetingRoomReservationLink({}, { locale })}
+              </Link>
+              <Link
+                href={`${localePath}/ttrpg-room`}
+                className="transition-colors hover:text-sunset-yellow"
+              >
+                {m.footerTtrpgRoomLink({}, { locale })}
+              </Link>
+              <Link
+                href={`${localePath}/ai-assistants`}
+                prefetch={false}
+                className="transition-colors hover:text-sunset-yellow"
+              >
+                {m.footerAiAssistantsLink({}, { locale })}
+              </Link>
+              <Link
+                href={`${localePath}/android`}
+                prefetch={false}
+                className="transition-colors hover:text-sunset-yellow"
+              >
+                {m.appInstallFooterLink({}, { locale })}
               </Link>
             </nav>
           </div>
         </div>
 
-        <div className="mt-10 border-t border-white/10 pt-5 text-sm text-white/56">
-          {m.footerCopyright(
-            {
-              companyName: workspaceSiteConstants.brand.legalName,
-              year: copyrightYear,
-            },
-            { locale }
-          )}
+        {/* The call to action reads the pathname, which a prerendered page
+            only knows at request time, so it streams in after the shell. */}
+        <Suspense fallback={null}>
+          <AppInstallCallToAction locale={locale} />
+        </Suspense>
+
+        <div className="mt-10 flex flex-col gap-4 border-t border-white/10 pt-5 text-sm text-white/56 md:flex-row md:items-center md:justify-between">
+          <LanguageLinks
+            locale={locale}
+            label={m.languageSwitcherLabel({}, { locale })}
+            localePreference={localePreference}
+            className="text-white/78 md:order-last"
+          />
+          <p>
+            {m.footerCopyright(
+              {
+                companyName: workspaceSiteConstants.brand.legalName,
+                year: copyrightYear,
+              },
+              { locale }
+            )}
+          </p>
         </div>
       </Container>
     </footer>

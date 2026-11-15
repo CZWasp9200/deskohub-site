@@ -1,157 +1,102 @@
-import { Column, Img, Link, Row, Section, Text } from "react-email";
+import { Column, Img, Row, Section, Text } from "react-email";
+import { type Locale, m } from "@/features/i18n";
+import type { WorkspaceReservationDetails } from "@/features/reservation/backend/workspace-reservation.service";
+import { workspaceSiteConstants } from "@/shared/utils";
+import { temporalInstantToDate } from "@/shared/utils/temporal";
+import {
+  type ReservationEmailReservation,
+  reservationEmailDetails,
+} from "./_components/reservation-email-details";
+import {
+  ReservationEmailActionPanel,
+  ReservationEmailLocationPanel,
+} from "./_components/reservation-email-sections";
 import {
   WorkspaceEmailHeading,
   WorkspaceEmailLabel,
   WorkspaceEmailNote,
 } from "./_components/workspace-email-content";
 import { WorkspaceEmailDetails } from "./_components/workspace-email-details";
-import {
-  WorkspaceEmailLayout,
-  type WorkspaceEmailLocale,
-} from "./_components/workspace-email-layout";
+import { WorkspaceEmailLayout } from "./_components/workspace-email-layout";
 import { customerReservationPreviewProps } from "./_fixtures/preview-props";
-import type { WorkspaceEmailDetail } from "./workspace-email-detail";
 
 // Table-map rendering is intentionally omitted. The removed legacy fulfillment
 // renderer generated a table-map PNG attachment; that flow must be ported into
 // this React Email template before table maps can be enabled again.
 export type CustomerReservationEmailProps = {
-  readonly locale: WorkspaceEmailLocale;
-  readonly preview: string;
-  readonly heading: string;
-  readonly access: {
-    readonly button: string;
-    readonly url: string;
-  };
-  readonly invoice: {
-    readonly label: string;
-    readonly download: string;
-    readonly url: string;
-  };
-  readonly labels: {
-    readonly location: string;
-    readonly directions: string;
-    readonly table: string;
-    readonly tables: string;
-    readonly network: string;
-    readonly networkName: string;
-    readonly networkPassword: string;
-  };
-  readonly location: {
-    readonly address: string;
-    readonly directionsUrl: string;
-    readonly mapImageSrc?: string;
-  };
-  readonly table?: {
-    readonly mode: "assigned" | "shared";
-    readonly name: string;
-  };
+  readonly locale: Locale;
+  readonly reservation: ReservationEmailReservation &
+    Pick<WorkspaceReservationDetails, "placement">;
+  /** The access page, which shows the access code. */
+  readonly accessUrl: string;
+  /** The invoice download, issued in the reservation's own locale. */
+  readonly invoiceUrl: string;
   readonly network?: {
     readonly ssid: string;
     readonly password: string;
     readonly qrImageSrc?: string;
   };
-  readonly details: readonly WorkspaceEmailDetail[];
-  readonly followUp: string;
 };
 
-export function CustomerReservationEmail({
+/** The subject, which the inbox also previews. */
+export const customerReservationEmailSubject = ({
   locale,
-  preview,
-  heading,
-  access,
-  invoice,
-  labels,
-  location,
-  table,
-  network,
-  details,
-  followUp,
-}: CustomerReservationEmailProps) {
+}: Pick<CustomerReservationEmailProps, "locale">) =>
+  m.checkoutEmailCustomerAccessSubject({}, { locale });
+
+const headingDate = ({ reservation, locale }: CustomerReservationEmailProps) =>
+  new Intl.DateTimeFormat(locale, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: workspaceSiteConstants.location.timeZone,
+  }).format(temporalInstantToDate(reservation.reservedFrom));
+
+/** Confirms a paid reservation to its customer, with access and directions. */
+export function CustomerReservationEmail(props: CustomerReservationEmailProps) {
+  const { locale, reservation, accessUrl, invoiceUrl, network } = props;
+  const { table } = reservation.placement;
+
   return (
-    <WorkspaceEmailLayout locale={locale} preview={preview}>
-      <WorkspaceEmailHeading>{heading}</WorkspaceEmailHeading>
-
-      <Section className="mt-6 overflow-hidden rounded-[22px] border border-[#d8d9e4]">
-        <Section
-          bgcolor="#00024f"
-          className="bg-navy px-4 py-6 text-center sm:px-6"
-          style={{ backgroundColor: "#00024f" }}
-        >
-          <Link
-            className="inline-block rounded-full bg-aquamarine px-7 py-3 text-[14px] font-bold leading-[20px] text-navy no-underline"
-            href={access.url}
-            style={{ backgroundColor: "#00df99", color: "#00024f" }}
-          >
-            {access.button}
-          </Link>
-        </Section>
-        {table && (
-          <Section className="border-t-4 border-aquamarine bg-[#e9fff6] px-5 py-5 text-center">
-            <WorkspaceEmailLabel>
-              {{ assigned: labels.table, shared: labels.tables }[table.mode]}
-            </WorkspaceEmailLabel>
-            <Text
-              className={
-                {
-                  assigned:
-                    "m-0 mt-1 text-[48px] font-bold leading-[54px] text-navy",
-                  shared:
-                    "m-0 mt-1 break-words text-[18px] font-bold leading-[26px] text-navy",
-                }[table.mode]
-              }
-              style={
-                table.mode === "shared"
-                  ? { overflowWrap: "anywhere" }
-                  : undefined
-              }
-            >
-              {table.name}
-            </Text>
-          </Section>
+    <WorkspaceEmailLayout
+      locale={locale}
+      preview={customerReservationEmailSubject(props)}
+    >
+      <WorkspaceEmailHeading>
+        {m.checkoutEmailCustomerAccessHeading(
+          { date: headingDate(props) },
+          { locale }
         )}
-      </Section>
+      </WorkspaceEmailHeading>
 
-      <Section className="mt-6 overflow-hidden rounded-2xl border border-[#e6ded2] bg-cream">
-        <Section className="px-5 py-4">
-          <WorkspaceEmailLabel>{labels.location}</WorkspaceEmailLabel>
-          <Link
-            className="mt-2 inline-block text-[17px] font-bold leading-[25px] text-navy no-underline"
-            href={location.directionsUrl}
-          >
-            {location.address}
-          </Link>
-        </Section>
-        {location.mapImageSrc && (
-          <Img
-            alt={labels.location}
-            className="block h-auto w-full"
-            src={location.mapImageSrc}
-            width="534"
-          />
-        )}
-        <Section className="px-5 py-5 text-center">
-          <Link
-            className="inline-block rounded-full bg-navy px-7 py-3 text-[14px] font-bold leading-[20px] text-white no-underline"
-            href={location.directionsUrl}
-          >
-            {labels.directions}
-          </Link>
-        </Section>
-      </Section>
+      <ReservationEmailActionPanel
+        action={{
+          button: m.checkoutEmailCustomerAccessButton({}, { locale }),
+          url: accessUrl,
+        }}
+        locale={locale}
+        {...(table && { table })}
+      />
+      <ReservationEmailLocationPanel locale={locale} />
 
       {network && (
         <Section className="mt-6 rounded-2xl border border-[#cfe6f8] bg-sky px-5 py-5">
           <Row>
             <Column className="block w-full align-middle sm:table-cell sm:w-auto">
-              <WorkspaceEmailLabel>{labels.network}</WorkspaceEmailLabel>
+              <WorkspaceEmailLabel>
+                {m.checkoutEmailNetworkHeading({}, { locale })}
+              </WorkspaceEmailLabel>
               <Text className="m-0 mt-3 text-[14px] leading-[22px] text-navy">
-                <strong>{labels.networkName}:</strong>
+                <strong>
+                  {m.checkoutEmailNetworkSsidLabel({}, { locale })}:
+                </strong>
                 <br />
                 {network.ssid}
               </Text>
               <Text className="m-0 mt-2 text-[14px] leading-[22px] text-navy">
-                <strong>{labels.networkPassword}:</strong>
+                <strong>
+                  {m.checkoutEmailNetworkPasswordLabel({}, { locale })}:
+                </strong>
                 <br />
                 {network.password}
               </Text>
@@ -159,7 +104,7 @@ export function CustomerReservationEmail({
             {network.qrImageSrc && (
               <Column className="block w-full pt-4 text-center align-middle sm:table-cell sm:w-[168px] sm:pt-0 sm:pl-5 sm:text-right">
                 <Img
-                  alt={labels.network}
+                  alt={m.checkoutEmailNetworkHeading({}, { locale })}
                   className="mx-auto block h-auto rounded-xl border border-[#d8edf8] bg-white p-2 sm:mr-0 sm:ml-auto"
                   src={network.qrImageSrc}
                   width="144"
@@ -172,15 +117,20 @@ export function CustomerReservationEmail({
 
       <WorkspaceEmailDetails
         details={[
-          ...details,
+          ...reservationEmailDetails(reservation, locale),
           {
-            href: invoice.url,
-            label: invoice.label,
-            value: invoice.download,
+            href: invoiceUrl,
+            label: m.checkoutEmailCustomerInvoiceLabel({}, { locale }),
+            value: m.checkoutEmailCustomerInvoiceDownload({}, { locale }),
           },
         ]}
       />
-      <WorkspaceEmailNote>{followUp}</WorkspaceEmailNote>
+      <WorkspaceEmailNote>
+        {m.reservationEmailCustomerFollowUp(
+          { email: workspaceSiteConstants.contact.infoEmail },
+          { locale }
+        )}
+      </WorkspaceEmailNote>
     </WorkspaceEmailLayout>
   );
 }

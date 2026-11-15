@@ -3,17 +3,20 @@ import { openPayState } from "@/features/checkout/backend/checkout/pay-state";
 import { recoverReplacementPayState } from "@/features/checkout/backend/checkout/replacement-pay-state";
 import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
 import type {
+  MeetingRoomStartTimesQuery,
   PreloadedWorkspaceAvailability,
   WorkspaceAvailabilityQuery,
 } from "@/features/reservation/workspace-availability";
+import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { pagePreload } from "./page-preload";
 import { WorkspaceAvailabilityService } from "./workspace-availability.service";
 import { recoverReplacementOccupancyExclusion } from "./workspace-availability-replacement";
 
 /** The services availability loads with replacement exclusion depend on. */
-export const WorkspaceAvailabilityLoaderLive = Layer.merge(
+export const WorkspaceAvailabilityLoaderLive = Layer.mergeAll(
   WorkspaceAvailabilityService.Live,
-  ReservationSupersessionService.Live
+  ReservationSupersessionService.Live,
+  SealedStateKeys.Default
 );
 
 /**
@@ -73,6 +76,27 @@ export const loadAvailability = Effect.fn("workspaceAvailability.load")(
     return yield* service.getAvailability({ query, occupancyExclusion });
   }
 );
+
+/**
+ * Advisory free meeting-room starts for one date, excluding a verified
+ * replacement like `loadAvailability`.
+ */
+export const loadMeetingRoomStartTimes = Effect.fn(
+  "workspaceAvailability.loadMeetingRoomStartTimes"
+)(function* ({
+  query,
+  replacementToken,
+}: {
+  readonly query: MeetingRoomStartTimesQuery;
+  readonly replacementToken?: string;
+}) {
+  const occupancyExclusion = yield* verifyReplacementOccupancyExclusion({
+    kind: query.kind,
+    replacementToken,
+  }).pipe(recoverReplacementOccupancyExclusion);
+  const service = yield* WorkspaceAvailabilityService;
+  return yield* service.getMeetingRoomStartTimes({ query, occupancyExclusion });
+});
 
 type AvailabilityPreload = {
   readonly queries: ReadonlyArray<WorkspaceAvailabilityQuery>;

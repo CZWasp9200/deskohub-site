@@ -1,7 +1,7 @@
+import { isPhoneNumber } from "@deskohub/phone-number";
 import { Schema } from "effect";
-import { isValidPhoneNumber } from "libphonenumber-js";
 import isEmail from "validator/lib/isEmail.js";
-import { type Locale, m } from "@/features/i18n";
+import { defaultPhoneRegion, type Locale, m } from "@/features/i18n";
 
 const CONTACT_VALIDATION = {
   name: {
@@ -20,8 +20,9 @@ const CONTACT_VALIDATION = {
   },
 } as const;
 
-export const createContactSchema = (locale: Locale) =>
-  Schema.Struct({
+export const createContactSchema = (locale: Locale) => {
+  const phoneRegion = defaultPhoneRegion(locale);
+  return Schema.Struct({
     name: Schema.Trim.check(
       Schema.isMinLength(CONTACT_VALIDATION.name.min, {
         message: m.contactValidationNameMinimum(
@@ -58,7 +59,7 @@ export const createContactSchema = (locale: Locale) =>
         ),
       }),
       Schema.makeFilter(
-        (phone) => phone === "" || isValidPhoneNumber(phone, "CZ"),
+        (phone) => phone === "" || isPhoneNumber(phone, phoneRegion),
         {
           message: m.contactValidationPhoneInvalid({}, { locale }),
         }
@@ -79,6 +80,7 @@ export const createContactSchema = (locale: Locale) =>
       })
     ),
   });
+};
 
 type ContactSchema = ReturnType<typeof createContactSchema>;
 

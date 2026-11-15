@@ -82,7 +82,7 @@ const runWithDiscounts = <A, E>(
 describe("meeting-room checkout pricing", () => {
   test("quotes anonymous discounts from the family product and Prague date", async () => {
     const discoverAdvertisedDiscounts = mock(() =>
-      Effect.succeed(advertisementQuote)
+      Effect.succeed({ quote: advertisementQuote, complete: true })
     );
 
     const result = await runWithDiscounts(
@@ -99,6 +99,7 @@ describe("meeting-room checkout pricing", () => {
     expect(discoverAdvertisedDiscounts).toHaveBeenCalledWith({
       product: meetingRoomProduct,
       discountableSubtotal: money,
+      firstServiceDate: "2099-06-10",
       lastServiceDate: "2099-06-10",
       locale: "en-US",
       bookedAt: expect.any(Temporal.Instant),
@@ -106,6 +107,7 @@ describe("meeting-room checkout pricing", () => {
     expect(result.quote.payment.expectedPrice).toEqual(
       advertisementQuote.discountedSubtotal
     );
+    expect(result.discountsComplete).toBeTrue();
     expect(result.quote.fingerprint).not.toBeEmpty();
   });
 

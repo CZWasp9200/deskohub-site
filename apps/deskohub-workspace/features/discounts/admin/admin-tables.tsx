@@ -1,7 +1,8 @@
 "use client";
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import type { Schema } from "effect";
+import { formatCurrencyName } from "@deskohub/i18n/currency";
+import { Option, type Schema } from "effect";
 import { ArrowUpRight, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useMemo, useRef, useState } from "react";
@@ -14,26 +15,32 @@ import {
 } from "react-hook-form";
 import { AdministrationLink as Link } from "@/features/administration/admin-link";
 import {
+  type AdministrationHref,
+  administrationHref,
+  localizeAdministrationHref,
+} from "@/features/administration/administration-href";
+import {
   AdministrationDataTable,
   type AdministrationDataTableColumn,
 } from "@/features/administration/data-table";
+import { m } from "@/features/administration/i18n";
 import { AdministrationAlert } from "@/features/administration/notice";
-import {
-  formatWorkspaceMoney,
-  type WorkspaceMoney,
-} from "@/features/checkout/workspace-money";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
+import {
+  type DiscountLabels,
+  discountLabelFor,
+} from "@/features/discounts/discount-label";
 import type {
   DiscountCodeId,
   StoredDiscountId,
   VoucherId,
 } from "@/features/discounts/persistence-contracts";
-import {
-  getWorkspaceProductTargetKey,
-  type WorkspaceProductTarget,
-} from "@/features/discounts/product-target";
+import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
 import { generatePromotionCode } from "@/features/discounts/promotion-code";
+import type { Locale } from "@/features/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
+import { FormDateTimeInput } from "@/shared/components/date-time/form-fields";
 import { Button } from "@/shared/components/ui/button";
 import { ChoiceCard } from "@/shared/components/ui/choice-card";
 import { DisclosureButton } from "@/shared/components/ui/disclosure-button";
@@ -48,45 +55,56 @@ import {
 import { Input } from "@/shared/components/ui/input";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
 import {
-  defaultWorkspaceCurrencyCode,
   findWorkspaceCurrencyDefinition,
   workspaceCurrencyDefinitions,
 } from "@/shared/money/currencies";
-import {
-  temporalInstantToLocalDateTimeString,
-  workspaceSiteConstants,
-} from "@/shared/utils";
+import { formatMoney, type Money } from "@/shared/money/money";
+import { formatCount } from "@/shared/utils/number";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import { mutateDiscountAdmin } from "./actions";
+import {
+  findCalendarSaleDiscount,
+  getCalendarSaleDiscountLabel,
+  getCalendarStatusLabel,
+} from "./calendar-sale-display";
 import type { DiscountAdminMutation } from "./contracts";
 import type { AdminCalendarSale } from "./discount-administration.service";
-import { getDiscountAdminValidationMessage } from "./form-feedback";
 import {
-  toCreateDiscountCodeInput,
+  discountCodeFormDefaults,
+  discountDefinitionFormDefaults,
+  voucherFormDefaults,
+} from "./form-defaults";
+import {
   toCreateDiscountInput,
+  toDiscountCodeUpdateInput,
   toVoucherConfigurationInput,
   toVoucherCreditInput,
 } from "./form-input";
 import {
+  createDiscountCodeFormSchema,
+  createDiscountDefinitionFormSchema,
+  createVoucherFormSchema,
   type DiscountCodeConfigurationFormValues,
   type DiscountCodeFormValues,
   type DiscountDefinitionFormValues,
-  discountCodeFormSchema,
-  discountDefinitionFormSchema,
   type VoucherFormValues,
-  voucherFormSchema,
 } from "./form-schemas";
+import {
+  type MutationFormFeedback,
+  reconcileMutationFormFeedback,
+} from "./mutation-form-feedback";
 import {
   discountProductTargetOptions,
   formatDiscountProductTargets,
+  getDiscountProductTargetLabel,
 } from "./product-target-options";
+import { PromotionCustomersPanel } from "./promotion-customers";
+import { DiscountCodeServiceDateFields } from "./service-date-fields";
+import { formatDiscountUsageLimit } from "./usage-limit";
 
 export type DiscountTableItem = {
   readonly id: StoredDiscountId;
-  readonly labels: {
-    readonly "cs-CZ": string;
-    readonly "en-US": string;
-  };
+  readonly labels: DiscountLabels;
   readonly adjustment: DiscountAdjustment;
   readonly products: readonly WorkspaceProductTarget[];
   readonly codeCount: number;
@@ -101,21 +119,32 @@ export type DiscountCodeTableItem = {
   readonly validUntil: string | null;
   readonly maxUses: number | null;
   readonly maxUsesPerCustomer: number | null;
+  readonly serviceDateFrom: string | null;
+  readonly serviceDateUntil: string | null;
+  /** The reservation dates, already formatted on the server. */
+  readonly serviceDates: string;
   readonly audienceSize: number;
+  readonly audienceCustomerIds: readonly DotyposCustomerId[];
   readonly reservedUses: number;
   readonly redeemedUses: number;
   readonly remainingUses: number | null;
 };
 
+/** A Calendar sale with its dates already formatted on the server. */
+export type CalendarSaleTableItem = AdminCalendarSale & {
+  readonly dates: string;
+};
+
 export type VoucherTableItem = {
   readonly id: VoucherId;
   readonly code: string;
-  readonly issuedCredit: WorkspaceMoney;
-  readonly remainingCredit: WorkspaceMoney;
+  readonly issuedCredit: Money;
+  readonly remainingCredit: Money;
   readonly enabled: boolean;
   readonly validFrom: string | null;
   readonly validUntil: string | null;
   readonly audienceSize: number;
+  readonly audienceCustomerIds: readonly DotyposCustomerId[];
   readonly reservedUses: number;
   readonly redeemedUses: number;
 };
@@ -125,6 +154,16 @@ const getCodeBenefitLabel = (
   discountLabels: ReadonlyMap<StoredDiscountId, string>
 ) => discountLabels.get(code.discountId) ?? code.discountId;
 
+const getStatusLabel = (enabled: boolean, locale: Locale) =>
+  enabled
+    ? m.discountsStatusEnabled({}, { locale })
+    : m.discountsStatusDisabled({}, { locale });
+
+const getAudienceLabel = (audienceSize: number, locale: Locale) =>
+  audienceSize === 0
+    ? m.discountsAudienceUnrestricted({}, { locale })
+    : m.discountsAudienceCustomerCount({ count: audienceSize }, { locale });
+
 export function DiscountCodesAdminTable({
   codes,
   discounts,
@@ -132,23 +171,27 @@ export function DiscountCodesAdminTable({
   readonly codes: readonly DiscountCodeTableItem[];
   readonly discounts: readonly DiscountTableItem[];
 }) {
+  const locale = useRouteLocale();
   const [expandedId, setExpandedId] = useState<DiscountCodeId | null>(null);
   const discountLabels = useMemo(
     () =>
       new Map(
-        discounts.map((discount) => [discount.id, discount.labels["en-US"]])
+        discounts.map((discount) => [
+          discount.id,
+          discountLabelFor(discount.labels, locale),
+        ])
       ),
-    [discounts]
+    [discounts, locale]
   );
   const discountProducts = useMemo(
     () =>
       new Map(
         discounts.map((discount) => [
           discount.id,
-          formatDiscountProductTargets(discount.products),
+          formatDiscountProductTargets(discount.products, locale),
         ])
       ),
-    [discounts]
+    [discounts, locale]
   );
   const columns = useMemo<
     AdministrationDataTableColumn<DiscountCodeTableItem>[]
@@ -156,11 +199,13 @@ export function DiscountCodesAdminTable({
     () => [
       {
         accessorKey: "code",
-        header: "Code",
+        header: m.discountsColumnCode({}, { locale }),
         cell: ({ row }) => (
           <Link
             className="font-mono font-semibold underline decoration-navy-blue/25 underline-offset-4 hover:decoration-navy-blue"
-            href={`/admin/codes/${row.original.id}`}
+            href={administrationHref("/[locale]/admin/codes/[codeId]", {
+              codeId: row.original.id,
+            })}
           >
             {row.original.code}
           </Link>
@@ -169,59 +214,66 @@ export function DiscountCodesAdminTable({
       {
         accessorFn: (code) => getCodeBenefitLabel(code, discountLabels),
         id: "benefit",
-        header: "Benefit",
+        header: m.discountsColumnBenefit({}, { locale }),
       },
       {
         accessorFn: (code) => discountProducts.get(code.discountId) ?? "",
         id: "products",
-        header: "Products",
+        header: m.discountsColumnProducts({}, { locale }),
       },
       {
-        accessorFn: (code) => (code.enabled ? "Enabled" : "Disabled"),
+        accessorFn: (code) => code.serviceDateFrom ?? "",
+        id: "serviceDates",
+        header: m.discountsColumnServiceDates({}, { locale }),
+        cell: ({ row }) => row.original.serviceDates,
+      },
+      {
+        accessorFn: (code) => getStatusLabel(code.enabled, locale),
         id: "status",
-        header: "Status",
+        header: m.discountsColumnStatus({}, { locale }),
         cell: ({ row }) => (
           <StatusBadge tone={row.original.enabled ? "positive" : "neutral"}>
-            {row.original.enabled ? "Enabled" : "Disabled"}
+            {getStatusLabel(row.original.enabled, locale)}
           </StatusBadge>
         ),
       },
       {
         accessorKey: "audienceSize",
-        header: "Audience",
-        cell: ({ row }) =>
-          row.original.audienceSize === 0
-            ? "Unrestricted"
-            : `${row.original.audienceSize} customers`,
+        header: m.discountsColumnAudience({}, { locale }),
+        cell: ({ row }) => getAudienceLabel(row.original.audienceSize, locale),
       },
       {
         accessorKey: "reservedUses",
-        header: "Reserved",
+        header: m.discountsColumnReserved({}, { locale }),
+        cell: ({ row }) => formatCount(row.original.reservedUses, locale),
       },
       {
         accessorKey: "redeemedUses",
-        header: "Redeemed",
+        header: m.discountsColumnRedeemed({}, { locale }),
+        cell: ({ row }) => formatCount(row.original.redeemedUses, locale),
       },
       {
         accessorFn: (code) => code.remainingUses ?? Number.POSITIVE_INFINITY,
         id: "remaining",
-        header: "Remaining globally",
-        cell: ({ row }) => row.original.remainingUses ?? "Unlimited",
+        header: m.discountsColumnRemainingGlobally({}, { locale }),
+        cell: ({ row }) =>
+          formatDiscountUsageLimit(row.original.remainingUses, locale),
       },
       {
         accessorFn: (code) =>
           code.maxUsesPerCustomer ?? Number.POSITIVE_INFINITY,
         id: "maxUsesPerCustomer",
-        header: "Uses per customer",
-        cell: ({ row }) => row.original.maxUsesPerCustomer ?? "Unlimited",
+        header: m.discountsColumnUsesPerCustomer({}, { locale }),
+        cell: ({ row }) =>
+          formatDiscountUsageLimit(row.original.maxUsesPerCustomer, locale),
       },
     ],
-    [discountLabels, discountProducts]
+    [discountLabels, discountProducts, locale]
   );
 
   return (
     <AdministrationDataTable
-      ariaLabel="Discount codes"
+      ariaLabel={m.discountsCodesTableLabel({}, { locale })}
       columns={columns}
       data={codes}
       expandedId={expandedId}
@@ -231,9 +283,15 @@ export function DiscountCodesAdminTable({
       }
       renderActions={(code, expanded) => (
         <RowActions
-          confirmation={`Delete the code “${code.code}”? Codes with claim history cannot be deleted. Disable it to preserve history. This cannot be undone.`}
-          deleteLabel={`Delete ${code.code}`}
-          editLabel={`Edit ${code.code}`}
+          confirmation={m.discountsCodeDeleteConfirmation(
+            { code: code.code },
+            { locale }
+          )}
+          deleteLabel={m.discountsDeleteItemLabel(
+            { name: code.code },
+            { locale }
+          )}
+          editLabel={m.discountsEditItemLabel({ name: code.code }, { locale })}
           expanded={expanded}
           keepDeleteVisible
           onDelete={() => ({ kind: "delete-code", id: code.id })}
@@ -241,12 +299,19 @@ export function DiscountCodesAdminTable({
         />
       )}
       renderExpanded={(code) => (
-        <CodeAndDiscountEditor
-          code={code}
-          discount={discounts.find(({ id }) => id === code.discountId)}
-          discounts={discounts}
-          onDeleted={() => setExpandedId(null)}
-        />
+        <div className="grid gap-7">
+          <CodeAndDiscountEditor
+            code={code}
+            discount={discounts.find(({ id }) => id === code.discountId)}
+            discounts={discounts}
+            onDeleted={() => setExpandedId(null)}
+          />
+          <PromotionCustomersPanel
+            audienceCustomerIds={code.audienceCustomerIds}
+            code={code.code}
+            promotion={{ kind: "discount-code", id: code.id }}
+          />
+        </div>
       )}
     />
   );
@@ -257,16 +322,19 @@ export function VouchersAdminTable({
 }: {
   readonly vouchers: readonly VoucherTableItem[];
 }) {
+  const locale = useRouteLocale();
   const [expandedId, setExpandedId] = useState<VoucherId | null>(null);
   const columns = useMemo<AdministrationDataTableColumn<VoucherTableItem>[]>(
     () => [
       {
         accessorKey: "code",
-        header: "Voucher",
+        header: m.discountsColumnVoucher({}, { locale }),
         cell: ({ row }) => (
           <Link
             className="font-mono font-semibold underline decoration-navy-blue/25 underline-offset-4 hover:decoration-navy-blue"
-            href={`/admin/vouchers/${row.original.id}`}
+            href={administrationHref("/[locale]/admin/vouchers/[voucherId]", {
+              voucherId: row.original.id,
+            })}
           >
             {row.original.code}
           </Link>
@@ -275,43 +343,42 @@ export function VouchersAdminTable({
       {
         accessorFn: (voucher) => voucher.issuedCredit.value,
         id: "issuedCredit",
-        header: "Issued",
-        cell: ({ row }) =>
-          formatWorkspaceMoney(row.original.issuedCredit, "en-US"),
+        header: m.discountsColumnIssued({}, { locale }),
+        cell: ({ row }) => formatMoney(row.original.issuedCredit, locale),
       },
       {
         accessorFn: (voucher) => voucher.remainingCredit.value,
         id: "remainingCredit",
-        header: "Remaining",
-        cell: ({ row }) =>
-          formatWorkspaceMoney(row.original.remainingCredit, "en-US"),
+        header: m.discountsColumnRemaining({}, { locale }),
+        cell: ({ row }) => formatMoney(row.original.remainingCredit, locale),
       },
       {
-        accessorFn: (voucher) => (voucher.enabled ? "Enabled" : "Disabled"),
+        accessorFn: (voucher) => getStatusLabel(voucher.enabled, locale),
         id: "status",
-        header: "Status",
+        header: m.discountsColumnStatus({}, { locale }),
         cell: ({ row }) => (
           <StatusBadge tone={row.original.enabled ? "positive" : "neutral"}>
-            {row.original.enabled ? "Enabled" : "Disabled"}
+            {getStatusLabel(row.original.enabled, locale)}
           </StatusBadge>
         ),
       },
       {
         accessorKey: "audienceSize",
-        header: "Audience",
-        cell: ({ row }) =>
-          row.original.audienceSize === 0
-            ? "Unrestricted"
-            : `${row.original.audienceSize} customers`,
+        header: m.discountsColumnAudience({}, { locale }),
+        cell: ({ row }) => getAudienceLabel(row.original.audienceSize, locale),
       },
-      { accessorKey: "redeemedUses", header: "Redemptions" },
+      {
+        accessorKey: "redeemedUses",
+        header: m.discountsColumnRedemptions({}, { locale }),
+        cell: ({ row }) => formatCount(row.original.redeemedUses, locale),
+      },
     ],
-    []
+    [locale]
   );
 
   return (
     <AdministrationDataTable
-      ariaLabel="Vouchers"
+      ariaLabel={m.discountsVouchersTitle({}, { locale })}
       columns={columns}
       data={items}
       expandedId={expandedId}
@@ -321,16 +388,34 @@ export function VouchersAdminTable({
       }
       renderActions={(voucher, expanded) => (
         <RowActions
-          confirmation={`Delete the voucher “${voucher.code}”? Vouchers with claim history cannot be deleted. Disable it to preserve history. This cannot be undone.`}
-          deleteLabel={`Delete ${voucher.code}`}
-          editLabel={`Edit ${voucher.code}`}
+          confirmation={m.discountsVoucherDeleteConfirmation(
+            { code: voucher.code },
+            { locale }
+          )}
+          deleteLabel={m.discountsDeleteItemLabel(
+            { name: voucher.code },
+            { locale }
+          )}
+          editLabel={m.discountsEditItemLabel(
+            { name: voucher.code },
+            { locale }
+          )}
           expanded={expanded}
           keepDeleteVisible
           onDelete={() => ({ kind: "delete-voucher", id: voucher.id })}
           onEdit={() => setExpandedId(expanded ? null : voucher.id)}
         />
       )}
-      renderExpanded={(voucher) => <VoucherEditor voucher={voucher} />}
+      renderExpanded={(voucher) => (
+        <div className="grid gap-7">
+          <VoucherEditor voucher={voucher} />
+          <PromotionCustomersPanel
+            audienceCustomerIds={voucher.audienceCustomerIds}
+            code={voucher.code}
+            promotion={{ kind: "voucher", id: voucher.id }}
+          />
+        </div>
+      )}
     />
   );
 }
@@ -341,47 +426,63 @@ export function VoucherEditor({
   voucher,
 }: {
   readonly deletable?: boolean;
-  readonly deleteRedirect?: string;
+  readonly deleteRedirect?: AdministrationHref;
   readonly voucher: VoucherTableItem;
 }) {
   const router = useRouter();
+  const locale = useRouteLocale();
   return (
     <div>
       <p className="mb-5 break-all font-mono text-xs text-navy-blue/70">
         {voucher.id}
       </p>
       <MutationForm
-        actionName={`updateVoucher.${voucher.id}`}
-        buildMutation={(values) => ({
-          kind: "update-voucher",
-          voucher: {
-            id: voucher.id,
-            ...toVoucherConfigurationInput(values),
-            credit: toVoucherCreditInput(values),
-          },
-        })}
+        buildMutation={(values) =>
+          Option.map(
+            toVoucherCreditInput(values),
+            (credit): DiscountAdminMutation => ({
+              kind: "update-voucher",
+              voucher: {
+                id: voucher.id,
+                ...toVoucherConfigurationInput(values),
+                credit,
+              },
+            })
+          )
+        }
         defaultValues={voucherFormDefaults(voucher)}
         resetOnSuccessTo="submitted"
         deleteControl={
           deletable ? (
             <DeleteButton
-              confirmation={`Delete the voucher “${voucher.code}”? Vouchers with claim history cannot be deleted. Disable it to preserve history. This cannot be undone.`}
-              label={`Delete ${voucher.code}`}
+              confirmation={m.discountsVoucherDeleteConfirmation(
+                { code: voucher.code },
+                { locale }
+              )}
+              label={m.discountsDeleteItemLabel(
+                { name: voucher.code },
+                { locale }
+              )}
               mutation={() => ({ kind: "delete-voucher", id: voucher.id })}
               onDeleted={
-                deleteRedirect ? () => router.push(deleteRedirect) : undefined
+                deleteRedirect
+                  ? () =>
+                      router.push(
+                        localizeAdministrationHref(deleteRedirect, locale)
+                      )
+                  : undefined
               }
             />
           ) : undefined
         }
         requireDirty
-        schema={voucherFormSchema}
-        submitLabel="Save voucher"
+        schema={createVoucherFormSchema(locale)}
+        submitLabel={m.discountsVoucherSave({}, { locale })}
         submitIcon={<Save aria-hidden className="size-4" />}
       >
         <div className="grid gap-5">
           <VoucherCreditFields credit={voucher.issuedCredit} />
-          <DiscountCodeConfigurationFields code={voucher} showMaxUses={false} />
+          <DiscountCodeConfigurationFields code={voucher} promotion="voucher" />
         </div>
       </MutationForm>
     </div>
@@ -399,15 +500,20 @@ function CodeAndDiscountEditor({
   readonly discounts: readonly DiscountTableItem[];
   readonly onDeleted: () => void;
 }) {
+  const locale = useRouteLocale();
   return (
     <div className="grid gap-7">
       <section>
-        <h3 className="mb-4 font-semibold">Code</h3>
+        <h3 className="mb-4 font-semibold">
+          {m.discountsCodeHeading({}, { locale })}
+        </h3>
         <DiscountCodeEditor code={code} discounts={discounts} />
       </section>
       {discount && (
         <section className="border-t border-navy-blue/10 pt-6">
-          <h3 className="mb-4 font-semibold">Discount</h3>
+          <h3 className="mb-4 font-semibold">
+            {m.discountsDiscountLabel({}, { locale })}
+          </h3>
           <DiscountEditor
             deletable={false}
             discount={discount}
@@ -424,8 +530,9 @@ export function CalendarSalesAdminTable({
   events,
 }: {
   readonly discounts: readonly DiscountTableItem[];
-  readonly events: readonly AdminCalendarSale[];
+  readonly events: readonly CalendarSaleTableItem[];
 }) {
+  const locale = useRouteLocale();
   const [expandedReference, setExpandedReference] = useState<string | null>(
     null
   );
@@ -433,76 +540,82 @@ export function CalendarSalesAdminTable({
     () => new Map(discounts.map((discount) => [discount.id, discount])),
     [discounts]
   );
-  const columns = useMemo<AdministrationDataTableColumn<AdminCalendarSale>[]>(
+  const columns = useMemo<
+    AdministrationDataTableColumn<CalendarSaleTableItem>[]
+  >(
     () => [
       {
         accessorKey: "title",
-        header: "Event",
+        header: m.discountsColumnEvent({}, { locale }),
         cell: ({ row }) => (
           <>
             <p className="font-semibold">{row.original.title}</p>
             <code className="mt-1 block max-w-64 truncate text-xs text-navy-blue/65">
-              {row.original.description || "Empty description"}
+              {row.original.description ||
+                m.discountsCalendarEmptyDescription({}, { locale })}
             </code>
           </>
         ),
       },
       {
         accessorKey: "start",
-        header: "Dates",
-        cell: ({ row }) => (
-          <>
-            {row.original.start} → {row.original.end}
-          </>
-        ),
+        header: m.discountsColumnDates({}, { locale }),
+        cell: ({ row }) => row.original.dates,
         meta: {
           cellClassName: "whitespace-nowrap text-sm text-navy-blue/70",
         },
       },
       {
         accessorKey: "status",
-        header: "Calendar status",
+        header: m.discountsColumnCalendarStatus({}, { locale }),
         cell: ({ row }) => (
-          <StatusBadge tone="neutral">{row.original.status}</StatusBadge>
+          <StatusBadge tone="neutral">
+            {getCalendarStatusLabel(row.original.status, locale)}
+          </StatusBadge>
         ),
       },
       {
         accessorFn: (event) =>
           event.association.kind === "associated"
-            ? event.association.discountLabel
+            ? getCalendarSaleDiscountLabel(
+                event.association,
+                discountsById,
+                locale
+              )
             : event.association.kind,
         id: "association",
-        header: "Association",
+        header: m.discountsColumnAssociation({}, { locale }),
         cell: ({ row }) => (
-          <CalendarAssociationBadge association={row.original.association} />
+          <CalendarAssociationBadge
+            association={row.original.association}
+            discountsById={discountsById}
+          />
         ),
       },
       {
         accessorFn: (event) => {
-          const discount =
-            event.association.kind === "associated"
-              ? discountsById.get(event.association.discountId)
-              : undefined;
+          const discount = findCalendarSaleDiscount(
+            event.association,
+            discountsById
+          );
           return discount
-            ? formatDiscountProductTargets(discount.products)
+            ? formatDiscountProductTargets(discount.products, locale)
             : "";
         },
         id: "products",
-        header: "Products",
+        header: m.discountsColumnProducts({}, { locale }),
       },
     ],
-    [discountsById]
+    [discountsById, locale]
   );
-  const getRowReference = (event: AdminCalendarSale, index: number) =>
+  const getRowReference = (event: CalendarSaleTableItem, index: number) =>
     event.eventReference ?? `${event.start}:${event.title}:${index}`;
-  const getDiscount = (event: AdminCalendarSale) =>
-    event.association.kind === "associated"
-      ? discountsById.get(event.association.discountId)
-      : undefined;
+  const getDiscount = (event: CalendarSaleTableItem) =>
+    findCalendarSaleDiscount(event.association, discountsById);
 
   return (
     <AdministrationDataTable
-      ariaLabel="Calendar sales"
+      ariaLabel={m.discountsCalendarSalesTitle({}, { locale })}
       canRowActivate={(event) => Boolean(getDiscount(event))}
       columns={columns}
       data={events}
@@ -519,7 +632,10 @@ export function CalendarSalesAdminTable({
           <div className="flex justify-end gap-1">
             <Button asChild size="icon" variant="ghost">
               <a
-                aria-label={`Open ${event.title} in Google Calendar`}
+                aria-label={m.discountsCalendarOpenEvent(
+                  { title: event.title },
+                  { locale }
+                )}
                 href={event.eventUrl}
                 rel="noreferrer"
                 target="_blank"
@@ -529,7 +645,10 @@ export function CalendarSalesAdminTable({
             </Button>
             {discount && (
               <DisclosureButton
-                aria-label={`Edit discount for ${event.title}`}
+                aria-label={m.discountsCalendarEditDiscount(
+                  { title: event.title },
+                  { locale }
+                )}
                 expanded={expanded}
                 onClick={() =>
                   setExpandedReference(
@@ -565,26 +684,43 @@ export function CalendarSalesAdminTable({
 
 function CalendarAssociationBadge({
   association,
+  discountsById,
 }: {
   readonly association: AdminCalendarSale["association"];
+  readonly discountsById: ReadonlyMap<StoredDiscountId, DiscountTableItem>;
 }) {
+  const locale = useRouteLocale();
   if (association.kind === "associated") {
     return (
       <div>
-        <StatusBadge tone="positive">Associated</StatusBadge>
+        <StatusBadge tone="positive">
+          {m.discountsCalendarAssociated({}, { locale })}
+        </StatusBadge>
         <p className="mt-1 max-w-48 truncate text-xs text-navy-blue/70">
-          {association.discountLabel}
+          {getCalendarSaleDiscountLabel(association, discountsById, locale)}
         </p>
       </div>
     );
   }
   if (association.kind === "missing-discount") {
-    return <StatusBadge tone="attention">Discount not found</StatusBadge>;
+    return (
+      <StatusBadge tone="attention">
+        {m.discountsCalendarDiscountNotFound({}, { locale })}
+      </StatusBadge>
+    );
   }
   if (association.kind === "invalid-description") {
-    return <StatusBadge tone="attention">Invalid description</StatusBadge>;
+    return (
+      <StatusBadge tone="attention">
+        {m.discountsCalendarInvalidDescription({}, { locale })}
+      </StatusBadge>
+    );
   }
-  return <StatusBadge tone="neutral">No discount ID</StatusBadge>;
+  return (
+    <StatusBadge tone="neutral">
+      {m.discountsCalendarMissingDiscountId({}, { locale })}
+    </StatusBadge>
+  );
 }
 
 export function CreateDiscountForm({
@@ -592,17 +728,22 @@ export function CreateDiscountForm({
 }: {
   readonly onCreated?: (message: string) => void;
 } = {}) {
+  const locale = useRouteLocale();
   return (
     <MutationForm
-      actionName="createDiscount"
-      buildMutation={(values) => ({
-        kind: "create-discount",
-        discount: toCreateDiscountInput(values),
-      })}
+      buildMutation={(values) =>
+        Option.map(
+          toCreateDiscountInput(values),
+          (discount): DiscountAdminMutation => ({
+            kind: "create-discount",
+            discount,
+          })
+        )
+      }
       defaultValues={discountDefinitionFormDefaults()}
       onSuccess={onCreated}
-      schema={discountDefinitionFormSchema}
-      submitLabel="Create discount"
+      schema={createDiscountDefinitionFormSchema(locale)}
+      submitLabel={m.discountsDiscountCreateSubmit({}, { locale })}
       submitIcon={<Plus aria-hidden className="size-4" />}
     >
       <DiscountDefinitionFields />
@@ -621,35 +762,40 @@ export function CreateVoucherForm({
   };
   readonly onCreated?: (message: string) => void;
 } = {}) {
+  const locale = useRouteLocale();
   return (
     <MutationForm
-      actionName={customer ? "createCustomerVoucher" : "createVoucher"}
-      buildMutation={(values): DiscountAdminMutation => {
-        const voucher = {
-          ...toVoucherConfigurationInput(values),
-          credit: toVoucherCreditInput(values),
-        };
-        return customer
-          ? {
-              kind: "create-customer-voucher",
-              voucher: { customerId: customer.id, ...voucher },
-            }
-          : { kind: "create-voucher", voucher };
-      }}
+      buildMutation={(values) =>
+        Option.map(
+          toVoucherCreditInput(values),
+          (credit): DiscountAdminMutation => {
+            const voucher = { ...toVoucherConfigurationInput(values), credit };
+            return customer
+              ? {
+                  kind: "create-customer-voucher",
+                  voucher: { customerId: customer.id, ...voucher },
+                }
+              : { kind: "create-voucher", voucher };
+          }
+        )
+      }
       defaultValues={voucherFormDefaults()}
       onSuccess={onCreated}
-      schema={voucherFormSchema}
-      submitLabel="Create voucher"
+      schema={createVoucherFormSchema(locale)}
+      submitLabel={m.discountsVoucherCreateSubmit({}, { locale })}
       submitIcon={<Plus aria-hidden className="size-4" />}
     >
       <div className="grid gap-5">
         {customer && (
           <div className="rounded-xl bg-aquamarine-green/12 px-4 py-3 text-sm text-aquamarine-ink">
-            The new voucher will only be available to {customer.displayName}.
+            {m.discountsVoucherCustomerRestriction(
+              { customerName: customer.displayName },
+              { locale }
+            )}
           </div>
         )}
         <VoucherCreditFields />
-        <DiscountCodeConfigurationFields showMaxUses={false} />
+        <DiscountCodeConfigurationFields promotion="voucher" />
       </div>
     </MutationForm>
   );
@@ -704,36 +850,46 @@ function DiscountEditor({
   readonly discount: DiscountTableItem;
   readonly onDeleted: () => void;
 }) {
+  const locale = useRouteLocale();
   return (
     <div>
       <div className="mb-5 rounded-xl bg-navy-blue/[0.045] px-3 py-2">
-        <p className="text-xs font-semibold text-navy-blue/70">Calendar ID</p>
+        <p className="text-xs font-semibold text-navy-blue/70">
+          {m.discountsCalendarIdLabel({}, { locale })}
+        </p>
         <code className="mt-1 block break-all text-xs">{discount.id}</code>
       </div>
       <MutationForm
-        actionName={`updateDiscount.${discount.id}`}
-        buildMutation={(values) => ({
-          kind: "update-discount",
-          discount: {
-            id: discount.id,
-            ...toCreateDiscountInput(values),
-          },
-        })}
+        buildMutation={(values) =>
+          Option.map(
+            toCreateDiscountInput(values),
+            (definition): DiscountAdminMutation => ({
+              kind: "update-discount",
+              discount: { id: discount.id, ...definition },
+            })
+          )
+        }
         defaultValues={discountDefinitionFormDefaults(discount)}
         resetOnSuccessTo="submitted"
         deleteControl={
           deletable ? (
             <DeleteButton
-              confirmation={`Delete the discount “${discount.labels["en-US"]}”? Referenced discounts cannot be deleted. This cannot be undone.`}
-              label={`Delete ${discount.labels["en-US"]}`}
+              confirmation={m.discountsDiscountDeleteConfirmation(
+                { label: discountLabelFor(discount.labels, locale) },
+                { locale }
+              )}
+              label={m.discountsDeleteItemLabel(
+                { name: discountLabelFor(discount.labels, locale) },
+                { locale }
+              )}
               mutation={() => ({ kind: "delete-discount", id: discount.id })}
               onDeleted={onDeleted}
             />
           ) : undefined
         }
         requireDirty
-        schema={discountDefinitionFormSchema}
-        submitLabel="Save discount"
+        schema={createDiscountDefinitionFormSchema(locale)}
+        submitLabel={m.discountsDiscountSave({}, { locale })}
         submitIcon={<Save aria-hidden className="size-4" />}
       >
         <DiscountDefinitionFields discount={discount} />
@@ -749,25 +905,27 @@ function DiscountCodeEditor({
   readonly code: DiscountCodeTableItem;
   readonly discounts: readonly DiscountTableItem[];
 }) {
+  const locale = useRouteLocale();
   return (
     <div>
       <p className="mb-5 break-all font-mono text-xs text-navy-blue/70">
         {code.id}
       </p>
       <MutationForm
-        actionName={`updateDiscountCode.${code.id}`}
-        buildMutation={(values) => ({
-          kind: "update-code",
-          code: {
-            id: code.id,
-            ...toCreateDiscountCodeInput(values),
-          },
-        })}
+        buildMutation={(values) =>
+          Option.some({
+            kind: "update-code",
+            code: {
+              id: code.id,
+              ...toDiscountCodeUpdateInput(values, code),
+            },
+          })
+        }
         defaultValues={discountCodeFormDefaults(code)}
         resetOnSuccessTo="submitted"
         requireDirty
-        schema={discountCodeFormSchema}
-        submitLabel="Save code"
+        schema={createDiscountCodeFormSchema(locale)}
+        submitLabel={m.discountsCodeSave({}, { locale })}
         submitIcon={<Save aria-hidden className="size-4" />}
       >
         <DiscountCodeFields code={code} discounts={discounts} />
@@ -777,7 +935,6 @@ function DiscountCodeEditor({
 }
 
 function MutationForm<Input extends FieldValues, Values = Input>({
-  actionName,
   buildMutation,
   children,
   defaultValues,
@@ -789,8 +946,10 @@ function MutationForm<Input extends FieldValues, Values = Input>({
   submitLabel,
   onSuccess,
 }: {
-  readonly actionName: string;
-  readonly buildMutation: (values: Values) => DiscountAdminMutation;
+  /** None when the values cannot form a mutation the action would accept. */
+  readonly buildMutation: (
+    values: Values
+  ) => Option.Option<DiscountAdminMutation>;
   readonly children: ReactNode;
   readonly defaultValues: DefaultValues<Input>;
   readonly deleteControl?: ReactNode;
@@ -806,12 +965,10 @@ function MutationForm<Input extends FieldValues, Values = Input>({
   readonly onSuccess?: (message: string) => void;
 }) {
   const router = useRouter();
-  const [feedback, setFeedback] = useState<{
-    readonly kind: "error" | "success";
-    readonly message: string;
-    /** The form values this feedback was shown with; unset until it renders. */
-    readonly formValues?: Input;
-  } | null>(null);
+  const locale = useRouteLocale();
+  const [feedback, setFeedback] = useState<MutationFormFeedback<Input> | null>(
+    null
+  );
   const form = useForm<Input, unknown, Values>({
     defaultValues,
     mode: "onSubmit",
@@ -825,11 +982,11 @@ function MutationForm<Input extends FieldValues, Values = Input>({
     control: form.control,
     compute: (values) => values,
   });
-  // New feedback adopts the values it first renders with, which already
-  // include a success reset; any later edit to those values clears it.
-  if (feedback && feedback.formValues !== formValues) {
-    setFeedback(feedback.formValues ? null : { ...feedback, formValues });
-  }
+  const reconciledFeedback = reconcileMutationFormFeedback(
+    feedback,
+    formValues
+  );
+  if (reconciledFeedback !== feedback) setFeedback(reconciledFeedback);
   // Snapshot taken at submit entry so the success reset cannot absorb values
   // edited while the request is in flight.
   const submittedValuesRef = useRef<Input | null>(null);
@@ -837,8 +994,8 @@ function MutationForm<Input extends FieldValues, Values = Input>({
     submittedValuesRef.current = values;
   };
 
+  const checkFormMessage = () => m.discountsSaveFailedCheckForm({}, { locale });
   const { execute, isExecuting } = useWorkspaceAction(mutateDiscountAdmin, {
-    actionName,
     onSuccess: ({ data }) => {
       if (!data) return;
       // Rebase the defaults onto the submitted snapshot while retaining every
@@ -851,7 +1008,10 @@ function MutationForm<Input extends FieldValues, Values = Input>({
         resetOnSuccessTo === "submitted" ? { keepValues: true } : undefined
       );
       const message = data.createdDiscountId
-        ? `${data.notice} Calendar ID: ${data.createdDiscountId}`
+        ? m.discountsCreatedDiscountNotice(
+            { notice: data.notice, calendarId: data.createdDiscountId },
+            { locale }
+          )
         : data.notice;
       if (onSuccess) onSuccess(message);
       else setFeedback({ kind: "success", message });
@@ -860,16 +1020,13 @@ function MutationForm<Input extends FieldValues, Values = Input>({
     onError: ({ error }) => {
       setFeedback({
         kind: "error",
-        message:
-          error.serverError ??
-          getDiscountAdminValidationMessage(error.validationErrors) ??
-          "The change could not be saved. Check the form and try again.",
+        message: error.serverError ?? checkFormMessage(),
       });
     },
     onTransportError: () => {
       setFeedback({
         kind: "error",
-        message: "The change could not be saved. Try again.",
+        message: m.discountsSaveFailedRetry({}, { locale }),
       });
     },
   });
@@ -884,8 +1041,14 @@ function MutationForm<Input extends FieldValues, Values = Input>({
           // Bound at event time so the submitted-values ref is only written
           // outside render.
           void form.handleSubmit((values) => {
-            recordSubmittedValues(form.getValues());
-            execute(buildMutation(values));
+            Option.match(buildMutation(values), {
+              onNone: () =>
+                setFeedback({ kind: "error", message: checkFormMessage() }),
+              onSome: (mutation) => {
+                recordSubmittedValues(form.getValues());
+                execute(mutation);
+              },
+            });
           })(event);
         }}
       >
@@ -907,7 +1070,7 @@ function MutationForm<Input extends FieldValues, Values = Input>({
             type="submit"
           >
             {submitIcon}
-            {isExecuting ? "Saving…" : submitLabel}
+            {isExecuting ? m.discountsSaving({}, { locale }) : submitLabel}
           </Button>
         </div>
       </form>
@@ -929,9 +1092,9 @@ function DeleteButton({
   readonly onDeleted?: () => void;
 }) {
   const router = useRouter();
+  const locale = useRouteLocale();
   const [error, setError] = useState<string | null>(null);
   const { execute, isExecuting } = useWorkspaceAction(mutateDiscountAdmin, {
-    actionName: label,
     onSuccess: ({ data }) => {
       if (!data) return;
       onDeleted?.();
@@ -939,13 +1102,11 @@ function DeleteButton({
     },
     onError: ({ error: actionError }) => {
       setError(
-        actionError.serverError ??
-          getDiscountAdminValidationMessage(actionError.validationErrors) ??
-          "The item could not be deleted."
+        actionError.serverError ?? m.discountsDeleteFailed({}, { locale })
       );
     },
     onTransportError: () => {
-      setError("The item could not be deleted. Try again.");
+      setError(m.discountsDeleteFailedRetry({}, { locale }));
     },
   });
 
@@ -966,7 +1127,10 @@ function DeleteButton({
         variant="secondary"
       >
         <Trash2 aria-hidden className="size-4" />
-        {!iconOnly && (isExecuting ? "Deleting…" : "Delete")}
+        {!iconOnly &&
+          (isExecuting
+            ? m.discountsDeleting({}, { locale })
+            : m.discountsDelete({}, { locale }))}
       </Button>
       {error && (
         <AdministrationAlert className="mt-3" role="alert" status="error">
@@ -982,6 +1146,7 @@ export function DiscountDefinitionFields({
 }: {
   readonly discount?: DiscountTableItem;
 }) {
+  const locale = useRouteLocale();
   const { control } = useFormContext<DiscountDefinitionFormValues>();
   const kind = useWatch({ control, name: "adjustmentKind" });
   const existingFixedCurrency =
@@ -992,14 +1157,16 @@ export function DiscountDefinitionFields({
   return (
     <div className="grid gap-7">
       <fieldset className="grid gap-4 md:grid-cols-2">
-        <legend className="mb-3 text-sm font-semibold">Customer labels</legend>
+        <legend className="mb-3 text-sm font-semibold">
+          {m.discountsCustomerLabelsLegend({}, { locale })}
+        </legend>
         <FormField
           control={control}
           name="labelEn"
           render={({ field, fieldState }) => (
             <FormItem>
               <FormLabel htmlFor={fieldId("labelEn", discount?.id)}>
-                English (en-US)
+                {m.discountsLabelEnglish({}, { locale })}
               </FormLabel>
               <FormControl>
                 <Input
@@ -1019,7 +1186,7 @@ export function DiscountDefinitionFields({
           render={({ field, fieldState }) => (
             <FormItem>
               <FormLabel htmlFor={fieldId("labelCs", discount?.id)}>
-                Czech (cs-CZ)
+                {m.discountsLabelCzech({}, { locale })}
               </FormLabel>
               <FormControl>
                 <Input
@@ -1036,7 +1203,9 @@ export function DiscountDefinitionFields({
       </fieldset>
 
       <fieldset>
-        <legend className="mb-3 text-sm font-semibold">Adjustment</legend>
+        <legend className="mb-3 text-sm font-semibold">
+          {m.discountsAdjustmentLegend({}, { locale })}
+        </legend>
         <div className="grid gap-4 md:grid-cols-2">
           <FormField
             control={control}
@@ -1044,7 +1213,7 @@ export function DiscountDefinitionFields({
             render={({ field }) => (
               <FormItem>
                 <FormLabel htmlFor={fieldId("adjustmentKind", discount?.id)}>
-                  Type
+                  {m.discountsAdjustmentKindLabel({}, { locale })}
                 </FormLabel>
                 <FormControl>
                   <select
@@ -1052,8 +1221,12 @@ export function DiscountDefinitionFields({
                     className={selectClassName}
                     id={fieldId("adjustmentKind", discount?.id)}
                   >
-                    <option value="percentage">Percentage</option>
-                    <option value="fixed">Fixed amount</option>
+                    <option value="percentage">
+                      {m.discountsAdjustmentKindPercentage({}, { locale })}
+                    </option>
+                    <option value="fixed">
+                      {m.discountsAdjustmentKindFixed({}, { locale })}
+                    </option>
                   </select>
                 </FormControl>
                 <FormMessage />
@@ -1067,7 +1240,7 @@ export function DiscountDefinitionFields({
               render={({ field, fieldState }) => (
                 <FormItem>
                   <FormLabel htmlFor={fieldId("percentage", discount?.id)}>
-                    Percentage
+                    {m.discountsPercentageLabel({}, { locale })}
                   </FormLabel>
                   <FormControl>
                     <Input
@@ -1095,7 +1268,7 @@ export function DiscountDefinitionFields({
                     <FormLabel
                       htmlFor={fieldId("fixedAmountValue", discount?.id)}
                     >
-                      Fixed value
+                      {m.discountsFixedValueLabel({}, { locale })}
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -1120,7 +1293,7 @@ export function DiscountDefinitionFields({
                     <FormLabel
                       htmlFor={fieldId("fixedAmountCurrency", discount?.id)}
                     >
-                      Currency
+                      {m.discountsCurrencyLabel({}, { locale })}
                     </FormLabel>
                     <FormControl>
                       <select
@@ -1134,12 +1307,19 @@ export function DiscountDefinitionFields({
                             existingFixedCurrency
                           ) && (
                             <option value={existingFixedCurrency}>
-                              {existingFixedCurrency} — unsupported
+                              {m.discountsCurrencyUnsupported(
+                                { currency: existingFixedCurrency },
+                                { locale }
+                              )}
                             </option>
                           )}
                         {workspaceCurrencyDefinitions.map((currency) => (
                           <option key={currency.code} value={currency.code}>
-                            {currency.code} — {currency.name}
+                            {currency.code} —{" "}
+                            {formatCurrencyName({
+                              currency: currency.code,
+                              locale,
+                            })}
                           </option>
                         ))}
                       </select>
@@ -1153,7 +1333,7 @@ export function DiscountDefinitionFields({
         </div>
         {kind === "fixed" && (
           <p className="mt-3 text-xs leading-5 text-navy-blue/70">
-            Fixed values use minor units: 10000 = 100.00.
+            {m.discountsFixedValueHint({}, { locale })}
           </p>
         )}
       </fieldset>
@@ -1165,7 +1345,7 @@ export function DiscountDefinitionFields({
           <FormItem>
             <fieldset aria-invalid={Boolean(fieldState.error)}>
               <legend className="mb-3 text-sm font-semibold">
-                Eligible products
+                {m.discountsEligibleProductsLegend({}, { locale })}
               </legend>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {discountProductTargetOptions.map((option) => (
@@ -1185,7 +1365,9 @@ export function DiscountDefinitionFields({
                       type="checkbox"
                       value={option.key}
                     />
-                    <span className="text-sm font-medium">{option.label}</span>
+                    <span className="text-sm font-medium">
+                      {getDiscountProductTargetLabel(option.target, locale)}
+                    </span>
                   </ChoiceCard>
                 ))}
               </div>
@@ -1205,6 +1387,7 @@ function DiscountCodeFields({
   readonly code?: DiscountCodeTableItem;
   readonly discounts: readonly DiscountTableItem[];
 }) {
+  const locale = useRouteLocale();
   const { control } = useFormContext<DiscountCodeFormValues>();
 
   return (
@@ -1215,7 +1398,7 @@ function DiscountCodeFields({
         render={({ field }) => (
           <FormItem>
             <FormLabel htmlFor={fieldId("discountId", code?.id)}>
-              Discount
+              {m.discountsDiscountLabel({}, { locale })}
             </FormLabel>
             <FormControl>
               <select
@@ -1226,7 +1409,7 @@ function DiscountCodeFields({
               >
                 {discounts.map((discount) => (
                   <option key={discount.id} value={discount.id}>
-                    {discount.labels["en-US"]}
+                    {discountLabelFor(discount.labels, locale)}
                   </option>
                 ))}
               </select>
@@ -1240,13 +1423,19 @@ function DiscountCodeFields({
   );
 }
 
+/**
+ * The code value, switch, and redemption window every promotion has, plus a
+ * discount code's usage limits and reservation dates.
+ */
 export function DiscountCodeConfigurationFields({
   code,
-  showMaxUses = true,
+  promotion = "discount-code",
 }: {
   readonly code?: DiscountCodeTableItem | VoucherTableItem;
-  readonly showMaxUses?: boolean;
+  readonly promotion?: "discount-code" | "voucher";
 }) {
+  const showMaxUses = promotion === "discount-code";
+  const locale = useRouteLocale();
   const { control, register, setValue } =
     useFormContext<DiscountCodeConfigurationFormValues>();
   const codeInputId = fieldId("code", code?.id);
@@ -1259,7 +1448,9 @@ export function DiscountCodeConfigurationFields({
           name="code"
           render={({ field, fieldState }) => (
             <FormItem>
-              <FormLabel htmlFor={codeInputId}>Code</FormLabel>
+              <FormLabel htmlFor={codeInputId}>
+                {m.discountsCodeLabel({}, { locale })}
+              </FormLabel>
               <FormControl>
                 <Input
                   {...field}
@@ -1280,7 +1471,7 @@ export function DiscountCodeConfigurationFields({
                   type="button"
                   variant="secondary"
                 >
-                  Generate code
+                  {m.discountsGenerateCode({}, { locale })}
                 </Button>
               )}
               <FormMessage />
@@ -1294,52 +1485,55 @@ export function DiscountCodeConfigurationFields({
             defaultChecked={code?.enabled ?? true}
             type="checkbox"
           />
-          <span className="text-sm font-semibold">Enabled</span>
+          <span className="text-sm font-semibold">
+            {m.discountsEnabledLabel({}, { locale })}
+          </span>
         </ChoiceCard>
       </div>
       <div
-        className={`grid gap-4 ${showMaxUses ? "md:grid-cols-4" : "md:grid-cols-2"}`}
+        className={`grid gap-4 md:grid-cols-2 ${showMaxUses ? "lg:grid-cols-4" : ""}`}
       >
-        <FormField
-          control={control}
-          name="validFrom"
-          render={({ field, fieldState }) => (
-            <FormItem>
-              <FormLabel htmlFor={fieldId("validFrom", code?.id)}>
-                Valid from
-              </FormLabel>
-              <FormControl>
-                <Input
+        {/* The redemption window stays one pair side by side at every width;
+            each date-time stacks its date and time inside its half. The usage
+            limits join its row only where four columns leave the dates room. */}
+        <div className="grid min-w-0 grid-cols-2 items-start gap-4 md:col-span-2">
+          <FormField
+            control={control}
+            name="validFrom"
+            render={({ field }) => (
+              <FormItem className="min-w-0">
+                <FormLabel>
+                  {m.discountsValidFromLabel({}, { locale })}
+                </FormLabel>
+                <FormDateTimeInput
                   {...field}
-                  id={fieldId("validFrom", code?.id)}
-                  type="datetime-local"
-                  variant={fieldState.error ? "error" : "default"}
+                  dateLabel={m.discountsValidFromLabel({}, { locale })}
+                  displayValue={false}
+                  timeLabel={m.discountsValidFromTimeLabel({}, { locale })}
                 />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={control}
-          name="validUntil"
-          render={({ field, fieldState }) => (
-            <FormItem>
-              <FormLabel htmlFor={fieldId("validUntil", code?.id)}>
-                Valid until
-              </FormLabel>
-              <FormControl>
-                <Input
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name="validUntil"
+            render={({ field }) => (
+              <FormItem className="min-w-0">
+                <FormLabel>
+                  {m.discountsValidUntilLabel({}, { locale })}
+                </FormLabel>
+                <FormDateTimeInput
                   {...field}
-                  id={fieldId("validUntil", code?.id)}
-                  type="datetime-local"
-                  variant={fieldState.error ? "error" : "default"}
+                  dateLabel={m.discountsValidUntilLabel({}, { locale })}
+                  displayValue={false}
+                  timeLabel={m.discountsValidUntilTimeLabel({}, { locale })}
                 />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
         {showMaxUses && (
           <>
             <FormField
@@ -1348,14 +1542,14 @@ export function DiscountCodeConfigurationFields({
               render={({ field, fieldState }) => (
                 <FormItem>
                   <FormLabel htmlFor={fieldId("maxUses", code?.id)}>
-                    Maximum uses
+                    {m.discountsMaxUsesLabel({}, { locale })}
                   </FormLabel>
                   <FormControl>
                     <Input
                       {...field}
                       id={fieldId("maxUses", code?.id)}
                       min={1}
-                      placeholder="Unlimited"
+                      placeholder={m.discountsUnlimited({}, { locale })}
                       type="number"
                       variant={fieldState.error ? "error" : "default"}
                     />
@@ -1370,14 +1564,14 @@ export function DiscountCodeConfigurationFields({
               render={({ field, fieldState }) => (
                 <FormItem>
                   <FormLabel htmlFor={fieldId("maxUsesPerCustomer", code?.id)}>
-                    Maximum uses per customer
+                    {m.discountsMaxUsesPerCustomerLabel({}, { locale })}
                   </FormLabel>
                   <FormControl>
                     <Input
                       {...field}
                       id={fieldId("maxUsesPerCustomer", code?.id)}
                       min={1}
-                      placeholder="Unlimited"
+                      placeholder={m.discountsUnlimited({}, { locale })}
                       type="number"
                       variant={fieldState.error ? "error" : "default"}
                     />
@@ -1390,28 +1584,31 @@ export function DiscountCodeConfigurationFields({
         )}
       </div>
       <p className="text-xs leading-5 text-navy-blue/70">
-        Times use the Workspace’s Prague time zone. Both bounds are optional;
-        “valid until” is exclusive.
+        {m.discountsValidityHint({}, { locale })}
       </p>
+      {promotion === "discount-code" && <DiscountCodeServiceDateFields />}
     </div>
   );
 }
 
-function VoucherCreditFields(_props: {
-  readonly credit?: WorkspaceMoney | null;
-}) {
+function VoucherCreditFields(_props: { readonly credit?: Money | null }) {
+  const locale = useRouteLocale();
   const { control } = useFormContext<VoucherFormValues>();
 
   return (
     <fieldset>
-      <legend className="mb-3 text-sm font-semibold">Voucher credit</legend>
+      <legend className="mb-3 text-sm font-semibold">
+        {m.discountsVoucherCreditLegend({}, { locale })}
+      </legend>
       <div className="grid gap-4 md:grid-cols-2">
         <FormField
           control={control}
           name="voucherValue"
           render={({ field, fieldState }) => (
             <FormItem>
-              <FormLabel htmlFor="voucherValue">Value in minor units</FormLabel>
+              <FormLabel htmlFor="voucherValue">
+                {m.discountsVoucherValueLabel({}, { locale })}
+              </FormLabel>
               <FormControl>
                 <Input
                   {...field}
@@ -1432,7 +1629,9 @@ function VoucherCreditFields(_props: {
           name="voucherCurrency"
           render={({ field }) => (
             <FormItem>
-              <FormLabel htmlFor="voucherCurrency">Currency</FormLabel>
+              <FormLabel htmlFor="voucherCurrency">
+                {m.discountsCurrencyLabel({}, { locale })}
+              </FormLabel>
               <FormControl>
                 <select
                   {...field}
@@ -1442,7 +1641,8 @@ function VoucherCreditFields(_props: {
                 >
                   {workspaceCurrencyDefinitions.map((currency) => (
                     <option key={currency.code} value={currency.code}>
-                      {currency.code} — {currency.name}
+                      {currency.code} —{" "}
+                      {formatCurrencyName({ currency: currency.code, locale })}
                     </option>
                   ))}
                 </select>
@@ -1453,77 +1653,11 @@ function VoucherCreditFields(_props: {
         />
       </div>
       <p className="mt-3 text-xs leading-5 text-navy-blue/70">
-        Credit uses minor units: 10000 = 100.00. Existing claims remain in the
-        history if the issued credit is increased later.
+        {m.discountsVoucherCreditHint({}, { locale })}
       </p>
     </fieldset>
   );
 }
-
-const discountDefinitionFormDefaults = (
-  discount?: DiscountTableItem
-): DiscountDefinitionFormValues => ({
-  labelEn: discount?.labels["en-US"] ?? "",
-  labelCs: discount?.labels["cs-CZ"] ?? "",
-  adjustmentKind: discount?.adjustment.kind ?? "percentage",
-  percentage:
-    discount?.adjustment.kind === "percentage"
-      ? String(discount.adjustment.basisPoints / 100)
-      : "10",
-  fixedAmountValue:
-    discount?.adjustment.kind === "fixed"
-      ? String(discount.adjustment.amount.value)
-      : "10000",
-  fixedAmountCurrency:
-    discount?.adjustment.kind === "fixed"
-      ? discount.adjustment.amount.currency
-      : defaultWorkspaceCurrencyCode,
-  products: discount?.products.map(getWorkspaceProductTargetKey) ?? [],
-});
-
-const discountCodeFormDefaults = (
-  code?: DiscountCodeTableItem
-): DiscountCodeFormValues => ({
-  discountId: code?.discountId ?? "",
-  ...discountCodeConfigurationFormDefaults(code),
-});
-
-const discountCodeConfigurationFormDefaults = (
-  item?: DiscountCodeTableItem | VoucherTableItem
-): DiscountCodeConfigurationFormValues => ({
-  code: item?.code ?? "",
-  enabled: item?.enabled ?? true,
-  validFrom: toDateTimeInputValue(item?.validFrom),
-  validUntil: toDateTimeInputValue(item?.validUntil),
-  maxUses:
-    item && "maxUses" in item && item.maxUses !== null
-      ? String(item.maxUses)
-      : "",
-  maxUsesPerCustomer:
-    item && "maxUsesPerCustomer" in item && item.maxUsesPerCustomer !== null
-      ? String(item.maxUsesPerCustomer)
-      : "",
-});
-
-const voucherFormDefaults = (
-  voucher?: VoucherTableItem
-): VoucherFormValues => ({
-  voucherValue: voucher ? String(voucher.issuedCredit.value) : "10000",
-  voucherCurrency:
-    voucher?.issuedCredit.currency ?? defaultWorkspaceCurrencyCode,
-  code: voucher?.code ?? "",
-  enabled: voucher?.enabled ?? true,
-  validFrom: toDateTimeInputValue(voucher?.validFrom),
-  validUntil: toDateTimeInputValue(voucher?.validUntil),
-});
-
-const toDateTimeInputValue = (value: string | null | undefined) =>
-  value
-    ? temporalInstantToLocalDateTimeString({
-        instant: Temporal.Instant.from(value),
-        timeZone: workspaceSiteConstants.location.timeZone,
-      })
-    : "";
 
 const fieldId = (name: string, id?: string) => (id ? `${name}-${id}` : name);
 

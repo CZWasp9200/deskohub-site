@@ -10,6 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import {
   type BrowserContext,
   type BrowserContextOptions,
@@ -17,7 +18,6 @@ import {
 } from "@playwright/test";
 import postcss from "postcss";
 import loadPostCssConfig from "postcss-load-config";
-import type { Locale } from "@/features/i18n";
 import {
   allocateLoopbackPort,
   waitForOwnedLoopbackServer,
@@ -29,14 +29,6 @@ const accountFixtureReadyPath = "/en-US/account-legal-fixture-ready";
 const appRoot = resolve(import.meta.dir, "..");
 const globalsCssPath = resolve(appRoot, "app/globals.css");
 export const accountFixtureAuthHeader = "x-deskohub-account-fixture";
-export const accountFixtureRolloutHeader = "x-deskohub-account-rollout";
-export const accountFixtureMarketingLinkHeader = "x-deskohub-marketing-link";
-export const accountFixtureRolloutOffValue = "off";
-export const accountFixtureMarketingLinkValue = "pending";
-const supportedLocales = [
-  "en-US",
-  "cs-CZ",
-] as const satisfies readonly Locale[];
 
 export type Viewport = {
   readonly width: number;
@@ -83,7 +75,7 @@ import type { ReactNode } from "react";
 import { FixtureHydration } from "@/fixture/hydration";
 ${
   realCookieConsent
-    ? 'import { CookieConsentProvider } from "@/features/cookie-consent/components/cookie-consent-provider";\n'
+    ? 'import { ConsentBanner } from "@/features/cookie-consent/components/consent-banner";\nimport { getConsentBannerRevision } from "@/features/legal/consent-banner-revision";\n'
     : ""
 }import { UnsavedChangesProvider } from "@/shared/components/unsaved-changes-guard";
 import "../globals.css";
@@ -91,7 +83,7 @@ import "../globals.css";
 export const instant = false;
 
 export function generateStaticParams() {
-  return [{ locale: "en-US" }, { locale: "cs-CZ" }];
+  return ${JSON.stringify(supportedLocales.map((locale) => ({ locale })))};
 }
 
 type LocaleLayoutProps = {
@@ -109,7 +101,9 @@ export default async function LocaleLayout({
     <html lang={locale} data-scroll-behavior="smooth">
       <body>
 ${
-  realCookieConsent ? "        <CookieConsentProvider locale={locale} />\n" : ""
+  realCookieConsent
+    ? "        <ConsentBanner locale={locale} revision={getConsentBannerRevision()} />\n"
+    : ""
 }        <UnsavedChangesProvider>
           <FixtureHydration>{children}</FixtureHydration>
         </UnsavedChangesProvider>
@@ -135,6 +129,7 @@ export default function ConsentWaypointPage() {
 
 const fixtureSiteHeaderConfig = (contactHrefExpression: string) => `
 import { isCustomerSignedIn } from "@/features/account/server/customer-session.server";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import type { Locale } from "@/features/i18n";
 
 export type SiteHeaderAccountEntry = {
@@ -191,11 +186,7 @@ export async function getSiteHeaderConfig(locale: Locale) {
     closeNavigationMenuLabel: "Close navigation menu",
     contactHref: ${contactHrefExpression},
     contactLabel: "Contact",
-    languageLabels: {
-      "cs-CZ": "Čeština",
-      "en-US": "English",
-    } satisfies Record<Locale, string>,
-    languageSwitcherLabel: "Language",
+    languageMenuTriggerLabel: "Language",
     links,
     mobilePrimaryNavigationLabel: "Mobile primary navigation",
     openNavigationMenuLabel: "Open navigation menu",
@@ -232,11 +223,9 @@ export class CustomerAuthentication extends Context.Service<
 `;
 
 const fixtureAccountFeatureFlag = `
-import { headers } from "next/headers";
-
-export async function areAccountsEnabled(): Promise<boolean> {
-  const requestHeaders = await headers();
-  return requestHeaders.get("${accountFixtureRolloutHeader}") !== "${accountFixtureRolloutOffValue}";
+// The legal fixture has no Sign-in & security section, so passkeys stay off.
+export async function arePasskeysEnabled(): Promise<boolean> {
+  return false;
 }
 `;
 
@@ -249,26 +238,26 @@ export async function areReferralsEnabled(): Promise<boolean> {
 `;
 
 const fixtureMarketingPreferences = `
-import { headers } from "next/headers";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import type { Locale } from "@/features/i18n";
 import type { MarketingPreferencesState } from "@/features/legal/marketing-preferences";
 
 export async function getMarketingPreferences(
   _locale: Locale
 ): Promise<MarketingPreferencesState> {
-  const requestHeaders = await headers();
-  if (
-    requestHeaders.get("${accountFixtureMarketingLinkHeader}") !==
-    "${accountFixtureMarketingLinkValue}"
-  ) {
-    return { status: "unavailable" };
-  }
+  return { status: "unavailable" };
+}
+`;
 
-  return {
-    context: "synthetic-marketing-management-context",
-    dismissalContext: "synthetic-marketing-management-dismissal-context",
-    status: "pending-link",
-  };
+// The fixture has no accounts, so the page shows no analytics preference.
+const fixtureAnalyticsPreference = `
+import type { Locale } from "@/features/i18n";
+import type { AnalyticsPreferenceState } from "@/features/legal/analytics-preference";
+
+export async function getAnalyticsPreference(
+  _locale: Locale
+): Promise<AnalyticsPreferenceState> {
+  return { status: "signed-out" };
 }
 `;
 
@@ -301,6 +290,19 @@ export async function clearMarketingManagementAction(
 ): Promise<UnavailableActionResult> {
   return { serverError: unavailableMessage };
 }
+
+export async function saveAccountAnalyticsPreference(
+  _input: unknown
+): Promise<UnavailableActionResult> {
+  return { serverError: unavailableMessage };
+}
+
+// The fixture has no accounts, so no device takes a silent grant.
+export async function resolveSilentAnalyticsGrantForDevice(
+  _input: unknown
+): Promise<{ readonly data: false }> {
+  return { data: false };
+}
 `;
 
 const fixtureWorkspaceEffect = `
@@ -322,14 +324,15 @@ export const env = {
 const fixtureCookieConsent = `
 export type ConsentCategory = "necessary" | "analytics" | "marketing" | "preferences";
 
-export function useCookieConsent() {
-  return {
-    acceptAll: () => undefined,
-    acceptCategory: (_category: ConsentCategory) => undefined,
-    isAccepted: (_category: ConsentCategory) => false,
-    rejectAll: () => undefined,
-    rejectCategory: (_category: ConsentCategory) => undefined,
-  };
+export const visitorConsent = {
+  accept: (_category: ConsentCategory) => undefined,
+  accepts: (_category: ConsentCategory) => false,
+  reject: (_category: ConsentCategory) => undefined,
+  subscribe: () => () => undefined,
+};
+
+export function useVisitorConsent(_category: ConsentCategory) {
+  return false;
 }
 `;
 
@@ -347,38 +350,135 @@ export function FixtureHydration({ children }: { readonly children: ReactNode })
 }
 `;
 
-const privatePage = `
+// The real sections' layout and pages render the account page through these
+// stand-ins: synthetic private content for the fixture's signed-in requests,
+// and the real redirect to sign-in for signed-out ones.
+const fixtureAccountPageData = `
 import { headers } from "next/headers";
-import { connection } from "next/server";
-import { Suspense } from "react";
-import { AccountContentLoading } from "@/features/account/components/account-loading";
-import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
 
-export default function SyntheticPrivateAccountPage() {
-  return runWithRequestLocale((locale) => (
-    <Suspense fallback={<AccountContentLoading locale={locale} />}>
-      <SyntheticPrivateContent />
-    </Suspense>
-  ));
+export async function loadCustomerAccountPage() {
+  const requestHeaders = await headers();
+  return requestHeaders.get("${accountFixtureAuthHeader}") === "private"
+    ? { kind: "fixture" as const }
+    : { kind: "unauthenticated" as const };
 }
+`;
 
-async function SyntheticPrivateContent() {
-  await connection();
-  await headers();
+// The fixture's stand-in account page shows no invoices, so the sections'
+// route reads none; this keeps the real invoice service and its database out
+// of the fixture build.
+const fixtureInvoiceHistory = `
+export async function loadCustomerInvoiceHistory() {
+  return { kind: "unavailable" as const };
+}
+`;
+
+// The fixture's signed-in session links no customer, so the legal page offers
+// no account data export; this keeps the export service and its database out
+// of the fixture build.
+const fixtureAccountDataExportAvailability = `
+export async function getAccountDataExportAvailability() {
+  return false;
+}
+`;
+
+const fixtureAccountPage = `
+import { AccountSignInRedirect } from "@/features/account/components/account-sign-in-redirect";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
+import type { Locale } from "@/features/i18n";
+import { FixtureAccountDraft } from "./account-draft";
+
+export function AccountPage({
+  locale,
+  state,
+}: {
+  readonly locale: Locale;
+  readonly state: { readonly kind: "fixture" | "unauthenticated" };
+}) {
+  if (state.kind === "unauthenticated") {
+    return <AccountSignInRedirect locale={locale} />;
+  }
 
   return (
     <section data-testid="synthetic-private-content" aria-labelledby="synthetic-private-title">
       <h2 id="synthetic-private-title">Synthetic private profile</h2>
       <p>Private page data is synthetic and provider-independent.</p>
+      <FixtureAccountDraft locale={locale} />
     </section>
   );
 }
 `;
 
-const nullModalPage = `
-export default function AccountModal() {
-  return null;
+// Client state that must survive a revalidating Server Action after an
+// in-place section switch, as the account deletion dialog does through its
+// reauthentication step.
+const fixtureAccountDraft = `
+"use client";
+
+import { useState, useTransition } from "react";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
+import type { Locale } from "@/features/i18n";
+import { revalidateFixtureAccount } from "./account-actions";
+
+export function FixtureAccountDraft({ locale }: { readonly locale: Locale }) {
+  const [open, setOpen] = useState(false);
+  const [revalidations, setRevalidations] = useState(0);
+  const [, startTransition] = useTransition();
+
+  return (
+    <div>
+      <button type="button" data-testid="fixture-draft-open" onClick={() => setOpen(true)}>
+        Open draft
+      </button>
+      {open && (
+        <div data-testid="fixture-draft">
+          <button
+            type="button"
+            data-testid="fixture-draft-revalidate"
+            onClick={() =>
+              startTransition(async () => {
+                await revalidateFixtureAccount(locale);
+                setRevalidations((count) => count + 1);
+              })
+            }
+          >
+            Revalidate
+          </button>
+          <output data-testid="fixture-draft-revalidations">{revalidations}</output>
+        </div>
+      )}
+    </div>
+  );
 }
+`;
+
+// Revalidates like account deletion's stale-session reauthentication.
+const fixtureAccountActions = `
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { getAccountPath } from "@/features/account/routes";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
+import type { Locale } from "@/features/i18n";
+
+export async function revalidateFixtureAccount(locale: Locale) {
+  revalidatePath(getAccountPath(locale), "layout");
+}
+`;
+
+// Hands account renders their pathname, as the Workspace proxy does, for the
+// sections' layout's section check.
+const fixtureProxy = `
+import { type NextRequest, NextResponse } from "next/server";
+import { withRequestPathname } from "@/shared/backend/utils/request-pathname";
+
+export function proxy(request: NextRequest) {
+  return NextResponse.next({
+    request: { headers: withRequestPathname(request) },
+  });
+}
+
+export const config = { matcher: ["/:locale/account", "/:locale/account/:path*"] };
 `;
 
 const fixtureReadinessRoute = (marker: string) => `
@@ -404,28 +504,33 @@ const writeFixture = async (
   }: AccountLegalFixtureOptions & { readonly readinessMarker: string }
 ) => {
   const fixtureFiles: Readonly<Record<string, string>> = {
-    "app/[locale]/(full-header)/account/@modal/default.tsx": nullModalPage,
-    "app/[locale]/(full-header)/account/@modal/page.tsx": nullModalPage,
-    "app/[locale]/(full-header)/account/page.tsx": privatePage,
     "app/[locale]/account-legal-fixture-ready/route.ts":
       fixtureReadinessRoute(readinessMarker),
     ...(realCookieConsent
       ? {
-          "app/[locale]/(full-header)/consent-waypoint/page.tsx":
+          "app/[locale]/(site)/(full-header)/consent-waypoint/page.tsx":
             syntheticConsentWaypointPage,
         }
       : {}),
     "app/[locale]/layout.tsx": localeLayout(realCookieConsent),
-    "fixture/account-feature-flag.server.ts": fixtureAccountFeatureFlag,
+    "fixture/account-release-gates.server.ts": fixtureAccountFeatureFlag,
+    "fixture/account-actions.ts": fixtureAccountActions,
+    "fixture/account-data-export-availability.server.ts":
+      fixtureAccountDataExportAvailability,
+    "fixture/analytics-preference.server.ts": fixtureAnalyticsPreference,
+    "fixture/account-draft.tsx": fixtureAccountDraft,
+    "fixture/account-page.tsx": fixtureAccountPage,
+    "fixture/account-page-data.server.ts": fixtureAccountPageData,
     "fixture/customer-authentication.service.ts": fixtureAuthentication,
     ...(realCookieConsent
       ? {}
       : { "fixture/cookie-consent.ts": fixtureCookieConsent }),
     "fixture/env.ts": fixtureEnv,
     "fixture/hydration.tsx": fixtureHydration,
+    "fixture/invoice-history.server.ts": fixtureInvoiceHistory,
     "fixture/marketing-actions.ts": fixtureMarketingActions,
     "fixture/marketing-preferences.server.ts": fixtureMarketingPreferences,
-    "fixture/referral-feature-flag.server.ts": fixtureReferralFeatureFlag,
+    "fixture/referral-release-gate.server.ts": fixtureReferralFeatureFlag,
     "fixture/site-header-config.ts": fixtureSiteHeaderConfig(
       realCookieConsent
         ? 'localePath + "/consent-waypoint"'
@@ -434,6 +539,7 @@ const writeFixture = async (
     "fixture/workspace-effect.ts": fixtureWorkspaceEffect,
     "instrumentation.ts": "export function register() {}",
     "next.config.mjs": nextConfig,
+    "proxy.ts": fixtureProxy,
     "package.json": packageJson,
   };
 
@@ -455,8 +561,20 @@ const writeFixture = async (
       moduleResolution: "bundler",
       noEmit: true,
       paths: {
-        "@/features/account/server/account-feature-flag.server": [
-          "./fixture/account-feature-flag.server.ts",
+        "@/features/account/server/account-release-gates.server": [
+          "./fixture/account-release-gates.server.ts",
+        ],
+        "@/features/account/components/account-page": [
+          "./fixture/account-page.tsx",
+        ],
+        "@/features/account/page-data.server": [
+          "./fixture/account-page-data.server.ts",
+        ],
+        "@/features/account/account-data-export-availability.server": [
+          "./fixture/account-data-export-availability.server.ts",
+        ],
+        "@/features/account/invoice-history.server": [
+          "./fixture/invoice-history.server.ts",
         ],
         "@/features/account/backend/customer-authentication.service": [
           "./fixture/customer-authentication.service.ts",
@@ -465,12 +583,15 @@ const writeFixture = async (
         ...(realCookieConsent
           ? {}
           : { "@/features/cookie-consent": ["./fixture/cookie-consent.ts"] }),
+        "@/features/legal/analytics-preference.server": [
+          "./fixture/analytics-preference.server.ts",
+        ],
         "@/features/legal/marketing-preferences.server": [
           "./fixture/marketing-preferences.server.ts",
         ],
         "@/features/legal/actions": ["./fixture/marketing-actions.ts"],
-        "@/features/referrals/referral-feature-flag.server": [
-          "./fixture/referral-feature-flag.server.ts",
+        "@/features/referrals/referral-release-gate.server": [
+          "./fixture/referral-release-gate.server.ts",
         ],
         "@/shared/backend/workspace-effect": ["./fixture/workspace-effect.ts"],
         "@/shared/components/site-header-config": [
@@ -488,10 +609,16 @@ const writeFixture = async (
   await writeFile(join(fixtureRoot, "tsconfig.json"), JSON.stringify(tsconfig));
 
   for (const relativePath of [
-    "app/[locale]/(full-header)/account/layout.tsx",
-    "app/[locale]/(full-header)/account/loading.tsx",
-    "app/[locale]/(full-header)/account/legal/page.tsx",
-    "app/[locale]/(full-header)/layout.tsx",
+    "app/[locale]/(site)/(full-header)/account/layout.tsx",
+    "app/[locale]/(site)/(full-header)/account/@modal/default.tsx",
+    "app/[locale]/(site)/(full-header)/account/@modal/page.tsx",
+    "app/[locale]/(site)/(full-header)/account/@modal/[section]/page.tsx",
+    "app/[locale]/(site)/(full-header)/account/(sections)/layout.tsx",
+    "app/[locale]/(site)/(full-header)/account/(sections)/page.tsx",
+    "app/[locale]/(site)/(full-header)/account/(sections)/[section]/page.tsx",
+    "app/[locale]/(site)/(full-header)/account/loading.tsx",
+    "app/[locale]/(site)/(full-header)/account/legal/page.tsx",
+    "app/[locale]/(site)/(full-header)/layout.tsx",
   ]) {
     const destination = join(fixtureRoot, relativePath);
     await mkdir(resolve(destination, ".."), { recursive: true });
@@ -528,7 +655,7 @@ const warmFixtureRoutes = async (
 ) => {
   for (const locale of supportedLocales) {
     for (const route of [
-      `/${locale}/account?section=profile`,
+      `/${locale}/account/profile`,
       `/${locale}/account/legal`,
       ...extraRoutes,
     ]) {

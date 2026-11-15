@@ -8,6 +8,13 @@ export interface WorkspacePaymentAccount {
   readonly bankName: string;
 }
 
+export interface WorkspaceOpeningHours {
+  /** The space is open around the clock, every day. */
+  readonly alwaysOpen: boolean;
+  /** Open Space desks are usable from midnight until this local time, exclusive. */
+  readonly openSpaceUsableUntil: string;
+}
+
 export const workspaceSiteConstants = {
   brand: {
     name: "Deskohub Workspace",
@@ -23,6 +30,7 @@ export const workspaceSiteConstants = {
       cityDistrict: "Libeň",
       city: "Praha 8",
       postalCode: "180 00",
+      country: "CZ",
     },
     coordinates: {
       lat: 50.103277,
@@ -30,6 +38,10 @@ export const workspaceSiteConstants = {
     },
     timeZone: WORKSPACE_SITE_TIME_ZONE,
   },
+  openingHours: {
+    alwaysOpen: true,
+    openSpaceUsableUntil: "17:00",
+  } satisfies WorkspaceOpeningHours,
   reservation: {
     defaultStartTime: "10:00",
   },
@@ -60,6 +72,27 @@ export const workspaceSiteConstants = {
   },
 } as const;
 
+export const workspaceSiteOrigin = `https://${workspaceSiteConstants.brand.domain}`;
+
+/** The Deskohub board game bar next door runs its own site. */
+const deskohubBarOrigin = "https://bar.deskohub.cz";
+
+/**
+ * A Deskohub Bar page, such as `/contact`; the bar home by default. Without a
+ * locale, as agent-facing references need, the bar opens in the visitor's
+ * language.
+ */
+export const getDeskohubBarPageUrl = ({
+  locale,
+  pathname = "",
+}: {
+  readonly locale?: string;
+  readonly pathname?: string;
+} = {}) =>
+  locale
+    ? `${deskohubBarOrigin}/${locale}${pathname}`
+    : `${deskohubBarOrigin}${pathname || "/"}`;
+
 type WorkspaceCanonicalSearchParams = ConstructorParameters<
   typeof URLSearchParams
 >[0];
@@ -77,10 +110,7 @@ export function getWorkspaceCanonicalUrl(
     pathname instanceof URL
       ? `${pathname.pathname}${pathname.search}${pathname.hash}`
       : normalizePathname(pathname);
-  const url = new URL(
-    canonicalPathname,
-    `https://${workspaceSiteConstants.brand.domain}`
-  );
+  const url = new URL(canonicalPathname, workspaceSiteOrigin);
 
   if (searchParams) {
     for (const [key, value] of new URLSearchParams(searchParams)) {
@@ -89,14 +119,4 @@ export function getWorkspaceCanonicalUrl(
   }
 
   return url.toString();
-}
-
-export function getWorkspaceLocalizedCanonicalUrl(
-  locale: string,
-  pathname = "/"
-): string {
-  const localizedPathname = normalizePathname(pathname);
-  const suffix = localizedPathname === "/" ? "" : localizedPathname;
-
-  return getWorkspaceCanonicalUrl(`/${locale}${suffix}`);
 }

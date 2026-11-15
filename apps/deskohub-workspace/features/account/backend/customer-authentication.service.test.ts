@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Logger } from "effect";
+import { RequestHeadersError } from "@/shared/backend/utils/request-headers";
 import type { CustomerAccountAccessError } from "../customer-account";
 import {
   CustomerAuthentication,
@@ -13,10 +14,13 @@ const customerEmail = testEmailAddress("ada");
 
 type TestUserFields = {
   readonly id?: string;
+  readonly name?: string;
   readonly email?: string;
   readonly emailVerified?: boolean;
   readonly deletionRequestedAt?: Date | null;
   readonly locale?: string | null;
+  readonly createdAt?: Date;
+  readonly updatedAt?: Date;
 };
 
 const sessionFor = (user: TestUserFields) => ({
@@ -74,10 +78,74 @@ describe("CustomerAuthentication session adapter", () => {
     if (outcome._tag === "Success") {
       expect(outcome.success!.deletionRequested).toBe(true);
       expect(Object.keys(outcome.success!).sort()).toEqual([
+        "accountCreatedAt",
         "accountId",
+        "accountUpdatedAt",
         "deletionRequested",
+        "displayName",
         "email",
       ]);
+    }
+  });
+
+  test("carries the saved name and account timestamps as domain values", async () => {
+    const outcome = await runDecode(
+      sessionFor({
+        name: "Ada Lovelace",
+        createdAt: new Date("2026-01-05T09:00:00.000Z"),
+        updatedAt: new Date("2026-03-07T10:30:00.250Z"),
+      })
+    );
+
+    expect(outcome._tag).toBe("Success");
+    if (outcome._tag === "Success") {
+      expect(outcome.success!.displayName).toBe("Ada Lovelace");
+      expect(outcome.success!.accountCreatedAt).toBeInstanceOf(
+        Temporal.Instant
+      );
+      expect(outcome.success!.accountCreatedAt.toString()).toBe(
+        "2026-01-05T09:00:00Z"
+      );
+      expect(outcome.success!.accountUpdatedAt.toString()).toBe(
+        "2026-03-07T10:30:00.25Z"
+      );
+    }
+  });
+
+  test("keeps a non-blank saved name exactly as stored", async () => {
+    const outcome = await runDecode(sessionFor({ name: " Ada " }));
+
+    expect(outcome._tag).toBe("Success");
+    if (outcome._tag === "Success") {
+      expect(outcome.success!.displayName).toBe(" Ada ");
+    }
+  });
+
+  test("fails closed as unavailable when an account timestamp is not a valid date", async () => {
+    const malformed = [
+      { createdAt: new Date(Number.NaN) },
+      { updatedAt: new Date(Number.NaN) },
+    ];
+    for (const timestamps of malformed) {
+      const outcome = await runDecode(sessionFor(timestamps));
+
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") {
+        const error = outcome.failure as CustomerAccountAccessError;
+        expect(error.reason).toBe("unavailable");
+        expect(error.cause?.code).toBe("authentication.session");
+      }
+    }
+  });
+
+  test("leaves the display name null when the saved name is blank", async () => {
+    for (const name of ["", "   "]) {
+      const outcome = await runDecode(sessionFor({ name }));
+
+      expect(outcome._tag).toBe("Success");
+      if (outcome._tag === "Success") {
+        expect(outcome.success!.displayName).toBeNull();
+      }
     }
   });
 
@@ -93,7 +161,7 @@ describe("CustomerAuthentication session adapter", () => {
   });
 
   test("leaves the locale preference absent for a null or invalid locale", async () => {
-    for (const locale of [null, undefined, "de-DE", "cs", ""]) {
+    for (const locale of [null, undefined, "fr-FR", "cs", ""]) {
       const outcome = await runDecode(sessionFor({ locale }));
 
       expect(outcome._tag).toBe("Success");
@@ -393,19 +461,28 @@ describe("CustomerAuthentication session-read failure diagnostics", () => {
   });
 });
 
+/** The failure `currentRequestHeaders` raises when Next's store rejects. */
+const requestHeadersFailure = (cause: unknown) =>
+  Effect.fail(
+    new RequestHeadersError({
+      message: "Could not load the current request headers.",
+      cause,
+    })
+  );
+
 describe("CustomerAuthentication authority-read phase diagnostics", () => {
   // The installed `next/headers` rejects with exactly this error outside a
   // request scope (verified against next@16.3.1).
   const withPhases = (
     overrides: Partial<
-      Pick<AuthorityPhases, "readRequestHeaders" | "loadAuthority">
+      Pick<AuthorityPhases, "requestHeaders" | "loadAuthority">
     >
   ) => {
     capturedWarnings.length = 0;
     return runCurrentUserCapturingLogs({
       readBetterAuthSecretsRaw: () => configuredSecretsRaw,
       readCurrentSession: makeAuthoritySessionRead({
-        readRequestHeaders: async () => new Headers({ host: "workspace.test" }),
+        requestHeaders: Effect.succeed(new Headers({ host: "workspace.test" })),
         loadAuthority: async () => ({
           auth: {
             api: {
@@ -441,10 +518,10 @@ describe("CustomerAuthentication authority-read phase diagnostics", () => {
             },
           };
         },
-        readRequestHeaders: async () => {
+        requestHeaders: Effect.sync(() => {
           order.push("request-headers");
           return new Headers({ host: "workspace.test" });
-        },
+        }),
       }),
     });
 
@@ -457,7 +534,7 @@ describe("CustomerAuthentication authority-read phase diagnostics", () => {
   test("attributes a frozen foreign rejection without mutating it", async () => {
     const frozen = Object.freeze(nextRequestScopeError("headers"));
     const outcome = await withPhases({
-      readRequestHeaders: () => Promise.reject(frozen),
+      requestHeaders: requestHeadersFailure(frozen),
     });
 
     expect(Object.isFrozen(frozen)).toBe(true);
@@ -477,7 +554,7 @@ describe("CustomerAuthentication authority-read phase diagnostics", () => {
 
   test("attributes a rejected primitive as unknown category without carrying it", async () => {
     const outcome = await withPhases({
-      readRequestHeaders: () => Promise.reject("auth resolver offline"),
+      requestHeaders: requestHeadersFailure("auth resolver offline"),
     });
 
     expect(outcome._tag).toBe("Failure");
@@ -516,7 +593,7 @@ describe("CustomerAuthentication authority-read phase diagnostics", () => {
     }
 
     const outcome = await withPhases({
-      readRequestHeaders: () => Promise.reject(afterPhaseError),
+      requestHeaders: requestHeadersFailure(afterPhaseError),
     });
     expect(outcome._tag).toBe("Failure");
     if (outcome._tag === "Failure") {

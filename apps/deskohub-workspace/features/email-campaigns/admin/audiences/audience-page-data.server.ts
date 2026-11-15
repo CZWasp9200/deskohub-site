@@ -1,19 +1,25 @@
 import "server-only";
 
-import { Effect, Option } from "effect";
-import { notFound } from "next/navigation";
-import type { CampaignAudienceRow } from "@/db/schema";
+import type { AdministrationCampaignAudienceType } from "@deskohub/workspace-admin-api";
+import { Effect } from "effect";
+import { formatAdministrationDateTime } from "@/features/administration/formatters";
+import {
+  AdministrationRecordNotFound,
+  runAdministrationPage,
+} from "@/features/administrators/server/administration-request.server";
 import type { Locale } from "@/features/i18n";
-import { authorizeAdministratorPage } from "@/shared/administrator/administrator-authorization.server";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
+import { getRequestLocale } from "@/features/i18n/server/request-locale";
 import {
   type AudienceFilter,
   audienceSingleLocale,
 } from "../../audience-filter";
-import { CampaignAudienceService } from "../../backend/campaign-audience.service";
 import type { CampaignAudienceId } from "../../campaign-identifiers";
 import { describeAudienceFilter } from "../audience-filter-summary";
-import { loadDiscountGroupOptions } from "./discount-group-options.server";
+import {
+  campaignOperationCapabilities,
+  invokeCampaignOperation,
+} from "../campaign-operation-query.server";
+import { loadAudienceValueLookups } from "./audience-value-lookups.server";
 
 /** An audience a campaign can select. */
 export type AudienceOption = {
@@ -31,6 +37,8 @@ export type AudienceListItem = {
   readonly archived: boolean;
   /** ISO instant. */
   readonly updatedAt: string;
+  /** `updatedAt` formatted for the request locale. */
+  readonly updatedAtText: string;
 };
 
 export type AudienceEditorData = {
@@ -40,35 +48,28 @@ export type AudienceEditorData = {
   readonly archived: boolean;
 };
 
-const listAudiences = Effect.fn("loadAudienceList")(function* (
-  includeArchived: boolean
-) {
-  const audiences = yield* CampaignAudienceService;
-  return yield* audiences.list({ includeArchived });
-});
-
-const runAudienceListing = (includeArchived: boolean) =>
-  listAudiences(includeArchived).pipe(
-    Effect.provide(CampaignAudienceService.Live),
-    runWorkspaceEffect("email-campaigns.admin.list-audiences", {
-      boundary: "route",
-    })
+/** Every audience, archived ones included. */
+const listAudiences = () =>
+  runAdministrationPage(
+    "email-campaigns.admin.list-audiences",
+    invokeCampaignOperation("listCampaignAudiences", {}),
+    campaignOperationCapabilities
   );
 
 const byTitle = (left: { title: string }, right: { title: string }) =>
   left.title.localeCompare(right.title);
 
-const isArchived = (audience: CampaignAudienceRow) =>
+const isArchived = (audience: AdministrationCampaignAudienceType) =>
   audience.archivedAt !== null;
 
 /** Every audience, active ones first, for the audience list. */
 export const loadAudienceList = async (): Promise<
   readonly AudienceListItem[]
 > => {
-  await authorizeAdministratorPage();
-  const [audiences, discountGroups] = await Promise.all([
-    runAudienceListing(true),
-    loadDiscountGroupOptions(),
+  const [audiences, lookups, locale] = await Promise.all([
+    listAudiences(),
+    loadAudienceValueLookups(),
+    getRequestLocale(),
   ]);
   return audiences
     .toSorted(
@@ -79,9 +80,10 @@ export const loadAudienceList = async (): Promise<
     .map((audience) => ({
       id: audience.id,
       title: audience.title,
-      summary: describeAudienceFilter(audience.filter, { discountGroups }),
+      summary: describeAudienceFilter(audience.filter, locale, lookups),
       archived: isArchived(audience),
-      updatedAt: audience.updatedAt.toString(),
+      updatedAt: audience.updatedAt,
+      updatedAtText: formatAdministrationDateTime(audience.updatedAt, locale),
     }));
 };
 
@@ -89,37 +91,38 @@ export const loadAudienceList = async (): Promise<
 export const loadAudienceOptions = async (): Promise<
   readonly AudienceOption[]
 > => {
-  await authorizeAdministratorPage();
-  const [audiences, discountGroups] = await Promise.all([
-    runAudienceListing(false),
-    loadDiscountGroupOptions(),
+  const [audiences, lookups, locale] = await Promise.all([
+    listAudiences(),
+    loadAudienceValueLookups(),
+    getRequestLocale(),
   ]);
   return audiences
+    .filter((audience) => !isArchived(audience))
     .map(({ id, title, filter }) => ({
       id,
       title,
-      summary: describeAudienceFilter(filter, { discountGroups }),
+      summary: describeAudienceFilter(filter, locale, lookups),
       singleLocale: audienceSingleLocale(filter),
     }))
     .toSorted(byTitle);
 };
 
 /** The audience the editor opens, or the not-found page. */
-export const loadAudienceEditor = async (
+export const loadAudienceEditor = (
   audienceId: CampaignAudienceId
-): Promise<AudienceEditorData> => {
-  await authorizeAdministratorPage();
-  const audience = await Effect.gen(function* () {
-    const audiences = yield* CampaignAudienceService;
-    return yield* audiences.get(audienceId).pipe(Effect.option);
-  }).pipe(
-    Effect.provide(CampaignAudienceService.Live),
-    runWorkspaceEffect("email-campaigns.admin.load-audience", {
-      boundary: "route",
-    })
+): Promise<AudienceEditorData> =>
+  runAdministrationPage(
+    "email-campaigns.admin.load-audience",
+    invokeCampaignOperation("getCampaignAudience", { audienceId }).pipe(
+      Effect.map(({ id, title, filter, archivedAt }) => ({
+        id,
+        title,
+        filter,
+        archived: archivedAt !== null,
+      })),
+      Effect.catchTag("OperationNotFound", () =>
+        Effect.fail(new AdministrationRecordNotFound())
+      )
+    ),
+    campaignOperationCapabilities
   );
-  const { id, title, filter, archivedAt } = Option.getOrElse(audience, () =>
-    notFound()
-  );
-  return { id, title, filter, archived: archivedAt !== null };
-};

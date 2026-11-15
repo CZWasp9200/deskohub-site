@@ -5,25 +5,38 @@ import {
   DotyposCustomerIdSchema,
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
-import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Option } from "effect";
 import {
-  customerAccountLinks,
-  customerMarketingConsents,
-  workspaceReservations,
-} from "@/db/schema";
-import { authUser } from "@/db/schema/auth";
-import { checkoutAttemptKeySchema } from "@/features/checkout/checkout-identifiers";
+  type AudienceCountCondition,
+  audienceAttributeCatalogue,
+} from "@deskohub/workspace-admin-api";
+import { Effect, Option } from "effect";
+import { customerMarketingConsents } from "@/db/schema";
+import { customerAccountIdSchema } from "@/features/account/customer-account";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { type AudienceCondition, audienceFactKey } from "../audience-filter";
+import {
+  type AudienceCondition,
+  audienceFactKey,
+  countFactRequest,
+} from "../audience-filter";
+import type { CampaignId } from "../campaign-identifiers";
 import type { DatePeriodBounds } from "../date-period";
 import { evaluateAudienceFilter } from "./audience-evaluation";
+import { audienceEvaluationAt } from "./audience-evaluation-context";
 import {
   CampaignCandidateRepository,
   type CampaignReservationSelection,
+  listCampaignCandidateIds,
 } from "./campaign-candidate.repository";
+import {
+  deleteAutomatedCampaigns,
+  seedAutomatedCampaign,
+  seedAutomatedSend,
+  seedAutomationVersion,
+} from "./email-campaigns.test-utils";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
+const context = audienceEvaluationAt(Temporal.Now.instant());
 
 const run = crypto.randomUUID();
 const customerId = (role: string) =>
@@ -32,14 +45,26 @@ const reserved = customerId("reserved");
 const abandoned = customerId("abandoned");
 const unfulfilled = customerId("unfulfilled");
 const linked = customerId("linked");
+const unverifiedLinked = customerId("unverified-linked");
 const consented = customerId("consented");
 const withdrawn = customerId("withdrawn");
-const seeded = [reserved, abandoned, unfulfilled, linked, consented, withdrawn];
+const seeded = [
+  reserved,
+  abandoned,
+  unfulfilled,
+  linked,
+  unverifiedLinked,
+  consented,
+  withdrawn,
+];
 const visitedReservation = DotyposReservationIdSchema.make(`booking-${run}`);
 const abandonedReservation = DotyposReservationIdSchema.make(
   `abandoned-${run}`
 );
-const accountId = `campaign-account-${run}`;
+const accountId = customerAccountIdSchema.make(`campaign-account-${run}`);
+const unverifiedAccountId = customerAccountIdSchema.make(
+  `campaign-unverified-account-${run}`
+);
 /** 23:50 on March 10 in Prague. */
 const createdAt = Temporal.Instant.from("2026-03-10T22:50:00Z");
 /** 00:30 on March 11 in Prague. */
@@ -57,6 +82,9 @@ const bookedOnPragueDay = (day: string) => ({
   },
 });
 const accountCreatedAt = Temporal.Instant.from("2026-09-15T10:00:00Z");
+// The login predates its account so the two dates differ; the account's own
+// creation is the one that counts.
+const loginCreatedAt = Temporal.Instant.from("2026-08-01T10:00:00Z");
 const marketingCampaign = `campaign-marketing-${run}`;
 const operationalCampaign = `campaign-operational-${run}`;
 const marketingSend = `send-marketing-${run}`;
@@ -74,76 +102,73 @@ describe.skipIf(!testDatabase)(
     const { db } = testDatabase;
 
     beforeAll(async () => {
+      const fixtures = workspaceFixtures(db);
+      for (const [id, linkedCustomer, verified] of [
+        [accountId, linked, true],
+        [unverifiedAccountId, unverifiedLinked, false],
+      ] as const) {
+        await Effect.runPromise(
+          fixtures.account("campaign", {
+            id,
+            linkedCustomer,
+            verified,
+            locale: "en-US",
+            createdAt: accountCreatedAt,
+            loginCreatedAt,
+          })
+        );
+      }
+      const booked = {
+        reservation: "confirmed",
+        payment: "paid",
+      } as const;
       await Effect.runPromise(
         Effect.all([
-          db.insert(workspaceReservations).values([
+          fixtures.reservations([
             {
-              checkoutAttemptKey: checkoutAttemptKeySchema.make(`old-${run}`),
-              dotyposCustomerId: reserved,
-              dotyposReservationId: DotyposReservationIdSchema.make(
-                `old-booking-${run}`
-              ),
-              reservationState: "cancelled",
-              paymentState: "cancelled",
-              fulfillmentState: "not_started",
-              reservationDetails,
+              stage: { reservation: "cancelled", payment: "cancelled" },
+              customer: reserved,
+              details: reservationDetails,
+              at: createdAt.subtract({ hours: 240 }),
+              // An older reservation in another locale than the latest.
               locale: "cs-CZ",
-              createdAt: createdAt.subtract({ hours: 240 }),
+              overrides: { createdAt: createdAt.subtract({ hours: 240 }) },
             },
             {
-              checkoutAttemptKey: checkoutAttemptKeySchema.make(`new-${run}`),
-              dotyposCustomerId: reserved,
-              dotyposReservationId: visitedReservation,
-              reservationState: "confirmed",
-              reservationConfirmedAt: confirmedAt,
-              paymentState: "paid",
-              paidAt: confirmedAt,
-              fulfillmentState: "fulfilled",
-              fulfilledAt: confirmedAt,
-              reservationDetails,
-              locale: "en-US",
-              createdAt,
+              stage: { ...booked, fulfillment: "fulfilled" },
+              customer: reserved,
+              details: reservationDetails,
+              at: confirmedAt,
+              overrides: {
+                dotyposReservationId: visitedReservation,
+                createdAt,
+              },
             },
             {
-              checkoutAttemptKey: checkoutAttemptKeySchema.make(
-                `abandoned-${run}`
-              ),
-              dotyposCustomerId: abandoned,
-              dotyposReservationId: abandonedReservation,
-              reservationState: "hold_expired",
-              paymentState: "expired",
-              fulfillmentState: "not_started",
-              reservationDetails,
-              locale: "en-US",
-              createdAt,
+              stage: { reservation: "hold_expired", payment: "expired" },
+              customer: abandoned,
+              details: reservationDetails,
+              at: createdAt,
+              overrides: {
+                dotyposReservationId: abandonedReservation,
+                createdAt,
+              },
             },
             {
-              checkoutAttemptKey: checkoutAttemptKeySchema.make(
-                `unfulfilled-${run}`
-              ),
-              dotyposCustomerId: unfulfilled,
-              dotyposReservationId: DotyposReservationIdSchema.make(
-                `unfulfilled-${run}`
-              ),
-              reservationState: "confirmed",
-              reservationConfirmedAt: confirmedAt,
-              paymentState: "paid",
-              paidAt: confirmedAt,
-              fulfillmentState: "failed",
-              fulfillmentFailedAt: confirmedAt,
-              fulfillmentFailureCode: "fulfillment_email_failed",
-              reservationDetails,
-              locale: "en-US",
-              createdAt,
+              stage: { ...booked, fulfillment: "failed" },
+              customer: unfulfilled,
+              details: reservationDetails,
+              at: confirmedAt,
+              overrides: { createdAt },
+            },
+            {
+              stage: booked,
+              customer: unverifiedLinked,
+              details: reservationDetails,
+              at: confirmedAt,
+              overrides: { createdAt },
             },
           ]),
-          db.insert(authUser).values({
-            id: accountId,
-            name: "Campaign test",
-            email: testEmailAddress(`campaign-${run}`),
-            locale: "en-US",
-            createdAt: new Date(accountCreatedAt.epochMilliseconds),
-          }),
           db.insert(customerMarketingConsents).values([
             {
               dotyposCustomerId: consented,
@@ -160,11 +185,6 @@ describe.skipIf(!testDatabase)(
             },
           ]),
         ])
-      );
-      await Effect.runPromise(
-        db
-          .insert(customerAccountLinks)
-          .values({ customerAccountId: accountId, dotyposCustomerId: linked })
       );
       await seedCampaignDeliveries();
     });
@@ -228,7 +248,10 @@ describe.skipIf(!testDatabase)(
       );
     };
 
+    const automatedCampaignIds: CampaignId[] = [];
+
     afterAll(async () => {
+      await deleteAutomatedCampaigns(db, automatedCampaignIds);
       await testDatabase.pool.query(
         "delete from email_campaign_sends where id = any($1)",
         [[marketingSend, operationalSend]]
@@ -245,9 +268,14 @@ describe.skipIf(!testDatabase)(
         "delete from customer_marketing_consents where dotypos_customer_id = any($1)",
         [seeded]
       );
-      await testDatabase.pool.query('delete from auth."user" where id = $1', [
-        accountId,
-      ]);
+      await testDatabase.pool.query(
+        'delete from auth."user" where id = any($1)',
+        [[accountId, unverifiedAccountId]]
+      );
+      await testDatabase.pool.query(
+        "delete from customer_accounts where id = any($1)",
+        [[accountId, unverifiedAccountId]]
+      );
     });
 
     const repository = <A, E>(
@@ -277,6 +305,39 @@ describe.skipIf(!testDatabase)(
       ).toEqual([consented]);
     });
 
+    test("lists only the given customers, with the same pool rules", async () => {
+      const listed = async (
+        purpose: "marketing" | "operational",
+        ids: readonly (typeof seeded)[number][]
+      ) =>
+        (
+          await repository((candidates) =>
+            candidates.listCandidates({ purpose, ids })
+          )
+        )
+          .map(({ dotyposCustomerId }) => dotyposCustomerId)
+          .sort();
+      expect(
+        await listed("operational", [reserved, linked, withdrawn])
+      ).toEqual([reserved, linked, withdrawn].sort());
+      expect(await listed("marketing", [consented, withdrawn])).toEqual([
+        consented,
+      ]);
+      expect(await listed("operational", [])).toEqual([]);
+      const operational = await seededCandidates("operational");
+      expect(
+        (
+          await repository((candidates) =>
+            candidates.listCandidates({ purpose: "operational", ids: [linked] })
+          )
+        )[0]
+      ).toEqual(
+        operational.find(
+          ({ dotyposCustomerId }) => dotyposCustomerId === linked
+        )
+      );
+    });
+
     test("collects every known customer with their locale sources", async () => {
       const candidates = await seededCandidates("operational");
       expect(candidates).toEqual(
@@ -297,13 +358,21 @@ describe.skipIf(!testDatabase)(
             latestReservationAt: null,
             consentLocale: null,
           },
+          {
+            dotyposCustomerId: unverifiedLinked,
+            hasAccount: false,
+            accountLocale: null,
+            latestReservationLocale: "en-US",
+            latestReservationAt: createdAt,
+            consentLocale: null,
+          },
           expect.objectContaining({
             dotyposCustomerId: withdrawn,
             consentLocale: "en-US",
           }),
         ])
       );
-      expect(candidates).toHaveLength(6);
+      expect(candidates).toHaveLength(7);
     });
 
     const reservationCounts = (selection: CampaignReservationSelection) =>
@@ -341,10 +410,13 @@ describe.skipIf(!testDatabase)(
       const facts = {
         counts: new Map([
           [
-            audienceFactKey({
-              attribute: "reservationCount",
-              params: condition("gt").params,
-            } as never),
+            audienceFactKey(
+              countFactRequest(
+                audienceAttributeCatalogue.reservationCount,
+                condition("gt") as AudienceCountCondition,
+                context
+              )
+            ),
             await reservationCounts({ booked: {} }),
           ],
         ]),
@@ -358,6 +430,7 @@ describe.skipIf(!testDatabase)(
             locale: "en-US",
             hasAccount: false,
           },
+          context,
           facts,
           profile: Option.none(),
         });
@@ -452,6 +525,48 @@ describe.skipIf(!testDatabase)(
       ).toEqual({ [reserved]: 1 });
     });
 
+    test("counts an automated send's recipients under its version's purpose", async () => {
+      const recipient = customerId("automated-recipient");
+      // The campaign's own draft is operational; its published version is
+      // marketing, and that is what its sends were mailed as.
+      const campaignId = await seedAutomatedCampaign(db, {
+        purpose: "operational",
+      });
+      automatedCampaignIds.push(campaignId);
+      const versionId = await seedAutomationVersion(db, {
+        campaignId,
+        purpose: "marketing",
+      });
+      for (const status of ["delivered", "unconfirmed", "failed"] as const) {
+        await seedAutomatedSend(db, {
+          campaignId,
+          versionId,
+          purpose: "marketing",
+          recipients: [{ dotyposCustomerId: recipient, status }],
+        });
+      }
+      const received = async (query: {
+        readonly purpose?: "marketing" | "operational";
+        readonly campaignId?: CampaignId;
+      }) =>
+        Object.fromEntries(
+          await repository((candidates) =>
+            candidates.countReceivedCampaignEmails({
+              ...query,
+              dispatched: {},
+              customers: [recipient],
+            })
+          )
+        );
+
+      expect(await received({ purpose: "marketing" })).toEqual({
+        [recipient]: 2,
+      });
+      expect(await received({ purpose: "operational" })).toEqual({});
+      expect(await received({})).toEqual({ [recipient]: 2 });
+      expect(await received({ campaignId })).toEqual({ [recipient]: 2 });
+    });
+
     test("dates an email by the current attempt's batch, or by its status without one", async () => {
       const october = Temporal.Instant.from("2026-10-01T12:00:00Z");
       expect(
@@ -466,9 +581,11 @@ describe.skipIf(!testDatabase)(
       ).toEqual({ [reserved]: 1 });
     });
 
-    test("reads account creation from the linked Better Auth user", async () => {
-      const facts = (created: DatePeriodBounds) =>
-        repository((candidates) => candidates.accountCreations(created));
+    test("reads account creation from the account, not its login", async () => {
+      const facts = (created: DatePeriodBounds, asOf = context.now) =>
+        repository((candidates) =>
+          candidates.accountCreations({ created, asOf })
+        );
       const september = Temporal.Instant.from("2026-09-01T00:00:00Z");
       expect(
         (await facts({ startsAtOrAfter: september })).inPeriod.has(linked)
@@ -477,6 +594,105 @@ describe.skipIf(!testDatabase)(
       expect(before.withValue.has(linked)).toBe(true);
       expect(before.inPeriod.has(linked)).toBe(false);
       expect(before.withValue.has(reserved)).toBe(false);
+      expect(before.withValue.has(unverifiedLinked)).toBe(false);
+      expect(before.inPeriod.has(unverifiedLinked)).toBe(false);
+      // An account created after the moment doesn't exist yet then.
+      const earlier = await facts({}, accountCreatedAt.subtract({ hours: 2 }));
+      expect(earlier.withValue.has(linked)).toBe(false);
+      expect(earlier.inPeriod.has(linked)).toBe(false);
+      expect((await facts({}, accountCreatedAt)).withValue.has(linked)).toBe(
+        true
+      );
+    });
+
+    test("dates a legacy account before records began", async () => {
+      const backfilledAt = Temporal.Instant.from("2026-10-20T18:00:00Z");
+      const verifiedAt = backfilledAt.add({ hours: 24 });
+      const asOf = verifiedAt.add({ hours: 1 });
+      const legacy = customerId("legacy");
+      const signup = customerId("legacy-signup");
+      const legacyAccountId = customerAccountIdSchema.make(
+        `campaign-legacy-account-${run}`
+      );
+      const signupAccountId = customerAccountIdSchema.make(
+        `campaign-legacy-signup-account-${run}`
+      );
+      const ids = [legacyAccountId, signupAccountId];
+      const fixtures = workspaceFixtures(db);
+      try {
+        await Effect.runPromise(
+          fixtures.account("campaign-legacy", {
+            id: legacyAccountId,
+            linkedCustomer: legacy,
+            legacy: true,
+            locale: "en-US",
+            createdAt: backfilledAt,
+          })
+        );
+        // A sign-up the day after the backfill, as the legacy customer first
+        // verifies.
+        await Effect.runPromise(
+          fixtures.account("campaign-legacy-signup", {
+            id: signupAccountId,
+            linkedCustomer: signup,
+            locale: "en-US",
+            createdAt: verifiedAt,
+            loginCreatedAt: backfilledAt,
+          })
+        );
+        const facts = (created: DatePeriodBounds, at = asOf) =>
+          repository((candidates) =>
+            candidates.accountCreations({
+              created,
+              asOf: at,
+              customers: [legacy, signup],
+            })
+          );
+        const matches = async (created: DatePeriodBounds, at = asOf) =>
+          [...(await facts(created, at)).inPeriod].sort();
+
+        const lastWeek = await facts({
+          startsAtOrAfter: asOf.subtract({ hours: 7 * 24 }),
+          startsAtOrBefore: asOf,
+        });
+        expect([...lastWeek.withValue].sort()).toEqual([legacy, signup].sort());
+        expect([...lastWeek.inPeriod]).toEqual([signup]);
+        expect(await matches({})).toEqual([legacy, signup].sort());
+        expect(await matches({ startsAtOrBefore: asOf })).toEqual(
+          [legacy, signup].sort()
+        );
+        // Until a day before records began, and a period that ends then.
+        const dayBefore = backfilledAt.subtract({ hours: 24 });
+        expect(await matches({ startsBefore: dayBefore })).toEqual([legacy]);
+        const year = Temporal.Instant.from("2026-01-01T00:00:00Z");
+        expect(
+          await matches({ startsAtOrAfter: year, startsBefore: dayBefore })
+        ).toEqual([legacy]);
+        expect(
+          await matches({ startsAtOrAfter: year, startsBefore: backfilledAt })
+        ).toEqual([legacy]);
+        // Any period that holds records' first moment or later excludes it.
+        expect(
+          await matches({
+            startsAtOrAfter: year,
+            startsAtOrBefore: backfilledAt,
+          })
+        ).toEqual([]);
+        expect(await matches({ startsAtOrAfter: year })).toEqual([signup]);
+        // A replayed moment before the backfill still knows the account.
+        const replayed = await facts({}, dayBefore);
+        expect([...replayed.withValue]).toEqual([legacy]);
+        expect([...replayed.inPeriod]).toEqual([legacy]);
+      } finally {
+        await testDatabase.pool.query(
+          'delete from auth."user" where id = any($1)',
+          [ids]
+        );
+        await testDatabase.pool.query(
+          "delete from customer_accounts where id = any($1)",
+          [ids]
+        );
+      }
     });
 
     test("finds when the earliest reservation was created", async () => {
@@ -490,6 +706,72 @@ describe.skipIf(!testDatabase)(
             createdAt.subtract({ hours: 240 })
           ) <= 0
       ).toBe(true);
+    });
+
+    describe("schedule fire pool", () => {
+      /** A linked account with a verified login and no reservation. */
+      const columnLinked = customerId("column-linked");
+      /** A linked account with an unverified login and no reservation. */
+      const unverifiedOnly = customerId("unverified-only");
+      const columnAccountId = customerAccountIdSchema.make(
+        `campaign-column-account-${run}`
+      );
+      const unverifiedOnlyAccountId = customerAccountIdSchema.make(
+        `campaign-unverified-only-account-${run}`
+      );
+      const pooled = [...seeded, columnLinked, unverifiedOnly];
+
+      beforeAll(async () => {
+        const fixtures = workspaceFixtures(db);
+        await Effect.runPromise(
+          fixtures.account("campaign-column", {
+            id: columnAccountId,
+            linkedCustomer: columnLinked,
+            locale: "en-US",
+          })
+        );
+        await Effect.runPromise(
+          fixtures.account("campaign-unverified-only", {
+            id: unverifiedOnlyAccountId,
+            linkedCustomer: unverifiedOnly,
+            verified: false,
+            locale: "en-US",
+          })
+        );
+      });
+
+      afterAll(async () => {
+        await testDatabase.pool.query(
+          'delete from auth."user" where id = any($1)',
+          [[columnAccountId, unverifiedOnlyAccountId]]
+        );
+        await testDatabase.pool.query(
+          "delete from customer_accounts where id = any($1)",
+          [[columnAccountId, unverifiedOnlyAccountId]]
+        );
+      });
+
+      test("pools the customers listCandidates lists", async () => {
+        for (const purpose of ["marketing", "operational"] as const) {
+          const pool = (
+            await Effect.runPromise(listCampaignCandidateIds(db, purpose))
+          ).filter((id) => pooled.includes(id));
+          const candidates = (
+            await repository((candidates) =>
+              candidates.listCandidates({ purpose })
+            )
+          )
+            .map(({ dotyposCustomerId }) => dotyposCustomerId)
+            .filter((id) => pooled.includes(id))
+            .sort();
+          expect(pool).toEqual(candidates);
+          expect(pool.includes(unverifiedOnly)).toBe(false);
+        }
+        const operational = await Effect.runPromise(
+          listCampaignCandidateIds(db, "operational")
+        );
+        expect(operational.includes(columnLinked)).toBe(true);
+      });
     });
   }
 );

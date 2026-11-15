@@ -4,34 +4,35 @@ import {
   type DotyposReservationStatus,
   DotyposService,
   type DotyposTableId,
-  type ExternalAPIError,
-  type NetworkError,
+  type DotyposWriteFailure,
   type Reservation,
-  ValidationError,
 } from "@deskohub/dotypos";
 import { Effect, Match } from "effect";
-import { getWorkspaceProductByTier } from "@/features/checkout/product-catalog";
 import {
   getWorkspaceMeetingRoomDurationLabel,
   getWorkspaceMeetingRoomProductTitle,
   getWorkspaceOfficeProductTitle,
+  getWorkspaceProductMonitorTitle,
+  getWorkspaceProductTierTitle,
 } from "@/features/checkout/product-catalog.i18n";
 import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
-import {
-  formatWorkspaceMoney,
-  workspaceMoneyWithValue,
-} from "@/features/checkout/workspace-money";
+import { getMeetingRoomSetupStart } from "@/features/reservation/meeting-room-early-setup";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { getReservationDate } from "@/features/reservation/reservation-interval";
+import type { ReservationIntervalValidationError } from "@/features/reservation/reservation-interval-domain";
+import { staffLocale } from "@/shared/backend/staff-locale";
+import { formatMoney, moneyWithValue } from "@/shared/money/money";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { temporalInstantToDate } from "@/shared/utils/temporal";
 import {
   getWorkspaceReservationInterval,
   type TableAssignmentUnavailableError,
+  type TableAssignmentUnconfigured,
   type WorkspaceTableAssignmentReservation,
   WorkspaceTableAssignmentService,
 } from "./workspace-table-assignment.service";
 import { workspaceBookingSeatCount } from "./workspace-table-occupancy";
+import type { InvalidDotyposTableSeats } from "./workspace-table-selection";
 
 export interface CreateWorkspaceDotyposReservationInput {
   readonly paymentOrderId: WorkspaceReservationId;
@@ -45,14 +46,14 @@ export const createWorkspaceDotyposReservation: (
   input: CreateWorkspaceDotyposReservationInput
 ) => Effect.Effect<
   Reservation,
-  | ExternalAPIError
-  | NetworkError
+  | DotyposWriteFailure
+  | InvalidDotyposTableSeats
+  | ReservationIntervalValidationError
   | TableAssignmentUnavailableError
-  | ValidationError,
+  | TableAssignmentUnconfigured,
   DotyposService | WorkspaceTableAssignmentService
 > = Effect.fn("createWorkspaceDotyposReservation")(
   function* (input) {
-    yield* Effect.annotateLogsScoped({ input });
     yield* Effect.logInfo(
       "Workspace Dotypos reservation creation input received"
     );
@@ -61,10 +62,6 @@ export const createWorkspaceDotyposReservation: (
     const tableAssignments = yield* WorkspaceTableAssignmentService;
     const { startsAt, endsAt } = yield* getWorkspaceReservationInterval(
       input.reservation
-    ).pipe(
-      Effect.mapError(
-        (cause) => new ValidationError({ message: cause.message, cause })
-      )
     );
     const tableId: DotyposTableId = yield* tableAssignments.assignTableId(
       input.reservation
@@ -86,12 +83,22 @@ export const createWorkspaceDotyposReservation: (
       status: input.status,
       note: formatWorkspaceReservationNote(input),
     };
-    yield* Effect.annotateLogsScoped({ reservationInput });
+    // Not the input itself: its note holds checkout details.
+    yield* Effect.annotateLogsScoped({
+      dotyposCustomerId: reservationInput.customerId,
+      tableId: reservationInput.tableId,
+      seats: reservationInput.seats,
+      startsAt,
+      endsAt,
+    });
     yield* Effect.logInfo("Workspace Dotypos reservation input built");
 
     yield* Effect.logInfo("Workspace Dotypos reservation creation started");
     const reservation = yield* dotypos.createReservation(reservationInput);
-    yield* Effect.annotateLogsScoped({ reservation });
+    yield* Effect.annotateLogsScoped({
+      dotyposReservationId: reservation.id,
+      dotyposReservationStatus: reservation.status,
+    });
     yield* Effect.logInfo("Workspace Dotypos reservation creation completed");
 
     return reservation;
@@ -114,6 +121,35 @@ export const createWorkspaceDotyposReservation: (
     )
 );
 
+/**
+ * The note line naming the payment order. Late-payment recovery finds the
+ * Dotypos reservations a payment order created by it.
+ */
+const formatPaymentOrderLine = (paymentOrderId: WorkspaceReservationId) =>
+  `Platební objednávka: ${paymentOrderId}`;
+
+/** Notes written before staff notes were Czech name the order in English. */
+const formatLegacyPaymentOrderLine = (paymentOrderId: WorkspaceReservationId) =>
+  `Payment order: ${paymentOrderId}`;
+
+/** Whether a Dotypos reservation note names the given payment order. */
+export const noteNamesPaymentOrder = (
+  note: string | null | undefined,
+  paymentOrderId: WorkspaceReservationId
+) => {
+  const lines = note?.split("\n") ?? [];
+
+  return (
+    lines.includes(formatPaymentOrderLine(paymentOrderId)) ||
+    lines.includes(formatLegacyPaymentOrderLine(paymentOrderId))
+  );
+};
+
+/**
+ * The note staff read on the Dotypos reservation. It is written in the staff
+ * locale whatever the checkout locale; the checkout locale stays on the
+ * reservation's checkout details.
+ */
 export const formatWorkspaceReservationNote = (
   input: Pick<
     CreateWorkspaceDotyposReservationInput,
@@ -124,55 +160,63 @@ export const formatWorkspaceReservationNote = (
   const { productLabel, reservationRows } = Match.value(reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
       cowork: (coworkReservation) => ({
-        productLabel: getWorkspaceProductByTier(coworkReservation.entryTier)
-          .label,
+        productLabel: getWorkspaceProductTierTitle(
+          coworkReservation.entryTier,
+          staffLocale
+        ),
         reservationRows: [
-          `Date: ${coworkReservation.date}`,
-          `Coffee: ${coworkReservation.coffee ? "yes" : "no"}`,
+          `Datum: ${coworkReservation.date}`,
+          `Káva: ${coworkReservation.coffee ? "ano" : "ne"}`,
           coworkReservation.monitorOption
-            ? `Monitor: ${coworkReservation.monitorOption}`
+            ? `Monitor: ${getWorkspaceProductMonitorTitle(
+                coworkReservation.monitorOption,
+                staffLocale
+              )}`
             : null,
         ],
       }),
       "meeting-room": (meetingRoomReservation) => ({
-        productLabel: getWorkspaceMeetingRoomProductTitle(
-          checkoutDetails.locale
-        ),
+        productLabel: getWorkspaceMeetingRoomProductTitle(staffLocale),
         reservationRows: [
-          `Date: ${getReservationDate({
+          `Datum: ${getReservationDate({
             interval: meetingRoomReservation,
             timeZone: workspaceSiteConstants.location.timeZone,
           })}`,
-          `Time: ${meetingRoomReservation.startsAt}-${meetingRoomReservation.endsAt}`,
-          `Duration: ${getWorkspaceMeetingRoomDurationLabel(
+          `Čas: ${meetingRoomReservation.startsAt}-${meetingRoomReservation.endsAt}`,
+          `Délka: ${getWorkspaceMeetingRoomDurationLabel(
             meetingRoomReservation.duration,
-            checkoutDetails.locale
+            staffLocale
           )}`,
+          meetingRoomReservation.earlySetup === true
+            ? `Příprava od: ${getMeetingRoomSetupStart(
+                Temporal.Instant.from(meetingRoomReservation.startsAt)
+              )
+                .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
+                .toPlainTime()
+                .toString({ smallestUnit: "minute" })}`
+            : null,
         ],
       }),
       office: (officeReservation) => ({
-        productLabel: getWorkspaceOfficeProductTitle(checkoutDetails.locale),
+        productLabel: getWorkspaceOfficeProductTitle(staffLocale),
         reservationRows: [
-          `Dates: ${officeReservation.startsOn}-${officeReservation.endsOn}`,
-          `Seats: ${officeReservation.seats}`,
+          `Termín: ${officeReservation.startsOn}-${officeReservation.endsOn}`,
+          `Počet míst: ${officeReservation.seats}`,
         ],
       }),
     })
   );
   const lines = [
-    "Deskohub workspace post-payment reservation",
-    `Payment order: ${input.paymentOrderId}`,
-    `Product: ${productLabel}`,
+    "Rezervace z Deskohub Workspace po zaplacení",
+    formatPaymentOrderLine(input.paymentOrderId),
+    `Produkt: ${productLabel}`,
     ...reservationRows,
-    `Price: ${formatWorkspaceMoney(
-      checkoutDetails.payment.expectedPrice,
-      checkoutDetails.locale
-    )}`,
+    `Cena: ${formatMoney(checkoutDetails.payment.expectedPrice, staffLocale)}`,
     ...checkoutDetails.payment.discounts.map(
       ({ amount, discount }) =>
-        `Discount: ${discount.label} (${formatWorkspaceMoney(
-          workspaceMoneyWithValue(-amount.value, amount),
-          checkoutDetails.locale
+        `Sleva: ${discount.staffLabel ?? discount.label} (${formatMoney(
+          moneyWithValue(-amount.value, amount),
+          staffLocale
         )})`
     ),
   ];

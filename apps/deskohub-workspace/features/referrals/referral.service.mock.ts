@@ -6,9 +6,10 @@ import {
 } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { CustomerAccountLinkRepository } from "@/features/account/backend/customer-account-link.repository";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import { CustomerAccountSections } from "@/features/account/backend/customer-account-sections";
+import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { type IReferralService, ReferralService } from "./referral.service";
-import { ReferralFeatureFlagServiceMock } from "./referral-feature-flag.service.mock";
+import { ReferralReleaseGate } from "./referral-release-gate";
 
 export const ReferralServiceMock = (
   overrides: Partial<IReferralService> = {}
@@ -29,7 +30,7 @@ export const ReferralServiceMock = (
 /**
  * The real ReferralService over empty data mocks: any read of recorded
  * referrals dies. It takes the referral decision from the caller's
- * `ReferralFeatureFlagService`.
+ * `ReferralReleaseGate`.
  */
 export const ReferralServiceWithoutData = ReferralService.Default.pipe(
   Layer.provide(
@@ -43,15 +44,14 @@ export const ReferralServiceWithoutData = ReferralService.Default.pipe(
       }),
       Layer.mock(WorkspaceDatabaseAdvisoryLock, {}),
       Layer.mock(DotyposService, {}),
-      Layer.mock(CustomerAccountResolver, {}),
-      Layer.mock(CustomerAccountLinkRepository, {})
+      Layer.mock(CustomerAuthentication, {}),
+      Layer.mock(CustomerAccountLinkRepository, {}),
+      Layer.mock(CustomerAccountSections, {})
     )
   )
 );
 
 /** The real ReferralService while the `referrals` flag withholds the program. */
 export const WithheldReferralService = ReferralServiceWithoutData.pipe(
-  Layer.provide(
-    ReferralFeatureFlagServiceMock({ isEnabled: Effect.succeed(false) })
-  )
+  Layer.provide(ReferralReleaseGate.fromDecision(false))
 );

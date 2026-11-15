@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { BetterAuthOptions } from "better-auth";
+import { reviewAccountPasswordLength } from "./review-account-credentials";
 
 /**
  * Session windows fixed by the security contract: a 30-day rolling lifetime,
@@ -66,6 +67,40 @@ export const signInEmailLimit = {
 } as const;
 
 /**
+ * Password sign-in serves only app-directory review logins. It allows ten
+ * requests per client IP per ten minutes, like code sign-in.
+ */
+const betterAuthPasswordSignInRateLimit = {
+  "/sign-in/email": { window: 600, max: 10 },
+} as const;
+
+/**
+ * Per-IP limits on the passkey endpoints, in line with the sign-in limits.
+ * Option generation runs on every sign-in page visit (the email field's
+ * passkey autofill), so it allows more requests than the ceremonies that
+ * verify or change credentials. No window exceeds the magic-link window the
+ * cleanup cron keeps rate-limit rows for.
+ */
+const betterAuthPasskeyRateLimits = {
+  "/passkey/generate-authenticate-options": { window: 600, max: 30 },
+  "/passkey/verify-authentication": { window: 600, max: 10 },
+  "/passkey/generate-register-options": { window: 600, max: 10 },
+  "/passkey/verify-registration": { window: 600, max: 10 },
+  "/passkey/update-passkey": { window: 600, max: 20 },
+  "/passkey/delete-passkey": { window: 600, max: 20 },
+} as const;
+
+/**
+ * Per-IP limits on the native app's sign-in handoff, in line with code
+ * sign-in. Minting needs a fresh browser session; redeeming needs the app's
+ * PKCE verifier.
+ */
+const betterAuthNativeHandoffRateLimits = {
+  "/native-handoff/mint": { window: 600, max: 10 },
+  "/native-handoff/exchange": { window: 600, max: 10 },
+} as const;
+
+/**
  * Connectionless Better Auth options shared between schema generation and the
  * runtime instance. The runtime singleton adds the database adapter, dynamic
  * `baseURL`, secrets, plugins, and lifecycle hooks on top of this object.
@@ -97,12 +132,23 @@ export const authOptions = {
   verification: {
     storeIdentifier: "hashed",
   },
+  // Only for app-directory review logins: the `/sign-in/email` guard refuses
+  // every other address, and nobody can sign up, reset, or change a password.
   emailAndPassword: {
-    enabled: false,
+    enabled: true,
+    disableSignUp: true,
+    autoSignIn: false,
+    minPasswordLength: reviewAccountPasswordLength.min,
+    maxPasswordLength: reviewAccountPasswordLength.max,
   },
   rateLimit: {
     enabled: true,
     storage: "database",
+    customRules: {
+      ...betterAuthPasswordSignInRateLimit,
+      ...betterAuthPasskeyRateLimits,
+      ...betterAuthNativeHandoffRateLimits,
+    },
   },
   advanced: {
     crossSubDomainCookies: {

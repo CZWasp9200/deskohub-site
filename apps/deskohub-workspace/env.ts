@@ -49,17 +49,17 @@ export const createWorkspaceEnv = (runtimeEnv: WorkspaceRuntimeEnv) =>
           };
         }
 
-        if (hasPath("ADMIN_BASIC_AUTH_CREDENTIALS")) {
-          return {
-            ...issue,
-            message: "Invalid administrator credential registry configuration.",
-          };
-        }
-
         if (hasPath("BETTER_AUTH_SECRETS")) {
           return {
             ...issue,
             message: "Invalid Better Auth secret configuration.",
+          };
+        }
+
+        if (hasPath("REVIEW_ACCOUNT_CREDENTIALS")) {
+          return {
+            ...issue,
+            message: "Invalid review account credential configuration.",
           };
         }
 
@@ -74,6 +74,13 @@ export const createWorkspaceEnv = (runtimeEnv: WorkspaceRuntimeEnv) =>
           return {
             ...issue,
             message: "Invalid email delivery configuration.",
+          };
+        }
+
+        if (hasPath("ANALYTICS_WAREHOUSE_SOURCE_TOKEN")) {
+          return {
+            ...issue,
+            message: "Invalid analytics warehouse source token configuration.",
           };
         }
 
@@ -105,7 +112,6 @@ export const env = createWorkspaceEnv({
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
   DATABASE_URL: process.env.DATABASE_URL,
   DATABASE_URL_UNPOOLED: process.env.DATABASE_URL_UNPOOLED,
-  ADMIN_BASIC_AUTH_CREDENTIALS: process.env.ADMIN_BASIC_AUTH_CREDENTIALS,
   BETTER_AUTH_SECRETS: process.env.BETTER_AUTH_SECRETS,
   DOTYPOS_API_TIMEOUT: process.env.DOTYPOS_API_TIMEOUT,
   DOTYPOS_API_URL: process.env.DOTYPOS_API_URL,
@@ -134,20 +140,32 @@ export const env = createWorkspaceEnv({
   IGLOOHOME_ALGOPIN_TARGET_DEVICE_ID:
     process.env.IGLOOHOME_ALGOPIN_TARGET_DEVICE_ID,
   RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET,
+  REVIEW_ACCOUNT_CREDENTIALS: process.env.REVIEW_ACCOUNT_CREDENTIALS,
+  APPLE_TEAM_ID: process.env.APPLE_TEAM_ID,
+  ANDROID_DEBUG_SIGNING_CERT_SHA256:
+    process.env.ANDROID_DEBUG_SIGNING_CERT_SHA256,
   CHECKOUT_PAY_STATE_KEYS: process.env.CHECKOUT_PAY_STATE_KEYS,
   CHECKOUT_RETURN_STATE_TOKEN_SECRET:
     process.env.CHECKOUT_RETURN_STATE_TOKEN_SECRET,
   RESERVATION_ACCESS_TOKEN_SECRET: process.env.RESERVATION_ACCESS_TOKEN_SECRET,
   CRON_SECRET: process.env.CRON_SECRET,
+  ANALYTICS_WAREHOUSE_SOURCE_TOKEN:
+    process.env.ANALYTICS_WAREHOUSE_SOURCE_TOKEN,
+  MOBILE_UPDATES_PUBLISH_TOKEN: process.env.MOBILE_UPDATES_PUBLISH_TOKEN,
+  MOBILE_UPDATES_SIGNING_PRIVATE_KEY:
+    process.env.MOBILE_UPDATES_SIGNING_PRIVATE_KEY,
   NEXI_API_KEY: process.env.NEXI_API_KEY,
   NEXI_API_ORIGIN: process.env.NEXI_API_ORIGIN,
   NEXI_CHECKOUT_CURRENCY_OVERRIDE: process.env.NEXI_CHECKOUT_CURRENCY_OVERRIDE,
+  OPENAI_APPS_CHALLENGE_TOKEN: process.env.OPENAI_APPS_CHALLENGE_TOKEN,
   POSTHOG_SERVICE_NAME: process.env.POSTHOG_SERVICE_NAME,
   POSTHOG_SERVICE_NAMESPACE: process.env.POSTHOG_SERVICE_NAMESPACE,
   POSTHOG_API_KEY: process.env.POSTHOG_API_KEY,
   POSTHOG_API_HOST: process.env.POSTHOG_API_HOST,
   POSTHOG_FEATURE_FLAG_OVERRIDES: process.env.POSTHOG_FEATURE_FLAG_OVERRIDES,
   POSTHOG_INGEST_HOST: process.env.POSTHOG_INGEST_HOST,
+  POSTHOG_LOGS_EXPORT: process.env.POSTHOG_LOGS_EXPORT,
+  POSTHOG_PERSON_PRIVACY_API_KEY: process.env.POSTHOG_PERSON_PRIVACY_API_KEY,
   POSTHOG_PROJECT_ID: process.env.POSTHOG_PROJECT_ID,
   PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:
     process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
@@ -157,7 +175,9 @@ export const env = createWorkspaceEnv({
   VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA,
   VERCEL_PROJECT_PRODUCTION_URL: process.env.VERCEL_PROJECT_PRODUCTION_URL,
   VERCEL_URL: process.env.VERCEL_URL,
+  WEBMCP_ORIGIN_TRIAL_TOKENS: process.env.WEBMCP_ORIGIN_TRIAL_TOKENS,
   WORKSPACE_E2E_BASE_URL: process.env.WORKSPACE_E2E_BASE_URL,
+  WORKSPACE_LOG_LEVEL: process.env.WORKSPACE_LOG_LEVEL,
   NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME:
     process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
   NEXT_PUBLIC_GTM_ID: process.env.NEXT_PUBLIC_GTM_ID,

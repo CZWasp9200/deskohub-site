@@ -1,23 +1,8 @@
 import "server-only";
 
-import {
-  type DotyposCustomer,
-  type DotyposCustomerId,
-  DotyposService,
-} from "@deskohub/dotypos";
-import {
-  Array as Arr,
-  Context,
-  Effect,
-  Layer,
-  Option,
-  Order,
-  Result,
-  Schema,
-} from "effect";
+import type { DotyposCustomer, DotyposCustomerId } from "@deskohub/dotypos";
+import { Context, Effect, Layer, Option, Order, Result } from "effect";
 import type { Locale } from "@/features/i18n";
-import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
-import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { currentInstant } from "@/shared/utils/temporal";
 import type {
   AudienceCandidate,
@@ -28,14 +13,23 @@ import type { CampaignPurpose } from "../body/campaign-content";
 import { CampaignRecipientResolutionError } from "../errors";
 import { resolveRecipientLocale } from "../recipient-locale";
 import { evaluateAudienceFilter } from "./audience-evaluation";
+import {
+  type AudienceEvaluationContext,
+  type AudienceFactSource,
+  AudienceScope,
+  audienceEvaluationAt,
+  scopedCustomers,
+} from "./audience-evaluation-context";
 import { AudienceFactsService } from "./audience-facts.service";
 import {
   type CampaignCandidateFacts,
   CampaignCandidateRepository,
 } from "./campaign-candidate.repository";
-
-/** Dotypos customers requested per hydration call. */
-const hydrationChunkSize = 100;
+import {
+  CampaignEligibilityStage,
+  type CampaignUnreachableReason,
+  campaignEligibility,
+} from "./campaign-reachability";
 
 /** A customer the campaign reaches, with the Dotypos profile email. */
 type CampaignRecipient = {
@@ -44,16 +38,10 @@ type CampaignRecipient = {
   readonly email: string;
 };
 
-type CampaignRecipientExclusionReason =
-  | "missing-from-dotypos"
-  | "deleted-customer"
-  | "missing-email"
-  | "invalid-email";
-
 /** A customer the audience matches whom the campaign can't reach. */
 type CampaignRecipientExclusion = {
   readonly dotyposCustomerId: DotyposCustomerId;
-  readonly reason: CampaignRecipientExclusionReason;
+  readonly reason: CampaignUnreachableReason;
 };
 
 /**
@@ -72,15 +60,28 @@ type CampaignRecipientResolution = {
   readonly duplicates: readonly CampaignRecipientDuplicate[];
 };
 
+/**
+ * What to resolve recipients for. A one-off send passes only the purpose
+ * and filter: everyone, evaluated now from live facts. An automation unit
+ * narrows the scope to its subjects, evaluates in its own context, and
+ * reads the Dotypos facts it fetched.
+ */
+type CampaignRecipientQuery = {
+  readonly purpose: CampaignPurpose;
+  readonly filter: AudienceFilter;
+  readonly scope?: AudienceScope;
+  readonly context?: AudienceEvaluationContext;
+  readonly facts?: AudienceFactSource;
+};
+
 export interface ICampaignRecipientService {
   /**
    * Resolves an audience filter to campaign recipients. It never returns a
    * partial list: an unavailable source fails the whole resolution.
    */
-  readonly resolve: (input: {
-    readonly purpose: CampaignPurpose;
-    readonly filter: AudienceFilter;
-  }) => Effect.Effect<
+  readonly resolve: (
+    input: CampaignRecipientQuery
+  ) => Effect.Effect<
     CampaignRecipientResolution,
     CampaignRecipientResolutionError
   >;
@@ -100,55 +101,68 @@ export class CampaignRecipientService extends Context.Service<
     this,
     Effect.gen(function* () {
       const candidates = yield* CampaignCandidateRepository;
-      const dotypos = yield* DotyposService;
       const audienceFacts = yield* AudienceFactsService;
 
-      const hydrate = (ids: readonly DotyposCustomerId[]) =>
-        Effect.forEach(Arr.chunksOf(ids, hydrationChunkSize), (chunk) =>
-          dotypos.getCustomers({ ids: chunk })
-        ).pipe(
-          Effect.map(
-            (pages) =>
-              new Map(
-                pages
-                  .flat()
-                  .flatMap((customer) =>
-                    customer.id === undefined
-                      ? []
-                      : [[customer.id, customer] as const]
-                  )
-              )
-          ),
-          Effect.mapError(CampaignRecipientResolutionError.dotypos)
-        );
-
       return {
-        resolve: Effect.fn("CampaignRecipientService.resolve")(
-          (input: {
-            readonly purpose: CampaignPurpose;
-            readonly filter: AudienceFilter;
-          }) =>
-            Effect.succeed(input).pipe(
-              Effect.bind("candidates", ({ purpose }) =>
-                candidates
-                  .listCandidates({ purpose })
-                  .pipe(
-                    Effect.mapError(CampaignRecipientResolutionError.database)
-                  )
-              ),
-              Effect.bind("now", () => currentInstant),
-              Effect.bind("facts", ({ filter, now }) =>
-                audienceFacts.resolve({ filter, now })
-              ),
-              Effect.let("localMatches", selectLocalMatches),
-              Effect.bind("profiles", ({ localMatches }) =>
-                hydrate(
-                  localMatches.map(({ dotyposCustomerId }) => dotyposCustomerId)
+        resolve: ({
+          purpose,
+          filter,
+          scope = AudienceScope.All(),
+          context,
+          facts,
+        }: CampaignRecipientQuery) =>
+          Effect.Do.pipe(
+            Effect.bind("candidates", () =>
+              candidates
+                .listCandidates({
+                  purpose,
+                  ...Option.match(
+                    Option.fromNullishOr(scopedCustomers(scope)),
+                    {
+                      onNone: () => ({}),
+                      onSome: (ids) => ({ ids }),
+                    }
+                  ),
+                })
+                .pipe(
+                  Effect.mapError(CampaignRecipientResolutionError.database)
                 )
-              ),
-              Effect.map(classifyRecipients)
-            )
-        ),
+            ),
+            Effect.bind("context", () =>
+              context === undefined
+                ? currentInstant.pipe(Effect.map(audienceEvaluationAt))
+                : Effect.succeed(context)
+            ),
+            Effect.bind("facts", ({ context }) =>
+              audienceFacts.resolve({
+                filter,
+                contexts: [context],
+                scope,
+                ...(facts && { facts }),
+              })
+            ),
+            Effect.let("localMatches", ({ candidates, context, facts }) =>
+              selectLocalMatches({ candidates, filter, context, facts })
+            ),
+            Effect.bind("profiles", ({ localMatches }) =>
+              audienceFacts.profiles({
+                customers: localMatches.map(
+                  ({ dotyposCustomerId }) => dotyposCustomerId
+                ),
+                ...(facts && { facts }),
+              })
+            ),
+            Effect.map(({ localMatches, profiles, context, facts }) =>
+              classifyRecipients({
+                localMatches,
+                profiles,
+                filter,
+                context,
+                facts,
+              })
+            ),
+            Effect.withSpan("CampaignRecipientService.resolve")
+          ),
       } satisfies ICampaignRecipientService;
     })
   );
@@ -157,7 +171,6 @@ export class CampaignRecipientService extends Context.Service<
     Layer.provide(
       Layer.mergeAll(
         CampaignCandidateRepository.Live,
-        WorkspaceDotyposLayer,
         AudienceFactsService.Live
       )
     )
@@ -173,6 +186,7 @@ const toCandidate = (facts: CampaignCandidateFacts): Candidate => ({
 
 type Evaluation = {
   readonly filter: AudienceFilter;
+  readonly context: AudienceEvaluationContext;
   readonly facts: AudienceFacts;
 };
 
@@ -180,12 +194,14 @@ type Evaluation = {
 const selectLocalMatches = ({
   candidates,
   filter,
+  context,
   facts,
 }: Evaluation & { readonly candidates: readonly CampaignCandidateFacts[] }) =>
   candidates.map(toCandidate).filter(
     (candidate) =>
       evaluateAudienceFilter({
         filter,
+        context,
         facts,
         candidate,
         profile: Option.none(),
@@ -196,6 +212,7 @@ const classifyRecipients = ({
   localMatches,
   profiles,
   filter,
+  context,
   facts,
 }: Evaluation & {
   readonly localMatches: readonly Candidate[];
@@ -205,8 +222,13 @@ const classifyRecipients = ({
     const profile = Option.fromNullishOr(
       profiles.get(candidate.dotyposCustomerId)
     );
-    return evaluateAudienceFilter({ filter, facts, candidate, profile }) ===
-      "noMatch"
+    return evaluateAudienceFilter({
+      filter,
+      context,
+      facts,
+      candidate,
+      profile,
+    }) === "noMatch"
       ? []
       : [classify(candidate, profile)];
   });
@@ -222,36 +244,23 @@ const classifyRecipients = ({
   };
 };
 
-const decodeEmail = Schema.decodeUnknownOption(reservationCustomerEmailSchema);
-
-/**
- * The email a campaign can reach a customer at, or why it can't. Resolution
- * and delivery both apply it, so a profile that changed since the send was
- * frozen is excluded the same way.
- */
-export const reachableCampaignEmail = (
-  profile: Option.Option<DotyposCustomer>
-): Result.Result<string, CampaignRecipientExclusionReason> => {
-  if (Option.isNone(profile)) return Result.fail("missing-from-dotypos");
-  if (profile.value.deleted) return Result.fail("deleted-customer");
-  if (!profile.value.email?.trim()) return Result.fail("missing-email");
-  return Option.match(decodeEmail(profile.value.email), {
-    onNone: () => Result.fail("invalid-email" as const),
-    onSome: Result.succeed,
-  });
-};
-
 const classify = (
   candidate: Candidate,
   profile: Option.Option<DotyposCustomer>
 ): EligibleRecipient | CampaignRecipientExclusion =>
-  Result.match(reachableCampaignEmail(profile), {
-    onFailure: (reason) => ({
-      dotyposCustomerId: candidate.dotyposCustomerId,
-      reason,
+  Result.match(
+    campaignEligibility({
+      profile,
+      stage: CampaignEligibilityStage.Resolution(),
     }),
-    onSuccess: (email) => ({ ...candidate, email }),
-  });
+    {
+      onFailure: (reason) => ({
+        dotyposCustomerId: candidate.dotyposCustomerId,
+        reason,
+      }),
+      onSuccess: (email) => ({ ...candidate, email }),
+    }
+  );
 
 const byCustomerId = Order.mapInput(
   Order.String,

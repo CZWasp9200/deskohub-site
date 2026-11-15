@@ -4,21 +4,33 @@ import {
   DotyposCustomerIdSchema,
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
-import { Effect } from "effect";
-import { WorkspaceE2EError, workspaceE2EError } from "../errors";
-import { writeWorkspaceE2EFailureAnnotation } from "../github-actions";
+import type { Browser } from "@playwright/test";
+import { Effect, Exit, Scope } from "effect";
+import { customerAccountIdSchema } from "@/features/account/customer-account";
+import type { Locale } from "@/features/i18n";
+import {
+  E2EBrowserSession,
+  type OpenE2EBrowserSession,
+} from "../browser-session";
+import type { WorkspaceE2EStep } from "../case-runner";
+import { runUntracedE2EEffect } from "../effect-edge";
+import {
+  tryWorkspaceE2ESync,
+  WorkspaceE2EError,
+  workspaceE2EError,
+} from "../errors";
 import type { E2EDatabase } from "../integrations/database.service";
 import { readWorkspaceE2ERunPlan } from "../playwright-checkout/run-plan";
 import { runtimeTest } from "../playwright-checkout/runtime-fixtures";
-import { makePlaywrightBrowserRunner, type Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
-import type { WorkspaceE2EStep } from "../types";
 import { verifyAccountLayoutNavigation } from "./account-layout-navigation";
+import { verifyWorkspaceE2EAnalyticsPreference } from "./analytics-preference";
 import {
   findAuthUserIdByEmail,
   findLinkedDotyposCustomerId,
 } from "./auth-rows";
 import { withCallbackHandoffReview } from "./callback-handoff";
+import type { WorkspaceE2ESignInReturns } from "./cases";
 import {
   type WorkspaceE2EAccountCaseId,
   workspaceE2EAccountCaseIds,
@@ -36,6 +48,10 @@ import {
 } from "./journal";
 import { verifyAccountLocaleSwitchTransition } from "./locale-switch-transition";
 import { verifyWorkspaceE2EMarketingPreferences } from "./marketing-preferences";
+import {
+  makeWorkspaceE2EAccountPasskeys,
+  type WorkspaceE2EAccountPasskeys,
+} from "./passkeys";
 import { workspaceE2EAccountProfileName } from "./profile-fixture";
 import { verifyProfileNavigation } from "./profile-navigation";
 import { makeMagicLinkRateBudget } from "./rate-budget";
@@ -47,6 +63,7 @@ import {
   verifyWorkspaceE2EReservationHistoryNavigation,
 } from "./reservation-navigation";
 import {
+  type AccountReviewDestination,
   captureAccountReview,
   captureReservationStatusReview,
   type LanguagePreferenceReviewCapture,
@@ -58,7 +75,10 @@ import {
   accountReviewTargetBySection,
   mobileAccountReviewTargetBySection,
   reservationCustomerReviewTargetByMode,
+  type SignInHandoffReviewStage,
+  signInHandoffReviewTargetByStage,
 } from "./review-targets";
+import { resolveWorkspaceE2ESessionSigningSecret } from "./seeded-session";
 import type { WorkspaceE2EAccountLifecycleHandoff } from "./types";
 import {
   resolveWorkspaceE2EPreviewLogs,
@@ -68,6 +88,38 @@ import {
 const accountReviewCaptureFailureMessage =
   "Account review screenshot capture failed";
 
+/**
+ * Captures a review moment of the cross-browser sign-in in the assistant's
+ * browser. It runs beside the lane page, so the one page on the handoff
+ * locale's auth routes is the assistant's: the lane page is then on an
+ * English page or the cowork selection.
+ */
+const captureSignInHandoffReview = async (
+  browser: Browser,
+  destination: AccountReviewDestination,
+  locale: Locale,
+  stage: SignInHandoffReviewStage
+): Promise<void> => {
+  if (!destination.screenshots) return;
+  const pages = browser
+    .contexts()
+    .flatMap((context) => context.pages())
+    .filter((page) => {
+      try {
+        return new URL(page.url()).pathname.startsWith(`/${locale}/auth/`);
+      } catch {
+        return false;
+      }
+    });
+  const page = pages.length === 1 ? pages[0] : undefined;
+  if (!page) throw new Error(accountReviewCaptureFailureMessage);
+  await captureAccountReview(
+    page,
+    destination,
+    signInHandoffReviewTargetByStage[stage]
+  );
+};
+
 type WorkspaceE2EAccountLane = {
   readonly config: ReturnType<typeof getAccountE2EConfig>;
   /**
@@ -76,6 +128,11 @@ type WorkspaceE2EAccountLane = {
    * it stays in memory only and never joins the cleanup journal.
    */
   readonly lifecycleHandoff: WorkspaceE2EAccountLifecycleHandoff;
+  /**
+   * The passkey journeys on the lane page, owned by the worker so their
+   * virtual authenticator spans the cases that add, use, and remove it.
+   */
+  readonly passkeys: WorkspaceE2EAccountPasskeys;
   readonly previewLogs: WorkspaceE2EPreviewLogs;
   readonly journalRef: {
     readonly journal: WorkspaceE2EAccountJournal;
@@ -87,8 +144,20 @@ type WorkspaceE2EAccountLane = {
   };
   readonly rateBudget: ReturnType<typeof makeMagicLinkRateBudget>;
   readonly runPlan: Awaited<ReturnType<typeof readWorkspaceE2ERunPlan>>;
-  readonly run: Runner;
-  readonly session: string;
+  /** The lane's one browser session, shared by every case. */
+  readonly openSession: OpenE2EBrowserSession;
+  /** The sign-in assistant's own browser session, in its own context. */
+  readonly openAssistantSession: OpenE2EBrowserSession;
+  /**
+   * Opens another browser session named `name`, in its own context, on first
+   * use; the lane's Scope closes it at worker teardown when its step did not.
+   */
+  readonly openSeparateSession: (name: string) => OpenE2EBrowserSession;
+  /**
+   * The selections the lane's sign-ins return to, built once per worker so
+   * the case that requests a link and the case that consumes it agree.
+   */
+  readonly signInReturns: WorkspaceE2ESignInReturns;
 };
 
 type WorkspaceE2EAccountWorkerFixtures = {
@@ -109,8 +178,38 @@ const accountTest = runtimeTest.extend<
     async ({ browser, environment, runContext, runEffect }, applyFixture) => {
       const config = getAccountE2EConfig(environment, runContext.runId);
       const runPlan = await readWorkspaceE2ERunPlan();
-      const run = makePlaywrightBrowserRunner(browser, { recordHar: false });
+      // The lane's Scope owns both sessions; each opens on first use.
+      const laneScope = Scope.makeUnsafe("parallel");
+      const laneSessionId = `workspace-account-e2e-${runContext.runId}`;
+      const openLaneSession = (id: string) =>
+        E2EBrowserSession.openOnFirstUse({ browser, id, recordHar: false });
+      const [openSession, openAssistantSession] = await runUntracedE2EEffect(
+        Effect.all([
+          openLaneSession(laneSessionId),
+          openLaneSession(`${laneSessionId}-assistant`),
+        ]).pipe(Scope.provide(laneScope))
+      );
+      const openSeparateSession = (name: string): OpenE2EBrowserSession =>
+        Effect.flatten(
+          openLaneSession(`${laneSessionId}-${name}`).pipe(
+            Scope.provide(laneScope)
+          )
+        );
       const lifecycleHandoff: WorkspaceE2EAccountLifecycleHandoff = {};
+      const { makeWorkspaceE2ESignInReturns } = await import("./cases");
+      const signInReturns = makeWorkspaceE2ESignInReturns();
+      const passkeys = makeWorkspaceE2EAccountPasskeys({
+        baseUrl: config.baseUrl,
+        getPage: () => {
+          const pages = browser
+            .contexts()
+            .flatMap((context) => context.pages());
+          const page = pages.length === 1 ? pages[0] : undefined;
+          if (!page) throw new Error("The account lane has no single page");
+          return page;
+        },
+        locale: config.locale,
+      });
       let journal = emptyWorkspaceE2EAccountJournal();
       const mergeIds = (
         existing: readonly string[],
@@ -150,18 +249,24 @@ const accountTest = runtimeTest.extend<
                   config,
                   lifecycleHandoff,
                   journalRef,
+                  passkeys,
                   previewLogs,
                   rateBudget: makeMagicLinkRateBudget(),
+                  openAssistantSession,
+                  openSeparateSession,
+                  openSession,
                   runPlan,
-                  run,
-                  session: `workspace-account-e2e-${runContext.runId}`,
+                  signInReturns,
                 })
               );
             })
           )
         );
       } finally {
-        await run.close?.();
+        // A failed passkey case leaves its authenticator behind; the lane
+        // page closes with the session either way.
+        await runEffect(Effect.ignore(passkeys.removeAuthenticator));
+        await runUntracedE2EEffect(Scope.close(laneScope, Exit.void));
       }
     },
     { scope: "worker" },
@@ -177,23 +282,40 @@ for (const caseId of workspaceE2EAccountCaseIds) {
       const { makeWorkspaceE2EAccountCases } = await import("./cases");
       const { getDatasourceConfig } = await import("../config");
       const { runWorkspaceE2EAccountCase } = await import("./runner");
+      const { makeWorkspaceE2EAccountLaneBrowser } = await import(
+        "./lane-browser"
+      );
       const datasourceConfig = getDatasourceConfig(environment);
       // The language review wrapper hands its capture hook over only when it
       // starts the case, so the case reads it through this slot.
       let captureLanguagePreferenceReview:
         | LanguagePreferenceReviewCapture
         | undefined;
+      const { signInReturns } = accountLane;
       const cases = makeWorkspaceE2EAccountCases({
         captureLanguagePreferenceReview: async (stage) => {
           await captureLanguagePreferenceReview?.(stage);
         },
+        captureSignInHandoffReview: (stage) =>
+          captureSignInHandoffReview(
+            browser,
+            accountLane.config.review,
+            signInReturns.assistant.locale,
+            stage
+          ),
         config: accountLane.config,
         datasourceConfig,
+        laneBrowser: makeWorkspaceE2EAccountLaneBrowser({
+          config: accountLane.config,
+          openAssistantSession: accountLane.openAssistantSession,
+          openSeparateSession: accountLane.openSeparateSession,
+          openSession: accountLane.openSession,
+        }),
         lifecycleHandoff: accountLane.lifecycleHandoff,
+        passkeys: accountLane.passkeys,
         previewLogs: accountLane.previewLogs,
         rateBudget: accountLane.rateBudget,
-        run: accountLane.run,
-        session: accountLane.session,
+        signInReturns,
       });
       const selected = cases.find((testCase) => testCase.id === caseId);
       if (!selected) {
@@ -231,7 +353,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                 );
               },
             }),
-            id: "checks profile re-entry and unsaved navigation",
+            id: "verify-profile-navigation",
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
           {
@@ -267,7 +389,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                 });
               },
             }),
-            id: "checks reservation existing customer card",
+            id: "verify-reservation-existing-customer-card",
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
         ];
@@ -287,13 +409,13 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                   accountLane.config.baseUrl
                 ),
             }),
-            id: "switches locale from the profile without the error page",
+            id: "switch-profile-locale",
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
         ];
       } else if (caseId === "account-reservation-transitions") {
-        const readAccountReservationCustomerId = Effect.fn(
-          "readAccountReservationCustomerId"
+        const readAccountReservationUserId = Effect.fn(
+          "readAccountReservationUserId"
         )(function* () {
           const recipient = makeWorkspaceE2EAccountRecipient(
             accountLane.config,
@@ -309,6 +431,12 @@ for (const caseId of workspaceE2EAccountCaseIds) {
               }
             );
           }
+          return customerAccountIdSchema.make(userId);
+        });
+        const readAccountReservationCustomerId = Effect.fn(
+          "readAccountReservationCustomerId"
+        )(function* () {
+          const userId = yield* readAccountReservationUserId();
           const customerId = yield* findLinkedDotyposCustomerId(userId);
           if (!customerId) {
             return yield* workspaceE2EError(
@@ -366,7 +494,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                   ),
               });
             }),
-            id: "checks account layout navigation",
+            id: "verify-account-layout-navigation",
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
           {
@@ -381,7 +509,26 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                 reviewScreenshots: accountLane.config.review.screenshots,
               });
             }),
-            id: "checks account marketing preferences",
+            id: "verify-account-marketing-preferences",
+            timeoutMs: workspaceE2ETimeouts.providerTransition,
+          },
+          {
+            execute: Effect.gen(function* () {
+              const sessionSecret = yield* tryWorkspaceE2ESync(
+                "configure workspace e2e session seeding",
+                () => resolveWorkspaceE2ESessionSigningSecret(environment)
+              );
+              yield* verifyWorkspaceE2EAnalyticsPreference({
+                accountId: yield* readAccountReservationUserId(),
+                baseUrl: accountLane.config.baseUrl,
+                bypassSecret: accountLane.config.bypassSecret,
+                openDevice: accountLane.openSeparateSession(
+                  "analytics-preference-device"
+                ),
+                sessionSecret,
+              });
+            }),
+            id: "verify-account-analytics-preference",
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
           {
@@ -429,7 +576,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                   })
               );
             }),
-            id: "checks reservation history navigation and access privacy",
+            id: "verify-reservation-history-navigation",
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
         ];
@@ -438,8 +585,6 @@ for (const caseId of workspaceE2EAccountCaseIds) {
         runEffect(
           runWorkspaceE2EAccountCase({
             journalRef: accountLane.journalRef,
-            reportFailure: writeWorkspaceE2EFailureAnnotation,
-            session: accountLane.session,
             testCase: selected,
             ...(verifyPages ? { verifyPages } : {}),
           })
@@ -459,10 +604,31 @@ for (const caseId of workspaceE2EAccountCaseIds) {
         if (!page) throw new Error(accountReviewCaptureFailureMessage);
         await withSignInPendingReview(page, accountLane.config.review, runCase);
       } else if (caseId === "account-magic-link-delivery") {
+        // The link the lane tab requested from its cowork selection returns
+        // there, so its callback shows the returning signed-in copy first.
         await withCallbackHandoffReview(
           getOwnedPage(),
           accountLane.config.review,
-          runCase
+          runCase,
+          {
+            locale: signInReturns.sameBrowser.locale,
+            returnTo: signInReturns.sameBrowser.returnTo,
+            reviewTarget: "callback-signed-in-desktop",
+          }
+        );
+      } else if (caseId === "account-deletion-and-reactivation") {
+        // The lane browser opens the link the assistant's browser requested,
+        // so its callback shows the signed-in copy before it leaves for the
+        // selection; the hold proves that on every pass.
+        await withCallbackHandoffReview(
+          getOwnedPage(),
+          accountLane.config.review,
+          runCase,
+          {
+            locale: signInReturns.assistant.locale,
+            returnTo: signInReturns.assistant.returnTo,
+            reviewTarget: "callback-signed-in-cs-desktop",
+          }
         );
       } else if (caseId === "account-locale-preference") {
         await withLanguagePreferenceReview(

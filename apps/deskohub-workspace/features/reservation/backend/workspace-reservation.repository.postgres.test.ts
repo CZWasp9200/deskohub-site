@@ -2,10 +2,9 @@ import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+  type DotyposCustomerId,
   DotyposCustomerIdSchema,
-  DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
-import { EmailDeliveryIdSchema } from "@deskohub/email";
 import {
   AlgoPinSchema,
   IgloohomeDeviceIdSchema,
@@ -13,25 +12,32 @@ import {
 } from "@deskohub/igloohome";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
 import {
-  latePaymentRecoveries,
+  customerEvents,
   paymentAttempts,
   reservationAccessGrants,
   workspaceReservations,
 } from "@/db/schema";
 import {
   checkoutAttemptKeySchema,
+  checkoutSessionKeySchema,
   type PaymentAttemptId,
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { recordCustomerEvent } from "@/shared/backend/customer-events/customer-event-outbox";
+import { rejectCustomerEventInserts } from "@/shared/backend/customer-events/customer-event-outbox.test-utils";
+import { ReadLimitExceededError } from "@/shared/backend/read-limit";
 import {
-  type WorkspaceReservationId,
-  workspaceReservationIdSchema,
-} from "@/features/reservation/persistence-contracts";
+  fixtureReservationAuthorId,
+  type ReservationFixtureInput,
+  type ReservationFixtureStage,
+  workspaceFixtures,
+} from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
-  fulfillmentEmailFailureCode,
   WorkspaceReservationRepository,
   WorkspaceReservationStateError,
 } from "./workspace-reservation.repository";
@@ -42,7 +48,6 @@ const testDatabase = await connectWorkspacePostgresTestDatabase();
 // expired-hold selects only reach rows this file inserted.
 const at = (minutes: number) =>
   Temporal.Instant.from("1990-01-01T12:00:00Z").add({ minutes });
-const paid = { paymentState: "paid", paidAt: at(0) } as const;
 
 describe.skipIf(!testDatabase)(
   "WorkspaceReservationRepository state guards on disposable Postgres",
@@ -87,34 +92,23 @@ describe.skipIf(!testDatabase)(
       ) => Effect.Effect<A, E>
     ) => run((repository) => Effect.flip(operation(repository)));
 
-    /** Inserts a synthetic held, unpaid reservation with the given overrides. */
+    /**
+     * Inserts a synthetic reservation, held and unpaid unless the stage says
+     * otherwise, whose events happened at `at(0)`. Whatever its stage, its
+     * hold expires at `at(0)` unless the overrides say otherwise.
+     */
     const insertReservation = async (
-      values: Partial<typeof workspaceReservations.$inferInsert> = {}
+      stage: Partial<ReservationFixtureStage> = {},
+      overrides: ReservationFixtureInput["overrides"] = {}
     ) => {
-      const key = crypto.randomUUID();
-      const id = workspaceReservationIdSchema.make(`reservation-${key}`);
-      reservationIds.push(id);
-      await Effect.runPromise(
-        testDatabase.db.insert(workspaceReservations).values({
-          id,
-          checkoutAttemptKey: checkoutAttemptKeySchema.make(`attempt-${key}`),
-          dotyposCustomerId: DotyposCustomerIdSchema.make(`customer-${key}`),
-          dotyposReservationId: DotyposReservationIdSchema.make(
-            `dotypos-reservation-${key}`
-          ),
-          reservationState: "held",
-          paymentState: "not_started",
-          fulfillmentState: "not_started",
-          reservationHoldExpiresAt: at(0),
-          reservationDetails: {
-            kind: "cowork",
-            entryTier: "basic",
-            coffee: false,
-          },
-          locale: "en-US",
-          ...values,
+      const { id } = await Effect.runPromise(
+        workspaceFixtures(testDatabase.db).reservation({
+          stage: { reservation: "held", ...stage },
+          at: at(0),
+          overrides: { reservationHoldExpiresAt: at(0), ...overrides },
         })
       );
+      reservationIds.push(id);
       return id;
     };
 
@@ -147,30 +141,6 @@ describe.skipIf(!testDatabase)(
       return id;
     };
 
-    const insertLatePaymentRecovery = async (
-      reservationId: WorkspaceReservationId,
-      paymentAttemptId: PaymentAttemptId,
-      state: "pending" | "recovered"
-    ) => {
-      await Effect.runPromise(
-        testDatabase.db.insert(latePaymentRecoveries).values({
-          paymentAttemptId,
-          workspaceReservationId: reservationId,
-          state,
-          originalDotyposReservationId: DotyposReservationIdSchema.make(
-            `dotypos-original-${crypto.randomUUID()}`
-          ),
-          verifiedPaidAt: at(0),
-          ...(state === "recovered" && {
-            completedAt: at(1),
-            recoveredDotyposReservationId: DotyposReservationIdSchema.make(
-              `dotypos-recovered-${crypto.randomUUID()}`
-            ),
-          }),
-        })
-      );
-    };
-
     const readReservation = async (id: WorkspaceReservationId) => {
       const [reservation] = await Effect.runPromise(
         testDatabase.db
@@ -191,22 +161,73 @@ describe.skipIf(!testDatabase)(
       return attempt;
     };
 
+    describe("payment return target", () => {
+      test("stores the last submission's app, clears it, and leaves updatedAt alone", async () => {
+        const id = await insertReservation();
+        const before = await readReservation(id);
+
+        expect(
+          await run((repository) => repository.findPaymentReturnTarget(id))
+        ).toBeUndefined();
+
+        for (const paymentReturnTarget of ["native-app", "web-app"] as const) {
+          await run((repository) =>
+            repository.recordPaymentReturnTarget({ id, paymentReturnTarget })
+          );
+          expect(
+            await run((repository) => repository.findPaymentReturnTarget(id))
+          ).toBe(paymentReturnTarget);
+        }
+
+        await run((repository) =>
+          repository.recordPaymentReturnTarget({
+            id,
+            paymentReturnTarget: undefined,
+          })
+        );
+        const after = await readReservation(id);
+        expect(after?.paymentReturnTarget).toBeNull();
+        expect(after?.updatedAt).toEqual(before?.updatedAt);
+      });
+
+      test("finds no target for an unknown reservation", async () => {
+        expect(
+          await run((repository) =>
+            repository.findPaymentReturnTarget(
+              "missing-reservation" as WorkspaceReservationId
+            )
+          )
+        ).toBeUndefined();
+      });
+
+      test("refuses a stored target outside the allowlist", async () => {
+        const id = await insertReservation();
+
+        await expect(
+          testDatabase.pool.query(
+            "update workspace_reservations set payment_return_target = $2 where id = $1",
+            [id, "https://elsewhere.test"]
+          )
+        ).rejects.toThrow("workspace_reservations_payment_return_target_check");
+      });
+    });
+
     describe("expired holds", () => {
       test("selects unpaid expired holds and queues holds with skipped cleanup behind fresh ones", async () => {
-        const skippedCleanup = await insertReservation({
-          paymentState: "failed",
-          reservationHoldExpiresAt: at(0),
-          reservationHoldExpiredAt: at(120),
-        });
-        const freshlyExpired = await insertReservation({
-          reservationHoldExpiresAt: at(60),
-        });
+        const skippedCleanup = await insertReservation(
+          { payment: "failed" },
+          { reservationHoldExpiredAt: at(120) }
+        );
+        const freshlyExpired = await insertReservation(
+          {},
+          { reservationHoldExpiresAt: at(60) }
+        );
         const fixtureIds = new Set([
           skippedCleanup,
           freshlyExpired,
-          await insertReservation({ ...paid }),
-          await insertReservation({ reservationHoldExpiresAt: at(240) }),
-          await insertReservation({ reservationState: "hold_expired" }),
+          await insertReservation({ payment: "paid" }),
+          await insertReservation({}, { reservationHoldExpiresAt: at(240) }),
+          await insertReservation({ reservation: "hold_expired" }),
         ]);
 
         const holds = await run((repository) =>
@@ -230,17 +251,17 @@ describe.skipIf(!testDatabase)(
           "cancelled",
           "expired",
         ] as const) {
-          const id = await insertReservation({ paymentState });
+          const id = await insertReservation({ payment: paymentState });
           expectedIds.push((await readReservation(id))?.dotyposReservationId);
         }
         const excludedIds = [];
-        for (const values of [
-          { paymentState: "pending" },
-          { ...paid },
-          { reservationHoldExpiresAt: at(240) },
-          { reservationState: "confirmed" },
+        for (const [stage, overrides] of [
+          [{ payment: "pending" }, {}],
+          [{ payment: "paid" }, {}],
+          [{}, { reservationHoldExpiresAt: at(240) }],
+          [{ reservation: "confirmed" }, {}],
         ] as const) {
-          const id = await insertReservation(values);
+          const id = await insertReservation(stage, overrides);
           excludedIds.push((await readReservation(id))?.dotyposReservationId);
         }
 
@@ -272,16 +293,21 @@ describe.skipIf(!testDatabase)(
       });
 
       test.each([
-        ["a paid hold", { ...paid }],
-        ["a hold that has not expired", { reservationHoldExpiresAt: at(60) }],
+        ["a paid hold", { payment: "paid" }, {}],
+        [
+          "a hold that has not expired",
+          {},
+          { reservationHoldExpiresAt: at(60) },
+        ],
         [
           "a reservation that is no longer held",
-          { reservationState: "confirmed" },
+          { reservation: "confirmed" },
+          {},
         ],
       ] as const)(
         "refuses to record a skipped cleanup on %s",
-        async (_label, values) => {
-          const id = await insertReservation(values);
+        async (_label, stage, overrides) => {
+          const id = await insertReservation(stage, overrides);
 
           const error = await runFailure((repository) =>
             repository.recordHoldCleanupSkipped({
@@ -299,278 +325,60 @@ describe.skipIf(!testDatabase)(
       );
     });
 
-    describe("paid fulfillment", () => {
-      const claim = (id: WorkspaceReservationId) =>
-        run((repository) =>
-          repository.claimPaidFulfillment({
-            id,
-            staleProcessingBefore: at(10),
-          })
-        );
-
-      test.each([
-        ["a held booking not yet fulfilled", { ...paid }],
-        [
-          "a confirmed booking whose fulfillment failed",
-          {
-            ...paid,
-            reservationState: "confirmed",
-            fulfillmentState: "failed",
-            fulfillmentFailedAt: at(1),
-            fulfillmentFailureCode: fulfillmentEmailFailureCode,
-          },
-        ],
-        [
-          "a stale processing claim",
-          { ...paid, fulfillmentState: "processing", updatedAt: at(0) },
-        ],
-      ] as const)("claims %s", async (_label, values) => {
-        const id = await insertReservation(values);
-
-        const claimed = await claim(id);
-
-        expect(claimed?.id).toBe(id);
-        expect((await readReservation(id))?.fulfillmentState).toBe(
-          "processing"
-        );
-      });
-
-      test.each([
-        ["an unpaid booking", { paymentState: "pending" }],
-        ["a cancelled booking", { ...paid, reservationState: "cancelled" }],
-        [
-          "a fresh processing claim",
-          { ...paid, fulfillmentState: "processing" },
-        ],
-        [
-          "a fulfilled booking",
-          { ...paid, fulfillmentState: "fulfilled", fulfilledAt: at(1) },
-        ],
-      ] as const)("does not claim %s", async (_label, values) => {
-        const id = await insertReservation(values);
-
-        expect(await claim(id)).toBeNull();
-        expect((await readReservation(id))?.fulfillmentState).toBe(
-          values.fulfillmentState ?? "not_started"
-        );
-      });
-
-      test("leaves an active attempt under late-payment recovery to that recovery", async () => {
-        const underRecovery = await insertReservation({ ...paid });
-        await insertLatePaymentRecovery(
-          underRecovery,
-          await insertActivePaymentAttempt(underRecovery),
-          "pending"
-        );
-        const recovered = await insertReservation({ ...paid });
-        await insertLatePaymentRecovery(
-          recovered,
-          await insertActivePaymentAttempt(recovered),
-          "recovered"
-        );
-
-        expect(await claim(underRecovery)).toBeNull();
-        expect((await claim(recovered))?.id).toBe(recovered);
-      });
-
-      test("marks only a processing paid booking fulfilled", async () => {
-        const processing = await insertReservation({
-          ...paid,
-          fulfillmentState: "processing",
+    describe("draft creation", () => {
+      test("dies when the insert conflicts with a row neither lookup finds", async () => {
+        const conflictingId = await insertReservation({
+          reservation: "cancelled",
         });
-        const failed = await insertReservation({
-          ...paid,
-          fulfillmentState: "failed",
-          fulfillmentFailedAt: at(1),
-          fulfillmentFailureCode: "provider_unavailable",
-        });
-
-        const customerEmailDeliveryId =
-          EmailDeliveryIdSchema.make("accepted-delivery");
-        await run((repository) =>
-          repository.markFulfilled({
-            id: processing,
-            fulfilledAt: at(2),
-            customerEmailDeliveryId,
-          })
-        );
-        const error = await runFailure((repository) =>
-          repository.markFulfilled({
-            id: failed,
-            fulfilledAt: at(2),
-            customerEmailDeliveryId,
-          })
+        const conflicting = await readReservation(conflictingId);
+        const sessionKey = checkoutSessionKeySchema.make(
+          `session-${crypto.randomUUID()}`
         );
 
-        expect(await readReservation(processing)).toMatchObject({
-          fulfillmentState: "fulfilled",
-          fulfilledAt: at(2),
-        });
-        expect(error).toBeInstanceOf(WorkspaceReservationStateError);
-        expect(await readReservation(failed)).toMatchObject({
-          fulfillmentState: "failed",
-          fulfillmentFailureCode: "provider_unavailable",
-        });
-      });
-
-      test("replaces a superseded delivery so its stale webhook finds nothing", async () => {
-        const superseded = EmailDeliveryIdSchema.make(
-          `superseded-${crypto.randomUUID()}`
-        );
-        const recovered = EmailDeliveryIdSchema.make(
-          `console-recovered-${crypto.randomUUID()}`
-        );
-        const id = await insertReservation({
-          ...paid,
-          fulfillmentState: "processing",
-          activeCustomerEmailDeliveryId: superseded,
-        });
-
-        await run((repository) =>
-          repository.markFulfilled({
-            id,
-            fulfilledAt: at(2),
-            customerEmailDeliveryId: recovered,
-          })
+        const exit = await run((repository) =>
+          repository
+            .createDraft({
+              checkoutSessionKey: sessionKey,
+              checkoutAttemptKey: checkoutAttemptKeySchema.make(
+                conflicting?.checkoutAttemptKey ?? "missing-attempt"
+              ),
+              checkoutSessionLockKey: 4_242_424_242n,
+              acceptedCheckoutSessionKeys: [sessionKey],
+              acceptedCheckoutAttemptKeys: [
+                checkoutAttemptKeySchema.make(`attempt-${crypto.randomUUID()}`),
+              ],
+              dotyposCustomerId: DotyposCustomerIdSchema.make("customer-id"),
+              authorAccountId: fixtureReservationAuthorId,
+              reservationPurpose: "personal",
+              reservationDetails: {
+                kind: "cowork",
+                entryTier: "basic",
+                coffee: false,
+              },
+              locale: "en-US",
+            })
+            .pipe(Effect.exit)
         );
 
-        expect(await readReservation(id)).toMatchObject({
-          fulfillmentState: "fulfilled",
-          activeCustomerEmailDeliveryId: recovered,
-        });
-        expect(
-          await run((repository) =>
-            repository.findByActiveCustomerEmailDeliveryId(superseded)
-          )
-        ).toBeNull();
-        expect(
-          (
-            await run((repository) =>
-              repository.findByActiveCustomerEmailDeliveryId(recovered)
-            )
-          )?.id
-        ).toBe(id);
-      });
-    });
-
-    describe("fulfillment delivery outcomes", () => {
-      const markDeliveryFailed = (
-        id: WorkspaceReservationId,
-        failureCode = fulfillmentEmailFailureCode
-      ) =>
-        run((repository) =>
-          repository.markFulfillmentDeliveryFailed({
-            id,
-            failureCode,
-            failedAt: at(5),
-          })
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toBe(
+          "Workspace reservation insert returned no row."
         );
-
-      test.each([
-        ["a processing fulfillment", { fulfillmentState: "processing" }],
-        [
-          "an earlier fulfillment",
-          { fulfillmentState: "fulfilled", fulfilledAt: at(4) },
-        ],
-        [
-          "an earlier failure with the same code",
-          {
-            fulfillmentState: "failed",
-            fulfillmentFailedAt: at(4),
-            fulfillmentFailureCode: fulfillmentEmailFailureCode,
-          },
-        ],
-      ] as const)(
-        "records a delivery failure over %s",
-        async (_label, values) => {
-          const id = await insertReservation({ ...paid, ...values });
-
-          expect((await markDeliveryFailed(id))?.id).toBe(id);
-          expect(await readReservation(id)).toMatchObject({
-            fulfillmentState: "failed",
-            fulfilledAt: null,
-            fulfillmentFailedAt: at(5),
-            fulfillmentFailureCode: fulfillmentEmailFailureCode,
-          });
-        }
-      );
-
-      test.each([
-        [
-          "a fulfillment recorded at the same time",
-          { fulfillmentState: "fulfilled", fulfilledAt: at(5) },
-        ],
-        [
-          "a failure recorded at the same time",
-          {
-            fulfillmentState: "failed",
-            fulfillmentFailedAt: at(5),
-            fulfillmentFailureCode: fulfillmentEmailFailureCode,
-          },
-        ],
-        [
-          "an earlier failure with another code",
-          {
-            fulfillmentState: "failed",
-            fulfillmentFailedAt: at(4),
-            fulfillmentFailureCode: "provider_unavailable",
-          },
-        ],
-      ] as const)(
-        "keeps %s when a delivery failure arrives",
-        async (_label, values) => {
-          const id = await insertReservation({ ...paid, ...values });
-
-          expect(await markDeliveryFailed(id)).toBeNull();
-          expect(await readReservation(id)).toMatchObject(values);
-        }
-      );
-
-      test("recovers an email delivery failure only for a later verified delivery", async () => {
-        const emailFailure = {
-          ...paid,
-          fulfillmentState: "failed",
-          fulfillmentFailedAt: at(4),
-          fulfillmentFailureCode: fulfillmentEmailFailureCode,
-        } as const;
-        const recoverable = await insertReservation(emailFailure);
-        const sameInstant = await insertReservation({
-          ...emailFailure,
-          fulfillmentFailedAt: at(5),
-        });
-        const otherFailure = await insertReservation({
-          ...emailFailure,
-          fulfillmentFailureCode: "provider_unavailable",
-        });
-        const recover = (id: WorkspaceReservationId) =>
-          run((repository) =>
-            repository.recoverEmailDeliveryFailure({ id, deliveredAt: at(5) })
-          );
-
-        expect((await recover(recoverable))?.id).toBe(recoverable);
-        expect(await recover(sameInstant)).toBeNull();
-        expect(await recover(otherFailure)).toBeNull();
-        expect(await readReservation(recoverable)).toMatchObject({
-          fulfillmentState: "fulfilled",
-          fulfilledAt: at(5),
-          fulfillmentFailedAt: null,
-          fulfillmentFailureCode: null,
-        });
-        expect((await readReservation(sameInstant))?.fulfillmentState).toBe(
-          "failed"
+        const [sessionRow] = await Effect.runPromise(
+          testDatabase.db
+            .select({ id: workspaceReservations.id })
+            .from(workspaceReservations)
+            .where(eq(workspaceReservations.checkoutSessionKey, sessionKey))
         );
-        expect((await readReservation(otherFailure))?.fulfillmentState).toBe(
-          "failed"
-        );
+        expect(sessionRow).toBeUndefined();
       });
     });
 
     describe("administration cancellation", () => {
       const confirmedPaid = {
-        ...paid,
-        reservationState: "confirmed",
-        fulfillmentState: "fulfilled",
-        fulfilledAt: at(1),
+        reservation: "confirmed",
+        payment: "paid",
+        fulfillment: "fulfilled",
       } as const;
 
       const claimCancellation = (
@@ -600,42 +408,33 @@ describe.skipIf(!testDatabase)(
         );
       });
 
-      test.each([
-        ["payment is pending", { paymentState: "pending" }],
+      test.each<readonly [string, Partial<ReservationFixtureStage>]>([
+        ["payment is pending", { payment: "pending" }],
         [
           "fulfillment is processing",
-          { ...paid, fulfillmentState: "processing" },
+          { payment: "paid", fulfillment: "processing" },
         ],
         [
           "fulfillment awaits customer delivery",
-          {
-            ...paid,
-            fulfillmentState: "awaiting_delivery",
-            activeCustomerEmailDeliveryId: EmailDeliveryIdSchema.make(
-              `resend-${crypto.randomUUID()}`
-            ),
-          },
+          { payment: "paid", fulfillment: "awaiting_delivery" },
         ],
-        ["the booking is already cancelled", { reservationState: "cancelled" }],
-      ] as const)(
-        "does not claim a cancellation while %s",
-        async (_label, values) => {
-          const id = await insertReservation(values);
+        ["the booking is already cancelled", { reservation: "cancelled" }],
+      ])("does not claim a cancellation while %s", async (_label, stage) => {
+        const id = await insertReservation(stage);
 
-          expect(await claimCancellation(id)).toBeNull();
-          expect((await readReservation(id))?.reservationState).toBe(
-            values.reservationState ?? "held"
-          );
-        }
-      );
+        expect(await claimCancellation(id)).toBeNull();
+        expect((await readReservation(id))?.reservationState).toBe(
+          stage.reservation ?? "held"
+        );
+      });
 
       test("cancels the active pending payment attempt inside a forced payment cancellation", async () => {
-        const id = await insertReservation({ paymentState: "pending" });
+        const id = await insertReservation({ payment: "pending" });
         const paymentAttemptId = await insertActivePaymentAttempt(id, {
           state: "pending",
         });
         const otherAttemptReservation = await insertReservation({
-          paymentState: "pending",
+          payment: "pending",
         });
         await insertActivePaymentAttempt(otherAttemptReservation, {
           state: "pending",
@@ -667,6 +466,40 @@ describe.skipIf(!testDatabase)(
         expect(
           (await readReservation(otherAttemptReservation))?.paymentState
         ).toBe("pending");
+      });
+
+      test("fails and keeps the payment pending when its attempt can no longer be cancelled", async () => {
+        const id = await insertReservation({ payment: "pending" });
+        const paymentAttemptId = await insertActivePaymentAttempt(id, {
+          state: "failed",
+          failureCode: "provider_declined",
+        });
+
+        const error = await runFailure((repository) =>
+          repository.claimAdministrationCancellation({
+            id,
+            providerCredentialRemoved: false,
+            accessGrantUpdatedAt: null,
+            staleCancellingBefore: at(10),
+            pendingPaymentCancellation: {
+              paymentAttemptId,
+              failureCode: "provider_abandoned",
+            },
+          })
+        );
+
+        expect(error).toBeInstanceOf(WorkspaceReservationStateError);
+        expect(error).toMatchObject({
+          operation: "workspaceReservations.claimAdministrationCancellation",
+          reservationId: id,
+        });
+        expect(await readReservation(id)).toMatchObject({
+          reservationState: "held",
+          paymentState: "pending",
+        });
+        expect((await readPaymentAttempt(paymentAttemptId))?.state).toBe(
+          "failed"
+        );
       });
 
       test("expires a live access credential only once the provider removed it", async () => {
@@ -715,11 +548,10 @@ describe.skipIf(!testDatabase)(
 
       test("marks the claimed revision cancelled and requires a refund of its paid Nexi attempt", async () => {
         const claimedAt = at(5);
-        const id = await insertReservation({
-          ...confirmedPaid,
-          reservationState: "cancelling",
-          updatedAt: claimedAt,
-        });
+        const id = await insertReservation(
+          { ...confirmedPaid, reservation: "cancelling" },
+          { updatedAt: claimedAt }
+        );
         const nexiAttempt = await insertActivePaymentAttempt(id);
         const internalAttempt = await insertActivePaymentAttempt(id, {
           provider: "internal",
@@ -751,16 +583,14 @@ describe.skipIf(!testDatabase)(
 
       test("records a cancellation failure on the claimed revision only", async () => {
         const claimedAt = at(5);
-        const claimedRevision = await insertReservation({
-          ...confirmedPaid,
-          reservationState: "cancelling",
-          updatedAt: claimedAt,
-        });
-        const laterRevision = await insertReservation({
-          ...confirmedPaid,
-          reservationState: "cancelling",
-          updatedAt: at(7),
-        });
+        const claimedRevision = await insertReservation(
+          { ...confirmedPaid, reservation: "cancelling" },
+          { updatedAt: claimedAt }
+        );
+        const laterRevision = await insertReservation(
+          { ...confirmedPaid, reservation: "cancelling" },
+          { updatedAt: at(7) }
+        );
         const failure = {
           claimedAt,
           failureCode: "provider_rejected_cancellation",
@@ -790,11 +620,10 @@ describe.skipIf(!testDatabase)(
       });
 
       test("refuses to mark a stale claim cancelled", async () => {
-        const id = await insertReservation({
-          ...confirmedPaid,
-          reservationState: "cancelling",
-          updatedAt: at(7),
-        });
+        const id = await insertReservation(
+          { ...confirmedPaid, reservation: "cancelling" },
+          { updatedAt: at(7) }
+        );
         const attempt = await insertActivePaymentAttempt(id);
 
         const error = await runFailure((repository) =>
@@ -813,6 +642,288 @@ describe.skipIf(!testDatabase)(
         expect((await readPaymentAttempt(attempt))?.refundState).toBe(
           "not_required"
         );
+      });
+    });
+
+    describe("customer events", () => {
+      const readEvents = (id: WorkspaceReservationId) =>
+        Effect.runPromise(
+          testDatabase.db
+            .select({
+              kind: customerEvents.kind,
+              occurredAt: customerEvents.occurredAt,
+              dotyposCustomerId: customerEvents.dotyposCustomerId,
+            })
+            .from(customerEvents)
+            .where(eq(customerEvents.workspaceReservationId, id))
+        );
+
+      const processingPaid = {
+        payment: "paid",
+        fulfillment: "processing",
+      } as const;
+
+      const confirm = (id: WorkspaceReservationId) =>
+        run((repository) =>
+          repository.markReservationConfirmed({ id, confirmedAt: at(3) })
+        );
+
+      test("records one booked event with the confirmation, even when retried", async () => {
+        const id = await insertReservation(processingPaid);
+        const customerId = (await readReservation(id))?.dotyposCustomerId;
+
+        await confirm(id);
+        const retry = await runFailure((repository) =>
+          repository.markReservationConfirmed({ id, confirmedAt: at(4) })
+        );
+        await Effect.runPromise(
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(
+              recordCustomerEvent({
+                kind: "reservation-booked",
+                occurredAt: at(4),
+                dotyposCustomerId: customerId!,
+                workspaceReservationId: id,
+              })
+            )
+          ).pipe(Effect.provide(testDatabase.layer))
+        );
+
+        expect(retry).toBeInstanceOf(WorkspaceReservationStateError);
+        expect(await readEvents(id)).toEqual([
+          {
+            kind: "reservation-booked",
+            occurredAt: at(3),
+            dotyposCustomerId: customerId!,
+          },
+        ]);
+      });
+
+      test("rolls the confirmation back with a failed event write", async () => {
+        const id = await insertReservation(processingPaid);
+        const cleanup = await rejectCustomerEventInserts(
+          testDatabase.pool,
+          `new.workspace_reservation_id = '${id}'`
+        );
+        const failure = await runFailure((repository) =>
+          repository.markReservationConfirmed({ id, confirmedAt: at(3) })
+        ).finally(cleanup);
+
+        expect(failure).not.toBeInstanceOf(WorkspaceReservationStateError);
+        expect(await readReservation(id)).toMatchObject({
+          reservationState: "held",
+          reservationConfirmedAt: null,
+        });
+        expect(await readEvents(id)).toEqual([]);
+      });
+
+      test("records a cancelled event only for an administration cancellation of a confirmed booking", async () => {
+        const claimedAt = at(5);
+        const cancelling = {
+          reservation: "cancelling",
+          payment: "paid",
+          fulfillment: "fulfilled",
+        } as const;
+        const confirmed = await insertReservation(cancelling, {
+          updatedAt: claimedAt,
+          reservationConfirmedAt: at(1),
+        });
+        const unconfirmed = await insertReservation(cancelling, {
+          updatedAt: claimedAt,
+        });
+        const cancel = (id: WorkspaceReservationId) =>
+          run((repository) =>
+            repository.markAdministrationCancelled({
+              id,
+              cancelledAt: at(6),
+              claimedAt,
+              failureCode: "operator_cancelled",
+            })
+          );
+
+        await cancel(confirmed);
+        await cancel(unconfirmed);
+
+        expect(await readEvents(confirmed)).toEqual([
+          {
+            kind: "reservation-cancelled",
+            occurredAt: at(6),
+            dotyposCustomerId: (await readReservation(confirmed))!
+              .dotyposCustomerId,
+          },
+        ]);
+        expect(await readEvents(unconfirmed)).toEqual([]);
+      });
+
+      test("rolls the administration cancellation back with a failed event write", async () => {
+        const claimedAt = at(5);
+        const id = await insertReservation(
+          {
+            reservation: "cancelling",
+            payment: "paid",
+            fulfillment: "fulfilled",
+          },
+          { updatedAt: claimedAt, reservationConfirmedAt: at(1) }
+        );
+        const cleanup = await rejectCustomerEventInserts(
+          testDatabase.pool,
+          `new.workspace_reservation_id = '${id}'`
+        );
+        const failure = await runFailure((repository) =>
+          repository.markAdministrationCancelled({
+            id,
+            cancelledAt: at(6),
+            claimedAt,
+            failureCode: "operator_cancelled",
+          })
+        ).finally(cleanup);
+
+        expect(failure).not.toBeInstanceOf(WorkspaceReservationStateError);
+        expect(await readReservation(id)).toMatchObject({
+          reservationState: "cancelling",
+          reservationCancelledAt: null,
+        });
+        expect(await readEvents(id)).toEqual([]);
+      });
+
+      test("records nothing for an unpaid cancellation or a supersession", async () => {
+        const unpaid = await insertReservation({ reservation: "cancelling" });
+        const superseded = await insertReservation({
+          reservation: "cancelling",
+          payment: "failed",
+        });
+        const replacementKey = crypto.randomUUID();
+
+        await run((repository) =>
+          repository.markCancelled({ id: unpaid, cancelledAt: at(2) })
+        );
+        const replacement = await run((repository) =>
+          repository.completeSupersessionAndCreateDraft({
+            cancelledReservationId: superseded,
+            cancelledAt: at(2),
+            replacement: {
+              checkoutSessionKey: checkoutSessionKeySchema.make(
+                `session-${replacementKey}`
+              ),
+              checkoutAttemptKey: checkoutAttemptKeySchema.make(
+                `attempt-${replacementKey}`
+              ),
+              dotyposCustomerId: DotyposCustomerIdSchema.make(
+                `customer-${replacementKey}`
+              ),
+              authorAccountId: fixtureReservationAuthorId,
+              reservationPurpose: "personal",
+              reservationDetails: {
+                kind: "cowork",
+                entryTier: "basic",
+                coffee: false,
+              },
+              locale: "en-US",
+            },
+          })
+        );
+        reservationIds.push(replacement.id);
+
+        expect((await readReservation(unpaid))?.reservationState).toBe(
+          "cancelled"
+        );
+        expect((await readReservation(superseded))?.reservationState).toBe(
+          "cancelled"
+        );
+        for (const id of [unpaid, superseded, replacement.id]) {
+          expect(await readEvents(id)).toEqual([]);
+        }
+      });
+    });
+
+    describe("customer reservations", () => {
+      const insertCustomerReservation = async (input: {
+        readonly customer: DotyposCustomerId;
+        readonly createdAt: Temporal.Instant;
+      }) => {
+        const { id } = await Effect.runPromise(
+          workspaceFixtures(testDatabase.db).reservation({
+            stage: { reservation: "confirmed", payment: "paid" },
+            customer: input.customer,
+            at: at(0),
+            overrides: { createdAt: input.createdAt },
+          })
+        );
+        reservationIds.push(id);
+        return id;
+      };
+
+      test("lists only the customer's reservations, oldest first, with the allowlisted fields", async () => {
+        const customer = DotyposCustomerIdSchema.make(crypto.randomUUID());
+        const otherCustomer = DotyposCustomerIdSchema.make(crypto.randomUUID());
+        const later = await insertCustomerReservation({
+          customer,
+          createdAt: at(2),
+        });
+        const earlier = await insertCustomerReservation({
+          customer,
+          createdAt: at(1),
+        });
+        // The same fixture author books for another customer.
+        await insertCustomerReservation({
+          customer: otherCustomer,
+          createdAt: at(0),
+        });
+
+        const records = await run((repository) =>
+          repository.listForCustomer({ dotyposCustomerId: customer, limit: 2 })
+        );
+
+        expect(records.map((record) => record.id)).toEqual([earlier, later]);
+        expect(Object.keys(records[0] ?? {}).toSorted()).toEqual(
+          [
+            "dotyposReservationId",
+            "fulfilledAt",
+            "fulfillmentState",
+            "id",
+            "locale",
+            "paidAt",
+            "paymentState",
+            "product",
+            "reservationCancelledAt",
+            "reservationConfirmedAt",
+            "reservationCreatedAt",
+            "reservationPurpose",
+            "reservationState",
+          ].toSorted()
+        );
+        expect(records[0]?.product.kind).toBe("cowork");
+      });
+
+      test("fails rather than return part of a list over its limit", async () => {
+        const customer = DotyposCustomerIdSchema.make(crypto.randomUUID());
+        await insertCustomerReservation({ customer, createdAt: at(1) });
+        await insertCustomerReservation({ customer, createdAt: at(2) });
+
+        const error = await runFailure((repository) =>
+          repository.listForCustomer({ dotyposCustomerId: customer, limit: 1 })
+        );
+
+        expect(error).toEqual(new ReadLimitExceededError({ limit: 1 }));
+      });
+
+      test("fails on a malformed stored product document", async () => {
+        const customer = DotyposCustomerIdSchema.make(crypto.randomUUID());
+        const id = await insertCustomerReservation({
+          customer,
+          createdAt: at(1),
+        });
+        // Malformed documents only reach the table outside the encoder.
+        await testDatabase.pool.query(
+          "update workspace_reservations set reservation_details = $1::jsonb where id = $2",
+          [JSON.stringify({ kind: "office", seats: 2, unknownField: true }), id]
+        );
+
+        const error = await runFailure((repository) =>
+          repository.listForCustomer({ dotyposCustomerId: customer, limit: 5 })
+        );
+
+        expect(error._tag).toBe("WorkspaceReservationDetailsMalformedError");
       });
     });
   }

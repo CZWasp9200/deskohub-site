@@ -2,12 +2,8 @@
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { useMemo } from "react";
-import { useForm, useWatch } from "react-hook-form";
-import {
-  type AdvertisedPrice,
-  isMeetingRoomAdvertisedPrice,
-  type PreloadedAdvertisedPrice,
-} from "@/features/checkout/advertised-price";
+import { useForm } from "react-hook-form";
+import type { PreloadedAdvertisedPrice } from "@/features/checkout/advertised-price";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import { workspaceMeetingRoomCatalog } from "@/features/checkout/product-catalog";
 import {
@@ -15,10 +11,12 @@ import {
   getWorkspaceMeetingRoomDurationTitle,
 } from "@/features/checkout/product-catalog.i18n";
 import type { CanonicalPromotionCode } from "@/features/discounts";
-import { type Locale, m } from "@/features/i18n";
+import { defaultPhoneRegion, type Locale, m } from "@/features/i18n";
+import { MeetingRoomEarlySetupField } from "@/features/meeting-room/components/meeting-room-early-setup-field";
+import { MeetingRoomStartTimeOptions } from "@/features/meeting-room/components/meeting-room-start-time-options";
 import { ReservationAdvertisedPrice } from "@/features/reservation/components/reservation-advertised-price";
 import { ReservationCheckoutForm } from "@/features/reservation/components/reservation-checkout-form";
-import { ReservationFormDateTimePicker } from "@/features/reservation/components/reservation-date-time-picker";
+import { ReservationFormDateTimeInput } from "@/features/reservation/components/reservation-date-time-input";
 import {
   ReservationCustomerFieldsFallback,
   ReservationFormFallback,
@@ -32,9 +30,17 @@ import {
   reservationTypeInputLayout,
   reservationTypeOptionLayout,
 } from "@/features/reservation/components/reservation-type-input";
-import { useAdvertisedPrices } from "@/features/reservation/components/use-advertised-price";
+import { useAdvertisedOptionPrices } from "@/features/reservation/components/use-advertised-option-prices";
 import { useReservationAvailability } from "@/features/reservation/components/use-reservation-availability";
-import { getMeetingRoomDurationAdvertisedPriceRequests } from "@/features/reservation/meeting-room-advertised-price";
+import {
+  useReservationSelectionUrl,
+  useWatchedSelection,
+} from "@/features/reservation/components/use-reservation-selection-url";
+import {
+  findMeetingRoomDurationAdvertisedPriceRequest,
+  getMeetingRoomDurationAdvertisedPriceRequests,
+  meetingRoomDurationOptions,
+} from "@/features/reservation/meeting-room-advertised-price";
 import {
   getMeetingRoomReservationDefaultValues,
   getMeetingRoomReservationOrder,
@@ -48,13 +54,15 @@ import {
   getMeetingRoomReservationDuration,
   getMeetingRoomReservationDurationKey,
   isMeetingRoomWholeDayReservationDuration,
-  type MeetingRoomReservationDurationKey,
 } from "@/features/reservation/meeting-room-reservation-duration";
 import {
   getEarliestMeetingRoomStartDateTime,
+  getMeetingRoomReservationDate,
   getMeetingRoomReservationInterval,
 } from "@/features/reservation/meeting-room-reservation-time";
-import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
+import { meetingRoomSelectionLink } from "@/features/reservation/meeting-room-selection-link";
+import { getReservationCheckoutAvailability } from "@/features/reservation/reservation.i18n";
+import type { ReservationCheckoutCustomerForm } from "@/features/reservation/reservation-existing-customer";
 import {
   getMeetingRoomSelectionAvailabilityQuery,
   isMeetingRoomAvailable,
@@ -67,10 +75,12 @@ import {
   FormMessage,
 } from "@/shared/components/ui/form";
 import { cn } from "@/shared/utils";
+import { getMeetingRoomReservationSelectionSummary } from "./meeting-room-reservation-selection-summary";
+import { useMeetingRoomEarlySetup } from "./use-meeting-room-early-setup";
 
 type MeetingRoomReservationFormProps = {
   readonly checkoutSessionId?: CheckoutSessionId;
-  readonly existingCustomer?: ReservationExistingCustomerForm;
+  readonly checkoutCustomer: ReservationCheckoutCustomerForm;
   readonly initialAdvertisedPrices?: ReadonlyArray<PreloadedAdvertisedPrice>;
   readonly initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
   readonly initialReservation?: NormalizedMeetingRoomReservationOrder;
@@ -88,7 +98,7 @@ type MeetingRoomReservationFormFallbackProps = {
 
 export function MeetingRoomReservationForm({
   checkoutSessionId,
-  existingCustomer,
+  checkoutCustomer,
   initialAdvertisedPrices = [],
   initialAvailability,
   initialReservation,
@@ -107,15 +117,20 @@ export function MeetingRoomReservationForm({
     unknown,
     MeetingRoomReservationData
   >({
-    resolver: effectSchemaResolver(meetingRoomReservationSchema),
+    resolver: effectSchemaResolver(
+      meetingRoomReservationSchema(defaultPhoneRegion(locale))
+    ),
     defaultValues,
     mode: "onBlur",
     reValidateMode: "onChange",
   });
-  const [selectedStartDateTime, selectedDurationKey] = useWatch({
-    control: form.control,
-    name: ["startDateTime", "duration"],
-  });
+  const selection = useWatchedSelection(meetingRoomSelectionLink, form.control);
+  const {
+    startDateTime: selectedStartDateTime,
+    duration: selectedDurationKey,
+    earlySetup,
+  } = selection;
+  useReservationSelectionUrl(meetingRoomSelectionLink, selection);
   const selectedDuration =
     getMeetingRoomReservationDuration(selectedDurationKey);
   const isWholeDaySelected =
@@ -141,18 +156,24 @@ export function MeetingRoomReservationForm({
     { debounceMs: 250, initialAvailability, replacementToken }
   );
   const { availability } = availabilityQueryResult;
-  const isSelectedReservationUnavailable = Boolean(
+  const unavailableInterval =
     selectedInterval && availability && !isMeetingRoomAvailable(availability)
-  );
-  const availabilityMessage = isSelectedReservationUnavailable
-    ? m.reservationMeetingRoomUnavailable({}, { locale })
-    : undefined;
-  const availabilityErrorMessage =
-    availabilityQuery &&
-    availabilityQueryResult.isError &&
-    !availabilityQueryResult.isPending
-      ? m.reservationAvailabilityError({}, { locale })
+      ? selectedInterval
       : undefined;
+  const {
+    availability: earlySetupAvailability,
+    startTimes,
+    startTimesQuery,
+  } = useMeetingRoomEarlySetup({
+    earlySetup,
+    form,
+    replacementToken,
+    selectedInterval,
+    selection: {
+      duration: selectedDurationKey,
+      startDateTime: selectedStartDateTime,
+    },
+  });
   const advertisedPriceRequests = useMemo(
     () =>
       getMeetingRoomDurationAdvertisedPriceRequests({
@@ -162,101 +183,81 @@ export function MeetingRoomReservationForm({
       }),
     [locale, selectedStartDateTime, submittedCode]
   );
-  const advertisedPriceQueryResults = useAdvertisedPrices(
-    advertisedPriceRequests,
-    initialAdvertisedPrices
-  );
-  const advertisedPricesByDuration = new Map<
-    MeetingRoomReservationDurationKey,
-    Extract<AdvertisedPrice, { readonly kind: "meeting-room" }>
-  >();
-
-  for (const [index, queryResult] of advertisedPriceQueryResults.entries()) {
-    const request = advertisedPriceRequests[index];
-    if (
-      request &&
-      !queryResult.isError &&
-      queryResult.data &&
-      isMeetingRoomAdvertisedPrice(queryResult.data)
-    ) {
-      advertisedPricesByDuration.set(
-        getMeetingRoomReservationDurationKey(
-          request.reservation.details.duration
-        ),
-        queryResult.data
-      );
-    }
-  }
-
-  const selectedAdvertisedPriceIndex = advertisedPriceRequests.findIndex(
-    ({ reservation }) =>
-      getMeetingRoomReservationDurationKey(reservation.details.duration) ===
+  const advertisedPrices = useAdvertisedOptionPrices({
+    family: meetingRoomDurationOptions,
+    initialAdvertisedPrices,
+    productLabel: getWorkspaceMeetingRoomDurationTitle(
+      selectedDuration,
+      locale
+    ),
+    requests: advertisedPriceRequests,
+    selected: findMeetingRoomDurationAdvertisedPriceRequest(
+      advertisedPriceRequests,
       selectedDurationKey
-  );
-  const advertisedPriceQueryResult =
-    advertisedPriceQueryResults[selectedAdvertisedPriceIndex];
-  const advertisedPrice =
-    advertisedPricesByDuration.get(selectedDurationKey) ?? null;
+    ),
+  });
 
   return (
     <ReservationCheckoutForm
-      existingCustomer={existingCustomer}
-      advertisedPrice={{
-        token: advertisedPrice?.advertisedPriceToken,
-        isFetching: advertisedPriceQueryResult?.isFetching ?? false,
-        isError: advertisedPriceQueryResult?.isError ?? false,
-        retry: () => void advertisedPriceQueryResult?.refetch(),
-        sale: advertisedPrice
-          ? {
-              discounts: advertisedPrice.quote.payment.discounts,
-              productLabel: getWorkspaceMeetingRoomDurationTitle(
-                selectedDuration,
-                locale
-              ),
-            }
-          : undefined,
-      }}
-      availability={{
+      checkoutCustomer={checkoutCustomer}
+      advertisedPrice={advertisedPrices.checkout}
+      availability={getReservationCheckoutAvailability({
+        isError: availabilityQueryResult.isError,
         isPending: availabilityQueryResult.isPending,
-        unavailableMessage: availabilityMessage ?? availabilityErrorMessage,
-      }}
+        locale,
+        unavailable: unavailableInterval && {
+          date: getMeetingRoomReservationDate(unavailableInterval),
+          reservation: { kind: "meeting-room" },
+        },
+      })}
       checkoutSessionId={checkoutSessionId}
       form={form}
       getReservation={getMeetingRoomReservationOrder}
       locale={locale}
+      selectionSummary={getMeetingRoomReservationSelectionSummary(
+        {
+          durationKey: selectedDurationKey,
+          startDateTime: selectedStartDateTime,
+        },
+        locale
+      )}
+      selection={{
+        kind: meetingRoomSelectionLink.kind,
+        fromSearchParams: (searchParams) =>
+          meetingRoomSelectionLink.readSelection(searchParams, { locale }),
+      }}
     >
       <FormField
         control={form.control}
         name="startDateTime"
-        render={({ field, fieldState }) => (
+        render={({ field }) => (
           <FormItem>
             <ReservationFormLabel required>
               {isWholeDaySelected
                 ? m.reservationDateLabel({}, { locale })
                 : m.reservationMeetingRoomStartLabel({}, { locale })}
             </ReservationFormLabel>
-            <ReservationFormDateTimePicker
-              className={
-                isWholeDaySelected
-                  ? "grid-cols-1"
-                  : "grid-cols-1 sm:grid-cols-2"
-              }
+            <ReservationFormDateTimeInput
+              {...field}
+              className="sm:grid-cols-2"
               dateLabel={m.reservationMeetingRoomDateLabel({}, { locale })}
               locale={locale}
               minimum={() =>
                 getEarliestMeetingRoomStartDateTime(selectedDuration)
               }
-              name={field.name}
-              onBlur={field.onBlur}
-              onChange={field.onChange}
-              placeholder={m.reservationDatePlaceholder({}, { locale })}
+              stepMinutes={60}
               timeLabel={m.reservationMeetingRoomTimeLabel({}, { locale })}
-              showTime={!isWholeDaySelected}
-              timeStepMinutes={60}
-              value={field.value}
-              variant={fieldState.error ? "error" : "default"}
+              wholeDay={isWholeDaySelected}
             />
             <FormMessage />
+            {startTimesQuery && !isWholeDaySelected && (
+              <MeetingRoomStartTimeOptions
+                locale={locale}
+                onSelect={field.onChange}
+                result={startTimes}
+                selectedStartDateTime={field.value}
+              />
+            )}
           </FormItem>
         )}
       />
@@ -284,23 +285,13 @@ export function MeetingRoomReservationForm({
                   const durationKey = getMeetingRoomReservationDurationKey(
                     product.duration
                   );
-                  const advertisedProductItem = advertisedPricesByDuration
-                    .get(durationKey)
-                    ?.summary.sections.find(({ key }) => key === "order")
-                    ?.items.find(
-                      (item) =>
-                        "product" in item &&
-                        item.product.kind === "meeting-room" &&
-                        getMeetingRoomReservationDurationKey(
-                          item.product.duration
-                        ) === durationKey
+                  const durationRequest =
+                    findMeetingRoomDurationAdvertisedPriceRequest(
+                      advertisedPriceRequests,
+                      durationKey
                     );
-                  const originalAmount =
-                    advertisedProductItem &&
-                    "originalAmount" in advertisedProductItem &&
-                    advertisedProductItem.originalAmount
-                      ? advertisedProductItem.originalAmount
-                      : undefined;
+                  const durationPrice =
+                    durationRequest && advertisedPrices.of(durationRequest);
 
                   return (
                     <ReservationTypeOption
@@ -313,17 +304,17 @@ export function MeetingRoomReservationForm({
                         }[durationKey]
                       }`}
                       price={
-                        advertisedProductItem ? (
+                        durationPrice ? (
                           <ReservationAdvertisedPrice
-                            amount={advertisedProductItem.amount}
+                            amount={durationPrice.amount}
                             locale={locale}
-                            originalAmount={originalAmount}
+                            originalAmount={durationPrice.originalAmount}
                           />
                         ) : (
                           <ReservationSkeletonBlock className="h-5 w-24 bg-aquamarine-green/15" />
                         )
                       }
-                      priceReady={Boolean(advertisedProductItem)}
+                      priceReady={Boolean(durationPrice)}
                       title={getWorkspaceMeetingRoomDurationLabel(
                         product.duration,
                         locale
@@ -337,6 +328,12 @@ export function MeetingRoomReservationForm({
             <FormMessage />
           </FormItem>
         )}
+      />
+
+      <MeetingRoomEarlySetupField
+        availability={earlySetupAvailability}
+        control={form.control}
+        locale={locale}
       />
     </ReservationCheckoutForm>
   );

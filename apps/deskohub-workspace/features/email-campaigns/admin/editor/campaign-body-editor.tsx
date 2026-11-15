@@ -7,15 +7,23 @@ import {
   ReactNodeViewRenderer,
   useEditor,
 } from "@tiptap/react";
+import { useMemo } from "react";
+import { m } from "@/features/administration/i18n";
+import type { Locale } from "@/features/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import { cn } from "@/shared/utils";
 import type { CampaignBodyNode } from "../../body/campaign-body-document";
 import { campaignBodyExtensions } from "../../body/campaign-body-extensions";
 import { CampaignCtaButton } from "../../body/campaign-cta-button";
+import { campaignBodyColumnWidth } from "../../body/campaign-image";
 import { CampaignBodyToolbar } from "./campaign-body-toolbar";
 import { CtaButtonNodeView } from "./cta-button-node-view";
 
-/** The shared content set plus editing-only behavior: history, hints, views. */
-const campaignBodyEditorExtensions = [
+/**
+ * The shared content set plus editing-only behavior: history, hints, views.
+ * `locale` is the admin's language for the empty-body hint.
+ */
+const campaignBodyEditorExtensions = (locale: Locale) => [
   ...campaignBodyExtensions.filter(
     (extension) => extension.name !== CampaignCtaButton.name
   ),
@@ -24,19 +32,21 @@ const campaignBodyEditorExtensions = [
   }),
   UndoRedo,
   Placeholder.configure({
-    placeholder:
-      "Write the email. Use the toolbar for headings, links, images, and buttons.",
+    placeholder: m.emailCampaignsEditorPlaceholder({}, { locale }),
   }),
 ];
 
 /** Rich-text editor for one locale's campaign body. */
 export function CampaignBodyEditor({
+  contentLocale,
   id,
   invalid,
   label,
   onChange,
   value,
 }: {
+  /** The language of the body being written. */
+  readonly contentLocale: Locale;
   readonly id?: string;
   readonly invalid?: boolean;
   readonly label: string;
@@ -44,8 +54,13 @@ export function CampaignBodyEditor({
   /** The initial document; later changes come from the editor itself. */
   readonly value: CampaignBodyNode;
 }) {
+  const locale = useRouteLocale();
+  const extensions = useMemo(
+    () => campaignBodyEditorExtensions(locale),
+    [locale]
+  );
   const editor = useEditor({
-    extensions: campaignBodyEditorExtensions,
+    extensions,
     content: value as JSONContent,
     immediatelyRender: false,
     shouldRerenderOnTransaction: false,
@@ -53,6 +68,8 @@ export function CampaignBodyEditor({
       attributes: {
         "aria-label": label,
         "aria-multiline": "true",
+        lang: contentLocale,
+        style: `--campaign-image-max-width:${campaignBodyColumnWidth}px`,
         ...(id && { id }),
         ...(invalid && { "aria-invalid": "true" }),
         class: cn(
@@ -63,13 +80,18 @@ export function CampaignBodyEditor({
           "[&_p]:my-2 [&_a]:text-burned-orange-ink [&_a]:underline",
           "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_li_p]:my-0.5",
           "[&_hr]:my-5 [&_hr]:border-navy-blue/20",
-          "[&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-md [&_img.ProseMirror-selectednode]:ring-2 [&_img.ProseMirror-selectednode]:ring-navy-blue",
+          "[&_img]:my-3 [&_img]:block [&_img]:h-auto [&_img]:max-w-[min(100%,var(--campaign-image-max-width))] [&_img:not([width])]:w-[var(--campaign-image-max-width)] [&_img]:rounded-md [&_img.ProseMirror-selectednode]:ring-2 [&_img.ProseMirror-selectednode]:ring-navy-blue",
+          "[&_img[data-align=center]]:mx-auto [&_img[data-align=right]]:ml-auto",
           "[&_hr.ProseMirror-selectednode]:border-navy-blue",
           "[&_.is-editor-empty:first-child]:before:pointer-events-none [&_.is-editor-empty:first-child]:before:float-left [&_.is-editor-empty:first-child]:before:h-0 [&_.is-editor-empty:first-child]:before:text-navy-blue/40 [&_.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]"
         ),
       },
     },
-    onUpdate: ({ editor }) => onChange(editor.getJSON() as CampaignBodyNode),
+    // ProseMirror builds node attributes as null-prototype objects, which a
+    // Server Action can't receive: React passes them as opaque references.
+    // A structured clone gives the form plain objects.
+    onUpdate: ({ editor }) =>
+      onChange(structuredClone(editor.getJSON()) as CampaignBodyNode),
   });
 
   return (

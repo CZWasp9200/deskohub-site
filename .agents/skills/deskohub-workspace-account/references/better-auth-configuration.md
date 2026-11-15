@@ -6,12 +6,46 @@
 | --- | --- |
 | Connectionless options shared by schema generation and runtime | `features/account/backend/auth/auth-options.ts` |
 | Runtime instance, hooks, plugins, delivery wiring | `features/account/backend/auth/auth-server.ts` |
-| Server singleton | `features/account/server/auth.server.ts` |
+| Server singleton and its hook capabilities | `features/account/server/auth.server.ts` |
+| Hook capability test adapters | `features/account/backend/auth/auth-hook-services.test-utils.ts` |
 | Browser client (the only allowed `better-auth/client` import) | `features/account/auth.client.ts` |
 | Host allowlist, secrets parsing | `features/account/backend/auth/auth-hosts.ts`, `auth-secrets.ts` |
 | Drizzle auth schema and its test | `db/schema/auth.ts`, `db/schema/auth.test.ts` |
 | node-postgres facade over the shared pool | `db/auth-database-client.ts` |
 | Expired-row cleanup | `features/account/backend/auth/auth-cleanup.service.ts`, `app/api/cron/workspace/auth-cleanup/route.ts` |
+| OAuth server for customers' AI agents | [customer agent OAuth](customer-agent-oauth.md) |
+
+## Hook capabilities
+
+- `makeWorkspaceAuth` stays synchronous, so `auth.server.ts` builds the
+  singleton at module load and fails closed on bad configuration. Its hooks
+  read capabilities from Context, never from config callbacks:
+  `WorkspaceAuthHookServices` lists them, and each hook that needs them
+  provides `config.services` inside its own `runWorkspaceEffect`. Add a
+  capability to that union and to the Layer in `auth.server.ts`; capture no
+  context and start no runtime or nested run.
+- The release gates in `services` are `SignInCodeReleaseGateForRun` and
+  `PasskeyReleaseGateForRun` (`account-release-gates-run.ts`, built with
+  `releaseGateForRun`), decided once per hook run. Never use the eager
+  `Live` there: merged into `services`, it builds the flag
+  provider for every hook, so a provider that can't be built (a rejected
+  module import) rejects passkey sign-in, which reads no flag, and the
+  sign-in email, which should fall back to link-only. Built on first read,
+  that failure reaches only the gate's read, and a read that fails beyond
+  the gate's own policy counts as closed. Pages keep the request gate in `account-release-gates.server.ts`.
+- The deletion hook alone provides `config.accountDeletion`, so the
+  Dotypos, avatar, and record capabilities a deletion needs aren't built for
+  every auth request. `sendMagicLink` and `clientMetadataTransport` stay
+  explicit config.
+- Workspace records the hooks write without a domain service of their own
+  (the durable account, the captured locale, unconsented administration
+  tokens) go through `LoginLifecycleRecords`, so a test store without a
+  Workspace database can replace them.
+- Tests build `services` with `postgresAuthHookServices` (real capabilities on
+  the disposable database) or `memoryAuthHookServices` (no Workspace
+  records), overriding single operations and flag evaluations. Files that
+  mock `@/instrumentation` import these helpers only after the mock, as
+  `auth-handler.test-utils.ts` does: they load the Workspace runner.
 
 ## Persistence
 
@@ -26,7 +60,7 @@
   session settings, and `advanced.database.joins`. When you add a user field
   there, update `db/schema/auth.ts` and `db/schema/auth.test.ts` in the same
   change.
-- Generate the auth tables and `customer_account_links` with Drizzle tooling
+- Generate the auth tables and `customer_accounts` with Drizzle tooling
   from the checked-in schema; never hand-edit snapshots. Better Auth's own
   `migrate` command doesn't apply to this setup. Follow the migration process
   in the `deskohub-workspace-operations` skill.
@@ -53,16 +87,43 @@ Keep these settings unless a reviewed decision changes them:
   canonical customer-facing host, the exact Vercel project, deployment, and
   branch hosts, and `localhost:3000` in development. Wildcards fail closed.
   Don't trust arbitrary request hosts or add a fallback host.
-- Email and password sign-in is disabled. The magic-link paths and
-  `/sign-in/email-otp` return 503 while the accounts feature flag is off or
-  unreadable.
+- Password sign-in exists only for app-directory review logins, the
+  `REVIEW_ACCOUNT_CREDENTIALS` allowlist (`review-account-credentials.ts`:
+  JSON `[{ email, password }]`, lowercase `@deskohub.test` emails, passwords
+  of 16 to 128 characters; validation errors never echo values). Sign-up is
+  off, and `disabledPasswordPaths` in `auth-server.ts` blocks every reset,
+  set, verify, change-password, change-email, list-accounts, and
+  unlink-account route; Better Auth matches `disabledPaths` literally against
+  the request path, so the guard also refuses `/reset-password/:token`. The
+  `/sign-in/email` guard runs BotID, answers any address outside the
+  allowlist, or any password but the configured one (constant-time), with
+  Better Auth's own `INVALID_EMAIL_OR_PASSWORD` 401 before any lookup, and
+  provisions an allowlisted login under the address's
+  `WorkspaceLockSections.signInEmail` section (`review-account-sign-in.ts`): a new login gets
+  `ReviewAccounts.register(id)`, then `createUser` with that id, then a
+  credential row shaped like Better Auth's `setPassword`; an existing review
+  login gets a missing credential back or a rehash when the configured
+  password changed (only the configured password triggers it, so an old
+  deployment can't rehash over a rotation); an existing customer login is
+  refused with the fixed
+  `account.review-login.customer-login` code and the same 401. Better Auth's
+  handler then checks the password. The `after` hook drops the response's
+  `redirect` so the page navigates itself, as after a code. The per-IP limit
+  is ten requests per 10 minutes. `/sign-in/magic-link` answers an
+  allowlisted address with `{ status: true, method: "password" }` from the
+  `before` hook, which ends the request: no link, code, verification row, or
+  email. Passkey registration is refused for review accounts. Rotation
+  residual: a deployment still configured with the old value, including an
+  older deployment's own URL, accepts the old password and rehashes it back;
+  review logins hold no customer data, and older deployment URLs rely on
+  Vercel Deployment Protection.
 - Sign-in codes (`login_email_code`): the stock `emailOTP` plugin stores a
   hashed six-digit code that lives as long as the link (600 s) and burns after
   five wrong attempts. `/sign-in/magic-link` stays the only send path: its
   `before` hook evaluates the flag once, fail closed, and overwrites
   `metadata.signInCode` (Better Auth deep-merges the hook context, so the
   browser's `metadata.locale` survives); `sendMagicLink` then, under a per-address Postgres
-  advisory lock (`withSignInEmailLock`), deletes the email's older code, calls
+  advisory lock (`WorkspaceLockSections.signInEmail`), deletes the email's older code, calls
   server-only `auth.api.createVerificationOTP`, and writes the email's claim
   row (keyed by the link token's digest) and a binding row (keyed by a digest
   of address and code) that leads to it, and replaces the address's
@@ -87,18 +148,49 @@ Keep these settings unless a reviewed decision changes them:
   since a swallowed link revocation lets both halves sign in. Every other
   email-OTP path is in `disabledPaths`. Code sign-in accepts only `email`, `otp`, and
   `callbackURL`, seeds a new account's locale from that callback, is always
-  BotID-checked, and allows ten requests per IP per 10 minutes. While the flag
-  is on, sends are BotID-checked and capped at five per address per rolling
+  BotID-checked, and allows ten requests per IP per 10 minutes. Every sign-in
+  email send is BotID-checked, matching the client `protect` list. While the
+  flag is on, sends are also capped at five per address per rolling
   hour (`SIGN_IN_EMAIL_LIMIT_REACHED`, 429), one verification row per send
   keyed by a digest of the address. Logic: `sign-in-code.ts`.
+- Native app sign-in (`native-sign-in.ts`, plugin `native-sign-in`, before
+  `expo()`). A `/sign-in/magic-link` whose callback is exactly
+  `/app/auth/callback`, with no new-user or error callback, emails the App
+  Link `<origin>/app/auth/callback?token=…`; every other callback keeps the
+  verification URL. A `/magic-link/verify` without any callback answers a
+  failure as 400 JSON (`{ code }`, no Location) instead of Better Auth's
+  redirect; success is JSON plus the session cookie. Over HTTP, that
+  token-only verify refuses an account switch: a session of another account
+  (any session when the link would create one) gets 403
+  `ACCOUNT_SWITCH_REFUSED` from the auth guard's
+  `refuseMagicLinkAccountSwitch`, before the sign-in claim and Better
+  Auth's consume, so the link survives.
+  Links with a callback keep the redirect sign-in. The handoff moves a
+  browser sign-in into the app: `POST /native-handoff/mint` (fresh session
+  via `freshSessionMiddleware`, body `code_challenge`, `code_challenge_method`
+  `S256`, `state`, `return_uri`) stores a three-minute verification row bound
+  to the challenge, the return URI and the minting session, and answers
+  `{ url: return_uri?code&state }`. Return URIs are exactly
+  `deskohub://auth/callback`, the customer-facing `/app/auth/callback`, and
+  the request host's `/app/auth/callback`. `POST /native-handoff/exchange`
+  (`code`, `code_verifier`, `return_uri`) checks the return URI and S256
+  verifier before `consumeVerificationValue`, so a wrong verifier doesn't
+  burn the code, requires the minting session to still exist, and creates a
+  new session that keeps the minting session's `createdAt`, so a handoff never
+  makes a stale sign-in fresh. Every refusal is 400 `INVALID_HANDOFF_CODE`
+  and logs `account.native-handoff.rejected` with a fixed reason. Neither
+  endpoint is BotID-screened: minting needs a fresh session, and a code is
+  useless without the verifier only the app holds. Both allow ten requests
+  per IP per 10 minutes and answer `no-store`.
 - The browser side is `features/account/auth-return.ts`. It sends
   `metadata: { locale }`, shows the code step when the response's `signInCode`
   is `true`, and signs in through `signIn.emailOtp` with only the email, code,
   and the callback URL it sent the link with. It maps 429
   `SIGN_IN_EMAIL_LIMIT_REACHED` to the per-address limit, any other 429 to the
   rate limit, and `INVALID_OTP`, `OTP_EXPIRED`, and `TOO_MANY_ATTEMPTS` to
-  code rejections. Everything else, including 403 `BOT_DETECTED` and 503, is a
-  generic failure.
+  code rejections. `BOT_DETECTED` (403) maps to `automated`, which tells the
+  customer to continue in their own browser. Everything else, including 503,
+  is a generic failure.
 - `nextCookies()` must stay the last plugin; it forwards Server Action
   `Set-Cookie` headers.
 - Better Auth's logger is disabled. `onAPIError` logs only the fixed
@@ -117,11 +209,18 @@ Keep these settings unless a reviewed decision changes them:
   and `disableIpTracking` would also disable rate limiting.
 - Don't pass a name or image to Better Auth, so `auth.user.name` stays the
   empty string. Never fill `auth.user.image`; avatars live in Cloudinary.
-- `auth.account` stays empty: the magic-link flow creates no account rows, and
-  passwords, OAuth, and social providers stay disabled.
+- `auth.account` holds only review logins' credential rows (a scrypt hash on
+  a synthetic `.test` login): the magic-link flow creates no account rows, and
+  OAuth sign-in providers and social providers stay disabled. The
+  OAuth server for AI agents is a separate concern: its client, consent, and
+  token tables are covered in [customer agent OAuth](customer-agent-oauth.md).
 - What remains in Neon is the login email, the email inside each pending
-  verification row, and raw `IP|path` rate-limit keys. Sign-in code, claim, current-claim,
-  binding, and per-email send rows store only hashed identifiers and values. Better Auth has no
+  verification row, raw `IP|path` rate-limit keys, and `auth.passkey` rows
+  (credential ID, public key, AAGUID, and the customer-written label). Sign-in code, claim, current-claim,
+  binding, and per-email send rows store only hashed identifiers and values. A pending native
+  handoff row has a hashed identifier but keeps the minting session's token
+  (already stored in `auth.session`) until it is redeemed or the cleanup cron
+  removes it. Better Auth has no
   native option to hash or encrypt these, so don't build a custom adapter or
   HMAC rate-limit storage to remove them.
 
@@ -129,9 +228,12 @@ Keep these settings unless a reviewed decision changes them:
 
 Better Auth only removes expired rows when a later request happens to touch
 them. The daily `auth-cleanup` cron (scheduled in `vercel.json`, authorized
-with `CRON_SECRET`) deletes expired sessions and verifications, and rate-limit
-rows older than the longest configured window, using plain set-based SQL. It
-only cleans its own deployment's database.
+with `CRON_SECRET`) deletes expired sessions and verifications, rate-limit
+rows older than the longest configured window, and expired agent access
+tokens, refresh tokens, and client-assertion records, and clears agent
+refresh replay copies whose reuse window has passed, using plain set-based
+SQL. It also tombstones customer accounts whose login is gone and that are
+more than a day old. It only cleans its own deployment's database.
 
 ## Secrets and release
 

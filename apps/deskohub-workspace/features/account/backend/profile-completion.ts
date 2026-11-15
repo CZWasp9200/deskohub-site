@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
+import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import type {
-  CustomerProfileInput,
+  CustomerProfileSave,
   ProfileCompletionReferralOutcome,
 } from "../contracts";
 import type {
@@ -37,15 +37,14 @@ type NewCustomerProfileCompletion =
 export const completeNewCustomerProfile = Effect.fn(
   "account.completeNewCustomerProfile"
 )(function* (
-  user: { readonly accountId: CustomerAccountId; readonly email: string },
-  input: CustomerProfileInput,
+  user: { readonly accountId: CustomerAccountId },
+  input: CustomerProfileSave,
   referral: {
     readonly code: string | undefined;
     readonly prefilledCode: string | undefined;
   }
 ) {
-  const featureFlag = yield* ReferralFeatureFlagService;
-  const request = (yield* featureFlag.isEnabled)
+  const request = (yield* ReferralReleaseGate.isOpen)
     ? yield* prepareSignupReferral(referral)
     : ({ kind: "none" } as const);
   if (request.kind === "unavailable") {
@@ -54,7 +53,7 @@ export const completeNewCustomerProfile = Effect.fn(
   const intent = request.kind === "intent" ? request.intent : undefined;
 
   const creation = yield* Effect.flatMap(CustomerProfileService, (profile) =>
-    profile.create(user.accountId, user.email, input, intent)
+    profile.create(user.accountId, input, intent)
   );
   if (intent === undefined) {
     return {

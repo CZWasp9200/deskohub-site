@@ -1,6 +1,11 @@
-import { normalizePhoneNumber } from "@deskohub/dotypos";
+import { parsePhoneNumber } from "@deskohub/phone-number";
 import { expect, type Page } from "@playwright/test";
-import type { AccountSection } from "@/features/account/components/shell/account-shell";
+import { Option } from "effect";
+import {
+  type AccountSection,
+  accountSectionLabel,
+} from "@/features/account/sections";
+import { baseLocale, defaultPhoneRegion } from "@/features/i18n";
 import {
   type WorkspaceE2EProfileNavigationDiagnosticCode,
   workspaceE2EError,
@@ -8,7 +13,6 @@ import {
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
   type AccountSectionSelectionStage,
-  accountSectionLabels,
   accountSectionLandmarks,
   selectAccountSection,
 } from "./account-sections";
@@ -29,11 +33,10 @@ const persistedProfileSelectionDiagnostics: Readonly<
     WorkspaceE2EProfileNavigationDiagnosticCode
   >
 > = {
-  "button-handler-wait":
-    "account_profile_persisted_profile_handler_wait_failed",
+  "link-handler-wait": "account_profile_persisted_profile_handler_wait_failed",
   "panel-hydration-wait":
     "account_profile_persisted_profile_panel_hydration_wait_failed",
-  "native-button-click": "account_profile_persisted_profile_click_failed",
+  "native-link-click": "account_profile_persisted_profile_click_failed",
   "selected-landmark-wait":
     "account_profile_persisted_profile_landmark_wait_failed",
 };
@@ -84,9 +87,9 @@ export async function verifyProfileNavigation(
   try {
     const homeUrl = new URL(homePath, baseUrl).toString();
     const accountUrl = new URL(accountPath, baseUrl).toString();
-    // A section switch records its section in the account URL.
+    // A section switch records its section in the account pathname.
     const accountSectionUrl = (section: AccountSection) =>
-      `${accountUrl}?section=${section}`;
+      `${accountUrl}/${section}`;
     const profileForm = page.locator(profileFormSelector);
     const firstName = page.locator(profileFirstNameSelector);
     const header = page.getByRole("banner");
@@ -124,9 +127,10 @@ export async function verifyProfileNavigation(
         timeout: workspaceE2ETimeouts.browserAction,
       }),
     };
-    const canonicalOriginalPhone = normalizePhoneNumber(originalProfile.phone);
-    if (canonicalOriginalPhone === null)
-      throw new Error("profile phone is not a valid canonical phone number");
+    const canonicalOriginalPhone = Option.getOrThrowWith(
+      parsePhoneNumber(originalProfile.phone, defaultPhoneRegion(baseLocale)),
+      () => new Error("profile phone is not a valid canonical phone number")
+    );
     await selectSection("billing");
     await expect(page.locator(accountSectionLandmarks.billing)).toBeVisible({
       timeout: workspaceE2ETimeouts.browserAction,
@@ -135,7 +139,7 @@ export async function verifyProfileNavigation(
       page.getByRole("heading", {
         exact: true,
         level: 2,
-        name: accountSectionLabels.billing,
+        name: accountSectionLabel("billing", "en-US"),
       })
     ).toBeVisible({ timeout: workspaceE2ETimeouts.browserAction });
     const originalBilling = {
@@ -191,7 +195,7 @@ export async function verifyProfileNavigation(
       page.getByRole("heading", {
         exact: true,
         level: 2,
-        name: accountSectionLabels.billing,
+        name: accountSectionLabel("billing", "en-US"),
       })
     ).toBeVisible({ timeout: workspaceE2ETimeouts.browserAction });
     await selectProfileSection();

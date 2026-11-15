@@ -5,20 +5,20 @@ import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
-import { getAccountScreenCopy } from "./account-screen-copy";
 import { AccountShell, type AccountShellProps } from "./shell/account-shell";
 
 const disabledAccountSections = [
   "reservations",
   "profile",
+  "assistants",
   "billing",
   "legal",
   "danger",
 ] as const;
 
-// The static shell renders before the referral flag is known, so the
-// skeleton never shows the referral section of an unreleased program.
-const hiddenAccountSections = ["referrals"] as const;
+// The static shell renders before the referral and passkey flags are known,
+// so the skeleton never shows the sections of unreleased features.
+const hiddenAccountSections = ["referrals", "security"] as const;
 
 const noopSectionChange: AccountShellProps["onSectionChange"] = () => undefined;
 
@@ -39,10 +39,9 @@ export function AccountLoading({ locale }: { readonly locale: Locale }) {
       activeSection="reservations"
       disabledSections={disabledAccountSections}
       hiddenSections={hiddenAccountSections}
-      labels={getAccountScreenCopy(locale).shell}
+      locale={locale}
       onSectionChange={noopSectionChange}
       signOut={<AccountSignOutLoading locale={locale} />}
-      title={m.accountTitle({}, { locale })}
     >
       <AccountContentLoading locale={locale} />
     </AccountShell>

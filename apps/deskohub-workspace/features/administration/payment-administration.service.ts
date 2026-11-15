@@ -28,6 +28,7 @@ import {
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
+import type { Money } from "@/shared/money/money";
 
 const defaultMaxRecords = 50;
 const maximumRecords = 100;
@@ -41,21 +42,16 @@ const paymentAttemptStateLabels = {
   expired: "Unsuccessful",
 } satisfies Record<PaymentAttemptState, string>;
 
-type AdministrationOrderMoney = {
-  readonly value: number;
-  readonly exponent: number;
-  readonly currency: string;
-};
-
 type AdministrationOrderLink = {
   readonly paymentAttemptId: PaymentAttemptId;
   readonly reservationId: WorkspaceReservationId;
   readonly state: PaymentAttemptState;
   readonly refundState: PaymentRefundState;
   readonly stateLabel: string;
-  readonly amount: AdministrationOrderMoney;
+  readonly failureCode: string | null;
+  readonly amount: Money;
   /** Total Nexi reports as refunded; set only when `refundState` is `refunded`. */
-  readonly refundedAmount: AdministrationOrderMoney | null;
+  readonly refundedAmount: Money | null;
   readonly refundedAt: string | null;
   readonly attemptCreatedAt: string;
   readonly providerOrderCreatedAt: string | null;
@@ -143,6 +139,7 @@ const toOrderLink = (row: LocalOrderRow): AdministrationOrderLink => {
       row.failureCode === "payment_abandoned_after_provider_cutoff"
         ? "Abandoned"
         : paymentAttemptStateLabels[row.state],
+    failureCode: row.failureCode,
     amount: {
       value: row.amountValue,
       exponent: row.amountExponent,
@@ -196,6 +193,19 @@ const toLocalOrderRows = (
       ? [{ ...row, providerOrderId: row.providerOrderId }]
       : []
   );
+
+/** When the order last moved: its latest Nexi operation, else when its Nexi order or local attempt began. */
+const getOrderActivityTime = (order: AdministrationOrder) =>
+  order.provider?.lastOperationTime ??
+  order.link?.providerOrderCreatedAt ??
+  order.link?.attemptCreatedAt ??
+  "";
+
+/** The reservation whose local attempt opened the operation's Nexi order, if any. */
+const getLinkedReservationId = (
+  links: ReadonlyMap<NexiOrderId, AdministrationOrderLink>,
+  orderId: NexiOrderId | undefined
+) => (orderId ? (links.get(orderId)?.reservationId ?? null) : null);
 
 export interface IPaymentAdministrationService {
   readonly listOrders: (
@@ -379,19 +389,11 @@ export class PaymentAdministrationService extends Context.Service<
               });
             }
           }
-          const items = [...orders.values()].toSorted((left, right) => {
-            const leftTime =
-              left.provider?.lastOperationTime ??
-              left.link?.providerOrderCreatedAt ??
-              left.link?.attemptCreatedAt ??
-              "";
-            const rightTime =
-              right.provider?.lastOperationTime ??
-              right.link?.providerOrderCreatedAt ??
-              right.link?.attemptCreatedAt ??
-              "";
-            return rightTime.localeCompare(leftTime);
-          });
+          const items = [...orders.values()].toSorted((left, right) =>
+            getOrderActivityTime(right).localeCompare(
+              getOrderActivityTime(left)
+            )
+          );
           return {
             items,
             providerAvailable: providerResult.kind === "available",
@@ -470,19 +472,20 @@ export class PaymentAdministrationService extends Context.Service<
         return {
           items: providerResult.items.map((operation) => ({
             ...operation,
-            linkedReservationId: operation.orderId
-              ? (links.get(operation.orderId)?.reservationId ?? null)
-              : null,
+            linkedReservationId: getLinkedReservationId(
+              links,
+              operation.orderId
+            ),
           })),
           providerAvailable: true,
           truncated: providerResult.items.length >= maxRecords,
         };
       });
 
-      const loadOperation = Effect.fn(
-        "PaymentAdministrationService.loadOperation"
-      )(function* (operationId: NexiOperationId) {
-        const result: ProviderOperationLookup = yield* nexi
+      const getProviderOperation = (
+        operationId: NexiOperationId
+      ): Effect.Effect<ProviderOperationLookup> =>
+        nexi
           .getOperation({
             correlationId: NexiCorrelationIdSchema.make(crypto.randomUUID()),
             operationId,
@@ -516,20 +519,22 @@ export class PaymentAdministrationService extends Context.Service<
               )
             )
           );
+
+      const loadOperation = Effect.fn(
+        "PaymentAdministrationService.loadOperation"
+      )(function* (operationId: NexiOperationId) {
+        const result = yield* getProviderOperation(operationId);
+        const operation = result.kind === "available" ? result.operation : null;
+        const linkedOrderId = operation?.orderId;
         const links = yield* loadLinksByOrderIds(
-          result.kind === "available" && result.operation.orderId
-            ? [result.operation.orderId]
-            : []
+          linkedOrderId ? [linkedOrderId] : []
         );
         return {
           operationId,
-          operation: result.kind === "available" ? result.operation : null,
+          operation,
           providerAvailable: result.kind === "available",
           providerStatus: result.kind,
-          linkedReservationId:
-            result.kind === "available" && result.operation.orderId
-              ? (links.get(result.operation.orderId)?.reservationId ?? null)
-              : null,
+          linkedReservationId: getLinkedReservationId(links, linkedOrderId),
         };
       });
 

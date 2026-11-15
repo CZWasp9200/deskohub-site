@@ -9,6 +9,8 @@ type ReservationSubmitSectionProps = {
   readonly isAvailabilityLoading: boolean;
   readonly isPriceLoading: boolean;
   readonly locale: Locale;
+  /** The button moves the form on to its next step instead of checking out. */
+  readonly continues?: boolean;
   readonly onRetryPrice: () => void;
   readonly priceError: boolean;
   readonly retryingPrice: boolean;
@@ -20,6 +22,7 @@ export function ReservationSubmitSection({
   disabled,
   isAvailabilityLoading,
   isPriceLoading,
+  continues = false,
   locale,
   onRetryPrice,
   priceError,
@@ -38,30 +41,61 @@ export function ReservationSubmitSection({
         data-reservation-price-loading={isPriceLoading}
         data-reservation-unavailable={Boolean(unavailableMessage)}
         disabled={disabled}
-        id="reservation-submit"
+        id={continues ? "reservation-continue" : "reservation-submit"}
         type="submit"
       >
         <ArrowRight className="h-4 w-4" />
         {m.checkoutContinueButton({}, { locale })}
       </Button>
 
-      {submissionError && (
-        <ReservationError role="alert">{submissionError}</ReservationError>
-      )}
-      {unavailableMessage && !submissionError && (
+      <ReservationSubmitStatus
+        isAvailabilityLoading={isAvailabilityLoading}
+        isPriceLoading={isPriceLoading}
+        locale={locale}
+        onRetryPrice={onRetryPrice}
+        priceError={priceError}
+        retryingPrice={retryingPrice}
+        submissionError={submissionError}
+        unavailableMessage={unavailableMessage}
+      />
+    </div>
+  );
+}
+
+/**
+ * What the submission is waiting on or why it failed. A submission error
+ * replaces the availability and price states.
+ */
+function ReservationSubmitStatus({
+  isAvailabilityLoading,
+  isPriceLoading,
+  locale,
+  onRetryPrice,
+  priceError,
+  retryingPrice,
+  submissionError,
+  unavailableMessage,
+}: Omit<ReservationSubmitSectionProps, "continues" | "disabled">) {
+  if (submissionError) {
+    return <ReservationError role="alert">{submissionError}</ReservationError>;
+  }
+
+  return (
+    <>
+      {unavailableMessage && (
         <ReservationError>{unavailableMessage}</ReservationError>
       )}
-      {isAvailabilityLoading && !submissionError && (
+      {isAvailabilityLoading && (
         <ReservationLoadingMessage>
           {m.reservationAvailabilityLoading({}, { locale })}
         </ReservationLoadingMessage>
       )}
-      {isPriceLoading && !submissionError && (
+      {isPriceLoading && (
         <ReservationLoadingMessage>
           {m.reservationAdvertisedPriceLoading({}, { locale })}
         </ReservationLoadingMessage>
       )}
-      {priceError && !submissionError && (
+      {priceError && (
         <div
           className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-burned-orange/20 bg-burned-orange/8 px-4 py-3 text-sm leading-6 text-burned-orange-ink"
           role="alert"
@@ -82,7 +116,7 @@ export function ReservationSubmitSection({
           </Button>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

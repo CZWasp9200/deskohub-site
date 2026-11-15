@@ -7,9 +7,10 @@ export {
   type SupportedSearchParams,
 } from "./search-params";
 export {
+  getDeskohubBarPageUrl,
   getWorkspaceCanonicalUrl,
-  getWorkspaceLocalizedCanonicalUrl,
   workspaceSiteConstants,
+  workspaceSiteOrigin,
 } from "./site-constants";
 export {
   currentInstant,
@@ -19,13 +20,14 @@ export {
   temporalInstantToDate,
   temporalInstantToIsoString,
   temporalInstantToLocalDateTimeString,
-  temporalPlainDateToDate,
 } from "./temporal";
 export { cn } from "./utils";
 export type { VariableStyle } from "./variable-style";
 export {
   workspaceFormattedAddress,
   workspaceGoogleDirectionsUrl,
+  workspaceLocationMapEmailWidth,
   workspaceLocationMapImageOptions,
   workspaceLocationMapImagePath,
+  workspaceLocationMapZoom,
 } from "./workspace-location-map";

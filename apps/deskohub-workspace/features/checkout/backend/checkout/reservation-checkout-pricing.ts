@@ -5,7 +5,6 @@ import {
   getCheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
 import type { ReservationQuotePayment } from "@/features/checkout/reservation-quote-schema";
-import { workspaceMoneyEquals } from "@/features/checkout/workspace-money";
 import {
   type AffirmedDiscountAdvertisementQuote,
   affirmedDiscountAdvertisementQuoteCodec,
@@ -20,6 +19,7 @@ import {
 } from "@/features/discounts";
 import type { Locale } from "@/features/i18n";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
+import { moneyEquals } from "@/shared/money/money";
 import { currentInstant } from "@/shared/utils";
 import {
   getSubmittedCodeMetadata,
@@ -99,7 +99,7 @@ export type ReservationDiscountCodePriceInput<
   readonly submittedCode: CanonicalPromotionCode;
 };
 
-export type ReservationAdvertisementQuote<
+type ReservationAdvertisedPrice<
   Reservation extends AdvertisedReservation<ReservationDetails>,
   Quote extends ReservationQuote,
 > = PayStateSubmittedCodeMetadata & {
@@ -108,10 +108,21 @@ export type ReservationAdvertisementQuote<
   readonly quote: Quote;
 };
 
+export type ReservationAdvertisementQuote<
+  Reservation extends AdvertisedReservation<ReservationDetails>,
+  Quote extends ReservationQuote,
+> = ReservationAdvertisedPrice<Reservation, Quote> & {
+  /**
+   * False when a discount source could not answer, so the price may miss a
+   * running sale. Such a price is right for this request but not to share.
+   */
+  readonly discountsComplete: boolean;
+};
+
 export type ReservationAdvertisementAffirmation<
   Reservation extends AdvertisedReservation<ReservationDetails>,
   Quote extends ReservationQuote,
-> = ReservationAdvertisementQuote<Reservation, Quote> & {
+> = ReservationAdvertisedPrice<Reservation, Quote> & {
   readonly discountQuote: AffirmedDiscountAdvertisementQuote;
 };
 
@@ -261,6 +272,7 @@ export const reservationCheckoutPricing = <
       "ReservationCheckoutPricing.previewSubmittedCode"
     )(function* (input: {
       readonly discountQuote: DiscountQuote;
+      readonly firstServiceDate: string;
       readonly locale: Locale;
       readonly submittedCode?: CanonicalPromotionCode;
       readonly advertisedCodeDiscountId?: DiscountId;
@@ -270,6 +282,7 @@ export const reservationCheckoutPricing = <
       const preview = yield* discounts
         .previewDiscountCode({
           baseQuote: input.discountQuote,
+          firstServiceDate: input.firstServiceDate,
           locale: input.locale,
           submittedCode: input.submittedCode,
         })
@@ -312,30 +325,32 @@ export const reservationCheckoutPricing = <
         Effect.bindTo("pricing"),
         // An advertised price previews a booking made right now.
         Effect.bind("bookedAt", () => currentInstant),
-        Effect.bind("discountQuote", ({ bookedAt, pricing }) =>
+        Effect.bind("advertisement", ({ bookedAt, pricing }) =>
           discounts.discoverAdvertisedDiscounts({
             ...pricing.discountInput,
             bookedAt,
             locale: input.locale,
           })
         ),
-        Effect.bind("preview", ({ discountQuote }) =>
+        Effect.bind("preview", ({ advertisement, pricing }) =>
           previewSubmittedCode({
-            discountQuote,
+            discountQuote: advertisement.quote,
+            firstServiceDate: pricing.discountInput.firstServiceDate,
             locale: input.locale,
             submittedCode: input.submittedCode,
           })
         ),
-        Effect.bind("quote", ({ discountQuote, preview, pricing }) =>
+        Effect.bind("quote", ({ advertisement, preview, pricing }) =>
           domain.buildQuote({
             pricing,
-            discountQuote: preview?.discountQuote ?? discountQuote,
+            discountQuote: preview?.discountQuote ?? advertisement.quote,
           })
         ),
-        Effect.map(({ preview, quote }) => ({
+        Effect.map(({ advertisement, preview, quote }) => ({
           kind: input.reservation.kind,
           reservation: input.reservation,
           quote,
+          discountsComplete: advertisement.complete,
           ...getSubmittedCodeMetadata(preview ?? {}),
         }))
       )
@@ -358,9 +373,10 @@ export const reservationCheckoutPricing = <
               ),
           })
         ),
-        Effect.bind("preview", ({ discountQuote }) =>
+        Effect.bind("preview", ({ discountQuote, pricing }) =>
           previewSubmittedCode({
             discountQuote,
+            firstServiceDate: pricing.discountInput.firstServiceDate,
             locale: input.locale,
             submittedCode: input.submittedCode,
             advertisedCodeDiscountId: input.submittedCodeDiscountId,
@@ -391,10 +407,11 @@ export const reservationCheckoutPricing = <
     )((input: ReservationCustomerQuoteInput<CustomerReservation>) =>
       domain.getPricingContext(input.reservation).pipe(
         Effect.bindTo("pricing"),
-        Effect.bind("customerQuote", () =>
+        Effect.bind("customerQuote", ({ pricing }) =>
           discounts.applyCustomerDiscount({
             affirmedAdvertisement: input.affirmedAdvertisement,
             dotyposCustomerId: input.dotyposCustomerId,
+            firstServiceDate: pricing.discountInput.firstServiceDate,
             locale: input.locale,
             ...getSubmittedCodeMetadata(input),
             ...getReferralCode(input),
@@ -491,7 +508,7 @@ export const reservationCheckoutPricing = <
       });
       const displayedPriceIsCurrent =
         quote.fingerprint === input.quote.fingerprint &&
-        workspaceMoneyEquals(affirmedSummary.total, displayedSummary.total);
+        moneyEquals(affirmedSummary.total, displayedSummary.total);
 
       if (!displayedPriceIsCurrent) {
         return {
@@ -509,6 +526,7 @@ export const reservationCheckoutPricing = <
       const appliedCode = yield* discounts.applyDiscountCode({
         baseQuote: affirmation.quote,
         dotyposCustomerId: input.dotyposCustomerId,
+        firstServiceDate: pricing.discountInput.firstServiceDate,
         locale: input.locale,
         submittedCode: input.submittedCode,
         ...getReferralCode(input),

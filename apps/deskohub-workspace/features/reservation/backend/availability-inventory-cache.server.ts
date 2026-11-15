@@ -1,25 +1,23 @@
 import "server-only";
 
-import {
-  DotyposService,
-  type DotyposTable,
-  ExternalAPIError,
-} from "@deskohub/dotypos";
+import { DotyposService, type DotyposTable } from "@deskohub/dotypos";
 import type { GoogleCalendarEventQuery } from "@deskohub/google-calendar";
-import { Effect, Exit, Layer } from "effect";
-import { cacheLife, cacheTag } from "next/cache";
-import {
-  type OccupancyReservation,
-  toOccupancyReservation,
-} from "@/features/checkout/backend/reservation";
+import { Effect, Layer } from "effect";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
+import {
+  fromSharedSnapshot,
+  readSharedSnapshot,
+} from "@/shared/backend/shared-snapshot";
 import { availabilityTags } from "@/shared/utils/cache-tags";
 import { AdvisoryAvailabilityInventory } from "./availability-inventory";
 import {
   GoogleCalendarWorkspaceLimitationsService,
   type WorkspaceCalendarLimitation,
 } from "./google-calendar-workspace-limitations.service";
+import {
+  type ReservationRecord,
+  toReservationRecord,
+} from "./reservation-record";
 
 /**
  * Serves advisory availability from cross-request snapshots. Each snapshot is
@@ -32,16 +30,16 @@ import {
 export const SharedAvailabilityInventoryLive = Layer.succeed(
   AdvisoryAvailabilityInventory,
   {
-    tables: fromSharedSnapshot("getTables", () => loadSharedTables()),
+    tables: fromAvailabilitySnapshot("getTables", () => loadSharedTables()),
     listActiveReservationsOverlapping: ({ startDate, endDate }) =>
-      fromSharedSnapshot("listActiveReservationsOverlapping", () =>
+      fromAvailabilitySnapshot("listActiveReservationsOverlapping", () =>
         loadSharedActiveReservations({
           startsAt: startDate.toISOString(),
           endsAt: endDate.toISOString(),
         })
       ),
     listLimitations: ({ from, to }) =>
-      fromSharedSnapshot("listLimitations", () =>
+      fromAvailabilitySnapshot("listLimitations", () =>
         loadSharedLimitations({ from, to })
       ),
   }
@@ -50,15 +48,17 @@ export const SharedAvailabilityInventoryLive = Layer.succeed(
 export async function loadSharedTables(): Promise<readonly DotyposTable[]> {
   "use cache: remote";
 
-  return await Effect.flatMap(DotyposService, (dotypos) =>
-    dotypos.getTables()
-  ).pipe(
-    Effect.provide(WorkspaceDotyposLayer),
-    cachedOnSuccess(() => {
-      cacheLife("availabilityTables");
-      cacheTag(availabilityTags.tables);
-    }),
-    runWorkspaceEffect("reservation.availability.tables.load")
+  return await readSharedSnapshot(
+    "reservation.availability.tables.load",
+    Effect.flatMap(DotyposService, (dotypos) => dotypos.getTables()).pipe(
+      Effect.provide(WorkspaceDotyposLayer)
+    ),
+    {
+      complete: {
+        lifetime: "availabilityTables",
+        tags: [availabilityTags.tables],
+      },
+    }
   );
 }
 
@@ -69,22 +69,26 @@ export async function loadSharedTables(): Promise<readonly DotyposTable[]> {
 export async function loadSharedActiveReservations(interval: {
   readonly startsAt: string;
   readonly endsAt: string;
-}): Promise<readonly OccupancyReservation[]> {
+}): Promise<readonly ReservationRecord[]> {
   "use cache: remote";
 
-  return await Effect.flatMap(DotyposService, (dotypos) =>
-    dotypos.listActiveReservationsOverlapping({
-      startDate: new Date(interval.startsAt),
-      endDate: new Date(interval.endsAt),
-    })
-  ).pipe(
-    Effect.map((reservations) => reservations.map(toOccupancyReservation)),
-    Effect.provide(WorkspaceDotyposLayer),
-    cachedOnSuccess(() => {
-      cacheLife("availabilityReservations");
-      cacheTag(availabilityTags.reservations);
-    }),
-    runWorkspaceEffect("reservation.availability.reservations.load")
+  return await readSharedSnapshot(
+    "reservation.availability.reservations.load",
+    Effect.flatMap(DotyposService, (dotypos) =>
+      dotypos.listActiveReservationsOverlapping({
+        startDate: new Date(interval.startsAt),
+        endDate: new Date(interval.endsAt),
+      })
+    ).pipe(
+      Effect.map((reservations) => reservations.map(toReservationRecord)),
+      Effect.provide(WorkspaceDotyposLayer)
+    ),
+    {
+      complete: {
+        lifetime: "availabilityReservations",
+        tags: [availabilityTags.reservations],
+      },
+    }
   );
 }
 
@@ -93,43 +97,27 @@ export async function loadSharedLimitations(
 ): Promise<readonly WorkspaceCalendarLimitation[]> {
   "use cache: remote";
 
-  return await Effect.flatMap(
-    GoogleCalendarWorkspaceLimitationsService,
-    (calendar) => calendar.listLimitations(query)
-  ).pipe(
-    Effect.provide(GoogleCalendarWorkspaceLimitationsService.Live),
-    cachedOnSuccess(() => {
-      cacheLife("availabilityCalendar");
-      cacheTag(availabilityTags.calendar);
-    }),
-    runWorkspaceEffect("reservation.availability.limitations.load")
+  return await readSharedSnapshot(
+    "reservation.availability.limitations.load",
+    Effect.flatMap(GoogleCalendarWorkspaceLimitationsService, (calendar) =>
+      calendar.listLimitations(query)
+    ).pipe(Effect.provide(GoogleCalendarWorkspaceLimitationsService.Live)),
+    {
+      complete: {
+        lifetime: "availabilityCalendar",
+        tags: [availabilityTags.calendar],
+      },
+    }
   );
 }
 
-/**
- * Applies a snapshot's lifetime and tag once it loads, and marks any failed
- * load uncacheable so the failure is never shared.
- */
-function cachedOnSuccess(applyLifetime: () => void) {
-  return <A, E, R>(load: Effect.Effect<A, E, R>) =>
-    load.pipe(
-      Effect.onExit((exit) =>
-        Effect.sync(() =>
-          Exit.isSuccess(exit) ? applyLifetime() : cacheLife({ expire: 0 })
-        )
-      )
-    );
-}
-
-function fromSharedSnapshot<A>(operation: string, load: () => Promise<A>) {
-  return Effect.tryPromise({
-    try: load,
-    catch: (cause) =>
-      new ExternalAPIError({
-        service: "availability-inventory",
-        operation,
-        message: "Shared availability inventory could not be loaded",
-        cause,
-      }),
+function fromAvailabilitySnapshot<A>(
+  operation: string,
+  load: () => Promise<A>
+) {
+  return fromSharedSnapshot({
+    service: "availability-inventory",
+    operation,
+    load,
   });
 }

@@ -2,26 +2,24 @@
 
 import { AlertTriangle } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import type {
   CheckoutSummaryChangedKeys,
   CheckoutSummary as CheckoutSummaryData,
 } from "@/features/checkout/checkout-summary";
 import { CheckoutDiscountCountdownBanner } from "@/features/checkout/components/checkout-discount-countdown-banner";
-import { markCheckoutStatusWindowOwner } from "@/features/checkout/components/checkout-payment-window";
 import { CheckoutSummary } from "@/features/checkout/components/checkout-summary";
 import { type Locale, m } from "@/features/i18n";
-import { submitReservation } from "@/features/reservation/actions/submit-reservation";
 import { getCoworkReservationPath } from "@/features/reservation/routes";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils";
-import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import {
   CheckoutPayCard,
   CheckoutPayConsent,
+  CheckoutPayProviderHandoff,
   CheckoutPaySubmitButton,
 } from "./checkout-pay-page-card";
+import { useCheckoutPaySubmission } from "./use-checkout-pay-submission";
 
 type CheckoutPayPageProps = {
   readonly changedKeys?: CheckoutSummaryChangedKeys;
@@ -46,55 +44,17 @@ export function CheckoutPayPage({
   summary,
   variant,
 }: CheckoutPayPageProps) {
-  const router = useRouter();
-  const [legalConsent, setLegalConsent] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const {
-    execute,
-    isExecuting,
-    result: submitReservationResult,
-  } = useWorkspaceAction(submitReservation, {
-    actionName: "submitReservation",
-    onSuccess: ({ data }) => {
-      if (data?.status === "pricing_changed") {
-        router.push(data.freshPayUrl);
-        return;
-      }
-
-      if (data?.status === "in_progress") {
-        setErrorMessage(m.checkoutPaySubmitError({}, { locale }));
-        return;
-      }
-
-      if (!data?.redirectUrl) {
-        setErrorMessage(m.checkoutPaySubmitError({}, { locale }));
-        return;
-      }
-
-      if (data.statusUrl) {
-        const paymentWindow = window.open(data.redirectUrl, "_blank");
-        if (paymentWindow) {
-          paymentWindow.opener = null;
-          markCheckoutStatusWindowOwner(data.statusUrl);
-          router.push(data.statusUrl);
-          return;
-        }
-      }
-
-      router.push(data.redirectUrl);
-    },
-    onError: ({ error }) => {
-      setErrorMessage(
-        error.serverError || m.checkoutPaySubmitError({}, { locale })
-      );
-    },
-    onTransportError: () => {
-      setErrorMessage(m.checkoutPaySubmitError({}, { locale }));
-    },
+    errorMessage,
+    isSubmitPending,
+    legalConsent,
+    setLegalConsent,
+    submit,
+  } = useCheckoutPaySubmission({
+    earlyPerformanceRequestRequired,
+    locale,
+    payStateToken,
   });
-  const hasCheckoutRedirect =
-    submitReservationResult.data?.status === "pricing_changed" ||
-    submitReservationResult.data?.status === "redirect";
   const isPricingChanged = variant === "pricingChanged";
   const title = {
     pay: m.checkoutPayTitle({}, { locale }),
@@ -113,10 +73,73 @@ export function CheckoutPayPage({
       pricingChanged: "pay",
     } as const
   )[variant];
-  const isSubmitPending = isExecuting || hasCheckoutRedirect;
+  // A free order completes without the payment provider.
+  const providerTotal = summary.total.value > 0 ? summary.total : undefined;
 
   return (
     <CheckoutPayCard lead={lead} title={title}>
+      <CheckoutPayNotices
+        isPricingChanged={isPricingChanged}
+        locale={locale}
+        retryOutcome={retryOutcome}
+      />
+
+      <CheckoutDiscountCountdownBanner locale={locale} summary={summary} />
+
+      <CheckoutSummary
+        changedKeys={changedKeys}
+        locale={locale}
+        summary={summary}
+      />
+
+      {variant === "pay" && discountCodeForm}
+
+      {isPricingChanged ? (
+        <CheckoutPayUpdatedPriceLink
+          freshPayUrl={freshPayUrl}
+          locale={locale}
+        />
+      ) : (
+        <>
+          {!!providerTotal && <CheckoutPayProviderHandoff locale={locale} />}
+
+          <CheckoutPayConsent
+            checked={legalConsent}
+            id="checkout-pay-legal-consent"
+            locale={locale}
+            onCheckedChange={setLegalConsent}
+            showEarlyPerformanceRequest={earlyPerformanceRequestRequired}
+            variant={actionVariant}
+          />
+
+          <CheckoutPaySubmitButton
+            disabled={!legalConsent || isSubmitPending}
+            locale={locale}
+            onClick={submit}
+            pending={isSubmitPending}
+            total={providerTotal}
+            variant={actionVariant}
+          />
+        </>
+      )}
+
+      {!!errorMessage && <Banner role="alert">{errorMessage}</Banner>}
+    </CheckoutPayCard>
+  );
+}
+
+/** Why the customer is back on the Pay page, when they are. */
+function CheckoutPayNotices({
+  isPricingChanged,
+  locale,
+  retryOutcome,
+}: {
+  readonly isPricingChanged: boolean;
+  readonly locale: Locale;
+  readonly retryOutcome: CheckoutPayPageProps["retryOutcome"];
+}) {
+  return (
+    <>
       {!!retryOutcome && (
         <Banner>
           {
@@ -131,68 +154,26 @@ export function CheckoutPayPage({
       {isPricingChanged && (
         <Banner>{m.checkoutPayPricingChangedBanner({}, { locale })}</Banner>
       )}
+    </>
+  );
+}
 
-      <CheckoutDiscountCountdownBanner locale={locale} summary={summary} />
-
-      <CheckoutSummary
-        changedKeys={changedKeys}
-        locale={locale}
-        summary={summary}
-      />
-
-      {variant === "pay" && discountCodeForm}
-
-      {isPricingChanged ? (
-        <Button asChild size="xl" caps fullWidth>
-          <Link
-            href={freshPayUrl ?? getCoworkReservationPath(locale)}
-            prefetch={false}
-          >
-            {m.checkoutPayReviewUpdatedPriceButton({}, { locale })}
-          </Link>
-        </Button>
-      ) : (
-        <>
-          <CheckoutPayConsent
-            checked={legalConsent}
-            id="checkout-pay-legal-consent"
-            locale={locale}
-            onCheckedChange={setLegalConsent}
-            showEarlyPerformanceRequest={earlyPerformanceRequestRequired}
-            variant={actionVariant}
-          />
-
-          <CheckoutPaySubmitButton
-            disabled={!legalConsent || isSubmitPending}
-            locale={locale}
-            onClick={() => {
-              if (isSubmitPending) return;
-
-              setErrorMessage(null);
-              if (!payStateToken) {
-                setErrorMessage(m.checkoutPaySubmitError({}, { locale }));
-                return;
-              }
-
-              const input = {
-                locale,
-                payStateToken,
-                legalConsent,
-              };
-              execute(
-                earlyPerformanceRequestRequired
-                  ? { ...input, earlyPerformanceConsent: legalConsent }
-                  : input
-              );
-            }}
-            pending={isSubmitPending}
-            variant={actionVariant}
-          />
-        </>
-      )}
-
-      {!!errorMessage && <Banner role="alert">{errorMessage}</Banner>}
-    </CheckoutPayCard>
+function CheckoutPayUpdatedPriceLink({
+  freshPayUrl,
+  locale,
+}: {
+  readonly freshPayUrl: string | undefined;
+  readonly locale: Locale;
+}) {
+  return (
+    <Button asChild size="xl" caps fullWidth>
+      <Link
+        href={freshPayUrl ?? getCoworkReservationPath(locale)}
+        prefetch={false}
+      >
+        {m.checkoutPayReviewUpdatedPriceButton({}, { locale })}
+      </Link>
+    </Button>
   );
 }
 

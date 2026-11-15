@@ -5,6 +5,7 @@ import {
   DotyposCustomerIdSchema,
   DotyposService,
 } from "@deskohub/dotypos";
+import { parsePhoneNumber } from "@deskohub/phone-number";
 import type {
   AdministrationDotyposCustomerIdType,
   AdministrationInvoiceCreateInputType,
@@ -25,29 +26,45 @@ import {
   Effect,
   Layer,
   Match,
+  Option,
   Schema,
 } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { WorkspaceLocks } from "@/db/workspace-locks";
 import {
-  getManualInvoicePayment,
   type InvoiceBuyer,
-  type InvoiceDocument,
   invoiceBuyerSchema,
   invoiceNumberSchema,
   isManualInvoiceDocument,
   makeManualInvoiceDocument,
 } from "@/features/accounting/invoice";
+import type { InvoiceDeliveryStatus } from "@/features/accounting/invoice-email-delivery";
 import { getInvoicePresentation } from "@/features/accounting/invoice-presentation";
 import {
+  getInvoicePaymentStatus,
+  getInvoiceSettlement,
+  getInvoiceTotal,
+  type InvoiceSettlement,
+} from "@/features/accounting/invoice-settlement";
+import {
+  type InvoiceId,
   invoiceEnabledCurrencyDefinitions,
   invoiceIdSchema,
   invoiceVariableSymbolSchema,
   isInvoiceCurrencyPayable,
+  type ManualInvoiceIssuer,
   type ManualInvoiceProvenance,
   normalizeManualInvoiceInput,
   normalizeManualInvoiceLines,
+  toManualInvoiceProvenance,
 } from "@/features/accounting/manual-invoice";
+import {
+  type AdministrationHref,
+  administrationHref,
+} from "@/features/administration/administration-href";
+import { unnamedCustomerDisplayName } from "@/features/administration/customer-name";
 import { getAdministrationPagination } from "@/features/administration/listing";
+import { baseLocale, defaultPhoneRegion, type Locale } from "@/features/i18n";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import {
   defaultWorkspaceCurrencyCode,
@@ -55,17 +72,19 @@ import {
 } from "@/shared/money/currencies";
 import { workspaceSiteConstants } from "@/shared/utils";
 import {
+  currentPlainDate,
+  type PlainDate,
   plainDateStringSchema,
   temporalInstantToPlainDate,
 } from "@/shared/utils/temporal";
 import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
+import { type Invoice, InvoiceRepository } from "../backend/invoice.repository";
 import {
-  type InvoiceDeliveryStatus,
-  type InvoiceListItem,
-  InvoiceRepository,
-} from "../backend/invoice.repository";
+  type InvoiceDeliverySummary,
+  InvoiceEmailDeliveryRepository,
+} from "../backend/invoice-email-delivery.repository";
 import { InvoiceEmailDeliveryService } from "../backend/invoice-email-delivery.service";
-import { renderInvoicePdf } from "../backend/invoice-pdf";
+import { renderInvoicePdf, renderInvoicePdfFile } from "../backend/invoice-pdf";
 import {
   decodeInvoiceAdministrationId,
   InvoiceAdministrationNotFoundError,
@@ -105,6 +124,7 @@ type InvoiceAdministrationSource =
   | "post-order-link"
   | "admin-ui"
   | "dhw-cli"
+  | "assistant"
   | "legacy";
 
 export type InvoiceAdministrationListItem = {
@@ -124,7 +144,7 @@ export type InvoiceAdministrationListItem = {
 };
 
 export type InvoiceAdministrationDetail = InvoiceAdministrationListItem & {
-  readonly locale: "cs-CZ" | "en-US";
+  readonly locale: Locale;
   readonly serviceDate: string | null;
   readonly dueDate: string | null;
   readonly paidOn: string | null;
@@ -134,12 +154,17 @@ export type InvoiceAdministrationDetail = InvoiceAdministrationListItem & {
     readonly price: string;
   }[];
   readonly buyer: InvoiceBuyer;
-  readonly pdfUrl: string;
+  readonly pdfUrl: AdministrationHref;
+  /** For the Admin UI; the administration API contract does not carry it. */
+  readonly settlement: InvoiceSettlement;
 };
 
 export type InvoiceAdministrationCustomer = {
   readonly id: string;
+  /** Never empty: "Unnamed customer" when `hasName` is false. */
   readonly displayName: string;
+  /** Whether Dotypos holds a name or email, so the Admin UI can name an unnamed customer in the operator's language. */
+  readonly hasName: boolean;
   readonly email: string | null;
   readonly details: AdministrationInvoiceCustomerDetailsType;
 };
@@ -157,9 +182,21 @@ type InvoiceAdministrationRetryResult = {
   readonly needsAttention: boolean;
 };
 
+export type InvoiceAdministrationCustomerErrorReason =
+  | "billing-details-invalid"
+  | "currency-not-payable"
+  | "customer-deleted"
+  | "customer-email-ambiguous"
+  | "customer-id-invalid"
+  | "customer-id-missing"
+  | "invoice-id-reused";
+
 class InvoiceAdministrationCustomerError extends Data.TaggedError(
   "InvoiceAdministrationCustomerError"
-)<{ readonly message: string }> {}
+)<{
+  readonly reason: InvoiceAdministrationCustomerErrorReason;
+  readonly message: string;
+}> {}
 
 export class InvoiceAdministrationInProgressError extends Data.TaggedError(
   "InvoiceAdministrationInProgressError"
@@ -168,19 +205,27 @@ export class InvoiceAdministrationInProgressError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
+type ManualInvoiceCreationClaim = Effect.Success<
+  ReturnType<ManualInvoiceCreationRequests["Service"]["claim"]>
+>;
+
 const makeInvoiceAdministrationService = Effect.gen(function* () {
+  const { transaction } = yield* WorkspaceDatabase;
   const invoices = yield* InvoiceRepository;
   const deliveries = yield* InvoiceEmailDeliveryService;
+  const deliveryLedger = yield* InvoiceEmailDeliveryRepository;
   const dotypos = yield* DotyposService;
   const creationRequests = yield* ManualInvoiceCreationRequests;
 
   const prepare = Effect.fn("InvoiceAdministrationService.prepare")(function* (
     input: AdministrationInvoiceCreateInputType,
-    provenance: ManualInvoiceProvenance
+    issuer: ManualInvoiceIssuer
   ) {
+    const provenance = toManualInvoiceProvenance(issuer);
     const currency = findWorkspaceCurrencyDefinition(input.currency);
     if (!currency || !isInvoiceCurrencyPayable(currency.code)) {
       return yield* new InvoiceAdministrationCustomerError({
+        reason: "currency-not-payable",
         message: "No receiving account is configured for the invoice currency.",
       });
     }
@@ -192,6 +237,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     const invoiceId = invoiceIdSchema.make(input.invoiceId);
     return {
       invoiceId,
+      provenance,
       forCustomer: (dotyposCustomerId: DotyposCustomerId) => ({
         invoiceId,
         dotyposCustomerId,
@@ -218,10 +264,18 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   const list = Effect.fn("InvoiceAdministrationService.list")(
     (query: InvoiceAdministrationListQuery = {}) =>
       invoices.list().pipe(
-        Effect.map((items) => {
-          const today = getPragueDate();
-          return items.map((item) => toListItem(item, today));
-        }),
+        Effect.flatMap((stored) =>
+          Effect.all([
+            deliveryLedger.status(stored.map(({ id }) => id)),
+            currentPragueDate,
+          ]).pipe(
+            Effect.map(([statuses, today]) =>
+              stored.map((invoice) =>
+                toListItem(invoice, statuses.get(invoice.id)!, today)
+              )
+            )
+          )
+        ),
         Effect.map((items): InvoiceAdministrationPage => {
           const sorted = sortInvoiceAdministrationItems(items, query);
           const pageSize = 24;
@@ -251,11 +305,15 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     const stored = yield* invoices.findById(id);
     if (!stored)
       return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
-    const all = yield* invoices.list();
-    const listed = all.find(({ invoice }) => invoice.id === stored.id);
-    if (!listed)
-      return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
-    return toDetail(listed, getPragueDate());
+    const statuses = yield* deliveryLedger.status([stored.id]);
+    return toDetail(stored, statuses.get(stored.id)!, yield* currentPragueDate);
+  });
+
+  const needsAttention = Effect.fn(
+    "InvoiceAdministrationService.needsAttention"
+  )(function* (invoiceId: InvoiceId) {
+    const statuses = yield* deliveryLedger.status([invoiceId]);
+    return statuses.get(invoiceId)!.needsAttention;
   });
 
   const getPdf = Effect.fn("InvoiceAdministrationService.getPdf")(function* (
@@ -265,8 +323,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     const stored = yield* invoices.findById(id);
     if (!stored)
       return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
-    const bytes = yield* renderInvoicePdf(stored.document);
-    return { bytes, fileName: `${stored.invoiceNumber}.pdf` };
+    return yield* renderInvoicePdfFile(stored.document);
   });
 
   const searchCustomers = Effect.fn(
@@ -274,18 +331,16 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   )(function* (query: string) {
     const matches = yield* dotypos.searchCustomers(query);
     return matches
-      .flatMap((customer): InvoiceAdministrationCustomer[] => {
-        const projection = toCustomer(customer);
-        return projection && !customer.deleted ? [projection] : [];
-      })
+      .filter((customer) => !customer.deleted)
+      .map(toCustomer)
       .slice(0, 50);
   });
 
   const preview = Effect.fn("InvoiceAdministrationService.preview")(function* (
     input: AdministrationInvoiceCreateInputType,
-    provenance: ManualInvoiceProvenance
+    issuer: ManualInvoiceIssuer
   ) {
-    const prepared = yield* prepare(input, provenance);
+    const prepared = yield* prepare(input, issuer);
     const normalized = yield* normalizeManualInvoiceInput(
       prepared.forCustomer(DotyposCustomerIdSchema.make("preview"))
     );
@@ -300,62 +355,90 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
 
   const create = Effect.fn("InvoiceAdministrationService.create")(function* (
     input: AdministrationInvoiceCreateInputType,
-    provenance: ManualInvoiceProvenance
+    issuer: ManualInvoiceIssuer
   ) {
-    const prepared = yield* prepare(input, provenance);
-    const { invoiceId } = prepared;
+    const prepared = yield* prepare(input, issuer);
+    const { invoiceId, provenance } = prepared;
     const issueForCustomer = (dotyposCustomerId: DotyposCustomerId) =>
-      invoices.issueManual(prepared.forCustomer(dotyposCustomerId));
-    const issuance = yield* creationRequests.withLock(
-      invoiceId,
-      Effect.gen(function* () {
-        const claim = yield* creationRequests.claim({
-          invoiceId,
-          normalizedRequestJson: getManualInvoiceCreationRequestJson(
-            input,
-            provenance
-          ),
+      invoices.issueManual({
+        ...prepared.forCustomer(dotyposCustomerId),
+        issuedBy: issuer.administrator,
+      });
+    // The claim decides whether this request may issue: different input or
+    // an unfinished concurrent creation refuses it, and a completed one must
+    // still have its invoice.
+    const findClaimedInvoice = Effect.fnUntraced(function* (
+      claim: ManualInvoiceCreationClaim
+    ) {
+      if (claim.kind === "mismatch") {
+        return yield* new InvoiceAdministrationCustomerError({
+          reason: "invoice-id-reused",
+          message: "Invoice id was already used with different input.",
         });
-        if (claim.kind === "mismatch") {
-          return yield* new InvoiceAdministrationCustomerError({
-            message: "Invoice id was already used with different input.",
-          });
-        }
-        if (claim.kind === "in-progress") {
-          return yield* new InvoiceAdministrationInProgressError({
-            invoiceId: input.invoiceId,
-            message:
-              "This invoice is already being created. Try the same request again shortly.",
-          });
-        }
-        const existing = yield* invoices.findById(input.invoiceId);
-        if (claim.kind === "completed" && !existing) {
-          return yield* new ManualInvoiceCreationRequestError({
-            message: "The completed invoice creation request has no invoice.",
-          });
-        }
-        const customerResolution = resolveCustomer(dotypos, input.customer);
-        const lockedIssuance = existing
-          ? yield* issueForCustomer(
-              input.customer.kind === "existing"
-                ? yield* decodeDotyposCustomerId(input.customer.customerId)
-                : DotyposCustomerIdSchema.make(existing.dotyposCustomerId)
+      }
+      if (claim.kind === "in-progress") {
+        return yield* new InvoiceAdministrationInProgressError({
+          invoiceId: input.invoiceId,
+          message:
+            "This invoice is already being created. Try the same request again shortly.",
+        });
+      }
+      const existing = yield* invoices.findById(input.invoiceId);
+      if (claim.kind === "completed" && !existing) {
+        return yield* new ManualInvoiceCreationRequestError({
+          message: "The completed invoice creation request has no invoice.",
+        });
+      }
+      return existing;
+    });
+    // An invoice issued before keeps its customer unless the request names
+    // one; otherwise the request's customer is resolved first.
+    const issueLocked = Effect.fnUntraced(function* (existing: Invoice | null) {
+      if (existing) {
+        return yield* issueForCustomer(
+          input.customer.kind === "existing"
+            ? yield* decodeDotyposCustomerId(input.customer.customerId)
+            : DotyposCustomerIdSchema.make(existing.dotyposCustomerId)
+        );
+      }
+      const customerResolution = resolveCustomer(dotypos, input.customer);
+      return yield* (
+        input.customer.kind === "new"
+          ? // ponytail: one global new-customer lock avoids putting email
+            // PII in SQL; shard by a keyed normalized-email digest if
+            // admin throughput matters.
+            transaction(
+              WorkspaceLocks.manualInvoiceNewCustomer().pipe(
+                Effect.andThen(customerResolution)
+              )
             )
-          : yield* (
-              input.customer.kind === "new"
-                ? creationRequests.withNewCustomerLock(customerResolution)
-                : customerResolution
-            ).pipe(
-              Effect.flatMap((customer) =>
-                decodeDotyposCustomerId(customer.id)
+          : customerResolution
+      ).pipe(
+        Effect.flatMap((customer) => decodeDotyposCustomerId(customer.id)),
+        Effect.flatMap(issueForCustomer)
+      );
+    });
+    const issuance = yield* transaction(
+      WorkspaceLocks.manualInvoiceCreation(invoiceId).pipe(
+        Effect.andThen(
+          Effect.gen(function* () {
+            const claim = yield* creationRequests.claim({
+              invoiceId,
+              normalizedRequestJson: getManualInvoiceCreationRequestJson(
+                input,
+                provenance
               ),
-              Effect.flatMap(issueForCustomer)
+            });
+            const lockedIssuance = yield* issueLocked(
+              yield* findClaimedInvoice(claim)
             );
-        if (claim.kind === "claimed") {
-          yield* creationRequests.complete(invoiceId);
-        }
-        return lockedIssuance;
-      })
+            if (claim.kind === "claimed") {
+              yield* creationRequests.complete(invoiceId);
+            }
+            return lockedIssuance;
+          })
+        )
+      )
     );
     yield* deliveries
       .deliverByInvoiceId({ invoiceId: issuance.invoice.id })
@@ -367,12 +450,11 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
           })
         )
       );
-    const detail = yield* get(issuance.invoice.id);
     return {
       invoiceId: AdministrationInvoiceId.make(issuance.invoice.id),
       invoiceNumber: issuance.invoice.invoiceNumber,
       changed: issuance.changed,
-      needsAttention: detail.needsAttention,
+      needsAttention: yield* needsAttention(issuance.invoice.id),
     } satisfies InvoiceAdministrationCreateResult;
   });
 
@@ -384,11 +466,10 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     if (!stored)
       return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
     const result = yield* deliveries.deliverByInvoiceId({ invoiceId: id });
-    const detail = yield* get(id);
     return {
       invoiceId: AdministrationInvoiceId.make(id),
       changed: result.status === "delivered" && result.changed,
-      needsAttention: detail.needsAttention,
+      needsAttention: yield* needsAttention(stored.id),
     } satisfies InvoiceAdministrationRetryResult;
   });
 
@@ -432,6 +513,7 @@ const decodeDotyposCustomerId = (customerId: string | undefined) =>
     Effect.mapError(
       () =>
         new InvoiceAdministrationCustomerError({
+          reason: "customer-id-missing",
           message: "Dotypos returned a customer without an id.",
         })
     )
@@ -451,13 +533,17 @@ const resolveCustomer = Effect.fn(
       Effect.mapError(
         () =>
           new InvoiceAdministrationCustomerError({
+            reason: "customer-id-invalid",
             message: "The selected customer id is invalid.",
           })
       )
     );
     const customer = yield* dotypos.getCustomer(customerId);
-    if (customer.deleted)
+    // A customer Dotypos no longer has gets the same answer as a soft-deleted
+    // one.
+    if (Option.isNone(customer) || customer.value.deleted)
       return yield* new InvoiceAdministrationCustomerError({
+        reason: "customer-deleted",
         message: "The selected customer is deleted.",
       });
     return yield* dotypos.updateCustomerDetails(customerId, details);
@@ -471,19 +557,14 @@ const resolveCustomer = Effect.fn(
     Match.tag("Ambiguous", () =>
       Effect.fail(
         new InvoiceAdministrationCustomerError({
+          reason: "customer-email-ambiguous",
           message:
             "Multiple Dotypos customers use this email. Select the correct existing customer.",
         })
       )
     ),
     Match.tag("Matched", ({ customer }) =>
-      customer.id
-        ? dotypos.updateCustomerDetails(customer.id, details)
-        : Effect.fail(
-            new InvoiceAdministrationCustomerError({
-              message: "Dotypos returned a customer without an id.",
-            })
-          )
+      dotypos.updateCustomerDetails(customer.id, details)
     ),
     Match.tag("NotFound", () => dotypos.createCustomer(details)),
     // Deleted profiles were invisible to lookups before; keep creating a
@@ -499,7 +580,13 @@ const toDotyposDetails = (
   firstName: details.firstName ?? "",
   lastName: details.lastName ?? "",
   email: details.email,
-  ...(details.phone && { phone: details.phone }),
+  // Not a visitor's input: the phone is the Dotypos customer's stored one or
+  // what an administrator enters for the business's own customer, so a number
+  // without a country calling code is a national one of the business's
+  // market, the base locale's region, whatever the Admin's language.
+  phone: Option.getOrUndefined(
+    parsePhoneNumber(details.phone ?? "", defaultPhoneRegion(baseLocale))
+  ),
   addressLine1: details.address.line1,
   addressLine2: details.address.line2 ?? "",
   city: details.address.city,
@@ -529,76 +616,87 @@ const toBuyer = Effect.fn("InvoiceAdministrationService.toBuyer")(
       Effect.mapError(
         () =>
           new InvoiceAdministrationCustomerError({
+            reason: "billing-details-invalid",
             message: "Complete valid billing details are required.",
           })
       )
     )
 );
 
+/** A Dotypos text field without surrounding whitespace; absent reads as "". */
+const customerText = (value: string | null | undefined) => value?.trim() ?? "";
+
+const toCustomerAddress = (customer: DotyposCustomer) => {
+  const line2 = customerText(customer.addressLine2);
+  return {
+    line1: customerText(customer.addressLine1),
+    ...(line2 && { line2 }),
+    city: customerText(customer.city),
+    postalCode: customerText(customer.zip),
+    country: customerText(customer.country).toUpperCase() || "CZ",
+  };
+};
+
+/**
+ * The billing details a Dotypos customer prefills: a business when it has a
+ * company name, otherwise a person.
+ */
+const toCustomerDetails = (
+  customer: DotyposCustomer
+): AdministrationInvoiceCustomerDetailsType => {
+  const phone = customerText(customer.phone);
+  const common = {
+    email: customerText(customer.email),
+    ...(phone && { phone }),
+    firstName: customerText(customer.firstName) || undefined,
+    lastName: customerText(customer.lastName) || undefined,
+    address: toCustomerAddress(customer),
+  };
+  const companyName = customerText(customer.companyName);
+  if (!companyName) {
+    return {
+      ...common,
+      kind: "person",
+      firstName: customerText(customer.firstName),
+      lastName: customerText(customer.lastName),
+    };
+  }
+  const vatId = customerText(customer.vatId);
+  return {
+    ...common,
+    kind: "business",
+    companyName,
+    companyId: customerText(customer.companyId),
+    ...(vatId && { vatId }),
+  };
+};
+
 const toCustomer = (
   customer: DotyposCustomer
-): InvoiceAdministrationCustomer | null => {
-  if (!customer.id) return null;
+): InvoiceAdministrationCustomer => {
   const personName = [customer.firstName, customer.lastName]
     .filter(Boolean)
     .join(" ")
     .trim();
-  const common = {
-    email: customer.email?.trim() ?? "",
-    ...(customer.phone?.trim() && { phone: customer.phone.trim() }),
-    firstName: customer.firstName?.trim() || undefined,
-    lastName: customer.lastName?.trim() || undefined,
-    address: {
-      line1: customer.addressLine1?.trim() ?? "",
-      ...(customer.addressLine2?.trim() && {
-        line2: customer.addressLine2.trim(),
-      }),
-      city: customer.city?.trim() ?? "",
-      postalCode: customer.zip?.trim() ?? "",
-      country: customer.country?.trim().toUpperCase() || "CZ",
-    },
-  };
-  const details = customer.companyName?.trim()
-    ? {
-        ...common,
-        kind: "business" as const,
-        companyName: customer.companyName.trim(),
-        companyId: customer.companyId?.trim() ?? "",
-        ...(customer.vatId?.trim() && { vatId: customer.vatId.trim() }),
-      }
-    : {
-        ...common,
-        kind: "person" as const,
-        firstName: customer.firstName?.trim() ?? "",
-        lastName: customer.lastName?.trim() ?? "",
-      };
+  const email = customerText(customer.email);
+  const name = customerText(customer.companyName) || personName || email;
   return {
     id: customer.id,
-    displayName:
-      customer.companyName?.trim() ||
-      personName ||
-      customer.email?.trim() ||
-      "Unnamed customer",
-    email: customer.email?.trim() || null,
-    details,
+    displayName: name || unnamedCustomerDisplayName,
+    hasName: Boolean(name),
+    email: email || null,
+    details: toCustomerDetails(customer),
   };
 };
 
 const toListItem = (
-  { invoice, delivery, needsAttention }: InvoiceListItem,
-  today: string
+  invoice: Invoice,
+  { customer, internal, needsAttention }: InvoiceDeliverySummary,
+  today: PlainDate
 ): InvoiceAdministrationListItem => {
   const document = invoice.document;
   const manual = isManualInvoiceDocument(document);
-  const money = manual
-    ? { total: document.total, currency: document.currency }
-    : {
-        total: minorUnitsToDecimal(
-          document.quote.payment.expectedPrice.value,
-          document.quote.payment.expectedPrice.exponent
-        ),
-        currency: document.quote.payment.expectedPrice.currency,
-      };
+  const total = getInvoiceTotal(document);
   return {
     id: AdministrationInvoiceId.make(invoice.id),
     invoiceNumber: invoice.invoiceNumber,
@@ -610,35 +708,52 @@ const toListItem = (
           invoice.workspaceReservationId
         )
       : null,
-    ...money,
-    paymentStatus: getInvoiceAdministrationPaymentStatus(document, today),
+    total: total.amount,
+    currency: total.currency,
+    paymentStatus: getInvoicePaymentStatus(document, today),
     source: manual
       ? document.provenance.source
       : (document.provenance?.source ?? "legacy"),
     actor: manual ? document.provenance.actor : null,
-    delivery,
+    delivery: { customer, internal },
     needsAttention,
   };
 };
 
 const toDetail = (
-  item: InvoiceListItem,
-  today: string
+  invoice: Invoice,
+  delivery: InvoiceDeliverySummary,
+  today: PlainDate
 ): InvoiceAdministrationDetail => {
-  const summary = toListItem(item, today);
-  const document = item.invoice.document;
+  const summary = toListItem(invoice, delivery, today);
+  const document = invoice.document;
+  const settlement = getInvoiceSettlement(document);
+  // The contract reports the due date a manual invoice states even when
+  // nothing is due; the Admin UI shows it only when payment is requested.
+  const terms = Match.value(settlement).pipe(
+    Match.tagsExhaustive({
+      Paid: ({ paidOn }) => ({ dueDate: null, paidOn }),
+      PaymentRequested: ({ dueDate }) => ({ dueDate, paidOn: null }),
+      NothingDue: ({ statedDueDate }) => ({
+        dueDate: statedDueDate,
+        paidOn: null,
+      }),
+    })
+  );
   if (isManualInvoiceDocument(document)) {
-    const payment = getManualInvoicePayment(document);
     return {
       ...summary,
       locale: document.locale,
       serviceDate: document.serviceDate,
-      dueDate: payment.status === "due" ? payment.date : null,
-      paidOn: payment.status === "paid" ? payment.date : null,
+      ...terms,
       variableSymbol: document.variableSymbol,
       lines: document.lines,
       buyer: document.buyer,
-      pdfUrl: `/admin/invoices/${item.invoice.id}/pdf`,
+      // The API keeps this unprefixed; the proxy opens it in the operator's language.
+      pdfUrl: administrationHref("/[locale]/admin/invoices/[invoiceId]/pdf", {
+        invoiceId: invoice.id,
+      }),
+      settlement,
     };
   }
   const presentation = getInvoicePresentation(document);
@@ -653,45 +768,24 @@ const toDetail = (
           timeZone: workspaceSiteConstants.location.timeZone,
         }).toString()
       : null,
-    dueDate: null,
-    paidOn: null,
+    ...terms,
     variableSymbol: null,
     lines: presentation.lines.map(({ description, amount }) => ({
       description,
       price: amount,
     })),
     buyer: document.buyer,
-    pdfUrl: `/admin/invoices/${item.invoice.id}/pdf`,
+    // The API keeps this unprefixed; the proxy opens it in the operator's language.
+    pdfUrl: administrationHref("/[locale]/admin/invoices/[invoiceId]/pdf", {
+      invoiceId: invoice.id,
+    }),
+    settlement,
   };
 };
 
-export const getInvoiceAdministrationPaymentStatus = (
-  document: InvoiceDocument,
-  today: string
-): AdministrationInvoicePaymentStatusType => {
-  if (!isManualInvoiceDocument(document)) return "paid";
-  const payment = getManualInvoicePayment(document);
-  if (payment.status === "paid") return "paid";
-  if (!BigDecimal.isPositive(BigDecimal.fromStringUnsafe(document.total)))
-    return "issued";
-  if (payment.date < today) return "overdue";
-  return payment.date === today ? "due" : "issued";
-};
-
-const getPragueDate = () =>
-  Temporal.Now.zonedDateTimeISO(workspaceSiteConstants.location.timeZone)
-    .toPlainDate()
-    .toString();
-
-const minorUnitsToDecimal = (value: number, exponent: number) => {
-  const sign = value < 0 ? "-" : "";
-  const digits = Math.abs(value)
-    .toString()
-    .padStart(exponent + 1, "0");
-  return exponent === 0
-    ? `${sign}${digits}`
-    : `${sign}${digits.slice(0, -exponent)}.${digits.slice(-exponent)}`;
-};
+const currentPragueDate = currentPlainDate(
+  workspaceSiteConstants.location.timeZone
+);
 
 export const sortInvoiceAdministrationItems = (
   items: readonly InvoiceAdministrationListItem[],
@@ -730,7 +824,9 @@ function getDependencies() {
     Layer.provide(storage)
   );
   return Layer.mergeAll(
+    WorkspaceDatabase.Default,
     InvoiceRepository.Live,
+    InvoiceEmailDeliveryRepository.Live,
     creationRequests,
     InvoiceEmailDeliveryService.Live,
     WorkspaceDotyposLayer

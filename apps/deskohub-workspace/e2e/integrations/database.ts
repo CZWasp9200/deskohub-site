@@ -43,10 +43,11 @@ import type {
   PaymentAttemptId,
   StoredWebhookEventId,
 } from "@/features/checkout/checkout-identifiers";
-import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
+import type { LegalEvidenceAcknowledgements } from "@/features/checkout/legal-evidence";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
 import type { VoucherId } from "@/features/discounts/persistence-contracts";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { Money } from "@/shared/money/money";
 import { matchesExpectedReservationDetails } from "../checkout/reservation-details";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import {
@@ -541,7 +542,7 @@ export const validateVoucherRedemptions = (
     readonly orderId: WorkspaceReservationId;
     readonly subtotalAfter: "positive" | "zero";
   }[],
-  creditPerRun: WorkspaceMoney
+  creditPerRun: Money
 ): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
     const { db } = yield* E2EDatabase;
@@ -649,7 +650,7 @@ export const validateVoucherRedemptions = (
 
 interface VoucherRedemptionRow {
   readonly adjustment: {
-    readonly amount?: WorkspaceMoney;
+    readonly amount?: Money;
     readonly kind?: string;
   };
 }
@@ -951,7 +952,7 @@ export const markPaymentTerminalForE2E = (
 ): Effect.Effect<CheckoutRow, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
     const { db } = yield* E2EDatabase;
-    const failureCode = `workspace_e2e_nexi_${scenario.state}`;
+    const { failureCode } = scenario;
     const providerOperationId = NexiOperationIdSchema.make(
       `workspace-e2e-${scenario.state}-${orderId}`
     );
@@ -1550,7 +1551,7 @@ export const assertPaymentTerminalRow = (
       `payment attempt state was not ${scenario.state}`
     );
     assert(
-      row.payment_failure_code === `workspace_e2e_nexi_${scenario.state}`,
+      row.payment_failure_code === scenario.failureCode,
       "terminal payment failure code mismatch"
     );
     assert(
@@ -1811,6 +1812,7 @@ const assertLegalEvidence = (
       db
         .select({
           accepted: legalEvidenceEvents.accepted,
+          acknowledgements: legalEvidenceEvents.acknowledgements,
           document_key: legalEvidenceEvents.documentKey,
           hash_algorithm: legalEvidenceEvents.hashAlgorithm,
           locale: legalEvidenceEvents.locale,
@@ -1828,6 +1830,7 @@ const assertLegalEvidence = (
 export const assertLegalEvidenceRows = (
   rows: readonly {
     readonly accepted: boolean;
+    readonly acknowledgements: LegalEvidenceAcknowledgements | null;
     readonly document_key: string;
     readonly hash_algorithm: string;
     readonly locale: string;
@@ -1842,6 +1845,10 @@ export const assertLegalEvidenceRows = (
 
   for (const row of rows) {
     assert(row.accepted, `legal evidence ${row.document_key} was not accepted`);
+    assert(
+      row.acknowledgements !== null,
+      `legal evidence ${row.document_key} acknowledgements were not recorded`
+    );
     assert(
       row.hash_algorithm === "sha256",
       "legal evidence hash algorithm mismatch"

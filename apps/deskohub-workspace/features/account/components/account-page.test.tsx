@@ -9,7 +9,11 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { useState } from "react";
-import type { CustomerProfileInput } from "@/features/account/contracts";
+import type {
+  CustomerInvoiceHistory,
+  CustomerProfileInput,
+  CustomerReservationHistory,
+} from "@/features/account/contracts";
 import { type Locale, m } from "@/features/i18n";
 import {
   formatReferralInvitationDiscount,
@@ -35,10 +39,17 @@ const { act, cleanup, fireEvent, render, waitFor, within } = await import(
 
 const adaAddress = testEmailAddress("ada");
 
+// A settled history React reads without suspending, so every rerender
+// commits at once; the panel's loading states have their own tests.
+const emptyInvoiceHistory: CustomerInvoiceHistory = { kind: "empty" };
+const loadedInvoiceHistory = Object.assign(
+  Promise.resolve(emptyInvoiceHistory),
+  { status: "fulfilled", value: emptyInvoiceHistory }
+);
+const loadInvoiceHistory = mock(() => loadedInvoiceHistory);
+
 const signInMagicLink = mock(() => Promise.resolve({ error: null }));
 const getSession = mock(() => Promise.resolve({ data: null, error: null }));
-const beginAnalyticsAccountTransition = mock(() => undefined);
-const completeAnalyticsAccountSignOut = mock(() => undefined);
 const refreshAnalyticsAccountIdentity = mock(() => Promise.resolve());
 const acknowledgeSignupReferralNotice = mock(() =>
   Promise.resolve({ data: { status: "acknowledged" } } as never)
@@ -46,10 +57,11 @@ const acknowledgeSignupReferralNotice = mock(() =>
 const completeCustomerProfile = mock((_input: CustomerProfileInput) =>
   Promise.resolve({ data: { status: "completed" } })
 );
-const executedWorkspaceActionNames: string[] = [];
+mock.module("@/features/account/account-exit", () => ({
+  beginAccountExit: () => ({ left: () => undefined, stayed: () => undefined }),
+  signOutOfAccount: () => Promise.resolve("signed-out"),
+}));
 mock.module("@/features/account/analytics-identity", () => ({
-  beginAnalyticsAccountTransition,
-  completeAnalyticsAccountSignOut,
   getAnalyticsAccountIdentity: () => ({ status: "anonymous" }),
   refreshAnalyticsAccountIdentity,
   subscribeAnalyticsAccountIdentity: () => () => undefined,
@@ -70,7 +82,6 @@ mock.module("@/shared/utils/use-workspace-action", () => ({
   useWorkspaceAction: (
     action: (input: never) => Promise<unknown>,
     options?: {
-      readonly actionName?: string;
       readonly onSuccess?: (args: { readonly data?: unknown }) => void;
     }
   ) => {
@@ -84,9 +95,6 @@ mock.module("@/shared/utils/use-workspace-action", () => ({
       result,
       isExecuting,
       execute: (input: never) => {
-        if (options?.actionName !== undefined) {
-          executedWorkspaceActionNames.push(options.actionName);
-        }
         setExecuting(true);
         void action(input).then((outcome) => {
           setExecuting(false);
@@ -165,7 +173,6 @@ mock.module("@/features/account/auth.client", () => ({
   authClient: {
     getSession,
     signIn: { magicLink: signInMagicLink },
-    signOut: () => Promise.resolve({ error: null }),
   },
 }));
 
@@ -188,6 +195,7 @@ const en = { locale: "en-US" } as const;
 
 const linkedState = {
   kind: "linked",
+  deletion: "offered",
   email: adaAddress,
   profile: {
     firstName: "Ada",
@@ -212,15 +220,13 @@ describe("AccountPage states", () => {
   afterEach(() => {
     cleanup();
     completeCustomerProfile.mockClear();
-    executedWorkspaceActionNames.length = 0;
     workspaceRouterRefresh.mockClear();
     workspaceRouterRefresh.mockImplementation(() => undefined);
     workspaceRouterReplace.mockClear();
-    beginAnalyticsAccountTransition.mockClear();
-    completeAnalyticsAccountSignOut.mockClear();
     refreshAnalyticsAccountIdentity.mockClear();
     workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
     getSession.mockClear();
+    loadInvoiceHistory.mockClear();
   });
 
   afterAll(async () => {
@@ -236,7 +242,13 @@ describe("AccountPage states", () => {
   ) => {
     const { AccountPage } = await import("./account-page");
     if (state.kind === "unauthenticated") {
-      return render(<AccountPage locale={locale} state={state} />);
+      return render(
+        <AccountPage
+          loadInvoiceHistory={loadInvoiceHistory}
+          locale={locale}
+          state={state}
+        />
+      );
     }
 
     const { AccountLayoutShell } = await import("./account-layout-shell");
@@ -244,12 +256,16 @@ describe("AccountPage states", () => {
       state.kind !== "unauthenticated" && state.kind !== "unavailable";
     const view = render(
       <AccountLayoutShell
-        accountsEnabled
         locale={locale}
+        passkeysEnabled={"passkeys" in state && state.passkeys !== undefined}
         referralsEnabled
         signedIn={signedIn}
       >
-        <AccountPage locale={locale} state={state} />
+        <AccountPage
+          loadInvoiceHistory={loadInvoiceHistory}
+          locale={locale}
+          state={state}
+        />
       </AccountLayoutShell>
     );
 
@@ -270,6 +286,7 @@ describe("AccountPage states", () => {
   test("asks for profile completion with the read-only verified email", async () => {
     const view = await renderState({
       kind: "completion-required",
+      deletion: "offered",
       referralsEnabled: true,
       email: adaAddress,
     });
@@ -299,6 +316,149 @@ describe("AccountPage states", () => {
     ).toBeTruthy();
   });
 
+  const authoredHistory: CustomerReservationHistory = {
+    kind: "available",
+    groups: {
+      current: [
+        {
+          id: "workspace-reservation-1",
+          workspaceReservationId: "workspace-reservation-1",
+          party: { kind: "booked-for", customerName: "Karla Ukázková" },
+          product: { kind: "meeting-room" },
+          startsAt: "2999-01-01T10:00:00.000Z",
+          endsAt: "2999-01-01T11:00:00.000Z",
+          seats: 4,
+          status: "confirmed",
+        },
+      ],
+      past: [],
+      unavailable: [],
+    },
+  };
+
+  test("shows the reservation an account booked for someone else beside profile completion", async () => {
+    const view = await renderState({
+      kind: "completion-required",
+      deletion: "offered",
+      referralsEnabled: true,
+      email: adaAddress,
+      history: authoredHistory,
+    });
+
+    expect(
+      view.getByText(
+        m.accountReservationBookedFor({ name: "Karla Ukázková" }, en)
+      )
+    ).toBeTruthy();
+    expect(
+      view.getByRole("heading", {
+        level: 2,
+        name: m.accountCompletionTitle({}, en),
+      })
+    ).toBeTruthy();
+  });
+
+  test("shows the reservation an account booked for someone else beside the support notice", async () => {
+    const view = await renderState({
+      kind: "support-required",
+      deletion: "offered",
+      email: adaAddress,
+      history: authoredHistory,
+    });
+
+    expect(
+      view.getByText(
+        m.accountReservationBookedFor({ name: "Karla Ukázková" }, en)
+      )
+    ).toBeTruthy();
+    expect(
+      view.getByRole("heading", {
+        level: 2,
+        name: m.accountSupportTitle({}, en),
+      })
+    ).toBeTruthy();
+    expect(view.queryByText(m.accountProfileSave({}, en))).toBeNull();
+  });
+
+  test("shows a review account's sandbox reservations beside its card, without profile completion or PIN links", async () => {
+    const view = await renderState({
+      kind: "review-account",
+      deletion: "withheld",
+      email: adaAddress,
+      history: {
+        kind: "available",
+        groups: {
+          current: [
+            {
+              id: "review-sample-order",
+              workspaceReservationId: "review-sample-order",
+              reviewSandbox: true,
+              product: { kind: "meeting-room" },
+              startsAt: "2999-01-01T10:00:00.000Z",
+              endsAt: "2999-01-01T11:00:00.000Z",
+              seats: 1,
+              status: "confirmed",
+            },
+          ],
+          past: [],
+          unavailable: [],
+        },
+      },
+    });
+    const hrefs = view
+      .getAllByRole("link")
+      .map((link) => link.getAttribute("href") ?? "");
+
+    expect(
+      view.container.querySelector("#account-review-account")
+    ).toBeTruthy();
+    expect(
+      view.container.querySelector("#account-completion-required")
+    ).toBeNull();
+    expect(
+      hrefs.some((href) =>
+        href.endsWith("/reservation/status/review-sample-order")
+      )
+    ).toBe(true);
+    expect(hrefs.some((href) => href.includes("/reservation/access/"))).toBe(
+      false
+    );
+    expect(loadInvoiceHistory).toHaveBeenCalledTimes(1);
+    expect(
+      view.container.querySelector('[data-slot="invoice-history"]')
+    ).toBeTruthy();
+  });
+
+  test("offers a review account no account deletion", async () => {
+    const view = await renderState({
+      kind: "review-account",
+      deletion: "withheld",
+      email: adaAddress,
+      history: {
+        kind: "available",
+        groups: { current: [], past: [], unavailable: [] },
+      },
+    });
+
+    expect(
+      view.container.querySelector("#account-review-account")
+    ).toBeTruthy();
+    expect(view.container.querySelector("#delete-account-trigger")).toBeNull();
+  });
+
+  test("offers no account deletion while deletion eligibility is unknown", async () => {
+    const view = await renderState({
+      kind: "authenticated-unavailable",
+      deletion: "withheld",
+      email: adaAddress,
+    });
+
+    expect(
+      view.container.querySelector("#account-profile-unavailable")
+    ).toBeTruthy();
+    expect(view.container.querySelector("#delete-account-trigger")).toBeNull();
+  });
+
   test("renders the linked account with profile, reservations, sign out, and deletion", async () => {
     const view = await renderState(linkedState);
     const sectionNavigation = within(
@@ -307,7 +467,7 @@ describe("AccountPage states", () => {
 
     expect(view.getByText(m.accountTitle({}, en))).toBeTruthy();
     expect(
-      sectionNavigation.getByRole("button", {
+      sectionNavigation.getByRole("link", {
         name: new RegExp(`^${m.accountSectionReservations({}, en)}`),
       })
     ).toBeTruthy();
@@ -316,7 +476,7 @@ describe("AccountPage states", () => {
     expect(view.container.querySelectorAll("main")).toHaveLength(1);
 
     fireEvent.click(
-      sectionNavigation.getByRole("button", {
+      sectionNavigation.getByRole("link", {
         name: m.accountSectionProfile({}, en),
       })
     );
@@ -325,12 +485,38 @@ describe("AccountPage states", () => {
     expect(view.getByText(adaAddress)).toBeTruthy();
 
     fireEvent.click(
-      sectionNavigation.getByRole("button", {
+      sectionNavigation.getByRole("link", {
         name: m.accountSectionBilling({}, en),
       })
     );
     expect(view.getByText(m.accountBillingDetailsTitle({}, en))).toBeTruthy();
     expect(view.getByText(m.accountProfileSave({}, en))).toBeTruthy();
+  });
+
+  test("streams the invoice history into its own Billing panel beside the billing form", async () => {
+    const view = await renderState(linkedState);
+    const invoicePanel = view.container.querySelector(
+      '[data-slot="invoice-history"]'
+    );
+
+    expect(loadInvoiceHistory).toHaveBeenCalledTimes(1);
+    expect(invoicePanel?.closest("[hidden]")).toBeTruthy();
+
+    fireEvent.click(
+      within(
+        view.getByRole("group", { name: m.accountSectionLabel({}, en) })
+      ).getByRole("link", { name: m.accountSectionBilling({}, en) })
+    );
+
+    const billingForm = view
+      .getByText(m.accountBillingDetailsTitle({}, en))
+      .closest('[data-slot="account-section-panel"]');
+    expect(invoicePanel?.closest("[hidden]")).toBeNull();
+    expect(billingForm).toBeTruthy();
+    expect(billingForm?.contains(invoicePanel ?? null)).toBe(false);
+    expect(
+      invoicePanel?.querySelector('[data-slot="invoice-history-empty"]')
+    ).toBeTruthy();
   });
 
   test("submits the remembered referral code with completion and shows its outcome after the refresh", async () => {
@@ -345,6 +531,7 @@ describe("AccountPage states", () => {
     function ProfileCompletionRefreshJourney() {
       const [state, setState] = useState<CustomerAccountPageState>({
         kind: "completion-required",
+        deletion: "offered",
         referralsEnabled: true,
         email: adaAddress,
         referralCode,
@@ -353,8 +540,12 @@ describe("AccountPage states", () => {
         setState({ ...linkedState, signupReferral: { status: "applied" } });
 
       return (
-        <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
-          <AccountPage locale="en-US" state={state} />
+        <AccountLayoutShell locale="en-US" signedIn>
+          <AccountPage
+            loadInvoiceHistory={loadInvoiceHistory}
+            locale="en-US"
+            state={state}
+          />
         </AccountLayoutShell>
       );
     }
@@ -411,6 +602,7 @@ describe("AccountPage states", () => {
     function PendingCompletionJourney() {
       const [state, setState] = useState<CustomerAccountPageState>({
         kind: "completion-required",
+        deletion: "offered",
         referralsEnabled: true,
         email: adaAddress,
       });
@@ -422,8 +614,12 @@ describe("AccountPage states", () => {
         );
 
       return (
-        <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
-          <AccountPage locale="en-US" state={state} />
+        <AccountLayoutShell locale="en-US" signedIn>
+          <AccountPage
+            loadInvoiceHistory={loadInvoiceHistory}
+            locale="en-US"
+            state={state}
+          />
         </AccountLayoutShell>
       );
     }
@@ -549,8 +745,12 @@ describe("AccountPage states", () => {
       const { AccountLayoutShell } = await import("./account-layout-shell");
       const { AccountPage } = await import("./account-page");
       const page = (state: CustomerAccountPageState) => (
-        <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
-          <AccountPage locale="en-US" state={state} />
+        <AccountLayoutShell locale="en-US" signedIn>
+          <AccountPage
+            loadInvoiceHistory={loadInvoiceHistory}
+            locale="en-US"
+            state={state}
+          />
         </AccountLayoutShell>
       );
       const pendingMessage = m.accountProfileReferralPending({}, en);
@@ -605,6 +805,7 @@ describe("AccountPage states", () => {
   test("offers no completion referral field while the program is withheld", async () => {
     const view = await renderState({
       kind: "completion-required",
+      deletion: "offered",
       referralsEnabled: false,
       email: adaAddress,
     });
@@ -624,6 +825,7 @@ describe("AccountPage states", () => {
   test("renders the support state with the contact destination and no profile data", async () => {
     const view = await renderState({
       kind: "support-required",
+      deletion: "offered",
       email: adaAddress,
     });
 
@@ -647,26 +849,41 @@ describe("AccountPage states", () => {
     expect(
       view.getByRole("button", { name: m.accountDeletionConfirm({}, en) })
     ).toBeTruthy();
+    expect(loadInvoiceHistory).not.toHaveBeenCalled();
   });
 
   test("renders the pending deletion state with retry and sign out", async () => {
     const view = await renderState({
       kind: "deletion-pending",
+      deletion: "pending",
       email: adaAddress,
     });
 
     expect(view.getByText(m.accountDeletionPendingTitle({}, en))).toBeTruthy();
     expect(view.getByText(m.accountDeletionConfirm({}, en))).toBeTruthy();
     expect(view.getByText(m.accountSignOut({}, en))).toBeTruthy();
+    expect(loadInvoiceHistory).not.toHaveBeenCalled();
+    expect(
+      view.container.querySelector('[data-slot="invoice-history"]')
+    ).toBeNull();
   });
 
   test("redirects unauthenticated visitors without loading account data", async () => {
-    const view = await renderState({ kind: "unauthenticated" });
+    const originalReplace = window.location.replace;
+    const documentNavigations: string[] = [];
+    window.location.replace = ((href: string) => {
+      documentNavigations.push(href);
+    }) as typeof window.location.replace;
+    const view = await renderState({ kind: "unauthenticated" }).finally(() => {
+      window.location.replace = originalReplace;
+    });
 
     expect(
       view.getByRole("status", { name: m.accountSignInLoading({}, en) })
     ).toBeTruthy();
-    expect(workspaceRouterReplace).toHaveBeenCalledWith("/en-US/auth/sign-in");
+    // A document navigation loads the sign-in page, not its modal.
+    expect(documentNavigations).toEqual(["/en-US/auth/sign-in"]);
+    expect(workspaceRouterReplace).not.toHaveBeenCalled();
     expect(refreshAnalyticsAccountIdentity).not.toHaveBeenCalled();
     expect(view.queryByText(m.accountTitle({}, en))).toBeNull();
     expect(view.queryByText(m.accountSectionReservations({}, en))).toBeNull();
@@ -681,6 +898,7 @@ describe("AccountPage states", () => {
   test("renders the authenticated unavailable state with account controls", async () => {
     const view = await renderState({
       kind: "authenticated-unavailable",
+      deletion: "offered",
       email: adaAddress,
     });
 
@@ -694,6 +912,376 @@ describe("AccountPage states", () => {
         name: m.accountUnavailableTitle({}, en),
       })
     ).toBeTruthy();
+  });
+
+  test("manages passkeys under Sign-in & security while the profile is unavailable", async () => {
+    const view = await renderState({
+      kind: "authenticated-unavailable",
+      deletion: "offered",
+      email: adaAddress,
+      passkeys: {
+        accountId: "account-1",
+        passkeys: [
+          {
+            id: "passkey-1",
+            name: "Work laptop",
+            provider: undefined,
+            createdAt: "2026-10-14T16:40:00.000Z",
+          },
+        ],
+      },
+    });
+    const unavailableTitle = view.getByText(m.accountUnavailableTitle({}, en));
+    expect(unavailableTitle.closest("[hidden]")).toBeNull();
+
+    fireEvent.click(
+      within(
+        view.getByRole("group", { name: m.accountSectionLabel({}, en) })
+      ).getByRole("link", { name: m.accountSectionSecurity({}, en) })
+    );
+
+    const list = view.getByRole("list", {
+      name: m.accountSecurityPasskeysTitle({}, en),
+    });
+    expect(within(list).getByText("Work laptop")).toBeTruthy();
+    expect(
+      view.getByText(m.accountSecurityPasskeysAdd({}, en)).closest("[hidden]")
+    ).toBeNull();
+    expect(unavailableTitle.closest("[hidden]")).not.toBeNull();
+  });
+
+  const openSection = (
+    view: Awaited<ReturnType<typeof renderState>>,
+    locale: "en-US" | "cs-CZ",
+    name: string
+  ) =>
+    fireEvent.click(
+      within(
+        view.getByRole("group", {
+          name: m.accountSectionLabel({}, { locale }),
+        })
+      ).getByRole("link", { name })
+    );
+
+  test("lists connected assistants while the profile needs completion", async () => {
+    const cs = { locale: "cs-CZ" } as const;
+    const view = await renderState(
+      {
+        kind: "completion-required",
+        deletion: "offered",
+        email: adaAddress,
+        referralsEnabled: false,
+        assistants: [
+          {
+            id: "consent-1",
+            name: "Synthetic Assistant",
+            host: "assistant.invalid",
+            scopes: ["reservations:read"],
+            administration: false,
+            connectedAt: "2026-10-14T16:40:00.000Z",
+          },
+        ],
+      },
+      "cs-CZ"
+    );
+    const completion = view.container.querySelector(
+      "#account-completion-required"
+    );
+    expect(completion).toBeTruthy();
+    expect(completion?.closest("[hidden]")).toBeNull();
+
+    openSection(view, "cs-CZ", m.accountSectionAssistants({}, cs));
+
+    const list = view.container.querySelector<HTMLElement>(
+      "ul[aria-labelledby='account-assistants-title']"
+    );
+    expect(list).toBeTruthy();
+    expect(within(list!).getByText("Synthetic Assistant")).toBeTruthy();
+    expect(list?.closest("[hidden]")).toBeNull();
+    expect(within(list!).getByRole("button")).toBeTruthy();
+    expect(completion?.closest("[hidden]")).not.toBeNull();
+  });
+
+  test("shows no connected assistants while the profile is unavailable", async () => {
+    const view = await renderState({
+      kind: "authenticated-unavailable",
+      deletion: "offered",
+      email: adaAddress,
+      assistants: [],
+    });
+
+    openSection(view, "en-US", m.accountSectionAssistants({}, en));
+
+    const empty = view.container.querySelector("#account-assistants-empty");
+    expect(empty).toBeTruthy();
+    expect(empty?.closest("[hidden]")).toBeNull();
+    const unavailable = view.container.querySelector(
+      "#account-profile-unavailable"
+    );
+    expect(unavailable).toBeTruthy();
+    expect(unavailable?.closest("[hidden]")).not.toBeNull();
+  });
+
+  test("lists connected assistants for a linked account", async () => {
+    const view = await renderState({
+      ...linkedState,
+      assistants: [],
+    });
+
+    openSection(view, "en-US", m.accountSectionAssistants({}, en));
+
+    const empty = view.container.querySelector("#account-assistants-empty");
+    expect(empty).toBeTruthy();
+    expect(empty?.closest("[hidden]")).toBeNull();
+  });
+
+  const withEmailSignInOnCapableBrowser = async () => {
+    Object.defineProperty(globalThis, "PublicKeyCredential", {
+      configurable: true,
+      value: {
+        getClientCapabilities: async () => ({
+          passkeyPlatformAuthenticator: true,
+        }),
+      },
+    });
+    const { noteEmailSignInForPasskeyPrompt } = await import(
+      "@/features/account/passkey-prompt"
+    );
+    noteEmailSignInForPasskeyPrompt();
+  };
+
+  const withoutPasskeyBrowser = () => {
+    Reflect.deleteProperty(globalThis, "PublicKeyCredential");
+    window.sessionStorage.clear();
+    window.localStorage.clear();
+  };
+
+  test("offers a passkey after an email sign-in while the profile is unavailable", async () => {
+    await withEmailSignInOnCapableBrowser();
+    try {
+      const view = await renderState({
+        kind: "authenticated-unavailable",
+        deletion: "offered",
+        email: adaAddress,
+        passkeys: { accountId: "account-1", passkeys: [] },
+      });
+
+      await waitFor(() =>
+        expect(
+          view.getByRole("dialog", {
+            name: m.accountPasskeyPromptTitle({}, en),
+          })
+        ).toBeTruthy()
+      );
+    } finally {
+      withoutPasskeyBrowser();
+    }
+  });
+
+  test("keeps Sign-in & security out of an account pending deletion", async () => {
+    await withEmailSignInOnCapableBrowser();
+    const view = await renderState({
+      kind: "deletion-pending",
+      deletion: "pending",
+      email: adaAddress,
+      passkeys: { accountId: "account-1", passkeys: [] },
+    });
+
+    fireEvent.click(
+      within(
+        view.getByRole("group", { name: m.accountSectionLabel({}, en) })
+      ).getByRole("link", { name: m.accountSectionSecurity({}, en) })
+    );
+
+    expect(view.queryByText(m.accountSecurityPasskeysTitle({}, en))).toBeNull();
+    expect(
+      view.getByText(m.accountDeletionPendingTitle({}, en)).closest("[hidden]")
+    ).toBeNull();
+    await flushWorkspaceComponentWork();
+    expect(view.queryByText(m.accountPasskeyPromptTitle({}, en))).toBeNull();
+    withoutPasskeyBrowser();
+  });
+
+  test("offers deletion only where the state does, retrying a pending one", async () => {
+    const deletionTrigger = (view: Awaited<ReturnType<typeof renderState>>) =>
+      view.container.querySelector("#delete-account-trigger");
+    const withheld = [
+      {
+        kind: "authenticated-unavailable",
+        deletion: "withheld",
+        email: adaAddress,
+      },
+      {
+        kind: "completion-required",
+        deletion: "withheld",
+        email: adaAddress,
+        referralsEnabled: true,
+      },
+      { kind: "support-required", deletion: "withheld", email: adaAddress },
+    ] as const satisfies readonly CustomerAccountPageState[];
+    for (const state of withheld) {
+      expect(deletionTrigger(await renderState(state))).toBeNull();
+      cleanup();
+    }
+
+    const offered = await renderState({
+      kind: "support-required",
+      deletion: "offered",
+      email: adaAddress,
+    });
+    expect(deletionTrigger(offered)?.closest("[hidden]")).toBeNull();
+    cleanup();
+
+    const pending = await renderState({
+      kind: "deletion-pending",
+      deletion: "pending",
+      email: adaAddress,
+    });
+    expect(deletionTrigger(pending)?.closest("[hidden]")).toBeNull();
+    expect(
+      pending.getByText(m.accountDeletionPendingTitle({}, en))
+    ).toBeTruthy();
+    cleanup();
+
+    // A linked account keeps deletion to its own section.
+    const linked = await renderState(linkedState);
+    expect(deletionTrigger(linked)?.closest("[hidden]")).not.toBeNull();
+    openSection(linked, "en-US", m.accountSectionDanger({}, en));
+    expect(deletionTrigger(linked)?.closest("[hidden]")).toBeNull();
+  });
+
+  test("keeps a profile completion draft mounted while Sign-in & security is open", async () => {
+    const view = await renderState({
+      kind: "completion-required",
+      deletion: "offered",
+      email: adaAddress,
+      referralsEnabled: true,
+      passkeys: {
+        accountId: "account-1",
+        passkeys: [
+          {
+            id: "passkey-1",
+            name: "Work laptop",
+            provider: undefined,
+            createdAt: "2026-10-14T16:40:00.000Z",
+          },
+        ],
+      },
+    });
+    const firstName = view.getByLabelText(
+      m.accountProfileFirstNameLabel({}, en)
+    ) as HTMLInputElement;
+    fireEvent.change(firstName, { target: { value: "Grace" } });
+
+    openSection(view, "en-US", m.accountSectionSecurity({}, en));
+    expect(firstName.isConnected).toBe(true);
+    expect(firstName.closest("[hidden]")).not.toBeNull();
+    expect(
+      view.getByText(m.accountSecurityPasskeysAdd({}, en)).closest("[hidden]")
+    ).toBeNull();
+
+    openSection(view, "en-US", m.accountSectionProfile({}, en));
+    expect(firstName.closest("[hidden]")).toBeNull();
+    expect(firstName.value).toBe("Grace");
+  });
+
+  test("reads the passkeys afresh when a refresh links the completed account", async () => {
+    const { AccountLayoutShell } = await import("./account-layout-shell");
+    const { AccountPage } = await import("./account-page");
+    const passkeys = (name: string) => ({
+      accountId: "account-1",
+      passkeys: [
+        {
+          id: name,
+          name,
+          provider: undefined,
+          createdAt: "2026-10-14T16:40:00.000Z",
+        },
+      ],
+    });
+    const page = (state: CustomerAccountPageState) => (
+      <AccountLayoutShell
+        locale="en-US"
+        passkeysEnabled
+        referralsEnabled
+        signedIn
+      >
+        <AccountPage
+          loadInvoiceHistory={loadInvoiceHistory}
+          locale="en-US"
+          state={state}
+        />
+      </AccountLayoutShell>
+    );
+    const view = render(
+      page({
+        kind: "completion-required",
+        deletion: "offered",
+        email: adaAddress,
+        referralsEnabled: true,
+        passkeys: passkeys("Work laptop"),
+      })
+    );
+
+    view.rerender(page({ ...linkedState, passkeys: passkeys("Home phone") }));
+    openSection(view, "en-US", m.accountSectionSecurity({}, en));
+
+    const list = view.getByRole("list", {
+      name: m.accountSecurityPasskeysTitle({}, en),
+    });
+    expect(within(list).getByText("Home phone")).toBeTruthy();
+    expect(within(list).queryByText("Work laptop")).toBeNull();
+  });
+
+  test("publishes a linked account's referral badge and clears it when the state leaves linked", async () => {
+    const code = parseReferralCode("RFL12345");
+    if (code === undefined) throw new Error("Invalid referral test code");
+    const { AccountLayoutShell } = await import("./account-layout-shell");
+    const { AccountPage } = await import("./account-page");
+    const page = (state: CustomerAccountPageState) => (
+      <AccountLayoutShell
+        locale="en-US"
+        passkeysEnabled={false}
+        referralsEnabled
+        signedIn
+      >
+        <AccountPage
+          loadInvoiceHistory={loadInvoiceHistory}
+          locale="en-US"
+          state={state}
+        />
+      </AccountLayoutShell>
+    );
+    const view = render(
+      page({
+        ...linkedState,
+        referrals: {
+          summary: {
+            code,
+            inviteeCount: 2,
+            eligibleInviteeCount: 1,
+            discount: "5",
+            savings: [],
+          },
+          shareUrl: "https://workspace.example/account?ref=RFL12345",
+        },
+      })
+    );
+    const referralBadge = () =>
+      view.container.querySelector(
+        '[data-account-navigation-badge="referrals"]'
+      );
+    expect(referralBadge()).not.toBeNull();
+
+    view.rerender(
+      page({
+        kind: "completion-required",
+        deletion: "offered",
+        email: adaAddress,
+        referralsEnabled: true,
+      })
+    );
+    expect(referralBadge()).toBeNull();
   });
 
   test("asks the account identity adapter to refresh once per authenticated view", async () => {

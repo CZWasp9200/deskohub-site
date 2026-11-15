@@ -1,27 +1,21 @@
 import {
+  type DotyposCustomer,
   type DotyposCustomerId,
-  DotyposCustomerIdSchema,
+  type DotyposReadFailure,
+  type DotyposReservation,
   type DotyposReservationId,
-  DotyposReservationIdSchema,
   DotyposService,
+  type DotyposTable,
   type DotyposTableId,
-  DotyposTableIdSchema,
-  type ExternalAPIError,
-  type NetworkError,
-  type ValidationError,
+  getCustomerDisplayName,
 } from "@deskohub/dotypos";
+import type { NexiOrderId } from "@deskohub/nexi";
 import type {
-  Customer as DotyposCustomer,
-  Reservation as DotyposReservation,
-  Table as DotyposTable,
-} from "@deskohub/dotypos/generated";
-import {
-  NexiCorrelationIdSchema,
-  NexiOperationIdSchema,
-  type NexiOrderId,
-  NexiOrderIdSchema,
-  NexiWebhookEventIdSchema,
-} from "@deskohub/nexi";
+  AdministrationReservationFamily,
+  AdministrationReservationSort,
+  AdministrationReservationSortDirection,
+  AdministrationReservationStatusFilter,
+} from "@deskohub/workspace-admin-api";
 import {
   and,
   asc,
@@ -30,6 +24,7 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   max,
   notInArray,
   or,
@@ -38,16 +33,10 @@ import {
   sum,
 } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import {
-  Context,
-  Effect,
-  Array as EffectArray,
-  Layer,
-  Option,
-  Schema,
-} from "effect";
+import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import { unstable_rethrow } from "next/navigation";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { equalsAny } from "@/db/equals-any";
 import {
   customerMarketingConsents,
   discountApplications,
@@ -58,35 +47,50 @@ import {
   type PaymentRefundState,
   paymentAttempts,
   reservationAccessGrants,
-  type WorkspaceReservation,
+  type WorkspaceReservationRow,
   webhookEvents,
   workspaceReservations,
 } from "@/db/schema";
 import {
-  checkoutAttemptKeySchema,
-  checkoutSessionKeySchema,
-  type PaymentAttemptId,
-  paymentAttemptIdSchema,
-  storedWebhookEventIdSchema,
-} from "@/features/checkout/checkout-identifiers";
-import { legalEvidenceEventIdSchema } from "@/features/checkout/legal-evidence";
+  isCustomerOwnAuthor,
+  ReservationAuthorDirectory,
+} from "@/features/account";
+import type { CustomerAccountId } from "@/features/account/customer-account";
+import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import {
   getWorkspaceProductByTier,
   type WorkspaceCoworkProductTier,
+  workspaceCoworkTiers,
 } from "@/features/checkout/product-catalog";
+import type { DiscountApplicationId } from "@/features/discounts/persistence-contracts";
+import { marketingConsentState } from "@/features/legal/backend/marketing-consent-ledger";
+import type { MarketingConsentStatus } from "@/features/legal/marketing-consent-status";
+import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
+import { loadEarlySetupDetails } from "@/features/reservation/backend/early-setup-details";
 import {
-  type DiscountApplicationId,
-  discountApplicationIdSchema,
-} from "@/features/discounts/persistence-contracts";
-import {
-  type WorkspaceReservationId,
-  workspaceReservationIdSchema,
-} from "@/features/reservation/persistence-contracts";
+  StoredReservationDetails,
+  type WorkspaceReservationDetailsMalformedError,
+} from "@/features/reservation/backend/stored-reservation-details.server";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
+import { getReservationAccessName } from "@/features/reservation-access";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
+import type { Money } from "@/shared/money/money";
 import { workspaceSiteConstants } from "@/shared/utils";
-import { instantStringSchema } from "@/shared/utils/temporal";
+import {
+  instantStringSchema,
+  temporalInstantToIsoString,
+} from "@/shared/utils/temporal";
+import {
+  type AdministrationCustomerName,
+  unnamedCustomerDisplayName,
+} from "./customer-name";
+import {
+  buildLatePaymentRecoveryTimeline,
+  buildLatePaymentTimeline,
+  type LatePaymentEventRow,
+} from "./late-payment-timeline";
 import {
   getAdministrationExternalOrderPageIds,
   getAdministrationPagination,
@@ -96,6 +100,7 @@ import {
   type IPaymentAdministrationService,
   PaymentAdministrationService,
 } from "./payment-administration.service";
+import type { AdministrationPaymentTimelineEvent } from "./payment-timeline";
 import {
   buildPaymentAttemptTimeline,
   getOrderTimeline,
@@ -105,27 +110,49 @@ import {
   PostHogReservationHistory,
 } from "./posthog-reservation-history";
 import {
+  type EarlySetupDetailsById,
+  getAdministrationReservationHeldRangeBounds,
+  getBookedStart,
+  getBookedStartsAt,
+  getEarlySetupDetails,
+  getEarlySetupOrderCandidates,
+  getReservationDate,
+  isAdministrationDateInRange,
+  isHeldFromPreviousDateWithEarlySetup,
+  sortByBookedStart,
+} from "./reservation-booked-date";
+import {
   type AdministrationReservationDateRange,
   getAdministrationOverviewDateRanges,
   getAdministrationReservationDateRange,
-  getAdministrationReservationDateRangeBounds,
 } from "./reservation-date-range";
 import { getUniqueReservationId } from "./reservation-lookup.server";
+import { getReservationLookupConditions } from "./reservation-lookup-conditions";
 import {
-  type AdministrationStatusGroup,
+  type AdministrationReservationOperatorNotice,
+  getReservationOperatorNotice,
+  getReservationStatusNote,
+} from "./reservation-notices";
+import {
+  type AdministrationReservationProduct,
+  getAdministrationReservationProduct,
+} from "./reservation-product";
+import {
+  type AdministrationReservationStatusNote,
   canCancelReservation,
   getAdministrationReservationLifecycle,
   getAdministrationReservationStatus,
+  getAdministrationReservationStatusNoteFields,
 } from "./reservation-status";
 import {
   reservationStatusCondition,
   successfulReservationCondition,
 } from "./reservation-status-condition";
+import type { AdministrationReservationTimelineEvent } from "./reservation-timeline";
 
 const reservationPageSize = 24;
 const bookingPageSize = 24;
 const customerPageSize = 24;
-const providerIdBatchSize = 50;
 const customerReservationPageSize = 10;
 const customerActivityReservationLimit = 24;
 const customerActivityTransactionLimit = 50;
@@ -140,14 +167,10 @@ const paymentAttemptStateLabels = {
 } as const;
 
 /**
- * Reservation list filters: the durable workflow status groups plus the
- * payment-attempt refund work queue shared by late payments and operator
- * cancellations.
+ * The reservation list's criteria. `status` is a durable workflow status group
+ * or the payment-attempt refund work queue shared by late payments and
+ * operator cancellations.
  */
-export type AdministrationReservationStatusFilter =
-  | Exclude<AdministrationStatusGroup, "attention">
-  | "needs_refund";
-
 export type AdministrationReservationListInput = {
   readonly customerId?: DotyposCustomerId;
   readonly date?: string;
@@ -157,30 +180,60 @@ export type AdministrationReservationListInput = {
   readonly sort?: AdministrationReservationSort;
   readonly status?: AdministrationReservationStatusFilter;
   readonly to?: string;
-  readonly type?: "cowork" | "meeting-room" | "office";
+  readonly type?: AdministrationReservationFamily;
 };
 
-export type AdministrationReservationSort =
-  | "created"
-  | "date"
-  | "reservation"
-  | "status";
-
 type AdministrationSortDirection = "asc" | "desc";
-
-type AdministrationReservationSortDirection = AdministrationSortDirection;
 
 type ReservationListInput = AdministrationReservationListInput & {
   readonly pageSize?: number;
 };
 
+/** The list filters and order of a reservation export, which has no pages. */
+export type AdministrationReservationExportInput = Omit<
+  AdministrationReservationListInput,
+  "page"
+>;
+
+/** The Dotypos data a list export can't do without. */
+type AdministrationListSource =
+  | "booking-dates"
+  | "booking-details"
+  | "customer-details";
+
+/**
+ * A list export couldn't read Dotypos details its rows need. Pages show such
+ * details as unavailable instead; an export fails rather than leave them out.
+ */
+export class AdministrationListSourceUnavailableError extends Data.TaggedError(
+  "AdministrationListSourceUnavailableError"
+)<{
+  readonly source: AdministrationListSource;
+  readonly cause: unknown;
+}> {}
+
+/**
+ * The customer list's criteria. `from` and `to` are inclusive Workspace
+ * calendar dates: a customer belongs to the list only with a successful
+ * reservation whose booking starts in the range. `marketingConsent` keeps
+ * customers in that current consent state.
+ */
 export type AdministrationCustomerListInput = {
   readonly direction?: AdministrationSortDirection;
+  readonly from?: string;
+  readonly marketingConsent?: MarketingConsentStatus;
   readonly page?: number;
   readonly sort?: AdministrationCustomerSort;
+  readonly to?: string;
 };
 
-export type AdministrationCustomerSort = "reservations" | "activity";
+/** The list filters and order of a customer export, which has no pages. */
+export type AdministrationCustomerExportInput = Omit<
+  AdministrationCustomerListInput,
+  "page"
+>;
+
+type AdministrationCustomerSort = "reservations" | "activity";
 
 export type AdministrationBookingListInput = {
   readonly date: string;
@@ -189,28 +242,41 @@ export type AdministrationBookingListInput = {
   readonly sort?: AdministrationBookingSort;
 };
 
-export type AdministrationBookingSort = "booking" | "status";
+type AdministrationBookingSort = "booking" | "status";
 
 type AdministrationCustomer = {
   readonly id: DotyposCustomerId;
+  /** Never empty: the API and `dhw` show "Unnamed customer" when `hasName` is false. */
   readonly displayName: string;
+  /** Whether Dotypos holds a personal or company name, so the Admin UI can name an unnamed customer in the operator's language. */
+  readonly hasName: boolean;
   readonly email: string | null;
   readonly phone: string | null;
 };
 
 export type AdministrationReservationSummary = {
   readonly id: WorkspaceReservationId;
+  readonly dotyposReservationId: DotyposReservationId | null;
   readonly customerId: DotyposCustomerId;
   readonly customer: AdministrationCustomer | null;
   readonly liveDetailsAvailable: boolean;
+  /** The booked start, after any early-setup time. */
   readonly startsAt: string | null;
   readonly endsAt: string | null;
+  /**
+   * When the room is held from for a meeting room booked with early setup,
+   * which Dotypos stores as the reservation's start; otherwise null.
+   */
+  readonly setupStartsAt: string | null;
   readonly date: string | null;
   readonly type: "cowork" | "meeting-room" | "office";
+  readonly product: AdministrationReservationProduct;
+  /** The English product name the administration API shows. */
   readonly typeLabel: string;
-  readonly purpose: WorkspaceReservation["reservationPurpose"];
+  readonly purpose: WorkspaceReservationRow["reservationPurpose"];
   readonly status: ReturnType<typeof getAdministrationReservationStatus>;
   readonly statusNote: string | null;
+  readonly statusNoteCode: AdministrationReservationStatusNote | null;
   readonly createdAt: string;
   readonly latestPayment: AdministrationPaymentAttempt | null;
   readonly updatedAt: string;
@@ -238,6 +304,7 @@ export type AdministrationBookingSummary = {
   readonly linkedReservation: {
     readonly id: WorkspaceReservationId;
     readonly label: string;
+    readonly product: AdministrationReservationProduct;
   } | null;
   readonly createdAt: string | null;
   readonly updatedAt: string | null;
@@ -264,22 +331,18 @@ export type AdministrationPaymentAttempt = {
   readonly state: PaymentAttemptState;
   readonly refundState: PaymentRefundState;
   readonly providerOrderId: NexiOrderId | null;
+  /** Who collects the payment: Nexi online, or nobody for an included reservation. */
+  readonly provider: "internal" | "nexi";
   readonly providerLabel: string;
   readonly stateLabel: string;
   readonly failureCode: string | null;
-  readonly amount: AdministrationMoney;
+  readonly amount: Money;
   /** Total Nexi reports as refunded; set only when `refundState` is `refunded`. */
-  readonly refundedAmount: AdministrationMoney | null;
+  readonly refundedAmount: Money | null;
   readonly refundedAt: string | null;
   readonly createdAt: string;
   readonly providerOrderCreatedAt: string | null;
   readonly updatedAt: string;
-};
-
-export type AdministrationMoney = {
-  readonly value: number;
-  readonly exponent: number;
-  readonly currency: string;
 };
 
 export type AdministrationCustomerTransaction = {
@@ -287,7 +350,10 @@ export type AdministrationCustomerTransaction = {
   readonly reservation: Pick<
     AdministrationReservationSummary,
     "id" | "typeLabel"
-  >;
+  > & {
+    /** The booked product; the Admin UI names it in the operator's language. */
+    readonly product: AdministrationReservationProduct;
+  };
 };
 
 export type AdministrationCustomerMarketingConsent = {
@@ -305,23 +371,39 @@ export type AdministrationCustomerActivity = {
   readonly stats: {
     readonly reservationCount: number;
     readonly favoriteProduct: string | null;
-    readonly revenue: readonly AdministrationMoney[];
-    readonly discountSavings: readonly AdministrationMoney[];
+    /** The product behind `favoriteProduct`, which the Admin UI names. */
+    readonly favoriteReservationProduct: AdministrationReservationProduct | null;
+    readonly revenue: readonly Money[];
+    readonly discountSavings: readonly Money[];
   };
   readonly marketingConsent: AdministrationCustomerMarketingConsent | null;
 };
 
-export type AdministrationCustomerReservationActivity = {
+/**
+ * Reservation counts per Workspace calendar date between `from` and `to`,
+ * inclusive. Dates without reservations are omitted, and `dates` is null when
+ * the booking dates can't be loaded.
+ */
+export type AdministrationReservationActivity<
+  TDate extends
+    AdministrationReservationActivityDate = AdministrationReservationActivityDate,
+> = {
   readonly from: string;
   readonly to: string;
-  readonly dates:
-    | readonly {
-        readonly category: AdministrationCustomerReservationActivityCategory;
-        readonly date: string;
-        readonly count: number;
-      }[]
-    | null;
+  readonly dates: readonly TDate[] | null;
 };
+
+export type AdministrationReservationActivityDate = {
+  readonly date: string;
+  readonly count: number;
+};
+
+export type AdministrationCustomerReservationActivity =
+  AdministrationReservationActivity<
+    AdministrationReservationActivityDate & {
+      readonly category: AdministrationCustomerReservationActivityCategory;
+    }
+  >;
 
 export type AdministrationCustomerReservationActivityCategory =
   | `cowork-${WorkspaceCoworkProductTier}`
@@ -349,24 +431,44 @@ type AdministrationDiscountApplication = {
 
 export type AdministrationTimelineItem = {
   readonly id: string;
+  /** What happened, for the Admin UI's localized copy. */
+  readonly event:
+    | AdministrationReservationTimelineEvent
+    | AdministrationPaymentTimelineEvent;
+  /** English copy the administration API shows. */
   readonly title: string;
   readonly description: string;
   readonly occurredAt: string;
   readonly tone: "neutral" | "positive" | "warning";
-  readonly href?: string;
+  /** A fragment that links to the entry's record on the same page. */
+  readonly href?: `#${string}`;
 };
 
+/**
+ * The customer account that made a reservation for someone else. A deleted
+ * author shows nothing but the fact. An unavailable author could not be read,
+ * so the screen doesn't imply the customer booked it themselves.
+ */
+type AdministrationReservationAuthor =
+  | (AdministrationCustomerName & {
+      readonly kind: "account";
+      /** The author's own linked Dotypos customer, which names them. */
+      readonly customerId: DotyposCustomerId | null;
+      /** The author's login email. */
+      readonly email: string;
+    })
+  | { readonly kind: "deleted" }
+  | { readonly kind: "unavailable" };
+
 export type AdministrationReservationDetail = {
+  /** Absent when the reservation is authorless or the customer booked it. */
+  readonly author: AdministrationReservationAuthor | null;
   readonly canCancel: boolean;
   readonly requiresProviderCredentialRemoval: boolean;
   readonly reservation: AdministrationReservationSummary;
   readonly booking: AdministrationBookingSummary | null;
   readonly lifecycle: ReturnType<typeof getAdministrationReservationLifecycle>;
-  readonly operatorNotice: {
-    readonly message: string;
-    readonly status: "error" | "success" | "warning";
-    readonly title: string;
-  } | null;
+  readonly operatorNotice: AdministrationReservationOperatorNotice | null;
   readonly timeline: readonly AdministrationTimelineItem[];
   readonly paymentAttempts: readonly AdministrationPaymentAttempt[];
   readonly orders: readonly AdministrationOrder[];
@@ -409,6 +511,7 @@ export type AdministrationReservationAccessGrant = {
 export type AdministrationCustomerSummary = {
   readonly customer: AdministrationCustomer | null;
   readonly customerId: DotyposCustomerId;
+  readonly marketingConsent: MarketingConsentStatus;
   readonly reservationCount: number;
   readonly lastActivityAt: string;
 };
@@ -441,27 +544,33 @@ export type AdministrationOverview = AdministrationReservationOverview & {
 };
 
 type AdministrationOverviewRow = Pick<
-  WorkspaceReservation,
+  WorkspaceReservationRow,
   "failureCode" | "fulfillmentState" | "paymentState" | "reservationState"
 > & {
   readonly id: DotyposReservationId | null;
   readonly customerId: DotyposCustomerId;
 };
 
+/**
+ * Linked Dotypos bookings booked in a range, with the stored details of the
+ * early-setup meeting rooms among them.
+ */
+type AdministrationLinkedBookings = {
+  readonly items: readonly DotyposReservation[];
+  readonly earlySetupDetails: EarlySetupDetailsById;
+};
+
 export type AdministrationOverviewSource = {
   readonly currentDate: Temporal.PlainDate;
   readonly ranges: ReturnType<typeof getAdministrationOverviewDateRanges>;
   readonly reservations:
-    | {
-        readonly kind: "available";
-        readonly items: readonly DotyposReservation[];
-      }
+    | ({ readonly kind: "available" } & AdministrationLinkedBookings)
     | { readonly kind: "unavailable" };
   readonly rows: readonly AdministrationOverviewRow[];
 };
 
 type SafeReservationRow = Pick<
-  WorkspaceReservation,
+  WorkspaceReservationRow,
   | "id"
   | "dotyposCustomerId"
   | "dotyposReservationId"
@@ -505,69 +614,18 @@ const safeReservationSelection = {
 
 const toIsoString = (instant: Temporal.Instant) => instant.toString();
 
-const decodeDotyposCustomerId = Schema.decodeUnknownOption(
-  DotyposCustomerIdSchema
-);
-const decodeDotyposReservationId = Schema.decodeUnknownOption(
-  DotyposReservationIdSchema
-);
-const decodeDotyposTableId = Schema.decodeUnknownOption(DotyposTableIdSchema);
-const decodeCheckoutAttemptKey = Schema.decodeUnknownOption(
-  checkoutAttemptKeySchema
-);
-const decodeCheckoutSessionKey = Schema.decodeUnknownOption(
-  checkoutSessionKeySchema
-);
-const decodeNexiCorrelationId = Schema.decodeUnknownOption(
-  NexiCorrelationIdSchema
-);
-const decodeDiscountApplicationId = Schema.decodeUnknownOption(
-  discountApplicationIdSchema
-);
-const decodeLegalEvidenceEventId = Schema.decodeUnknownOption(
-  legalEvidenceEventIdSchema
-);
-const decodeNexiOperationId = Schema.decodeUnknownOption(NexiOperationIdSchema);
-const decodeNexiOrderId = Schema.decodeUnknownOption(NexiOrderIdSchema);
-const decodeNexiWebhookEventId = Schema.decodeUnknownOption(
-  NexiWebhookEventIdSchema
-);
 const decodeInstantString = Schema.decodeUnknownOption(instantStringSchema);
-const decodePaymentAttemptId = Schema.decodeUnknownOption(
-  paymentAttemptIdSchema
-);
-const decodeStoredWebhookEventId = Schema.decodeUnknownOption(
-  storedWebhookEventIdSchema
-);
-const decodeWorkspaceReservationId = Schema.decodeUnknownOption(
-  workspaceReservationIdSchema
-);
 
-const toCustomer = (
-  customer: DotyposCustomer,
-  fallbackId: DotyposCustomerId
-): AdministrationCustomer => {
-  const personalName = [customer.firstName, customer.lastName]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
+const toCustomer = (customer: DotyposCustomer): AdministrationCustomer => {
+  const name = getCustomerDisplayName(customer);
   return {
-    id:
-      Option.getOrUndefined(decodeDotyposCustomerId(customer.id)) ?? fallbackId,
-    displayName:
-      personalName || customer.companyName?.trim() || "Unnamed customer",
+    id: customer.id,
+    displayName: name || unnamedCustomerDisplayName,
+    hasName: Boolean(name),
     email: customer.email?.trim() || null,
     phone: customer.phone?.trim() || null,
   };
 };
-
-const indexCustomersById = (customers: readonly DotyposCustomer[]) =>
-  new Map(
-    customers.flatMap((customer) => {
-      const id = Option.getOrUndefined(decodeDotyposCustomerId(customer.id));
-      return id ? [[id, customer] as const] : [];
-    })
-  );
 
 type SafePaymentAttemptRow = {
   readonly id: PaymentAttemptId;
@@ -612,6 +670,7 @@ const toAdministrationPaymentAttempt = (
   state: attempt.state,
   refundState: attempt.refundState,
   providerOrderId: attempt.providerOrderId,
+  provider: attempt.provider,
   providerLabel:
     attempt.provider === "internal" ? "Included" : "Online payment",
   stateLabel:
@@ -644,10 +703,58 @@ const toMoneyTotals = (
     readonly exponent: number;
     readonly currency: string;
   }[]
-): readonly AdministrationMoney[] =>
+): readonly Money[] =>
   rows
     .map((row) => ({ ...row, value: Number(row.value ?? 0) }))
     .toSorted((left, right) => left.currency.localeCompare(right.currency));
+
+const isWorkspaceCoworkProductTier = Schema.is(
+  Schema.Literals(workspaceCoworkTiers)
+);
+
+const getFavoriteReservationProduct = (
+  row:
+    | { readonly kind: string | null; readonly tier: string | null }
+    | undefined
+): AdministrationReservationProduct | null => {
+  if (row?.kind === "meeting-room" || row?.kind === "office") {
+    return { kind: row.kind };
+  }
+  return row?.tier && isWorkspaceCoworkProductTier(row.tier)
+    ? { kind: "cowork", tier: row.tier }
+    : null;
+};
+
+/** The English label of a customer's most booked product, as the API shows it. */
+const getFavoriteProductLabel = (
+  row:
+    | { readonly kind: string | null; readonly tier: string | null }
+    | undefined
+): string | null => {
+  if (row?.kind === "meeting-room") return "Meeting Room";
+  return row?.tier
+    ? `Cowork ${row.tier[0]?.toUpperCase()}${row.tier.slice(1)}`
+    : null;
+};
+
+const toCustomerMarketingConsent = (
+  row:
+    | (Omit<
+        AdministrationCustomerMarketingConsent,
+        "grantedAt" | "withdrawnAt"
+      > & {
+        readonly grantedAt: Temporal.Instant;
+        readonly withdrawnAt: Temporal.Instant | null;
+      })
+    | undefined
+): AdministrationCustomerMarketingConsent | null =>
+  row
+    ? {
+        ...row,
+        grantedAt: toIsoString(row.grantedAt),
+        withdrawnAt: row.withdrawnAt ? toIsoString(row.withdrawnAt) : null,
+      }
+    : null;
 
 const getReservationTypeLabel = (
   row: Pick<SafeReservationRow, "reservationDetails">
@@ -657,34 +764,41 @@ const getReservationTypeLabel = (
   return getWorkspaceProductByTier(row.reservationDetails.entryTier).label;
 };
 
-const getReservationDate = (startsAt: string) =>
-  Temporal.Instant.from(startsAt)
-    .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
-    .toPlainDate()
-    .toString();
+/** The 365 Workspace calendar dates ending today. */
+const getReservationActivityRange = () => {
+  const to = getCurrentWorkspaceDate();
+  return { from: to.subtract({ days: 364 }), to };
+};
 
 const isReservationInRange = (
   reservation: DotyposReservation,
-  range: AdministrationReservationDateRange
-) => {
-  const date = getReservationDate(reservation.startDate);
-  return (!range.from || date >= range.from) && (!range.to || date <= range.to);
-};
+  range: AdministrationReservationDateRange,
+  earlySetupDetails: EarlySetupDetailsById
+) =>
+  isAdministrationDateInRange(
+    getReservationDate(
+      reservation,
+      getEarlySetupDetails(reservation, earlySetupDetails)
+    ),
+    range
+  );
 
 const countLinkedReservations = (input: {
   readonly linkedReservationIds: ReadonlySet<DotyposReservationId>;
   readonly range: AdministrationReservationDateRange;
   readonly reservations: readonly DotyposReservation[];
+  readonly earlySetupDetails: EarlySetupDetailsById;
   readonly status?: DotyposReservation["status"];
 }) =>
   new Set(
     input.reservations.flatMap((reservation) => {
-      const id = Option.getOrUndefined(
-        decodeDotyposReservationId(reservation.id)
-      );
-      return id &&
-        input.linkedReservationIds.has(id) &&
-        isReservationInRange(reservation, input.range) &&
+      const id = reservation.id;
+      return input.linkedReservationIds.has(id) &&
+        isReservationInRange(
+          reservation,
+          input.range,
+          input.earlySetupDetails
+        ) &&
         (!input.status || reservation.status === input.status)
         ? [id]
         : [];
@@ -706,34 +820,6 @@ const isReservationRefunded = (
   attempts.some(({ refundState }) => refundState === "refunded") &&
   !attempts.some(({ refundState }) => refundState === "required");
 
-const getReservationStatusNote = ({
-  latePayment,
-  live,
-  recoveryState,
-  refunded,
-  row,
-}: {
-  readonly latePayment: boolean;
-  readonly live: LiveReservationDetails;
-  readonly recoveryState?: LatePaymentRecoveryState;
-  readonly refunded: boolean;
-  readonly row: SafeReservationRow;
-}) => {
-  if (recoveryState === "pending" || recoveryState === "processing") {
-    return "Recovery in progress";
-  }
-  if (recoveryState === "review_required") return "Recovery needs review";
-  if (refunded) return "Refunded";
-  if (latePayment) return "Refund required";
-  if (row.failureCode === "payment_outcome_unconfirmed_before_cleanup") {
-    return "Payment needs review";
-  }
-  return live.reservation?.status === "CANCELLED" &&
-    row.reservationState !== "cancelled"
-    ? "Cancelled in Dotypos"
-    : null;
-};
-
 const toReservationSummary = ({
   latePayment = false,
   needsRefund = false,
@@ -753,23 +839,40 @@ const toReservationSummary = ({
   readonly live: LiveReservationDetails;
   readonly row: SafeReservationRow;
 }): AdministrationReservationSummary => {
+  // An early-setup booking's Dotypos start is its setup start, so show the
+  // booked start beside it. Other bookings keep the provider's values as is;
+  // derived starts use the provider's millisecond ISO format.
+  const earlySetup = Option.fromNullishOr(live.reservation).pipe(
+    Option.map((reservation) =>
+      decodeBookedReservation(reservation, row.reservationDetails)
+    ),
+    Option.flatMap(({ setupStart, start }) => Option.all({ setupStart, start }))
+  );
+  const dotyposStatus = live.reservation?.status;
   return {
     id: row.id,
+    dotyposReservationId: row.dotyposReservationId,
     customerId: row.dotyposCustomerId,
-    customer: live.customer
-      ? toCustomer(live.customer, row.dotyposCustomerId)
-      : null,
+    customer: live.customer ? toCustomer(live.customer) : null,
     liveDetailsAvailable: Boolean(live.reservation),
-    startsAt: live.reservation?.startDate ?? null,
+    startsAt: Option.match(earlySetup, {
+      onNone: () => live.reservation?.startDate ?? null,
+      onSome: ({ start }) => temporalInstantToIsoString(start),
+    }),
     endsAt: live.reservation?.endDate ?? null,
+    setupStartsAt: Option.match(earlySetup, {
+      onNone: () => null,
+      onSome: ({ setupStart }) => temporalInstantToIsoString(setupStart),
+    }),
     date: live.reservation
-      ? getReservationDate(live.reservation.startDate)
+      ? getReservationDate(live.reservation, row.reservationDetails)
       : null,
     type: row.reservationDetails.kind,
+    product: getAdministrationReservationProduct(row.reservationDetails),
     typeLabel: getReservationTypeLabel(row),
     purpose: row.reservationPurpose,
     status: getAdministrationReservationStatus({
-      dotyposStatus: live.reservation?.status,
+      dotyposStatus,
       failureCode: row.failureCode,
       fulfillmentState: row.fulfillmentState,
       latePayment,
@@ -778,16 +881,17 @@ const toReservationSummary = ({
       refunded,
       reservationState: row.reservationState,
     }),
-    statusNote:
-      needsRefund || latestPayment?.refundState === "required"
-        ? "Needs refund"
-        : getReservationStatusNote({
-            latePayment,
-            live,
-            recoveryState,
-            refunded,
-            row,
-          }),
+    ...getAdministrationReservationStatusNoteFields(
+      getReservationStatusNote({
+        dotyposStatus,
+        failureCode: row.failureCode,
+        latePayment,
+        needsRefund: needsRefund || latestPayment?.refundState === "required",
+        recoveryState,
+        refunded,
+        reservationState: row.reservationState,
+      })
+    ),
     createdAt: toIsoString(row.createdAt),
     latestPayment,
     updatedAt: toIsoString(row.updatedAt),
@@ -800,9 +904,31 @@ const bookingStatusLabels = {
   CANCELLED: "Cancelled",
 } as const;
 
-type IdentifiedDotyposReservation = DotyposReservation & {
-  readonly id: DotyposReservationId;
+/** The table Dotypos lists under a booking's table id, if any. */
+const findBookingTable = (
+  tables: readonly DotyposTable[],
+  bookingTableId: DotyposReservation["_tableId"]
+) => {
+  return bookingTableId
+    ? (tables.find(({ id }) => id === bookingTableId) ?? null)
+    : null;
 };
+
+/** Where a booking's table stands, if Dotypos still lists the table. */
+const toBookingTableLocation = (table: DotyposTable | null) => ({
+  tableName: table?.name ?? null,
+  tableLocation: table?.locationName ?? null,
+});
+
+/** The Workspace reservation a booking belongs to, if one links it. */
+const toLinkedReservation = (row: SafeReservationRow | null) =>
+  row
+    ? {
+        id: row.id,
+        label: getReservationTypeLabel(row),
+        product: getAdministrationReservationProduct(row.reservationDetails),
+      }
+    : null;
 
 const toBookingSummary = ({
   booking,
@@ -810,35 +936,119 @@ const toBookingSummary = ({
   row,
   table,
 }: {
-  readonly booking: IdentifiedDotyposReservation;
+  readonly booking: DotyposReservation;
   readonly customer: DotyposCustomer | null;
   readonly row: SafeReservationRow | null;
   readonly table: DotyposTable | null;
 }): AdministrationBookingSummary => {
-  const customerId = Option.getOrUndefined(
-    decodeDotyposCustomerId(booking._customerId)
-  );
-  const tableId = Option.getOrUndefined(decodeDotyposTableId(booking._tableId));
+  const customerId = booking._customerId;
+  const tableId = booking._tableId;
 
   return {
     id: booking.id,
     customerId: customerId ?? null,
-    customer: customerId && customer ? toCustomer(customer, customerId) : null,
-    startsAt: booking.startDate,
+    customer: customerId && customer ? toCustomer(customer) : null,
+    startsAt: getBookedStartsAt(booking, row?.reservationDetails),
     endsAt: booking.endDate,
     seats: booking.seats,
     status: booking.status,
     statusLabel: bookingStatusLabels[booking.status],
     tableId: tableId ?? null,
-    tableName: table?.name ?? null,
-    tableLocation: table?.locationName ?? null,
-    linkedReservation: row
-      ? { id: row.id, label: getReservationTypeLabel(row) }
-      : null,
+    ...toBookingTableLocation(table),
+    linkedReservation: toLinkedReservation(row),
     createdAt: booking.created ?? null,
     updatedAt: booking.versionDate ?? null,
   };
 };
+
+/** The booking of a reservation's live Dotypos details, if it has one. */
+const toLinkedBookingSummary = ({
+  live,
+  row,
+  table,
+}: {
+  readonly live: LiveReservationDetails;
+  readonly row: SafeReservationRow;
+  readonly table: DotyposTable | null;
+}) =>
+  live.reservation && row.dotyposReservationId
+    ? toBookingSummary({
+        booking: { ...live.reservation, id: row.dotyposReservationId },
+        customer: live.customer,
+        row,
+        table,
+      })
+    : null;
+
+/**
+ * Whether a late payment leaves the reservation needing a refund. The latest
+ * recovery decides once one ran; before that, any late payment Nexi reported
+ * does.
+ */
+const isLatePaymentRefundRequired = (
+  recoveryState: LatePaymentRecoveryState | undefined,
+  latePaymentEvents: readonly LatePaymentEventRow[]
+) =>
+  recoveryState
+    ? recoveryState === "refund_required"
+    : latePaymentEvents.length > 0;
+
+type AccessGrantInstantField =
+  | "scheduledStartsAt"
+  | "startsAt"
+  | "endsAt"
+  | "createdAt"
+  | "updatedAt";
+
+type AccessGrantOptionalInstantField =
+  | "provisioningStartedAt"
+  | "issuedAt"
+  | "failedAt";
+
+/** A reservation's access grant as Workspace stores it. */
+type StoredReservationAccessGrant = Omit<
+  AdministrationReservationAccessGrant,
+  "accessName" | AccessGrantInstantField | AccessGrantOptionalInstantField
+> & {
+  /** Null on grants created before names were stored. */
+  readonly accessName: string | null;
+} & {
+  readonly [Field in AccessGrantInstantField]: Temporal.Instant;
+} & {
+  readonly [Field in AccessGrantOptionalInstantField]: Temporal.Instant | null;
+};
+
+const toNullableIsoString = (instant: Temporal.Instant | null) =>
+  instant?.toString() ?? null;
+
+const toAccessGrantDetail = (
+  grant: StoredReservationAccessGrant,
+  reservationId: WorkspaceReservationId
+): AdministrationReservationAccessGrant => ({
+  ...grant,
+  accessName: getReservationAccessName({ ...grant, reservationId }),
+  scheduledStartsAt: grant.scheduledStartsAt.toString(),
+  startsAt: grant.startsAt.toString(),
+  endsAt: grant.endsAt.toString(),
+  provisioningStartedAt: toNullableIsoString(grant.provisioningStartedAt),
+  issuedAt: toNullableIsoString(grant.issuedAt),
+  failedAt: toNullableIsoString(grant.failedAt),
+  createdAt: grant.createdAt.toString(),
+  updatedAt: grant.updatedAt.toString(),
+});
+
+/**
+ * Whether cancelling must remove a credential Igloohome may hold: a grant
+ * issued, uncertain, or provisioning whose access hasn't ended.
+ */
+const requiresProviderCredentialRemoval = (
+  grant: Pick<StoredReservationAccessGrant, "endsAt" | "state"> | null
+) =>
+  Boolean(
+    grant &&
+      ["issued", "uncertain", "provisioning"].includes(grant.state) &&
+      Temporal.Instant.compare(grant.endsAt, Temporal.Now.instant()) > 0
+  );
 
 const getDateRangeBounds = (startDate: string, endDate: string) => {
   const start = Temporal.PlainDate.from(startDate).toZonedDateTime({
@@ -855,15 +1065,37 @@ const getDateRangeBounds = (startDate: string, endDate: string) => {
   };
 };
 
-const getDateBounds = (date: string) => {
-  const plainDate = Temporal.PlainDate.from(date);
-  return getDateRangeBounds(date, plainDate.add({ days: 1 }).toString());
-};
-
 const successfulReservationCount =
   sql<number>`count(*) filter (where ${successfulReservationCondition})`.mapWith(
     Number
   );
+
+/**
+ * The reservation's customer's current marketing consent state. The customer
+ * list filters and displays this one definition, so both always agree.
+ */
+const customerMarketingConsentState = marketingConsentState(
+  workspaceReservations.dotyposCustomerId
+);
+
+/**
+ * Selects every reservation of a customer who has a successful reservation
+ * among the given Dotypos bookings, so the customer's aggregates keep their
+ * full history.
+ */
+const customerWithSuccessfulReservationAmong = (
+  reservationIds: readonly DotyposReservationId[]
+): SQL =>
+  reservationIds.length === 0
+    ? sql`false`
+    : sql`${workspaceReservations.dotyposCustomerId} in (
+        select ${workspaceReservations.dotyposCustomerId}
+        from ${workspaceReservations}
+        where ${and(
+          equalsAny(workspaceReservations.dotyposReservationId, reservationIds),
+          successfulReservationCondition
+        )}
+      )`;
 
 const reservationStatusSort = sql<string>`case
   when ${workspaceReservations.fulfillmentState} = 'failed' then 'Confirmation issue'
@@ -895,9 +1127,9 @@ const reservationStatusSort = sql<string>`case
 end`;
 
 const reservationTypeSort = sql<string>`case
-  when ${workspaceReservations.reservationDetails}->>'kind' = 'meeting-room'
+  when ${StoredReservationDetails.kind} = 'meeting-room'
     then 'Meeting Room'
-  else 'Cowork ' || initcap(${workspaceReservations.reservationDetails}->>'entryTier')
+  else 'Cowork ' || initcap(${StoredReservationDetails.property("cowork", "tier")})
 end`;
 
 const getReservationOrderBy = (input: {
@@ -918,6 +1150,7 @@ const buildTimeline = (row: SafeReservationRow) => {
   const items: AdministrationTimelineItem[] = [
     {
       id: "workflow-created",
+      event: { source: "reservation", kind: "workflow_created" },
       title: "Checkout workflow created",
       description: "Deskohub created the local reservation workflow.",
       occurredAt: toIsoString(row.createdAt),
@@ -926,6 +1159,7 @@ const buildTimeline = (row: SafeReservationRow) => {
   ];
   const add = (
     id: string,
+    kind: AdministrationReservationTimelineEvent["kind"],
     title: string,
     description: string,
     occurredAt: Temporal.Instant | null,
@@ -934,6 +1168,7 @@ const buildTimeline = (row: SafeReservationRow) => {
     if (occurredAt) {
       items.push({
         id,
+        event: { source: "reservation", kind },
         title,
         description,
         occurredAt: toIsoString(occurredAt),
@@ -943,6 +1178,7 @@ const buildTimeline = (row: SafeReservationRow) => {
   };
   add(
     "reservation-created",
+    "reservation_held",
     "Reservation held",
     "The booking was held for the customer.",
     row.reservationCreatedAt,
@@ -950,6 +1186,7 @@ const buildTimeline = (row: SafeReservationRow) => {
   );
   add(
     "payment-paid",
+    "payment_recorded",
     "Payment recorded by Deskohub",
     "Deskohub verified the provider payment and marked the reservation paid.",
     row.paidAt,
@@ -957,6 +1194,7 @@ const buildTimeline = (row: SafeReservationRow) => {
   );
   add(
     "reservation-confirmed",
+    "reservation_confirmed",
     "Reservation confirmed",
     "The reservation was confirmed.",
     row.reservationConfirmedAt,
@@ -964,6 +1202,7 @@ const buildTimeline = (row: SafeReservationRow) => {
   );
   add(
     "fulfilled",
+    "access_delivered",
     "Customer access sent",
     "The customer confirmation was delivered.",
     row.fulfilledAt,
@@ -971,6 +1210,7 @@ const buildTimeline = (row: SafeReservationRow) => {
   );
   add(
     "fulfillment-failed",
+    "confirmation_failed",
     "Customer confirmation failed",
     "The confirmation could not be completed.",
     row.fulfillmentFailedAt,
@@ -978,6 +1218,7 @@ const buildTimeline = (row: SafeReservationRow) => {
   );
   add(
     "hold-expired",
+    "hold_expired",
     "Reservation hold expired",
     "The held reservation reached its expiry time.",
     row.reservationHoldExpiredAt,
@@ -985,6 +1226,7 @@ const buildTimeline = (row: SafeReservationRow) => {
   );
   add(
     "cancelled",
+    "hold_cancelled",
     "Reservation cancelled",
     "The held reservation was cancelled.",
     row.reservationCancelledAt,
@@ -993,21 +1235,6 @@ const buildTimeline = (row: SafeReservationRow) => {
   return items.toSorted((left, right) =>
     left.occurredAt.localeCompare(right.occurredAt)
   );
-};
-
-type LatePaymentEventRow = {
-  readonly eventId: string;
-  readonly receivedAt: Temporal.Instant;
-  readonly reservationId: WorkspaceReservationId;
-};
-
-type LatePaymentRecoveryRow = {
-  readonly paymentAttemptId: PaymentAttemptId;
-  readonly reservationId: WorkspaceReservationId;
-  readonly state: LatePaymentRecoveryState;
-  readonly failureCode: string | null;
-  readonly verifiedPaidAt: Temporal.Instant;
-  readonly completedAt: Temporal.Instant | null;
 };
 
 const latePaymentRecoverySelection = {
@@ -1029,129 +1256,57 @@ const latePaymentCondition = (
   reservationIds: readonly WorkspaceReservationId[]
 ) =>
   and(
-    inArray(paymentAttempts.workspaceReservationId, [...reservationIds]),
+    equalsAny(paymentAttempts.workspaceReservationId, reservationIds),
     eq(webhookEvents.errorCode, "nexi_webhook_late_payment")
   );
 
-const buildLatePaymentTimeline = (
-  events: readonly LatePaymentEventRow[]
-): readonly AdministrationTimelineItem[] =>
-  events.map((event) => ({
-    id: `late-payment-${event.eventId}`,
-    title: "Late payment — refund required",
-    description:
-      "Nexi reported payment after Workspace released the reservation. The reservation was not fulfilled and the payment requires an operator refund.",
-    occurredAt: toIsoString(event.receivedAt),
-    tone: "warning",
-  }));
-
-const buildLatePaymentRecoveryTimeline = (
-  recoveries: readonly LatePaymentRecoveryRow[]
-): readonly AdministrationTimelineItem[] =>
-  recoveries.flatMap((recovery) => {
-    const detected: AdministrationTimelineItem = {
-      id: `late-payment-recovery-${recovery.paymentAttemptId}-detected`,
-      title: "Late payment recovery started",
-      description:
-        "Nexi reported payment after local expiration. Workspace is checking whether the reservation can still be fulfilled.",
-      occurredAt: toIsoString(recovery.verifiedPaidAt),
-      tone: "warning",
-    };
-    if (!recovery.completedAt) return [detected];
-    return [
-      detected,
-      {
-        id: `late-payment-recovery-${recovery.paymentAttemptId}-${recovery.state}`,
-        title: {
-          recovered: "Late payment recovered",
-          refund_required: "Late payment — refund required",
-          review_required: "Late payment recovery needs review",
-        }[
-          recovery.state as Exclude<
-            LatePaymentRecoveryState,
-            "pending" | "processing"
-          >
-        ],
-        description: {
-          recovered:
-            "Workspace secured a valid booking and continued normal paid fulfillment.",
-          refund_required:
-            "The reservation could not be safely recovered. Refund the payment in Nexi.",
-          review_required:
-            "Workspace could not safely determine or complete recovery. Operator review is required.",
-        }[
-          recovery.state as Exclude<
-            LatePaymentRecoveryState,
-            "pending" | "processing"
-          >
-        ],
-        occurredAt: toIsoString(recovery.completedAt),
-        tone: recovery.state === "recovered" ? "positive" : "warning",
-      },
-    ];
-  });
-
-const getReservationOperatorNotice = ({
-  latePayment,
-  recovery,
-  refunded,
-  row,
-}: {
-  readonly latePayment: boolean;
-  readonly recovery?: LatePaymentRecoveryRow;
-  readonly refunded: boolean;
-  readonly row: SafeReservationRow;
-}): AdministrationReservationDetail["operatorNotice"] => {
-  if (recovery?.state === "pending" || recovery?.state === "processing") {
-    return {
-      status: "warning",
-      title: "Late payment recovery in progress",
-      message:
-        "Workspace is checking the original booking and current availability. Do not fulfil or refund manually while recovery is running.",
-    };
-  }
-  if (recovery?.state === "recovered") {
-    return {
-      status: "success",
-      title: "Late payment recovered",
-      message:
-        "Workspace secured a valid booking and continued normal paid fulfillment.",
-    };
-  }
-  if (recovery?.state === "review_required") {
-    return {
-      status: "error",
-      title: "Late payment recovery needs review",
-      message:
-        "Workspace could not safely complete recovery. Check the original and replacement Dotypos bookings before fulfilling or refunding.",
-    };
-  }
-  if (latePayment && refunded) {
-    return {
-      status: "success",
-      title: "Late payment refunded",
-      message:
-        "Nexi reported a refund for the late payment. No further refund work is needed.",
-    };
-  }
-  if (latePayment) {
-    return {
-      status: "error",
-      title: "Late payment — refund required",
-      message:
-        "Nexi reported payment after Workspace released this reservation. Do not fulfil it; refund the payment in Nexi.",
-    };
-  }
-  if (row.failureCode === "payment_outcome_unconfirmed_before_cleanup") {
-    return {
-      status: "warning",
-      title: "Payment needs review",
-      message:
-        "Automatic cleanup kept this reservation held because Nexi reported payment activity or its outcome could not be verified.",
-    };
-  }
-  return null;
+type ProviderReadFailure = {
+  /** What a failed read logs beside the cause, such as its date range. */
+  readonly annotations?: Readonly<Record<string, string | undefined>>;
+  readonly cause: unknown;
+  /** The warning a degrading read logs. */
+  readonly message: string;
+  readonly source: AdministrationListSource;
 };
+
+/**
+ * How a list read treats a failed Dotypos read. A page degrades: it logs and
+ * shows the details as unavailable. An export fails fast with
+ * `AdministrationListSourceUnavailableError`. A read that succeeds without some
+ * record isn't a failure under either.
+ */
+type ProviderFailurePolicy<E> = {
+  readonly recover: <A>(
+    failure: ProviderReadFailure,
+    fallback: A
+  ) => Effect.Effect<A, E>;
+};
+
+const degradeOnProviderFailure: ProviderFailurePolicy<never> = {
+  recover: ({ annotations, cause, message }, fallback) =>
+    Effect.logWarning(message, { cause, ...annotations }).pipe(
+      Effect.as(fallback)
+    ),
+};
+
+const failOnProviderFailure: ProviderFailurePolicy<AdministrationListSourceUnavailableError> =
+  {
+    recover: ({ cause, source }) =>
+      Effect.fail(
+        new AdministrationListSourceUnavailableError({ cause, source })
+      ),
+  };
+
+const recoverProviderRead =
+  <A, E>(
+    policy: ProviderFailurePolicy<E>,
+    failure: Omit<ProviderReadFailure, "cause">,
+    fallback: A
+  ) =>
+  (cause: unknown) => {
+    unstable_rethrow(cause);
+    return policy.recover({ ...failure, cause }, fallback);
+  };
 
 export class AdministrationService extends Context.Service<
   AdministrationService,
@@ -1175,17 +1330,33 @@ export class AdministrationService extends Context.Service<
         readonly dateFilterUnavailable: boolean;
         readonly dateSortUnavailable: boolean;
       },
-      EffectDrizzleQueryError
+      EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+    >;
+    /**
+     * Every reservation the list filters match, in list order, for a file
+     * export. Where the list would show Dotypos details as unavailable, the
+     * export fails with `AdministrationListSourceUnavailableError`.
+     */
+    readonly exportReservations: (
+      input: AdministrationReservationExportInput
+    ) => Effect.Effect<
+      readonly AdministrationReservationSummary[],
+      | EffectDrizzleQueryError
+      | WorkspaceReservationDetailsMalformedError
+      | AdministrationListSourceUnavailableError
     >;
     readonly loadReservation: (
       id: WorkspaceReservationId
     ) => Effect.Effect<
       AdministrationReservationDetail | null,
-      EffectDrizzleQueryError
+      EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
     >;
-    readonly loadReservationBreadcrumbLabel: (
+    readonly loadReservationProduct: (
       id: WorkspaceReservationId
-    ) => Effect.Effect<string | null, EffectDrizzleQueryError>;
+    ) => Effect.Effect<
+      AdministrationReservationProduct | null,
+      EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+    >;
     readonly findReservationId: (
       identifier: string
     ) => Effect.Effect<WorkspaceReservationId | null, EffectDrizzleQueryError>;
@@ -1194,29 +1365,28 @@ export class AdministrationService extends Context.Service<
     ) => Effect.Effect<
       AdministrationBookingPage,
       | EffectDrizzleQueryError
-      | ExternalAPIError
-      | NetworkError
-      | ValidationError
+      | WorkspaceReservationDetailsMalformedError
+      | DotyposReadFailure
     >;
     readonly loadBooking: (
       id: DotyposReservationId
     ) => Effect.Effect<
       AdministrationBookingDetail | null,
       | EffectDrizzleQueryError
-      | ExternalAPIError
-      | NetworkError
-      | ValidationError
+      | WorkspaceReservationDetailsMalformedError
+      | DotyposReadFailure
     >;
     readonly loadBookingBreadcrumb: (
       id: DotyposReservationId
     ) => Effect.Effect<
       { readonly startsAt: string; readonly tableName: string | null } | null,
-      ExternalAPIError | NetworkError | ValidationError
+      EffectDrizzleQueryError | DotyposReadFailure
     >;
     readonly listCustomers: (
       input: AdministrationCustomerListInput
     ) => Effect.Effect<
       {
+        readonly dateFilterUnavailable: boolean;
         readonly items: readonly AdministrationCustomerSummary[];
         readonly page: number;
         readonly pageCount: number;
@@ -1224,17 +1394,47 @@ export class AdministrationService extends Context.Service<
       },
       EffectDrizzleQueryError
     >;
+    /**
+     * Every customer the list filters match, in list order, for a file export.
+     * Where the list would show Dotypos details as unavailable, the export
+     * fails with `AdministrationListSourceUnavailableError`.
+     */
+    readonly exportCustomers: (
+      input: AdministrationCustomerExportInput
+    ) => Effect.Effect<
+      readonly AdministrationCustomerSummary[],
+      EffectDrizzleQueryError | AdministrationListSourceUnavailableError
+    >;
     readonly loadCustomerReservations: (input: {
       readonly customerId: DotyposCustomerId;
       readonly page?: number;
-    }) => Effect.Effect<AdministrationReservationPage, EffectDrizzleQueryError>;
+    }) => Effect.Effect<
+      AdministrationReservationPage,
+      EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+    >;
     readonly loadCustomerActivity: (
       customerId: DotyposCustomerId
-    ) => Effect.Effect<AdministrationCustomerActivity, EffectDrizzleQueryError>;
+    ) => Effect.Effect<
+      AdministrationCustomerActivity,
+      EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+    >;
+    /** Same bounded history as the dashboard, failing instead of degrading provider reads. */
+    readonly loadCustomerActivityStrict: (
+      customerId: DotyposCustomerId
+    ) => Effect.Effect<
+      AdministrationCustomerActivity,
+      | EffectDrizzleQueryError
+      | WorkspaceReservationDetailsMalformedError
+      | AdministrationListSourceUnavailableError
+    >;
     readonly loadCustomerReservationActivity: (
       customerId: DotyposCustomerId
     ) => Effect.Effect<
       AdministrationCustomerReservationActivity,
+      EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+    >;
+    readonly loadReservationActivity: () => Effect.Effect<
+      AdministrationReservationActivity,
       EffectDrizzleQueryError
     >;
     readonly listOrders: IPaymentAdministrationService["listOrders"];
@@ -1250,6 +1450,7 @@ export class AdministrationService extends Context.Service<
       const dotypos = yield* DotyposService;
       const reservationHistory = yield* PostHogReservationHistory;
       const paymentAdministration = yield* PaymentAdministrationService;
+      const reservationAuthors = yield* ReservationAuthorDirectory;
 
       const loadLiveReservation = Effect.fn(
         "AdministrationService.loadLiveReservation"
@@ -1258,7 +1459,7 @@ export class AdministrationService extends Context.Service<
           Effect.map(
             (customer): LiveReservationDetails => ({
               reservation: null,
-              customer,
+              customer: Option.getOrNull(customer),
             })
           ),
           Effect.catch((cause) => {
@@ -1273,10 +1474,14 @@ export class AdministrationService extends Context.Service<
         if (!row.dotyposReservationId) return loadCustomer;
 
         return dotypos.getReservation(row.dotyposReservationId).pipe(
-          Effect.map(
-            ({ customer, reservation }): LiveReservationDetails => ({
-              customer,
-              reservation,
+          Effect.flatMap(
+            Option.match({
+              onNone: () => loadCustomer,
+              onSome: ({ customer, reservation }) =>
+                Effect.succeed<LiveReservationDetails>({
+                  customer,
+                  reservation,
+                }),
             })
           ),
           Effect.catch((cause) => {
@@ -1290,51 +1495,68 @@ export class AdministrationService extends Context.Service<
       });
 
       const loadCustomers = Effect.fn("AdministrationService.loadCustomers")(
-        function* (ids: readonly DotyposCustomerId[]) {
-          const uniqueIds = [...new Set(ids)];
+        function* <E = never>(
+          ids: readonly DotyposCustomerId[],
+          policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        ) {
           yield* Effect.annotateCurrentSpan({
-            uniqueCustomerCount: uniqueIds.length,
+            uniqueCustomerCount: new Set(ids).size,
           });
-          const batches = yield* Effect.all(
-            EffectArray.chunksOf(uniqueIds, providerIdBatchSize).map(
-              (batchIds) =>
-                dotypos.getCustomers({ ids: batchIds }).pipe(
-                  Effect.map((customers) => ({
-                    customers,
-                    ids: batchIds,
-                  })),
-                  Effect.catch((cause) => {
-                    unstable_rethrow(cause);
-                    return Effect.logWarning(
-                      "Batch customer details unavailable",
-                      { cause }
-                    ).pipe(
-                      Effect.as({
-                        customers: [] as const,
-                        ids: batchIds,
-                      })
-                    );
-                  })
+          const customersById = new Map(
+            yield* dotypos
+              .getCustomersByIds(ids, {
+                concurrency: 3,
+                ...(policy === degradeOnProviderFailure && {
+                  onBatchFailure: (cause) =>
+                    degradeOnProviderFailure.recover(
+                      {
+                        cause,
+                        message: "Batch customer details unavailable",
+                        source: "customer-details",
+                      },
+                      undefined
+                    ),
+                }),
+              })
+              .pipe(
+                Effect.catch(
+                  recoverProviderRead(
+                    policy,
+                    {
+                      message: "Batch customer details unavailable",
+                      source: "customer-details",
+                    },
+                    new Map<DotyposCustomerId, DotyposCustomer>()
+                  )
                 )
-            ),
-            { concurrency: 3 }
+              )
           );
-          const customersById = indexCustomersById(
-            batches.flatMap(({ customers }) => customers)
+          // Missing batch records, including degraded batches, retain the individual lookup fallback.
+          const unreturnedIds = [...new Set(ids)].filter(
+            (id) => !customersById.has(id)
           );
           const missingCustomers = yield* Effect.all(
-            batches
-              .flatMap(({ ids: batchIds }) => batchIds)
-              .filter((id) => !customersById.has(id))
-              .map((id) =>
-                dotypos.getCustomer(id).pipe(
-                  Effect.map((customer) => [id, customer] as const),
-                  Effect.catch((cause) => {
-                    unstable_rethrow(cause);
-                    return Effect.succeed(null);
+            unreturnedIds.map((id) =>
+              dotypos.getCustomer(id).pipe(
+                Effect.map(
+                  Option.match({
+                    onNone: () => null,
+                    onSome: (customer) => [id, customer] as const,
                   })
+                ),
+                Effect.catch(
+                  recoverProviderRead(
+                    policy,
+                    {
+                      annotations: { customerId: id },
+                      message: "Customer details unavailable",
+                      source: "customer-details",
+                    },
+                    null
+                  )
                 )
-              ),
+              )
+            ),
             { concurrency: 5 }
           );
           for (const customer of missingCustomers) {
@@ -1344,14 +1566,54 @@ export class AdministrationService extends Context.Service<
         }
       );
 
+      const loadAuthor = Effect.fn("AdministrationService.loadAuthor")(
+        function* (
+          accountId: CustomerAccountId,
+          customerId: DotyposCustomerId
+        ) {
+          const author = (yield* reservationAuthors.describe([accountId])).get(
+            accountId
+          );
+          if (!author) return { kind: "unavailable" } as const;
+          if (isCustomerOwnAuthor(author, customerId)) return null;
+          if (author.kind === "deleted") return { kind: "deleted" } as const;
+          const customer = author.dotyposCustomerId
+            ? (yield* loadCustomers([author.dotyposCustomerId])).get(
+                author.dotyposCustomerId
+              )
+            : undefined;
+          const name =
+            customer && author.dotyposCustomerId
+              ? toCustomer(customer)
+              : { displayName: unnamedCustomerDisplayName, hasName: false };
+          return {
+            kind: "account",
+            customerId: author.dotyposCustomerId,
+            displayName: name.displayName,
+            hasName: name.hasName,
+            email: author.email,
+          } as const;
+        },
+        (effect, accountId) =>
+          effect.pipe(
+            Effect.catch((cause) => {
+              unstable_rethrow(cause);
+              return Effect.logWarning("Reservation author unavailable", {
+                cause,
+                accountId,
+              }).pipe(Effect.as({ kind: "unavailable" } as const));
+            })
+          )
+      );
+
       const loadLiveReservations = Effect.fn(
         "AdministrationService.loadLiveReservations"
-      )(function* (
+      )(function* <E = never>(
         rows: readonly SafeReservationRow[],
-        knownReservations?: ReadonlyMap<
-          DotyposReservationId,
-          DotyposReservation
-        >
+        knownReservations:
+          | ReadonlyMap<DotyposReservationId, DotyposReservation>
+          | undefined,
+        policy: ProviderFailurePolicy<E>
       ) {
         const missingReservationIds = rows.flatMap((row) =>
           row.dotyposReservationId &&
@@ -1359,47 +1621,54 @@ export class AdministrationService extends Context.Service<
             ? [row.dotyposReservationId]
             : []
         );
-        const reservations = yield* dotypos
-          .listReservations({ ids: missingReservationIds })
+        const loadedReservations = yield* dotypos
+          .getReservationsByIds(missingReservationIds, {
+            concurrency: 3,
+            ...(policy === degradeOnProviderFailure && {
+              onBatchFailure: (cause) =>
+                degradeOnProviderFailure.recover(
+                  {
+                    cause,
+                    message: "Live booking details unavailable",
+                    source: "booking-details",
+                  },
+                  undefined
+                ),
+            }),
+          })
           .pipe(
-            Effect.catch((cause) => {
-              unstable_rethrow(cause);
-              return Effect.logWarning("Live booking details unavailable", {
-                cause,
-              }).pipe(Effect.as([] as const));
-            })
+            Effect.catch(
+              recoverProviderRead(
+                policy,
+                {
+                  message: "Live booking details unavailable",
+                  source: "booking-details",
+                },
+                new Map<DotyposReservationId, DotyposReservation>()
+              )
+            )
           );
-        const reservationsById = new Map(knownReservations);
-        for (const reservation of reservations) {
-          const id = Option.getOrUndefined(
-            decodeDotyposReservationId(reservation.id)
-          );
-          if (id) reservationsById.set(id, reservation);
-        }
+        const reservationsById = new Map([
+          ...(knownReservations ?? []),
+          ...loadedReservations,
+        ]);
         const customerIds = [
           ...new Set(
             rows.map((row) => {
               const reservation = row.dotyposReservationId
                 ? reservationsById.get(row.dotyposReservationId)
                 : undefined;
-              return (
-                Option.getOrUndefined(
-                  decodeDotyposCustomerId(reservation?._customerId)
-                ) ?? row.dotyposCustomerId
-              );
+              return reservation?._customerId ?? row.dotyposCustomerId;
             })
           ),
         ];
-        const customersById = yield* loadCustomers(customerIds);
+        const customersById = yield* loadCustomers(customerIds, policy);
 
         return rows.map((row) => {
           const reservation = row.dotyposReservationId
             ? (reservationsById.get(row.dotyposReservationId) ?? null)
             : null;
-          const customerId =
-            Option.getOrUndefined(
-              decodeDotyposCustomerId(reservation?._customerId)
-            ) ?? row.dotyposCustomerId;
+          const customerId = reservation?._customerId ?? row.dotyposCustomerId;
           return {
             live: {
               reservation,
@@ -1411,12 +1680,13 @@ export class AdministrationService extends Context.Service<
       });
 
       const enrichRows = Effect.fn("AdministrationService.enrichRows")(
-        function* (
+        function* <E = never>(
           rows: readonly SafeReservationRow[],
           knownReservations?: ReadonlyMap<
             DotyposReservationId,
             DotyposReservation
-          >
+          >,
+          policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
         ) {
           if (rows.length === 0) return [];
           const { attemptRows, latePaymentRows, liveRows, recoveryRows } =
@@ -1426,7 +1696,7 @@ export class AdministrationService extends Context.Service<
                   .select(safePaymentAttemptSelection)
                   .from(paymentAttempts)
                   .where(
-                    inArray(
+                    equalsAny(
                       paymentAttempts.workspaceReservationId,
                       rows.map(({ id }) => id)
                     )
@@ -1444,13 +1714,13 @@ export class AdministrationService extends Context.Service<
                   .select(latePaymentRecoverySelection)
                   .from(latePaymentRecoveries)
                   .where(
-                    inArray(
+                    equalsAny(
                       latePaymentRecoveries.workspaceReservationId,
                       rows.map(({ id }) => id)
                     )
                   )
                   .orderBy(asc(latePaymentRecoveries.createdAt)),
-                liveRows: loadLiveReservations(rows, knownReservations),
+                liveRows: loadLiveReservations(rows, knownReservations, policy),
               },
               { concurrency: 3 }
             );
@@ -1514,57 +1784,126 @@ export class AdministrationService extends Context.Service<
           })
         );
 
-      const loadReservationRangeMap = (
-        range: AdministrationReservationDateRange | undefined
+      /**
+       * Keeps the bookings whose booked start falls in the range. Only a
+       * booking that early setup would hold from the previous date can
+       * change date, so only those read their stored details.
+       */
+      const keepBookedInRange = Effect.fn(
+        "AdministrationService.keepBookedInRange"
+      )(function* (
+        reservations: ReadonlyMap<DotyposReservationId, DotyposReservation>,
+        range: AdministrationReservationDateRange
+      ) {
+        const shiftedIds = [...reservations].flatMap(([id, reservation]) =>
+          isHeldFromPreviousDateWithEarlySetup(reservation) ? [id] : []
+        );
+        if (shiftedIds.length === 0) return reservations;
+        const detailsById = yield* loadEarlySetupDetails(db, shiftedIds);
+        // The other bookings' held date is their booked date, which the
+        // held bounds already keep in the range.
+        const shifted = new Set(shiftedIds);
+        return new Map(
+          [...reservations].filter(
+            ([id, reservation]) =>
+              !shifted.has(id) ||
+              isAdministrationDateInRange(
+                getReservationDate(reservation, detailsById.get(id)),
+                range
+              )
+          )
+        );
+      });
+
+      /**
+       * The Dotypos bookings whose booked start falls in the range, by ID, in
+       * Dotypos start order. Dotypos holds an early-setup meeting room from
+       * before its booked start, so the read starts that much earlier.
+       */
+      const loadReservationRangeMap = <E = never>(
+        range: AdministrationReservationDateRange | undefined,
+        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
       ) => {
         if (!range) return Effect.succeed(undefined);
         return dotypos
           .listReservations({
-            ...getAdministrationReservationDateRangeBounds(range),
+            ...getAdministrationReservationHeldRangeBounds(range),
             order: "startDateAscending",
           })
           .pipe(
             Effect.map(
               (reservations) =>
                 new Map(
-                  reservations.flatMap((reservation) => {
-                    const reservationId = Option.getOrUndefined(
-                      decodeDotyposReservationId(reservation.id)
-                    );
-                    return reservationId
-                      ? [[reservationId, reservation] as const]
-                      : [];
-                  })
+                  reservations.map(
+                    (reservation) => [reservation.id, reservation] as const
+                  )
                 )
             ),
-            Effect.catch((cause) => {
-              unstable_rethrow(cause);
-              return Effect.logWarning("Reservation date filter unavailable", {
-                cause,
-                ...range,
-              }).pipe(Effect.as(null));
-            })
+            Effect.catch(
+              recoverProviderRead(
+                policy,
+                {
+                  annotations: range,
+                  message: "Reservation date filter unavailable",
+                  source: "booking-dates",
+                },
+                null
+              )
+            ),
+            Effect.flatMap((reservations) =>
+              reservations
+                ? keepBookedInRange(reservations, range)
+                : Effect.succeed(reservations)
+            )
           );
       };
 
+      /**
+       * The IDs of bookings given in Dotypos start order, earliest first, in
+       * booked-start order in the direction. Early setup holds a meeting room
+       * from before its booked start, so Dotypos start order can put it ahead
+       * of a booking that starts in between.
+       */
+      const orderByBookedStart = Effect.fn(
+        "AdministrationService.orderByBookedStart"
+      )(function* (
+        bookings: readonly (DotyposReservation & {
+          readonly id: DotyposReservationId;
+        })[],
+        direction: AdministrationReservationExportInput["direction"]
+      ) {
+        const earlySetupDetails = yield* loadEarlySetupDetails(
+          db,
+          getEarlySetupOrderCandidates(bookings).map(({ id }) => id)
+        );
+        const ids = sortByBookedStart(bookings, earlySetupDetails).map(
+          ({ id }) => id
+        );
+        return direction === "asc" ? ids : ids.toReversed();
+      });
+
       const loadReservationDateOrder = Effect.fn(
         "AdministrationService.loadReservationDateOrder"
-      )(function* (
-        input: AdministrationReservationListInput,
+      )(function* <E>(
+        input: AdministrationReservationExportInput,
         hasDateRange: boolean,
         dateReservations:
           | ReadonlyMap<DotyposReservationId, DotyposReservation>
           | null
-          | undefined
+          | undefined,
+        policy: ProviderFailurePolicy<E>
       ) {
         if (hasDateRange) {
           if (!dateReservations) return null;
-          const providerIds = [...dateReservations.keys()];
-          return input.direction === "asc"
-            ? providerIds
-            : providerIds.toReversed();
+          return yield* orderByBookedStart(
+            [...dateReservations].map(([id, reservation]) => ({
+              ...reservation,
+              id,
+            })),
+            input.direction
+          );
         }
-        return yield* dotypos
+        const bookings = yield* dotypos
           .listReservations({
             ...(input.customerId && { customerId: input.customerId }),
             order:
@@ -1573,21 +1912,23 @@ export class AdministrationService extends Context.Service<
                 : "startDateDescending",
           })
           .pipe(
-            Effect.map((reservations) =>
-              reservations.flatMap(({ id }) => {
-                const reservationId = Option.getOrUndefined(
-                  decodeDotyposReservationId(id)
-                );
-                return reservationId ? [reservationId] : [];
-              })
-            ),
-            Effect.catch((cause) => {
-              unstable_rethrow(cause);
-              return Effect.logWarning("Reservation date sorting unavailable", {
-                cause,
-              }).pipe(Effect.as(null));
-            })
+            Effect.catch(
+              recoverProviderRead(
+                policy,
+                {
+                  message: "Reservation date sorting unavailable",
+                  source: "booking-dates",
+                },
+                null
+              )
+            )
           );
+        if (!bookings) return null;
+        // Dotypos ordered them in the requested direction.
+        return yield* orderByBookedStart(
+          input.direction === "asc" ? bookings : bookings.toReversed(),
+          input.direction
+        );
       });
 
       const countReservationsNeedingRefund = Effect.fn(
@@ -1602,12 +1943,21 @@ export class AdministrationService extends Context.Service<
         return Number(row?.value ?? 0);
       });
 
-      const listReservations = Effect.fn(
-        "AdministrationService.listReservations"
-      )(function* (input: ReservationListInput) {
-        const pageSize = input.pageSize ?? reservationPageSize;
+      /**
+       * The SQL condition of the list filters, with the Dotypos bookings that
+       * decide date filtering and, for the date sort, the provider order.
+       */
+      const loadReservationListScope = Effect.fn(
+        "AdministrationService.loadReservationListScope"
+      )(function* <E = never>(
+        input: AdministrationReservationExportInput,
+        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+      ) {
         const dateRange = getAdministrationReservationDateRange(input);
-        const dateReservations = yield* loadReservationRangeMap(dateRange);
+        const dateReservations = yield* loadReservationRangeMap(
+          dateRange,
+          policy
+        );
         const conditions: SQL[] = [];
         if (input.customerId) {
           conditions.push(
@@ -1618,18 +1968,104 @@ export class AdministrationService extends Context.Service<
           conditions.push(reservationStatusCondition(input.status));
         if (input.type) {
           conditions.push(
-            sql`${workspaceReservations.reservationDetails}->>'kind' = ${input.type}`
+            sql`${StoredReservationDetails.kind} = ${input.type}`
           );
         }
         if (dateRange) {
           const ids = dateReservations ? [...dateReservations.keys()] : [];
           conditions.push(
             ids.length > 0
-              ? inArray(workspaceReservations.dotyposReservationId, ids)
+              ? equalsAny(workspaceReservations.dotyposReservationId, ids)
               : sql`false`
           );
         }
-        const where = conditions.length > 0 ? and(...conditions) : undefined;
+        const orderedProviderIds =
+          input.sort === "date"
+            ? yield* loadReservationDateOrder(
+                input,
+                Boolean(dateRange),
+                dateReservations,
+                policy
+              )
+            : undefined;
+        return {
+          dateRange,
+          dateReservations,
+          orderedProviderIds,
+          where: conditions.length > 0 ? and(...conditions) : undefined,
+        };
+      });
+
+      /**
+       * The matching rows in list order: one page of them, or every row when
+       * no page is given.
+       */
+      const selectReservationListRows = Effect.fn(
+        "AdministrationService.selectReservationListRows"
+      )(function* ({
+        direction,
+        orderedProviderIds,
+        page,
+        sort,
+        where,
+      }: Pick<AdministrationReservationExportInput, "direction" | "sort"> & {
+        readonly orderedProviderIds:
+          | readonly DotyposReservationId[]
+          | null
+          | undefined;
+        readonly page?: { readonly offset: number; readonly pageSize: number };
+        readonly where: SQL | undefined;
+      }) {
+        if (orderedProviderIds) {
+          const references = yield* db
+            .select({
+              id: workspaceReservations.id,
+              externalId: workspaceReservations.dotyposReservationId,
+            })
+            .from(workspaceReservations)
+            .where(where);
+          const pageIds = getAdministrationExternalOrderPageIds({
+            offset: page?.offset ?? 0,
+            orderedExternalIds: orderedProviderIds,
+            pageSize: page?.pageSize ?? references.length,
+            references,
+          });
+          const pageRows =
+            pageIds.length === 0
+              ? []
+              : yield* db
+                  .select(safeReservationSelection)
+                  .from(workspaceReservations)
+                  .where(equalsAny(workspaceReservations.id, pageIds))
+                  .pipe(Effect.flatMap(StoredReservationDetails.decodeRows));
+          const rowById = new Map(pageRows.map((row) => [row.id, row]));
+          return pageIds.flatMap((id) => {
+            const row = rowById.get(id);
+            return row ? [row] : [];
+          });
+        }
+        const rows = db
+          .select(safeReservationSelection)
+          .from(workspaceReservations)
+          .where(where)
+          .orderBy(
+            ...getReservationOrderBy({
+              direction,
+              sort: sort === "date" ? "created" : sort,
+            })
+          );
+        const selected = yield* page
+          ? rows.limit(page.pageSize).offset(page.offset)
+          : rows;
+        return yield* StoredReservationDetails.decodeRows(selected);
+      });
+
+      const listReservations = Effect.fn(
+        "AdministrationService.listReservations"
+      )(function* (input: ReservationListInput) {
+        const pageSize = input.pageSize ?? reservationPageSize;
+        const { dateRange, dateReservations, orderedProviderIds, where } =
+          yield* loadReservationListScope(input);
 
         const countRows = yield* db
           .select({ value: count() })
@@ -1641,55 +2077,13 @@ export class AdministrationService extends Context.Service<
           requestedPage: input.page,
           total,
         });
-        const orderedProviderIds =
-          input.sort === "date"
-            ? yield* loadReservationDateOrder(
-                input,
-                Boolean(dateRange),
-                dateReservations
-              )
-            : undefined;
-        let rows: readonly SafeReservationRow[];
-        if (orderedProviderIds) {
-          const references = yield* db
-            .select({
-              id: workspaceReservations.id,
-              externalId: workspaceReservations.dotyposReservationId,
-            })
-            .from(workspaceReservations)
-            .where(where);
-          const pageIds = getAdministrationExternalOrderPageIds({
-            offset: pagination.offset,
-            orderedExternalIds: orderedProviderIds,
-            pageSize,
-            references,
-          });
-          const pageRows =
-            pageIds.length === 0
-              ? []
-              : yield* db
-                  .select(safeReservationSelection)
-                  .from(workspaceReservations)
-                  .where(inArray(workspaceReservations.id, pageIds));
-          const rowById = new Map(pageRows.map((row) => [row.id, row]));
-          rows = pageIds.flatMap((id) => {
-            const row = rowById.get(id);
-            return row ? [row] : [];
-          });
-        } else {
-          rows = yield* db
-            .select(safeReservationSelection)
-            .from(workspaceReservations)
-            .where(where)
-            .orderBy(
-              ...getReservationOrderBy({
-                direction: input.direction,
-                sort: input.sort === "date" ? "created" : input.sort,
-              })
-            )
-            .limit(pageSize)
-            .offset(pagination.offset);
-        }
+        const rows = yield* selectReservationListRows({
+          direction: input.direction,
+          orderedProviderIds,
+          page: { offset: pagination.offset, pageSize },
+          sort: input.sort,
+          where,
+        });
         return {
           items: yield* enrichRows(rows, dateReservations ?? undefined),
           page: pagination.page,
@@ -1703,20 +2097,80 @@ export class AdministrationService extends Context.Service<
         };
       });
 
+      const exportReservations = Effect.fn(
+        "AdministrationService.exportReservations"
+      )(function* (input: AdministrationReservationExportInput) {
+        const { dateReservations, orderedProviderIds, where } =
+          yield* loadReservationListScope(input, failOnProviderFailure);
+        const rows = yield* selectReservationListRows({
+          direction: input.direction,
+          orderedProviderIds,
+          sort: input.sort,
+          where,
+        });
+        yield* Effect.annotateCurrentSpan({ reservationCount: rows.length });
+        return yield* enrichRows(
+          rows,
+          dateReservations ?? undefined,
+          failOnProviderFailure
+        );
+      });
+
+      /**
+       * Up to four other Workspace reservations whose bookings Dotypos lists
+       * on the live booking's date. A reservation without a live booking has
+       * none.
+       */
+      const loadSameDateRows = Effect.fnUntraced(function* (
+        row: SafeReservationRow,
+        liveReservation: DotyposReservation | null
+      ) {
+        if (!liveReservation) return [];
+        const date = getReservationDate(
+          liveReservation,
+          row.reservationDetails
+        );
+        const dateReservations = yield* loadReservationRangeMap({
+          from: date,
+          to: date,
+        });
+        const reservationIds = dateReservations
+          ? [...dateReservations.keys()].filter(
+              (reservationId) => reservationId !== row.dotyposReservationId
+            )
+          : [];
+        if (reservationIds.length === 0) return [];
+        return yield* db
+          .select(safeReservationSelection)
+          .from(workspaceReservations)
+          .where(
+            inArray(workspaceReservations.dotyposReservationId, reservationIds)
+          )
+          .orderBy(desc(workspaceReservations.updatedAt))
+          .limit(4)
+          .pipe(Effect.flatMap(StoredReservationDetails.decodeRows));
+      });
+
       const loadReservation = Effect.fn(
         "AdministrationService.loadReservation"
       )(function* (id: WorkspaceReservationId) {
-        const [row] = yield* db
-          .select(safeReservationSelection)
+        const [reservationRow] = yield* db
+          .select({
+            ...safeReservationSelection,
+            authorAccountId: workspaceReservations.authorAccountId,
+          })
           .from(workspaceReservations)
           .where(eq(workspaceReservations.id, id))
-          .limit(1);
-        if (!row) return null;
+          .limit(1)
+          .pipe(Effect.flatMap(StoredReservationDetails.decodeRows));
+        if (!reservationRow) return null;
+        const { authorAccountId, ...row } = reservationRow;
 
         const {
           accessRows,
           applicationRows,
           attemptRows,
+          author,
           history,
           latePaymentRows,
           recoveryRows,
@@ -1735,6 +2189,7 @@ export class AdministrationService extends Context.Service<
                 deviceId: reservationAccessGrants.deviceId,
                 providerCredentialId:
                   reservationAccessGrants.providerCredentialId,
+                accessName: reservationAccessGrants.accessName,
                 scheduledStartsAt:
                   reservationAccessGrants.scheduledAccessStartsAt,
                 startsAt: reservationAccessGrants.accessStartsAt,
@@ -1754,6 +2209,7 @@ export class AdministrationService extends Context.Service<
               .select({
                 id: discountApplications.id,
                 label: discountApplications.label,
+                staffLabel: discountApplications.staffLabel,
                 appliedAmountValue: discountApplications.appliedAmountValue,
                 appliedAmountExponent:
                   discountApplications.appliedAmountExponent,
@@ -1768,6 +2224,7 @@ export class AdministrationService extends Context.Service<
               .from(paymentAttempts)
               .where(eq(paymentAttempts.workspaceReservationId, row.id))
               .orderBy(paymentAttempts.createdAt),
+            author: loadAuthor(authorAccountId, row.dotyposCustomerId),
             history: reservationHistory.load(row.id),
             latePaymentRows: db
               .select(latePaymentSelection)
@@ -1799,37 +2256,13 @@ export class AdministrationService extends Context.Service<
                 )
               )
               .orderBy(desc(workspaceReservations.updatedAt))
-              .limit(4),
+              .limit(4)
+              .pipe(Effect.flatMap(StoredReservationDetails.decodeRows)),
           },
-          { concurrency: 8 }
+          { concurrency: 9 }
         );
 
-        let sameDateRows: readonly SafeReservationRow[] = [];
-        if (live.reservation) {
-          const date = getReservationDate(live.reservation.startDate);
-          const dateReservations = yield* loadReservationRangeMap({
-            from: date,
-            to: date,
-          });
-          const reservationIds = dateReservations
-            ? [...dateReservations.keys()].filter(
-                (reservationId) => reservationId !== row.dotyposReservationId
-              )
-            : [];
-          if (reservationIds.length > 0) {
-            sameDateRows = yield* db
-              .select(safeReservationSelection)
-              .from(workspaceReservations)
-              .where(
-                inArray(
-                  workspaceReservations.dotyposReservationId,
-                  reservationIds
-                )
-              )
-              .orderBy(desc(workspaceReservations.updatedAt))
-              .limit(4);
-          }
-        }
+        const sameDateRows = yield* loadSameDateRows(row, live.reservation);
 
         const { otherCustomerReservations, sameDateReservations } =
           yield* Effect.all(
@@ -1842,57 +2275,43 @@ export class AdministrationService extends Context.Service<
 
         const attempts = attemptRows.map(toAdministrationPaymentAttempt);
         const refunded = isReservationRefunded(attemptRows);
-        const recovery = recoveryRows.at(-1);
-        const latePayment = recovery
-          ? recovery.state === "refund_required"
-          : latePaymentRows.length > 0;
-        const liveTableId = Option.getOrUndefined(
-          decodeDotyposTableId(live.reservation?._tableId)
+        const recoveryState = recoveryRows.at(-1)?.state;
+        const latePayment = isLatePaymentRefundRequired(
+          recoveryState,
+          latePaymentRows
         );
-        const table = liveTableId
-          ? (tables.find(
-              ({ id }) =>
-                Option.getOrUndefined(decodeDotyposTableId(id)) === liveTableId
-            ) ?? null)
-          : null;
         const accessGrant = accessRows[0] ?? null;
 
         return {
+          author,
           reservation: toReservationSummary({
             latestPayment: attempts.at(-1) ?? null,
             latePayment,
-            recoveryState: recovery?.state,
+            recoveryState,
             refunded,
             live,
             row,
           }),
-          booking:
-            live.reservation && row.dotyposReservationId
-              ? toBookingSummary({
-                  booking: {
-                    ...live.reservation,
-                    id: row.dotyposReservationId,
-                  },
-                  customer: live.customer,
-                  row,
-                  table,
-                })
-              : null,
+          booking: toLinkedBookingSummary({
+            live,
+            row,
+            table: findBookingTable(tables, live.reservation?._tableId),
+          }),
           lifecycle: getAdministrationReservationLifecycle({
             dotyposStatus: live.reservation?.status,
             failureCode: row.failureCode,
             fulfillmentState: row.fulfillmentState,
             latePayment,
-            latePaymentRecovery: recovery?.state,
+            latePaymentRecovery: recoveryState,
             paymentState: row.paymentState,
             refunded,
             reservationState: row.reservationState,
           }),
           operatorNotice: getReservationOperatorNotice({
+            failureCode: row.failureCode,
             latePayment,
-            recovery,
+            recoveryState,
             refunded,
-            row,
           }),
           timeline: mergeReservationHistory({
             durable: [
@@ -1908,26 +2327,14 @@ export class AdministrationService extends Context.Service<
           orders,
           discounts: applicationRows.map((application) => ({
             id: application.id,
-            label: application.label,
+            label: application.staffLabel ?? application.label,
             amount: {
               value: application.appliedAmountValue,
               exponent: application.appliedAmountExponent,
               currency: application.appliedAmountCurrency,
             },
           })),
-          accessGrant: accessGrant && {
-            ...accessGrant,
-            accessName: `Deskohub ${row.id}`.slice(0, 60),
-            scheduledStartsAt: accessGrant.scheduledStartsAt.toString(),
-            startsAt: accessGrant.startsAt.toString(),
-            endsAt: accessGrant.endsAt.toString(),
-            provisioningStartedAt:
-              accessGrant.provisioningStartedAt?.toString() ?? null,
-            issuedAt: accessGrant.issuedAt?.toString() ?? null,
-            failedAt: accessGrant.failedAt?.toString() ?? null,
-            createdAt: accessGrant.createdAt.toString(),
-            updatedAt: accessGrant.updatedAt.toString(),
-          },
+          accessGrant: accessGrant && toAccessGrantDetail(accessGrant, row.id),
           otherCustomerReservations,
           sameDateReservations,
           references: {
@@ -1936,58 +2343,15 @@ export class AdministrationService extends Context.Service<
             customerId: row.dotyposCustomerId,
           },
           canCancel: canCancelReservation(row),
-          requiresProviderCredentialRemoval: Boolean(
-            accessGrant &&
-              ["issued", "uncertain", "provisioning"].includes(
-                accessGrant.state
-              ) &&
-              Temporal.Instant.compare(
-                accessGrant.endsAt,
-                Temporal.Now.instant()
-              ) > 0
-          ),
+          requiresProviderCredentialRemoval:
+            requiresProviderCredentialRemoval(accessGrant),
         } satisfies AdministrationReservationDetail;
       });
 
       const findReservationId = Effect.fn(
         "AdministrationService.findReservationId"
       )(function* (identifier: string) {
-        const lookupIds = {
-          checkoutAttemptKey: Option.getOrUndefined(
-            decodeCheckoutAttemptKey(identifier)
-          ),
-          checkoutSessionKey: Option.getOrUndefined(
-            decodeCheckoutSessionKey(identifier)
-          ),
-          correlationId: Option.getOrUndefined(
-            decodeNexiCorrelationId(identifier)
-          ),
-          discountApplicationId: Option.getOrUndefined(
-            decodeDiscountApplicationId(identifier)
-          ),
-          dotyposReservationId: Option.getOrUndefined(
-            decodeDotyposReservationId(identifier)
-          ),
-          legalEvidenceEventId: Option.getOrUndefined(
-            decodeLegalEvidenceEventId(identifier)
-          ),
-          nexiOperationId: Option.getOrUndefined(
-            decodeNexiOperationId(identifier)
-          ),
-          nexiOrderId: Option.getOrUndefined(decodeNexiOrderId(identifier)),
-          nexiWebhookEventId: Option.getOrUndefined(
-            decodeNexiWebhookEventId(identifier)
-          ),
-          paymentAttemptId: Option.getOrUndefined(
-            decodePaymentAttemptId(identifier)
-          ),
-          storedWebhookEventId: Option.getOrUndefined(
-            decodeStoredWebhookEventId(identifier)
-          ),
-          workspaceReservationId: Option.getOrUndefined(
-            decodeWorkspaceReservationId(identifier)
-          ),
-        };
+        const conditions = getReservationLookupConditions(identifier);
         const {
           applicationRows,
           evidenceRows,
@@ -1999,96 +2363,28 @@ export class AdministrationService extends Context.Service<
             reservationRows: db
               .selectDistinct({ reservationId: workspaceReservations.id })
               .from(workspaceReservations)
-              .where(
-                or(
-                  lookupIds.workspaceReservationId
-                    ? eq(
-                        workspaceReservations.id,
-                        lookupIds.workspaceReservationId
-                      )
-                    : undefined,
-                  lookupIds.checkoutSessionKey
-                    ? eq(
-                        workspaceReservations.checkoutSessionKey,
-                        lookupIds.checkoutSessionKey
-                      )
-                    : undefined,
-                  lookupIds.checkoutAttemptKey
-                    ? eq(
-                        workspaceReservations.checkoutAttemptKey,
-                        lookupIds.checkoutAttemptKey
-                      )
-                    : undefined,
-                  lookupIds.correlationId
-                    ? eq(
-                        workspaceReservations.correlationId,
-                        lookupIds.correlationId
-                      )
-                    : undefined,
-                  lookupIds.dotyposReservationId
-                    ? eq(
-                        workspaceReservations.dotyposReservationId,
-                        lookupIds.dotyposReservationId
-                      )
-                    : undefined,
-                  lookupIds.paymentAttemptId
-                    ? eq(
-                        workspaceReservations.activePaymentAttemptId,
-                        lookupIds.paymentAttemptId
-                      )
-                    : undefined
-                ) ?? sql`false`
-              )
+              .where(conditions.reservations)
               .limit(2),
             paymentRows: db
               .selectDistinct({
                 reservationId: paymentAttempts.workspaceReservationId,
               })
               .from(paymentAttempts)
-              .where(
-                or(
-                  lookupIds.paymentAttemptId
-                    ? eq(paymentAttempts.id, lookupIds.paymentAttemptId)
-                    : undefined,
-                  lookupIds.nexiOrderId
-                    ? eq(paymentAttempts.providerOrderId, lookupIds.nexiOrderId)
-                    : undefined,
-                  lookupIds.nexiWebhookEventId
-                    ? eq(
-                        paymentAttempts.lastWebhookEventId,
-                        lookupIds.nexiWebhookEventId
-                      )
-                    : undefined,
-                  lookupIds.nexiOperationId
-                    ? eq(
-                        paymentAttempts.lastProviderOperationId,
-                        lookupIds.nexiOperationId
-                      )
-                    : undefined
-                ) ?? sql`false`
-              )
+              .where(conditions.paymentAttempts)
               .limit(2),
             applicationRows: db
               .selectDistinct({
                 reservationId: discountApplications.workspaceReservationId,
               })
               .from(discountApplications)
-              .where(
-                lookupIds.discountApplicationId
-                  ? eq(discountApplications.id, lookupIds.discountApplicationId)
-                  : sql`false`
-              )
+              .where(conditions.discountApplications)
               .limit(2),
             evidenceRows: db
               .selectDistinct({
                 reservationId: legalEvidenceEvents.workspaceReservationId,
               })
               .from(legalEvidenceEvents)
-              .where(
-                lookupIds.legalEvidenceEventId
-                  ? eq(legalEvidenceEvents.id, lookupIds.legalEvidenceEventId)
-                  : sql`false`
-              )
+              .where(conditions.legalEvidenceEvents)
               .limit(2),
             webhookRows: db
               .selectDistinct({
@@ -2105,19 +2401,7 @@ export class AdministrationService extends Context.Service<
                   )
                 )
               )
-              .where(
-                or(
-                  lookupIds.storedWebhookEventId
-                    ? eq(webhookEvents.id, lookupIds.storedWebhookEventId)
-                    : undefined,
-                  lookupIds.nexiWebhookEventId
-                    ? eq(webhookEvents.eventId, lookupIds.nexiWebhookEventId)
-                    : undefined,
-                  lookupIds.nexiOrderId
-                    ? eq(webhookEvents.providerOrderId, lookupIds.nexiOrderId)
-                    : undefined
-                ) ?? sql`false`
-              )
+              .where(conditions.webhookEvents)
               .limit(2),
           },
           { concurrency: 5 }
@@ -2134,28 +2418,46 @@ export class AdministrationService extends Context.Service<
 
       const listBookings = Effect.fn("AdministrationService.listBookings")(
         function* (input: AdministrationBookingListInput) {
-          const bookings = (yield* dotypos.listReservations({
-            ...getDateBounds(input.date),
+          // Dotypos holds an early-setup meeting room from before its booked
+          // start, so the read starts that much earlier and the bookings'
+          // stored details decide their booked start, date, and order.
+          const range = { from: input.date, to: input.date };
+          const heldBookings = yield* dotypos.listReservations({
+            ...getAdministrationReservationHeldRangeBounds(range),
             order: "startDateAscending",
-          })).flatMap((booking) => {
-            const id = Option.getOrUndefined(
-              decodeDotyposReservationId(booking.id)
-            );
-            return id ? [{ ...booking, id }] : [];
           });
+          const earlySetupDetails = yield* loadEarlySetupDetails(
+            db,
+            heldBookings.map(({ id }) => id)
+          );
           const direction = input.direction === "desc" ? -1 : 1;
-          const sortedBookings = bookings.toSorted((left, right) => {
-            const primary =
-              input.sort === "status"
-                ? left.status.localeCompare(right.status)
-                : left.startDate.localeCompare(right.startDate);
-            return (
-              direction *
-              (primary ||
-                left.startDate.localeCompare(right.startDate) ||
-                left.id.localeCompare(right.id))
-            );
-          });
+          const sortedBookings = heldBookings
+            .flatMap((booking) => {
+              const details = earlySetupDetails.get(booking.id);
+              return isAdministrationDateInRange(
+                getReservationDate(booking, details),
+                range
+              )
+                ? [{ booking, startsAt: getBookedStart(booking, details) }]
+                : [];
+            })
+            .toSorted((left, right) => {
+              const byStart = Temporal.Instant.compare(
+                left.startsAt,
+                right.startsAt
+              );
+              const primary =
+                input.sort === "status"
+                  ? left.booking.status.localeCompare(right.booking.status)
+                  : byStart;
+              return (
+                direction *
+                (primary ||
+                  byStart ||
+                  left.booking.id.localeCompare(right.booking.id))
+              );
+            })
+            .map(({ booking }) => booking);
           const pagination = getAdministrationPagination({
             pageSize: bookingPageSize,
             requestedPage: input.page,
@@ -2168,12 +2470,9 @@ export class AdministrationService extends Context.Service<
           const bookingIds = pageBookings.map(({ id }) => id);
           const customerIds = [
             ...new Set(
-              pageBookings.flatMap((booking) => {
-                const customerId = Option.getOrUndefined(
-                  decodeDotyposCustomerId(booking._customerId)
-                );
-                return customerId ? [customerId] : [];
-              })
+              pageBookings.flatMap((booking) =>
+                booking._customerId ? [booking._customerId] : []
+              )
             ),
           ];
           const { customersById, rows, tables } = yield* Effect.all(
@@ -2190,6 +2489,7 @@ export class AdministrationService extends Context.Service<
                           bookingIds
                         )
                       )
+                      .pipe(Effect.flatMap(StoredReservationDetails.decodeRows))
                   : Effect.succeed([] as readonly SafeReservationRow[]),
               tables: loadBookingTables(),
             },
@@ -2203,31 +2503,20 @@ export class AdministrationService extends Context.Service<
             )
           );
           const tablesById = new Map(
-            tables.flatMap((table) => {
-              const tableId = Option.getOrUndefined(
-                decodeDotyposTableId(table.id)
-              );
-              return tableId ? [[tableId, table] as const] : [];
-            })
+            tables.map((table) => [table.id, table] as const)
           );
 
           return {
             items: pageBookings.map((booking) =>
               toBookingSummary({
                 booking,
-                customer: Option.match(
-                  decodeDotyposCustomerId(booking._customerId),
-                  {
-                    onNone: () => null,
-                    onSome: (customerId) =>
-                      customersById.get(customerId) ?? null,
-                  }
-                ),
+                customer: booking._customerId
+                  ? (customersById.get(booking._customerId) ?? null)
+                  : null,
                 row: rowsByBookingId.get(booking.id) ?? null,
-                table: Option.match(decodeDotyposTableId(booking._tableId), {
-                  onNone: () => null,
-                  onSome: (tableId) => tablesById.get(tableId) ?? null,
-                }),
+                table: booking._tableId
+                  ? (tablesById.get(booking._tableId) ?? null)
+                  : null,
               })
             ),
             page: pagination.page,
@@ -2237,25 +2526,34 @@ export class AdministrationService extends Context.Service<
         }
       );
 
-      const loadReservationBreadcrumbLabel = Effect.fn(
-        "AdministrationService.loadReservationBreadcrumbLabel"
+      const loadReservationProduct = Effect.fn(
+        "AdministrationService.loadReservationProduct"
       )(function* (id: WorkspaceReservationId) {
         const [row] = yield* db
           .select({
+            id: workspaceReservations.id,
             reservationDetails: workspaceReservations.reservationDetails,
           })
           .from(workspaceReservations)
           .where(eq(workspaceReservations.id, id))
-          .limit(1);
-        return row ? getReservationTypeLabel(row) : null;
+          .limit(1)
+          .pipe(Effect.flatMap(StoredReservationDetails.decodeRows));
+        return row
+          ? getAdministrationReservationProduct(row.reservationDetails)
+          : null;
       });
 
       /** The Dotypos booking, or null when Dotypos no longer has it. */
       const findBookingDetails = (id: DotyposReservationId) =>
         dotypos.getReservation(id).pipe(
+          Effect.map(Option.getOrNull),
+          // A missing booking is the none above, so a not-found rejection
+          // here is the booking's linked customer missing, which also reads
+          // as no booking for now.
           Effect.catchIf(
-            (error) =>
-              error._tag === "ExternalAPIError" && error.statusCode === 404,
+            (failure) =>
+              failure._tag === "DotyposRejected" &&
+              failure.reason === "not-found",
             () => Effect.succeed(null)
           )
         );
@@ -2269,7 +2567,8 @@ export class AdministrationService extends Context.Service<
                 .select(safeReservationSelection)
                 .from(workspaceReservations)
                 .where(eq(workspaceReservations.dotyposReservationId, id))
-                .limit(1),
+                .limit(1)
+                .pipe(Effect.flatMap(StoredReservationDetails.decodeRows)),
               tables: loadBookingTables(),
             },
             { concurrency: 3 }
@@ -2277,21 +2576,11 @@ export class AdministrationService extends Context.Service<
           if (!details) return null;
           const { customer, reservation } = details;
           const [row] = rows;
-          const reservationTableId = Option.getOrUndefined(
-            decodeDotyposTableId(reservation._tableId)
-          );
-          const table = reservationTableId
-            ? (tables.find(
-                ({ id: tableId }) =>
-                  Option.getOrUndefined(decodeDotyposTableId(tableId)) ===
-                  reservationTableId
-              ) ?? null)
-            : null;
           const booking = toBookingSummary({
             booking: { ...reservation, id },
             customer,
             row: row ?? null,
-            table,
+            table: findBookingTable(tables, reservation._tableId),
           });
 
           return {
@@ -2308,82 +2597,169 @@ export class AdministrationService extends Context.Service<
       const loadBookingBreadcrumb = Effect.fn(
         "AdministrationService.loadBookingBreadcrumb"
       )(function* (id: DotyposReservationId) {
-        const { details, tables } = yield* Effect.all(
+        const { details, earlySetupDetails, tables } = yield* Effect.all(
           {
             details: findBookingDetails(id),
+            earlySetupDetails: loadEarlySetupDetails(db, [id]),
             tables: loadBookingTables(),
           },
-          { concurrency: 2 }
+          { concurrency: 3 }
         );
         if (!details) return null;
-        const tableId = Option.getOrUndefined(
-          decodeDotyposTableId(details.reservation._tableId)
+        return {
+          startsAt: getBookedStartsAt(
+            details.reservation,
+            earlySetupDetails.get(id)
+          ),
+          tableName:
+            findBookingTable(tables, details.reservation._tableId)?.name ??
+            null,
+        };
+      });
+
+      /**
+       * The customer list's filter. A booking-date range Dotypos can't answer
+       * selects no customers and reports `dateFilterUnavailable`, so the list
+       * never broadens to customers outside the range.
+       */
+      const getCustomerListFilter = Effect.fn(
+        "AdministrationService.getCustomerListFilter"
+      )(function* <E = never>(
+        input: AdministrationCustomerExportInput,
+        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+      ) {
+        const dateRange = getAdministrationReservationDateRange({
+          from: input.from,
+          to: input.to,
+        });
+        const dateReservations = yield* loadReservationRangeMap(
+          dateRange,
+          policy
         );
-        const tableName = tableId
-          ? (tables.find(
-              ({ id: candidateId }) =>
-                Option.getOrUndefined(decodeDotyposTableId(candidateId)) ===
-                tableId
-            )?.name ?? null)
-          : null;
-        return { startsAt: details.reservation.startDate, tableName };
+        const conditions: SQL[] = [];
+        if (dateRange) {
+          // A booking Dotypos cancelled doesn't count, even when Deskohub
+          // still records it as fulfilled.
+          conditions.push(
+            customerWithSuccessfulReservationAmong(
+              [...(dateReservations ?? [])].flatMap(([id, reservation]) =>
+                reservation.status === "CANCELLED" ? [] : [id]
+              )
+            )
+          );
+        }
+        if (input.marketingConsent) {
+          conditions.push(
+            sql`${customerMarketingConsentState} = ${input.marketingConsent}`
+          );
+        }
+        return {
+          dateFilterUnavailable: Boolean(dateRange && !dateReservations),
+          where: conditions.length > 0 ? and(...conditions) : undefined,
+        };
+      });
+
+      /**
+       * One row per customer matching `where`, in the list's sort order, with
+       * full-history aggregates. Callers add paging.
+       */
+      const selectCustomerSummaryRows = (
+        input: Pick<AdministrationCustomerListInput, "direction" | "sort">,
+        where: SQL | undefined
+      ) => {
+        const lastActivityAt = max(workspaceReservations.updatedAt);
+        const order = input.direction === "asc" ? asc : desc;
+        return db
+          .select({
+            customerId: workspaceReservations.dotyposCustomerId,
+            marketingConsent: customerMarketingConsentState,
+            reservationCount: successfulReservationCount,
+            lastActivityAt,
+          })
+          .from(workspaceReservations)
+          .where(where)
+          .groupBy(workspaceReservations.dotyposCustomerId)
+          .orderBy(
+            order(
+              input.sort === "reservations"
+                ? successfulReservationCount
+                : lastActivityAt
+            ),
+            asc(workspaceReservations.dotyposCustomerId)
+          );
+      };
+
+      const toCustomerSummaries = Effect.fn(
+        "AdministrationService.toCustomerSummaries"
+      )(function* <E = never>(
+        rows: readonly {
+          readonly customerId: DotyposCustomerId;
+          readonly marketingConsent: MarketingConsentStatus;
+          readonly reservationCount: number;
+          readonly lastActivityAt: Temporal.Instant | null;
+        }[],
+        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+      ) {
+        const customersById = yield* loadCustomers(
+          rows.map(({ customerId }) => customerId),
+          policy
+        );
+        return rows.map((row): AdministrationCustomerSummary => {
+          const customer = customersById.get(row.customerId);
+          return {
+            customer: customer ? toCustomer(customer) : null,
+            customerId: row.customerId,
+            marketingConsent: row.marketingConsent,
+            reservationCount: Number(row.reservationCount),
+            lastActivityAt: row.lastActivityAt
+              ? toIsoString(row.lastActivityAt)
+              : Temporal.Instant.fromEpochMilliseconds(0).toString(),
+          };
+        });
       });
 
       const listCustomers = Effect.fn("AdministrationService.listCustomers")(
         function* (input: AdministrationCustomerListInput) {
+          const { dateFilterUnavailable, where } =
+            yield* getCustomerListFilter(input);
           const countRows = yield* db
             .select({
               value: countDistinct(workspaceReservations.dotyposCustomerId),
             })
-            .from(workspaceReservations);
+            .from(workspaceReservations)
+            .where(where);
           const total = Number(countRows[0]?.value ?? 0);
           const pagination = getAdministrationPagination({
             pageSize: customerPageSize,
             requestedPage: input.page,
             total,
           });
-          const lastActivityAt = max(workspaceReservations.updatedAt);
-          const order = input.direction === "asc" ? asc : desc;
-          const rows = yield* db
-            .select({
-              customerId: workspaceReservations.dotyposCustomerId,
-              reservationCount: successfulReservationCount,
-              lastActivityAt,
-            })
-            .from(workspaceReservations)
-            .groupBy(workspaceReservations.dotyposCustomerId)
-            .orderBy(
-              order(
-                input.sort === "reservations"
-                  ? successfulReservationCount
-                  : lastActivityAt
-              ),
-              asc(workspaceReservations.dotyposCustomerId)
-            )
+          const rows = yield* selectCustomerSummaryRows(input, where)
             .limit(customerPageSize)
             .offset(pagination.offset);
-          const customersById = yield* loadCustomers(
-            rows.map(({ customerId }) => customerId)
-          );
-          const items = rows.map((row) => {
-            const customer = customersById.get(row.customerId);
-            return {
-              customer: customer ? toCustomer(customer, row.customerId) : null,
-              customerId: row.customerId,
-              reservationCount: Number(row.reservationCount),
-              lastActivityAt: row.lastActivityAt
-                ? toIsoString(row.lastActivityAt)
-                : Temporal.Instant.fromEpochMilliseconds(0).toString(),
-            };
-          });
           return {
-            items,
+            dateFilterUnavailable,
+            items: yield* toCustomerSummaries(rows),
             page: pagination.page,
             pageCount: pagination.pageCount,
             total,
           };
         }
       );
+
+      const exportCustomers = Effect.fn(
+        "AdministrationService.exportCustomers"
+      )(function* (input: AdministrationCustomerExportInput) {
+        // A failed range read fails the export, so the filter is never left
+        // unavailable here.
+        const { where } = yield* getCustomerListFilter(
+          input,
+          failOnProviderFailure
+        );
+        const rows = yield* selectCustomerSummaryRows(input, where);
+        yield* Effect.annotateCurrentSpan({ customerCount: rows.length });
+        return yield* toCustomerSummaries(rows, failOnProviderFailure);
+      });
 
       const loadCustomerReservations = Effect.fn(
         "AdministrationService.loadCustomerReservations"
@@ -2411,7 +2787,8 @@ export class AdministrationService extends Context.Service<
           .where(where)
           .orderBy(desc(workspaceReservations.updatedAt))
           .limit(customerReservationPageSize)
-          .offset(pagination.offset);
+          .offset(pagination.offset)
+          .pipe(Effect.flatMap(StoredReservationDetails.decodeRows));
         return {
           items: yield* enrichRows(rows),
           page: pagination.page,
@@ -2422,7 +2799,10 @@ export class AdministrationService extends Context.Service<
 
       const loadCustomerActivity = Effect.fn(
         "AdministrationService.loadCustomerActivity"
-      )(function* (customerId: DotyposCustomerId) {
+      )(function* <E = never>(
+        customerId: DotyposCustomerId,
+        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+      ) {
         const { attemptRowsWithSentinel, marketingConsentRows, recentRows } =
           yield* Effect.all(
             {
@@ -2431,7 +2811,8 @@ export class AdministrationService extends Context.Service<
                 .from(workspaceReservations)
                 .where(eq(workspaceReservations.dotyposCustomerId, customerId))
                 .orderBy(desc(workspaceReservations.updatedAt))
-                .limit(customerActivityReservationLimit + 1),
+                .limit(customerActivityReservationLimit + 1)
+                .pipe(Effect.flatMap(StoredReservationDetails.decodeRows)),
               attemptRowsWithSentinel: db
                 .select({
                   attempt: safePaymentAttemptSelection,
@@ -2451,7 +2832,19 @@ export class AdministrationService extends Context.Service<
                 )
                 .where(eq(workspaceReservations.dotyposCustomerId, customerId))
                 .orderBy(desc(paymentAttempts.createdAt))
-                .limit(customerActivityTransactionLimit + 1),
+                .limit(customerActivityTransactionLimit + 1)
+                .pipe(
+                  Effect.flatMap((rows) =>
+                    Effect.forEach(rows, ({ attempt, reservation }) =>
+                      StoredReservationDetails.decodeRow(reservation).pipe(
+                        Effect.map((decoded) => ({
+                          attempt,
+                          reservation: decoded,
+                        }))
+                      )
+                    )
+                  )
+                ),
               marketingConsentRows: db
                 .select({
                   documentHash: customerMarketingConsents.documentHash,
@@ -2467,16 +2860,9 @@ export class AdministrationService extends Context.Service<
             },
             { concurrency: 3 }
           );
-        const marketingConsentRow = marketingConsentRows[0];
-        const marketingConsent = marketingConsentRow
-          ? {
-              ...marketingConsentRow,
-              grantedAt: toIsoString(marketingConsentRow.grantedAt),
-              withdrawnAt: marketingConsentRow.withdrawnAt
-                ? toIsoString(marketingConsentRow.withdrawnAt)
-                : null,
-            }
-          : null;
+        const marketingConsent = toCustomerMarketingConsent(
+          marketingConsentRows[0]
+        );
 
         if (recentRows.length === 0) {
           return {
@@ -2487,6 +2873,7 @@ export class AdministrationService extends Context.Service<
             stats: {
               reservationCount: 0,
               favoriteProduct: null,
+              favoriteReservationProduct: null,
               revenue: [],
               discountSavings: [],
             },
@@ -2495,12 +2882,10 @@ export class AdministrationService extends Context.Service<
         }
 
         const rows = recentRows.slice(0, customerActivityReservationLimit);
-        const productKind = sql<string>`
-          ${workspaceReservations.reservationDetails}->>'kind'
-        `;
-        const productTier = sql<string | null>`
-          ${workspaceReservations.reservationDetails}->>'entryTier'
-        `;
+        const productKind = StoredReservationDetails.kind;
+        const productTier = sql<
+          string | null
+        >`${StoredReservationDetails.property("cowork", "tier")}`;
         const productCount = count();
         const {
           applicationRows,
@@ -2510,7 +2895,7 @@ export class AdministrationService extends Context.Service<
           revenueRows,
         } = yield* Effect.all(
           {
-            reservations: enrichRows(rows),
+            reservations: enrichRows(rows, undefined, policy),
             reservationCountRows: db
               .select({ value: count() })
               .from(workspaceReservations)
@@ -2603,12 +2988,6 @@ export class AdministrationService extends Context.Service<
           customerActivityTransactionLimit
         );
         const favoriteProduct = productRows[0];
-        let favoriteProductLabel: string | null = null;
-        if (favoriteProduct?.kind === "meeting-room") {
-          favoriteProductLabel = "Meeting Room";
-        } else if (favoriteProduct?.tier) {
-          favoriteProductLabel = `Cowork ${favoriteProduct.tier[0]?.toUpperCase()}${favoriteProduct.tier.slice(1)}`;
-        }
 
         return {
           reservations,
@@ -2619,13 +2998,18 @@ export class AdministrationService extends Context.Service<
             reservation: {
               id: reservation.id,
               typeLabel: getReservationTypeLabel(reservation),
+              product: getAdministrationReservationProduct(
+                reservation.reservationDetails
+              ),
             },
           })),
           transactionHistoryTruncated:
             attemptRowsWithSentinel.length > customerActivityTransactionLimit,
           stats: {
             reservationCount: Number(reservationCountRows[0]?.value ?? 0),
-            favoriteProduct: favoriteProductLabel,
+            favoriteProduct: getFavoriteProductLabel(favoriteProduct),
+            favoriteReservationProduct:
+              getFavoriteReservationProduct(favoriteProduct),
             revenue: toMoneyTotals(revenueRows),
             discountSavings: toMoneyTotals(applicationRows),
           },
@@ -2636,16 +3020,12 @@ export class AdministrationService extends Context.Service<
       const loadCustomerReservationActivity = Effect.fn(
         "AdministrationService.loadCustomerReservationActivity"
       )(function* (customerId: DotyposCustomerId) {
-        const now = Temporal.Now.instant();
-        const to = getCurrentWorkspaceDate(now);
-        const from = to.subtract({ days: 364 });
+        const { from, to } = getReservationActivityRange();
+        const range = { from: from.toString(), to: to.toString() };
         const reservations = yield* dotypos
           .listReservations({
             customerId,
-            ...getAdministrationReservationDateRangeBounds({
-              from: from.toString(),
-              to: to.toString(),
-            }),
+            ...getAdministrationReservationHeldRangeBounds(range),
             order: "startDateAscending",
           })
           .pipe(
@@ -2666,18 +3046,17 @@ export class AdministrationService extends Context.Service<
           } satisfies AdministrationCustomerReservationActivity;
         }
 
-        const reservationIds = reservations.flatMap((reservation) => {
-          const id = Option.getOrUndefined(
-            decodeDotyposReservationId(reservation.id)
-          );
-          return id ? [id] : [];
-        });
+        const reservationIds = reservations.map(
+          (reservation) => reservation.id
+        );
         const linkedRows =
           reservationIds.length === 0
             ? []
             : yield* db
                 .select({
-                  id: workspaceReservations.dotyposReservationId,
+                  id: workspaceReservations.id,
+                  dotyposReservationId:
+                    workspaceReservations.dotyposReservationId,
                   reservationDetails: workspaceReservations.reservationDetails,
                   fulfillmentState: workspaceReservations.fulfillmentState,
                   paymentState: workspaceReservations.paymentState,
@@ -2692,58 +3071,91 @@ export class AdministrationService extends Context.Service<
                       reservationIds
                     )
                   )
-                );
+                )
+                .pipe(Effect.flatMap(StoredReservationDetails.decodeRows));
         const linkedReservations = new Map(
-          linkedRows.flatMap(({ id, ...row }) =>
-            id ? ([[id, row]] as const) : []
+          linkedRows.flatMap(({ dotyposReservationId, ...row }) =>
+            dotyposReservationId ? ([[dotyposReservationId, row]] as const) : []
           )
         );
-        const activityByDate = new Map<
-          string,
-          {
-            readonly category: AdministrationCustomerReservationActivityCategory;
-            readonly count: number;
-          }
-        >();
-        for (const reservation of reservations) {
-          if (reservation.status !== "CONFIRMED") {
-            continue;
-          }
-          const id = Option.getOrUndefined(
-            decodeDotyposReservationId(reservation.id)
-          );
-          const row = id ? linkedReservations.get(id) : undefined;
-          if (
-            !row ||
-            getAdministrationReservationStatus(row).group !== "complete"
-          ) {
-            continue;
-          }
-          const reservationDetails = row.reservationDetails;
-          const date = getReservationDate(reservation.startDate);
-          const category =
-            reservationDetails.kind === "cowork"
-              ? (`cowork-${reservationDetails.entryTier}` as const)
-              : reservationDetails.kind;
-          const current = activityByDate.get(date);
-          activityByDate.set(date, {
-            count: (current?.count ?? 0) + 1,
-            category:
-              !current ||
-              customerReservationActivityCategoryPriority[category] >
-                customerReservationActivityCategoryPriority[current.category]
-                ? category
-                : current.category,
-          });
-        }
 
         return {
           from: from.toString(),
           to: to.toString(),
-          dates: [...activityByDate]
-            .map(([date, activity]) => ({ date, ...activity }))
-            .toSorted((left, right) => left.date.localeCompare(right.date)),
+          dates: summarizeCustomerReservationActivity({
+            linkedReservations,
+            range,
+            reservations,
+          }),
         } satisfies AdministrationCustomerReservationActivity;
+      });
+
+      /**
+       * Counts every live booking in the activity range that a Workspace
+       * reservation links, whatever its Dotypos status or Workspace lifecycle,
+       * as the Overview reservation total does.
+       */
+      const loadReservationActivity = Effect.fn(
+        "AdministrationService.loadReservationActivity"
+      )(function* () {
+        const { from, to } = getReservationActivityRange();
+        const range = { from: from.toString(), to: to.toString() };
+        const linkedRows = yield* db
+          .select({ id: workspaceReservations.dotyposReservationId })
+          .from(workspaceReservations)
+          .where(isNotNull(workspaceReservations.dotyposReservationId))
+          .pipe(
+            Effect.tap((rows) =>
+              Effect.annotateCurrentSpan({ linkedRowCount: rows.length })
+            ),
+            Effect.withSpan(
+              "AdministrationService.loadReservationActivity.databaseLinkage"
+            )
+          );
+        const reservations = yield* listLinkedBookings(
+          linkedRows.flatMap(({ id }) => (id ? [id] : [])),
+          range
+        ).pipe(
+          Effect.catch((cause) => {
+            unstable_rethrow(cause);
+            return Effect.logWarning("Reservation activity unavailable", {
+              cause,
+              ...range,
+            }).pipe(Effect.as(null));
+          }),
+          Effect.tap((bookings) =>
+            Effect.annotateCurrentSpan({
+              reservationCount: bookings?.items.length ?? 0,
+              unavailable: bookings === null,
+            })
+          ),
+          Effect.withSpan(
+            "AdministrationService.loadReservationActivity.reservationProvider"
+          )
+        );
+
+        if (!reservations) {
+          return {
+            ...range,
+            dates: null,
+          } satisfies AdministrationReservationActivity;
+        }
+
+        const countByDate = new Map<string, number>();
+        for (const reservation of reservations.items) {
+          const date = getReservationDate(
+            reservation,
+            getEarlySetupDetails(reservation, reservations.earlySetupDetails)
+          );
+          countByDate.set(date, (countByDate.get(date) ?? 0) + 1);
+        }
+
+        return {
+          ...range,
+          dates: [...countByDate]
+            .map(([date, count]) => ({ date, count }))
+            .toSorted((left, right) => left.date.localeCompare(right.date)),
+        } satisfies AdministrationReservationActivity;
       });
 
       const loadOverviewSource = Effect.fn(
@@ -2755,74 +3167,93 @@ export class AdministrationService extends Context.Service<
           from: ranges.lastSevenDays.from,
           to: ranges.upcoming.to,
         };
-        const reservations = yield* dotypos
-          .listReservations({
-            ...getAdministrationReservationDateRangeBounds(overviewRange),
-            order: "startDateAscending",
+        const linkedRows: readonly AdministrationOverviewRow[] = yield* db
+          .select({
+            id: workspaceReservations.dotyposReservationId,
+            customerId: workspaceReservations.dotyposCustomerId,
+            failureCode: workspaceReservations.failureCode,
+            fulfillmentState: workspaceReservations.fulfillmentState,
+            paymentState: workspaceReservations.paymentState,
+            reservationState: workspaceReservations.reservationState,
           })
+          .from(workspaceReservations)
+          .where(isNotNull(workspaceReservations.dotyposReservationId))
           .pipe(
-            Effect.map((items) => ({
-              kind: "available" as const,
-              items,
-            })),
-            Effect.catch((cause) => {
-              unstable_rethrow(cause);
-              return Effect.logWarning("Reservation overview unavailable", {
-                cause,
-                ...overviewRange,
-              }).pipe(Effect.as({ kind: "unavailable" as const }));
-            }),
-            Effect.tap((result) =>
-              Effect.annotateCurrentSpan({
-                reservationCount:
-                  result.kind === "available" ? result.items.length : 0,
-                unavailable: result.kind === "unavailable",
-              })
+            Effect.tap((rows) =>
+              Effect.annotateCurrentSpan({ linkedRowCount: rows.length })
             ),
             Effect.withSpan(
-              "AdministrationService.loadOverviewSource.reservationProvider"
+              "AdministrationService.loadOverviewSource.databaseLinkage"
             )
           );
-        const reservationIds =
-          reservations.kind === "available"
-            ? reservations.items.flatMap((reservation) => {
-                const id = Option.getOrUndefined(
-                  decodeDotyposReservationId(reservation.id)
-                );
-                return id ? [id] : [];
-              })
-            : [];
-        const rows = yield* Effect.gen(function* () {
-          if (reservationIds.length === 0)
-            return [] as readonly AdministrationOverviewRow[];
-          return yield* db
-            .select({
-              id: workspaceReservations.dotyposReservationId,
-              customerId: workspaceReservations.dotyposCustomerId,
-              failureCode: workspaceReservations.failureCode,
-              fulfillmentState: workspaceReservations.fulfillmentState,
-              paymentState: workspaceReservations.paymentState,
-              reservationState: workspaceReservations.reservationState,
-            })
-            .from(workspaceReservations)
-            .where(
-              inArray(
-                workspaceReservations.dotyposReservationId,
-                reservationIds
-              )
-            );
-        }).pipe(
-          Effect.tap((linkedRows) =>
+        const reservations = yield* listLinkedBookings(
+          linkedRows.flatMap(({ id }) => (id ? [id] : [])),
+          overviewRange
+        ).pipe(
+          Effect.map((bookings) => ({
+            kind: "available" as const,
+            ...bookings,
+          })),
+          Effect.catch((cause) => {
+            unstable_rethrow(cause);
+            return Effect.logWarning("Reservation overview unavailable", {
+              cause,
+              ...overviewRange,
+            }).pipe(Effect.as({ kind: "unavailable" as const }));
+          }),
+          Effect.tap((result) =>
             Effect.annotateCurrentSpan({
-              linkedRowCount: linkedRows.length,
-              linkageQueried: reservationIds.length > 0,
+              reservationCount:
+                result.kind === "available" ? result.items.length : 0,
+              unavailable: result.kind === "unavailable",
             })
           ),
           Effect.withSpan(
-            "AdministrationService.loadOverviewSource.databaseLinkage"
+            "AdministrationService.loadOverviewSource.reservationProvider"
           )
         );
+        const listedIds = new Set(
+          reservations.kind === "available"
+            ? reservations.items.map(({ id }) => id)
+            : []
+        );
+        const rows = linkedRows.filter(({ id }) => id && listedIds.has(id));
         return { currentDate, ranges, reservations, rows };
+      });
+
+      /**
+       * Reads the linked bookings booked in the range, in id filter batches.
+       * Listing every Dotypos booking in a range instead costs hundreds of
+       * sequential pages on a busy cloud. Dotypos holds an early-setup
+       * meeting room from before its booked start, so the read starts that
+       * much earlier and the bookings' stored details decide what stays.
+       * The Overview ranks customers by their latest booked start, so every
+       * booking reads its details, in one query.
+       */
+      const listLinkedBookings = Effect.fn(
+        "AdministrationService.listLinkedBookings"
+      )(function* (
+        ids: readonly DotyposReservationId[],
+        range: AdministrationReservationDateRange
+      ) {
+        const bounds = getAdministrationReservationHeldRangeBounds(range);
+        const held = [
+          ...(yield* dotypos.getReservationsByIds(ids.toSorted(), {
+            ...bounds,
+            order: "startDateAscending",
+            concurrency: 3,
+          })).values(),
+        ];
+        const earlySetupDetails = yield* loadEarlySetupDetails(
+          db,
+          held.map((reservation) => reservation.id)
+        );
+        return {
+          items: held.filter((reservation) =>
+            isReservationInRange(reservation, range, earlySetupDetails)
+          ),
+          earlySetupDetails,
+        } satisfies AdministrationLinkedBookings;
       });
 
       const loadOverview = Effect.fn("AdministrationService.loadOverview")(
@@ -2851,6 +3282,7 @@ export class AdministrationService extends Context.Service<
                   qualifyingReservationIds,
                   range: ranges.lastSevenDays,
                   reservations: reservations.items,
+                  earlySetupDetails: reservations.earlySetupDetails,
                 })
               : [];
           const customersById = yield* loadCustomers(uniqueCustomerIds);
@@ -2874,7 +3306,7 @@ export class AdministrationService extends Context.Service<
             customers: metric.ids.slice(0, 3).map((customerId) => {
               const customer = customersById.get(customerId);
               return {
-                customer: customer ? toCustomer(customer, customerId) : null,
+                customer: customer ? toCustomer(customer) : null,
                 customerId,
               };
             }),
@@ -2906,16 +3338,24 @@ export class AdministrationService extends Context.Service<
         loadOverview,
         countReservationsNeedingRefund,
         listReservations,
+        exportReservations,
         loadReservation,
-        loadReservationBreadcrumbLabel,
+        loadReservationProduct,
         findReservationId,
         listBookings,
         loadBooking,
         loadBookingBreadcrumb,
         listCustomers,
+        exportCustomers,
         loadCustomerReservations,
         loadCustomerActivity,
+        loadCustomerActivityStrict: Effect.fn(
+          "AdministrationService.loadCustomerActivityStrict"
+        )((customerId) =>
+          loadCustomerActivity(customerId, failOnProviderFailure)
+        ),
         loadCustomerReservationActivity,
+        loadReservationActivity,
         listOrders: paymentAdministration.listOrders,
         loadOrder: paymentAdministration.loadOrder,
         listOperations: paymentAdministration.listOperations,
@@ -2930,11 +3370,113 @@ export class AdministrationService extends Context.Service<
         WorkspaceDatabase.Default,
         WorkspaceDotyposLayer,
         PaymentAdministrationService.Live,
-        PostHogReservationHistory.Live
+        PostHogReservationHistory.Live,
+        ReservationAuthorDirectory.Live
       )
     )
   );
 }
+
+type CustomerActivityReservation = Pick<
+  SafeReservationRow,
+  | "id"
+  | "reservationDetails"
+  | "fulfillmentState"
+  | "paymentState"
+  | "reservationState"
+>;
+
+type CustomerReservationActivity = {
+  readonly category: AdministrationCustomerReservationActivityCategory;
+  readonly count: number;
+};
+
+const getCustomerReservationActivityCategory = (
+  reservationDetails: SafeReservationRow["reservationDetails"]
+): AdministrationCustomerReservationActivityCategory =>
+  reservationDetails.kind === "cowork"
+    ? (`cowork-${reservationDetails.entryTier}` as const)
+    : reservationDetails.kind;
+
+/**
+ * The date and category of a confirmed booking whose Workspace reservation
+ * completed, if its date falls in the range.
+ */
+const getCompletedCustomerBooking = ({
+  linkedReservations,
+  range,
+  reservation,
+}: {
+  readonly linkedReservations: ReadonlyMap<
+    DotyposReservationId,
+    CustomerActivityReservation
+  >;
+  readonly range: AdministrationReservationDateRange;
+  readonly reservation: DotyposReservation;
+}) => {
+  if (reservation.status !== "CONFIRMED") return undefined;
+  const row = linkedReservations.get(reservation.id);
+  if (!row || getAdministrationReservationStatus(row).group !== "complete") {
+    return undefined;
+  }
+  const date = getReservationDate(reservation, row.reservationDetails);
+  return isAdministrationDateInRange(date, range)
+    ? {
+        date,
+        category: getCustomerReservationActivityCategory(
+          row.reservationDetails
+        ),
+      }
+    : undefined;
+};
+
+/** A date's activity with one more booking; the higher-priority category names it. */
+const addCustomerReservationActivity = (
+  current: CustomerReservationActivity | undefined,
+  category: AdministrationCustomerReservationActivityCategory
+): CustomerReservationActivity => ({
+  count: (current?.count ?? 0) + 1,
+  category:
+    !current ||
+    customerReservationActivityCategoryPriority[category] >
+      customerReservationActivityCategoryPriority[current.category]
+      ? category
+      : current.category,
+});
+
+/** The completed bookings per date, in date order. */
+const summarizeCustomerReservationActivity = ({
+  linkedReservations,
+  range,
+  reservations,
+}: {
+  readonly linkedReservations: ReadonlyMap<
+    DotyposReservationId,
+    CustomerActivityReservation
+  >;
+  readonly range: AdministrationReservationDateRange;
+  readonly reservations: readonly DotyposReservation[];
+}) => {
+  const activityByDate = new Map<string, CustomerReservationActivity>();
+  for (const reservation of reservations) {
+    const booking = getCompletedCustomerBooking({
+      linkedReservations,
+      range,
+      reservation,
+    });
+    if (!booking) continue;
+    activityByDate.set(
+      booking.date,
+      addCustomerReservationActivity(
+        activityByDate.get(booking.date),
+        booking.category
+      )
+    );
+  }
+  return [...activityByDate]
+    .map(([date, activity]) => ({ date, ...activity }))
+    .toSorted((left, right) => left.date.localeCompare(right.date));
+};
 
 const getCompletedReservationIds = (
   rows: readonly AdministrationOverviewRow[]
@@ -2975,6 +3517,7 @@ export function getAdministrationReservationOverview({
       linkedReservationIds: completedReservationIds,
       range,
       reservations: reservations.items,
+      earlySetupDetails: reservations.earlySetupDetails,
       status: "CONFIRMED",
     }),
     unavailable: false,
@@ -2982,6 +3525,7 @@ export function getAdministrationReservationOverview({
       linkedReservationIds,
       range,
       reservations: reservations.items,
+      earlySetupDetails: reservations.earlySetupDetails,
     }),
   });
   return {
@@ -2992,49 +3536,76 @@ export function getAdministrationReservationOverview({
   } satisfies AdministrationReservationOverview;
 }
 
-function getUniqueCustomerIds(input: {
+type CustomerBookingCandidates = {
   readonly customerIdsByReservationId: ReadonlyMap<
     DotyposReservationId,
     DotyposCustomerId
   >;
   readonly qualifyingReservationIds: ReadonlySet<DotyposReservationId>;
   readonly range: AdministrationReservationDateRange;
-  readonly reservations: readonly DotyposReservation[];
-}) {
-  const latestBookingByCustomerId = new Map<
-    DotyposCustomerId,
-    Temporal.Instant
-  >();
-  for (const reservation of input.reservations) {
-    const reservationId = Option.getOrUndefined(
-      decodeDotyposReservationId(reservation.id)
-    );
-    const fallbackCustomerId = reservationId
-      ? input.customerIdsByReservationId.get(reservationId)
-      : undefined;
-    if (
-      !reservationId ||
-      !fallbackCustomerId ||
-      reservation.status !== "CONFIRMED" ||
-      !input.qualifyingReservationIds.has(reservationId) ||
-      !isReservationInRange(reservation, input.range)
-    )
-      continue;
+  readonly earlySetupDetails: EarlySetupDetailsById;
+};
 
-    const customerId =
-      Option.getOrUndefined(decodeDotyposCustomerId(reservation._customerId)) ??
-      fallbackCustomerId;
-    const startsAt = Temporal.Instant.from(reservation.startDate);
-    const latestBooking = latestBookingByCustomerId.get(customerId);
-    if (!latestBooking || Temporal.Instant.compare(startsAt, latestBooking) > 0)
-      latestBookingByCustomerId.set(customerId, startsAt);
-  }
-  return [...latestBookingByCustomerId]
+/**
+ * The customer and booked start of a confirmed, qualifying booking in the
+ * range. A booking without a Workspace customer doesn't count; one Dotypos
+ * names no customer for keeps the Workspace customer.
+ */
+const getQualifyingCustomerBooking = (
+  reservation: DotyposReservation,
+  input: CustomerBookingCandidates
+) => {
+  const reservationId = reservation.id;
+  const fallbackCustomerId =
+    input.customerIdsByReservationId.get(reservationId);
+  if (
+    !fallbackCustomerId ||
+    reservation.status !== "CONFIRMED" ||
+    !input.qualifyingReservationIds.has(reservationId) ||
+    !isReservationInRange(reservation, input.range, input.earlySetupDetails)
+  )
+    return undefined;
+
+  return {
+    customerId: reservation._customerId ?? fallbackCustomerId,
+    startsAt: getBookedStart(
+      reservation,
+      input.earlySetupDetails.get(reservationId)
+    ),
+  };
+};
+
+/** Customer ids, latest instant first and then by id. */
+const orderCustomerIdsByLatest = (
+  entries: Iterable<readonly [DotyposCustomerId, Temporal.Instant]>
+) =>
+  [...entries]
     .toSorted(
       ([leftId, left], [rightId, right]) =>
         Temporal.Instant.compare(right, left) || leftId.localeCompare(rightId)
     )
     .map(([customerId]) => customerId);
+
+function getUniqueCustomerIds(
+  input: CustomerBookingCandidates & {
+    readonly reservations: readonly DotyposReservation[];
+  }
+) {
+  const latestBookingByCustomerId = new Map<
+    DotyposCustomerId,
+    Temporal.Instant
+  >();
+  for (const reservation of input.reservations) {
+    const booking = getQualifyingCustomerBooking(reservation, input);
+    if (!booking) continue;
+    const latestBooking = latestBookingByCustomerId.get(booking.customerId);
+    if (
+      !latestBooking ||
+      Temporal.Instant.compare(booking.startsAt, latestBooking) > 0
+    )
+      latestBookingByCustomerId.set(booking.customerId, booking.startsAt);
+  }
+  return orderCustomerIdsByLatest(latestBookingByCustomerId);
 }
 
 function getNewCustomerIds(input: {
@@ -3059,11 +3630,6 @@ function getNewCustomerIds(input: {
       newCustomers.push([customerId, createdAt]);
     }
   }
-  const ids = newCustomers
-    .toSorted(
-      ([leftId, left], [rightId, right]) =>
-        Temporal.Instant.compare(right, left) || leftId.localeCompare(rightId)
-    )
-    .map(([customerId]) => customerId);
+  const ids = orderCustomerIdsByLatest(newCustomers);
   return { ids, unavailable: false, value: ids.length } as const;
 }

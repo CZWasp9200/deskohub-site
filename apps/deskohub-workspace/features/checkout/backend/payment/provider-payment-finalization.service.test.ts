@@ -7,11 +7,11 @@ import type {
 } from "@deskohub/nexi";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Effect, Layer } from "effect";
-import {
-  type IWorkspacePaidFulfillmentService,
-  WorkspacePaidFulfillmentService,
-} from "../fulfillment/paid-fulfillment.service";
 import { PaidFulfillmentQueueError } from "../fulfillment/paid-fulfillment-queue.service";
+import {
+  type IReservationFulfillment,
+  ReservationFulfillment,
+} from "../fulfillment/reservation-fulfillment.service";
 import type { PaymentAttemptRepository as PaymentAttemptRepositoryType } from "../repositories/payment-attempt.repository";
 import {
   type IPaymentLifecycleRepository,
@@ -32,9 +32,9 @@ const paymentLifecycleLayer = (
   });
 
 const paidFulfillmentLayer = (
-  fulfillPaidOrder: IWorkspacePaidFulfillmentService["fulfillPaidOrder"] = () =>
+  fulfillPaidOrder: IReservationFulfillment["run"] = () =>
     Effect.die("not used")
-) => Layer.mock(WorkspacePaidFulfillmentService, { fulfillPaidOrder });
+) => Layer.mock(ReservationFulfillment, { run: fulfillPaidOrder });
 
 const paidNotStartedReservation = {
   id: "reservation-id",
@@ -122,8 +122,8 @@ describe("ProviderPaymentFinalizationService", () => {
       const { WorkspaceReservationRepository } = await import(
         "@/features/reservation/backend/workspace-reservation.repository"
       );
-      const { PostHogEventService } = await import(
-        "@/shared/backend/analytics/posthog-event.service"
+      const { recordCheckoutAnalytics } = await import(
+        "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
       );
       const { NexiService } = await import("@deskohub/nexi");
 
@@ -153,9 +153,7 @@ describe("ProviderPaymentFinalizationService", () => {
                   {} as PaymentAttemptRepositoryType
                 ),
                 paymentLifecycleLayer(),
-                Layer.mock(PostHogEventService, {
-                  capture: () => Effect.void,
-                }),
+                recordCheckoutAnalytics().layer,
                 Layer.mock(NexiService, {} as NexiServiceType)
               )
             )
@@ -189,8 +187,8 @@ describe("ProviderPaymentFinalizationService", () => {
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
     const { NexiService } = await import("@deskohub/nexi");
 
@@ -223,9 +221,7 @@ describe("ProviderPaymentFinalizationService", () => {
                 {} as PaymentAttemptRepositoryType
               ),
               paymentLifecycleLayer(),
-              Layer.mock(PostHogEventService, {
-                capture: () => Effect.void,
-              }),
+              recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, {} as NexiServiceType)
             )
           )
@@ -235,9 +231,7 @@ describe("ProviderPaymentFinalizationService", () => {
     );
 
     expect(result).toBe("paid");
-    expect(fulfillPaidOrder).toHaveBeenCalledWith({
-      orderId: "reservation-id",
-    });
+    expect(fulfillPaidOrder).toHaveBeenCalledWith("reservation-id");
   });
 
   test("does not retry fulfillment after a paid reservation has failed fulfillment", async () => {
@@ -253,8 +247,8 @@ describe("ProviderPaymentFinalizationService", () => {
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
     const { NexiService } = await import("@deskohub/nexi");
 
@@ -287,9 +281,7 @@ describe("ProviderPaymentFinalizationService", () => {
                 {} as PaymentAttemptRepositoryType
               ),
               paymentLifecycleLayer(),
-              Layer.mock(PostHogEventService, {
-                capture: () => Effect.void,
-              }),
+              recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, {} as NexiServiceType)
             )
           )
@@ -319,8 +311,8 @@ describe("ProviderPaymentFinalizationService", () => {
       const { WorkspaceReservationRepository } = await import(
         "@/features/reservation/backend/workspace-reservation.repository"
       );
-      const { PostHogEventService } = await import(
-        "@/shared/backend/analytics/posthog-event.service"
+      const { recordCheckoutAnalytics } = await import(
+        "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
       );
       const { NexiService } = await import("@deskohub/nexi");
 
@@ -378,9 +370,7 @@ describe("ProviderPaymentFinalizationService", () => {
                   markPaid: markPaidForReservation,
                   markTerminal: markTerminalForReservation,
                 }),
-                Layer.mock(PostHogEventService, {
-                  capture: mock(() => Effect.void),
-                }),
+                recordCheckoutAnalytics().layer,
                 Layer.mock(NexiService, nexi)
               )
             )
@@ -427,9 +417,8 @@ describe("ProviderPaymentFinalizationService", () => {
   }
 
   test("returns the empty-order abandonment state and keeps orders with activity pending", async () => {
-    const { ProviderPaymentFinalizationService } = await import(
-      "./provider-payment-finalization.service"
-    );
+    const { ProviderPaymentDeferral, ProviderPaymentFinalizationService } =
+      await import("./provider-payment-finalization.service");
     const { PaymentAttemptRepository } = await import(
       "../repositories/payment-attempt.repository"
     );
@@ -439,13 +428,21 @@ describe("ProviderPaymentFinalizationService", () => {
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
     const { NexiService } = await import("@deskohub/nexi");
 
     const providerOrderCreatedAt = pendingAttempt.providerOrderCreatedAt;
     const scenarios = [
+      {
+        name: "before cutoff",
+        checkedAt: providerOrderCreatedAt.add({ minutes: 29 }),
+        verification: emptyPendingVerification,
+        expected: new ProviderPaymentDeferral({
+          abandonmentCutoff: providerOrderCreatedAt.add({ minutes: 30 }),
+        }),
+      },
       {
         name: "at cutoff",
         checkedAt: providerOrderCreatedAt.add({ minutes: 30 }),
@@ -490,9 +487,7 @@ describe("ProviderPaymentFinalizationService", () => {
                   findById: mock(() => Effect.succeed(pendingAttempt)),
                 }),
                 paymentLifecycleLayer(),
-                Layer.mock(PostHogEventService, {
-                  capture: () => Effect.void,
-                }),
+                recordCheckoutAnalytics().layer,
                 Layer.mock(NexiService, {
                   verifyPaymentOutcome: mock(() =>
                     Effect.succeed(scenario.verification)
@@ -505,7 +500,7 @@ describe("ProviderPaymentFinalizationService", () => {
         Effect.runPromise
       );
 
-      expect(result, scenario.name).toBe(scenario.expected);
+      expect(result, scenario.name).toEqual(scenario.expected);
     }
   });
 
@@ -522,8 +517,8 @@ describe("ProviderPaymentFinalizationService", () => {
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
     const { NexiService } = await import("@deskohub/nexi");
     const persistenceFailure = new EffectDrizzleQueryError({
@@ -556,9 +551,7 @@ describe("ProviderPaymentFinalizationService", () => {
               paymentLifecycleLayer({
                 markPaid: mock(() => Effect.fail(persistenceFailure)),
               }),
-              Layer.mock(PostHogEventService, {
-                capture: () => Effect.void,
-              }),
+              recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, {
                 verifyPaymentOutcome: mock(() =>
                   Effect.succeed(buildVerification("success"))
@@ -588,8 +581,8 @@ describe("ProviderPaymentFinalizationService", () => {
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
     const { NexiService } = await import("@deskohub/nexi");
 
@@ -630,9 +623,7 @@ describe("ProviderPaymentFinalizationService", () => {
                 markPaid: markPaidForReservation,
                 markTerminal: markTerminalForReservation,
               }),
-              Layer.mock(PostHogEventService, {
-                capture: () => Effect.void,
-              }),
+              recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, {
                 verifyPaymentOutcome,
               })
@@ -688,8 +679,8 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
     );
     const { NexiService } = await import("@deskohub/nexi");
 
@@ -734,9 +725,7 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
                 findById: mock(() => Effect.succeed(unattachedAttempt)),
               }),
               paymentLifecycleLayer({ markTerminal }),
-              Layer.mock(PostHogEventService, {
-                capture: () => Effect.void,
-              }),
+              recordCheckoutAnalytics().layer,
               Layer.mock(NexiService, { getOrder, verifyPaymentOutcome })
             )
           )
@@ -761,7 +750,12 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
       abandonmentCheckedAt: attemptCreatedAt.add({ minutes: 29, seconds: 59 }),
     });
 
-    expect(result).toBe("deferred");
+    const { ProviderPaymentDeferral } = await import(
+      "./provider-payment-finalization.service"
+    );
+    expect(result).toEqual(
+      new ProviderPaymentDeferral({ abandonmentCutoff: afterCutoff })
+    );
     expect(getOrder).not.toHaveBeenCalled();
     expect(markTerminal).not.toHaveBeenCalled();
   });

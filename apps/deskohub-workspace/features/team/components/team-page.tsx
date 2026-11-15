@@ -1,8 +1,11 @@
-import { CloudinaryPublicIdSchema } from "@deskohub/cloudinary/schema";
+import Interpolate from "@doist/react-interpolate";
+import Link from "next/link";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import { Container } from "@/shared/components/container";
 import { GlassCard } from "@/shared/components/ui/glass-card";
+import { textLink } from "@/shared/components/ui/text-link";
+import { getTeamFounders } from "../team-founders";
 import { CensoredFounderName } from "./censored-founder-name";
 import { FounderProfileImage } from "./founder-profile-image";
 
@@ -11,26 +14,7 @@ type TeamPageProps = {
 };
 
 export function TeamPage({ locale }: TeamPageProps) {
-  const founders = [
-    {
-      imagePublicId: CloudinaryPublicIdSchema.make("founder-profile-danica"),
-      name: "Danica",
-      role: m.landingFounderDanicaRole({}, { locale }),
-      description: m.landingFounderDanicaDescription({}, { locale }),
-    },
-    {
-      imagePublicId: CloudinaryPublicIdSchema.make("founder-profile-filip"),
-      name: "Filip",
-      role: m.landingFounderFilipRole({}, { locale }),
-      description: m.landingFounderFilipDescription({}, { locale }),
-    },
-    {
-      imagePublicId: CloudinaryPublicIdSchema.make("founder-profile-carp"),
-      name: null,
-      role: m.landingFounderHardwareRole({}, { locale }),
-      description: m.landingFounderHardwareDescription({}, { locale }),
-    },
-  ];
+  const founders = getTeamFounders(locale);
 
   return (
     <main className="relative overflow-hidden bg-navy-blue pb-20 pt-[calc(var(--site-header-height)+4rem)] text-white sm:pb-24 sm:pt-[calc(var(--site-header-height)+5rem)]">
@@ -48,6 +32,24 @@ export function TeamPage({ locale }: TeamPageProps) {
           <h1 className="text-4xl leading-tight text-balance sm:text-5xl">
             {m.landingFoundersTitle({}, { locale })}
           </h1>
+          <p className="mt-6 text-lg leading-8 text-white/82">
+            {m.teamAboutLead({}, { locale })}
+          </p>
+          <p className="mt-4 text-lg leading-8 text-white/82">
+            <Interpolate
+              string={m.teamAboutBody({}, { locale })}
+              mapping={{
+                contact: (content) => (
+                  <Link
+                    href={`/${locale}/contact`}
+                    className={textLink({ tone: "inverse" })}
+                  >
+                    {content}
+                  </Link>
+                ),
+              }}
+            />
+          </p>
         </div>
 
         <div className="mt-10 grid max-w-4xl gap-8 xl:mt-12">
@@ -56,7 +58,20 @@ export function TeamPage({ locale }: TeamPageProps) {
               <div className="relative flex min-h-28 items-stretch sm:min-h-40">
                 <div className="relative z-10 w-28 shrink-0 self-stretch sm:w-40">
                   <div className="absolute top-1/2 h-28 w-28 -translate-y-1/2 overflow-hidden rounded-full border-4 border-white bg-navy-blue shadow-[0_16px_32px_-18px_rgba(0,2,79,0.72)] sm:h-40 sm:w-40">
-                    <FounderProfileImage publicId={founder.imagePublicId} />
+                    <FounderProfileImage
+                      alt={
+                        founder.name
+                          ? m.teamFounderPhotoAlt(
+                              { name: founder.name, role: founder.role },
+                              { locale }
+                            )
+                          : m.teamUnnamedFounderPhotoAlt(
+                              { role: founder.role },
+                              { locale }
+                            )
+                      }
+                      publicId={founder.imagePublicId}
+                    />
                   </div>
 
                   <div className="absolute left-[calc(100%+1rem)] top-5 z-10 sm:top-6">

@@ -1,4 +1,8 @@
 import {
+  getLocaleDefinition,
+  supportedLocales,
+} from "@deskohub/i18n/locale-registry";
+import {
   type AdministrationCampaignContentType,
   type AdministrationCampaignLocaleContentChangeType,
   type AdministrationCampaignLocaleType,
@@ -6,28 +10,43 @@ import {
   AudienceFilter,
   type AudienceFilterType,
 } from "@deskohub/workspace-admin-api";
-import { Effect, FileSystem, Option, Schema } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import { Flag } from "effect/unstable/cli";
 import { InvalidMutationInputError } from "../command-runtime";
+import { decodeJsonInput, readJsonInputFile } from "../json-input";
 
-/** Short locale names accepted on the command line, mapped to API locales. */
-export const campaignLocaleChoices = [
-  ["cs", "cs-CZ"],
-  ["en", "en-US"],
-  ["cs-CZ", "cs-CZ"],
-  ["en-US", "en-US"],
-] as const satisfies ReadonlyArray<
+const campaignLocaleLanguage = (locale: AdministrationCampaignLocaleType) =>
+  getLocaleDefinition(locale).language;
+
+/**
+ * Locale names accepted on the command line, mapped to API locales: each
+ * supported locale's language subtag (`cs`) and its full tag (`cs-CZ`).
+ */
+export const campaignLocaleChoices: ReadonlyArray<
   readonly [string, AdministrationCampaignLocaleType]
->;
+> = [
+  ...supportedLocales.map(
+    (locale) => [campaignLocaleLanguage(locale), locale] as const
+  ),
+  ...supportedLocales.map((locale) => [locale, locale] as const),
+];
 
 const campaignLocales = new Map<string, AdministrationCampaignLocaleType>(
   campaignLocaleChoices
 );
 
+const listAlternatives = (values: ReadonlyArray<string>) =>
+  new Intl.ListFormat("en", { type: "disjunction" }).format(values);
+
+/** The short locale names, as flag descriptions list them ("en or cs"). */
+export const campaignLocaleShortNames = listAlternatives(
+  supportedLocales.map(campaignLocaleLanguage)
+);
+
 /** File name a locale's body is exported to, such as `cs.md`. */
 export const campaignBodyFileName = (
   locale: AdministrationCampaignLocaleType
-) => `${locale.slice(0, 2)}.md`;
+) => `${campaignLocaleLanguage(locale)}.md`;
 
 export const campaignLocaleFlag = (name: string) =>
   Flag.choiceWithValue(name, campaignLocaleChoices);
@@ -37,7 +56,7 @@ export const localizedFlag = (name: string, description: string, min = 0) =>
   Flag.string(name).pipe(
     Flag.atLeast(min),
     Flag.withDescription(
-      `${description}, as <locale>=<value> where the locale is cs or en; repeat per locale`
+      `${description}, as <locale>=<value> where the locale is ${campaignLocaleShortNames}; repeat per locale`
     )
   );
 
@@ -79,7 +98,7 @@ const parseCampaignLocale = (flag: string, value: string) =>
     onNone: () =>
       Effect.fail(
         new InvalidMutationInputError({
-          message: `--${flag} has an unknown locale "${value}". Use cs, en, cs-CZ, or en-US.`,
+          message: `--${flag} has an unknown locale "${value}". Use ${listAlternatives(campaignLocaleChoices.map(([name]) => name))}.`,
         })
       ),
     onSome: Effect.succeed,
@@ -221,6 +240,69 @@ type ContentPatch = NonNullable<
   AdministrationCampaignUpdateInputType["content"]
 >;
 
+/** Fails when a locale both sets and clears its operational reason. */
+const requireSetOrCleared = (
+  cleared: ReadonlySet<AdministrationCampaignLocaleType>,
+  operationalReasons: LocalizedValues
+) =>
+  Effect.gen(function* () {
+    for (const locale of cleared) {
+      if (operationalReasons.has(locale)) {
+        return yield* new InvalidMutationInputError({
+          message: `${locale} can't both set and clear its operational reason.`,
+        });
+      }
+    }
+  });
+
+/** Fails when a removed locale also has content changes. */
+const requireRemovedUnchanged = (
+  removed: ReadonlySet<AdministrationCampaignLocaleType>,
+  changed: ReadonlySet<AdministrationCampaignLocaleType>
+) =>
+  Effect.gen(function* () {
+    for (const locale of removed) {
+      if (changed.has(locale)) {
+        return yield* new InvalidMutationInputError({
+          message: `${locale} can't be removed and changed in the same update.`,
+        });
+      }
+    }
+  });
+
+/**
+ * One changed locale's patch: only the given fields, with a cleared
+ * operational reason as null.
+ */
+const localeContentChange = ({
+  bodies,
+  cleared,
+  locale,
+  operationalReasons,
+  preheaders,
+  subjects,
+}: {
+  readonly bodies: LocalizedValues;
+  readonly cleared: ReadonlySet<AdministrationCampaignLocaleType>;
+  readonly locale: AdministrationCampaignLocaleType;
+  readonly operationalReasons: LocalizedValues;
+  readonly preheaders: LocalizedValues;
+  readonly subjects: LocalizedValues;
+}): AdministrationCampaignLocaleContentChangeType => {
+  const subject = subjects.get(locale);
+  const preheader = preheaders.get(locale);
+  const bodyMarkdown = bodies.get(locale);
+  const operationalReason = cleared.has(locale)
+    ? null
+    : operationalReasons.get(locale);
+  return {
+    ...(subject !== undefined && { subject }),
+    ...(preheader !== undefined && { preheader }),
+    ...(bodyMarkdown !== undefined && { bodyMarkdown }),
+    ...(operationalReason !== undefined && { operationalReason }),
+  };
+};
+
 /**
  * Builds the `content` patch of a campaign update. Locales without flags stay
  * unchanged, a removed locale maps to null, and a cleared operational reason
@@ -238,13 +320,7 @@ export const makeCampaignContentPatch = (flags: ContentChangeFlags) =>
       "remove-locale",
       flags.removeLocale
     );
-    for (const locale of cleared) {
-      if (operationalReasons.has(locale)) {
-        return yield* new InvalidMutationInputError({
-          message: `${locale} can't both set and clear its operational reason.`,
-        });
-      }
-    }
+    yield* requireSetOrCleared(cleared, operationalReasons);
     const changed = localesOf(
       subjects,
       preheaders,
@@ -252,13 +328,7 @@ export const makeCampaignContentPatch = (flags: ContentChangeFlags) =>
       operationalReasons
     );
     for (const locale of cleared) changed.add(locale);
-    for (const locale of removed) {
-      if (changed.has(locale)) {
-        return yield* new InvalidMutationInputError({
-          message: `${locale} can't be removed and changed in the same update.`,
-        });
-      }
-    }
+    yield* requireRemovedUnchanged(removed, changed);
     if (changed.size === 0 && removed.size === 0) {
       return Option.none<ContentPatch>();
     }
@@ -267,18 +337,14 @@ export const makeCampaignContentPatch = (flags: ContentChangeFlags) =>
       -readonly [Locale in keyof ContentPatch]: ContentPatch[Locale];
     } = {};
     for (const locale of changed) {
-      const subject = subjects.get(locale);
-      const preheader = preheaders.get(locale);
-      const bodyMarkdown = bodies.get(locale);
-      const operationalReason = cleared.has(locale)
-        ? null
-        : operationalReasons.get(locale);
-      patch[locale] = {
-        ...(subject !== undefined && { subject }),
-        ...(preheader !== undefined && { preheader }),
-        ...(bodyMarkdown !== undefined && { bodyMarkdown }),
-        ...(operationalReason !== undefined && { operationalReason }),
-      } satisfies AdministrationCampaignLocaleContentChangeType;
+      patch[locale] = localeContentChange({
+        bodies,
+        cleared,
+        locale,
+        operationalReasons,
+        preheaders,
+        subjects,
+      });
     }
     for (const locale of removed) patch[locale] = null;
     return Option.some<ContentPatch>(patch);
@@ -302,42 +368,18 @@ export const readAudienceFilter = ({
       });
     }
     if (Option.isSome(filterFile)) {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const contents = yield* fileSystem.readFileString(filterFile.value).pipe(
-        Effect.mapError(
-          () =>
-            new InvalidMutationInputError({
-              message: `The audience filter file ${filterFile.value} could not be read.`,
-            })
+      return Option.some(
+        yield* readJsonInputFile(
+          AudienceFilter,
+          "audience filter",
+          filterFile.value
         )
       );
-      return Option.some(yield* decodeAudienceFilter(contents));
     }
     if (Option.isSome(filter)) {
-      return Option.some(yield* decodeAudienceFilter(filter.value));
+      return Option.some(
+        yield* decodeJsonInput(AudienceFilter, "audience filter", filter.value)
+      );
     }
     return Option.none<AudienceFilterType>();
   });
-
-const decodeAudienceFilter = (contents: string) =>
-  Effect.try({
-    try: () => JSON.parse(contents) as unknown,
-    catch: () =>
-      new InvalidMutationInputError({
-        message: "The audience filter is not valid JSON.",
-      }),
-  }).pipe(
-    Effect.flatMap(
-      Schema.decodeUnknownEffect(AudienceFilter, {
-        errors: "all",
-        onExcessProperty: "error",
-      })
-    ),
-    Effect.mapError((error) =>
-      error instanceof InvalidMutationInputError
-        ? error
-        : new InvalidMutationInputError({
-            message: `The audience filter is invalid:\n${error.message}`,
-          })
-    )
-  );

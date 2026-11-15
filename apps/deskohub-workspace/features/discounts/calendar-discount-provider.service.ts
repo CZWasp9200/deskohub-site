@@ -8,6 +8,7 @@ import {
 import { workspaceProductTargetMatches } from "@/features/discounts/product-target";
 import { CalendarResourceConfig } from "@/shared/backend/config/calendar-resource.config";
 import { WorkspaceGoogleCalendarLayer } from "@/shared/backend/config/google-calendar.config";
+import { staffLocale } from "@/shared/backend/staff-locale";
 import { currentInstant } from "@/shared/utils";
 import {
   type CalendarSalesSourceInput,
@@ -27,6 +28,7 @@ import type {
   DiscountQuoteInput,
 } from "./contracts";
 import { DiscountDefinitionRepository } from "./discount-definition.repository";
+import { discountLabelFor } from "./discount-label";
 import { DiscountProviderError } from "./errors";
 import { deriveOpaqueDiscountId } from "./opaque-discount-id";
 import type {
@@ -52,7 +54,7 @@ export interface ICalendarDiscountProvider {
   ) => Effect.Effect<ActiveSaleDiscoveryResult, DiscountProviderError>;
   readonly discover: (
     input: CalendarDiscountProviderInput
-  ) => Effect.Effect<readonly DiscountCandidate[], DiscountProviderError>;
+  ) => Effect.Effect<DiscountCandidateResolution, DiscountProviderError>;
   readonly revalidate: (
     input: CalendarDiscountProviderInput
   ) => Effect.Effect<DiscountCandidateResolution, DiscountProviderError>;
@@ -141,7 +143,13 @@ function makeCalendarDiscountProviderLayer(useRemoteDiscovery: boolean) {
             ),
             Effect.let("sales", ({ resolvedSales }) => resolvedSales.sales),
             Effect.let("candidates", toEligibleCalendarCandidates),
-            Effect.map(({ candidates }) => candidates)
+            Effect.map(
+              ({ candidates, resolvedSales }) =>
+                ({
+                  candidates,
+                  complete: resolvedSales.complete,
+                }) satisfies DiscountCandidateResolution
+            )
           ),
         withProviderAnnotations("discover")
       );
@@ -272,7 +280,11 @@ const toCalendarDiscountCandidate = (input: {
       providerNamespace,
       providerReference: input.resolvedSale.sale.occurrenceReference,
     }),
-    label: input.resolvedSale.definition.labels[input.locale],
+    label: discountLabelFor(input.resolvedSale.definition.labels, input.locale),
+    staffLabel: discountLabelFor(
+      input.resolvedSale.definition.labels,
+      staffLocale
+    ),
     adjustment: input.resolvedSale.definition.adjustment,
     expiresAt: input.resolvedSale.sale.expiresAt,
     countdownStartsAt: input.resolvedSale.sale.countdownStartsAt,

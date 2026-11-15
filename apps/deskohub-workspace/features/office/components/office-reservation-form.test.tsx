@@ -9,22 +9,18 @@ import {
   test,
 } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  waitFor,
-} from "@testing-library/react";
 import { Effect, Schema } from "effect";
 import type { ComponentProps } from "react";
 import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
 import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
-import { workspaceMoneyWithValue } from "@/features/checkout/workspace-money";
 import { discountIdSchema } from "@/features/discounts";
+import { m } from "@/features/i18n";
+import { mockReservationCheckoutStep } from "@/features/reservation/components/reservation-checkout-step.test-utils";
+import { mockCheckoutEmailVerification } from "@/features/reservation/components/use-checkout-email-verification.test-utils";
 import { getOfficeAdvertisedPriceRequest } from "@/features/reservation/office-advertised-price";
 import { officeReservationDefaultValues } from "@/features/reservation/office-reservation";
 import { getOfficeAvailabilityQuery } from "@/features/reservation/workspace-availability";
+import { moneyWithValue } from "@/shared/money/money";
 import {
   workspaceUseAction,
   workspaceUseSearchParams,
@@ -35,17 +31,29 @@ import {
 } from "@/shared/testing/workspace-component-test-env";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 
-const execute = mock(() => undefined);
+// React DOM detects input events when it loads, so the DOM must exist before
+// it is imported for typed text to reach the form.
+registerWorkspaceComponentTestEnv();
+
+const { act, cleanup, fireEvent, render, waitFor } = await import(
+  "@testing-library/react"
+);
+
+const executeAsync = mock(() => Promise.resolve({}));
 const decodePlainDate = Schema.decodeUnknownSync(plainDateStringSchema);
 const originalFetch = globalThis.fetch;
 
 mock.module("@/features/cookie-consent", () => ({
-  useCookieConsent: () => ({ isAccepted: () => false }),
+  useVisitorConsent: () => false,
+  visitorConsent: { accepts: () => false },
 }));
 
 mock.module("@/features/reservation/actions/get-advertised-price", () => ({
   getAdvertisedPrices: () => Promise.resolve({ data: [] }),
 }));
+
+mockCheckoutEmailVerification();
+mockReservationCheckoutStep();
 
 const {
   OfficeReservationForm,
@@ -56,15 +64,17 @@ const {
 const officeAvailabilityResponse = ({
   from,
   to,
+  unavailableDates = [],
 }: {
   readonly from: string;
   readonly to: string;
+  readonly unavailableDates?: readonly string[];
 }) =>
   new Response(
     JSON.stringify({
       from,
       to,
-      unavailableDates: [],
+      unavailableDates,
       reservedDeskWorkstationRequiredDates: [],
       unavailableCoworkTiers: [],
       meetingRoomUnavailable: false,
@@ -85,6 +95,7 @@ const renderOfficeForm = (
   render(
     <QueryClientProvider client={queryClient}>
       <OfficeReservationForm
+        checkoutCustomer={{ status: "signed-out" }}
         seatCapacity={3}
         initialValues={officeReservationDefaultValues}
         locale="en-US"
@@ -101,7 +112,7 @@ describe("OfficeReservationForm", () => {
   beforeEach(() => {
     workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
     workspaceUseAction.mockReturnValue({
-      execute,
+      executeAsync,
       isExecuting: false,
       result: {},
     });
@@ -110,7 +121,7 @@ describe("OfficeReservationForm", () => {
   afterEach(async () => {
     cleanup();
     await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
-    execute.mockClear();
+    executeAsync.mockClear();
     globalThis.fetch = originalFetch;
   });
 
@@ -148,6 +159,7 @@ describe("OfficeReservationForm", () => {
     const view = render(
       <QueryClientProvider client={queryClient}>
         <OfficeReservationForm
+          checkoutCustomer={{ status: "signed-out" }}
           seatCapacity={3}
           initialValues={{
             ...officeReservationDefaultValues,
@@ -249,6 +261,7 @@ describe("OfficeReservationForm", () => {
     const view = render(
       <QueryClientProvider client={queryClient}>
         <OfficeReservationForm
+          checkoutCustomer={{ status: "signed-out" }}
           seatCapacity={3}
           initialAdvertisedPrices={initialAdvertisedPrices}
           initialValues={{
@@ -288,6 +301,7 @@ describe("OfficeReservationForm", () => {
     const view = render(
       <QueryClientProvider client={queryClient}>
         <OfficeReservationForm
+          checkoutCustomer={{ status: "signed-out" }}
           seatCapacity={3}
           initialValues={{
             ...officeReservationDefaultValues,
@@ -310,6 +324,7 @@ describe("OfficeReservationForm", () => {
     const view = render(
       <QueryClientProvider client={queryClient}>
         <OfficeReservationForm
+          checkoutCustomer={{ status: "signed-out" }}
           seatCapacity={3}
           initialValues={officeReservationDefaultValues}
           locale="en-US"
@@ -345,6 +360,7 @@ describe("OfficeReservationForm", () => {
     const form = render(
       <QueryClientProvider client={queryClient}>
         <OfficeReservationForm
+          checkoutCustomer={{ status: "signed-out" }}
           seatCapacity={officeSeatOptionsFallbackCount}
           initialValues={officeReservationDefaultValues}
           locale="en-US"
@@ -400,6 +416,7 @@ describe("OfficeReservationForm", () => {
     const view = render(
       <QueryClientProvider client={queryClient}>
         <OfficeReservationForm
+          checkoutCustomer={{ status: "signed-out" }}
           seatCapacity={3}
           initialAdvertisedPrices={initialAdvertisedPrices}
           initialValues={{
@@ -436,10 +453,7 @@ describe("OfficeReservationForm", () => {
         buildOfficeReservationQuote(request.reservation.details)
       );
       const amount = undiscountedQuote.payment.expectedPrice;
-      const discountedAmount = workspaceMoneyWithValue(
-        amount.value / 2,
-        amount
-      );
+      const discountedAmount = moneyWithValue(amount.value / 2, amount);
       const quote = Effect.runSync(
         buildOfficeReservationQuote(request.reservation.details, {
           discountQuote: {
@@ -477,6 +491,7 @@ describe("OfficeReservationForm", () => {
     const view = render(
       <QueryClientProvider client={queryClient}>
         <OfficeReservationForm
+          checkoutCustomer={{ status: "signed-out" }}
           seatCapacity={3}
           initialAdvertisedPrices={initialAdvertisedPrices}
           initialValues={{
@@ -579,16 +594,77 @@ describe("OfficeReservationForm", () => {
       initialValues: officeReservationDefaultValues,
       today,
     });
-    const startDate = view.getByRole("button", {
+    const startDate = view.getByRole("combobox", {
+      name: /^Office reservation start date/,
+    });
+    const calendarButton = view.getByRole("button", {
       name: /^Office reservation start date/,
     });
     expect(startDate.getAttribute("aria-invalid")).toBe("false");
 
-    await act(async () => fireEvent.click(startDate));
-    await act(async () => fireEvent.click(startDate));
+    await act(async () => fireEvent.click(calendarButton));
+    await act(async () => fireEvent.click(calendarButton));
     await act(async () => {});
 
     expect(startDate.getAttribute("aria-invalid")).toBe("true");
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeAsync).not.toHaveBeenCalled();
+  });
+
+  test("keeps a typed unavailable start date out of the form", async () => {
+    const today = decodePlainDate("2026-08-10");
+    globalThis.fetch = mock(() =>
+      Promise.resolve(
+        officeAvailabilityResponse({
+          from: "2026-08-10",
+          to: "2026-09-10",
+          unavailableDates: ["2026-08-12"],
+        })
+      )
+    );
+
+    const view = renderOfficeForm({
+      initialValues: { ...officeReservationDefaultValues, startsOn: today },
+      today,
+    });
+    const startDate = view.getByRole<HTMLInputElement>("combobox", {
+      name: /^Office reservation start date/,
+    });
+    const startsOn = () =>
+      view.container.querySelector<HTMLInputElement>('input[name="startsOn"]')
+        ?.value;
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    await act(async () => {});
+    expect(startDate.value).toBe("8/10/2026");
+
+    await act(async () => {
+      fireEvent.change(startDate, { target: { value: "8/12/2026" } });
+      fireEvent.focusOut(startDate);
+    });
+
+    expect(startsOn()).toBe("");
+    expect(startDate.value).toBe("8/12/2026");
+    expect(startDate.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      (startDate.getAttribute("aria-describedby") ?? "")
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent)
+    ).toContain(
+      m.dateInputUnavailable({ date: "August 12, 2026" }, { locale: "en-US" })
+    );
+
+    const form = startDate.closest("form");
+    if (!form) throw new Error("the start date is outside the form");
+    await act(async () => fireEvent.submit(form));
+    await act(async () => {});
+
+    expect(executeAsync).not.toHaveBeenCalled();
+    expect(startsOn()).toBe("");
+
+    await act(async () => {
+      fireEvent.change(startDate, { target: { value: "2026-08-11" } });
+      fireEvent.focusOut(startDate);
+    });
+    expect(startsOn()).toBe("2026-08-11");
+    expect(startDate.value).toBe("8/11/2026");
   });
 });

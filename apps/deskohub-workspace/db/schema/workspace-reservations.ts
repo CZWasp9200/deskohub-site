@@ -13,12 +13,19 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { CustomerAccountId } from "@/features/account/customer-account";
 import type {
   CheckoutAttemptKey,
   CheckoutSessionKey,
   PaymentAttemptId,
 } from "@/features/checkout/checkout-identifiers";
+import {
+  type PaymentReturnTarget,
+  paymentReturnTargets,
+} from "@/features/checkout/payment-return-target";
 import type { Locale } from "@/features/i18n";
+import { orderFulfillmentStates, orderPaymentStates } from "@/features/order";
+import type { AgentSelectionKey } from "@/features/reservation/backend/booking-agent";
 import type {
   StoredWorkspaceReservationDetails,
   WorkspaceReservationId,
@@ -26,12 +33,13 @@ import type {
 import {
   type ReservationPurpose,
   reservationPurposeSchema,
-} from "@/features/reservation/reservation-billing";
+} from "@/features/reservation/reservation-purpose";
 import inlangSettings from "../../project.inlang/settings.json" with {
   type: "json",
 };
 import { instant } from "../instant";
 import { postgresUuidV7 } from "../uuid-v7";
+import { customerAccounts } from "./customer-accounts";
 import { quotedSqlList } from "./sql-list";
 
 export const reservationStates = [
@@ -46,22 +54,9 @@ export const reservationStates = [
   "cancellation_failed",
 ] as const;
 
-export const paymentStates = [
-  "not_started",
-  "pending",
-  "paid",
-  "failed",
-  "cancelled",
-  "expired",
-] as const;
+export const paymentStates = orderPaymentStates;
 
-export const fulfillmentStates = [
-  "not_started",
-  "processing",
-  "awaiting_delivery",
-  "fulfilled",
-  "failed",
-] as const;
+export const fulfillmentStates = orderFulfillmentStates;
 
 export type ReservationState = (typeof reservationStates)[number];
 export type PaymentState = (typeof paymentStates)[number];
@@ -98,6 +93,27 @@ export const workspaceReservations = pgTable(
     dotyposCustomerId: text("dotypos_customer_id")
       .notNull()
       .$type<DotyposCustomerId>(),
+    /**
+     * The customer account that made the reservation. Its tombstone keeps
+     * naming it after the account is deleted.
+     */
+    authorAccountId: text("author_account_id")
+      .notNull()
+      .references(() => customerAccounts.id, { onDelete: "restrict" })
+      .$type<CustomerAccountId>(),
+    /**
+     * The OAuth client ID of the customer's AI agent that started this
+     * reservation through the customer MCP server; null for reservations made
+     * on the site.
+     */
+    agentClientId: text("agent_client_id"),
+    /**
+     * The agent booking request this reservation answers: a digest of the
+     * account, the agent client, and the complete selection. An identical
+     * repeated request finds its reservation by it. Null for reservations made
+     * on the site and for agent reservations made before the column.
+     */
+    agentSelectionKey: text("agent_selection_key").$type<AgentSelectionKey>(),
     reservationPurpose: text("reservation_purpose").$type<ReservationPurpose>(),
     dotyposReservationId: text(
       "dotypos_reservation_id"
@@ -122,6 +138,13 @@ export const workspaceReservations = pgTable(
       .$type<StoredWorkspaceReservationDetails>()
       .notNull(),
     locale: text("locale").notNull(),
+    /**
+     * The app the last submission that returned a payment page asked the
+     * hosted payment to return to; null returns to the site's status page.
+     */
+    paymentReturnTarget: text(
+      "payment_return_target"
+    ).$type<PaymentReturnTarget>(),
     reservationHoldExpiresAt: instant("reservation_hold_expires_at"),
     reservationHoldExpiredAt: instant("reservation_hold_expired_at"),
     reservationCreatedAt: instant("reservation_created_at"),
@@ -157,12 +180,20 @@ export const workspaceReservations = pgTable(
       sql`${t.reservationPurpose} is null or ${t.reservationPurpose} in (${quotedSqlList(reservationPurposeSchema.literals)})`
     ),
     check(
+      "workspace_reservations_payment_return_target_check",
+      sql`${t.paymentReturnTarget} is null or ${t.paymentReturnTarget} in (${quotedSqlList(paymentReturnTargets)})`
+    ),
+    check(
       "workspace_reservations_hold_id_check",
       sql`${t.reservationState} not in (${quotedSqlList(reservationStatesRequiringDotyposReservationId)}) or ${t.dotyposReservationId} is not null`
     ),
     check(
       "workspace_reservations_paid_at_check",
       sql`${t.paymentState} <> 'paid' or ${t.paidAt} is not null`
+    ),
+    check(
+      "workspace_reservations_agent_selection_check",
+      sql`${t.agentSelectionKey} is null or ${t.agentClientId} is not null`
     ),
     check(
       "workspace_reservations_fulfilled_check",
@@ -193,6 +224,10 @@ export const workspaceReservations = pgTable(
     uniqueIndex("workspace_reservations_active_session_unique_idx")
       .on(t.checkoutSessionKey)
       .where(sql`${t.reservationState} <> 'cancelled'`),
+    index("workspace_reservations_author_account_idx").on(t.authorAccountId),
+    index("workspace_reservations_agent_selection_idx")
+      .on(t.agentSelectionKey, t.createdAt)
+      .where(sql`${t.agentSelectionKey} is not null`),
     index("workspace_reservations_checkout_session_idx").on(
       t.checkoutSessionKey,
       t.createdAt
@@ -217,4 +252,4 @@ export const workspaceReservations = pgTable(
   ]
 );
 
-export type WorkspaceReservation = typeof workspaceReservations.$inferSelect;
+export type WorkspaceReservationRow = typeof workspaceReservations.$inferSelect;

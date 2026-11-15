@@ -1,227 +1,344 @@
 "use client";
 
-import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
+import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import type { FormEvent } from "react";
-import { useForm } from "react-hook-form";
-import { m } from "@/features/i18n";
+import { Controller, useForm } from "react-hook-form";
+import {
+  getWorkspaceMeetingRoomProductTitle,
+  getWorkspaceOfficeProductTitle,
+} from "@/features/checkout/product-catalog.i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import { Button } from "@/shared/components/ui/button";
 import { AdministrationLink as Link } from "./admin-link";
-import type { AdministrationReservationStatusFilter } from "./administration.service";
 import {
+  type AdministrationHref,
+  administrationHref,
+} from "./administration-href";
+import { type BookingListQuery, bookingListQuery } from "./booking-list-query";
+import {
+  type CustomerListQuery,
+  customerListQuery,
+} from "./customer-list-query";
+import { getAdministrationCustomerMarketingConsentLabel } from "./customer-presentation";
+import {
+  AdministrationFilterDateField,
   AdministrationFilterField,
   AdministrationFilterForm,
-  AdministrationFilterInput,
   AdministrationFilterSelect,
 } from "./filter-controls";
+import { m } from "./i18n";
 import {
-  type BookingFilterValues,
-  bookingFilterSchema,
-  type OperationFilterValues,
-  type OrderFilterValues,
-  operationFilterSchema,
-  orderFilterSchema,
-  type ReservationFilterValues,
-  reservationFilterSchema,
-} from "./filter-schemas";
+  type OperationListQuery,
+  operationListQuery,
+} from "./operation-list-query";
+import { type OrderListQuery, orderListQuery } from "./order-list-query";
 import {
   nexiOperationChannels,
   nexiOperationTypes,
 } from "./payment-administration-filters";
+import { getProviderValueLabel } from "./payment-presentation";
 import type {
   AdministrationReservationClosedDateRange,
   AdministrationReservationDateRange,
 } from "./reservation-date-range";
+import {
+  type ReservationListQuery,
+  reservationListQuery,
+} from "./reservation-list-query";
 
-type DateRangeDefaults = {
-  readonly from: string;
-  readonly to: string;
+type ReservationDateShortcuts = {
+  readonly today: AdministrationReservationClosedDateRange;
+  readonly upcoming: AdministrationReservationDateRange;
+  readonly past: AdministrationReservationDateRange;
 };
 
-export function OrdersAdministrationFilterForm({
-  range,
+/** Links that apply a common reservation start-date range to a list. */
+function ReservationDateShortcutLinks({
+  getHref,
+  shortcuts,
 }: {
-  readonly range: DateRangeDefaults;
+  readonly getHref: (
+    range: AdministrationReservationDateRange
+  ) => AdministrationHref;
+  readonly shortcuts: ReservationDateShortcuts;
 }) {
-  const values: OrderFilterValues = { from: range.from, to: range.to };
-  const form = useForm<OrderFilterValues>({
+  const locale = useRouteLocale();
+  return (
+    <nav
+      aria-label={m.administrationFilterReservationShortcuts({}, { locale })}
+      className="flex flex-wrap items-center gap-2"
+    >
+      {(
+        [
+          [
+            "today",
+            m.administrationFilterReservationToday({}, { locale }),
+            shortcuts.today,
+          ],
+          [
+            "upcoming",
+            m.administrationFilterReservationUpcoming({}, { locale }),
+            shortcuts.upcoming,
+          ],
+          [
+            "past",
+            m.administrationFilterReservationPast({}, { locale }),
+            shortcuts.past,
+          ],
+        ] as const
+      ).map(([id, label, range]) => (
+        <Button asChild key={id} size="sm" variant="secondary">
+          <Link href={getHref(range)}>{label}</Link>
+        </Button>
+      ))}
+    </nav>
+  );
+}
+
+/** Standalone filter forms wrap their fields, so a date field gets a width. */
+const standaloneDateFieldClassName = "w-full sm:w-52";
+
+/** A list's apply button, beside a link clearing every filter once any is set. */
+function AdministrationFilterActions({
+  clearHref,
+  filtered,
+}: {
+  readonly clearHref: AdministrationHref;
+  readonly filtered: boolean;
+}) {
+  const locale = useRouteLocale();
+  return (
+    <fieldset
+      aria-label={m.administrationFilterActions({}, { locale })}
+      className="flex min-w-0 items-center justify-end gap-2 border-0 p-0"
+    >
+      {filtered && (
+        <Button asChild size="md" variant="ghost">
+          <Link href={clearHref}>
+            {m.administrationFilterClear({}, { locale })}
+          </Link>
+        </Button>
+      )}
+      <Button size="md" type="submit">
+        {m.administrationFilterApply({}, { locale })}
+      </Button>
+    </fieldset>
+  );
+}
+
+/** Whether the reservation list narrows anything beyond its default start date. */
+const isReservationListFiltered = (
+  query: ReservationListQuery,
+  defaultFrom: string
+) =>
+  Boolean(
+    query.customerId ||
+      query.from !== defaultFrom ||
+      query.status ||
+      query.to ||
+      query.type
+  );
+
+export function OrdersAdministrationFilterForm({
+  query,
+}: {
+  readonly query: OrderListQuery;
+}) {
+  const locale = useRouteLocale();
+  const values = orderListQuery.formValues(query);
+  const form = useForm({
     defaultValues: values,
     mode: "onSubmit",
     reValidateMode: "onChange",
-    resolver: effectSchemaResolver(orderFilterSchema),
+    resolver: standardSchemaResolver(orderListQuery.formSchema),
     values,
   });
 
   return (
     <AdministrationFilterForm
-      action="/admin/orders"
+      action={administrationHref("/[locale]/admin/orders")}
       onSubmit={(event: FormEvent<HTMLFormElement>) => {
         const nativeForm = event.currentTarget;
         void form.handleSubmit(() => nativeForm.submit())(event);
       }}
       variant="standalone"
     >
-      <AdministrationFilterField htmlFor="order-from" label="From">
-        <AdministrationFilterInput
-          {...form.register("from")}
-          aria-invalid={form.formState.errors.from ? true : undefined}
-          defaultValue={range.from}
-          id="order-from"
-          type="date"
-        />
-      </AdministrationFilterField>
-      <AdministrationFilterField htmlFor="order-to" label="To">
-        <AdministrationFilterInput
-          {...form.register("to")}
-          aria-invalid={form.formState.errors.to ? true : undefined}
-          defaultValue={range.to}
-          id="order-to"
-          type="date"
-        />
-      </AdministrationFilterField>
+      <Controller
+        control={form.control}
+        name="from"
+        render={({ field, fieldState }) => (
+          <AdministrationFilterDateField
+            {...field}
+            aria-invalid={fieldState.invalid || undefined}
+            className={standaloneDateFieldClassName}
+            id="order-from"
+            label={m.administrationFilterFrom({}, { locale })}
+          />
+        )}
+      />
+      <Controller
+        control={form.control}
+        name="to"
+        render={({ field, fieldState }) => (
+          <AdministrationFilterDateField
+            {...field}
+            aria-invalid={fieldState.invalid || undefined}
+            className={standaloneDateFieldClassName}
+            id="order-to"
+            label={m.administrationFilterTo({}, { locale })}
+          />
+        )}
+      />
       <Button size="md" type="submit">
-        Show orders
+        {m.administrationFilterShowOrders({}, { locale })}
       </Button>
     </AdministrationFilterForm>
   );
 }
 
 export function BookingsAdministrationFilterForm({
-  input,
+  query,
 }: {
-  readonly input: {
-    readonly date: string;
-    readonly direction: "asc" | "desc";
-    readonly sort: "booking" | "status";
-  };
+  readonly query: BookingListQuery;
 }) {
-  const values: BookingFilterValues = {
-    date: input.date,
-    direction: input.direction,
-    sort: input.sort,
-  };
-  const form = useForm<BookingFilterValues>({
+  const locale = useRouteLocale();
+  const values = bookingListQuery.formValues(query);
+  const form = useForm({
     defaultValues: values,
     mode: "onSubmit",
     reValidateMode: "onChange",
-    resolver: effectSchemaResolver(bookingFilterSchema),
+    resolver: standardSchemaResolver(bookingListQuery.formSchema),
     values,
   });
 
   return (
     <AdministrationFilterForm
-      action="/admin/bookings"
+      action={administrationHref("/[locale]/admin/bookings")}
       onSubmit={(event: FormEvent<HTMLFormElement>) => {
         const nativeForm = event.currentTarget;
         void form.handleSubmit(() => nativeForm.submit())(event);
       }}
       variant="standalone"
     >
-      <AdministrationFilterField htmlFor="booking-date" label="Booking date">
-        <AdministrationFilterInput
-          {...form.register("date")}
-          aria-invalid={form.formState.errors.date ? true : undefined}
-          defaultValue={input.date}
-          id="booking-date"
-          required
-          type="date"
-        />
-      </AdministrationFilterField>
-      <input {...form.register("sort")} type="hidden" value={input.sort} />
+      <Controller
+        control={form.control}
+        name="date"
+        render={({ field, fieldState }) => (
+          <AdministrationFilterDateField
+            {...field}
+            aria-invalid={fieldState.invalid || undefined}
+            className={standaloneDateFieldClassName}
+            id="booking-date"
+            label={m.administrationFilterBookingDate({}, { locale })}
+            required
+          />
+        )}
+      />
+      <input {...form.register("sort")} type="hidden" value={values.sort} />
       <input
         {...form.register("direction")}
         type="hidden"
-        value={input.direction}
+        value={values.direction}
       />
       <Button size="md" type="submit">
-        Show bookings
+        {m.administrationFilterShowBookings({}, { locale })}
       </Button>
     </AdministrationFilterForm>
   );
 }
 
 export function OperationsAdministrationFilterForm({
-  input,
-  range,
+  query,
 }: {
-  readonly input: {
-    readonly channel?: (typeof nexiOperationChannels)[number];
-    readonly operationType?: (typeof nexiOperationTypes)[number];
-  };
-  readonly range: DateRangeDefaults;
+  readonly query: OperationListQuery;
 }) {
-  const values: OperationFilterValues = {
-    from: range.from,
-    to: range.to,
-    channel: input.channel ?? "",
-    operationType: input.operationType ?? "",
-  };
-  const form = useForm<OperationFilterValues>({
+  const locale = useRouteLocale();
+  const values = operationListQuery.formValues(query);
+  const form = useForm({
     defaultValues: values,
     mode: "onSubmit",
     reValidateMode: "onChange",
-    resolver: effectSchemaResolver(operationFilterSchema),
+    resolver: standardSchemaResolver(operationListQuery.formSchema),
     values,
   });
 
   return (
     <AdministrationFilterForm
-      action="/admin/operations"
+      action={administrationHref("/[locale]/admin/operations")}
       onSubmit={(event: FormEvent<HTMLFormElement>) => {
         const nativeForm = event.currentTarget;
         void form.handleSubmit(() => nativeForm.submit())(event);
       }}
       variant="standalone"
     >
-      <AdministrationFilterField htmlFor="operation-from" label="From">
-        <AdministrationFilterInput
-          {...form.register("from")}
-          aria-invalid={form.formState.errors.from ? true : undefined}
-          defaultValue={range.from}
-          id="operation-from"
-          type="date"
-        />
-      </AdministrationFilterField>
-      <AdministrationFilterField htmlFor="operation-to" label="To">
-        <AdministrationFilterInput
-          {...form.register("to")}
-          aria-invalid={form.formState.errors.to ? true : undefined}
-          defaultValue={range.to}
-          id="operation-to"
-          type="date"
-        />
-      </AdministrationFilterField>
-      <AdministrationFilterField htmlFor="operation-channel" label="Origin">
+      <Controller
+        control={form.control}
+        name="from"
+        render={({ field, fieldState }) => (
+          <AdministrationFilterDateField
+            {...field}
+            aria-invalid={fieldState.invalid || undefined}
+            className={standaloneDateFieldClassName}
+            id="operation-from"
+            label={m.administrationFilterFrom({}, { locale })}
+          />
+        )}
+      />
+      <Controller
+        control={form.control}
+        name="to"
+        render={({ field, fieldState }) => (
+          <AdministrationFilterDateField
+            {...field}
+            aria-invalid={fieldState.invalid || undefined}
+            className={standaloneDateFieldClassName}
+            id="operation-to"
+            label={m.administrationFilterTo({}, { locale })}
+          />
+        )}
+      />
+      <AdministrationFilterField
+        htmlFor="operation-channel"
+        label={m.administrationFilterOperationOrigin({}, { locale })}
+      >
         <AdministrationFilterSelect
           {...form.register("channel")}
           aria-invalid={form.formState.errors.channel ? true : undefined}
-          defaultValue={input.channel ?? ""}
+          defaultValue={values.channel}
           id="operation-channel"
         >
-          <option value="">All</option>
+          <option value="">
+            {m.administrationFilterOperationAll({}, { locale })}
+          </option>
           {nexiOperationChannels.map((channel) => (
             <option key={channel} value={channel}>
-              {channel.replaceAll("_", " ")}
+              {getProviderValueLabel(channel, locale)}
             </option>
           ))}
         </AdministrationFilterSelect>
       </AdministrationFilterField>
-      <AdministrationFilterField htmlFor="operation-operationType" label="Type">
+      <AdministrationFilterField
+        htmlFor="operation-operationType"
+        label={m.administrationFilterOperationType({}, { locale })}
+      >
         <AdministrationFilterSelect
           {...form.register("operationType")}
           aria-invalid={form.formState.errors.operationType ? true : undefined}
-          defaultValue={input.operationType ?? ""}
+          defaultValue={values.operationType}
           id="operation-operationType"
         >
-          <option value="">All</option>
+          <option value="">
+            {m.administrationFilterOperationAll({}, { locale })}
+          </option>
           {nexiOperationTypes.map((operationType) => (
             <option key={operationType} value={operationType}>
-              {operationType.replaceAll("_", " ")}
+              {getProviderValueLabel(operationType, locale)}
             </option>
           ))}
         </AdministrationFilterSelect>
       </AdministrationFilterField>
       <Button size="md" type="submit">
-        Show operations
+        {m.administrationFilterShowOperations({}, { locale })}
       </Button>
     </AdministrationFilterForm>
   );
@@ -229,64 +346,27 @@ export function OperationsAdministrationFilterForm({
 
 export function ReservationsAdministrationFilterForm({
   defaultFrom,
-  input,
+  query,
   shortcuts,
 }: {
   readonly defaultFrom: string;
-  readonly input: {
-    readonly customerId?: string;
-    readonly direction?: "asc" | "desc";
-    readonly from?: string;
-    readonly sort?: "created" | "date" | "reservation" | "status";
-    readonly status?: AdministrationReservationStatusFilter;
-    readonly to?: string;
-    readonly type?: "cowork" | "meeting-room" | "office";
-  };
-  readonly shortcuts: {
-    readonly today: AdministrationReservationClosedDateRange;
-    readonly upcoming: AdministrationReservationDateRange;
-    readonly past: AdministrationReservationDateRange;
-  };
+  readonly query: ReservationListQuery;
+  readonly shortcuts: ReservationDateShortcuts;
 }) {
-  const values: ReservationFilterValues = {
-    status: input.status ?? "",
-    type: input.type ?? "",
-    from: input.from ?? "",
-    to: input.to ?? "",
-    customerId: input.customerId,
-    sort: input.sort ?? "created",
-    direction: input.direction ?? "desc",
-  };
-  const form = useForm<ReservationFilterValues>({
+  const locale = useRouteLocale();
+  const values = reservationListQuery.formValues(query);
+  const form = useForm({
     defaultValues: values,
     mode: "onSubmit",
     reValidateMode: "onChange",
-    resolver: effectSchemaResolver(reservationFilterSchema),
+    resolver: standardSchemaResolver(reservationListQuery.formSchema),
     values,
   });
-  const shortcutHref = (range: {
-    readonly from?: string;
-    readonly to?: string;
-  }) => {
-    const search = new URLSearchParams();
-    for (const [key, value] of Object.entries({
-      customerId: input.customerId,
-      direction: input.direction,
-      from: range.from,
-      sort: input.sort,
-      status: input.status,
-      to: range.to,
-      type: input.type,
-    })) {
-      if (value) search.set(key, value);
-    }
-    return `/admin/reservations?${search.toString()}`;
-  };
 
   return (
     <AdministrationFilterForm
-      action="/admin/reservations"
-      className="2xl:grid-cols-[10rem_12rem_10rem_10rem]"
+      action={administrationHref("/[locale]/admin/reservations")}
+      className="2xl:grid-cols-[10rem_12rem_13rem_13rem]"
       onSubmit={(event: FormEvent<HTMLFormElement>) => {
         const nativeForm = event.currentTarget;
         void form.handleSubmit(() => nativeForm.submit())(event);
@@ -294,112 +374,209 @@ export function ReservationsAdministrationFilterForm({
     >
       <AdministrationFilterField
         htmlFor="reservation-status"
-        label="Deskohub status"
+        label={m.administrationFilterReservationStatus({}, { locale })}
       >
         <AdministrationFilterSelect
           {...form.register("status")}
           aria-invalid={form.formState.errors.status ? true : undefined}
-          defaultValue={input.status ?? ""}
+          defaultValue={values.status}
           id="reservation-status"
         >
-          <option value="">All statuses</option>
-          <option value="in_progress">In progress</option>
-          <option value="complete">Complete</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="needs_refund">Needs refund</option>
+          <option value="">
+            {m.administrationFilterReservationStatusAll({}, { locale })}
+          </option>
+          <option value="in_progress">
+            {m.administrationFilterReservationStatusInProgress({}, { locale })}
+          </option>
+          <option value="complete">
+            {m.administrationFilterReservationStatusComplete({}, { locale })}
+          </option>
+          <option value="cancelled">
+            {m.administrationFilterReservationStatusCancelled({}, { locale })}
+          </option>
+          <option value="needs_refund">
+            {m.administrationFilterReservationStatusNeedsRefund({}, { locale })}
+          </option>
         </AdministrationFilterSelect>
       </AdministrationFilterField>
       <AdministrationFilterField
         htmlFor="reservation-type"
-        label="Reservation type"
+        label={m.administrationFilterReservationType({}, { locale })}
       >
         <AdministrationFilterSelect
           {...form.register("type")}
           aria-invalid={form.formState.errors.type ? true : undefined}
-          defaultValue={input.type ?? ""}
+          defaultValue={values.type}
           id="reservation-type"
         >
-          <option value="">All reservation types</option>
-          <option value="cowork">Coworking</option>
-          <option value="meeting-room">Meeting room</option>
-          <option value="office">{m.reservationOfficeProductTitle()}</option>
+          <option value="">
+            {m.administrationFilterReservationTypeAll({}, { locale })}
+          </option>
+          <option value="cowork">
+            {m.administrationFilterReservationTypeCowork({}, { locale })}
+          </option>
+          <option value="meeting-room">
+            {getWorkspaceMeetingRoomProductTitle(locale)}
+          </option>
+          <option value="office">
+            {getWorkspaceOfficeProductTitle(locale)}
+          </option>
         </AdministrationFilterSelect>
       </AdministrationFilterField>
-      <AdministrationFilterField
-        htmlFor="reservation-date-from"
-        label="Start date from"
-      >
-        <AdministrationFilterInput
-          {...form.register("from")}
-          aria-invalid={form.formState.errors.from ? true : undefined}
-          defaultValue={input.from ?? ""}
-          id="reservation-date-from"
-          type="date"
-        />
-      </AdministrationFilterField>
-      <AdministrationFilterField
-        htmlFor="reservation-date-to"
-        label="Start date to"
-      >
-        <AdministrationFilterInput
-          {...form.register("to")}
-          aria-invalid={form.formState.errors.to ? true : undefined}
-          defaultValue={input.to ?? ""}
-          id="reservation-date-to"
-          type="date"
-        />
-      </AdministrationFilterField>
-      {input.customerId && (
+      <Controller
+        control={form.control}
+        name="from"
+        render={({ field, fieldState }) => (
+          <AdministrationFilterDateField
+            {...field}
+            aria-invalid={fieldState.invalid || undefined}
+            id="reservation-date-from"
+            label={m.administrationFilterReservationFrom({}, { locale })}
+          />
+        )}
+      />
+      <Controller
+        control={form.control}
+        name="to"
+        render={({ field, fieldState }) => (
+          <AdministrationFilterDateField
+            {...field}
+            aria-invalid={fieldState.invalid || undefined}
+            id="reservation-date-to"
+            label={m.administrationFilterReservationTo({}, { locale })}
+          />
+        )}
+      />
+      {values.customerId && (
         <input
           {...form.register("customerId")}
           type="hidden"
-          value={input.customerId}
+          value={values.customerId}
         />
       )}
-      <input
-        {...form.register("sort")}
-        type="hidden"
-        value={input.sort ?? "created"}
-      />
+      <input {...form.register("sort")} type="hidden" value={values.sort} />
       <input
         {...form.register("direction")}
         type="hidden"
-        value={input.direction ?? "desc"}
+        value={values.direction}
       />
       <div className="flex flex-col gap-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between 2xl:col-span-4">
-        <nav
-          aria-label="Reservation date shortcuts"
-          className="flex flex-wrap items-center gap-2"
+        <ReservationDateShortcutLinks
+          getHref={(range) =>
+            reservationListQuery.href({
+              ...query,
+              from: range.from,
+              to: range.to,
+            })
+          }
+          shortcuts={shortcuts}
+        />
+        <AdministrationFilterActions
+          clearHref={administrationHref("/[locale]/admin/reservations")}
+          filtered={isReservationListFiltered(query, defaultFrom)}
+        />
+      </div>
+    </AdministrationFilterForm>
+  );
+}
+
+export function CustomersAdministrationFilterForm({
+  query,
+  shortcuts,
+}: {
+  readonly query: CustomerListQuery;
+  readonly shortcuts: ReservationDateShortcuts;
+}) {
+  const locale = useRouteLocale();
+  const values = customerListQuery.formValues(query);
+  const form = useForm({
+    defaultValues: values,
+    mode: "onSubmit",
+    reValidateMode: "onChange",
+    resolver: standardSchemaResolver(customerListQuery.formSchema),
+    values,
+  });
+
+  return (
+    <AdministrationFilterForm
+      action={administrationHref("/[locale]/admin/customers")}
+      className="2xl:grid-cols-[12rem_13rem_13rem]"
+      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        const nativeForm = event.currentTarget;
+        void form.handleSubmit(() => nativeForm.submit())(event);
+      }}
+    >
+      <AdministrationFilterField
+        className="sm:col-span-2 2xl:col-span-1"
+        htmlFor="customer-marketing-consent"
+        label={m.administrationFilterCustomerMarketingConsent({}, { locale })}
+      >
+        <AdministrationFilterSelect
+          {...form.register("marketingConsent")}
+          aria-invalid={
+            form.formState.errors.marketingConsent ? true : undefined
+          }
+          defaultValue={values.marketingConsent}
+          id="customer-marketing-consent"
         >
-          {(
-            [
-              ["Today", shortcuts.today],
-              ["Upcoming", shortcuts.upcoming],
-              ["Past", shortcuts.past],
-            ] as const
-          ).map(([label, range]) => (
-            <Button asChild key={label} size="sm" variant="secondary">
-              <Link href={shortcutHref(range)}>{label}</Link>
-            </Button>
+          <option value="">
+            {m.administrationFilterCustomerMarketingConsentAll({}, { locale })}
+          </option>
+          {customerListQuery.marketingConsentStates.map((state) => (
+            <option key={state} value={state}>
+              {getAdministrationCustomerMarketingConsentLabel(state, locale)}
+            </option>
           ))}
-        </nav>
-        <fieldset
-          aria-label="Filter actions"
-          className="flex min-w-0 items-center justify-end gap-2 border-0 p-0"
-        >
-          {(input.customerId ||
-            input.from !== defaultFrom ||
-            input.status ||
-            input.to ||
-            input.type) && (
-            <Button asChild size="md" variant="ghost">
-              <Link href="/admin/reservations">Clear</Link>
-            </Button>
-          )}
-          <Button size="md" type="submit">
-            Apply filters
-          </Button>
-        </fieldset>
+        </AdministrationFilterSelect>
+      </AdministrationFilterField>
+      <Controller
+        control={form.control}
+        name="from"
+        render={({ field, fieldState }) => (
+          <AdministrationFilterDateField
+            {...field}
+            aria-invalid={fieldState.invalid || undefined}
+            id="customer-reservation-from"
+            label={m.administrationFilterCustomerReservationFrom(
+              {},
+              { locale }
+            )}
+          />
+        )}
+      />
+      <Controller
+        control={form.control}
+        name="to"
+        render={({ field, fieldState }) => (
+          <AdministrationFilterDateField
+            {...field}
+            aria-invalid={fieldState.invalid || undefined}
+            id="customer-reservation-to"
+            label={m.administrationFilterCustomerReservationTo({}, { locale })}
+          />
+        )}
+      />
+      <input {...form.register("sort")} type="hidden" value={values.sort} />
+      <input
+        {...form.register("direction")}
+        type="hidden"
+        value={values.direction}
+      />
+      <div className="flex flex-col gap-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between 2xl:col-span-3">
+        <ReservationDateShortcutLinks
+          getHref={(range) =>
+            customerListQuery.href({
+              ...query,
+              from: range.from,
+              to: range.to,
+            })
+          }
+          shortcuts={shortcuts}
+        />
+        <AdministrationFilterActions
+          clearHref={administrationHref("/[locale]/admin/customers")}
+          filtered={Boolean(query.from || query.to || query.marketingConsent)}
+        />
       </div>
     </AdministrationFilterForm>
   );

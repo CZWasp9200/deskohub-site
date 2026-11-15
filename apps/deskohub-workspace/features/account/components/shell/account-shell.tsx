@@ -1,20 +1,29 @@
 "use client";
 
 import {
+  Bot,
   CalendarDays,
   CreditCard,
   Gift,
+  KeyRound,
   ShieldCheck,
   TriangleAlert,
   UserRound,
 } from "lucide-react";
 import {
+  type MouseEvent,
   type ReactNode,
   useEffect,
   useId,
   useLayoutEffect,
   useRef,
 } from "react";
+import { getAccountSectionPath } from "@/features/account/routes";
+import {
+  type AccountSection,
+  accountSectionLabel,
+} from "@/features/account/sections";
+import { type Locale, m } from "@/features/i18n";
 import { NavItem } from "@/shared/components/ui/nav-item";
 import { cn } from "@/shared/utils";
 import { AccountFrame, revealAccountContentStart } from "./account-frame";
@@ -24,16 +33,8 @@ import { AccountFrame, revealAccountContentStart } from "./account-frame";
  * OWN-WORLD: Sculpin, navy, slate, warm cream, mint, and terracotta extend the account page.
  * STORY: Visitors see their account title, choose one section, and own the content task.
  * FIRST VIEWPORT: A wrapped title/action header sits above a sidebar and unstyled content slot.
- * FORM: Mobile navigation uses labelled buttons; callers own every action and fact.
+ * FORM: Navigation items link to each section's path; callers own every action and fact.
  */
-
-export type AccountSection =
-  | "reservations"
-  | "referrals"
-  | "profile"
-  | "billing"
-  | "legal"
-  | "danger";
 
 export interface AccountNavigationBadge {
   readonly text: string;
@@ -43,15 +44,11 @@ export interface AccountNavigationBadge {
 
 export interface AccountShellProps {
   readonly activeSection: AccountSection;
+  /** Names the navigation and sections; each section links to its path. */
+  readonly locale: Locale;
   readonly onSectionChange: (section: AccountSection) => void;
   readonly children: ReactNode;
   readonly signOut: ReactNode;
-  readonly title: string;
-  readonly labels: {
-    readonly navigation: string;
-    readonly mobileSection: string;
-    readonly sections: Readonly<Record<AccountSection, string>>;
-  };
   readonly reservationCount?: number;
   /** Badge beside Referrals, such as "-15%"; hidden when absent. */
   readonly referralBadge?: AccountNavigationBadge;
@@ -66,13 +63,12 @@ export function AccountShell({
   children,
   disabledSections = [],
   hiddenSections = [],
-  labels,
+  locale,
   onSectionChange,
   referralBadge,
   reservationCount,
   sidebarFooter,
   signOut,
-  title,
 }: AccountShellProps) {
   const mobileSectionId = useId();
   const validReservationCount =
@@ -87,6 +83,8 @@ export function AccountShell({
       { icon: CalendarDays, key: "reservations" },
       { icon: Gift, key: "referrals" },
       { icon: UserRound, key: "profile" },
+      { icon: KeyRound, key: "security" },
+      { icon: Bot, key: "assistants" },
       { icon: CreditCard, key: "billing" },
       { icon: ShieldCheck, key: "legal" },
       { icon: TriangleAlert, key: "danger" },
@@ -108,26 +106,26 @@ export function AccountShell({
     if (mobileNavigation === null) return;
 
     const revealActiveSection = () => {
-      const activeButton = mobileNavigation.querySelector<HTMLButtonElement>(
+      const activeItem = mobileNavigation.querySelector<HTMLElement>(
         `[data-account-section="${activeSection}"]`
       );
-      if (activeButton === null) return;
+      if (activeItem === null) return;
 
       const navigationRect = mobileNavigation.getBoundingClientRect();
-      const buttonRect = activeButton.getBoundingClientRect();
+      const itemRect = activeItem.getBoundingClientRect();
       if (
         navigationRect.width <= 0 ||
         navigationRect.height <= 0 ||
-        buttonRect.width <= 0 ||
-        buttonRect.height <= 0
+        itemRect.width <= 0 ||
+        itemRect.height <= 0
       )
         return;
 
       if (
-        buttonRect.left < navigationRect.left ||
-        buttonRect.right > navigationRect.right
+        itemRect.left < navigationRect.left ||
+        itemRect.right > navigationRect.right
       ) {
-        mobileNavigation.scrollLeft += buttonRect.left - navigationRect.left;
+        mobileNavigation.scrollLeft += itemRect.left - navigationRect.left;
       }
     };
     const resizeObserver = new ResizeObserver(revealActiveSection);
@@ -146,13 +144,41 @@ export function AccountShell({
     if (section !== activeSection) selectedSectionRef.current = section;
     onSectionChange(section);
   };
+  const selectSection =
+    (section: AccountSection) => (event: MouseEvent<HTMLAnchorElement>) => {
+      // A modified click, such as to open a new tab, stays the browser's.
+      if (
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      event.preventDefault();
+      handleSectionChange(section);
+    };
+  // An item links to its section's path, or is a disabled button while the
+  // section can't open.
+  const sectionItemContent = (section: AccountSection, content: ReactNode) =>
+    disabledSections.includes(section) ? (
+      content
+    ) : (
+      <a
+        href={getAccountSectionPath(locale, section)}
+        onClick={selectSection(section)}
+      >
+        {content}
+      </a>
+    );
 
   return (
     <AccountFrame
       contentRef={contentRef}
       navigation={
         <nav
-          aria-label={labels.navigation}
+          aria-label={m.accountNavigationLabel({}, { locale })}
           className="-mx-4 min-w-0 rounded-none border-0 bg-white p-0 sm:-mx-6 md:mx-0 md:rounded-[20px] md:border md:border-[#dfe4ec] md:p-4"
         >
           <div className="md:hidden">
@@ -161,7 +187,7 @@ export function AccountShell({
               className="min-w-0 border-0 p-0"
             >
               <legend className="sr-only" id={mobileSectionId}>
-                {labels.mobileSection}
+                {m.accountSectionLabel({}, { locale })}
               </legend>
               <div
                 className="flex min-w-0 touch-pan-x snap-x snap-proximity flex-nowrap gap-2 overflow-x-auto"
@@ -171,15 +197,18 @@ export function AccountShell({
                 {sections.map((section) => (
                   <NavItem
                     active={activeSection === section.key}
+                    asChild={!disabledSections.includes(section.key)}
                     className="shrink-0 snap-start"
                     data-account-section={section.key}
                     disabled={disabledSections.includes(section.key)}
                     key={section.key}
                     layout="tab"
-                    onClick={() => handleSectionChange(section.key)}
                     tone={section.key === "danger" ? "danger" : "neutral"}
                   >
-                    {labels.sections[section.key]}
+                    {sectionItemContent(
+                      section.key,
+                      accountSectionLabel(section.key, locale)
+                    )}
                   </NavItem>
                 ))}
               </div>
@@ -195,30 +224,36 @@ export function AccountShell({
                 return (
                   <NavItem
                     active={isActive}
+                    asChild={!disabledSections.includes(section.key)}
+                    data-account-sidebar-section={section.key}
                     disabled={disabledSections.includes(section.key)}
                     key={section.key}
-                    onClick={() => handleSectionChange(section.key)}
                     tone={section.key === "danger" ? "danger" : "neutral"}
                   >
-                    <Icon aria-hidden="true" />
-                    <span className="min-w-0 break-words">
-                      {labels.sections[section.key]}
-                    </span>
-                    {section.key === "reservations" &&
-                      validReservationCount !== undefined && (
-                        <NavigationBadge section="reservations">
-                          {validReservationCount}
-                        </NavigationBadge>
-                      )}
-                    {section.key === "referrals" && referralBadge && (
-                      <NavigationBadge
-                        active={isActive}
-                        label={referralBadge.label}
-                        section="referrals"
-                        tone="positive"
-                      >
-                        {referralBadge.text}
-                      </NavigationBadge>
+                    {sectionItemContent(
+                      section.key,
+                      <>
+                        <Icon aria-hidden="true" />
+                        <span className="min-w-0 break-words">
+                          {accountSectionLabel(section.key, locale)}
+                        </span>
+                        {section.key === "reservations" &&
+                          validReservationCount !== undefined && (
+                            <NavigationBadge section="reservations">
+                              {validReservationCount}
+                            </NavigationBadge>
+                          )}
+                        {section.key === "referrals" && referralBadge && (
+                          <NavigationBadge
+                            active={isActive}
+                            label={referralBadge.label}
+                            section="referrals"
+                            tone="positive"
+                          >
+                            {referralBadge.text}
+                          </NavigationBadge>
+                        )}
+                      </>
                     )}
                   </NavItem>
                 );
@@ -229,7 +264,7 @@ export function AccountShell({
       }
       sidebarFooter={sidebarFooter}
       signOut={signOut}
-      title={title}
+      title={m.accountTitle({}, { locale })}
     >
       {children}
     </AccountFrame>

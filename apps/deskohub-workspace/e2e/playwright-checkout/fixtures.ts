@@ -1,11 +1,14 @@
-import { Effect } from "effect";
-import { makePlaywrightBrowserRunner, type Runner } from "../runtime";
-import { WorkspaceE2ECaseService } from "../services/cases";
+import { Effect, Exit, Scope } from "effect";
+import { runUntracedE2EEffect } from "../effect-edge";
+import {
+  isWorkspaceE2ENightlyCaseId,
+  isWorkspaceE2EOfficeCaseId,
+} from "./case-catalog";
 import { readWorkspaceE2ERunPlan } from "./run-plan";
 import { runtimeTest } from "./runtime-fixtures";
 
 type WorkspaceE2EFixtures = {
-  readonly browserRunner: Runner;
+  readonly testScope: Scope.Scope;
 };
 
 type WorkspaceE2EWorkerFixtures = {
@@ -16,12 +19,16 @@ export const test = runtimeTest.extend<
   WorkspaceE2EFixtures,
   WorkspaceE2EWorkerFixtures
 >({
-  browserRunner: async ({ browser }, use) => {
-    const runner = makePlaywrightBrowserRunner(browser);
+  // The test's Scope owns its browser session: the case's one session opens
+  // there on first use, inside the case runner, so a browser that fails to
+  // open is still the case's failure; closing the Scope closes the session,
+  // its release bounded by one browser action.
+  testScope: async ({ browserName: _browserName }, use) => {
+    const scope = Scope.makeUnsafe("parallel");
     try {
-      await use(runner);
+      await use(scope);
     } finally {
-      await runner.close?.();
+      await runUntracedE2EEffect(Scope.close(scope, Exit.void));
     }
   },
   runPlan: [
@@ -39,7 +46,6 @@ export type WorkspaceE2ECaseBinder = (input: {
   /** The worker browser; the case's own session context is its only one. */
   readonly browser: import("@playwright/test").Browser;
   readonly environment: import("../e2e-env").WorkspaceE2EEnvironment;
-  readonly run: Runner;
   readonly runId: import("../run-identifiers").WorkspaceE2ERunId;
   readonly testCase: import("../types").WorkspaceE2ECase;
 }) => Promise<import("../types").WorkspaceE2ECase>;
@@ -51,27 +57,31 @@ export const registerWorkspaceE2ECases = (
   for (const caseId of caseIds) {
     test(
       caseId,
-      async ({ browser, browserRunner, environment, runEffect, runPlan }) => {
-        const { getConfig, getDatasourceConfig } = await import("../config");
-        const { writeWorkspaceE2EFailureAnnotation } = await import(
-          "../github-actions"
+      async ({ browser, environment, runEffect, runPlan, testScope }) => {
+        const { nightlyCasesEnabled } = await import("../e2e-env");
+        test.skip(
+          isWorkspaceE2ENightlyCaseId(caseId) &&
+            !nightlyCasesEnabled(environment),
+          "Runs only in the nightly Workspace E2E"
         );
+        const { makeWorkspaceE2ECases } = await import("../cases");
+        const { getConfig, getDatasourceConfig } = await import("../config");
         const { workspaceDir } = await import("../runtime");
+        const { runWorkspaceE2ECase } = await import("../suite");
         const { writeWorkspaceE2ECaseJournal } = await import("./run-plan");
         const config = getConfig(environment);
         const datasourceConfig = getDatasourceConfig(environment);
 
         const planned = await runEffect(
           Effect.gen(function* () {
-            const caseService = yield* WorkspaceE2ECaseService;
             const flowStates: import("../types").CheckoutFlowState[] = [];
-            const cases = yield* caseService.reconstructCases({
+            const cases = yield* makeWorkspaceE2ECases({
               allocation: runPlan.runContext.allocation,
               config,
               datasourceConfig,
               flowStates,
               preparation: runPlan.preparation,
-              run: browserRunner,
+              traceConstruction: false,
             });
             const selected = cases.find((testCase) => testCase.id === caseId);
             return selected;
@@ -79,8 +89,8 @@ export const registerWorkspaceE2ECases = (
         );
         if (!planned) {
           test.skip(
-            caseId === "checkout-office-paid-multi-day",
-            "Office checkout is disabled in this preview"
+            isWorkspaceE2EOfficeCaseId(caseId),
+            "The office page is disabled in this preview"
           );
           throw new Error(`Workspace E2E case ${caseId} was not constructed`);
         }
@@ -88,7 +98,6 @@ export const registerWorkspaceE2ECases = (
           ? await options.bindCase({
               browser,
               environment,
-              run: browserRunner,
               runId: runPlan.runContext.runId,
               testCase: planned,
             })
@@ -102,20 +111,14 @@ export const registerWorkspaceE2ECases = (
         );
         try {
           await runEffect(
-            Effect.gen(function* () {
-              const caseService = yield* WorkspaceE2ECaseService;
-              yield* caseService.runCase({
-                artifactRoot: `${workspaceDir}/e2e-artifacts/checkout/cases`,
-                datasourceConfig,
-                ...(runPlan.runContext.githubRunId
-                  ? { reportFailure: writeWorkspaceE2EFailureAnnotation }
-                  : {}),
-                run: browserRunner,
-                sessionPrefix: `workspace-checkout-e2e-${runPlan.runContext.runId}`,
-                testCase: selected,
-                timeouts: config.timeouts,
-              });
-            })
+            runWorkspaceE2ECase({
+              artifactRoot: `${workspaceDir}/e2e-artifacts/checkout/cases`,
+              browser,
+              datasourceConfig,
+              sessionPrefix: `workspace-checkout-e2e-${runPlan.runContext.runId}`,
+              testCase: selected,
+              timeouts: config.timeouts,
+            }).pipe(Scope.provide(testScope))
           );
         } finally {
           await writeWorkspaceE2ECaseJournal(

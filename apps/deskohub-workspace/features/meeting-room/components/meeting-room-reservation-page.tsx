@@ -1,26 +1,18 @@
-import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
-import type { CanonicalPromotionCode } from "@/features/discounts";
-import { type Locale, m } from "@/features/i18n";
-import { preloadPageAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
+import { Effect } from "effect";
 import { isRememberedMeetingRoomReservationAvailable } from "@/features/reservation/backend/reservation-existing-customer.server";
-import { preloadPageAvailability } from "@/features/reservation/backend/workspace-availability-loader";
-import { createReservationPage } from "@/features/reservation/components/create-reservation-page.server";
+import {
+  createReservationPage,
+  type ReservationPageRestoration,
+} from "@/features/reservation/components/create-reservation-page.server";
 import { getMeetingRoomDurationAdvertisedPriceRequests } from "@/features/reservation/meeting-room-advertised-price";
 import {
   getMeetingRoomReservationDefaultValues,
-  type NormalizedMeetingRoomReservationOrder,
+  type MeetingRoomReservationInput,
 } from "@/features/reservation/meeting-room-reservation";
-import { getMeetingRoomReservationDefaultValuesFromSearchParams } from "@/features/reservation/meeting-room-reservation-checkout-query";
-import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
-import {
-  type CustomerLastReservationForKind,
-  getReservationExistingCustomerForm,
-  type ReservationExistingCustomer,
-} from "@/features/reservation/reservation-existing-customer";
+import { meetingRoomSelectionLink } from "@/features/reservation/meeting-room-selection-link";
+import { getMeetingRoomPageOfferings } from "@/features/reservation/reservation-page-offerings";
 import { meetingRoomReservationPath } from "@/features/reservation/routes";
 import { getMeetingRoomSelectionAvailabilityQuery } from "@/features/reservation/workspace-availability";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
-import type { SearchParamsRecord } from "@/shared/utils";
 import {
   MeetingRoomReservationForm,
   MeetingRoomReservationFormFallback,
@@ -30,111 +22,78 @@ export const meetingRoomReservationPage = createReservationPage({
   fallback: (locale) => <MeetingRoomReservationFormFallback locale={locale} />,
   kind: "meeting-room",
   pathname: meetingRoomReservationPath,
-  metadata: (locale: Locale) => ({
-    title: m.reservationMeetingRoomMetadataTitle({}, { locale }),
-    description: m.reservationMeetingRoomMetadataDescription({}, { locale }),
+  prefillsContact: true,
+  // An ended reservation can't reopen the form.
+  restore: (
+    reservation,
+    searchParams,
+    { locale }
+  ): ReservationPageRestoration<MeetingRoomReservationInput> => {
+    const values = getMeetingRoomReservationDefaultValues(reservation);
+    return values
+      ? {
+          kind: "restored",
+          values: meetingRoomSelectionLink.restore(values, searchParams, {
+            locale,
+          }),
+        }
+      : { kind: "ended" };
+  },
+  /**
+   * Query values refined by the customer's last meeting-room duration, which
+   * applies only while the room is free for it.
+   */
+  read: Effect.fn("meetingRoomReservationPage.read")(function* (
+    searchParams,
+    { lastReservation, locale }
+  ) {
+    const queryValues = meetingRoomSelectionLink.read(searchParams, {
+      locale,
+    });
+    if (!lastReservation) return queryValues;
+
+    const rememberedValues = meetingRoomSelectionLink.read(searchParams, {
+      locale,
+      lastReservation,
+    });
+    if (rememberedValues.duration === queryValues.duration) {
+      return queryValues;
+    }
+
+    return (yield* isRememberedMeetingRoomReservationAvailable(
+      rememberedValues
+    ))
+      ? rememberedValues
+      : queryValues;
   }),
-  render: renderMeetingRoomReservationContent,
-});
-
-/**
- * Query values refined by the customer's last meeting-room duration, which
- * applies only while the room is free for it.
- */
-const getMeetingRoomQueryValues = async (
-  searchParams: SearchParamsRecord,
-  lastReservation: CustomerLastReservationForKind<"meeting-room"> | undefined
-) => {
-  const queryValues =
-    getMeetingRoomReservationDefaultValuesFromSearchParams(searchParams);
-  if (!lastReservation) return queryValues;
-
-  const rememberedValues =
-    getMeetingRoomReservationDefaultValuesFromSearchParams(
-      searchParams,
-      undefined,
-      lastReservation
-    );
-  if (rememberedValues.duration === queryValues.duration) return queryValues;
-
-  return (await isRememberedMeetingRoomReservationAvailable(rememberedValues))
-    ? rememberedValues
-    : queryValues;
-};
-
-export async function renderMeetingRoomReservationContent({
-  checkoutSessionId,
-  existingCustomer,
-  initialReservation,
-  locale,
-  replacementToken,
-  searchParams,
-  submittedCode,
-}: {
-  readonly checkoutSessionId?: CheckoutSessionId;
-  readonly existingCustomer?: ReservationExistingCustomer<"meeting-room">;
-  readonly initialReservation?: NormalizedMeetingRoomReservationOrder;
-  readonly locale: Locale;
-  readonly replacementToken?: string;
-  readonly searchParams: SearchParamsRecord;
-  readonly submittedCode?: CanonicalPromotionCode;
-}) {
-  const restoredInitialValues = initialReservation
-    ? getMeetingRoomReservationDefaultValues(initialReservation)
-    : undefined;
-  // The presence of a signed reservation decides the restored path even when
-  // it has ended: the fallback must not consume public query values.
-  const restoredOrQueryValues =
-    restoredInitialValues ??
-    (await getMeetingRoomQueryValues(
-      initialReservation ? {} : searchParams,
-      existingCustomer?.lastReservation
-    ));
-  const { existingCustomer: existingCustomerForm, initialValues } =
-    existingCustomer
-      ? getReservationExistingCustomerForm({
-          contact: existingCustomer.contact,
-          hasMarketingConsent: existingCustomer.hasMarketingConsent,
-          queryMode: initialReservation
-            ? undefined
-            : getReservationCustomerQueryMode(searchParams),
-          restored: Boolean(restoredInitialValues),
-          values: restoredOrQueryValues,
-        })
-      : { existingCustomer: undefined, initialValues: restoredOrQueryValues };
-  const initialAvailabilityQuery =
-    getMeetingRoomSelectionAvailabilityQuery(initialValues);
-  const [initialAdvertisedPrices, initialAvailability] = await Promise.all([
-    preloadPageAdvertisedPrices(
-      getMeetingRoomDurationAdvertisedPriceRequests({
+  preload: (values, { locale, submittedCode }) => {
+    const availabilityQuery = getMeetingRoomSelectionAvailabilityQuery(values);
+    return {
+      advertisedPrices: getMeetingRoomDurationAdvertisedPriceRequests({
         locale,
-        startDateTime: initialValues.startDateTime,
+        startDateTime: values.startDateTime,
         submittedCode,
-      })
-    ).pipe(
-      runWorkspaceEffect("reservation.meeting-room.load-advertised-prices")
-    ),
-    preloadPageAvailability({
-      queries: initialAvailabilityQuery ? [initialAvailabilityQuery] : [],
-      replacementToken,
-    }).pipe(
-      runWorkspaceEffect("reservation.meeting-room.preload-availability")
-    ),
-  ]);
-
-  return (
+      }),
+      availability: availabilityQuery ? [availabilityQuery] : [],
+    };
+  },
+  offerings: (values, advertisedPrices, { locale, submittedCode }) =>
+    getMeetingRoomPageOfferings({
+      advertisedPrices,
+      locale,
+      startDateTime: values.startDateTime,
+      submittedCode,
+    }),
+  renderForm: (form) => (
     <MeetingRoomReservationForm
-      checkoutSessionId={checkoutSessionId}
-      existingCustomer={existingCustomerForm}
-      initialAdvertisedPrices={initialAdvertisedPrices}
-      initialAvailability={initialAvailability}
-      initialReservation={
-        restoredInitialValues ? initialReservation : undefined
-      }
-      initialValues={initialValues}
-      locale={locale}
-      replacementToken={replacementToken}
-      submittedCode={submittedCode}
+      checkoutCustomer={form.checkoutCustomer}
+      checkoutSessionId={form.checkoutSessionId}
+      initialAdvertisedPrices={form.initialAdvertisedPrices}
+      initialAvailability={form.initialAvailability}
+      initialValues={form.initialValues}
+      locale={form.locale}
+      replacementToken={form.replacementToken}
+      submittedCode={form.submittedCode}
     />
-  );
-}
+  ),
+});

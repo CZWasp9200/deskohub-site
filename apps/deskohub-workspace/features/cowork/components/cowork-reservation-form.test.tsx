@@ -20,6 +20,7 @@ import {
 } from "@testing-library/react";
 import { Schema } from "effect";
 import type { ComponentProps } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   type AdvertisedPrice,
   type AdvertisedPriceRequest,
@@ -29,21 +30,35 @@ import {
   buildCoworkCheckoutSummary,
   buildCoworkReservationQuote,
 } from "@/features/checkout/checkout-quote.test-utils";
+import { PublicOfferingsStructuredData } from "@/features/checkout/components/public-offerings-structured-data";
 import {
   getWorkspaceProductByTier,
+  workspaceCoworkCurrentTiers,
   workspaceProductMonitorOptions,
 } from "@/features/checkout/product-catalog";
-import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
+import {
+  getWorkspaceProductMessage,
+  getWorkspaceProductTierTitle,
+  workspaceProductTierCardMessages,
+} from "@/features/checkout/product-catalog.i18n";
 import { discountIdSchema } from "@/features/discounts/contracts";
-import { m } from "@/features/i18n";
+import { type Locale, m } from "@/features/i18n";
+import {
+  continueAndSubmitReservation,
+  mockReservationCheckoutStep,
+} from "@/features/reservation/components/reservation-checkout-step.test-utils";
+import { mockCheckoutEmailVerification } from "@/features/reservation/components/use-checkout-email-verification.test-utils";
 import { getCoworkDateAdvertisedPriceRequests } from "@/features/reservation/cowork-advertised-price";
 import { coworkReservationDefaultValues } from "@/features/reservation/cowork-reservation";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
+import { getCoworkPageOfferings } from "@/features/reservation/reservation-page-offerings";
 import {
   getCoworkAvailabilityQueries,
   getWorkspaceAvailabilityRange,
   workspaceAvailabilityKeys,
 } from "@/features/reservation/workspace-availability";
+import { currencyCZK } from "@/shared/money/currencies";
+import { formatMoney } from "@/shared/money/money";
 import {
   workspaceRouterPush as push,
   workspaceUseAction,
@@ -83,14 +98,15 @@ mock.module("next/image", () => ({
   getImageProps,
 }));
 
-const execute = mock(() => undefined);
+const executeAsync = mock(() => Promise.resolve({}));
 const getAdvertisedPrices = mock(
   (requests: ReadonlyArray<AdvertisedPriceRequest>) =>
     Promise.resolve(advertisedPricesResult(requests))
 );
 
 mock.module("@/features/cookie-consent", () => ({
-  useCookieConsent: () => ({ isAccepted: () => false }),
+  useVisitorConsent: () => false,
+  visitorConsent: { accepts: () => false },
 }));
 
 mock.module("@/features/reservation/actions/get-advertised-price", () => ({
@@ -105,7 +121,12 @@ mock.module("@/features/reservation/actions/submit-reservation", () => ({
   submitReservation: mock(),
 }));
 
-const { CoworkReservationForm } = await import("./cowork-reservation-form");
+mockCheckoutEmailVerification();
+mockReservationCheckoutStep();
+
+const { CoworkReservationForm, CoworkReservationFormFallback } = await import(
+  "./cowork-reservation-form"
+);
 
 const money = (value: number) => ({
   value,
@@ -196,7 +217,7 @@ const openSpaceOriginalPriceText = () =>
   m
     .checkoutSummaryOriginalPrice(
       {
-        price: formatWorkspaceMoney(
+        price: formatMoney(
           getWorkspaceProductByTier("open-space").price,
           "en-US"
         ),
@@ -302,7 +323,16 @@ const renderForm = (
 ) => {
   return render(
     <QueryClientProvider client={queryClient}>
-      <CoworkReservationForm locale="en-US" today={today()} {...props} />
+      <CoworkReservationForm
+        checkoutCustomer={{
+          status: "profile-missing",
+          email: testEmailAddressForAda,
+          continuesCheckout: false,
+        }}
+        locale="en-US"
+        today={today()}
+        {...props}
+      />
     </QueryClientProvider>
   );
 };
@@ -395,7 +425,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       )
     );
     workspaceUseAction.mockReturnValue({
-      execute,
+      executeAsync,
       isExecuting: false,
       result: {},
     });
@@ -409,11 +439,70 @@ describe("CoworkReservationForm advertised pricing", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     getAdvertisedPrices.mockClear();
     push.mockClear();
-    execute.mockClear();
+    executeAsync.mockClear();
   });
 
   afterAll(async () => {
     await unregisterWorkspaceComponentTestEnv();
+  });
+
+  test("offers the tier prices the form first shows in the page's structured data", async () => {
+    workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
+    globalThis.fetch = mock((request: RequestInfo | URL) =>
+      Promise.reject(new Error(`Unexpected client fetch: ${String(request)}`))
+    ) as typeof fetch;
+    const initialValues = {
+      ...coworkReservationDefaultValues,
+      coffee: false,
+      date: "2099-07-30",
+    };
+    // Both tiers are on sale in what the page preloads.
+    const initialAdvertisedPrices = getCoworkDateAdvertisedPriceRequests({
+      date: initialValues.date,
+      locale: "en-US",
+    }).map((request) => ({
+      request,
+      advertisedPrice: getCoworkAdvertisedPriceResponse(request),
+    }));
+
+    const view = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <PublicOfferingsStructuredData
+          locale="en-US"
+          offerings={getCoworkPageOfferings({
+            advertisedPrices: initialAdvertisedPrices,
+            coffee: initialValues.coffee,
+            date: initialValues.date,
+            locale: "en-US",
+          })}
+        />
+        <CoworkReservationForm
+          checkoutCustomer={{ status: "signed-out" }}
+          initialAdvertisedPrices={initialAdvertisedPrices}
+          initialValues={initialValues}
+          locale="en-US"
+          today="2099-07-30"
+        />
+      </QueryClientProvider>
+    );
+    const services = JSON.parse(
+      view.container.querySelector('script[type="application/ld+json"]')
+        ?.textContent ?? "{}"
+    )["@graph"];
+
+    expect(services.map(({ offers }) => offers.price)).toEqual([145, 328]);
+    for (const [tier, service] of [
+      ["open-space", services[0]],
+      ["reserved-desk", services[1]],
+    ]) {
+      expect(
+        view.container.querySelector(`[data-reservation-type-price="${tier}"]`)
+          ?.textContent
+      ).toContain(
+        formatMoney(currencyCZK(service.offers.price * 100), "en-US")
+      );
+    }
+    expect(getAdvertisedPrices).not.toHaveBeenCalled();
   });
 
   test("renders every page-loaded price and availability without a client request", async () => {
@@ -483,8 +572,10 @@ describe("CoworkReservationForm advertised pricing", () => {
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     }) as typeof fetch;
 
-    const view = renderForm();
-    const continueButton = view.getByRole("button", { name: "Continue" });
+    const view = renderForm({ checkoutCustomer: { status: "signed-out" } });
+    const continueButton = view.getByRole("button", {
+      name: "Continue",
+    }) as HTMLButtonElement;
     await waitFor(
       () => {
         expect(continueButton.hasAttribute("disabled")).toBe(false);
@@ -492,12 +583,12 @@ describe("CoworkReservationForm advertised pricing", () => {
       { timeout: 5000 }
     );
 
-    fireEvent.click(continueButton);
+    await continueAndSubmitReservation(continueButton);
 
     expect(await view.findByText("Email is required.")).toBeDefined();
     expect(view.getByText("Phone is required.")).toBeDefined();
     expect(view.getByText("Name must be at least 2 characters.")).toBeDefined();
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeAsync).not.toHaveBeenCalled();
   });
 
   test("shows billing validation without errors for empty optional fields", async () => {
@@ -521,13 +612,15 @@ describe("CoworkReservationForm advertised pricing", () => {
       { timeout: 5000 }
     );
 
+    fireEvent.click(continueButton);
+    await waitFor(() => expect(continueButton.id).toBe("reservation-submit"));
     fireEvent.click(view.getByRole("checkbox", { name: "Create invoice" }));
     fireEvent.click(continueButton);
 
     expect(await view.findAllByText("This field is required.")).toHaveLength(3);
     expect(view.queryByText("undefined")).toBeNull();
     expect(view.queryByText("Expected string, got undefined")).toBeNull();
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeAsync).not.toHaveBeenCalled();
   });
 
   test("does not render catalog prices before a backend quote is available", () => {
@@ -554,7 +647,8 @@ describe("CoworkReservationForm advertised pricing", () => {
         "[data-reservation-coffee-price] [data-slot='skeleton']"
       )
     ).not.toBeNull();
-    expect(view.getByRole("textbox", { name: /email/i })).toBeDefined();
+    // The contact details wait at the next step.
+    expect(view.container.querySelector('input[name="email"]')).not.toBeNull();
     expect(
       view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
     ).toBe(true);
@@ -805,14 +899,14 @@ describe("CoworkReservationForm advertised pricing", () => {
         view.container.querySelector('input[value="2x32-4k"]') as HTMLElement
       );
     });
-    execute.mockClear();
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Continue" }));
-    });
+    executeAsync.mockClear();
+    await continueAndSubmitReservation(
+      view.getByRole("button", { name: "Continue" }) as HTMLButtonElement
+    );
     await waitFor(() => {
-      expect(execute).toHaveBeenCalledTimes(1);
+      expect(executeAsync).toHaveBeenCalledTimes(1);
     });
-    const workstationSubmission = execute.mock.calls[0]?.[0] as {
+    const workstationSubmission = executeAsync.mock.calls[0]?.[0] as {
       advertisedPriceToken?: string;
       reservation?: { monitorOption?: string };
     };
@@ -823,6 +917,7 @@ describe("CoworkReservationForm advertised pricing", () => {
 
     // Toggling the workstation off submits the bare variant: no monitor
     // option and the no-workstation advertised token.
+    fireEvent.click(view.getByRole("button", { name: "Change" }));
     await act(async () => {
       fireEvent.click(
         view.getByRole("switch", { name: /Monitor workstation/i })
@@ -833,14 +928,14 @@ describe("CoworkReservationForm advertised pricing", () => {
         view.container.querySelector('input[value="2x27-qhd"]')
       ).toBeNull();
     });
-    execute.mockClear();
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Continue" }));
-    });
+    executeAsync.mockClear();
+    await continueAndSubmitReservation(
+      view.getByRole("button", { name: "Continue" }) as HTMLButtonElement
+    );
     await waitFor(() => {
-      expect(execute).toHaveBeenCalledTimes(1);
+      expect(executeAsync).toHaveBeenCalledTimes(1);
     });
-    const bareSubmission = execute.mock.calls[0]?.[0] as {
+    const bareSubmission = executeAsync.mock.calls[0]?.[0] as {
       advertisedPriceToken?: string;
       reservation?: { monitorOption?: string };
     };
@@ -1050,13 +1145,13 @@ describe("CoworkReservationForm advertised pricing", () => {
     fireEvent.click(workstationSwitch);
     expect(workstationSwitch.getAttribute("aria-checked")).toBe("true");
 
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Continue" }));
-    });
+    await continueAndSubmitReservation(
+      view.getByRole("button", { name: "Continue" }) as HTMLButtonElement
+    );
     await waitFor(() => {
-      expect(execute).toHaveBeenCalledTimes(1);
+      expect(executeAsync).toHaveBeenCalledTimes(1);
     });
-    const submission = execute.mock.calls[0]?.[0] as {
+    const submission = executeAsync.mock.calls[0]?.[0] as {
       readonly advertisedPriceToken?: string;
       readonly reservation?: {
         readonly date?: string;
@@ -1137,6 +1232,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       renderCount += 1;
       return (
         <CoworkReservationForm
+          checkoutCustomer={{ status: "signed-out" }}
           initialValues={reservedDeskFormValues()}
           locale="en-US"
           today={today()}
@@ -1275,7 +1371,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       expect(continueButton.hasAttribute("disabled")).toBe(true);
     });
     await act(async () => fireEvent.click(continueButton));
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeAsync).not.toHaveBeenCalled();
     await act(async () => {
       view.unmount();
     });
@@ -1353,7 +1449,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       view.getByText(m.reservationAvailabilityError({}, { locale: "en-US" }))
     ).toBeDefined();
     await act(async () => fireEvent.click(continueButton));
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeAsync).not.toHaveBeenCalled();
     await act(async () => {
       view.unmount();
     });
@@ -1494,7 +1590,7 @@ describe("CoworkReservationForm advertised pricing", () => {
     expect(queryClient.getQueryData(bareQueryKey)).toMatchObject({
       unavailableMonitorOptions: ["2x32-qhd"],
     });
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeAsync).not.toHaveBeenCalled();
     await act(async () => {
       view.unmount();
     });
@@ -1612,7 +1708,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       view.getByText("Nepodařilo se ověřit dostupnost. Zkus to prosím znovu.")
     ).toBeDefined();
     await act(async () => fireEvent.click(continueButton));
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeAsync).not.toHaveBeenCalled();
     await act(async () => {
       view.unmount();
     });
@@ -2052,7 +2148,7 @@ describe("CoworkReservationForm advertised pricing", () => {
     ).toBe("true");
 
     fireEvent.click(view.getByRole("button", { name: "Continue" }));
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeAsync).not.toHaveBeenCalled();
 
     await act(async () => {
       resolveNewDateAvailability?.(
@@ -2299,5 +2395,107 @@ describe("CoworkReservationForm advertised pricing", () => {
         process.env.TZ = originalTimeZone;
       }
     }
+  });
+
+  describe("CoworkReservationForm phone region", () => {
+    beforeEach(() => {
+      workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
+      globalThis.fetch = mock((request: RequestInfo | URL) => {
+        const url = String(request);
+        if (url.startsWith("/api/workspace/availability")) {
+          return Promise.resolve(jsonResponse(availabilityResponse));
+        }
+        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+      }) as typeof fetch;
+    });
+
+    const submitWithPhone = async (locale: Locale, phone: string) => {
+      const view = renderForm({
+        locale,
+        initialValues: {
+          ...coworkReservationDefaultValues,
+          entryTier: "open-space",
+          date: "2099-07-30",
+          name: "Ada Lovelace",
+          email: testEmailAddressForAda,
+          phone,
+        },
+      });
+      const continueButton = view.getByRole("button", {
+        name: m.checkoutContinueButton({}, { locale }),
+      }) as HTMLButtonElement;
+      await waitFor(
+        () => {
+          expect(continueButton.hasAttribute("disabled")).toBe(false);
+        },
+        { timeout: 5000 }
+      );
+      await continueAndSubmitReservation(continueButton);
+      return view;
+    };
+
+    const phoneInput = (view: ReturnType<typeof renderForm>) =>
+      view.container.querySelector<HTMLInputElement>('input[name="phone"]');
+
+    test.each([
+      ["de-DE", "0151 23456789"],
+      ["uk-UA", "050 123 4567"],
+      ["cs-CZ", "777 123 456"],
+      ["de-DE", "+420 777 123 456"],
+    ] as const)("submits a phone typed in %s as %s", async (locale, phone) => {
+      await submitWithPhone(locale, phone);
+
+      await waitFor(() => {
+        expect(executeAsync).toHaveBeenCalledTimes(1);
+      });
+      expect(executeAsync.mock.calls[0]?.[0]).toMatchObject({
+        locale,
+        reservation: { phone },
+      });
+    });
+
+    test.each([
+      ["cs-CZ", "0151 23456789"],
+      ["cs-CZ", "050 123 4567"],
+    ] as const)("rejects a phone typed in %s as %s", async (locale, phone) => {
+      const view = await submitWithPhone(locale, phone);
+
+      await waitFor(() => {
+        expect(phoneInput(view)?.getAttribute("aria-invalid")).toBe("true");
+      });
+      expect(executeAsync).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("CoworkReservationFormFallback", () => {
+  test("puts each tier's static copy in the page shell without the form's hooks", () => {
+    const html = renderToStaticMarkup(
+      <CoworkReservationFormFallback locale="cs-CZ" />
+    );
+    // The shell HTML escapes text the way React writes it.
+    const shellText = (text: string) => renderToStaticMarkup(<>{text}</>);
+
+    for (const tier of workspaceCoworkCurrentTiers) {
+      expect(html).toContain(
+        shellText(getWorkspaceProductTierTitle(tier, "cs-CZ"))
+      );
+      expect(html).toContain(
+        shellText(
+          getWorkspaceProductMessage(
+            workspaceProductTierCardMessages[tier].description,
+            "cs-CZ"
+          )
+        )
+      );
+      for (const perk of workspaceProductTierCardMessages[tier].perks) {
+        expect(html).toContain(
+          shellText(getWorkspaceProductMessage(perk.message, "cs-CZ"))
+        );
+      }
+    }
+    expect(html).not.toMatch(
+      /data-reservation-type-description|data-reservation-type-perks|data-cowork-tier-showcase|id="cowork-tier-perks-label/
+    );
   });
 });

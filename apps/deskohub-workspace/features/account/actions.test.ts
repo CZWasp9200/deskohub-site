@@ -3,71 +3,43 @@ import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AresLookupFailure } from "@deskohub/ares";
+import { DotyposUnavailable } from "@deskohub/dotypos";
 import { Context, Effect, Layer } from "effect";
+import { SqlError } from "effect/unstable/sql";
 import { m } from "@/features/i18n";
-import { ReferralError } from "@/features/referrals/contracts";
+import {
+  ReferralError,
+  type ReferralOutage,
+} from "@/features/referrals/contracts";
+import { ReferralService as Referrals } from "@/features/referrals/referral.service";
+import { referralCodeCookieName } from "@/features/referrals/referral-code-cookie";
+import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
+import {
+  type InMemoryReferralCookie,
+  RememberedReferral,
+} from "@/features/referrals/remembered-referral.service";
+import { mockWorkspaceActionRequest } from "@/shared/testing/workspace-action-request.test-utils";
+import { CustomerAccountContactService } from "./backend/customer-account-contact.service";
 import { CustomerAccountAccessError } from "./customer-account";
 
 const customerEmail = testEmailAddress("ada");
 const sneakyEmail = testEmailAddress("sneaky");
 
-const revalidatePath = mock((_path: string) => undefined);
+const revalidatePath = mock(
+  (_path: string, _type?: "layout" | "page") => undefined
+);
 mock.module("next/cache", () => ({ revalidatePath }));
 
-const requestHeaders = new Headers({ referer: "https://deskohub.test/en-US" });
-const cookieWrites: { name: string; value: string }[] = [];
-mock.module("next/headers", () => ({
-  headers: async () => requestHeaders,
-  cookies: async () => ({
-    get: () => undefined,
-    getAll: () => [],
-    set: (name: string, value: string) => {
-      cookieWrites.push({ name, value });
-    },
-  }),
-}));
-mock.module("next/server", () => ({
-  after: () => undefined,
-}));
-mock.module("@/instrumentation", () => ({
-  postHogLoggerProvider: {
-    forceFlush: () => Promise.resolve(),
-    getLogger: () => ({ emit: () => undefined }),
-  },
-}));
-mock.module("botid/server", () => ({
-  checkBotId: () => Promise.resolve({ isBot: false }),
-}));
-
-const areAccountsEnabled = mock(() => Promise.resolve(true));
-const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
-mock.module("@/features/account/server/account-feature-flag.server", () => ({
-  areAccountsEnabled,
-  areAccountAvatarsEnabled,
-}));
+const request = await mockWorkspaceActionRequest();
 
 let referralsEnabled = true;
 const areReferralsEnabled = mock(() => Promise.resolve(referralsEnabled));
-const ReferralFeatureFlag = Context.Service<
-  ReferralFeatureFlag,
-  { readonly isEnabled: Effect.Effect<boolean> }
->()("@test/ActionsReferralFeatureFlag");
-const decideReferrals = (enabled: boolean) =>
-  Layer.succeed(ReferralFeatureFlag, { isEnabled: Effect.succeed(enabled) });
-Object.assign(ReferralFeatureFlag, {
-  Live: Layer.succeed(ReferralFeatureFlag, {
-    isEnabled: Effect.sync(() => referralsEnabled),
-  }),
-  fromDecision: decideReferrals,
-});
-mock.module("@/features/referrals/referral-feature-flag.server", () => ({
+const decideReferrals = ReferralReleaseGate.fromDecision;
+mock.module("@/features/referrals/referral-release-gate.server", () => ({
   areReferralsEnabled,
-  ReferralFeatureFlagRequest: Layer.unwrap(
+  ReferralReleaseGateRequest: Layer.unwrap(
     Effect.promise(areReferralsEnabled).pipe(Effect.map(decideReferrals))
   ),
-}));
-mock.module("@/features/referrals/referral-feature-flag.service", () => ({
-  ReferralFeatureFlagService: ReferralFeatureFlag,
 }));
 
 let deleteUser: (args: { body: object; headers: Headers }) => Promise<unknown>;
@@ -101,9 +73,15 @@ Object.assign(Authentication, {
     })
   ),
 });
+const realAuthenticationModule = await import(
+  "@/features/account/backend/customer-authentication.service"
+);
 mock.module(
   "@/features/account/backend/customer-authentication.service",
-  () => ({ CustomerAuthentication: Authentication })
+  () => ({
+    ...realAuthenticationModule,
+    CustomerAuthentication: Authentication,
+  })
 );
 
 type ProfileInput = {
@@ -214,7 +192,6 @@ const Profile = Context.Service<
     ) => Effect.Effect<{ firstName: string }, never>;
     readonly create: (
       accountId: string,
-      email: string,
       input: ProfileInput,
       signupReferral?: SignupIntent
     ) => Effect.Effect<
@@ -233,10 +210,10 @@ Object.assign(Profile, {
       profileCalls.push({ op: "update", args: [account, input] });
       return Effect.succeed({ firstName: "Ada" });
     },
-    create: (accountId, email, input, signupReferral) => {
+    create: (accountId, input, signupReferral) => {
       profileCalls.push({
         op: "create",
-        args: [accountId, email, input, signupReferral],
+        args: [accountId, input, signupReferral],
       });
       // The real link repository stores the intent with the created link.
       storedIntent = signupReferral && {
@@ -257,32 +234,16 @@ mock.module("@/features/account/backend/customer-profile.service", () => ({
   CustomerProfileService: Profile,
 }));
 
-type ReferralIdentity = {
-  readonly code: unknown;
-  readonly customerAccountId: string;
-  readonly dotyposCustomerId: string;
-};
 const referralCalls: { op: string; args: unknown }[] = [];
-let availableReferralCode: Effect.Effect<string | undefined, ReferralError>;
+let availableReferralCode: Effect.Effect<
+  string | undefined,
+  ReferralError | ReferralOutage
+>;
 let referralAcceptance: Effect.Effect<
   { readonly kind: "accepted" },
   ReferralError
 >;
-let settledReferral: Effect.Effect<boolean, ReferralError>;
-const Referrals = Context.Service<
-  Referrals,
-  {
-    readonly findAvailableCode: (input: {
-      readonly code: unknown;
-    }) => Effect.Effect<string | undefined, ReferralError>;
-    readonly acceptReferral: (
-      input: ReferralIdentity
-    ) => Effect.Effect<{ readonly kind: "accepted" }, ReferralError>;
-    readonly hasSettledReferral: (input: {
-      readonly dotyposCustomerId: string;
-    }) => Effect.Effect<boolean, ReferralError>;
-  }
->()("@test/ActionsReferrals");
+let settledReferral: Effect.Effect<boolean, ReferralOutage>;
 Object.assign(Referrals, {
   Live: Layer.succeed(Referrals, {
     findAvailableCode: (input) => {
@@ -301,25 +262,28 @@ Object.assign(Referrals, {
 });
 mock.module("@/features/referrals", () => ({ ReferralService: Referrals }));
 
-let rememberedReferralCode: string | undefined;
-const forgetRememberedReferralCode = mock(async () => undefined);
-mock.module("@/features/referrals/remembered-referral-code.server", () => ({
-  // Like the real reader: the request's provided decision, then the cookie.
-  readRememberedReferralCode: ReferralFeatureFlag.pipe(
-    Effect.flatMap((featureFlag) => featureFlag.isEnabled),
-    Effect.flatMap((released) =>
-      released
-        ? Effect.promise(async () => {
-            const { parseReferralCode } = await import(
-              "@/features/referrals/client"
-            );
-            return parseReferralCode(rememberedReferralCode);
-          })
-        : Effect.undefined
-    )
-  ),
-  forgetRememberedReferralCode,
-}));
+// Completion supplies its resolved customer, so settlement never reads a session.
+CustomerAccountContactService.Live = Layer.mock(
+  CustomerAccountContactService,
+  {}
+);
+// The remembered code lives in the request's referral cookie.
+const rememberedReferralCookie: InMemoryReferralCookie = {
+  get value() {
+    return request.cookie(referralCodeCookieName);
+  },
+  set value(value) {
+    request.setCookie(referralCodeCookieName, value);
+  },
+};
+let rememberedReferralWritable = true;
+RememberedReferral.Cookies = Layer.unwrap(
+  Effect.sync(() =>
+    RememberedReferral.inMemory(rememberedReferralCookie, {
+      writable: rememberedReferralWritable,
+    })
+  )
+);
 
 type PreferenceSave = {
   readonly accountId: "@test/account-id";
@@ -394,11 +358,8 @@ describe("account actions", () => {
     availableReferralCode = Effect.succeed("RFL12345");
     referralAcceptance = Effect.succeed({ kind: "accepted" });
     settledReferral = Effect.succeed(false);
-    rememberedReferralCode = undefined;
-    forgetRememberedReferralCode.mockClear();
+    rememberedReferralWritable = true;
     revalidatePath.mockClear();
-    areAccountsEnabled.mockReset();
-    areAccountsEnabled.mockResolvedValue(true);
     referralsEnabled = true;
     areReferralsEnabled.mockReset();
     areReferralsEnabled.mockImplementation(() =>
@@ -412,7 +373,7 @@ describe("account actions", () => {
     deleteUser = () => Promise.resolve({ success: true });
     preferenceSaveEffect = Effect.succeed(undefined);
     preferenceSaveCalls = [];
-    cookieWrites.length = 0;
+    request.reset();
   });
 
   const importActions = () => import("./actions");
@@ -432,7 +393,6 @@ describe("account actions", () => {
     expect(profileCalls.map(({ op }) => op)).toEqual(["create"]);
     expect(profileCalls[0]!.args).toEqual([
       "@test/account-id",
-      customerEmail,
       { firstName: "Ada" },
       undefined,
     ]);
@@ -470,12 +430,7 @@ describe("account actions", () => {
     expect(profileCalls).toEqual([
       {
         op: "create",
-        args: [
-          "@test/account-id",
-          customerEmail,
-          { firstName: "Ada" },
-          codeTarget,
-        ],
+        args: ["@test/account-id", { firstName: "Ada" }, codeTarget],
       },
     ]);
     expect(referralCalls).toEqual([
@@ -513,7 +468,13 @@ describe("account actions", () => {
   test("completes without a referral when the shared-link code cannot be checked", async () => {
     resolveAsNewCustomerUntilCreated();
     availableReferralCode = Effect.fail(
-      new ReferralError({ reason: "unavailable" })
+      new SqlError.SqlError({
+        reason: new SqlError.UnknownError({
+          cause: new Error("synthetic connection refused"),
+          message: "synthetic connection refused",
+          operation: "query",
+        }),
+      })
     );
     const { completeCustomerProfile } = await importActions();
 
@@ -555,7 +516,7 @@ describe("account actions", () => {
 
   test("records a typed referral code instead of the remembered one", async () => {
     resolveAsNewCustomerUntilCreated();
-    rememberedReferralCode = "RFLCOOKIE";
+    rememberedReferralCookie.value = "RFLCOOKIE";
     const { completeCustomerProfile } = await importActions();
 
     await completeCustomerProfile({
@@ -572,7 +533,7 @@ describe("account actions", () => {
 
   test("forgets the remembered code once completion leaves the customer's referral settled", async () => {
     resolveAsNewCustomerUntilCreated();
-    rememberedReferralCode = "RFL12345";
+    rememberedReferralCookie.value = "RFL12345";
     settledReferral = Effect.succeed(true);
     const { completeCustomerProfile } = await importActions();
 
@@ -589,12 +550,12 @@ describe("account actions", () => {
       op: "hasSettledReferral",
       args: { dotyposCustomerId: "60222" },
     });
-    expect(forgetRememberedReferralCode).toHaveBeenCalledTimes(1);
+    expect(rememberedReferralCookie.value).toBeUndefined();
   });
 
   test("decides the referral program once per action, so a later flag outage cannot skip its referral work", async () => {
     resolveAsNewCustomerUntilCreated();
-    rememberedReferralCode = "RFL12345";
+    rememberedReferralCookie.value = "RFL12345";
     settledReferral = Effect.succeed(true);
     // The first evaluation succeeds; any later one would fail closed.
     areReferralsEnabled
@@ -613,12 +574,12 @@ describe("account actions", () => {
       data: { status: "completed", referral: { status: "applied" } },
     });
     // The remembered-code reader used the same decision as the completion.
-    expect(forgetRememberedReferralCode).toHaveBeenCalledTimes(1);
+    expect(rememberedReferralCookie.value).toBeUndefined();
   });
 
   test("keeps the remembered code while the customer's referral is open or unknown", async () => {
     resolveAsNewCustomerUntilCreated();
-    rememberedReferralCode = "RFL12345";
+    rememberedReferralCookie.value = "RFL12345";
     referralAcceptance = Effect.fail(
       new ReferralError({ reason: "pending_payment" })
     );
@@ -633,14 +594,31 @@ describe("account actions", () => {
       data: { status: "completed", referral: { status: "pending" } },
     });
 
-    settledReferral = Effect.fail(new ReferralError({ reason: "unavailable" }));
+    settledReferral = Effect.fail(
+      new DotyposUnavailable({
+        operation: "listReservations",
+        reason: "server",
+      })
+    );
     const unknown = await completeCustomerProfile({ firstName: "Ada" });
     expect(unknown).toEqual({ data: { status: "completed" } });
 
     expect(
       referralCalls.filter(({ op }) => op === "hasSettledReferral")
     ).toHaveLength(2);
-    expect(forgetRememberedReferralCode).not.toHaveBeenCalled();
+    expect(rememberedReferralCookie.value).toBe("RFL12345");
+  });
+
+  test("completes the profile when the settled code cannot be forgotten", async () => {
+    rememberedReferralCookie.value = "RFL12345";
+    rememberedReferralWritable = false;
+    settledReferral = Effect.succeed(true);
+    const { completeCustomerProfile } = await importActions();
+
+    const result = await completeCustomerProfile({ firstName: "Ada" });
+
+    expect(result).toEqual({ data: { status: "completed" } });
+    expect(rememberedReferralCookie.value).toBe("RFL12345");
   });
 
   test("never checks whether the referral is settled without a remembered code", async () => {
@@ -657,7 +635,7 @@ describe("account actions", () => {
       "findAvailableCode",
       "acceptReferral",
     ]);
-    expect(forgetRememberedReferralCode).not.toHaveBeenCalled();
+    expect(rememberedReferralCookie.value).toBeUndefined();
   });
 
   test("ignores a referral code when completion finds an already linked customer", async () => {
@@ -689,6 +667,38 @@ describe("account actions", () => {
     expect(result).toEqual({ data: { status: "updated" } });
     expect(profileCalls.map(({ op }) => op)).toEqual(["update"]);
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  describe("phone in the action's locale", () => {
+    const germanMobile = { firstName: "Ada", phone: "0151 23456789" };
+
+    test.each(["completeCustomerProfile", "updateCustomerProfile"] as const)(
+      "%s saves a phone without a country calling code in the locale's region",
+      async (actionName) => {
+        const actions = await importActions();
+        request.setReferer("https://deskohub.test/de-DE/account");
+
+        const result = await actions[actionName](germanMobile);
+
+        expect(result.data).toBeTruthy();
+        expect(profileCalls.map(({ args }) => args[1])).toEqual([
+          { firstName: "Ada", phone: "+4915123456789" },
+        ]);
+      }
+    );
+
+    test.each(["completeCustomerProfile", "updateCustomerProfile"] as const)(
+      "%s rejects that phone from a Czech page",
+      async (actionName) => {
+        const actions = await importActions();
+        request.setReferer("https://deskohub.test/cs-CZ/account");
+
+        const result = await actions[actionName](germanMobile);
+
+        expect(result.validationErrors).toBeTruthy();
+        expect(profileCalls).toHaveLength(0);
+      }
+    );
   });
 
   test("rejects an email in the profile input and never forwards profile fields containing one", async () => {
@@ -747,14 +757,14 @@ describe("account actions", () => {
     await updateLocalePreference({ locale: "cs-CZ" });
 
     expect(preferenceSaveCalls).toHaveLength(1);
-    expect(cookieWrites).toEqual([]);
+    expect(request.cookieWrites()).toEqual([]);
   });
 
   test("ignores a submitted referral code while the referral program is withheld", async () => {
     referralsEnabled = false;
     resolveAsNewCustomerUntilCreated();
     availableReferralCode = Effect.succeed(undefined);
-    rememberedReferralCode = "RFL12345";
+    rememberedReferralCookie.value = "RFL12345";
     settledReferral = Effect.succeed(true);
     const { completeCustomerProfile } = await importActions();
 
@@ -768,17 +778,12 @@ describe("account actions", () => {
     expect(profileCalls).toEqual([
       {
         op: "create",
-        args: [
-          "@test/account-id",
-          customerEmail,
-          { firstName: "Ada" },
-          undefined,
-        ],
+        args: ["@test/account-id", { firstName: "Ada" }, undefined],
       },
     ]);
     expect(storedIntent).toBeUndefined();
     expect(referralCalls).toEqual([]);
-    expect(forgetRememberedReferralCode).not.toHaveBeenCalled();
+    expect(rememberedReferralCookie.value).toBe("RFL12345");
   });
 
   test("acknowledges the settled signup referral notice", async () => {
@@ -813,32 +818,6 @@ describe("account actions", () => {
     );
     expect(areReferralsEnabled).toHaveBeenCalledTimes(1);
     expect(storedIntent?.acknowledged).toBe(false);
-  });
-
-  test("returns the existing unavailable failure without reading account data when accounts are disabled", async () => {
-    areAccountsEnabled.mockResolvedValue(false);
-    const { completeCustomerProfile } = await importActions();
-
-    const result = await completeCustomerProfile({ firstName: "Ada" });
-
-    expect(result.serverError).toBe(
-      "We cannot reach your account right now. Reservations can still be made without an account."
-    );
-    expect(profileCalls).toHaveLength(0);
-    expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
-  });
-
-  test("applies the unavailable failure to profile updates when accounts are disabled", async () => {
-    areAccountsEnabled.mockResolvedValue(false);
-    const { updateCustomerProfile } = await importActions();
-
-    const result = await updateCustomerProfile({ firstName: "Ada" });
-
-    expect(result.serverError).toBe(
-      "We cannot reach your account right now. Reservations can still be made without an account."
-    );
-    expect(profileCalls).toHaveLength(0);
-    expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
   });
 
   test("saves the locale preference for the verified account", async () => {
@@ -881,11 +860,10 @@ describe("account actions", () => {
       m.accountDeletionPendingError({}, { locale: "en-US" })
     );
     expect(preferenceSaveCalls).toHaveLength(1);
-    expect(cookieWrites).toEqual([]);
+    expect(request.cookieWrites()).toEqual([]);
   });
 
-  test("deletes through the Better Auth endpoint and revalidates account and deleted paths", async () => {
-    areAccountsEnabled.mockResolvedValue(false);
+  test("deletes through the Better Auth endpoint and revalidates every account path", async () => {
     const seen: { body: object; headers: Headers }[] = [];
     deleteUser = async (args) => {
       seen.push(args);
@@ -898,8 +876,7 @@ describe("account actions", () => {
     expect(result).toEqual({ data: { status: "deleted" } });
     expect(seen).toHaveLength(1);
     expect(String(seen[0]!.headers.get("referer"))).toContain("deskohub.test");
-    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account");
-    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account/deleted");
+    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account", "layout");
   });
 
   test("asks for reauthentication when the delete endpoint reports a stale session", async () => {
@@ -952,6 +929,21 @@ describe("account actions", () => {
     expect(deleteUserCalls).toBe(0);
   });
 
+  test("reports a refusal when the endpoint refuses to delete a review account", async () => {
+    const { APIError } = await import("better-auth");
+    deleteUser = () => {
+      throw new APIError("FORBIDDEN", {
+        code: "REVIEW_ACCOUNT_DELETION_REFUSED",
+        message: "A review account can't be deleted.",
+      });
+    };
+    const { deleteCustomerAccount } = await importActions();
+
+    const result = await deleteCustomerAccount({ confirmed: true });
+
+    expect(result).toEqual({ data: { status: "refused" } });
+  });
+
   test("reports a retryable failure for other endpoint errors and keeps the account", async () => {
     const { APIError } = await import("better-auth");
     deleteUser = () => {
@@ -964,8 +956,7 @@ describe("account actions", () => {
     const result = await deleteCustomerAccount({ confirmed: true });
 
     expect(result).toEqual({ data: { status: "failed" } });
-    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account");
-    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account/deleted");
+    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account", "layout");
   });
 });
 
@@ -973,8 +964,6 @@ describe("account ARES business lookup action", () => {
   beforeEach(() => {
     profileCalls.length = 0;
     revalidatePath.mockClear();
-    areAccountsEnabled.mockReset();
-    areAccountsEnabled.mockResolvedValue(true);
     currentUser = Effect.succeed(activeSession);
     resolve = Effect.succeed({
       accountId: "@test/account-id",
@@ -1090,18 +1079,5 @@ describe("account ARES business lookup action", () => {
     );
     expect(lookupCalls).toHaveLength(0);
     expect(profileCalls).toHaveLength(0);
-  });
-
-  test("never looks up a company when accounts are disabled", async () => {
-    areAccountsEnabled.mockResolvedValue(false);
-    const { lookupAresBusiness } = await importActions();
-
-    const result = await lookupAresBusiness({ ico: "27082440" });
-
-    expect(result.serverError).toBe(
-      "We cannot reach your account right now. Reservations can still be made without an account."
-    );
-    expect(lookupCalls).toHaveLength(0);
-    expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
   });
 });

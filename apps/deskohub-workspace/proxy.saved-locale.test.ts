@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { LogRecord } from "@opentelemetry/api-logs";
 import { Effect } from "effect";
 import { NextRequest } from "next/server";
 import { CustomerAccountAccessError } from "@/features/account/customer-account";
 import { sealSyntheticCoworkPayState } from "@/features/checkout/backend/checkout/pay-state.test-utils";
 import { payStateTokenQueryParam } from "@/features/checkout/pay-state-token-query";
+import type { Locale } from "@/features/i18n";
 import { localeCookieName } from "@/features/i18n/routing";
 import { getReservationAccessCookieName } from "@/features/reservation/backend/reservation-access-cookie";
 import { createReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { reservationAccessTokenQueryParam } from "@/features/reservation/reservation-access-token";
+import { captureWorkspaceLogs } from "@/shared/testing/workspace-telemetry.test-utils";
 
 // The saved preference goes through the real reader over a fake session read
 // that answers from the request headers the proxy provides.
@@ -41,23 +42,15 @@ mock.module(
   })
 );
 
-const emittedLogRecords: LogRecord[] = [];
-mock.module("@/instrumentation", () => ({
-  postHogLoggerProvider: {
-    forceFlush: () => Promise.resolve(),
-    getLogger: () => ({
-      emit: (record: LogRecord) => {
-        emittedLogRecords.push(record);
-      },
-    }),
-  },
-}));
+const workspaceLogs = captureWorkspaceLogs();
 const reportedVerifyFailures = () =>
-  emittedLogRecords.filter((record) =>
-    JSON.stringify(record).includes(
-      "i18n.locale-bound-continuation.verify-failed"
-    )
-  );
+  workspaceLogs
+    .records()
+    .filter((record) =>
+      JSON.stringify(record).includes(
+        "i18n.locale-bound-continuation.verify-failed"
+      )
+    );
 
 const { proxy } = await import("./proxy");
 
@@ -66,7 +59,7 @@ beforeEach(() => {
   reader.fake.sessionReadFailure = undefined;
   reader.fake.sessionReads.length = 0;
   verifierThrows = false;
-  emittedLogRecords.length = 0;
+  workspaceLogs.reset();
 });
 
 const request = (
@@ -164,7 +157,7 @@ describe("signed-in customer's saved language preference", () => {
   });
 
   const invoiceOrderId = workspaceReservationIdSchema.make("reservation-id");
-  const invoiceToken = (locale: "cs-CZ" | "en-US", orderId = invoiceOrderId) =>
+  const invoiceToken = (locale: Locale, orderId = invoiceOrderId) =>
     encodeURIComponent(
       Effect.runSync(createReservationAccessToken({ orderId, locale }))
     );

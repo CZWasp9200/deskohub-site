@@ -1,3 +1,5 @@
+import "@/shared/testing/workspace-test-env";
+
 import { expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "@/scripts/shared/command";

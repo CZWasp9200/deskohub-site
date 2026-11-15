@@ -1,8 +1,8 @@
 import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
-import { expect, mock } from "bun:test";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
+import type { Passkey } from "@better-auth/passkey";
 import type {
   Account,
   RateLimit,
@@ -12,25 +12,23 @@ import type {
 } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Cause, Effect, Layer } from "effect";
+import { Cause, Effect } from "effect";
 import * as SqlError from "effect/unstable/sql/SqlError";
 import { makeAuthDatabase } from "@/db/auth-database-client";
-import { WorkspaceDatabase } from "@/db/database.service";
-import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
+import { drizzleAuthTables } from "@/db/schema/auth";
 import {
-  authAccount,
-  authRateLimit,
-  authSession,
-  authUser,
-  authVerification,
-} from "@/db/schema/auth";
-import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { captureAccountLocalePreference } from "../customer-locale-preference";
+  connectWorkspacePostgresTestDatabase,
+  type WorkspacePostgresTestDatabase,
+} from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { captureWorkspaceLogs } from "@/shared/testing/workspace-telemetry.test-utils";
+import { ensureCustomerAccount } from "../customer-account.repository";
+import type { AuthHookServiceOverrides } from "./auth-hook-services.test-utils";
 import type {
   MagicLinkSendFunction,
   SignInEmail,
   WorkspaceAuthConfig,
 } from "./auth-server";
+import { nativeAppOrigin } from "./native-app";
 
 /**
  * The Workspace Better Auth instance under test, against the migrated
@@ -38,16 +36,17 @@ import type {
  * HTTP helpers its handler tests share.
  */
 
-export const emitWorkspaceLog = mock(() => undefined);
+/** The Workspace logs the auth handler's runs send. */
+export const workspaceLogs = captureWorkspaceLogs();
 
-mock.module("@/instrumentation", () => ({
-  postHogLoggerProvider: {
-    forceFlush: () => Promise.resolve(),
-    getLogger: () => ({ emit: emitWorkspaceLog }),
-  },
-}));
-
+// Imported after the instrumentation mock: the hooks' capabilities load the
+// Workspace runner, which reads the logger provider when it loads.
 const { makeWorkspaceAuth } = await import("./auth-server");
+const { memoryAuthHookServices, postgresAuthHookServices } = await import(
+  "./auth-hook-services.test-utils"
+);
+export const { testAccountDeletion, unavailableFlag, unbuildableFlagProvider } =
+  await import("./auth-hook-services.test-utils");
 
 export const testDatabase = await connectWorkspacePostgresTestDatabase();
 
@@ -65,54 +64,40 @@ export interface CapturedMagicLink {
 
 export type TestAuth = ReturnType<typeof makeTestAuth>;
 
-export const buildDatabaseAdapter = () =>
-  drizzleAdapter(makeAuthDatabase(testDatabase!.pool), {
+/** The Postgres adapter, on the migrated disposable database by default. */
+export const buildDatabaseAdapter = (pool = testDatabase!.pool) =>
+  drizzleAdapter(makeAuthDatabase(pool), {
     provider: "pg",
-    schema: {
-      user: authUser,
-      session: authSession,
-      account: authAccount,
-      verification: authVerification,
-      rateLimit: authRateLimit,
-    },
+    schema: drizzleAuthTables,
     schemaName: "auth",
   });
 
-export type TestAuthOptions = {
+export type TestAuthOptions = AuthHookServiceOverrides & {
+  /**
+   * The migrated database the logins and their Workspace records live in,
+   * the configured test database by default. A suite database keeps them
+   * beside the suite's other rows.
+   */
+  readonly postgres?: WorkspacePostgresTestDatabase;
+  /** Another store; its logins keep no Workspace records. */
   readonly database?: WorkspaceAuthConfig["database"];
   readonly secrets?: { readonly version: number; readonly value: string }[];
   readonly sentLinks?: CapturedMagicLink[];
-  readonly areAccountsEnabled?: WorkspaceAuthConfig["areAccountsEnabled"];
-  readonly isSignInCodeEnabled?: WorkspaceAuthConfig["isSignInCodeEnabled"];
-  readonly verifyHuman?: WorkspaceAuthConfig["verifyHuman"];
-  readonly beforeDeleteUser?: WorkspaceAuthConfig["beforeDeleteUser"];
-  readonly captureAccountLocalePreference?: WorkspaceAuthConfig["captureAccountLocalePreference"];
+  readonly accountDeletion?: WorkspaceAuthConfig["accountDeletion"];
+  readonly nativeAppLinkOrigin?: WorkspaceAuthConfig["nativeAppLinkOrigin"];
+  readonly passkeyRelyingParty?: WorkspaceAuthConfig["passkeyRelyingParty"];
+  readonly clientMetadataTransport?: WorkspaceAuthConfig["clientMetadataTransport"];
+  readonly reviewAccountCredentials?: WorkspaceAuthConfig["reviewAccountCredentials"];
 };
 
-/** The real sign-in capture against the migrated disposable database. */
-const realCapture: WorkspaceAuthConfig["captureAccountLocalePreference"] = (
-  accountId,
-  locale
-) =>
-  captureAccountLocalePreference(accountId, locale).pipe(
-    Effect.provide(
-      Layer.succeed(
-        WorkspaceDatabase,
-        WorkspaceDatabase.of({ db: testDatabase!.db })
-      )
-    )
-  );
-
-/** The production advisory lock on the migrated disposable database. */
-const realSignInEmailLock: WorkspaceAuthConfig["withSignInEmailLock"] = (
-  key,
-  effect
-) =>
-  Effect.flatMap(WorkspaceDatabaseAdvisoryLock, (advisoryLock) =>
-    advisoryLock.withLock(key, effect)
-  ).pipe(
-    Effect.provide(WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool))
-  );
+/**
+ * The real durable-account creation against the migrated disposable database,
+ * which an adapter wrapping the Postgres one needs before every login insert.
+ */
+export const realCreateCustomerAccount: NonNullable<
+  TestAuthOptions["createCustomerAccount"]
+> = (accountId) =>
+  ensureCustomerAccount(accountId).pipe(Effect.provide(testDatabase!.layer));
 
 /** A database failure the sign-in capture sees. */
 export const captureFailure = () =>
@@ -134,30 +119,29 @@ export const makeTestAuth = (options: TestAuthOptions = {}) => {
   const sendMagicLink: MagicLinkSendFunction = (data) => {
     options.sentLinks?.push(data);
   };
-  const captureAccountLocalePreference:
-    | WorkspaceAuthConfig["captureAccountLocalePreference"]
-    | undefined =
-    options.captureAccountLocalePreference ??
-    // The real capture requires the migrated disposable Postgres, so
-    // memory-backed auth instances default to a noop capture.
-    (testDatabase && !options.database ? realCapture : () => Effect.void);
-  // Memory-backed instances run in one process with no Postgres to lock.
-  const withSignInEmailLock: WorkspaceAuthConfig["withSignInEmailLock"] =
-    testDatabase && !options.database
-      ? realSignInEmailLock
-      : (_key, effect) => effect;
+  const postgres = options.postgres ?? testDatabase;
   return makeWorkspaceAuth({
-    database: options.database ?? buildDatabaseAdapter(),
+    database: options.database ?? buildDatabaseAdapter(postgres!.pool),
     secrets: options.secrets ?? [{ version: 1, value: SECRET_V1 }],
     allowedHosts: [HOST],
+    nativeAppLinkOrigin: options.nativeAppLinkOrigin ?? `https://${HOST}`,
+    passkeyRelyingParty: options.passkeyRelyingParty ?? {
+      rpID: HOST,
+      origins: [`https://${HOST}`],
+    },
+    customerMcpResource: `https://${HOST}/api/mcp`,
+    clientMetadataTransport: options.clientMetadataTransport,
     httpsOnly: true,
-    areAccountsEnabled: options.areAccountsEnabled ?? (async () => true),
-    isSignInCodeEnabled: options.isSignInCodeEnabled ?? (async () => false),
-    verifyHuman: options.verifyHuman ?? (() => Effect.void),
-    withSignInEmailLock,
+    reviewAccountCredentials: options.reviewAccountCredentials ?? [],
     sendMagicLink,
-    beforeDeleteUser: options.beforeDeleteUser ?? (() => Effect.void),
-    captureAccountLocalePreference,
+    // The real capabilities need the migrated disposable Postgres behind the
+    // default store; any other store gets capabilities that keep no
+    // Workspace records.
+    services:
+      postgres && !options.database
+        ? postgresAuthHookServices(postgres, options)
+        : memoryAuthHookServices(options),
+    accountDeletion: options.accountDeletion ?? testAccountDeletion(),
   });
 };
 
@@ -167,18 +151,41 @@ type MemoryAuthStore = {
   readonly account: Account[];
   readonly verification: Verification[];
   readonly rateLimit: RateLimit[];
+  readonly passkey: Passkey[];
+  readonly oauthClient: unknown[];
+  readonly oauthResource: unknown[];
+  readonly oauthClientResource: unknown[];
+  readonly oauthRefreshToken: unknown[];
+  readonly oauthAccessToken: unknown[];
+  readonly oauthConsent: unknown[];
+  readonly oauthClientAssertion: unknown[];
 };
+
+/**
+ * An empty in-memory store with every model the Workspace instance uses. The
+ * OAuth provider seeds the MCP resource when the instance starts, so the
+ * store needs its models even in tests that never authorize an agent.
+ */
+export const makeMemoryAuthStore = (): MemoryAuthStore => ({
+  user: [],
+  session: [],
+  account: [],
+  verification: [],
+  rateLimit: [],
+  passkey: [],
+  oauthClient: [],
+  oauthResource: [],
+  oauthClientResource: [],
+  oauthRefreshToken: [],
+  oauthAccessToken: [],
+  oauthConsent: [],
+  oauthClientAssertion: [],
+});
 
 export const makeMemoryTestAuth = (
   options: Omit<TestAuthOptions, "database"> = {}
 ) => {
-  const store: MemoryAuthStore = {
-    user: [],
-    session: [],
-    account: [],
-    verification: [],
-    rateLimit: [],
-  };
+  const store = makeMemoryAuthStore();
   const auth = makeTestAuth({
     ...options,
     database: memoryAdapter(store),
@@ -202,11 +209,37 @@ export const callHandler = (
     })
   );
 
+/**
+ * Calls the handler as the native app's Better Auth Expo client does: no
+ * browser `Origin` header, and the app scheme in `expo-origin`, which the
+ * Expo server plugin turns into the origin. Pass `null` to send neither.
+ */
+export const callNativeHandler = (
+  auth: TestAuth,
+  path: string,
+  init: RequestInit = {},
+  expoOrigin: string | null = nativeAppOrigin
+) => {
+  const headers = new Headers(init.headers);
+  if (!headers.has("x-vercel-forwarded-for")) {
+    headers.set("x-vercel-forwarded-for", "192.0.2.1");
+  }
+  if (expoOrigin !== null) headers.set("expo-origin", expoOrigin);
+  return auth.handler(
+    new Request(`https://${HOST}/api/auth${path}`, { ...init, headers })
+  );
+};
+
 const runIpOctet = Math.floor(Math.random() * 200) + 20;
 let ipCounter = 0;
+/**
+ * A private IPv4 address no other request of this run used. The run's octet
+ * keeps concurrent runs apart; the counter spans two octets, so a suite can
+ * make more than 255 requests and every address stays valid.
+ */
 export const uniqueIp = () => {
   ipCounter += 1;
-  return `172.16.${runIpOctet}.${ipCounter}`;
+  return `172.${16 + Math.floor(ipCounter / 256)}.${runIpOctet}.${ipCounter % 256}`;
 };
 
 const runCustomerPrefix = Math.floor(Math.random() * 900000) + 100000;
@@ -240,8 +273,11 @@ export const getSessionCookie = (response: Response) =>
 
 export const cookieJar = (setCookie: string) => setCookie.split(";")[0]!;
 
-export const userIdForEmail = async (email: string) => {
-  const result = await testDatabase!.pool.query(
+export const userIdForEmail = async (
+  email: string,
+  postgres = testDatabase!
+) => {
+  const result = await postgres.pool.query(
     `select id from auth."user" where email = $1`,
     [email]
   );
@@ -250,10 +286,11 @@ export const userIdForEmail = async (email: string) => {
 
 export const linkAccount = async (
   userId: string,
-  dotyposCustomerId: string
+  dotyposCustomerId: string,
+  postgres = testDatabase!
 ) => {
-  await testDatabase!.pool.query(
-    `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
+  await postgres.pool.query(
+    `update customer_accounts set dotypos_customer_id = $2 where id = $1`,
     [userId, dotyposCustomerId]
   );
 };
@@ -269,10 +306,3 @@ export const verifyMagicLink = (
   callHandler(auth, verifyLinkPath(link), {
     headers: { "x-vercel-forwarded-for": ip },
   });
-
-export const expectAccountsUnavailable = async (response: Response) => {
-  expect(response.status).toBe(503);
-  expect(await response.text()).toBe(
-    JSON.stringify({ message: "Service Unavailable" })
-  );
-};

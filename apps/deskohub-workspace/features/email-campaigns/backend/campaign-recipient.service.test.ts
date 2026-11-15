@@ -3,12 +3,22 @@ import {
   type DotyposCustomer,
   type DotyposCustomerId,
   DotyposCustomerIdSchema,
-  NetworkError,
+  DotyposUnavailable,
 } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
-import { testEmailAddress } from "@deskohub/test-email";
-import { Cause, Effect, Exit, Layer } from "effect";
+import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
+import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
+import { Cause, Effect, Exit, Layer, Option } from "effect";
 import type { AudienceFilter } from "../audience-filter";
+import { campaignIdSchema } from "../campaign-identifiers";
+import { ensureCampaignRecipientsAllowed } from "../recipient-domain-guard";
+import {
+  type AudienceEvaluationContext,
+  AudienceFactSource,
+  type AudienceFactSource as AudienceFactSourceType,
+  AudienceScope,
+  audienceEvaluationAt,
+} from "./audience-evaluation-context";
 import { AudienceFactsService } from "./audience-facts.service";
 import {
   type CampaignCandidateFacts,
@@ -60,18 +70,31 @@ const resolve = async (input: {
   /** Received campaign emails per customer, for any query. */
   readonly receivedEmails?: ReadonlyMap<DotyposCustomerId, number>;
   readonly dotypos?: Parameters<typeof DotyposServiceMock>[0];
+  readonly scope?: AudienceScope;
+  readonly context?: AudienceEvaluationContext;
+  readonly facts?: AudienceFactSourceType;
 }) => {
   const listCandidates = mock(() => Effect.succeed(input.candidates));
   const countReceivedCampaignEmails = mock(() =>
     Effect.succeed(input.receivedEmails ?? new Map())
   );
-  const getCustomers = mock(
-    ({ ids }: { readonly ids: readonly DotyposCustomerId[] }) =>
-      Effect.succeed(
-        (input.customers ?? []).filter(
-          ({ id }) => id !== undefined && ids.includes(id)
-        )
+  const getCustomers = mock((ids: readonly DotyposCustomerId[]) =>
+    Effect.succeed(
+      (input.customers ?? []).filter(
+        ({ id }) => id !== undefined && ids.includes(id)
       )
+    ).pipe(
+      Effect.map(
+        (customers) =>
+          new Map(
+            customers.flatMap((customer) =>
+              customer.id === undefined
+                ? []
+                : [[customer.id, customer] as const]
+            )
+          )
+      )
+    )
   );
   const exit = await Effect.runPromiseExit(
     CampaignRecipientService.pipe(
@@ -79,6 +102,9 @@ const resolve = async (input: {
         service.resolve({
           purpose: input.purpose ?? "operational",
           filter: input.filter ?? everyone,
+          ...(input.scope && { scope: input.scope }),
+          ...(input.context && { context: input.context }),
+          ...(input.facts && { facts: input.facts }),
         })
       )
     ).pipe(
@@ -91,7 +117,10 @@ const resolve = async (input: {
                 listCandidates,
                 countReceivedCampaignEmails,
               }),
-              DotyposServiceMock({ getCustomers, ...input.dotypos })
+              DotyposServiceMock({
+                getCustomersByIds: getCustomers,
+                ...input.dotypos,
+              })
             )
           )
         )
@@ -113,6 +142,57 @@ describe("CampaignRecipientService.resolve", () => {
       purpose: "marketing",
     });
     expect(listCandidates).toHaveBeenCalledWith({ purpose: "marketing" });
+  });
+
+  test("limits the candidates and counts to a customer scope", async () => {
+    const { listCandidates, countReceivedCampaignEmails } = await resolve({
+      candidates: [],
+      purpose: "marketing",
+      scope: AudienceScope.Customers({ ids: [customerId("1")] }),
+      filter: {
+        attribute: "campaignEmailCount",
+        _tag: "Condition",
+        params: { purpose: "any", period: { _tag: "AnyTime" } },
+        operator: "eq",
+        value: 0,
+      },
+    });
+    expect(listCandidates).toHaveBeenCalledWith({
+      purpose: "marketing",
+      ids: [customerId("1")],
+    });
+    expect(countReceivedCampaignEmails).toHaveBeenCalledWith({
+      dispatched: {},
+      customers: [customerId("1")],
+    });
+  });
+
+  test("evaluates in the given context", async () => {
+    const campaignId = campaignIdSchema.make("campaign-1");
+    const { countReceivedCampaignEmails } = await resolve({
+      candidates: [],
+      context: {
+        ...audienceEvaluationAt(Temporal.Instant.from("2026-10-15T10:00:00Z")),
+        campaignId: Option.some(campaignId),
+      },
+      filter: {
+        attribute: "campaignEmailCount",
+        _tag: "Condition",
+        params: {
+          purpose: "any",
+          period: { _tag: "Past" },
+          campaign: { _tag: "This" },
+        },
+        operator: "eq",
+        value: 0,
+      },
+    });
+    expect(countReceivedCampaignEmails).toHaveBeenCalledWith({
+      campaignId,
+      dispatched: {
+        startsAtOrBefore: Temporal.Instant.from("2026-10-15T10:00:00Z"),
+      },
+    });
   });
 
   test("resolves the recipient locale from account, reservation, consent, then Czech", async () => {
@@ -148,7 +228,7 @@ describe("CampaignRecipientService.resolve", () => {
       },
     });
     expect(getCustomers).toHaveBeenCalledTimes(1);
-    expect(getCustomers.mock.calls[0]?.[0].ids).toEqual(["1"]);
+    expect(getCustomers.mock.calls[0]?.[0]).toEqual(["1"]);
     expect(
       resolution(exit).recipients.map(
         ({ dotyposCustomerId }) => dotyposCustomerId
@@ -156,7 +236,7 @@ describe("CampaignRecipientService.resolve", () => {
     ).toEqual(["1"]);
   });
 
-  test("hydrates survivors sequentially in chunks of 100", async () => {
+  test("delegates the full survivor selection to the sequential ID read", async () => {
     const candidates = Array.from({ length: 250 }, (_, index) =>
       facts(String(index).padStart(3, "0"))
     );
@@ -166,9 +246,7 @@ describe("CampaignRecipientService.resolve", () => {
         customer(dotyposCustomerId)
       ),
     });
-    expect(getCustomers.mock.calls.map(([{ ids }]) => ids.length)).toEqual([
-      100, 100, 50,
-    ]);
+    expect(getCustomers.mock.calls.map(([ids]) => ids.length)).toEqual([250]);
   });
 
   test("applies Dotypos tag and discount-group conditions after hydration", async () => {
@@ -217,6 +295,40 @@ describe("CampaignRecipientService.resolve", () => {
     ).toEqual(["1", "2"]);
   });
 
+  test("uses fetched profiles for tags and excludes customers absent from Dotypos", async () => {
+    const { exit, getCustomers } = await resolve({
+      candidates: [facts("1"), facts("2"), facts("3")],
+      facts: AudienceFactSource.Fetched({
+        visits: Option.none(),
+        profiles: Option.some(
+          new Map<DotyposCustomerId, DotyposCustomer>([
+            [customerId("1"), customer("1", { tags: ["vip"] })],
+            [customerId("2"), customer("2", { tags: [] })],
+          ])
+        ),
+      }),
+      filter: {
+        attribute: "dotyposTags",
+        _tag: "Condition",
+        operator: "anyOf",
+        value: ["vip"],
+      },
+    });
+
+    expect(getCustomers).not.toHaveBeenCalled();
+    expect(
+      resolution(exit).recipients.map(
+        ({ dotyposCustomerId }) => dotyposCustomerId
+      )
+    ).toEqual([customerId("1")]);
+    expect(resolution(exit).exclusions).toEqual([
+      {
+        dotyposCustomerId: customerId("3"),
+        reason: "missing-from-dotypos",
+      },
+    ]);
+  });
+
   test("lists matching customers it can't reach with a reason", async () => {
     const { exit } = await resolve({
       candidates: ["1", "2", "3", "4", "5"].map((id) => facts(id)),
@@ -237,6 +349,46 @@ describe("CampaignRecipientService.resolve", () => {
     expect(
       recipients.map(({ dotyposCustomerId }) => dotyposCustomerId)
     ).toEqual(["5"]);
+  });
+
+  test("keeps a reachable address outside the test domain, so a preview send refuses the whole list", async () => {
+    const outside = resendSimulatorAddress("delivered");
+    const { exit } = await resolve({
+      candidates: ["1", "2"].map((id) => facts(id)),
+      customers: [customer("1"), customer("2", { email: outside })],
+    });
+    const { recipients, exclusions } = resolution(exit);
+    expect(exclusions).toEqual([]);
+    expect(recipients.map(({ email }) => email)).toEqual([
+      testEmailAddress("customer-1"),
+      outside,
+    ]);
+    const emails = recipients.map(({ email }) => email);
+    expect(
+      Effect.runSyncExit(
+        ensureCampaignRecipientsAllowed({
+          deploymentEnvironment: "preview",
+          emails,
+        })
+      )
+    ).toEqual(
+      Exit.fail(
+        expect.objectContaining({
+          _tag: "CampaignRecipientsOutsideTestDomain",
+          recipientCount: 1,
+        })
+      )
+    );
+    expect(
+      Exit.isSuccess(
+        Effect.runSyncExit(
+          ensureCampaignRecipientsAllowed({
+            deploymentEnvironment: "production",
+            emails,
+          })
+        )
+      )
+    ).toBe(true);
   });
 
   test("mails one record per address and reports the duplicate group", async () => {
@@ -307,8 +459,19 @@ describe("CampaignRecipientService.resolve", () => {
     const { exit } = await resolve({
       candidates: [facts("1"), facts("2")],
       dotypos: {
-        getCustomers: () =>
-          Effect.fail(new NetworkError({ message: "connection reset" })),
+        getCustomersByIds: (ids) =>
+          Effect.fail(
+            new DotyposUnavailable({
+              operation: "getCustomersByIds",
+              reason: "transport",
+            })
+          ).pipe(
+            Effect.flatMap((records) =>
+              makeInMemoryDotypos({
+                customers: records,
+              }).service.getCustomersByIds(ids)
+            )
+          ),
       },
     });
     expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({

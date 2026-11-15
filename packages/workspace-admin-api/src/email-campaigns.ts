@@ -1,13 +1,17 @@
-import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { Effect, Schema } from "effect";
 import { AudienceFilter } from "./audience-filter";
+import { AdministrationCampaignBodyDocument } from "./campaign-body-document";
+import {
+  AdministrationCampaignAudienceId,
+  AdministrationCampaignId,
+} from "./campaign-identifiers";
 import {
   AdministrationCampaignLocale,
   AdministrationCampaignPurpose,
 } from "./campaign-locale-and-purpose";
+import { DhwVersion } from "./dhw-version";
 import {
   AdministrationDotyposCustomerId,
-  CliBearerAuthentication,
   CliInputInvalid,
   CliMutationInProgress,
   CliMutationRejected,
@@ -19,23 +23,6 @@ import {
 const strictParseOptions = {
   parseOptions: { errors: "all", onExcessProperty: "error" },
 } as const;
-
-export const AdministrationCampaignId = Schema.NonEmptyString.pipe(
-  Schema.brand("CampaignId")
-).annotate({
-  identifier: "CampaignId",
-  description: "Database-generated identifier of one email campaign.",
-});
-export type AdministrationCampaignId = typeof AdministrationCampaignId.Type;
-
-export const AdministrationCampaignAudienceId = Schema.NonEmptyString.pipe(
-  Schema.brand("CampaignAudienceId")
-).annotate({
-  identifier: "CampaignAudienceId",
-  description: "Database-generated identifier of one saved campaign audience.",
-});
-export type AdministrationCampaignAudienceId =
-  typeof AdministrationCampaignAudienceId.Type;
 
 export const AdministrationCampaignSendId = Schema.NonEmptyString.pipe(
   Schema.brand("CampaignSendId")
@@ -51,11 +38,23 @@ export const AdministrationCampaignTemplateKey = Schema.Literals(["workspace"]);
 export type AdministrationCampaignTemplateKey =
   typeof AdministrationCampaignTemplateKey.Type;
 
+/** Chosen at creation and never changed. */
+export const AdministrationCampaignDelivery = Schema.Literals([
+  "once",
+  "automated",
+]);
+export type AdministrationCampaignDelivery =
+  typeof AdministrationCampaignDelivery.Type;
+
+/** One-off statuses, then the statuses only an automated campaign has. */
 export const AdministrationCampaignStatus = Schema.Literals([
   "draft",
   "sending",
   "sent",
   "failed",
+  "active",
+  "paused",
+  "archived",
 ]);
 export type AdministrationCampaignStatus =
   typeof AdministrationCampaignStatus.Type;
@@ -87,6 +86,14 @@ export type AdministrationCampaignRecipientSkipReason =
 
 const AdministrationCampaignTitle = Schema.Trim.check(Schema.isNonEmpty());
 
+export const administrationCampaignAudienceTitleMaxLength = 120;
+
+/** A trimmed, non-empty audience title of at most 120 characters. */
+export const AdministrationCampaignAudienceTitle = Schema.Trim.check(
+  Schema.isNonEmpty(),
+  Schema.isMaxLength(administrationCampaignAudienceTitleMaxLength)
+);
+
 export const AdministrationCampaignAudience = Schema.Struct({
   id: AdministrationCampaignAudienceId,
   title: Schema.String,
@@ -99,7 +106,7 @@ export type AdministrationCampaignAudience =
   typeof AdministrationCampaignAudience.Type;
 
 export const AdministrationCampaignAudienceInput = Schema.Struct({
-  title: AdministrationCampaignTitle,
+  title: AdministrationCampaignAudienceTitle,
   filter: AudienceFilter,
 }).annotate(strictParseOptions);
 export type AdministrationCampaignAudienceInput =
@@ -110,11 +117,21 @@ export const AdministrationCampaignAudienceCreateRequest = Schema.Struct({
   requestId: CliMutationRequestId,
   audience: AdministrationCampaignAudienceInput,
 }).annotate(strictParseOptions);
+export const AdministrationCampaignAudiences = Schema.Array(
+  AdministrationCampaignAudience
+);
+
+export const AdministrationCampaignAudienceDeleted = Schema.Struct({
+  id: AdministrationCampaignAudienceId,
+});
+export type AdministrationCampaignAudienceDeleted =
+  typeof AdministrationCampaignAudienceDeleted.Type;
+
 export type AdministrationCampaignAudienceCreateRequest =
   typeof AdministrationCampaignAudienceCreateRequest.Type;
 
 export const AdministrationCampaignAudienceUpdate = Schema.Struct({
-  title: Schema.optionalKey(AdministrationCampaignTitle),
+  title: Schema.optionalKey(AdministrationCampaignAudienceTitle),
   filter: Schema.optionalKey(AudienceFilter),
 }).annotate(strictParseOptions);
 export type AdministrationCampaignAudienceUpdate =
@@ -128,9 +145,22 @@ export const AdministrationCampaignTemplate = Schema.Struct({
 export type AdministrationCampaignTemplate =
   typeof AdministrationCampaignTemplate.Type;
 
+export const AdministrationCampaignTemplates = Schema.Array(
+  AdministrationCampaignTemplate
+);
+
 const AdministrationCampaignOperationalReason = Schema.Trim.check(
   Schema.isNonEmpty()
 );
+
+const localeTexts = {
+  subject: Schema.String,
+  preheader: Schema.String,
+  /** Replaces an operational campaign's footer reason line. */
+  operationalReason: Schema.optionalKey(
+    AdministrationCampaignOperationalReason
+  ),
+};
 
 /**
  * One locale's texts. The body is Markdown; a line
@@ -138,16 +168,31 @@ const AdministrationCampaignOperationalReason = Schema.Trim.check(
  * and validates it, and exports stored bodies back to Markdown.
  */
 export const AdministrationCampaignLocaleContent = Schema.Struct({
-  subject: Schema.String,
-  preheader: Schema.String,
+  ...localeTexts,
   bodyMarkdown: Schema.String,
-  /** Replaces an operational campaign's footer reason line. */
-  operationalReason: Schema.optionalKey(
-    AdministrationCampaignOperationalReason
-  ),
 }).annotate(strictParseOptions);
 export type AdministrationCampaignLocaleContent =
   typeof AdministrationCampaignLocaleContent.Type;
+
+/**
+ * One locale's texts with the body as the editor's document, which keeps
+ * everything the editor holds. Markdown can't: it re-reads typed text such
+ * as a leading `# ` as formatting.
+ */
+export const AdministrationCampaignEditorLocaleContent = Schema.Struct({
+  ...localeTexts,
+  bodyDocument: AdministrationCampaignBodyDocument,
+}).annotate(strictParseOptions);
+export type AdministrationCampaignEditorLocaleContent =
+  typeof AdministrationCampaignEditorLocaleContent.Type;
+
+/** One locale's texts as a writer gives them: a Markdown or document body. */
+export const AdministrationCampaignLocaleContentInput = Schema.Union([
+  AdministrationCampaignLocaleContent,
+  AdministrationCampaignEditorLocaleContent,
+]);
+export type AdministrationCampaignLocaleContentInput =
+  typeof AdministrationCampaignLocaleContentInput.Type;
 
 /** Per-locale campaign texts; a locale without content is absent. */
 export const AdministrationCampaignContent = Schema.Record(
@@ -157,11 +202,23 @@ export const AdministrationCampaignContent = Schema.Record(
 export type AdministrationCampaignContent =
   typeof AdministrationCampaignContent.Type;
 
+/** Per-locale texts a new campaign starts with; a locale without content is absent. */
+export const AdministrationCampaignContentInput = Schema.Record(
+  AdministrationCampaignLocale,
+  Schema.optionalKey(AdministrationCampaignLocaleContentInput)
+);
+export type AdministrationCampaignContentInput =
+  typeof AdministrationCampaignContentInput.Type;
+
 export const AdministrationCampaignSummary = Schema.Struct({
   id: AdministrationCampaignId,
   title: Schema.String,
   purpose: AdministrationCampaignPurpose,
   templateKey: AdministrationCampaignTemplateKey,
+  /** Servers and stored results that predate automated campaigns omit it. */
+  delivery: AdministrationCampaignDelivery.pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed("once" as const))
+  ),
   status: AdministrationCampaignStatus,
   audienceId: Schema.NullOr(AdministrationCampaignAudienceId),
   locales: Schema.Array(AdministrationCampaignLocale),
@@ -178,15 +235,38 @@ export const AdministrationCampaignDetail = Schema.Struct({
 export type AdministrationCampaignDetail =
   typeof AdministrationCampaignDetail.Type;
 
+/** A campaign with its texts as the editor holds them. */
+export const AdministrationCampaignEditorContent = Schema.Struct({
+  ...AdministrationCampaignSummary.fields,
+  content: Schema.Record(
+    AdministrationCampaignLocale,
+    Schema.optionalKey(AdministrationCampaignEditorLocaleContent)
+  ),
+});
+export type AdministrationCampaignEditorContent =
+  typeof AdministrationCampaignEditorContent.Type;
+
 export const AdministrationCampaignCreateInput = Schema.Struct({
   title: AdministrationCampaignTitle,
   purpose: AdministrationCampaignPurpose,
   templateKey: AdministrationCampaignTemplateKey,
+  /** `once` when omitted. */
+  delivery: Schema.optionalKey(AdministrationCampaignDelivery),
   audienceId: Schema.NullOr(AdministrationCampaignAudienceId),
-  content: AdministrationCampaignContent,
+  content: AdministrationCampaignContentInput,
 }).annotate(strictParseOptions);
 export type AdministrationCampaignCreateInput =
   typeof AdministrationCampaignCreateInput.Type;
+
+export const AdministrationCampaignSummaries = Schema.Array(
+  AdministrationCampaignSummary
+);
+
+export const AdministrationCampaignDeleted = Schema.Struct({
+  id: AdministrationCampaignId,
+});
+export type AdministrationCampaignDeleted =
+  typeof AdministrationCampaignDeleted.Type;
 
 /** The request ID makes a retried creation replay the first one's draft. */
 export const AdministrationCampaignCreateRequest = Schema.Struct({
@@ -206,16 +286,27 @@ export type AdministrationCampaignDuplicateRequest =
 /**
  * Changes to one locale's texts. Omitted fields keep their value; a null
  * `operationalReason` restores the default reason line. A locale the
- * campaign has no content for yet needs a subject and a body.
+ * campaign has no content for yet needs a subject and a body, given as
+ * `bodyMarkdown` or `bodyDocument` but not both.
  */
 export const AdministrationCampaignLocaleContentChange = Schema.Struct({
   subject: Schema.optionalKey(Schema.String),
   preheader: Schema.optionalKey(Schema.String),
   bodyMarkdown: Schema.optionalKey(Schema.String),
+  bodyDocument: Schema.optionalKey(AdministrationCampaignBodyDocument),
   operationalReason: Schema.optionalKey(
     Schema.NullOr(AdministrationCampaignOperationalReason)
   ),
-}).annotate(strictParseOptions);
+})
+  .check(
+    Schema.makeFilter(
+      (change) =>
+        change.bodyMarkdown === undefined ||
+        change.bodyDocument === undefined ||
+        "Give the body as bodyMarkdown or bodyDocument, not both."
+    )
+  )
+  .annotate(strictParseOptions);
 export type AdministrationCampaignLocaleContentChange =
   typeof AdministrationCampaignLocaleContentChange.Type;
 
@@ -242,12 +333,22 @@ export const AdministrationCampaignUpdateInput = Schema.Struct({
 export type AdministrationCampaignUpdateInput =
   typeof AdministrationCampaignUpdateInput.Type;
 
-/** Renders either unsaved texts or a saved campaign's locale in a template. */
+/**
+ * Renders unsaved texts, texts still being written, or a saved campaign's
+ * locale in a template. Unsaved `Content` must meet the rules saving applies;
+ * `UnfinishedContent` skips the body's content rules, so links, buttons and
+ * images may be incomplete or point anywhere.
+ */
 export const AdministrationCampaignTemplatePreviewInput = Schema.Union([
   Schema.TaggedStruct("Content", {
     purpose: AdministrationCampaignPurpose,
     locale: AdministrationCampaignLocale,
-    content: AdministrationCampaignLocaleContent,
+    content: AdministrationCampaignLocaleContentInput,
+  }).annotate(strictParseOptions),
+  Schema.TaggedStruct("UnfinishedContent", {
+    purpose: AdministrationCampaignPurpose,
+    locale: AdministrationCampaignLocale,
+    content: AdministrationCampaignLocaleContentInput,
   }).annotate(strictParseOptions),
   Schema.TaggedStruct("Campaign", {
     campaignId: AdministrationCampaignId,
@@ -300,6 +401,17 @@ export const AdministrationCampaignRecipientPreview = Schema.Struct({
 });
 export type AdministrationCampaignRecipientPreview =
   typeof AdministrationCampaignRecipientPreview.Type;
+
+/** The deployment's campaign settings a composer shows. */
+export const AdministrationCampaignSettings = Schema.Struct({
+  /**
+   * The inbox every test send reaches, or null where campaign email isn't
+   * configured; a test send then reports the missing settings.
+   */
+  testSendInbox: Schema.NullOr(Schema.String),
+});
+export type AdministrationCampaignSettings =
+  typeof AdministrationCampaignSettings.Type;
 
 /** Extra test recipients; the admin inbox is always included. */
 export const AdministrationCampaignTestSendInput = Schema.Struct({
@@ -387,7 +499,7 @@ export type AdministrationCampaignSendStatusResult =
  * applied under the same request ID (409), and an unavailable dependency
  * (503).
  */
-const campaignErrors = [
+export const campaignErrors = [
   CliInputInvalid.schema,
   CliMutationInProgress.schema,
   CliMutationRejected.schema,
@@ -395,192 +507,9 @@ const campaignErrors = [
   CliServiceUnavailable.schema,
 ];
 
-const campaignParams = { campaignId: AdministrationCampaignId };
-const audienceParams = { audienceId: AdministrationCampaignAudienceId };
-
-export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
-  .add(
-    HttpApiEndpoint.get("listCampaignAudiences", "/campaign-audiences", {
-      success: Schema.Array(AdministrationCampaignAudience),
-      error: campaignErrors,
-    })
-  )
-  .add(
-    HttpApiEndpoint.get(
-      "getCampaignAudience",
-      "/campaign-audiences/:audienceId",
-      {
-        params: audienceParams,
-        success: AdministrationCampaignAudience,
-        error: campaignErrors,
-      }
-    )
-  )
-  .add(
-    HttpApiEndpoint.post("createCampaignAudience", "/campaign-audiences", {
-      payload: AdministrationCampaignAudienceCreateRequest,
-      success: AdministrationCampaignAudience,
-      error: campaignErrors,
-    })
-  )
-  .add(
-    HttpApiEndpoint.patch(
-      "updateCampaignAudience",
-      "/campaign-audiences/:audienceId",
-      {
-        params: audienceParams,
-        payload: AdministrationCampaignAudienceUpdate,
-        success: AdministrationCampaignAudience,
-        error: campaignErrors,
-      }
-    )
-  )
-  .add(
-    HttpApiEndpoint.post(
-      "archiveCampaignAudience",
-      "/campaign-audiences/:audienceId/archive",
-      {
-        params: audienceParams,
-        success: AdministrationCampaignAudience,
-        error: campaignErrors,
-      }
-    )
-  )
-  .add(
-    HttpApiEndpoint.post(
-      "unarchiveCampaignAudience",
-      "/campaign-audiences/:audienceId/unarchive",
-      {
-        params: audienceParams,
-        success: AdministrationCampaignAudience,
-        error: campaignErrors,
-      }
-    )
-  )
-  .add(
-    HttpApiEndpoint.delete(
-      "deleteCampaignAudience",
-      "/campaign-audiences/:audienceId",
-      {
-        params: audienceParams,
-        success: Schema.Struct({ id: AdministrationCampaignAudienceId }),
-        error: campaignErrors,
-      }
-    )
-  )
-  .add(
-    HttpApiEndpoint.get("listCampaignTemplates", "/campaign-templates", {
-      success: Schema.Array(AdministrationCampaignTemplate),
-    })
-  )
-  .add(
-    HttpApiEndpoint.post(
-      "previewCampaignTemplate",
-      "/campaign-templates/:templateKey/preview",
-      {
-        params: { templateKey: AdministrationCampaignTemplateKey },
-        payload: AdministrationCampaignTemplatePreviewInput,
-        success: AdministrationCampaignEmailPreview,
-        error: campaignErrors,
-      }
-    )
-  )
-  .add(
-    HttpApiEndpoint.get("listCampaigns", "/campaigns", {
-      success: Schema.Array(AdministrationCampaignSummary),
-      error: campaignErrors,
-    })
-  )
-  .add(
-    HttpApiEndpoint.get("getCampaign", "/campaigns/:campaignId", {
-      params: campaignParams,
-      success: AdministrationCampaignDetail,
-      error: campaignErrors,
-    })
-  )
-  .add(
-    HttpApiEndpoint.post("createCampaign", "/campaigns", {
-      payload: AdministrationCampaignCreateRequest,
-      success: AdministrationCampaignDetail,
-      error: campaignErrors,
-    })
-  )
-  .add(
-    HttpApiEndpoint.patch("updateCampaign", "/campaigns/:campaignId", {
-      params: campaignParams,
-      payload: AdministrationCampaignUpdateInput,
-      success: AdministrationCampaignDetail,
-      error: campaignErrors,
-    })
-  )
-  .add(
-    HttpApiEndpoint.post(
-      "duplicateCampaign",
-      "/campaigns/:campaignId/duplicate",
-      {
-        params: campaignParams,
-        payload: AdministrationCampaignDuplicateRequest,
-        success: AdministrationCampaignDetail,
-        error: campaignErrors,
-      }
-    )
-  )
-  .add(
-    HttpApiEndpoint.delete("deleteCampaign", "/campaigns/:campaignId", {
-      params: campaignParams,
-      success: Schema.Struct({ id: AdministrationCampaignId }),
-      error: campaignErrors,
-    })
-  )
-  .add(
-    HttpApiEndpoint.get(
-      "previewCampaignRecipients",
-      "/campaigns/:campaignId/recipients",
-      {
-        params: campaignParams,
-        success: AdministrationCampaignRecipientPreview,
-        error: campaignErrors,
-      }
-    )
-  )
-  .add(
-    HttpApiEndpoint.post(
-      "testSendCampaign",
-      "/campaigns/:campaignId/test-send",
-      {
-        params: campaignParams,
-        payload: AdministrationCampaignTestSendInput,
-        success: AdministrationCampaignTestSendResult,
-        error: campaignErrors,
-      }
-    )
-  )
-  .add(
-    HttpApiEndpoint.post("sendCampaign", "/campaigns/:campaignId/send", {
-      params: campaignParams,
-      payload: AdministrationCampaignSendInput,
-      success: AdministrationCampaignSendResult,
-      error: campaignErrors,
-    })
-  )
-  .add(
-    HttpApiEndpoint.post("retryCampaign", "/campaigns/:campaignId/retry", {
-      params: campaignParams,
-      payload: AdministrationCampaignRetryInput,
-      success: AdministrationCampaignRetryResult,
-      error: campaignErrors,
-    })
-  )
-  .add(
-    HttpApiEndpoint.get(
-      "getCampaignSendStatus",
-      "/campaigns/:campaignId/status",
-      {
-        params: campaignParams,
-        success: AdministrationCampaignSendStatusResult,
-        error: campaignErrors,
-      }
-    )
-  )
-  .middleware(CliBearerAuthentication)
-  .prefix("/api/v1/cli");
+/**
+ * The first `dhw` release that decodes visit-end reservation counts. Older
+ * binaries cannot read these filters, so every campaign and audience
+ * operation, reads included, requires it.
+ */
+export const campaignsMinimumDhwVersion = DhwVersion.make("1.31.0");

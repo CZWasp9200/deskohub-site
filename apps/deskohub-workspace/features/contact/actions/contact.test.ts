@@ -4,6 +4,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import type { ContactFormValues } from "@/features/contact/schemas/contact";
 import { type Locale, m } from "@/features/i18n";
+import { customerAgentNames } from "@/shared/bot-protection/customer-agents";
 
 const adaEmail = testEmailAddress("ada");
 
@@ -74,7 +75,11 @@ describe("processContactSubmission", () => {
     await expect(Effect.runPromise(result.effect)).resolves.toMatchObject({
       status: "success",
     });
-    expect(verify).toHaveBeenCalledWith({ verificationFailurePolicy: "deny" });
+    expect(verify).toHaveBeenCalledWith({
+      verificationFailurePolicy: "deny",
+      verifiedBots: { allow: customerAgentNames },
+      callSite: "contact.submit",
+    });
     expect(order).toEqual(["bot", "submit"]);
     expect(submit).toHaveBeenCalledWith(
       { ...data, name: "Ada Lovelace" },
@@ -106,18 +111,42 @@ describe("processContactSubmission", () => {
     }
   });
 
-  test("maps detected bots to the localized rate-limit response", async () => {
+  test("reads a phone without a country calling code in the locale's region", async () => {
+    const germanMobile = { ...data, phone: "0151 23456789" };
+
+    const german = await execute(germanMobile, "de-DE");
+    expect(await Effect.runPromise(german.effect)).not.toMatchObject({
+      status: "error",
+    });
+    expect(german.submit).toHaveBeenCalledTimes(1);
+
+    const czech = await execute(germanMobile, "cs-CZ");
+    expect(await Effect.runPromise(czech.effect)).toMatchObject({
+      status: "error",
+      fieldErrors: { phone: expect.any(String) },
+    });
+    expect(czech.submit).not.toHaveBeenCalled();
+  });
+
+  test("maps detected bots to the automated-request response", async () => {
     const { BotDetectedError } = await import(
       "@/shared/backend/bot-protection/bot-protection.service"
     );
     const result = await execute(
       data,
       "en-US",
-      mock(() => Effect.fail(new BotDetectedError({ message: "blocked" })))
+      mock(() =>
+        Effect.fail(
+          new BotDetectedError({
+            message: "Automated request detected",
+            reason: "unverified_bot",
+          })
+        )
+      )
     );
     await expect(Effect.runPromise(result.effect)).resolves.toMatchObject({
       status: "error",
-      message: m.contactRateLimitMessage({}, { locale: "en-US" }),
+      message: m.automatedRequestRejected({}, { locale: "en-US" }),
       values: data,
     });
     expect(result.submit).not.toHaveBeenCalled();

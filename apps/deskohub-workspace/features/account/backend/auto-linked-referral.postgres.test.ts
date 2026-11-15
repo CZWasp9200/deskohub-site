@@ -19,20 +19,21 @@ import {
 import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
 import { ReferralService } from "@/features/referrals";
 import { parseReferralCode } from "@/features/referrals/client";
-import { ReferralFeatureFlagServiceMock } from "@/features/referrals/referral-feature-flag.service.mock";
+import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
+import { NoReviewAccounts } from "@/features/review-accounts/backend/review-accounts.repository.mock";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   type CustomerAccountId,
   customerAccountIdSchema,
 } from "../customer-account";
 import { acceptAutoLinkedReferral } from "./auto-linked-referral";
+import { CurrentCustomerAccount } from "./current-customer-account";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import {
-  type CustomerAccountResolutionDependencies,
-  CustomerAccountResolver,
-  resolveCustomerAccount,
-  resolveCustomerAccountLink,
-} from "./customer-account-resolver.service";
+import { CustomerAccountSections } from "./customer-account-sections";
+import { CustomerAuthentication } from "./customer-authentication.service";
+import { testSessionProfile } from "./customer-authentication.test-utils";
+import { CustomerDotyposAdapter } from "./customer-dotypos-adapter.service";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 const uniqueId = () => crypto.randomUUID();
@@ -43,19 +44,25 @@ const uniqueDotyposId = () =>
 const uniqueCode = () =>
   `RFL${uniqueId().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
 
-const insertAuthUser = async (accountId: CustomerAccountId) => {
-  await testDatabase!.pool.query(
-    `insert into auth."user" (id, name, email) values ($1, '', $2)`,
-    [accountId, testEmailAddress(accountId)]
+const insertAuthUser = (
+  accountId: CustomerAccountId,
+  linkedCustomer?: DotyposCustomerId
+) =>
+  Effect.runPromise(
+    workspaceFixtures(testDatabase!.db).account("auto-linked-referral", {
+      id: accountId,
+      email: testEmailAddress(accountId),
+      verified: false,
+      linkedCustomer,
+    })
   );
-};
 
 const insertLink = async (
   accountId: CustomerAccountId,
   customerId: DotyposCustomerId
 ) => {
   await testDatabase!.pool.query(
-    `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
+    `update customer_accounts set dotypos_customer_id = $2 where id = $1`,
     [accountId, customerId]
   );
 };
@@ -87,8 +94,7 @@ const insertReferralCode = async (
 const insertReferrer = async () => {
   const accountId = customerAccountIdSchema.make(uniqueId());
   const customerId = uniqueDotyposId();
-  await insertAuthUser(accountId);
-  await insertLink(accountId, customerId);
+  await insertAuthUser(accountId, customerId);
   const { code, promotionCodeId } = await insertReferralCode(customerId);
   return { accountId, customerId, code, promotionCodeId };
 };
@@ -123,35 +129,57 @@ const signIn = (input: {
 }) => {
   const databaseLayer = Layer.succeed(
     WorkspaceDatabase,
-    WorkspaceDatabase.of({ db: testDatabase!.db })
+    WorkspaceDatabase.make(testDatabase!.db)
   );
   const lockLayer = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
   const linksLayer = CustomerAccountLinkRepository.Default.pipe(
-    Layer.provide(Layer.mergeAll(databaseLayer, lockLayer))
+    Layer.provide(databaseLayer)
+  );
+  const session = {
+    accountId: input.accountId,
+    email: testEmailAddress(input.accountId),
+    deletionRequested: false,
+    ...testSessionProfile,
+  };
+  const authenticationLayer = Layer.succeed(CustomerAuthentication, {
+    currentUser: Effect.succeed(session),
+  });
+  const sectionsLayer = CustomerAccountSections.Default.pipe(
+    Layer.provide(Layer.mergeAll(authenticationLayer, linksLayer, lockLayer))
+  );
+
+  const currentAccountLayer = CurrentCustomerAccount.Default.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        authenticationLayer,
+        NoReviewAccounts,
+        linksLayer,
+        sectionsLayer,
+        Layer.mock(CustomerDotyposAdapter, {
+          classifyExactEmailCustomers: () =>
+            Effect.succeed({
+              kind: "matched",
+              state: "active",
+              customerId: input.existingCustomerId,
+            }),
+          reactivateCustomer: () => Effect.void,
+        })
+      )
+    )
   );
 
   return Effect.gen(function* () {
-    const links = yield* CustomerAccountLinkRepository;
-    const dependencies: CustomerAccountResolutionDependencies = {
-      currentUser: () =>
-        Effect.succeed({
-          accountId: input.accountId,
-          email: testEmailAddress(input.accountId),
-          deletionRequested: false,
-        }),
-      findLink: links.find,
-      classify: () =>
-        Effect.succeed({
-          kind: "matched",
-          state: "active",
-          customerId: input.existingCustomerId,
-        }),
-      claimLink: links.claim,
-      reactivate: () => Effect.void,
-      withAccountLock: links.withAccountLock,
+    const standing = yield* Effect.flatMap(
+      CurrentCustomerAccount,
+      (currentAccount) => currentAccount.resolve
+    ).pipe(Effect.provide(currentAccountLayer));
+    if (standing.kind !== "linked") {
+      return yield* Effect.die(`resolved as ${standing.kind}`);
+    }
+    const resolution = {
+      account: standing.account,
+      autoLinked: standing.autoLinked,
     };
-
-    const resolution = yield* resolveCustomerAccountLink(dependencies);
     yield* acceptAutoLinkedReferral(
       resolution,
       parseReferralCode(input.code)
@@ -160,15 +188,12 @@ const signIn = (input: {
         ReferralService.Default.pipe(
           Layer.provide(
             Layer.mergeAll(
-              ReferralFeatureFlagServiceMock({
-                isEnabled: Effect.succeed(true),
-              }),
+              ReferralReleaseGate.fromDecision(true),
               databaseLayer,
               lockLayer,
               linksLayer,
-              Layer.succeed(CustomerAccountResolver, {
-                resolve: resolveCustomerAccount(dependencies),
-              }),
+              authenticationLayer,
+              sectionsLayer,
               Layer.mock(DotyposService, {
                 listReservations: () =>
                   Effect.succeed(input.reservations ?? []),
@@ -180,7 +205,7 @@ const signIn = (input: {
     );
     return resolution;
   }).pipe(
-    Effect.provide(linksLayer),
+    Effect.provide(Layer.mergeAll(linksLayer, sectionsLayer)),
     // Recording under the resolver's account lock would wait on that lock
     // forever; the timeout turns such a regression into a failure.
     Effect.timeout("10 seconds"),

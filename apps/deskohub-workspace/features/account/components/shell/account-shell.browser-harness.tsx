@@ -1,27 +1,23 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  type AccountSection,
+  accountSectionLabel,
+} from "@/features/account/sections";
 import { m } from "@/features/i18n";
 import { AccountSectionPanel } from "./account-section-panel";
-import { type AccountSection, AccountShell } from "./account-shell";
+import { AccountShell } from "./account-shell";
 
 const locale = "en-US" as const;
 const sections = [
   "reservations",
   "referrals",
   "profile",
+  "assistants",
   "billing",
   "legal",
   "danger",
 ] as const satisfies readonly AccountSection[];
-const sectionLabels = {
-  reservations: m.accountSectionReservations({}, { locale }),
-  referrals: m.accountSectionReferrals({}, { locale }),
-  profile: m.accountSectionProfile({}, { locale }),
-  billing: m.accountSectionBilling({}, { locale }),
-  legal: m.accountSectionLegal({}, { locale }),
-  danger: m.accountSectionDanger({}, { locale }),
-} as const satisfies Readonly<Record<AccountSection, string>>;
-
 function AccountShellHarness() {
   const [activeSection, setActiveSection] =
     useState<AccountSection>("reservations");
@@ -29,18 +25,13 @@ function AccountShellHarness() {
   return (
     <AccountShell
       activeSection={activeSection}
-      labels={{
-        mobileSection: m.accountSectionLabel({}, { locale }),
-        navigation: m.accountNavigationLabel({}, { locale }),
-        sections: sectionLabels,
-      }}
+      locale={locale}
       onSectionChange={setActiveSection}
       reservationCount={3}
       sidebarFooter={<p>Synthetic help card</p>}
       signOut={
         <button type="button">{m.accountSignOut({}, { locale })}</button>
       }
-      title={m.accountTitle({}, { locale })}
     >
       {sections.map((section) => (
         <div
@@ -49,7 +40,7 @@ function AccountShellHarness() {
           key={section}
         >
           <AccountSectionPanel
-            title={sectionLabels[section]}
+            title={accountSectionLabel(section, locale)}
             variant={section === "danger" ? "destructive" : "default"}
           >
             <label className="grid gap-2">

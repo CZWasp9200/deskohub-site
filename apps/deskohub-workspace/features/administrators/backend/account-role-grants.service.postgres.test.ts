@@ -1,39 +1,45 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
-import { customerAccountIdSchema } from "@/features/account/customer-account";
+import { WorkspaceDatabase } from "@/db/database.service";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { AccountRoleGrants } from "./account-role-grants.service";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
 const runGrants = <A, E>(
-  operation: (grants: AccountRoleGrants["Service"]) => Effect.Effect<A, E>
+  operation: (
+    grants: AccountRoleGrants["Service"]
+  ) => Effect.Effect<A, E, WorkspaceDatabase>
 ) =>
   Effect.runPromise(
     AccountRoleGrants.pipe(
       Effect.flatMap(operation),
       Effect.provide(
-        AccountRoleGrants.Default.pipe(Layer.provide(testDatabase!.layer))
+        AccountRoleGrants.Default.pipe(Layer.provideMerge(testDatabase!.layer))
       )
     )
   );
 
-const insertAccount = async () => {
-  const accountId = customerAccountIdSchema.make(crypto.randomUUID());
-  await testDatabase!.pool.query(
-    `insert into auth."user" (id, name, email, email_verified) values ($1, '', $2, true)`,
-    [accountId, testEmailAddress(`role-grant-${accountId}`)]
-  );
-  return accountId;
-};
+const insertAccount = ({ review = false } = {}) =>
+  workspaceFixtures(testDatabase!.db)
+    .account("role-grant", { review })
+    .pipe(
+      Effect.map(({ accountId }) => accountId),
+      Effect.runPromise
+    );
 
-const deleteAccount = (accountId: string) =>
-  testDatabase!.pool.query(`delete from auth."user" where id = $1`, [
+const deleteAccount = async (accountId: string) => {
+  await testDatabase!.pool.query(`delete from auth."user" where id = $1`, [
     accountId,
   ]);
+  await testDatabase!.pool.query(
+    `delete from customer_accounts where id = $1`,
+    [accountId]
+  );
+};
 
 const role = "administrator" as const;
 
@@ -109,6 +115,46 @@ describe.skipIf(!testDatabase)(
         [accountId]
       );
       expect(remaining.rowCount).toBe(0);
+    });
+
+    test("gives a review account no role, whatever grant it has", async () => {
+      const reviewAccount = await insertAccount({ review: true });
+      const administrator = await insertAccount();
+      for (const accountId of [reviewAccount, administrator]) {
+        await runGrants((grants) =>
+          grants.grant({ accountId, role, grantedBy: null })
+        );
+      }
+
+      expect(
+        await runGrants((grants) =>
+          grants.has({ accountId: reviewAccount, role })
+        )
+      ).toBe(false);
+      expect(
+        await runGrants((grants) =>
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(grants.lockHeld({ accountId: reviewAccount, role }))
+          )
+        )
+      ).toBe(false);
+      expect(
+        await runGrants((grants) =>
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(grants.lockHeld({ accountId: administrator, role }))
+          )
+        )
+      ).toBe(true);
+      const listed = (await runGrants((grants) => grants.list(role))).map(
+        ({ accountId }) => accountId
+      );
+      expect(listed).toContain(administrator);
+      expect(listed).not.toContain(reviewAccount);
+      expect(
+        await runGrants((grants) =>
+          grants.revoke({ accountId: reviewAccount, role })
+        )
+      ).toEqual({ changed: true });
     });
 
     test("rejects a role the application doesn't define", async () => {

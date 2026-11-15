@@ -73,9 +73,64 @@ describe("Workspace locale resolution", () => {
     ).toBe("cs-CZ");
     expect(
       resolveWorkspaceLocale(
-        sources({ cookie: "sk-SK", acceptLanguage: "de" }),
+        sources({ cookie: "fr-FR", acceptLanguage: "ru" }),
         undefined
       )
     ).toBe("en-US");
+  });
+
+  test("a request that states no language falls back to Czech", () => {
+    for (const acceptLanguage of [undefined, "", "*", "en;q=0"]) {
+      expect(
+        resolveWorkspaceLocale(
+          sources({ pathname: "/", acceptLanguage }),
+          undefined
+        )
+      ).toBe("cs-CZ");
+    }
+  });
+
+  test("a browser language finds the locale of its language", () => {
+    for (const [acceptLanguage, locale] of [
+      ["en-GB", "en-US"],
+      ["cs-SK", "cs-CZ"],
+      ["en-GB,cs;q=0.5", "en-US"],
+      ["de-AT,de;q=0.9", "de-DE"],
+      ["sk", "sk-SK"],
+      ["uk", "uk-UA"],
+      ["uk-UA,uk;q=0.9,ru;q=0.8", "uk-UA"],
+      ["vi", "vi-VN"],
+      ["hi-IN,hi;q=0.9,en;q=0.8", "hi-IN"],
+    ] as const) {
+      expect(
+        resolveWorkspaceLocale(
+          sources({ pathname: "/faq", acceptLanguage }),
+          undefined
+        )
+      ).toBe(locale);
+    }
+  });
+
+  test("a reader of only unserved languages gets English", () => {
+    for (const acceptLanguage of ["ru", "fr-FR,fr;q=0.9", "pl-PL,pl;q=0.9"]) {
+      expect(
+        resolveWorkspaceLocale(
+          sources({ pathname: "/faq", acceptLanguage }),
+          undefined
+        )
+      ).toBe("en-US");
+    }
+  });
+
+  test("Slovak readers get Slovak before the Czech and English they also read", () => {
+    expect(
+      resolveWorkspaceLocale(
+        sources({
+          pathname: "/faq",
+          acceptLanguage: "sk-SK,sk;q=0.9,cs;q=0.5,en;q=0.8",
+        }),
+        undefined
+      )
+    ).toBe("sk-SK");
   });
 });

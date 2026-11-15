@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import "@/shared/polyfills/temporal";
-import { Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import {
   ceilToWholeHour,
+  currentPlainDate,
   floorToWholeHour,
+  getPlainDatesBetween,
   instantStringSchema,
   isFuturePlainDateTime,
   isPlainDateString,
@@ -206,5 +209,61 @@ describe("parsePlainDate", () => {
   test("returns none for invalid dates", () => {
     expect(parsePlainDate("2026-02-30")).toEqual(Option.none());
     expect(parsePlainDate("not-a-date")).toEqual(Option.none());
+  });
+});
+
+describe("getPlainDatesBetween", () => {
+  test("returns inclusive dates across a month boundary", () => {
+    const dates = getPlainDatesBetween(
+      Temporal.PlainDate.from("2026-01-30"),
+      Temporal.PlainDate.from("2026-02-02")
+    );
+
+    expect(dates.map(String)).toEqual([
+      "2026-01-30",
+      "2026-01-31",
+      "2026-02-01",
+      "2026-02-02",
+    ]);
+    expect(dates.every((date) => date instanceof Temporal.PlainDate)).toBe(
+      true
+    );
+  });
+
+  test("returns an empty list when the start follows the end", () => {
+    expect(
+      getPlainDatesBetween(
+        Temporal.PlainDate.from("2026-02-02"),
+        Temporal.PlainDate.from("2026-02-01")
+      )
+    ).toEqual([]);
+  });
+
+  test("returns one date when the start equals the end", () => {
+    expect(
+      getPlainDatesBetween(
+        Temporal.PlainDate.from("2026-02-01"),
+        Temporal.PlainDate.from("2026-02-01")
+      ).map(String)
+    ).toEqual(["2026-02-01"]);
+  });
+});
+
+describe("currentPlainDate", () => {
+  test("reads today in the time zone from the Effect clock", async () => {
+    const dates = await Effect.runPromise(
+      Effect.gen(function* () {
+        // 22:30 UTC is already the next day in Prague (CEST).
+        yield* TestClock.setTime(
+          Temporal.Instant.from("2026-08-31T22:30:00Z").epochMilliseconds
+        );
+        return [
+          yield* currentPlainDate("Europe/Prague"),
+          yield* currentPlainDate("UTC"),
+        ];
+      }).pipe(Effect.provide(TestClock.layer()))
+    );
+
+    expect(dates).toEqual(["2026-09-01", "2026-08-31"]);
   });
 });

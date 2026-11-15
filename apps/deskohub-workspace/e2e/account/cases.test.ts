@@ -2,14 +2,35 @@ import { afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import type { Customer } from "@deskohub/dotypos/generated";
 import { Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { referralCodeCookieName } from "@/features/referrals/referral-code-cookie";
+import { strToU8, zipSync } from "fflate";
+import {
+  accountDataExportManifestPath,
+  accountDataExportSchemaVersion,
+  accountDataExportSections,
+} from "@/features/account/account-data-export-sections";
+import {
+  encodeAuthCallbackReturn,
+  getAccountSectionPath,
+  getAccountSignInPath,
+  readAuthCallbackReturnTo,
+  signInCallbackReturnParam,
+} from "@/features/account/routes";
+import type { AccountSection } from "@/features/account/sections";
+import { isLocale, type Locale, locales, m } from "@/features/i18n";
+import { languageNames } from "@/features/i18n/language-labels";
+import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../case-runner";
 import type { DatasourceConfig } from "../config";
 import type { WorkspaceE2EError } from "../errors";
+import { formatWorkspaceE2EFailureAnnotation } from "../github-actions";
 import { E2EDatabase } from "../integrations/database.service";
-import type { BrowserCommandResult, Runner } from "../runtime";
 import { makeE2ETelemetryMock } from "../services/telemetry.mock";
 import { workspaceE2ETimeouts } from "../timeouts";
-import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../types";
+import {
+  type AccountDataExportDelivery,
+  type AccountDataExportRefusal,
+  readAccountDataExportArchiveShape,
+} from "./account-data-export";
+import { accountSectionLandmarks } from "./account-sections";
 import {
   type WorkspaceE2EAccountCaseId,
   workspaceE2EAccountCaseIds,
@@ -23,6 +44,13 @@ import {
   workspaceE2EReferralOwnerRecipientLabel,
 } from "./config";
 import type { WorkspaceE2EAccountJournal } from "./journal";
+import {
+  type AccountProfileField,
+  accountProfileFieldSelectors,
+  type WorkspaceE2EAccountBrowser,
+  type WorkspaceE2EAccountLaneBrowser,
+} from "./lane-browser";
+import type { WorkspaceE2EAccountPasskeys } from "./passkeys";
 import {
   type MagicLinkOperation,
   type MagicLinkRateBudget,
@@ -40,11 +68,7 @@ const fixedNowMs = fixedNow.getTime();
 const baseUrl = "https://deskohub-workspace-a1b2c3d4e-deskohub-bar.vercel.app";
 const expectedHost = new URL(baseUrl).host;
 const syntheticRunId = "cases-test-run";
-const session = "workspace-account-cases-test";
 
-const acceptedTitle = "Check your inbox";
-const acceptedBody =
-  "If the address can receive mail, a single-use link will arrive shortly. The link works once and expires in 10 minutes.";
 const completionTitle = "Complete your profile";
 const completionReferralApplied =
   "Your referral code was applied. You’ll get 15% off your first paid booking.";
@@ -53,21 +77,19 @@ const czechDeletionPendingTitle = "Smazání účtu čeká na dokončení";
 const deletionReauthLinkSent =
   "If the address can receive mail, a new link is on its way.";
 const deletedTitle = "Your account was deleted";
-const signInCodeTitle = "Enter your sign-in code";
 const signInCodeInvalid =
   "That code does not match. Check the latest email and try again.";
 const useDifferentEmailLabel = "Use a different email";
 const deletionReauthCodeTitle = "Confirm it is you";
 const signInCodeSelector = "#account-sign-in-code";
-const callbackFailedTitle = "This link cannot be used";
 const supportTitle = "We need to verify your profile";
 const signInFormSelector = "#account-sign-in-form";
 const signInEmailSelector = "#account-sign-in-email";
 const signInSubmitSelector = "#account-sign-in-submit";
 const signOutSelector = "#account-sign-out";
 const languageTriggerSelector = '[data-slot="select-trigger"]';
-const languageOptionCsSelector = '[role="option"]:has-text("Čeština")';
-const languageOptionEnSelector = '[role="option"]:has-text("English (US)")';
+const languageOptionCsSelector = `[role="option"]:has-text("${languageNames["cs-CZ"]}")`;
+const languageOptionEnSelector = `[role="option"]:has-text("${languageNames["en-US"]}")`;
 const englishLanguageLabel = "Preferred language";
 const czechLanguageLabel = "Preferovaný jazyk";
 const englishFaqTitle = "Frequently Asked Questions";
@@ -196,8 +218,52 @@ type OpenAccountResult = {
 
 type ConsumeResult = {
   readonly destination: string;
+  /** Whether the link landed on the rejected-link card. */
+  readonly failed?: boolean;
   readonly text: string;
 };
+
+/** The page a sign-in email was requested from, which its link returns to. */
+type FakeSignInOrigin = {
+  readonly locale: Locale;
+  readonly returnTo?: string;
+};
+
+/** The callback a synthetic link carries: its locale and return target. */
+const readFakeCallback = (link: string) => {
+  const callback = new URL(
+    new URL(link).searchParams.get("callbackURL") ?? "",
+    "https://callback.invalid"
+  );
+  const locale = fakeLocalePath.exec(callback.pathname)?.[1] as
+    | Locale
+    | undefined;
+  if (locale === undefined) throw new Error("the synthetic link has no locale");
+  return {
+    locale,
+    path: callback.pathname,
+    returnTo: readAuthCallbackReturnTo(
+      callback.searchParams.get(signInCallbackReturnParam)
+    ),
+  };
+};
+
+/** The accepted inbox notice as the sign-in card renders it. */
+const fakeAcceptedInboxText = (locale: Locale) =>
+  [
+    m.accountSignInAcceptedTitle({}, { locale }),
+    m.accountSignInAcceptedBody({}, { locale }),
+    m.accountSignInAcceptedSameBrowser({}, { locale }),
+    m.accountSignInAssistantBrowserHint({}, { locale }),
+  ].join(" ");
+
+/** The rejected-link card, with its request-a-new-link action. */
+const fakeCallbackFailedText = (locale: Locale) =>
+  [
+    m.accountCallbackFailedTitle({}, { locale }),
+    m.accountCallbackFailedBody({}, { locale }),
+    m.accountCallbackFailedAction({}, { locale }),
+  ].join(" ");
 
 /**
  * A stateful, provider-shaped boundary for the account case factory. The
@@ -236,8 +302,17 @@ class FakeAccountExternalState {
   readonly usersById = new Map<string, FakeUser>();
   readonly linksByUserId = new Map<string, string>();
   readonly consumedLinks = new Set<string>();
-  readonly languageSaves: Array<"cs-CZ" | "en-US"> = [];
-  readonly switcherSaves: Array<"cs-CZ" | "en-US"> = [];
+  /** When the cross-browser sign-in opened and closed its second browser. */
+  readonly assistantBrowserEvents: Array<"close" | "open"> = [];
+  /** Where each consumed link landed: path and query, in order. */
+  readonly linkLandings: string[] = [];
+  /** The cross-browser sign-in's review moments, in capture order. */
+  readonly signInHandoffReviews: Array<{
+    readonly stage: string;
+    readonly url: string;
+  }> = [];
+  readonly languageSaves: Array<Locale> = [];
+  readonly switcherSaves: Array<Locale> = [];
   readonly languageReviews: Array<{
     readonly stage: string;
     readonly url: string;
@@ -252,6 +327,11 @@ class FakeAccountExternalState {
   /** Whether a signed-in header switch saves the preference first. */
   switcherSavesPreference = true;
   /**
+   * Whether each opened language listbox misses its first Escape, as when
+   * the key lands before the listbox listens for it.
+   */
+  listboxMissesFirstEscape = false;
+  /**
    * The preview's `login_email_code` flag: every sign-in email also carries
    * a code, and the sign-in card and deletion dialog open a code step.
    */
@@ -263,7 +343,7 @@ class FakeAccountExternalState {
    * locale, so the synthetic account restores English (US) on every sign-in
    * until a save changes it.
    */
-  localePreference: "cs-CZ" | "en-US" = "en-US";
+  localePreference: Locale = "en-US";
 
   currentAuthUserId: string | undefined;
   historyReady = false;
@@ -273,12 +353,29 @@ class FakeAccountExternalState {
     readonly id: string;
     status: "CANCELLED" | "CONFIRMED";
   }> = [];
-  readonly fixtureLocaleWrites: Array<"cs-CZ" | "en-US"> = [];
+  readonly fixtureLocaleWrites: Array<Locale> = [];
   lastDestination = "";
   staleSession = false;
   deletionDialog = false;
   deletionConfirmationChecked = false;
   reauthenticationDialog = false;
+  /**
+   * The preview's `login_passkeys` flag: the sign-in form offers passkeys,
+   * and a passkey-capable browser gets the post-sign-in prompt.
+   */
+  passkeys = false;
+  readonly passkeyActions: string[] = [];
+  readonly passkeysByUserId = new Map<string, number>();
+  passkeyName: string | undefined;
+  /** How many links were consumed when the authenticator was added. */
+  private authenticatorAddedAfterLinks: number | undefined;
+  /**
+   * The tab's email sign-in note: the next account page takes it and offers
+   * the passkey prompt once, like `shouldOfferPasskeyPrompt`.
+   */
+  private emailSignInNoted = false;
+  private passkeyPromptOffered = false;
+  private authenticatorCredentials = 0;
   private messageSequence = 0;
   private duplicateProfileSequence = 0;
   private deletedIdentity = false;
@@ -290,8 +387,136 @@ class FakeAccountExternalState {
     readonly referralOwnerRecipient: string
   ) {}
 
+  /** Archives the export route served to the signed-in lane browser. */
+  accountDataExports = 0;
+  /** Export paths a signed-out visitor's own browser requested. */
+  readonly signedOutExportRequests: string[] = [];
+  /** What the export route answers a signed-out visitor. */
+  signedOutExportRefusal: AccountDataExportRefusal = {
+    bodyLength: 0,
+    cacheControl: "private, no-store",
+    status: 404,
+  };
+  /** The archive entries the export route serves, by name. */
+  accountDataExportEntries: Readonly<Record<string, string>> = {
+    ...Object.fromEntries(
+      accountDataExportSections.map(({ path }) => [path, "[]"])
+    ),
+    [accountDataExportManifestPath]: JSON.stringify({
+      schemaVersion: accountDataExportSchemaVersion,
+    }),
+  };
+
   recordBrowserAction(action: FakeBrowserAction) {
     this.browserActions.push(action);
+  }
+
+  private requirePasskeyUser(): FakeUser {
+    if (this.authenticatorAddedAfterLinks === undefined) {
+      throw new Error("the passkey journey ran without an authenticator");
+    }
+    const userId = this.currentAuthUserId;
+    if (!userId) throw new Error("the passkey journey has no signed-in user");
+    return this.requireUser(userId);
+  }
+
+  passkeyCount(userId: string): number {
+    return this.passkeysByUserId.get(userId) ?? 0;
+  }
+
+  addAuthenticator() {
+    if (!this.passkeys) throw new Error("passkeys are off on this preview");
+    this.passkeyActions.push("add-authenticator");
+    this.authenticatorAddedAfterLinks ??= this.consumedLinks.size;
+  }
+
+  removeAuthenticator() {
+    this.passkeyActions.push("remove-authenticator");
+    this.authenticatorAddedAfterLinks = undefined;
+  }
+
+  readAuthenticatorCredentials() {
+    if (this.authenticatorAddedAfterLinks === undefined) {
+      throw new Error("no virtual authenticator is installed");
+    }
+    return Array.from({ length: this.authenticatorCredentials }, () => ({
+      isResidentCredential: true,
+      rpId: new URL(this.config.baseUrl).hostname,
+    }));
+  }
+
+  /** The prompt opens only for an email sign-in that found the authenticator. */
+  createPasskeyFromPrompt() {
+    const user = this.requirePasskeyUser();
+    if (
+      this.authenticatorAddedAfterLinks === undefined ||
+      this.consumedLinks.size <= this.authenticatorAddedAfterLinks ||
+      !this.linksByUserId.has(user.id) ||
+      !this.passkeyPromptOffered
+    ) {
+      throw new Error("no post-sign-in passkey prompt is shown");
+    }
+    this.passkeyActions.push("create-from-prompt");
+    this.passkeysByUserId.set(user.id, this.passkeyCount(user.id) + 1);
+    this.authenticatorCredentials = 1;
+  }
+
+  signInWithPasskey(): FakeUser {
+    if (this.authenticatorCredentials === 0 || this.currentAuthUserId) {
+      throw new Error(
+        "passkey sign-in needs a credential and a signed-out tab"
+      );
+    }
+    const user = this.usersByEmail.get(this.mainRecipient);
+    if (!user || this.passkeyCount(user.id) === 0) {
+      throw new Error("the account holds no passkey to sign in with");
+    }
+    this.passkeyActions.push("sign-in");
+    this.currentAuthUserId = user.id;
+    user.session = true;
+    user.createdAt = new Date(user.createdAt.getTime() + 1_000);
+    return user;
+  }
+
+  renamePasskey(name: string) {
+    const user = this.requirePasskeyUser();
+    if (this.passkeyCount(user.id) !== 1) {
+      throw new Error("rename expected the account's only passkey");
+    }
+    this.passkeyActions.push("rename");
+    this.passkeyName = name;
+  }
+
+  deletePasskey(name: string) {
+    const user = this.requirePasskeyUser();
+    if (this.passkeyCount(user.id) !== 1 || this.passkeyName !== name) {
+      throw new Error("delete expected the renamed last passkey");
+    }
+    this.passkeyActions.push("delete");
+    this.passkeysByUserId.set(user.id, 0);
+    this.passkeyName = undefined;
+  }
+
+  createPasskeyFromSettings() {
+    const user = this.requirePasskeyUser();
+    if (this.staleSession) {
+      throw new Error(
+        "settings creation asked a stale session to reauthenticate"
+      );
+    }
+    this.passkeyActions.push("create-from-settings");
+    this.passkeysByUserId.set(user.id, this.passkeyCount(user.id) + 1);
+    this.authenticatorCredentials = 1;
+  }
+
+  confirmDeletionWithPasskey() {
+    const user = this.requirePasskeyUser();
+    if (!this.staleSession || this.passkeyCount(user.id) === 0) {
+      throw new Error("passkey reauthentication needs a stale passkey account");
+    }
+    this.passkeyActions.push("confirm-deletion");
+    this.staleSession = false;
+    user.createdAt = new Date(fixedNowMs);
   }
 
   recordJournal(update: {
@@ -401,7 +626,7 @@ class FakeAccountExternalState {
     this.historyReady = true;
   }
 
-  setLocalePreference(userId: string, locale: "cs-CZ" | "en-US") {
+  setLocalePreference(userId: string, locale: Locale) {
     this.requireUser(userId);
     this.fixtureLocaleWrites.push(locale);
     this.localePreference = locale;
@@ -546,12 +771,16 @@ class FakeAccountExternalState {
     this.events.push({ customerId, type: "unlink", userId: accountId });
   }
 
-  saveLocalePreference(locale: "cs-CZ" | "en-US") {
+  saveLocalePreference(locale: Locale) {
     this.languageSaves.push(locale);
     this.localePreference = locale;
   }
 
-  sendMessage(email: string, kind: "sign-in" | "reauthentication") {
+  sendMessage(
+    email: string,
+    kind: "sign-in" | "reauthentication",
+    origin?: FakeSignInOrigin
+  ) {
     let messageKind: FakeMessageKind;
     if (kind === "reauthentication") {
       messageKind = "reauthentication";
@@ -562,7 +791,7 @@ class FakeAccountExternalState {
     } else {
       messageKind = "initial-main";
     }
-    const message = this.makeMessage(email, messageKind);
+    const message = this.makeMessage(email, messageKind, origin);
     this.events.push({
       id: message.id,
       kind: message.kind,
@@ -632,22 +861,36 @@ class FakeAccountExternalState {
     return "verified";
   }
 
+  isConsumedLink(link: string) {
+    return this.consumedLinks.has(link);
+  }
+
   consumeLink(link: string): ConsumeResult {
     const message = [...this.messagesByRecipient.values()]
       .flat()
       .find((candidate) => candidate.link === link);
     if (!message) throw new Error("unknown synthetic magic link");
 
+    const callback = readFakeCallback(link);
     if (message.consumed) {
       this.events.push({ id: message.id, type: "replay" });
+      const failure = new URLSearchParams({ error: "INVALID_TOKEN" });
+      if (callback.returnTo !== undefined) {
+        failure.set(
+          signInCallbackReturnParam,
+          encodeAuthCallbackReturn(callback.returnTo)
+        );
+      }
       return {
-        destination: "/en-US/auth/callback",
-        text: callbackFailedTitle,
+        destination: `${callback.path}?${failure}`,
+        failed: true,
+        text: fakeCallbackFailedText(callback.locale),
       };
     }
 
     message.consumed = true;
     this.consumedLinks.add(link);
+    this.emailSignInNoted = true;
     switch (message.kind) {
       case "initial-main": {
         // A magic-link sign-in for an existing verified account signs into
@@ -665,10 +908,9 @@ class FakeAccountExternalState {
           type: "consume",
           userId: "auth-original",
         });
-        return {
-          destination: "/en-US/account",
-          text: completionTitle,
-        };
+        return callback.returnTo === undefined
+          ? { destination: "/en-US/account", text: completionTitle }
+          : { destination: callback.returnTo, text: "" };
       }
       case "reauthentication": {
         const user = this.requireUser("auth-original");
@@ -702,18 +944,11 @@ class FakeAccountExternalState {
         const newUserId = "auth-reactivated";
         this.createAuthUser(newUserId, message.recipient);
         this.currentAuthUserId = newUserId;
-        this.linksByUserId.set(newUserId, retainedCustomerId);
-        const profile = this.requireProfile(retainedCustomerId);
-        profile.expireDate = null;
+        // The account page claims and reactivates the retained profile.
         this.events.push({
           id: message.id,
           kind: message.kind,
           type: "consume",
-          userId: newUserId,
-        });
-        this.events.push({
-          customerId: retainedCustomerId,
-          type: "provider-reactivate",
           userId: newUserId,
         });
         this.reactivationObservations.push({
@@ -721,10 +956,12 @@ class FakeAccountExternalState {
           historyPresent: this.historyReady,
           userId: newUserId,
         });
-        return {
-          destination: "/en-US/account",
-          text: "Current and upcoming",
-        };
+        // The new account has no preference, so the sign-in saves the
+        // callback's locale as it.
+        this.localePreference = callback.locale;
+        return callback.returnTo === undefined
+          ? { destination: "/en-US/account", text: "Current and upcoming" }
+          : { destination: callback.returnTo, text: "" };
       }
       case "accepted-b":
         throw new Error("the generic accepted-b message must not be consumed");
@@ -732,6 +969,8 @@ class FakeAccountExternalState {
   }
 
   openAccount(): OpenAccountResult {
+    this.passkeyPromptOffered = this.emailSignInNoted;
+    this.emailSignInNoted = false;
     if (
       !this.currentAuthUserId ||
       !this.usersById.has(this.currentAuthUserId)
@@ -848,11 +1087,18 @@ class FakeAccountExternalState {
     };
   }
 
-  private makeMessage(email: string, kind: FakeMessageKind): FakeMessage {
+  private makeMessage(
+    email: string,
+    kind: FakeMessageKind,
+    origin: FakeSignInOrigin = { locale: this.config.locale }
+  ): FakeMessage {
     this.messageSequence += 1;
     const id = `message-${this.messageSequence}`;
     const token = `synthetic-token-${this.messageSequence}`;
-    const callbackURL = `/${this.config.locale}/auth/callback`;
+    const callbackURL =
+      origin.returnTo === undefined
+        ? `/${origin.locale}/auth/callback`
+        : `/${origin.locale}/auth/callback?${signInCallbackReturnParam}=${encodeAuthCallbackReturn(origin.returnTo)}`;
     const link = `${this.config.baseUrl}/api/auth/magic-link/verify?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
     const message = {
       code: String(100_000 + this.messageSequence),
@@ -898,13 +1144,42 @@ class FakeAccountExternalState {
   }
 }
 
-type FakeLocale = "cs-CZ" | "en-US";
+const fakeLocalePath = new RegExp(`^/(${locales.join("|")})(?=/|$)`);
 
-const fakeLocalePath = /^\/(cs-CZ|en-US)(?=\/|$)/;
+const syntheticAccountDataExportPath = "/en-US/account/data-export";
+const syntheticAccountDataExportActionSelector =
+  '[data-slot="account-data-export-action"]';
+const syntheticAccountDataExportFilename = `deskohub-account-data-${fixedNow.toISOString().slice(0, 10)}.zip`;
+
+/** The export the route serves for the lane's linked account. */
+const syntheticAccountDataExportDelivery = (
+  external: FakeAccountExternalState
+): AccountDataExportDelivery => ({
+  controlState: "delivered",
+  download: {
+    archive: readAccountDataExportArchiveShape(
+      zipSync(
+        Object.fromEntries(
+          Object.entries(external.accountDataExportEntries).map(
+            ([name, text]) => [name, strToU8(text)]
+          )
+        )
+      )
+    ),
+    filename: syntheticAccountDataExportFilename,
+  },
+  headers: {
+    cacheControl: "private, no-store",
+    contentDisposition: `attachment; filename="${syntheticAccountDataExportFilename}"`,
+    contentType: "application/zip",
+    referrerPolicy: "no-referrer",
+  },
+  status: 200,
+});
 
 class FakeBrowser {
   private currentUrl = "";
-  private localeCookie: FakeLocale | undefined;
+  private localeCookie: Locale | undefined;
   private pageText = "";
   /** The `textContent` of the profile language control's label. */
   private languageControlLabel: string | null = null;
@@ -918,6 +1193,7 @@ class FakeBrowser {
   referralCookie: string | undefined;
   private selectedSection = "";
   private languageListboxOpen = false;
+  private languageListboxMissesEscape = false;
   private focusedSelector = "";
   /** The code step on screen: the sign-in card's, or the deletion dialog's. */
   private codeStep:
@@ -926,30 +1202,40 @@ class FakeBrowser {
   private codeInputEmpty = false;
   private codeStepsShown = 0;
   /**
-   * The sign-in card's sessionStorage code request, which a later sign-in
-   * page in the same tab restores until a code signs in or the customer
-   * switches email.
+   * The sign-in card's sessionStorage request, which a later sign-in page in
+   * the same tab restores, when it has no return target or the request's,
+   * until a link or code signs this tab in or the customer switches email.
    */
-  private storedCodeRecipient: string | undefined;
+  private storedRequest:
+    | { readonly recipient: string; readonly returnTo: string | undefined }
+    | undefined;
 
-  constructor(readonly external: FakeAccountExternalState) {}
+  /**
+   * `anonymous` is the assistant's browser of the cross-browser sign-in: a
+   * second browser context, which no link the lane consumes signs in.
+   */
+  constructor(
+    readonly external: FakeAccountExternalState,
+    private readonly anonymous = false
+  ) {}
 
   /**
    * The select value is the page locale. Re-picking it fires no
    * onValueChange, exactly as the real Radix Select behaves.
    */
-  private get languageValue(): "cs-CZ" | "en-US" {
+  private get languageValue(): Locale {
     return this.pageLocale();
   }
 
   private signedIn(): boolean {
+    if (this.anonymous) return false;
     const userId = this.external.currentAuthUserId;
     return userId !== undefined && this.external.usersById.has(userId);
   }
 
-  private pageLocale(): FakeLocale {
+  private pageLocale(): Locale {
     const locale = fakeLocalePath.exec(new URL(this.currentUrl).pathname)?.[1];
-    if (locale !== "cs-CZ" && locale !== "en-US") {
+    if (locale === undefined || !isLocale(locale)) {
       throw new Error("the synthetic page has no locale");
     }
     return locale;
@@ -960,7 +1246,7 @@ class FakeBrowser {
    * its saved preference, a guest keeps the URL locale, and the locale cookie
    * follows the resolved locale either way.
    */
-  private resolveLocale(pathLocale: FakeLocale): FakeLocale {
+  private resolveLocale(pathLocale: Locale): Locale {
     const resolved =
       this.signedIn() && this.external.preferenceRedirects
         ? this.external.localePreference
@@ -969,14 +1255,41 @@ class FakeBrowser {
     return resolved;
   }
 
-  private withLocale(url: string, locale: FakeLocale): string {
+  private withLocale(url: string, locale: Locale): string {
     const parsed = new URL(url);
     parsed.pathname = parsed.pathname.replace(fakeLocalePath, `/${locale}`);
     return parsed.toString();
   }
 
-  private profileLabel(locale: FakeLocale) {
+  private profileLabel(locale: Locale) {
     return locale === "cs-CZ" ? czechLanguageLabel : englishLanguageLabel;
+  }
+
+  private selectAccountSection(section: "billing" | "danger" | "profile") {
+    this.selectedSection = section;
+    const url = new URL(this.currentUrl);
+    const locale = fakeLocalePath.exec(url.pathname)?.[1];
+    if (locale === "cs-CZ" || locale === "en-US") {
+      url.pathname = getAccountSectionPath(locale, section);
+      this.currentUrl = url.toString();
+    }
+  }
+
+  /** Selects a section through the account navigation, as the lane does. */
+  selectSection(section: AccountSection) {
+    if (section === "danger" || section === "billing") {
+      this.selectAccountSection(section);
+      return;
+    }
+    if (section !== "profile") {
+      throw new Error(`the account case selected the ${section} section`);
+    }
+    if (this.pageLocale() !== "en-US") {
+      throw new Error("the English account navigation was clicked in Czech");
+    }
+    this.selectAccountSection("profile");
+    this.pageText = `${this.pageText} ${englishLanguageLabel.toLocaleUpperCase()}`;
+    this.languageControlLabel = englishLanguageLabel;
   }
 
   open(url: string) {
@@ -1012,13 +1325,43 @@ class FakeBrowser {
     this.formReady = false;
     this.codeStepsShown += 1;
     const masked = `${recipient.slice(0, 1)}•••${recipient.slice(recipient.lastIndexOf("@"))}`;
+    if (dialog) {
+      this.pageText = [
+        deletionReauthCodeTitle,
+        `We emailed a 6-digit code to ${masked}. It expires in 10 minutes.`,
+        "6-digit code",
+        `Send a new email in ${61 - this.codeStepsShown} s`,
+      ].join("\n");
+      return;
+    }
+    const locale = this.pageLocale();
     this.pageText = [
-      dialog ? deletionReauthCodeTitle : signInCodeTitle,
-      `We emailed a 6-digit code to ${masked}. It expires in 10 minutes.`,
-      "6-digit code",
+      m.accountSignInCodeTitle({}, { locale }),
+      m.accountSignInCodeBody({ email: masked }, { locale }),
+      m.accountSignInCodeLabel({}, { locale }),
       `Send a new email in ${61 - this.codeStepsShown} s`,
-      ...(dialog ? [] : [useDifferentEmailLabel]),
+      m.accountSignInCodeChangeEmail({}, { locale }),
+      m.accountSignInCodeAssistantHint({}, { locale }),
+      m.accountSignInAssistantBrowserHint({}, { locale }),
     ].join("\n");
+  }
+
+  /** The sent step a sign-in page restores from this tab's request. */
+  private restoreStoredRequest(requestedReturnTo: string | undefined) {
+    const request = this.storedRequest;
+    if (
+      request === undefined ||
+      (requestedReturnTo !== undefined &&
+        request.returnTo !== requestedReturnTo)
+    ) {
+      return;
+    }
+    if (this.external.signInCodes) {
+      this.showCodeStep(request.recipient, false);
+      return;
+    }
+    this.pageText = fakeAcceptedInboxText(this.pageLocale());
+    this.formReady = false;
   }
 
   /** A document navigation through the proxy. */
@@ -1029,7 +1372,7 @@ class FakeBrowser {
     this.languageControlLabel = null;
     this.heading = null;
     const pathLocale = fakeLocalePath.exec(new URL(requested).pathname)?.[1] as
-      | FakeLocale
+      | Locale
       | undefined;
     const url =
       pathLocale === undefined
@@ -1045,25 +1388,55 @@ class FakeBrowser {
       this.formReady = true;
       this.emailValue = "";
       this.nativeValidationBlocked = false;
-      if (this.storedCodeRecipient !== undefined) {
-        this.showCodeStep(this.storedCodeRecipient, false);
-      }
+      this.restoreStoredRequest(
+        parsed.searchParams.get("returnTo") ?? undefined
+      );
       return;
     }
-    if (locale !== undefined && suffix === "/account") {
+    if (
+      this.anonymous &&
+      locale !== undefined &&
+      (suffix === "/account" || suffix === "/account/profile")
+    ) {
+      this.navigate(
+        `${this.external.config.baseUrl}${getAccountSignInPath(locale)}`
+      );
+      return;
+    }
+    if (locale !== undefined && suffix === "/reservation/cowork") {
+      this.currentUrl = url;
+      const userId = this.external.currentAuthUserId;
+      const email =
+        this.signedIn() &&
+        userId !== undefined &&
+        // Reservation pages only read an existing link, never claim one.
+        this.external.linksByUserId.has(userId)
+          ? this.external.usersById.get(userId)?.email
+          : undefined;
+      this.pageText = email === undefined ? "Cowork" : `Booking as ${email}`;
+      this.formReady = false;
+      return;
+    }
+    if (
+      locale !== undefined &&
+      (suffix === "/account" || suffix === "/account/profile")
+    ) {
       const result = this.external.openAccount();
       const destination = this.withLocale(
         `${this.external.config.baseUrl}${result.destination}`,
         locale
       );
-      // Redirects and the account page carry no code; completion prefills
-      // the remembered one.
+      // A profile route stays deep-linked when the account page opens;
+      // completion and sign-in destinations still use their own paths.
       const profile =
-        parsed.searchParams.get("section") === "profile" &&
+        suffix === "/account/profile" &&
         !result.destination.endsWith("/auth/sign-in");
-      this.currentUrl = profile
-        ? `${destination}${parsed.search}`
-        : destination;
+      const accountDestination = new URL(destination);
+      if (profile) {
+        accountDestination.pathname = getAccountSectionPath(locale, "profile");
+      }
+      accountDestination.search = profile ? parsed.search : "";
+      this.currentUrl = accountDestination.toString();
       // Rendered page text applies the label's CSS uppercase, as
       // `innerText` does; only its `textContent` keeps the message casing.
       const text = this.localizedText(result.text, locale);
@@ -1078,11 +1451,8 @@ class FakeBrowser {
       if (result.text === completionTitle) {
         this.referralFieldValue = this.referralCookie;
       }
-      if (
-        result.destination.endsWith("/auth/sign-in") &&
-        this.storedCodeRecipient !== undefined
-      ) {
-        this.showCodeStep(this.storedCodeRecipient, false);
+      if (result.destination.endsWith("/auth/sign-in")) {
+        this.restoreStoredRequest(undefined);
       }
       return;
     }
@@ -1090,6 +1460,13 @@ class FakeBrowser {
       this.currentUrl = url;
       this.pageText = locale === "cs-CZ" ? czechFaqTitle : englishFaqTitle;
       this.heading = this.pageText;
+      this.formReady = false;
+      return;
+    }
+    // The legal page is public; its export control decides who may export.
+    if (locale !== undefined && suffix === "/account/legal") {
+      this.currentUrl = url;
+      this.pageText = "Legal";
       this.formReady = false;
       return;
     }
@@ -1106,12 +1483,32 @@ class FakeBrowser {
       return;
     }
     if (parsed.pathname === "/api/auth/magic-link/verify") {
+      if (this.anonymous && !this.external.isConsumedLink(url)) {
+        throw new Error("the assistant's browser consumed an unused link");
+      }
       const result = this.external.consumeLink(url);
-      // The callback lands through the proxy like any page request.
+      // A completed link sign-in forgets the tab's stored code request.
+      if (!result.failed) {
+        this.storedRequest = undefined;
+      }
+      // The callback lands through the proxy like any page request, and a
+      // rejected link stays on the callback in the link's locale.
       const landing = `${this.external.config.baseUrl}${result.destination}`;
-      const landingLocale = this.resolveLocale("en-US");
+      if (!result.failed) this.external.linkLandings.push(result.destination);
+      if (!result.failed && result.destination.includes("/reservation/")) {
+        this.navigate(landing);
+        return;
+      }
+      const destinationLocale = (fakeLocalePath.exec(
+        new URL(landing).pathname
+      )?.[1] ?? "en-US") as Locale;
+      const landingLocale = result.failed
+        ? destinationLocale
+        : this.resolveLocale(destinationLocale);
       this.currentUrl = this.withLocale(landing, landingLocale);
-      this.pageText = this.localizedText(result.text, landingLocale);
+      this.pageText = result.failed
+        ? result.text
+        : this.localizedText(result.text, landingLocale);
       this.formReady = false;
       this.referralFieldValue =
         result.text === completionTitle ? this.referralCookie : undefined;
@@ -1121,28 +1518,25 @@ class FakeBrowser {
   }
 
   /** The only fake page copy the lane reads in both locales. */
-  private localizedText(text: string, locale: FakeLocale) {
+  private localizedText(text: string, locale: Locale) {
     return locale === "cs-CZ" && text === deletionPendingTitle
       ? czechDeletionPendingTitle
       : text;
   }
 
-  private pageLocaleOf(url: string): FakeLocale {
-    return fakeLocalePath.exec(new URL(url).pathname)?.[1] as FakeLocale;
+  private pageLocaleOf(url: string): Locale {
+    return fakeLocalePath.exec(new URL(url).pathname)?.[1] as Locale;
   }
 
   /** Native activation of a header language switcher link. */
-  activate(selector: string) {
-    const locale = /a\[href\^="\/(cs-CZ|en-US)"\]/.exec(selector)?.[1] as
-      | FakeLocale
-      | undefined;
-    if (!selector.startsWith("[data-locale-switcher]") || !locale) {
-      throw new Error("the synthetic browser activated an unexpected control");
-    }
+  /** Activates the header's link to the locale. */
+  switchLocale(locale: Locale) {
     this.external.recordBrowserAction({
       kind: "press",
-      selectorOrDestination: selector,
+      selectorOrDestination: `[data-locale-switcher] a[href^="/${locale}"]`,
     });
+    // An open listbox takes the activation as an outside interaction.
+    if (this.languageListboxOpen) return;
     if (this.signedIn() && this.external.switcherSavesPreference) {
       this.external.switcherSaves.push(locale);
       this.external.saveLocalePreference(locale);
@@ -1167,7 +1561,9 @@ class FakeBrowser {
       selector !== signOutSelector ||
       handler !== "onClick" ||
       !this.signedIn() ||
-      !new URL(this.currentUrl).pathname.endsWith("/account")
+      !new URL(this.currentUrl).pathname.startsWith(
+        `/${this.pageLocale()}/account`
+      )
     ) {
       throw new Error("the sign-out handler is not on a signed-in account");
     }
@@ -1207,9 +1603,12 @@ class FakeBrowser {
         this.codeInputEmpty = true;
         return;
       }
-      this.storedCodeRecipient = undefined;
+      // A typed code leaves for the request's return target, else the
+      // account.
+      const returnTo = this.storedRequest?.returnTo;
+      this.storedRequest = undefined;
       this.navigate(
-        `${this.external.config.baseUrl}/${this.pageLocale()}/account`
+        `${this.external.config.baseUrl}${returnTo ?? `/${this.pageLocale()}/account`}`
       );
       return;
     }
@@ -1218,6 +1617,62 @@ class FakeBrowser {
     }
     this.emailValue = value;
     this.nativeValidationBlocked = !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+  }
+
+  /** Follows the failed-callback card's request-a-new-link action. */
+  requestNewLinkAfterFailedCallback(locale: Locale) {
+    const action = m.accountCallbackFailedAction({}, { locale });
+    this.external.recordBrowserAction({
+      kind: "click",
+      selectorOrDestination: `a:has-text("${action}")`,
+    });
+    const callback = new URL(this.currentUrl);
+    if (
+      locale !== this.pageLocale() ||
+      callback.searchParams.get("error") === null
+    ) {
+      throw new Error("the request-a-new-link action is off the failure card");
+    }
+    this.navigate(
+      `${this.external.config.baseUrl}${getAccountSignInPath(
+        this.pageLocale(),
+        readAuthCallbackReturnTo(
+          callback.searchParams.get(signInCallbackReturnParam)
+        )
+      )}`
+    );
+  }
+
+  /** The accepted step's button that starts another sign-in request. */
+  /**
+   * The accepted step's restart control: the code step's "use a different
+   * email", or the link card's "send another link". The label must name the
+   * control the page shows.
+   */
+  restartSignIn(buttonLabel: string) {
+    this.external.recordBrowserAction({
+      kind: "click",
+      selectorOrDestination: `button:has-text("${buttonLabel}")`,
+    });
+    if (this.codeStep?.dialog) {
+      throw new Error("the deletion dialog's code step has no restart control");
+    }
+    const shown =
+      this.codeStep === undefined
+        ? "Send another link"
+        : useDifferentEmailLabel;
+    if (buttonLabel !== shown) {
+      throw new Error("the restart control has another label");
+    }
+    this.storedRequest = undefined;
+    this.pageText = "Sign in";
+    this.formReady = true;
+    this.nativeValidationBlocked = false;
+    // A different email returns the form with the address prefilled for
+    // editing; another link resets the form in place, and the URL keeps its
+    // query.
+    this.emailValue = this.codeStep?.recipient ?? "";
+    this.codeStep = undefined;
   }
 
   click(selector: string) {
@@ -1230,40 +1685,25 @@ class FakeBrowser {
         this.pageText = "Sign in";
         return;
       }
-      const message = this.external.sendMessage(this.emailValue, "sign-in");
+      const page = new URL(this.currentUrl);
+      const message = this.external.sendMessage(this.emailValue, "sign-in", {
+        locale: this.pageLocale(),
+        returnTo: page.searchParams.get("returnTo") ?? undefined,
+      });
+      if (message.kind !== "reauthentication") {
+        this.storedRequest = {
+          recipient: this.emailValue,
+          returnTo: page.searchParams.get("returnTo") ?? undefined,
+        };
+      }
       if (this.external.signInCodes) {
-        this.storedCodeRecipient = this.emailValue;
         this.showCodeStep(this.emailValue, false);
         return;
       }
-      const response = `${acceptedTitle} ${acceptedBody}`;
+      const response = fakeAcceptedInboxText(this.pageLocale());
       this.pageText =
         message.kind === "reauthentication" ? deletionReauthLinkSent : response;
       this.formReady = false;
-      return;
-    }
-    if (selector.includes(useDifferentEmailLabel)) {
-      if (this.codeStep === undefined || this.codeStep.dialog) {
-        throw new Error("a different email was chosen outside the code step");
-      }
-      // The form returns with the address prefilled for editing.
-      this.storedCodeRecipient = undefined;
-      this.emailValue = this.codeStep.recipient;
-      this.codeStep = undefined;
-      this.pageText = "Sign in";
-      this.formReady = true;
-      this.nativeValidationBlocked = false;
-      return;
-    }
-    if (selector.includes("Send another link")) {
-      if (this.codeStep !== undefined) {
-        throw new Error("the code step offers no Send another link control");
-      }
-      // The accepted card resets the form in place; the URL keeps its query.
-      this.pageText = "Sign in";
-      this.formReady = true;
-      this.emailValue = "";
-      this.nativeValidationBlocked = false;
       return;
     }
     if (selector === signOutSelector) {
@@ -1321,13 +1761,6 @@ class FakeBrowser {
       this.pageText = deletionReauthLinkSent;
       return;
     }
-    if (
-      selector.includes("Danger zone") ||
-      selector.includes('data-account-section="danger"')
-    ) {
-      this.selectedSection = "danger";
-      return;
-    }
     if (selector === profileSubmitSelector) {
       if (this.external.submitProfile(this.referralFieldValue) === "saved") {
         this.pageText = "Profile updated.";
@@ -1343,21 +1776,9 @@ class FakeBrowser {
         : "Save profile";
       return;
     }
-    if (selector.includes("Billing & Invoices")) {
-      this.selectedSection = "billing";
-      return;
-    }
-    if (selector.includes("Profile & Identity")) {
-      if (this.pageLocale() !== "en-US") {
-        throw new Error("the English account navigation was clicked in Czech");
-      }
-      this.selectedSection = "profile";
-      this.pageText = `${this.pageText} ${englishLanguageLabel.toLocaleUpperCase()}`;
-      this.languageControlLabel = englishLanguageLabel;
-      return;
-    }
     if (selector === languageTriggerSelector) {
       this.languageListboxOpen = true;
+      this.languageListboxMissesEscape = this.external.listboxMissesFirstEscape;
       return;
     }
     if (
@@ -1392,51 +1813,62 @@ class FakeBrowser {
       kind: "press",
       selectorOrDestination: key,
     });
-    if (key === "Escape") this.languageListboxOpen = false;
+    if (key === "Escape" && this.languageListboxMissesEscape) {
+      this.languageListboxMissesEscape = false;
+    } else if (key === "Escape") {
+      this.languageListboxOpen = false;
+    }
     if (key === "End" && this.focusedSelector === billingKindSelector) {
       this.external.billingKind = "business";
     }
   }
 
-  eval(input: string) {
-    if (input.includes("validationMessage")) {
-      return JSON.stringify({ blocked: this.nativeValidationBlocked });
-    }
-    if (input.includes("window.matchMedia")) return "true";
-    const cookieWrite =
-      /^document\.cookie = "PARAGLIDE_LOCALE=(cs-CZ|en-US); path=\/"$/.exec(
-        input
-      );
-    if (cookieWrite) {
-      this.localeCookie = cookieWrite[1] as FakeLocale;
-      return "";
-    }
-    if (input.includes("readOnly:")) {
-      return JSON.stringify({
-        matches: input.includes(JSON.stringify(this.external.mainRecipient)),
-        readOnly: true,
-      });
-    }
-    if (input.includes("editable:")) {
-      return JSON.stringify({
-        editable: false,
-        matches: input.includes(JSON.stringify(this.external.mainRecipient)),
-      });
-    }
-    if (input.includes("profilePreserved")) {
-      const drafts = this.external.profileDrafts;
-      const preserved = (selector: string) =>
-        drafts.has(selector) &&
-        input.includes(JSON.stringify(drafts.get(selector)));
-      return JSON.stringify({
-        billingPreserved: preserved(billingCompanyNameSelector),
-        profilePreserved: profileDraftSelectors.every(preserved),
-      });
-    }
-    if (input.includes("document.cookie.split")) {
-      return JSON.stringify({ czech: this.localeCookie === "cs-CZ" });
-    }
-    throw new Error("the synthetic browser evaluated an unexpected script");
+  /** Whether the page's Better Auth session is the email's. */
+  sessionMatches(email: string) {
+    const userId = this.external.currentAuthUserId;
+    return (
+      this.signedIn() &&
+      userId !== undefined &&
+      this.external.usersById.get(userId)?.email === email
+    );
+  }
+
+  signInEmailBlocked() {
+    return this.nativeValidationBlocked;
+  }
+
+  setLocaleCookie(locale: Locale) {
+    this.localeCookie = locale;
+  }
+
+  hasLocaleCookie(locale: Locale) {
+    return this.localeCookie === locale;
+  }
+
+  /** The completion form's login email input is read-only. */
+  completionLoginEmail(email: string) {
+    return { matches: email === this.external.mainRecipient, readOnly: true };
+  }
+
+  /** The linked profile shows the login email as text only. */
+  linkedLoginEmail(email: string) {
+    return { editable: false, matches: email === this.external.mainRecipient };
+  }
+
+  profileDrafts(drafts: Readonly<Record<AccountProfileField, string>>) {
+    const preserved = (field: AccountProfileField) =>
+      this.external.profileDrafts.get(accountProfileFieldSelectors[field]) ===
+      drafts[field];
+    return {
+      billingPreserved: preserved("billingCompanyName"),
+      profilePreserved: (["firstName", "lastName", "phone"] as const).every(
+        preserved
+      ),
+    };
+  }
+
+  isLanguageListOpen() {
+    return this.languageListboxOpen;
   }
 
   waitForFormSubmitHandler(
@@ -1461,148 +1893,97 @@ class FakeBrowser {
     return this.pageText;
   }
 
-  waitForCondition(description: string, condition: string) {
-    if (description.endsWith(" language control label")) {
-      if (
-        this.languageControlLabel === null ||
-        !condition.includes(JSON.stringify(this.languageControlLabel)) ||
-        !condition.includes(".labels")
-      ) {
-        throw new Error("the language control does not carry that label");
-      }
-      return;
-    }
-    if (description.endsWith(" heading")) {
-      if (
-        this.heading === null ||
-        !condition.includes(JSON.stringify(this.heading))
-      ) {
-        throw new Error("the page heading does not match");
-      }
-      return;
-    }
-    if (description === "account danger panel hydration") {
-      if (!condition.includes("#delete-account-trigger")) {
-        throw new Error("the danger panel hydration anchor is wrong");
-      }
-      return;
-    }
-    if (description === "account profile panel hydration") {
-      if (!condition.includes("[data-screen='profile-screen']")) {
-        throw new Error("the profile panel hydration anchor is wrong");
-      }
-      return;
-    }
-    if (description === "account billing panel hydration") {
-      if (!condition.includes("[data-screen='profile-screen']")) {
-        throw new Error("the billing panel hydration anchor is wrong");
-      }
-      return;
-    }
-    if (description === "account billing section") {
-      if (this.selectedSection !== "billing") {
-        throw new Error("the billing section is not selected");
-      }
-      return;
-    }
-    if (description === "business billing kind") {
-      if (this.external.billingKind !== "business") {
-        throw new Error("the billing kind is not business");
-      }
-      return;
-    }
+  /** The cowork page renders the entry tier its URL carries as selected. */
+  waitForCoworkSelection(entryTier: string) {
+    const page = new URL(this.currentUrl);
     if (
-      description ===
-      "linked account edit form with its Save profile submit control"
+      !page.pathname.endsWith("/reservation/cowork") ||
+      page.searchParams.get("entryTier") !== entryTier
     ) {
-      const userId = this.external.currentAuthUserId;
-      if (!userId || !this.external.linksByUserId.has(userId)) {
-        throw new Error("the linked edit form is not shown");
-      }
-      return;
+      throw new Error("the cowork page does not show the selection");
     }
-    if (description === "account danger section") {
-      if (this.selectedSection !== "danger") {
-        throw new Error("the danger section is not selected");
-      }
-      return;
+  }
+
+  waitForLanguageControlLabel(label: string) {
+    if (this.languageControlLabel !== label) {
+      throw new Error("the language control does not carry that label");
     }
-    if (description === "emptied code input after a wrong code") {
-      if (
-        this.codeStep === undefined ||
-        !this.codeInputEmpty ||
-        !condition.includes(JSON.stringify(signInCodeSelector))
-      ) {
-        throw new Error("the code input was not emptied for another try");
-      }
-      return;
+  }
+
+  waitForHeading(heading: string) {
+    if (this.heading !== heading) {
+      throw new Error("the page heading does not match");
     }
-    if (description === "deletion confirmation dialog") {
-      if (!this.external.deletionDialog) {
-        throw new Error("the deletion confirmation dialog is missing");
-      }
-      return;
+  }
+
+  waitForBusinessBilling() {
+    if (this.external.billingKind !== "business") {
+      throw new Error("the billing kind is not business");
     }
-    if (condition.includes("#profile-referral-code")) {
-      const expected = /input\.value === ("(?:[^"\\]|\\.)*")/.exec(
-        condition
-      )?.[1];
-      if (
-        expected === undefined ||
-        this.referralFieldValue !== JSON.parse(expected)
-      ) {
-        throw new Error("the completion referral field holds another value");
-      }
-      return;
+  }
+
+  waitForLinkedProfileForm(submitLabel: string) {
+    if (submitLabel !== "Save profile") {
+      throw new Error(
+        "the linked edit form's submit control has another label"
+      );
     }
-    if (description === "reauthentication dialog") {
-      if (!this.external.reauthenticationDialog) {
-        throw new Error("the reauthentication dialog is missing");
-      }
-      return;
+    const userId = this.external.currentAuthUserId;
+    if (!userId || !this.external.linksByUserId.has(userId)) {
+      throw new Error("the linked edit form is not shown");
     }
-    if (description === "account profile section") {
-      if (this.selectedSection !== "profile") {
-        throw new Error("the profile section is not selected");
-      }
-      return;
+  }
+
+  waitForEmptiedSignInCode() {
+    if (this.codeStep === undefined || !this.codeInputEmpty) {
+      throw new Error("the code input was not emptied for another try");
     }
-    if (description.endsWith("option selected")) {
-      if (!this.languageListboxOpen) {
-        throw new Error("the selected language check ran without a listbox");
-      }
-      const expected = description.includes("Čeština") ? "cs-CZ" : "en-US";
-      if (this.languageValue !== expected) {
-        throw new Error(`the selected language option is not ${expected}`);
-      }
-      return;
+  }
+
+  waitForDeletionDialog() {
+    if (!this.external.deletionDialog) {
+      throw new Error("the deletion confirmation dialog is missing");
     }
-    if (
-      description.endsWith(" panel") &&
-      condition.includes("[data-screen='profile-screen']") &&
-      condition.includes("__reactProps$")
-    ) {
-      if (this.selectedSection !== "profile") {
-        throw new Error("the deep-linked profile panel is not shown");
-      }
-      return;
+  }
+
+  waitForReauthenticationDialog() {
+    if (!this.external.reauthenticationDialog) {
+      throw new Error("the reauthentication dialog is missing");
     }
-    if (condition.includes("account-reservations-past-title")) {
-      const userId = this.external.currentAuthUserId;
-      const customerId = userId
-        ? this.external.linksByUserId.get(userId)
-        : undefined;
-      if (!this.external.historyReady || !userId || !customerId) {
-        throw new Error("the synthetic reservation history is not available");
-      }
-      if (this.pageText === supportTitle) {
-        throw new Error("ambiguous account exposed reservation history");
-      }
-      return;
+  }
+
+  waitForReferralFieldValue(value: string) {
+    if (this.referralFieldValue !== value) {
+      throw new Error("the completion referral field holds another value");
     }
-    throw new Error(
-      `the synthetic browser waited for an unknown condition: ${description}`
-    );
+  }
+
+  waitForSelectedLanguage(locale: Locale) {
+    if (!this.languageListboxOpen) {
+      throw new Error("the selected language check ran without a listbox");
+    }
+    if (this.languageValue !== locale) {
+      throw new Error(`the selected language option is not ${locale}`);
+    }
+  }
+
+  waitForProfilePanel() {
+    if (this.selectedSection !== "profile") {
+      throw new Error("the deep-linked profile panel is not shown");
+    }
+  }
+
+  waitForReservationsPanel() {
+    const userId = this.external.currentAuthUserId;
+    const customerId = userId
+      ? this.external.linksByUserId.get(userId)
+      : undefined;
+    if (!this.external.historyReady || !userId || !customerId) {
+      throw new Error("the synthetic reservation history is not available");
+    }
+    if (this.pageText === supportTitle) {
+      throw new Error("ambiguous account exposed reservation history");
+    }
   }
 
   /**
@@ -1640,6 +2021,44 @@ class FakeBrowser {
     return this.currentUrl;
   }
 
+  /**
+   * The legal page's export control: the signed-in, linked account that has
+   * not asked for deletion receives its archive, anyone else the control's
+   * error after a private 404.
+   */
+  downloadAccountDataExport(path: string): AccountDataExportDelivery {
+    if (new URL(this.currentUrl).pathname !== "/en-US/account/legal") {
+      throw new Error("the export control was used off the legal page");
+    }
+    this.external.recordBrowserAction({
+      kind: "click",
+      selectorOrDestination: syntheticAccountDataExportActionSelector,
+    });
+    const userId = this.external.currentAuthUserId;
+    const user = userId ? this.external.usersById.get(userId) : undefined;
+    if (
+      path !== syntheticAccountDataExportPath ||
+      !this.signedIn() ||
+      !user ||
+      user.deletionRequestedAt !== null ||
+      !this.external.linksByUserId.has(user.id)
+    ) {
+      return {
+        controlState: "error",
+        download: undefined,
+        headers: {
+          cacheControl: "private, no-store",
+          contentDisposition: undefined,
+          contentType: undefined,
+          referrerPolicy: "no-referrer",
+        },
+        status: 404,
+      };
+    }
+    this.external.accountDataExports += 1;
+    return syntheticAccountDataExportDelivery(this.external);
+  }
+
   text() {
     return this.pageText;
   }
@@ -1654,132 +2073,78 @@ const requireExternal = () => {
   return activeExternal;
 };
 
-const requireBrowser = () => {
+/** The cross-browser sign-in's second browser, open only inside its case. */
+let assistantBrowser: FakeBrowser | undefined;
+
+const requireBrowser = (which: "assistant" | "lane" = "lane") => {
   if (!activeBrowser) throw new Error("synthetic browser is not installed");
-  return activeBrowser;
+  if (which === "lane") return activeBrowser;
+  if (!assistantBrowser) {
+    assistantBrowser = new FakeBrowser(requireExternal(), true);
+    requireExternal().assistantBrowserEvents.push("open");
+  }
+  return assistantBrowser;
 };
 
-const realBrowserModule = await import("../browser");
-
-const browserResult = (stdout = ""): BrowserCommandResult => ({
-  exitCode: 0,
-  stderr: "",
-  stdout,
-});
-
-/*
- * These are the only browser, delivery, auth-row, and provider-fixture
- * boundaries replaced in this regression. The case factory and its semantic
- * steps remain the implementation under test.
+/**
+ * One account browser's page steps as domain operations over the fake
+ * browser's state, resolved when each step runs; descriptions are ignored.
  */
-mock.module("../browser", () => ({
-  ...realBrowserModule,
-  activateHydratedBrowserElement: (
-    _run: Runner,
-    _session: string,
-    selector: string
-  ) => Effect.sync(() => requireBrowser().activate(selector)),
-  clickBrowserElement: (_run: Runner, _session: string, selector: string) =>
-    Effect.sync(() => requireBrowser().click(selector)),
-  evalBrowserScript: (
-    _operation: string,
-    _run: Runner,
-    _session: string,
-    input: string
-  ) => Effect.sync(() => browserResult(requireBrowser().eval(input))),
-  fillBrowserField: (
-    _run: Runner,
-    _session: string,
-    selector: string,
-    value: string
-  ) => Effect.sync(() => requireBrowser().fill(selector, value)),
-  focusBrowserElement: (_run: Runner, _session: string, selector: string) =>
-    Effect.sync(() => requireBrowser().focus(selector)),
-  normalizeBrowserText: (text: string) => text.replaceAll(/\s+/g, " ").trim(),
-  openBrowserPage: (
-    _config: WorkspaceE2EAccountConfig,
-    _run: Runner,
-    _session: string,
-    url: string
-  ) => Effect.sync(() => requireBrowser().open(url)),
-  pressBrowserKey: (_run: Runner, _session: string, key: string) =>
-    Effect.sync(() => requireBrowser().press(key)),
-  readBrowserText: (_run: Runner, _session: string) =>
-    Effect.sync(() => requireBrowser().text()),
-  readBrowserCookie: (
-    _run: Runner,
-    _session: string,
-    query: { readonly name: string; readonly value?: string }
-  ) =>
+const fakeAccountBrowser = (
+  browser: () => FakeBrowser
+): WorkspaceE2EAccountBrowser => ({
+  open: (url) => Effect.sync(() => browser().open(url)),
+  readText: Effect.sync(() => browser().text()),
+  readUrl: Effect.sync(() => browser().url()),
+  requestNewLinkAfterFailedCallback: (locale) =>
+    Effect.sync(() => browser().requestNewLinkAfterFailedCallback(locale)),
+  signOut: Effect.sync(() => browser().click(signOutSelector)),
+  submitSignInEmail: (email) =>
     Effect.sync(() => {
-      const value = requireBrowser().referralCookie;
-      return query.name !== referralCodeCookieName || value === undefined
-        ? { present: false as const }
-        : {
-            httpOnly: false,
-            lifetimeDays: 30,
-            matches: query.value === undefined ? null : query.value === value,
-            path: "/",
-            present: true as const,
-            sameSite: "Lax",
-            secure: true,
-          };
+      browser().fill(signInEmailSelector, email);
+      browser().click(signInSubmitSelector);
     }),
-  readBrowserUrl: (_run: Runner, _session: string) =>
-    Effect.sync(() => requireBrowser().url()),
-  waitForBrowserCondition: (
-    _run: Runner,
-    _session: string,
-    description: string,
-    condition: string
-  ) =>
-    Effect.sync(() =>
-      requireBrowser().waitForCondition(description, condition)
-    ),
-  waitForBrowserReactFormSubmit: (
-    _run: Runner,
-    _session: string,
-    selector: string,
-    fieldSelectors: readonly string[]
-  ) =>
-    Effect.sync(() =>
-      requireBrowser().waitForFormSubmitHandler(selector, fieldSelectors)
-    ),
-  waitForBrowserReactHandler: (
-    _run: Runner,
-    _session: string,
-    selector: string,
-    handler: string
-  ) => Effect.sync(() => requireBrowser().waitForHandler(selector, handler)),
-  waitForBrowserText: ({
-    matches,
-  }: {
-    readonly matches: (text: string) => boolean;
-  }) => Effect.sync(() => requireBrowser().waitForText(matches)),
-  waitForBrowserUrl: ({
-    matches,
-  }: {
-    readonly matches: (url: string) => boolean;
-  }) => Effect.sync(() => requireBrowser().waitForUrl(matches)),
-  waitForInteractiveSnapshot: ({
-    matches,
-  }: {
-    readonly matches: (snapshot: string) => boolean;
-  }) => Effect.sync(() => requireBrowser().waitForSnapshot(matches)),
-}));
+  switchLocale: (locale) =>
+    Effect.sync(() => {
+      browser().switchLocale(locale);
+      browser().waitForUrl((url) =>
+        new URL(url).pathname.startsWith(`/${locale}`)
+      );
+    }),
+  waitForCoworkSelection: (_description, entryTier) =>
+    Effect.sync(() => browser().waitForCoworkSelection(entryTier)),
+  waitForSignInCodeInput: Effect.sync(() =>
+    browser().waitForHandler(signInCodeSelector, "onChange")
+  ),
+  waitForSignInForm: Effect.sync(() =>
+    browser().waitForFormSubmitHandler(signInFormSelector, [
+      signInEmailSelector,
+    ])
+  ),
+  waitForText: (_description, matches) =>
+    Effect.sync(() => browser().waitForText(matches)),
+  waitForUrl: (_description, matches) =>
+    Effect.sync(() => browser().waitForUrl(matches)),
+});
 
 mock.module("./auth-rows", () => ({
   assertNoAuthRows: (userId: string) =>
     Effect.sync(() => requireExternal().assertNoAuthRows(userId)),
+  countAccountPasskeys: (userId: string) =>
+    Effect.sync(() => requireExternal().passkeyCount(userId)),
+  seedWorkspaceE2EReservationAuthor: () =>
+    Effect.succeed("e2e-reservation-author"),
   findAuthUserIdByEmail: (email: string) =>
     Effect.sync(() => requireExternal().findAuthUserId(email)),
   findLinkedDotyposCustomerId: (userId: string) =>
     Effect.sync(() => requireExternal().findLinkedCustomerId(userId)),
+  readNewestSessionCreatedAt: (userId: string) =>
+    Effect.sync(() => requireExternal().usersById.get(userId)?.createdAt),
   removeSyntheticAccountLink: (accountId: string, customerId: string) =>
     Effect.sync(() =>
       requireExternal().removeAccountLink(accountId, customerId)
     ),
-  setAccountLocalePreference: (userId: string, locale: "cs-CZ" | "en-US") =>
+  setAccountLocalePreference: (userId: string, locale: Locale) =>
     Effect.sync(() => requireExternal().setLocalePreference(userId, locale)),
   setDeletionRequestedAt: (userId: string, value: Date | null) =>
     Effect.sync(() => requireExternal().setDeletionMarker(userId, value)),
@@ -1813,7 +2178,7 @@ mock.module("./fixtures", () => ({
     _config: DatasourceConfig,
     customerId: string
   ) => Effect.sync(() => requireExternal().expireProfile(customerId)),
-  readSyntheticCustomerProfile: (
+  requireSyntheticCustomerProfile: (
     _config: DatasourceConfig,
     customerId: string
   ) => Effect.sync(() => requireExternal().readProfile(customerId)),
@@ -1846,7 +2211,9 @@ const makeConfig = (): WorkspaceE2EAccountConfig => ({
   vercelToken: "synthetic-vercel-log-token",
 });
 
-const makeScenario = (options: { readonly signInCodes?: boolean } = {}) => {
+const makeScenario = (
+  options: { readonly passkeys?: boolean; readonly signInCodes?: boolean } = {}
+) => {
   const config = makeConfig();
   const mainRecipient = makeWorkspaceE2EAccountRecipient(
     config,
@@ -1867,6 +2234,7 @@ const makeScenario = (options: { readonly signInCodes?: boolean } = {}) => {
     referralOwnerRecipient
   );
   external.signInCodes = options.signInCodes ?? false;
+  external.passkeys = options.passkeys ?? false;
   const browser = new FakeBrowser(external);
   activeExternal = external;
   activeBrowser = browser;
@@ -1899,9 +2267,6 @@ const makeScenario = (options: { readonly signInCodes?: boolean } = {}) => {
       return realBudget.run(operation, effect);
     },
   };
-  const run: Runner = async () => {
-    throw new Error("the account case bypassed the mocked browser boundary");
-  };
   const previewLogs: WorkspaceE2EPreviewLogs = {
     listSyntheticLogEntryIds: (request) =>
       Effect.sync(() => external.listMessageIds(request.recipient)),
@@ -1928,6 +2293,138 @@ const makeScenario = (options: { readonly signInCodes?: boolean } = {}) => {
       }),
   };
   const datasourceConfig = {} as DatasourceConfig;
+  const laneBrowser: WorkspaceE2EAccountLaneBrowser = {
+    ...fakeAccountBrowser(() => browser),
+    assistant: {
+      ...fakeAccountBrowser(() => requireBrowser("assistant")),
+      close: Effect.sync(() => {
+        if (assistantBrowser) {
+          assistantBrowser = undefined;
+          external.assistantBrowserEvents.push("close");
+        }
+      }),
+    },
+    selectSection: (section) =>
+      Effect.sync(() => browser.selectSection(section)),
+    waitForNoRememberedReferralCode: Effect.sync(() => {
+      if (browser.referralCookie !== undefined) {
+        throw new Error("the lane browser still remembers a referral code");
+      }
+    }),
+    waitForRememberedReferralCode: (code) =>
+      Effect.sync(() => {
+        if (browser.referralCookie !== code) {
+          throw new Error("the lane browser remembers another referral code");
+        }
+      }),
+    chooseBusinessBilling: Effect.sync(() => {
+      browser.focus(billingKindSelector);
+      browser.press("End");
+      browser.press("Tab");
+      browser.waitForBusinessBilling();
+    }),
+    chooseLanguage: (locale) =>
+      Effect.sync(() => {
+        browser.waitForHandler(
+          `${accountSectionLandmarks.profile} ${languageTriggerSelector}`,
+          "onPointerDown"
+        );
+        browser.click(languageTriggerSelector);
+        browser.click(
+          locale === "cs-CZ"
+            ? languageOptionCsSelector
+            : languageOptionEnSelector
+        );
+      }),
+    confirmAccountDeletion: Effect.sync(() => {
+      browser.click(deleteTriggerSelector);
+      browser.waitForDeletionDialog();
+      browser.click(deleteConfirmCheckboxSelector);
+      browser.click(deleteConfirmSelector);
+    }),
+    dismissLanguageList: Effect.sync(() => {
+      browser.press("Escape");
+      return !browser.isLanguageListOpen();
+    }),
+    enterSignInCode: (code) =>
+      Effect.sync(() => browser.fill(signInCodeSelector, code)),
+    fillProfileField: (field, value) =>
+      Effect.sync(() =>
+        browser.fill(accountProfileFieldSelectors[field], value)
+      ),
+    hasLocaleCookie: (locale) =>
+      Effect.sync(() => browser.hasLocaleCookie(locale)),
+    openLanguageList: Effect.sync(() => browser.click(languageTriggerSelector)),
+    readCompletionLoginEmail: (email) =>
+      Effect.sync(() => browser.completionLoginEmail(email)),
+    readLinkedLoginEmail: (email) =>
+      Effect.sync(() => browser.linkedLoginEmail(email)),
+    readProfileDrafts: (drafts) =>
+      Effect.sync(() => browser.profileDrafts(drafts)),
+    readSessionMatches: (email) =>
+      Effect.sync(() => browser.sessionMatches(email)),
+    readSignInEmailBlocked: Effect.sync(() => browser.signInEmailBlocked()),
+    restartSignIn: (buttonLabel) =>
+      Effect.sync(() => browser.restartSignIn(buttonLabel)),
+    saveProfile: Effect.sync(() => browser.click(profileSubmitSelector)),
+    sendReauthenticationLink: Effect.sync(() =>
+      browser.click(deleteReauthSendSelector)
+    ),
+    setLocaleCookie: (locale) =>
+      Effect.sync(() => browser.setLocaleCookie(locale)),
+    waitForEmptiedSignInCode: Effect.sync(() =>
+      browser.waitForEmptiedSignInCode()
+    ),
+    waitForLanguageControlLabel: (_description, label) =>
+      Effect.sync(() => browser.waitForLanguageControlLabel(label)),
+    waitForLinkedProfileForm: (submitLabel) =>
+      Effect.sync(() => browser.waitForLinkedProfileForm(submitLabel)),
+    waitForPageHeading: (_description, heading) =>
+      Effect.sync(() => browser.waitForHeading(heading)),
+    waitForProfilePanel: () => Effect.sync(() => browser.waitForProfilePanel()),
+    waitForReauthenticationDialog: Effect.sync(() =>
+      browser.waitForReauthenticationDialog()
+    ),
+    waitForReferralFieldValue: (_description, code) =>
+      Effect.sync(() => browser.waitForReferralFieldValue(code)),
+    waitForReservationsPanel: () =>
+      Effect.sync(() => browser.waitForReservationsPanel()),
+    waitForSelectedLanguage: (_description, locale) =>
+      Effect.sync(() => browser.waitForSelectedLanguage(locale)),
+    waitForSnapshot: (_description, matches) =>
+      Effect.sync(() => browser.waitForSnapshot(matches)),
+    downloadAccountDataExport: (path) =>
+      Effect.sync(() => browser.downloadAccountDataExport(path)),
+    requestAccountDataExportSignedOut: (path) =>
+      Effect.sync(() => {
+        external.signedOutExportRequests.push(path);
+        return external.signedOutExportRefusal;
+      }),
+  };
+  const passkeys: WorkspaceE2EAccountPasskeys = {
+    confirmDeletionWithPasskey: Effect.sync(() =>
+      external.confirmDeletionWithPasskey()
+    ),
+    createFromPrompt: Effect.sync(() => external.createPasskeyFromPrompt()),
+    createFromSettings: Effect.sync(() => external.createPasskeyFromSettings()),
+    deleteOnly: (name) => Effect.sync(() => external.deletePasskey(name)),
+    installAuthenticator: Effect.sync(() => external.addAuthenticator()),
+    readAuthenticatorCredentials: Effect.sync(() =>
+      external.readAuthenticatorCredentials()
+    ),
+    readSignInOffer: Effect.sync(() =>
+      external.passkeys ? ("offered" as const) : ("absent" as const)
+    ),
+    removeAuthenticator: Effect.sync(() => external.removeAuthenticator()),
+    renameOnly: (name) => Effect.sync(() => external.renamePasskey(name)),
+    signIn: Effect.sync(() => {
+      if (!browser.url().includes("/auth/sign-in")) {
+        throw new Error("the passkey button was used off the sign-in page");
+      }
+      external.signInWithPasskey();
+      browser.open(`${config.baseUrl}/en-US/account`);
+    }),
+  };
 
   return {
     browser,
@@ -1935,12 +2432,13 @@ const makeScenario = (options: { readonly signInCodes?: boolean } = {}) => {
     datasourceConfig,
     external,
     journalRef,
+    laneBrowser,
     lifecycleHandoff,
     operations,
+    passkeys,
     previewLogs,
     rateBudget,
     retries,
-    run,
   };
 };
 
@@ -1982,7 +2480,6 @@ const makeCaseExecution = (
       testCase.execute({
         journalRef: scenario.journalRef,
         runStep,
-        session,
       })
     ),
     () =>
@@ -2015,6 +2512,8 @@ const executeCase = async (
 ) =>
   Effect.runPromise(makeCaseExecution(testCase, scenario, stepIds, verifyPage));
 
+const { makeWorkspaceE2ESignInReturns } = await import("./cases");
+
 const buildCase = async (
   makeCases: typeof import("./cases").makeWorkspaceE2EAccountCases,
   caseId: WorkspaceE2EAccountCaseId,
@@ -2031,11 +2530,18 @@ const buildCase = async (
       : {}),
     config: scenario.config,
     datasourceConfig: scenario.datasourceConfig,
+    laneBrowser: scenario.laneBrowser,
     lifecycleHandoff: scenario.lifecycleHandoff,
+    passkeys: scenario.passkeys,
     previewLogs: scenario.previewLogs,
+    captureSignInHandoffReview: async (stage) => {
+      scenario.external.signInHandoffReviews.push({
+        stage,
+        url: requireBrowser("assistant").url(),
+      });
+    },
     rateBudget: scenario.rateBudget,
-    run: scenario.run,
-    session,
+    signInReturns: makeWorkspaceE2ESignInReturns(fixedNowMs),
   });
   const selected = cases.find(({ id }) => id === caseId);
   if (!selected) throw new Error(`case ${caseId} was not built`);
@@ -2045,6 +2551,7 @@ const buildCase = async (
 afterEach(() => {
   activeExternal = undefined;
   activeBrowser = undefined;
+  assistantBrowser = undefined;
   setSystemTime();
 });
 
@@ -2081,6 +2588,18 @@ const runLane = async (
     await executeCase(selected, scenario, stepIds);
     operationsByCase[caseId] = scenario.operations.slice(operationsBefore);
   }
+  // A failed case's annotation names its terminal step only when the
+  // production formatter keeps the step id.
+  for (const stepId of stepIds) {
+    expect(
+      formatWorkspaceE2EFailureAnnotation({
+        caseId: "account-anonymous-redirect",
+        failureKind: "error",
+        outcome: "failed",
+        stepId,
+      })
+    ).toContain(`,step=${stepId},`);
+  }
   return { operationsByCase, skippedCaseIds };
 };
 
@@ -2091,10 +2610,17 @@ test("executes every account lane case within the magic-link ledger", async () =
   const { operationsByCase, skippedCaseIds } = await runLane(scenario, stepIds);
 
   expect(stepIds.length).toBeGreaterThan(0);
-  // Without sign-in codes the form shows the inbox notice, and the lane
-  // skips the code case before it touches anything.
+  // Without sign-in codes the form shows the inbox notice, and without
+  // passkeys it offers no passkey sign-in, so the lane skips the code and
+  // passkey cases before they touch anything.
   expect(scenario.lifecycleHandoff.signInConfirmation).toBe("inbox");
-  expect(skippedCaseIds).toEqual(["account-sign-in-code"]);
+  expect(scenario.lifecycleHandoff.passkeySignIn).toBe("absent");
+  expect(skippedCaseIds).toEqual([
+    "account-sign-in-code",
+    "account-passkey-sign-in",
+    "account-passkey-management",
+  ]);
+  expect(scenario.external.passkeyActions).toEqual([]);
   expect(scenario.lifecycleHandoff.firstAcceptedRequestedAt).toEqual(fixedNow);
   expect(scenario.lifecycleHandoff.referralInvitation).toEqual({
     code: syntheticReferralCode,
@@ -2137,15 +2663,52 @@ test("executes every account lane case within the magic-link ledger", async () =
     ...workspaceE2EAccountCaseIds,
   ]);
   expect(operationsByCase).toEqual(workspaceE2EAccountMagicLinkLedger);
+  // The linked account exported its data once, between the reservation
+  // transitions and the deletion, and a signed-out visitor was refused.
+  expect(scenario.external.accountDataExports).toBe(1);
+  expect(scenario.external.signedOutExportRequests).toEqual([
+    "/en-US/account/data-export",
+  ]);
   // The reauthentication sign-in landed on the fixture-saved Czech site, and
-  // English (US) was restored before the deletion; the locale case then saved
-  // Čeština and switched back to English (US) for the linking case.
-  expect(scenario.external.fixtureLocaleWrites).toEqual(["cs-CZ", "en-US"]);
+  // English (US) was restored before the deletion; the Czech cross-browser
+  // sign-in saved Čeština, which the fixture restored to English (US); the
+  // locale case then saved Čeština and switched back to English (US) for the
+  // linking case.
+  expect(scenario.external.fixtureLocaleWrites).toEqual([
+    "cs-CZ",
+    "en-US",
+    "en-US",
+  ]);
+  // The assistant's browser requested the reactivation link from the Czech
+  // cowork selection, replayed it after the lane browser consumed it, kept
+  // its return target on the new-link sign-in, and closed with the case.
+  const signInReturns = makeWorkspaceE2ESignInReturns(fixedNowMs);
+  // The main recipient's first link returned the lane browser to its
+  // English selection, and the reactivation link to the assistant's Czech
+  // one; the reauthentication link kept its account landing.
+  expect(scenario.external.linkLandings).toEqual([
+    signInReturns.sameBrowser.returnTo,
+    "/en-US/account",
+    signInReturns.assistant.returnTo,
+  ]);
+  expect(scenario.external.assistantBrowserEvents).toEqual(["open", "close"]);
+  expect(
+    scenario.external.signInHandoffReviews.map(({ stage, url }) => {
+      const parsed = new URL(url);
+      return [stage, parsed.pathname, parsed.searchParams.get("error")];
+    })
+  ).toEqual([
+    ["sign-in-accepted", "/cs-CZ/auth/sign-in", null],
+    ["callback-failed", "/cs-CZ/auth/callback", "INVALID_TOKEN"],
+  ]);
+  expect(
+    new URL(
+      scenario.external.signInHandoffReviews[0]?.url ?? ""
+    ).searchParams.get("returnTo")
+  ).toBe(signInReturns.assistant.returnTo);
   expect(scenario.external.languageSaves).toEqual(["cs-CZ", "en-US"]);
   expect(scenario.external.localePreference).toBe("en-US");
-  expect(stepIds).toContain(
-    "signs the same account back in onto the saved Czech site"
-  );
+  expect(stepIds).toContain("sign-in-onto-saved-czech-site");
 
   const operationEvents = scenario.external.events.filter(({ type }) =>
     ["send", "receive", "logout", "consume", "deletion", "replay"].includes(
@@ -2164,10 +2727,10 @@ test("executes every account lane case within the magic-link ledger", async () =
     "logout:",
     "consume:reauthentication",
     "deletion:",
-    "replay:",
     "send:reactivation",
     "receive:reactivation",
     "consume:reactivation",
+    "replay:",
   ]);
 
   const mainMessages =
@@ -2277,11 +2840,13 @@ test("executes every account lane case within the magic-link ledger", async () =
       precedingDestination: "/contact",
     },
   ]);
+  // The reactivated account claims its retained profile when the account
+  // page opens after the selection, not when the link is consumed.
   expect(
     scenario.external.events
       .filter(({ type }) => type === "relink")
       .map(({ mode }) => mode)
-  ).toEqual(["active", "expired"]);
+  ).toEqual(["expired", "active", "expired"]);
   expect(
     scenario.external.events.filter(({ type }) => type === "ambiguity")
   ).toHaveLength(1);
@@ -2320,14 +2885,15 @@ test("signs in with an emailed code and keeps every link journey when sign-in co
   const { operationsByCase, skippedCaseIds } = await runLane(scenario, stepIds);
 
   expect(scenario.lifecycleHandoff.signInConfirmation).toBe("code");
-  expect(skippedCaseIds).toEqual([]);
+  expect(skippedCaseIds).toEqual([
+    "account-passkey-sign-in",
+    "account-passkey-management",
+  ]);
   // The code sign-in reuses the second unknown email, so the magic-link
   // ledger is unchanged.
   expect(scenario.retries).toEqual([]);
   expect(operationsByCase).toEqual(workspaceE2EAccountMagicLinkLedger);
-  expect(stepIds).toContain(
-    "signs in with the emailed code into the completion state"
-  );
+  expect(stepIds).toContain("sign-in-with-emailed-code");
 
   const operationEvents = scenario.external.events.filter(({ type }) =>
     [
@@ -2357,10 +2923,10 @@ test("signs in with an emailed code and keeps every link journey when sign-in co
     "logout:",
     "consume:reauthentication",
     "deletion:",
-    "replay:",
     "send:reactivation",
     "receive:reactivation",
     "consume:reactivation",
+    "replay:",
   ]);
   // The second request switched email from the main recipient's code step.
   expect(
@@ -2392,6 +2958,47 @@ test("signs in with an emailed code and keeps every link journey when sign-in co
   expect(scenario.external.referralAttributions).toEqual(
     new Map([["customer-retained", referralOwnerCustomerId]])
   );
+});
+
+test("creates, signs in with, manages, and reauthenticates with a passkey when passkeys are on", async () => {
+  setSystemTime(fixedNow);
+  const scenario = makeScenario({ passkeys: true, signInCodes: true });
+  const stepIds: string[] = [];
+  const { operationsByCase, skippedCaseIds } = await runLane(scenario, stepIds);
+
+  expect(scenario.lifecycleHandoff.passkeySignIn).toBe("offered");
+  expect(skippedCaseIds).toEqual([]);
+  // Every passkey journey reuses the reactivation sign-in, so the
+  // magic-link ledger is unchanged.
+  expect(scenario.retries).toEqual([]);
+  expect(operationsByCase).toEqual(workspaceE2EAccountMagicLinkLedger);
+  // The authenticator is present before the reactivation link lands, so the
+  // prompt creates the first passkey; the passkey cases then sign in with it,
+  // rename and delete it, create another from settings, confirm the
+  // stale-session deletion with it, and remove the authenticator.
+  expect(scenario.external.passkeyActions).toEqual([
+    "add-authenticator",
+    "create-from-prompt",
+    "sign-in",
+    "rename",
+    "delete",
+    "create-from-settings",
+    "confirm-deletion",
+    "remove-authenticator",
+  ]);
+  expect(stepIds.indexOf("add-virtual-passkey-authenticator")).toBeLessThan(
+    stepIds.indexOf("reactivate-retained-profile")
+  );
+  expect(stepIds).toContain("create-passkey-from-prompt");
+  // The account survives the passkey confirmation and keeps one passkey.
+  expect(scenario.external.passkeysByUserId).toEqual(
+    new Map([["auth-reactivated", 1]])
+  );
+  expect(
+    scenario.external.events.filter(({ type }) => type === "deletion")
+  ).toHaveLength(1);
+  // The locale case still ran on the passkey session afterwards.
+  expect(scenario.external.languageSaves).toEqual(["cs-CZ", "en-US"]);
 });
 
 test("fails closed before retrieving a code when the sign-in form showed no code step", async () => {
@@ -2428,7 +3035,7 @@ test("fails closed before external side effects when the accepted request handof
   );
 
   expect(Exit.isFailure(exit)).toBe(true);
-  expect(stepIds).toEqual(["requires the first accepted main request handoff"]);
+  expect(stepIds).toEqual(["require-first-accepted-request-handoff"]);
   expect(scenario.external.browserActions).toEqual([]);
   expect(scenario.external.events).toEqual([]);
   expect(scenario.external.authReads).toEqual([]);
@@ -2454,7 +3061,7 @@ test("fails closed before any sign-in request when the share-link handoff is mis
   );
 
   expect(Exit.isFailure(exit)).toBe(true);
-  expect(stepIds).toEqual(["requires the share-link sign-in handoff"]);
+  expect(stepIds).toEqual(["require-share-link-sign-in-handoff"]);
   expect(scenario.external.browserActions).toEqual([]);
   expect(scenario.external.events).toEqual([]);
   expect(scenario.operations).toEqual([]);
@@ -2476,9 +3083,7 @@ test("fails closed before external side effects when the reauthentication handof
   );
 
   expect(Exit.isFailure(exit)).toBe(true);
-  expect(stepIds).toEqual([
-    "requires the reauthentication handoff from the marker case",
-  ]);
+  expect(stepIds).toEqual(["require-reauthentication-handoff"]);
   expect(scenario.external.browserActions).toEqual([]);
   expect(scenario.external.events).toEqual([]);
   expect(scenario.external.authReads).toEqual([]);
@@ -2510,9 +3115,7 @@ test("fails when the reauthentication handoff names a different linked customer"
   );
 
   expect(Exit.isFailure(exit)).toBe(true);
-  expect(stepIds).toContain(
-    "signs the same account back in onto the saved Czech site"
-  );
+  expect(stepIds).toContain("sign-in-onto-saved-czech-site");
   expect(scenario.external.createdAuthIds).toEqual(["auth-original"]);
   expect(scenario.external.deletionObservations).toEqual([]);
   expect(scenario.external.reauthenticationObservations).toEqual([
@@ -2585,21 +3188,20 @@ const runLanguageCase = async (
     selected.execute({
       journalRef: scenario.journalRef,
       runStep,
-      session,
     }) as Effect.Effect<void, WorkspaceE2EError>
   );
   return { exit, scenario, stepIds };
 };
 
 const languageCaseStepIds = [
-  "opens the English profile of the reactivated account",
-  "chooses Čeština, which saves it and moves the site to Czech",
-  "shows Čeština selected on the Czech profile",
-  "redirects a conflicting en-US URL and cookie to the saved Czech locale",
-  "keeps Čeština selected on the Czech profile after the redirect",
-  "switches to English through the header language switcher",
-  "redirects a Czech account URL to the switched English preference",
-  "shows English (US) as the saved language after the switch",
+  "open-english-profile",
+  "choose-czech-language",
+  "assert-czech-selected",
+  "redirect-conflicting-locale-to-czech",
+  "assert-czech-selected-after-redirect",
+  "switch-to-english-in-header",
+  "redirect-czech-url-to-english",
+  "assert-english-saved-after-switch",
 ];
 
 test("makes the saved language preference the site locale and switches it back from the header", async () => {
@@ -2623,10 +3225,22 @@ test("makes the saved language preference the site locale and switches it back f
   expect(opened).toContain("/en-US/faq");
   expect(opened).toContain("/cs-CZ/account");
   // Later serial cases start from the English account, signed in.
-  expect(requireBrowser().url()).toBe(`${baseUrl}/en-US/account`);
+  expect(requireBrowser().url()).toBe(`${baseUrl}/en-US/account/profile`);
   expect(external.currentAuthUserId).toBe("auth-original");
   // Without a review hook nothing is captured.
   expect(external.languageReviews).toEqual([]);
+});
+
+test("presses Escape again when the language listbox missed the first one", async () => {
+  const { exit, scenario, stepIds } = await runLanguageCase((external) => {
+    external.listboxMissesFirstEscape = true;
+  });
+
+  expect(Exit.isSuccess(exit)).toBe(true);
+  // The header switch still saved English (US) instead of being swallowed
+  // by a listbox left open.
+  expect(scenario.external.switcherSaves).toEqual(["en-US"]);
+  expect(stepIds).toEqual(languageCaseStepIds);
 });
 
 test("rejects a proxy that lets the URL locale outrank the saved preference", async () => {
@@ -2637,9 +3251,7 @@ test("rejects a proxy that lets the URL locale outrank the saved preference", as
   expect(Exit.isFailure(exit)).toBe(true);
   // The Czech save still navigates to Czech, but the conflicting en-US URL
   // and cookie keep the English page.
-  expect(stepIds.at(-1)).toBe(
-    "redirects a conflicting en-US URL and cookie to the saved Czech locale"
-  );
+  expect(stepIds.at(-1)).toBe("redirect-conflicting-locale-to-czech");
   expect(scenario.external.localePreference).toBe("cs-CZ");
 });
 
@@ -2650,9 +3262,7 @@ test("rejects a header switch that does not save the preference", async () => {
 
   expect(Exit.isFailure(exit)).toBe(true);
   // A plain link is redirected straight back to the saved Czech locale.
-  expect(stepIds.at(-1)).toBe(
-    "switches to English through the header language switcher"
-  );
+  expect(stepIds.at(-1)).toBe("switch-to-english-in-header");
   expect(scenario.external.switcherSaves).toEqual([]);
   expect(scenario.external.localePreference).toBe("cs-CZ");
 });
@@ -2669,7 +3279,90 @@ test("rejects a Czech save that the saved preference does not keep", async () =>
   });
 
   expect(Exit.isFailure(exit)).toBe(true);
-  expect(stepIds.at(-1)).toBe(
-    "chooses Čeština, which saves it and moves the site to Czech"
+  expect(stepIds.at(-1)).toBe("choose-czech-language");
+});
+
+const runAccountDataExportCase = async (
+  configure: (scenario: ReturnType<typeof makeScenario>) => void = () =>
+    undefined
+) => {
+  setSystemTime(fixedNow);
+  const { makeWorkspaceE2EAccountCases } = await import("./cases");
+  const scenario = makeScenario();
+  // The transitions case leaves the linked main account signed in.
+  seedLanguageAccount(scenario.external);
+  scenario.browser.startAt(`${baseUrl}/en-US/account`);
+  configure(scenario);
+  const selected = await buildCase(
+    makeWorkspaceE2EAccountCases,
+    "account-data-export",
+    scenario
   );
+  const stepIds: string[] = [];
+  return {
+    run: () => executeCase(selected, scenario, stepIds),
+    scenario,
+    stepIds,
+  };
+};
+
+test("exports the linked account's data from the legal page and refuses a signed-out visitor", async () => {
+  const { run, scenario, stepIds } = await runAccountDataExportCase();
+
+  await run();
+
+  expect(stepIds).toEqual([
+    "open-legal-section",
+    "download-account-data-export",
+    "assert-account-data-export",
+    "refuse-signed-out-account-data-export",
+    "assert-signed-out-refusal",
+  ]);
+  expect(scenario.external.accountDataExports).toBe(1);
+  expect(scenario.external.signedOutExportRequests).toEqual([
+    "/en-US/account/data-export",
+  ]);
+  // The lane's session survives: no sign-out, no sign-in, no link.
+  expect(scenario.browser.sessionMatches(scenario.external.mainRecipient)).toBe(
+    true
+  );
+  expect(scenario.operations).toEqual([]);
+});
+
+test("fails the export case when the archive holds an entry outside the sections", async () => {
+  const { run, scenario } = await runAccountDataExportCase(({ external }) => {
+    external.accountDataExportEntries = {
+      ...external.accountDataExportEntries,
+      "sessions.json": "[]",
+    };
+  });
+
+  await expect(run()).rejects.toThrow(
+    "the export archive has 1 entries outside the export sections"
+  );
+  expect(scenario.external.signedOutExportRequests).toEqual([]);
+});
+
+test("fails the export case when a signed-out visitor receives the export", async () => {
+  const { run } = await runAccountDataExportCase(({ external }) => {
+    external.signedOutExportRefusal = {
+      bodyLength: 512,
+      cacheControl: "private, no-store",
+      status: 200,
+    };
+  });
+
+  await expect(run()).rejects.toThrow(
+    "the signed-out export responded with status 200"
+  );
+});
+
+test("fails the export case for an account that asked for deletion", async () => {
+  const { run } = await runAccountDataExportCase(({ external }) => {
+    const user = external.usersById.get("auth-original");
+    if (!user) throw new Error("the seeded account is missing");
+    user.deletionRequestedAt = fixedNow;
+  });
+
+  await expect(run()).rejects.toThrow("the export responded with status 404");
 });

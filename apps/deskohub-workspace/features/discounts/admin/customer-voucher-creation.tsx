@@ -1,6 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { m } from "@/features/administration/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
+import { getLocalizedPagePath } from "@/features/i18n/routing";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +12,7 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { CreateVoucherForm } from "./admin-tables";
+import { discountDialogContentClassName } from "./creation-dialogs";
 import type { AdminCustomerProfile } from "./discount-administration.service";
 
 type VoucherCustomer = Pick<
@@ -24,13 +28,21 @@ export function CustomerVoucherCreationForm({
   readonly customer: VoucherCustomer;
 }) {
   const router = useRouter();
+  const locale = useRouteLocale();
 
   return (
     <CreateVoucherForm
       customer={customer}
       onCreated={() => {
         if (completion === "back") router.back();
-        else router.replace(`/admin/customers/${customer.id}`);
+        else
+          router.replace(
+            getLocalizedPagePath(
+              locale,
+              "/[locale]/admin/customers/[customerId]",
+              { customerId: customer.id }
+            )
+          );
       }}
     />
   );
@@ -42,6 +54,7 @@ export function CustomerVoucherCreationDialog({
   readonly customer: VoucherCustomer;
 }) {
   const router = useRouter();
+  const locale = useRouteLocale();
 
   return (
     <Dialog
@@ -50,11 +63,16 @@ export function CustomerVoucherCreationDialog({
       }}
       open
     >
-      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-4xl overflow-y-auto">
+      <DialogContent className={discountDialogContentClassName} locale={locale}>
         <DialogHeader>
-          <DialogTitle>Create voucher for {customer.displayName}</DialogTitle>
+          <DialogTitle>
+            {m.discountsCustomerVoucherCreateTitle(
+              { customerName: customer.displayName },
+              { locale }
+            )}
+          </DialogTitle>
           <DialogDescription>
-            Issue promotional credit that only this customer can spend.
+            {m.discountsCustomerVoucherCreateDescription({}, { locale })}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5">

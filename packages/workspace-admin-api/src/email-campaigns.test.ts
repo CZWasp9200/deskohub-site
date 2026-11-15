@@ -51,6 +51,43 @@ describe("campaign admin API contract", () => {
     expect(reencode(storedFilterJson)).toBe(storedFilterJson);
   });
 
+  test.each([
+    [
+      "the first visit",
+      '{"attribute":"firstVisit","_tag":"Condition","params":{"product":{"family":"cowork","properties":[]}},"operator":"in","value":{"_tag":"Last","count":30,"unit":"day"}}',
+    ],
+    [
+      "a trigger-relative period",
+      '{"attribute":"reservationCount","_tag":"Condition","params":{"dateBasis":"visit","period":{"_tag":"TriggerWindow","side":"after","count":2,"unit":"week"}},"operator":"gt","value":0}',
+    ],
+    [
+      "the past",
+      '{"attribute":"lastVisit","_tag":"Condition","operator":"notIn","value":{"_tag":"Past"}}',
+    ],
+    [
+      "emails of one campaign",
+      '{"_tag":"Group","operator":"or","filters":[{"attribute":"campaignEmailCount","_tag":"Condition","params":{"purpose":"any","period":{"_tag":"AnyTime"},"campaign":{"_tag":"Specific","campaignId":"campaign-1"}},"operator":"eq","value":0},{"attribute":"campaignEmailCount","_tag":"Condition","params":{"purpose":"any","period":{"_tag":"Last","count":3,"unit":"month"},"campaign":{"_tag":"This"}},"operator":"eq","value":0}]}',
+    ],
+  ])("keeps the wire format of %s byte for byte", (_shape, json) => {
+    expect(reencode(json)).toBe(json);
+  });
+
+  test("rejects a campaign purpose beside one campaign's emails", () => {
+    const fromCampaign = (purpose: string) => ({
+      attribute: "campaignEmailCount",
+      _tag: "Condition",
+      params: {
+        purpose,
+        period: { _tag: "AnyTime" },
+        campaign: { _tag: "This" },
+      },
+      operator: "eq",
+      value: 0,
+    });
+    expect(issuePaths(fromCampaign("marketing"))).toEqual(["params.purpose"]);
+    expect(issuePaths(fromCampaign("any"))).toEqual([]);
+  });
+
   test("decodes an audience filter in jsonb key order", () => {
     expect(reencode(jsonbFilterJson)).toBe(
       '{"_tag":"Group","operator":"and","filters":[{"attribute":"reservationCount","_tag":"Condition","params":{"dateBasis":"booking","period":{"_tag":"Range","from":"2026-01-01","to":"2026-06-30"},"status":"complete"},"operator":"gt","value":0}]}'
@@ -176,7 +213,7 @@ describe("campaign admin API contract", () => {
         attribute: "locale",
         _tag: "Condition",
         operator: "anyOf",
-        value: ["de-DE"],
+        value: ["fr-FR"],
       },
     ],
     [
@@ -257,7 +294,7 @@ describe("campaign admin API contract", () => {
     expect(
       decodes(
         AdministrationCampaignCreateInput,
-        create({ content: { "de-DE": content } })
+        create({ content: { "fr-FR": content } })
       )
     ).toBe(false);
     expect(
@@ -269,6 +306,66 @@ describe("campaign admin API contract", () => {
     expect(
       decodes(AdministrationCampaignCreateInput, create({ status: "sent" }))
     ).toBe(false);
+  });
+
+  test("takes a body as Markdown or as the editor's document, never both", () => {
+    const bodyDocument = {
+      formatVersion: 1 as const,
+      doc: {
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "# News" }],
+          },
+        ],
+      },
+    };
+    const texts = { subject: "News", preheader: "" };
+    const create = (content: object) => ({
+      title: "News",
+      purpose: "operational",
+      templateKey: "workspace",
+      audienceId: null,
+      content: { "en-US": content },
+    });
+
+    expect(
+      Schema.decodeUnknownSync(AdministrationCampaignCreateInput)(
+        create({ ...texts, bodyDocument })
+      ).content["en-US"]
+    ).toEqual({ ...texts, bodyDocument });
+    for (const content of [
+      texts,
+      { ...texts, bodyMarkdown: "Hi", bodyDocument },
+      { ...texts, bodyDocument: { ...bodyDocument, formatVersion: 2 } },
+      { ...texts, bodyDocument: { ...bodyDocument, extra: true } },
+      { ...texts, bodyDocument: { formatVersion: 1, doc: { text: "Hi" } } },
+    ]) {
+      expect(decodes(AdministrationCampaignCreateInput, create(content))).toBe(
+        false
+      );
+    }
+
+    expect(
+      decodes(AdministrationCampaignUpdateInput, {
+        content: { "en-US": { bodyDocument } },
+      })
+    ).toBe(true);
+    expect(
+      decodes(AdministrationCampaignUpdateInput, {
+        content: { "en-US": { bodyMarkdown: "Hi", bodyDocument } },
+      })
+    ).toBe(false);
+    expect(
+      decodes(AdministrationCampaignTemplatePreviewInput, {
+        _tag: "UnfinishedContent",
+        purpose: "operational",
+        locale: "en-US",
+        content: { ...texts, bodyDocument },
+      })
+    ).toBe(true);
   });
 
   test("expresses removals in a campaign update", () => {
@@ -302,7 +399,7 @@ describe("campaign admin API contract", () => {
     ).toBe(false);
   });
 
-  test("previews either unsaved content or a saved campaign", () => {
+  test("previews unsaved content, unfinished content or a saved campaign", () => {
     expect(
       decodes(AdministrationCampaignTemplatePreviewInput, {
         _tag: "Content",
@@ -311,6 +408,27 @@ describe("campaign admin API contract", () => {
         content: { subject: "Novinky", preheader: "", bodyMarkdown: "Ahoj" },
       })
     ).toBe(true);
+    expect(
+      decodes(AdministrationCampaignTemplatePreviewInput, {
+        _tag: "UnfinishedContent",
+        purpose: "operational",
+        locale: "en-US",
+        content: {
+          subject: "",
+          preheader: "",
+          bodyMarkdown: "[[button: ]()]",
+        },
+      })
+    ).toBe(true);
+    expect(
+      decodes(AdministrationCampaignTemplatePreviewInput, {
+        _tag: "UnfinishedContent",
+        purpose: "operational",
+        locale: "en-US",
+        content: { subject: "", preheader: "", bodyMarkdown: "" },
+        campaignId: "01990000-0000-7000-8000-000000000001",
+      })
+    ).toBe(false);
     expect(
       decodes(AdministrationCampaignTemplatePreviewInput, {
         _tag: "Campaign",

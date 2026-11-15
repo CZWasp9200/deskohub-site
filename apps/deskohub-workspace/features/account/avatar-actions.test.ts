@@ -2,36 +2,34 @@ import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { PostHogFeatureFlagEvaluationError } from "@deskohub/posthog/feature-flags/node";
 import { Context, Effect, Layer } from "effect";
+import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
+import { m } from "@/features/i18n";
+import { mockWorkspaceActionRequest } from "@/shared/testing/workspace-action-request.test-utils";
+import { AccountAvatarReleaseGate } from "./backend/account-release-gates";
 import { CustomerAccountAccessError } from "./customer-account";
 
-const revalidatePath = mock((_path: string) => undefined);
+const revalidatePath = mock(
+  (_path: string, _type?: "layout" | "page") => undefined
+);
 mock.module("next/cache", () => ({ revalidatePath }));
 
-const requestHeaders = new Headers({ referer: "https://deskohub.test/en-US" });
-mock.module("next/headers", () => ({
-  headers: async () => requestHeaders,
-  cookies: async () => ({ get: () => undefined, getAll: () => [] }),
-}));
-mock.module("next/server", () => ({
-  after: () => undefined,
-}));
-mock.module("@/instrumentation", () => ({
-  postHogLoggerProvider: {
-    forceFlush: () => Promise.resolve(),
-    getLogger: () => ({ emit: () => undefined }),
-  },
-}));
-mock.module("botid/server", () => ({
-  checkBotId: () => Promise.resolve({ isBot: false }),
-}));
+await mockWorkspaceActionRequest();
 
-const areAccountsEnabled = mock(() => Promise.resolve(true));
-const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
-mock.module("@/features/account/server/account-feature-flag.server", () => ({
-  areAccountsEnabled,
-  areAccountAvatarsEnabled,
-}));
+// The avatar release gate over a fake flag evaluation.
+let avatarFlag: Effect.Effect<boolean, PostHogFeatureFlagEvaluationError> =
+  Effect.succeed(true);
+const readAvatarFlag = mock(() => avatarFlag);
+Object.assign(AccountAvatarReleaseGate, {
+  Live: AccountAvatarReleaseGate.Default.pipe(
+    Layer.provide(
+      WorkspaceFeatureFlagServiceMock({
+        isEnabled: () => Effect.suspend(readAvatarFlag),
+      })
+    )
+  ),
+});
 
 let currentUser: Effect.Effect<
   {
@@ -159,7 +157,14 @@ mock.module("@/features/account/backend/customer-avatar.service", () => ({
   CustomerAvatarService: Avatar,
 }));
 
-Object.assign(Avatar, { Live: AvatarLayer });
+let avatarLive: Layer.Layer<Avatar, unknown> = AvatarLayer;
+Object.defineProperty(Avatar, "Live", { get: () => avatarLive });
+
+/** A media service whose construction fails, as with invalid configuration. */
+const UnconfiguredAvatarLayer = Layer.effect(
+  Avatar,
+  Effect.fail({ _tag: "CloudinaryConfigError" })
+) as Layer.Layer<Avatar, unknown>;
 
 const activeSession = {
   accountId: "@test/account-id" as const,
@@ -190,10 +195,9 @@ describe("customer avatar actions", () => {
     };
     removeOutcome = { status: "removed" };
     revalidatePath.mockClear();
-    areAccountsEnabled.mockReset();
-    areAccountsEnabled.mockResolvedValue(true);
-    areAccountAvatarsEnabled.mockReset();
-    areAccountAvatarsEnabled.mockResolvedValue(true);
+    readAvatarFlag.mockClear();
+    avatarLive = AvatarLayer;
+    avatarFlag = Effect.succeed(true);
     currentUser = Effect.succeed(activeSession);
     resolverCalls = 0;
     resolve = Effect.succeed({
@@ -224,7 +228,7 @@ describe("customer avatar actions", () => {
     expect(uploadCalls).toHaveLength(1);
     expect(uploadAccountIds).toEqual(["@test/account-id"]);
     expect(uploadCalls[0]!.bytes.byteLength).toBe(pngBytes().byteLength);
-    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account");
+    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account", "layout");
   });
 
   test("reports a typed rejection from the service without an action error", async () => {
@@ -263,7 +267,7 @@ describe("customer avatar actions", () => {
     expect(removeResult.serverError).toBe(
       "Your session has expired. Please sign in again."
     );
-    expect(areAccountAvatarsEnabled).not.toHaveBeenCalled();
+    expect(readAvatarFlag).not.toHaveBeenCalled();
     expect(uploadCalls).toHaveLength(0);
     expect(removeCalls).toHaveLength(0);
   });
@@ -292,23 +296,8 @@ describe("customer avatar actions", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  test("blocks avatar mutations when accounts are disabled", async () => {
-    areAccountsEnabled.mockResolvedValue(false);
-    const { uploadCustomerAvatar, removeCustomerAvatar } =
-      await importActions();
-
-    const uploadResult = await uploadCustomerAvatar(uploadForm());
-    const removeResult = await removeCustomerAvatar();
-
-    expect(uploadResult.serverError).toBeTruthy();
-    expect(removeResult.serverError).toBeTruthy();
-    expect(areAccountAvatarsEnabled).not.toHaveBeenCalled();
-    expect(uploadCalls).toHaveLength(0);
-    expect(removeCalls).toHaveLength(0);
-  });
-
   test("rejects direct upload and removal before resolution or media work when avatars are disabled", async () => {
-    areAccountAvatarsEnabled.mockResolvedValue(false);
+    avatarFlag = Effect.succeed(false);
     const form = uploadForm();
     const file = form.get("file");
     if (!(file instanceof File)) throw new Error("Missing test upload file");
@@ -323,12 +312,13 @@ describe("customer avatar actions", () => {
     const uploadResult = await uploadCustomerAvatar(form);
     const removeResult = await removeCustomerAvatar();
 
-    const unavailableMessage =
-      "We cannot reach your account right now. Reservations can still be made without an account.";
+    const unavailableMessage = m.accountUnavailableDescription(
+      {},
+      { locale: "en-US" }
+    );
     expect(uploadResult.serverError).toBe(unavailableMessage);
     expect(removeResult.serverError).toBe(unavailableMessage);
-    expect(areAccountsEnabled).toHaveBeenCalledTimes(2);
-    expect(areAccountAvatarsEnabled).toHaveBeenCalledTimes(2);
+    expect(readAvatarFlag).toHaveBeenCalledTimes(2);
     expect(resolverCalls).toBe(0);
     expect(arrayBuffer).not.toHaveBeenCalled();
     expect(uploadCalls).toHaveLength(0);
@@ -337,7 +327,12 @@ describe("customer avatar actions", () => {
   });
 
   test("treats avatar capability evaluation failure as the same safe unavailable response", async () => {
-    areAccountAvatarsEnabled.mockRejectedValue(new Error("flag unavailable"));
+    avatarFlag = Effect.fail(
+      new PostHogFeatureFlagEvaluationError({
+        message: "Could not evaluate the PostHog feature flag.",
+        cause: new Error("flag unavailable"),
+      })
+    );
     const form = uploadForm();
     const file = form.get("file");
     if (!(file instanceof File)) throw new Error("Missing test upload file");
@@ -352,14 +347,50 @@ describe("customer avatar actions", () => {
     const uploadResult = await uploadCustomerAvatar(form);
     const removeResult = await removeCustomerAvatar();
 
-    const unavailableMessage =
-      "We cannot reach your account right now. Reservations can still be made without an account.";
+    const unavailableMessage = m.accountUnavailableDescription(
+      {},
+      { locale: "en-US" }
+    );
     expect(uploadResult.serverError).toBe(unavailableMessage);
     expect(removeResult.serverError).toBe(unavailableMessage);
     expect(resolverCalls).toBe(0);
     expect(arrayBuffer).not.toHaveBeenCalled();
     expect(uploadCalls).toHaveLength(0);
     expect(removeCalls).toHaveLength(0);
+  });
+
+  test("reports an unconfigured media service as unavailable once the mutation is admitted", async () => {
+    avatarLive = UnconfiguredAvatarLayer;
+    const { uploadCustomerAvatar, removeCustomerAvatar } =
+      await importActions();
+
+    const uploadResult = await uploadCustomerAvatar(uploadForm());
+    const removeResult = await removeCustomerAvatar();
+
+    const unavailableMessage = m.accountUnavailableDescription(
+      {},
+      { locale: "en-US" }
+    );
+    expect(uploadResult.serverError).toBe(unavailableMessage);
+    expect(removeResult.serverError).toBe(unavailableMessage);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  test("refuses a missing session before building the media service", async () => {
+    avatarLive = UnconfiguredAvatarLayer;
+    currentUser = Effect.succeed(null);
+    const { uploadCustomerAvatar, removeCustomerAvatar } =
+      await importActions();
+
+    const uploadResult = await uploadCustomerAvatar(uploadForm());
+    const removeResult = await removeCustomerAvatar();
+
+    const sessionExpiredMessage = m.accountSessionExpired(
+      {},
+      { locale: "en-US" }
+    );
+    expect(uploadResult.serverError).toBe(sessionExpiredMessage);
+    expect(removeResult.serverError).toBe(sessionExpiredMessage);
   });
 
   test("removes the avatar and revalidates the account path", async () => {
@@ -369,7 +400,7 @@ describe("customer avatar actions", () => {
 
     expect(result).toEqual({ data: { status: "removed" } });
     expect(removeCalls).toEqual(["@test/account-id"]);
-    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account");
+    expect(revalidatePath).toHaveBeenCalledWith("/en-US/account", "layout");
   });
 
   test("reports an uncertain removal as retryable", async () => {

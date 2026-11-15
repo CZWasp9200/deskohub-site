@@ -1,9 +1,9 @@
 import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
 import type { EmailServiceError } from "@deskohub/email/backend/service";
-import { type Config, Data, Effect, Layer, Predicate } from "effect";
-import type { WorkspaceEmailLocale } from "@/emails/_components/workspace-email-layout";
+import { type Config, Data, Effect, Predicate } from "effect";
+import type { Locale } from "@/features/i18n";
 import {
-  EmailConfigLayer,
+  WorkspaceEmailLayer,
   workspaceDefaultFromAddress,
 } from "@/shared/backend/config/email.config";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -43,7 +43,7 @@ export type MagicLinkDeliveryRequest = {
   readonly url: string;
   /** The sign-in code sent with the link, while sign-in codes are on. */
   readonly code?: string;
-  readonly locale: WorkspaceEmailLocale;
+  readonly locale: Locale;
 };
 
 export type MagicLinkEmailRenderer = (
@@ -186,7 +186,7 @@ export const makeMagicLinkEmailDelivery = (
     request: MagicLinkDeliveryRequest
   ) {
     return yield* deliverRendered(request).pipe(
-      Effect.provide(magicLinkEmailServiceLayer),
+      Effect.provide(WorkspaceEmailLayer),
       // Keep transport and configuration failures within the fixed code
       // contract.
       Effect.catch(
@@ -223,10 +223,6 @@ const magicLinkEmailMessage = (
   metadata: { surface: accountMagicLinkEmailSurface },
   sensitiveContent: true,
 });
-
-const magicLinkEmailServiceLayer = EmailServiceTag.RecipientRouted.pipe(
-  Layer.provide(EmailConfigLayer)
-);
 
 /**
  * Emits the approved bearer-link lines for synthetic protected Preview runs

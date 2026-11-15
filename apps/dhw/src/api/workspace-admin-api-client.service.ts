@@ -1,5 +1,10 @@
 import {
   type AdminCliInfoType,
+  type AdministrationAccountIdType,
+  type AdministrationAdministratorGrantInputType,
+  type AdministrationAdministratorGrantResultType,
+  type AdministrationAdministratorListType,
+  type AdministrationAdministratorRevocationResultType,
   type AdministrationBookingDetailType,
   type AdministrationBookingPageType,
   type AdministrationBookingQueryType,
@@ -17,6 +22,7 @@ import {
   type AdministrationCampaignSendInputType,
   type AdministrationCampaignSendResultType,
   type AdministrationCampaignSendStatusResultType,
+  type AdministrationCampaignSettingsType,
   type AdministrationCampaignSummaryType,
   type AdministrationCampaignTemplateKeyType,
   type AdministrationCampaignTemplatePreviewInputType,
@@ -27,6 +33,7 @@ import {
   type AdministrationCustomerDetailType,
   type AdministrationCustomerPageType,
   type AdministrationCustomerQueryType,
+  type AdministrationCustomerReservationActivityType,
   type AdministrationCustomerReservationPageType,
   type AdministrationCustomerReservationsQueryType,
   type AdministrationCustomerSearchQueryType,
@@ -34,12 +41,14 @@ import {
   type AdministrationDiscountCodeDetailType,
   type AdministrationDiscountCodeIdType,
   type AdministrationDiscountDashboardType,
+  type AdministrationDiscountGroupListType,
   type AdministrationDiscountMutationResultType,
   type AdministrationDiscountMutationType,
   type AdministrationDotyposCustomerIdType,
   type AdministrationDotyposReservationIdType,
   type AdministrationInvoiceCreateInputType,
   type AdministrationInvoiceCreateResultType,
+  type AdministrationInvoiceCreationDefaultsType,
   type AdministrationInvoiceDetailType,
   type AdministrationInvoiceIdType,
   type AdministrationInvoicePageType,
@@ -58,6 +67,7 @@ import {
   type AdministrationOverviewType,
   type AdministrationReservationAccessGrantType,
   type AdministrationReservationAccessMutationType,
+  type AdministrationReservationActivityType,
   type AdministrationReservationCancellationInputType,
   type AdministrationReservationCancellationResultType,
   type AdministrationReservationDetailType,
@@ -72,6 +82,24 @@ import {
   type AdministrationVoucherDetailType,
   type AdministrationVoucherIdType,
   type AdministrationWorkspaceReservationIdType,
+  type AutomationActivateInputType,
+  type AutomationDetailType,
+  type AutomationDryRunType,
+  type AutomationEngineHealthType,
+  type AutomationFlowUpdateType,
+  type AutomationPreviewRefType,
+  type AutomationPreviewStatusType,
+  type AutomationRunDetailType,
+  type AutomationRunListInputType,
+  type AutomationRunPageType,
+  type AutomationRunRefType,
+  type AutomationRunStatsInputType,
+  type AutomationRunStatsType,
+  type AutomationVersionDetailType,
+  type AutomationVersionRefType,
+  type AutomationVersionSummaryType,
+  type CalendarPreviewInputType,
+  type CalendarPreviewType,
   type CliAccessTokenType,
   type CliAuthenticationCodeType,
   CliAuthenticationRateLimited,
@@ -91,6 +119,7 @@ import {
   CliSessionUnauthorized,
   CliStandaloneAccessCodeCleanupRequired,
   CliStandaloneAccessCodeReconciled,
+  dhwVersionHeader,
   type ExchangeCliGrantType,
   type GrantedCliSessionType,
   type RenameCliSessionType,
@@ -114,6 +143,7 @@ import {
   HttpClientRequest,
 } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
+import { DHW_VERSION } from "../build-info";
 import { DhwConfig } from "../config/dhw-config.service";
 
 interface IWorkspaceAdminApiClient {
@@ -151,6 +181,12 @@ interface IWorkspaceAdminApiClient {
     AdministrationOverviewType,
     CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
   >;
+  readonly getReservationActivity: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>
+  ) => Effect.Effect<
+    AdministrationReservationActivityType,
+    CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
+  >;
   readonly listReservations: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
     query: AdministrationReservationQueryType
@@ -174,6 +210,33 @@ interface IWorkspaceAdminApiClient {
   ) => Effect.Effect<
     AdministrationReservationProductDetailsBackfillBatchType,
     CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
+  >;
+  readonly listAdministrators: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>
+  ) => Effect.Effect<
+    AdministrationAdministratorListType,
+    CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
+  >;
+  readonly grantAdministrator: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AdministrationAdministratorGrantInputType
+  ) => Effect.Effect<
+    AdministrationAdministratorGrantResultType,
+    | CliApiRequestError
+    | CliMutationRejected
+    | CliResourceNotFound
+    | CliSessionUnauthorized
+    | CliServiceUnavailable
+  >;
+  readonly revokeAdministrator: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    accountId: AdministrationAccountIdType
+  ) => Effect.Effect<
+    AdministrationAdministratorRevocationResultType,
+    | CliApiRequestError
+    | CliMutationRejected
+    | CliSessionUnauthorized
+    | CliServiceUnavailable
   >;
   readonly backfillLegacyAdministrator: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
@@ -284,6 +347,13 @@ interface IWorkspaceAdminApiClient {
     AdministrationCustomerDetailType,
     CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
   >;
+  readonly getCustomerReservationActivity: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    customerId: AdministrationDotyposCustomerIdType
+  ) => Effect.Effect<
+    AdministrationCustomerReservationActivityType,
+    CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
+  >;
   readonly listCustomerReservations: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
     customerId: AdministrationDotyposCustomerIdType,
@@ -296,6 +366,12 @@ interface IWorkspaceAdminApiClient {
     accessToken: Redacted.Redacted<CliAccessTokenType>
   ) => Effect.Effect<
     AdministrationDiscountDashboardType,
+    CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
+  >;
+  readonly listDiscountGroups: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>
+  ) => Effect.Effect<
+    AdministrationDiscountGroupListType,
     CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
   >;
   readonly getDiscountCode: (
@@ -342,6 +418,22 @@ interface IWorkspaceAdminApiClient {
     Uint8Array,
     | CliApiRequestError
     | CliResourceNotFound
+    | CliSessionUnauthorized
+    | CliServiceUnavailable
+  >;
+  readonly getInvoiceCreationDefaults: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>
+  ) => Effect.Effect<
+    AdministrationInvoiceCreationDefaultsType,
+    CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
+  >;
+  readonly previewInvoice: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AdministrationInvoiceCreateInputType
+  ) => Effect.Effect<
+    Uint8Array,
+    | CliApiRequestError
+    | CliMutationRejected
     | CliSessionUnauthorized
     | CliServiceUnavailable
   >;
@@ -462,6 +554,9 @@ interface IWorkspaceAdminApiClient {
     ReadonlyArray<AdministrationCampaignTemplateType>,
     CampaignRequestError
   >;
+  readonly getCampaignSettings: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>
+  ) => Effect.Effect<AdministrationCampaignSettingsType, CampaignRequestError>;
   readonly previewCampaignTemplate: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
     templateKey: AdministrationCampaignTemplateKeyType,
@@ -542,6 +637,68 @@ interface IWorkspaceAdminApiClient {
     AdministrationCampaignSendStatusResultType,
     CampaignRequestError
   >;
+  readonly getAutomation: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<AutomationDetailType, CampaignRequestError>;
+  readonly updateAutomationFlow: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AutomationFlowUpdateType
+  ) => Effect.Effect<AutomationDetailType, CampaignRequestError>;
+  readonly dryRunAutomation: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<AutomationPreviewStatusType, CampaignRequestError>;
+  readonly getAutomationDryRun: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AutomationPreviewRefType
+  ) => Effect.Effect<AutomationDryRunType, CampaignRequestError>;
+  readonly activateAutomation: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AutomationActivateInputType
+  ) => Effect.Effect<AutomationVersionSummaryType, CampaignRequestError>;
+  readonly pauseAutomation: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<AutomationDetailType, CampaignRequestError>;
+  readonly resumeAutomation: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<AutomationDetailType, CampaignRequestError>;
+  readonly archiveAutomation: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<AutomationDetailType, CampaignRequestError>;
+  readonly listAutomationVersions: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<
+    ReadonlyArray<AutomationVersionSummaryType>,
+    CampaignRequestError
+  >;
+  readonly getAutomationVersion: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AutomationVersionRefType
+  ) => Effect.Effect<AutomationVersionDetailType, CampaignRequestError>;
+  readonly getAutomationRunStats: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AutomationRunStatsInputType
+  ) => Effect.Effect<AutomationRunStatsType, CampaignRequestError>;
+  readonly listAutomationRuns: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AutomationRunListInputType
+  ) => Effect.Effect<AutomationRunPageType, CampaignRequestError>;
+  readonly getAutomationRun: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AutomationRunRefType
+  ) => Effect.Effect<AutomationRunDetailType, CampaignRequestError>;
+  readonly previewCalendarExpression: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: CalendarPreviewInputType
+  ) => Effect.Effect<CalendarPreviewType, CampaignRequestError>;
+  readonly getAutomationEngineHealth: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>
+  ) => Effect.Effect<AutomationEngineHealthType, CampaignRequestError>;
 }
 
 /** Every campaign endpoint reports these; input and state messages are user-facing. */
@@ -579,6 +736,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
       transformClient: HttpClient.mapRequest(
         HttpClientRequest.setHeaders({
           ...requestHeaders,
+          [dhwVersionHeader]: DHW_VERSION,
           ...(accessToken && {
             authorization: `Bearer ${Redacted.value(accessToken)}`,
           }),
@@ -626,6 +784,16 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           ),
           Effect.mapError(sanitizeSessionError)
         )
+    ),
+    getReservationActivity: Effect.fn(
+      "WorkspaceAdminApiClient.getReservationActivity"
+    )((accessToken: Redacted.Redacted<CliAccessTokenType>) =>
+      makeClient(accessToken).pipe(
+        Effect.flatMap((authorized) =>
+          authorized.administration.getReservationActivity({})
+        ),
+        Effect.mapError(sanitizeSessionError)
+      )
     ),
     listReservations: Effect.fn("WorkspaceAdminApiClient.listReservations")(
       (
@@ -791,6 +959,22 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           Effect.mapError(sanitizeSessionError)
         )
     ),
+    getCustomerReservationActivity: Effect.fn(
+      "WorkspaceAdminApiClient.getCustomerReservationActivity"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        customerId: AdministrationDotyposCustomerIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administration.getCustomerReservationActivity({
+              params: { customerId },
+            })
+          ),
+          Effect.mapError(sanitizeSessionError)
+        )
+    ),
     listCustomerReservations: Effect.fn(
       "WorkspaceAdminApiClient.listCustomerReservations"
     )(
@@ -819,6 +1003,15 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
         Effect.mapError(sanitizeSessionError)
       )
     ),
+    listDiscountGroups: Effect.fn("WorkspaceAdminApiClient.listDiscountGroups")(
+      (accessToken: Redacted.Redacted<CliAccessTokenType>) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administration.listDiscountGroups({})
+          ),
+          Effect.mapError(sanitizeSessionError)
+        )
+    ),
     backfillReservationProductDetails: Effect.fn(
       "WorkspaceAdminApiClient.backfillReservationProductDetails"
     )(
@@ -833,6 +1026,43 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
             })
           ),
           Effect.mapError(sanitizeSessionError)
+        )
+    ),
+    listAdministrators: Effect.fn("WorkspaceAdminApiClient.listAdministrators")(
+      (accessToken: Redacted.Redacted<CliAccessTokenType>) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administrators.listAdministrators({})
+          ),
+          Effect.mapError(sanitizeSessionError)
+        )
+    ),
+    grantAdministrator: Effect.fn("WorkspaceAdminApiClient.grantAdministrator")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        input: AdministrationAdministratorGrantInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administrators.grantAdministrator({ payload: input })
+          ),
+          Effect.mapError(sanitizeRejectedResourceError)
+        )
+    ),
+    revokeAdministrator: Effect.fn(
+      "WorkspaceAdminApiClient.revokeAdministrator"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        accountId: AdministrationAccountIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administrators.revokeAdministrator({
+              params: { accountId },
+            })
+          ),
+          Effect.mapError(sanitizeRejectedError)
         )
     ),
     backfillLegacyAdministrator: Effect.fn(
@@ -864,7 +1094,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
               payload: input,
             })
           ),
-          Effect.mapError(sanitizeReservationMutationError)
+          Effect.mapError(sanitizeRejectedResourceError)
         )
     ),
     getDiscountCode: Effect.fn("WorkspaceAdminApiClient.getDiscountCode")(
@@ -900,7 +1130,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           Effect.flatMap((authorized) =>
             authorized.administration.listInvoices({ query })
           ),
-          Effect.mapError(sanitizeSessionError)
+          Effect.mapError(sanitizeInvoiceListError)
         )
     ),
     getInvoice: Effect.fn("WorkspaceAdminApiClient.getInvoice")(
@@ -912,7 +1142,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           Effect.flatMap((authorized) =>
             authorized.administration.getInvoice({ params: { invoiceId } })
           ),
-          Effect.mapError(sanitizeResourceError)
+          Effect.mapError(sanitizeInvoiceError)
         )
     ),
     getInvoicePdf: Effect.fn("WorkspaceAdminApiClient.getInvoicePdf")(
@@ -927,6 +1157,25 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
             })
           ),
           Effect.mapError(sanitizeResourceError)
+        )
+    ),
+    getInvoiceCreationDefaults: Effect.fn(
+      "WorkspaceAdminApiClient.getInvoiceCreationDefaults"
+    )((accessToken: Redacted.Redacted<CliAccessTokenType>) =>
+      makeClient(accessToken).pipe(
+        Effect.flatMap((authorized) =>
+          authorized.administration.getInvoiceCreationDefaults({})
+        ),
+        Effect.mapError(sanitizeSessionError)
+      )
+    ),
+    previewInvoice: Effect.fn("WorkspaceAdminApiClient.previewInvoice")(
+      (accessToken, input: AdministrationInvoiceCreateInputType) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administration.previewInvoice({ payload: input })
+          ),
+          Effect.mapError(sanitizeRejectedError)
         )
     ),
     createInvoice: Effect.fn("WorkspaceAdminApiClient.createInvoice")(
@@ -947,7 +1196,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
               params: { invoiceId },
             })
           ),
-          Effect.mapError(sanitizeReservationMutationError)
+          Effect.mapError(sanitizeRejectedResourceError)
         )
     ),
     createStandaloneAccessCode: Effect.fn(
@@ -1148,6 +1397,16 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
         Effect.mapError(sanitizeCampaignError)
       )
     ),
+    getCampaignSettings: Effect.fn(
+      "WorkspaceAdminApiClient.getCampaignSettings"
+    )((accessToken: Redacted.Redacted<CliAccessTokenType>) =>
+      makeClient(accessToken).pipe(
+        Effect.flatMap((authorized) =>
+          authorized.campaigns.getCampaignSettings({})
+        ),
+        Effect.mapError(sanitizeCampaignError)
+      )
+    ),
     previewCampaignTemplate: Effect.fn(
       "WorkspaceAdminApiClient.previewCampaignTemplate"
     )(
@@ -1161,6 +1420,11 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
             // The client takes one request shape per payload variant.
             Match.valueTags(input, {
               Content: (payload) =>
+                authorized.campaigns.previewCampaignTemplate({
+                  params: { templateKey },
+                  payload,
+                }),
+              UnfinishedContent: (payload) =>
                 authorized.campaigns.previewCampaignTemplate({
                   params: { templateKey },
                   payload,
@@ -1337,6 +1601,215 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           Effect.mapError(sanitizeCampaignError)
         )
     ),
+    getAutomation: Effect.fn("WorkspaceAdminApiClient.getAutomation")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.getAutomation({ params: { campaignId } })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    updateAutomationFlow: Effect.fn(
+      "WorkspaceAdminApiClient.updateAutomationFlow"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        { campaignId, ...payload }: AutomationFlowUpdateType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.updateAutomationFlow({
+              params: { campaignId },
+              payload,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    dryRunAutomation: Effect.fn("WorkspaceAdminApiClient.dryRunAutomation")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.dryRunAutomation({ params: { campaignId } })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    getAutomationDryRun: Effect.fn(
+      "WorkspaceAdminApiClient.getAutomationDryRun"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        { previewId, ...query }: AutomationPreviewRefType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.getAutomationDryRun({
+              params: { previewId },
+              query,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    activateAutomation: Effect.fn("WorkspaceAdminApiClient.activateAutomation")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        { campaignId, ...payload }: AutomationActivateInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.activateAutomation({
+              params: { campaignId },
+              payload,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    pauseAutomation: Effect.fn("WorkspaceAdminApiClient.pauseAutomation")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.pauseAutomation({ params: { campaignId } })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    resumeAutomation: Effect.fn("WorkspaceAdminApiClient.resumeAutomation")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.resumeAutomation({ params: { campaignId } })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    archiveAutomation: Effect.fn("WorkspaceAdminApiClient.archiveAutomation")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.archiveAutomation({ params: { campaignId } })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    listAutomationVersions: Effect.fn(
+      "WorkspaceAdminApiClient.listAutomationVersions"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.listAutomationVersions({
+              params: { campaignId },
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    getAutomationVersion: Effect.fn(
+      "WorkspaceAdminApiClient.getAutomationVersion"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        input: AutomationVersionRefType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.getAutomationVersion({ params: input })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    getAutomationRunStats: Effect.fn(
+      "WorkspaceAdminApiClient.getAutomationRunStats"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        { campaignId, ...query }: AutomationRunStatsInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.getAutomationRunStats({
+              params: { campaignId },
+              query,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    listAutomationRuns: Effect.fn("WorkspaceAdminApiClient.listAutomationRuns")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        { campaignId, ...query }: AutomationRunListInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.listAutomationRuns({
+              params: { campaignId },
+              query,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    getAutomationRun: Effect.fn("WorkspaceAdminApiClient.getAutomationRun")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        input: AutomationRunRefType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.getAutomationRun({ params: input })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    previewCalendarExpression: Effect.fn(
+      "WorkspaceAdminApiClient.previewCalendarExpression"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        input: CalendarPreviewInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.automations.previewCalendarExpression({
+              payload: input,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    getAutomationEngineHealth: Effect.fn(
+      "WorkspaceAdminApiClient.getAutomationEngineHealth"
+    )((accessToken: Redacted.Redacted<CliAccessTokenType>) =>
+      makeClient(accessToken).pipe(
+        Effect.flatMap((authorized) =>
+          authorized.automations.getAutomationEngineHealth({})
+        ),
+        Effect.mapError(sanitizeCampaignError)
+      )
+    ),
   };
 });
 
@@ -1433,6 +1906,36 @@ const sanitizeResourceError = (
 ) =>
   cause instanceof CliResourceNotFound ? cause : sanitizeSessionError(cause);
 
+/**
+ * Invoice reads require a minimum `dhw`. The server refuses an older one
+ * with `CliServiceUnavailable`, which released binaries already decode; a
+ * `CliInputInvalid` refusal keeps its message the same way.
+ */
+const sanitizeInvoiceListError = (
+  cause:
+    | CliInputInvalid
+    | CliServiceUnavailable
+    | CliSessionUnauthorized
+    | HttpClientError.HttpClientError
+    | Schema.SchemaError
+) =>
+  cause instanceof CliInputInvalid
+    ? new CliApiRequestError({ message: cause.message })
+    : sanitizeSessionError(cause);
+
+const sanitizeInvoiceError = (
+  cause:
+    | CliInputInvalid
+    | CliResourceNotFound
+    | CliServiceUnavailable
+    | CliSessionUnauthorized
+    | HttpClientError.HttpClientError
+    | Schema.SchemaError
+) =>
+  cause instanceof CliInputInvalid
+    ? new CliApiRequestError({ message: cause.message })
+    : sanitizeResourceError(cause);
+
 const sanitizeMutationError = (
   cause:
     | CliMutationInProgress
@@ -1452,7 +1955,17 @@ const sanitizeMutationError = (
   return sanitizeResourceError(cause);
 };
 
-const sanitizeReservationMutationError = (
+const sanitizeRejectedError = (
+  cause:
+    | CliMutationRejected
+    | CliServiceUnavailable
+    | CliSessionUnauthorized
+    | HttpClientError.HttpClientError
+    | Schema.SchemaError
+) =>
+  cause instanceof CliMutationRejected ? cause : sanitizeSessionError(cause);
+
+const sanitizeRejectedResourceError = (
   cause:
     | CliMutationRejected
     | CliResourceNotFound

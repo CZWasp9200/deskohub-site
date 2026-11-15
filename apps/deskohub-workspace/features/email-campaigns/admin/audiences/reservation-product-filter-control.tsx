@@ -7,6 +7,8 @@ import type {
 import { Match } from "effect";
 import { ChevronDown, Plus, X } from "lucide-react";
 import { useId } from "react";
+import { m } from "@/features/administration/i18n";
+import { useRouteLocale } from "@/features/i18n/route-locale";
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import {
   type ReservationProductProperty,
@@ -29,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
+import { nounInSentence } from "@/shared/utils/text-case";
 import {
   ConditionLine,
   ConditionText,
@@ -42,6 +45,10 @@ import {
   withPath,
 } from "./audience-control-primitives";
 import { toggleSetValue } from "./audience-filter-editing";
+import {
+  reservationProductFamilyLabel,
+  reservationProductPropertyLabel,
+} from "./reservation-product-wording";
 
 const anyProduct = "any";
 
@@ -101,7 +108,13 @@ export function ProductFilterControl({
   onChange,
   errorAt,
 }: ControlProps<ReservationProductFilterType | undefined>) {
+  const locale = useRouteLocale();
+  const errorIdPrefix = useId();
   const family = value && reservationProductFamilies[value.family];
+  const propertyLabel = (property: string) =>
+    value
+      ? reservationProductPropertyLabel(value.family, property, locale)
+      : property;
   const unused =
     family?.properties.filter(
       ({ id }) => !value?.properties.some(({ property }) => property === id)
@@ -113,7 +126,9 @@ export function ProductFilterControl({
   return (
     <div className="space-y-2">
       <ConditionLine>
-        <ConditionText>Product</ConditionText>
+        <ConditionText>
+          {m.emailCampaignsAudienceProductLabel({}, { locale })}
+        </ConditionText>
         <Select
           value={value?.family ?? anyProduct}
           onValueChange={(next) =>
@@ -125,16 +140,21 @@ export function ProductFilterControl({
           }
         >
           <SelectTrigger
-            aria-label="Reservation product"
+            aria-label={m.emailCampaignsAudienceProductSelectLabel(
+              {},
+              { locale }
+            )}
             className={compactSelectClassName}
           >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={anyProduct}>any product</SelectItem>
-            {Object.values(reservationProductFamilies).map(({ id, label }) => (
+            <SelectItem value={anyProduct}>
+              {m.emailCampaignsAudienceProductAny({}, { locale })}
+            </SelectItem>
+            {Object.values(reservationProductFamilies).map(({ id }) => (
               <SelectItem key={id} value={id}>
-                {label}
+                {reservationProductFamilyLabel(id, locale)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -144,7 +164,7 @@ export function ProductFilterControl({
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="ghost" size="sm">
                 <Plus className="h-4 w-4" aria-hidden />
-                Add product condition
+                {m.emailCampaignsAudienceProductAddCondition({}, { locale })}
                 <ChevronDown className="h-3.5 w-3.5" aria-hidden />
               </Button>
             </DropdownMenuTrigger>
@@ -159,7 +179,7 @@ export function ProductFilterControl({
                     ])
                   }
                 >
-                  {property.label}
+                  {propertyLabel(property.id)}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -172,6 +192,7 @@ export function ProductFilterControl({
           condition.property
         );
         const conditionErrorAt = withPath(errorAt, `properties.${index}`);
+        const conditionErrorId = `${errorIdPrefix}-${condition.property}`;
         const replace = (next: ReservationProductPropertyCondition) =>
           setProperties(
             value.properties.map((current, i) => (i === index ? next : current))
@@ -181,15 +202,15 @@ export function ProductFilterControl({
             key={condition.property}
             className="ml-3 flex flex-wrap items-center gap-x-2 gap-y-2 border-navy-blue/15 border-l-2 pl-3"
           >
-            <ConditionText>
-              {property?.label ?? condition.property}
-            </ConditionText>
+            <ConditionText>{propertyLabel(condition.property)}</ConditionText>
             {property && (
               <ProductPropertyControl
                 property={property}
+                label={propertyLabel(property.id)}
                 value={condition}
                 onChange={replace}
                 errorAt={conditionErrorAt}
+                errorId={conditionErrorId}
               />
             )}
             <Button
@@ -200,19 +221,30 @@ export function ProductFilterControl({
               onClick={() =>
                 setProperties(value.properties.filter((_, i) => i !== index))
               }
-              aria-label={`Remove ${property?.label ?? condition.property} condition`}
+              aria-label={m.emailCampaignsAudienceProductRemoveCondition(
+                { property: propertyLabel(condition.property) },
+                { locale }
+              )}
             >
               <X className="h-4 w-4" aria-hidden />
             </Button>
-            {(conditionErrorAt("operator") || conditionErrorAt("value")) && (
-              <FieldError
-                message={
-                  property?.kind === "number"
-                    ? (countComparisonError(conditionErrorAt) ?? "")
-                    : "Choose at least one value."
-                }
-              />
-            )}
+            <FieldError
+              id={conditionErrorId}
+              messages={[
+                property?.kind === "number"
+                  ? countComparisonError(
+                      conditionErrorAt,
+                      countComparison(condition).operator,
+                      locale
+                    )
+                  : (conditionErrorAt("operator") ||
+                      conditionErrorAt("value")) &&
+                    m.emailCampaignsAudienceProductChooseValueError(
+                      {},
+                      { locale }
+                    ),
+              ]}
+            />
           </div>
         );
       })}
@@ -222,17 +254,24 @@ export function ProductFilterControl({
 
 function ProductPropertyControl({
   property,
+  label,
   value,
   onChange,
   errorAt,
+  errorId,
 }: ControlProps<ReservationProductPropertyCondition> & {
+  /** The id of the `FieldError` that explains this property's errors. */
+  readonly errorId: string;
   readonly property: ReservationProductProperty;
+  /** The property's Admin UI label ("Seats"). */
+  readonly label: string;
 }) {
+  const locale = useRouteLocale();
   const name = useId();
 
   return Match.value(property).pipe(
     Match.discriminatorsExhaustive("kind")({
-      enum: ({ label, values }) => {
+      enum: ({ values }) => {
         const chosen =
           value.operator === "anyOf" || value.operator === "noneOf"
             ? value.value
@@ -240,7 +279,7 @@ function ProductPropertyControl({
         const operator = value.operator === "noneOf" ? "noneOf" : "anyOf";
         const nameOf = (id: string) => {
           const option = values.find((candidate) => candidate.id === id);
-          return option ? option.name("en-US") : id;
+          return option ? option.name(locale) : id;
         };
         return (
           <>
@@ -266,7 +305,15 @@ function ProductPropertyControl({
                   value: toggleSetValue(chosen, id, false),
                 })
               }
-              noun={label.toLowerCase()}
+              removeLabel={(valueLabel) =>
+                m.emailCampaignsAudienceProductRemoveValue(
+                  {
+                    property: nounInSentence(label, locale),
+                    value: valueLabel,
+                  },
+                  { locale }
+                )
+              }
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -280,8 +327,11 @@ function ProductPropertyControl({
                   }
                   size="sm"
                   aria-invalid={errorAt("value") !== undefined}
+                  aria-describedby={
+                    errorAt("value") === undefined ? undefined : errorId
+                  }
                 >
-                  Choose
+                  {m.emailCampaignsAudienceProductChoose({}, { locale })}
                   <ChevronDown className="h-3.5 w-3.5" aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
@@ -299,9 +349,11 @@ function ProductPropertyControl({
                     }
                     onSelect={(event) => event.preventDefault()}
                   >
-                    {option.name("en-US")}
+                    {option.name(locale)}
                     {option.retired && (
-                      <span className="text-navy-blue/55">(retired)</span>
+                      <span className="text-navy-blue/55">
+                        {m.emailCampaignsAudienceProductRetired({}, { locale })}
+                      </span>
                     )}
                   </DropdownMenuCheckboxItem>
                 ))}
@@ -310,7 +362,7 @@ function ProductPropertyControl({
           </>
         );
       },
-      boolean: ({ label }) => (
+      boolean: () => (
         <SegmentedControl
           label={label}
           name={name}
@@ -322,20 +374,27 @@ function ProductPropertyControl({
             })
           }
           options={[
-            { label: "with", value: "with" },
-            { label: "without", value: "without" },
+            {
+              label: m.emailCampaignsAudienceProductWith({}, { locale }),
+              value: "with",
+            },
+            {
+              label: m.emailCampaignsAudienceProductWithout({}, { locale }),
+              value: "without",
+            },
           ]}
           size="sm"
           value={value.operator === "is" && !value.value ? "without" : "with"}
         />
       ),
-      number: ({ label }) => (
+      number: () => (
         <CountComparisonControl
           {...countComparison(value)}
           onChange={(comparison) =>
             onChange({ property: property.id, ...comparison })
           }
           errorAt={errorAt}
+          errorId={errorId}
           label={label}
         />
       ),

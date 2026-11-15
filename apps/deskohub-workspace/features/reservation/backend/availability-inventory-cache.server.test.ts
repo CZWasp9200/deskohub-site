@@ -2,13 +2,18 @@ import "@/shared/testing/workspace-test-env";
 import "@/shared/polyfills/temporal";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { DotyposService, ExternalAPIError } from "@deskohub/dotypos";
+import {
+  type DotyposReadFailure,
+  DotyposService,
+  DotyposUnavailable,
+} from "@deskohub/dotypos";
 import type {
   Reservation as DotyposReservation,
   Table as DotyposTable,
 } from "@deskohub/dotypos/generated";
 import type { GoogleCalendarEventQuery } from "@deskohub/google-calendar";
 import { Effect, Layer } from "effect";
+import { recordNextCache } from "@/shared/testing/next-cache-recorder.test-utils";
 import { availabilityTags } from "@/shared/utils/cache-tags";
 import * as limitationsModule from "./google-calendar-workspace-limitations.service";
 
@@ -17,7 +22,7 @@ const {
   WorkspaceCalendarLimitation,
 } = limitationsModule;
 
-let providerFailure: ExternalAPIError | undefined;
+let providerFailure: DotyposReadFailure | undefined;
 
 const table: DotyposTable = {
   _cloudId: "synthetic-cloud",
@@ -52,23 +57,14 @@ const listActiveReservationsOverlapping = mock(
 const listLimitations = mock((_query: GoogleCalendarEventQuery) =>
   Effect.succeed([limitation])
 );
-const cacheLife = mock(
-  (_profile: string | { readonly expire: number }) => undefined
-);
-const cacheTag = mock((_tag: string) => undefined);
+const nextCache = recordNextCache();
 
-mock.module("next/cache", () => ({ cacheLife, cacheTag }));
+mock.module("next/cache", () => nextCache.module);
 mock.module("@/shared/backend/config/dotypos.config", () => ({
   WorkspaceDotyposLayer: Layer.succeed(DotyposService, {
     getTables,
     listActiveReservationsOverlapping,
   } as never),
-}));
-mock.module("@/shared/backend/workspace-effect", () => ({
-  runWorkspaceEffect:
-    (_operation: string) =>
-    <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
-      Effect.runPromise(effect),
 }));
 mock.module("./google-calendar-workspace-limitations.service", () => ({
   ...limitationsModule,
@@ -92,11 +88,10 @@ beforeEach(() => {
     getTables,
     listActiveReservationsOverlapping,
     listLimitations,
-    cacheLife,
-    cacheTag,
   ]) {
     fn.mockClear();
   }
+  nextCache.clear();
 });
 
 describe("shared availability inventory", () => {
@@ -120,8 +115,10 @@ describe("shared availability inventory", () => {
       startDate: new Date("2099-06-09T22:00:00.000Z"),
       endDate: new Date("2099-06-10T22:00:00.000Z"),
     });
-    expect(cacheLife).toHaveBeenCalledWith("availabilityReservations");
-    expect(cacheTag).toHaveBeenCalledWith(availabilityTags.reservations);
+    expect(nextCache.calls).toEqual([
+      { cacheLife: "availabilityReservations" },
+      { cacheTag: [availabilityTags.reservations] },
+    ]);
   });
 
   test("tags tables and calendar limitations with their own lifetimes", async () => {
@@ -130,26 +127,23 @@ describe("shared availability inventory", () => {
       await loadSharedLimitations({ from: "2099-06-10", to: "2099-06-10" })
     ).toEqual([limitation]);
 
-    expect(cacheLife.mock.calls).toEqual([
-      ["availabilityTables"],
-      ["availabilityCalendar"],
-    ]);
-    expect(cacheTag.mock.calls).toEqual([
-      [availabilityTags.tables],
-      [availabilityTags.calendar],
+    expect(nextCache.calls).toEqual([
+      { cacheLife: "availabilityTables" },
+      { cacheTag: [availabilityTags.tables] },
+      { cacheLife: "availabilityCalendar" },
+      { cacheTag: [availabilityTags.calendar] },
     ]);
   });
 
   test("keeps a failed load out of the shared cache", async () => {
-    providerFailure = new ExternalAPIError({
-      service: "dotypos",
+    providerFailure = new DotyposUnavailable({
       operation: "getTables",
+      reason: "server",
       message: "Synthetic outage",
     });
 
     await expect(loadSharedTables()).rejects.toBeDefined();
 
-    expect(cacheLife.mock.calls).toEqual([[{ expire: 0 }]]);
-    expect(cacheTag).not.toHaveBeenCalled();
+    expect(nextCache.calls).toEqual([{ cacheLife: { expire: 0 } }]);
   });
 });

@@ -1,22 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { is } from "drizzle-orm";
-import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
-import * as authSchema from "./auth";
-import * as workspaceSchema from "./index";
-
-// Drizzle-kit generates migrations from exactly these two modules.
-const tables = [...Object.values(workspaceSchema), ...Object.values(authSchema)]
-  .filter((value): value is PgTable => is(value, PgTable))
-  .map(getTableConfig);
-
-const columns = tables.flatMap((table) =>
-  table.columns.map((column) => ({
-    id: `${table.schema ?? "public"}.${table.name}.${column.name}`,
-    table: table.name,
-    words: column.name.split("_"),
-    sqlType: column.getSQLType(),
-  }))
-);
+import {
+  containsWordRun,
+  schemaColumns,
+  schemaTables,
+} from "./schema-columns.test-utils";
 
 // Column-name word sequences that indicate customer contact data, billing
 // identity, or raw provider payloads. A fragment matches a whole run of words,
@@ -37,12 +24,56 @@ const forbiddenColumnFragments = [
 ].map((fragment) => fragment.split("_"));
 
 const allowedColumns = new Map([
+  // Reusable email/version identities and value-definition keys are not customer contact data.
+  [
+    "public.email_campaign_automation_versions.email_id",
+    "reusable email identity",
+  ],
+  [
+    "public.email_campaign_sends.frozen_email_version_id",
+    "published email version identity",
+  ],
+  ["public.email_campaigns.email_id", "reusable email identity"],
+  [
+    "public.email_preparations.email_version_id",
+    "published email version identity",
+  ],
+  ["public.email_versions.email_id", "reusable email identity"],
+  [
+    "public.email_discount_issuances.value_name",
+    "named recipient value definition key",
+  ],
+  [
+    "public.email_value_snapshots.value_name",
+    "named recipient value definition key",
+  ],
+  [
+    "public.email_preparations.outcome_value_name",
+    "named recipient value definition key",
+  ],
+  [
+    "public.email_preparations.unavailable_value_name",
+    "named recipient value definition key",
+  ],
   // Better Auth owns the login email; AGENTS.md permits it in the auth schema.
   ["auth.user.email", "Better Auth login email"],
   ["auth.user.email_verified", "Better Auth login email verification flag"],
   // Better Auth requires the column, but the auth server rejects profile
   // names; the customer profile lives in Dotypos.
   ["auth.user.name", "Better Auth required column, kept empty"],
+  // The passkey plugin's credential label: the authenticator's provider
+  // name, or the label a customer gives their passkey to tell it apart.
+  // Preview branches may inherit it under the Better Auth exception in the
+  // root AGENTS.md preview-PII rule.
+  [
+    "auth.passkey.name",
+    "Better Auth passkey label, covered by the preview-PII exception",
+  ],
+  // The display name an AI agent's provider publishes in its Client ID
+  // Metadata Document, such as "Claude"; not customer data.
+  ["auth.oauth_client.name", "published AI agent client name"],
+  // The label of the customer MCP server as an OAuth protected resource.
+  ["auth.oauth_resource.name", "OAuth protected resource label"],
   // An email delivery identifier, explicitly allowed by the No-PII policy.
   [
     "public.workspace_reservations.active_customer_email_delivery_id",
@@ -60,6 +91,10 @@ const allowedColumns = new Map([
     "administrator login-email snapshot",
   ],
   [
+    "public.cli_authentication_requests.approved_by_account_email",
+    "administrator login-email snapshot",
+  ],
+  [
     "public.manual_invoice_actors.actor_account_email",
     "administrator login-email snapshot",
   ],
@@ -67,26 +102,35 @@ const allowedColumns = new Map([
     "public.standalone_access_code_attempt_events.actor_account_email",
     "administrator login-email snapshot",
   ],
+  [
+    "public.administrator_assistant_connections.approved_by_account_email",
+    "administrator login-email snapshot",
+  ],
+  [
+    "public.administration_actions.actor_account_email",
+    "administrator login-email snapshot",
+  ],
   // Operator-side labels, not customer data.
   ["public.cli_sessions.client_name", "dhw CLI client label"],
   ["public.cli_authentication_requests.client_name", "dhw CLI client label"],
+  // The name an AI assistant's provider publishes, such as "Claude".
+  [
+    "public.administrator_assistant_connections.client_name",
+    "published AI assistant client name",
+  ],
   [
     "public.standalone_access_code_attempt_events.name",
     "operator-entered access code label",
   ],
+  [
+    "public.reservation_access_grants.access_name",
+    "Igloohome credential label built from the grant ID",
+  ],
 ]);
-
-const containsWordRun = (
-  words: readonly string[],
-  fragment: readonly string[]
-) =>
-  words.some((_, start) =>
-    fragment.every((word, offset) => words[start + offset] === word)
-  );
 
 describe("database schema no-PII persistence", () => {
   test("has no customer contact, billing, or raw payload columns", () => {
-    const violations = columns
+    const violations = schemaColumns
       .filter(({ words }) =>
         forbiddenColumnFragments.some((fragment) =>
           containsWordRun(words, fragment)
@@ -99,7 +143,7 @@ describe("database schema no-PII persistence", () => {
   });
 
   test("keeps every allowlisted exception backed by a real column", () => {
-    const columnIds = columns.map(({ id }) => id);
+    const columnIds = schemaColumns.map(({ id }) => id);
 
     for (const allowed of allowedColumns.keys()) {
       expect(columnIds).toContain(allowed);
@@ -107,7 +151,7 @@ describe("database schema no-PII persistence", () => {
   });
 
   test("stores confidential accounting documents only as pgcrypto ciphertext", () => {
-    const binaryColumns = columns
+    const binaryColumns = schemaColumns
       .filter(({ sqlType }) => sqlType === "bytea")
       .map(({ id }) => id)
       .toSorted();
@@ -125,14 +169,15 @@ describe("database schema no-PII persistence", () => {
       "invoice_email_deliveries",
       "late_payment_recoveries",
     ]);
-    const structuredColumns = columns
+    const structuredColumns = schemaColumns
       .filter(
-        ({ table, sqlType }) =>
-          payloadFreeTables.has(table) && ["json", "jsonb"].includes(sqlType)
+        ({ tableName, sqlType }) =>
+          payloadFreeTables.has(tableName) &&
+          ["json", "jsonb"].includes(sqlType)
       )
       .map(({ id }) => id);
 
-    expect(tables.map(({ name }) => name)).toEqual(
+    expect(schemaTables.map(({ name }) => name)).toEqual(
       expect.arrayContaining([...payloadFreeTables])
     );
     expect(structuredColumns).toEqual([]);

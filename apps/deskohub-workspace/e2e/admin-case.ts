@@ -1,176 +1,168 @@
 import { AssertionError } from "node:assert";
 import type { Browser, BrowserContext, Page, Request } from "@playwright/test";
-import { Cause, Effect, Exit, Option } from "effect";
-import type { WorkspaceE2EAdminCredential } from "./admin-basic-auth";
-import { WorkspaceE2EError, workspaceE2EError } from "./errors";
+import { Effect } from "effect";
+import { E2EBrowserSession } from "./browser-session";
+import {
+  isWorkspaceE2ETimeout,
+  WorkspaceE2EError,
+  workspaceE2EError,
+} from "./errors";
 import { withinWorkspaceE2EDeadline } from "./polling";
-import { toE2EResult } from "./services/telemetry";
-import type { WorkspaceE2EFailureReporter } from "./suite";
-import { workspaceE2ETimeouts } from "./timeouts";
+import { primePreviewAccess } from "./preview-access";
+import { redact } from "./redaction";
 
 /**
- * Maps any browser-driver failure onto a fixed code-owned error. Raw Playwright
- * causes can embed request headers, cookies, the Vercel bypass, URLs,
- * credentials, and response bodies, so the cause is discarded instead of
- * attached, redacted, or stringified.
+ * Admin cases count only a step's own deadline as a timeout. A timeout inside
+ * the step, from a Playwright action, the browser, or the preview access
+ * probe, fails it like any other browser failure, so the case runner reports
+ * it as failed rather than timed out.
  */
-const sanitizedBrowserFailure = (operation: string) => (): WorkspaceE2EError =>
-  workspaceE2EError(`${operation} failed`, { operation });
+const asAdminFailure = (
+  error: WorkspaceE2EError,
+  operation: string
+): WorkspaceE2EError =>
+  isWorkspaceE2ETimeout(error)
+    ? workspaceE2EError(`${operation} failed`, { operation })
+    : error;
 
 /**
- * Runs one browser or preview-HTTP operation and maps every failure onto a
- * reporter-safe error. Only code-owned assertion failures keep their messages;
- * every other cause is discarded.
+ * Admin callbacks keep only a code-owned assertion's message. Anything else a
+ * callback throws, a `WorkspaceE2EError` and its diagnostic code included,
+ * becomes a fixed failure of the call, so a case reports only codes its
+ * runner owns.
  */
-export const sanitizedBrowserOperation = <A>(
-  operation: string,
-  run: (signal: AbortSignal) => Promise<A>
-): Effect.Effect<A, WorkspaceE2EError> =>
-  Effect.tryPromise({
-    catch: (cause): WorkspaceE2EError =>
-      cause instanceof AssertionError
-        ? workspaceE2EError(`${operation} failed: ${cause.message}`, {
-            operation,
-          })
-        : sanitizedBrowserFailure(operation)(),
-    try: run,
-  });
+const adminCallbackFailure =
+  (label: string) =>
+  (cause: unknown): WorkspaceE2EError =>
+    cause instanceof AssertionError
+      ? workspaceE2EError(`${label} failed: ${redact(cause.message)}`, {
+          operation: label,
+        })
+      : workspaceE2EError(`${label} failed`, { operation: label });
+
+const withinAdminDeadline = <A>(
+  attempt: Effect.Effect<A, WorkspaceE2EError>,
+  label: string,
+  timeoutMs: number | undefined
+) =>
+  timeoutMs === undefined
+    ? attempt
+    : withinWorkspaceE2EDeadline(attempt, label, timeoutMs);
 
 /**
- * Opens an isolated admin browser context that sends the E2E Basic auth pair
- * on every request to the preview origin.
+ * Opens an isolated, signed-out admin browser session for the preview origin,
+ * bound to the caller's Scope, with the admin failure policies
+ * (`asAdminFailure`, `adminCallbackFailure`). The case primes preview access and signs it in as a
+ * seeded synthetic administrator (`e2e/administrators/identities.ts`) before
+ * it opens an admin page. Admin cases have no HAR consumer, so the session
+ * records none; Playwright still keeps its failure screenshot.
  */
-export const openAdminBrowserPage = async (input: {
-  readonly baseURL: string | undefined;
-  readonly browser: Browser;
-  readonly caseName: string;
-  readonly credential: WorkspaceE2EAdminCredential;
-}): Promise<{
-  readonly context: BrowserContext;
-  readonly origin: string;
-  readonly page: Page;
-}> => {
-  const { baseURL } = input;
-  if (!baseURL) {
-    throw workspaceE2EError(
-      `Playwright baseURL is required for the ${input.caseName} case`,
-      { operation: `start the ${input.caseName} case` }
-    );
-  }
-  const origin = new URL(baseURL).origin;
-  let context: BrowserContext;
-  try {
-    context = await input.browser.newContext({
+export const openAdminSession = Effect.fn("openAdminSession")(
+  function* (input: {
+    readonly baseURL: string | undefined;
+    readonly browser: Browser;
+    readonly caseName: string;
+    /** The session's preview access `fetch`; tests point it at a local server. */
+    readonly fetch?: typeof fetch;
+  }) {
+    const { baseURL } = input;
+    if (!baseURL) {
+      return yield* workspaceE2EError(
+        `Playwright baseURL is required for the ${input.caseName} case`,
+        { operation: `start the ${input.caseName} case` }
+      );
+    }
+    const session = yield* E2EBrowserSession.open({
       baseURL,
-      httpCredentials: {
-        origin,
-        password: input.credential.password,
-        send: "always",
-        username: input.credential.username,
-      },
-      viewport: { height: 900, width: 1440 },
-    });
-  } catch {
-    throw sanitizedBrowserFailure(
-      `start the ${input.caseName} browser context`
-    )();
+      browser: input.browser,
+      fetch: input.fetch,
+      id: input.caseName,
+      recordHar: false,
+    }).pipe(
+      Effect.mapError((error) =>
+        asAdminFailure(error, error.operation ?? "open the browser session")
+      )
+    );
+    // The session lets a callback's own `WorkspaceE2EError` through, so admin
+    // drives the active page under its own callback policy.
+    const use = <A>(
+      label: string,
+      drive: (page: Page) => Promise<A>,
+      timeoutMs: number | undefined
+    ) =>
+      withinAdminDeadline(
+        session
+          .use(label, (page) => Promise.resolve(page))
+          .pipe(
+            Effect.mapError((error) => asAdminFailure(error, label)),
+            Effect.flatMap((page) =>
+              Effect.tryPromise({
+                catch: adminCallbackFailure(label),
+                try: () => drive(page),
+              })
+            )
+          ),
+        label,
+        timeoutMs
+      );
+    const adminSession: E2EBrowserSession = {
+      ...session,
+      evaluate: <A, Arg>(
+        label: string,
+        fn: (arg: Arg) => A | Promise<A>,
+        arg: Arg,
+        deadline?: { readonly timeoutMs?: number }
+      ) =>
+        use(
+          label,
+          // Playwright types the argument as its serialized form; plain data
+          // is the same shape.
+          (page) => page.evaluate(fn as (arg: unknown) => A | Promise<A>, arg),
+          deadline?.timeoutMs
+        ),
+      primePreviewAccess: (url, bypassSecret, options) =>
+        session
+          .primePreviewAccess(url, bypassSecret, options)
+          .pipe(
+            Effect.mapError((error) =>
+              asAdminFailure(error, "prime preview access")
+            )
+          ),
+      use: (label, drive, deadline) => use(label, drive, deadline?.timeoutMs),
+    };
+    return { origin: new URL(baseURL).origin, session: adminSession };
   }
-  try {
-    return { context, origin, page: await context.newPage() };
-  } catch {
-    await context.close().catch(() => undefined);
-    throw sanitizedBrowserFailure(`open the ${input.caseName} page`)();
-  }
-};
+);
 
+const primePreviewBypassOperation = "prime the Vercel protection bypass cookie";
+
+/**
+ * Primes preview access for a browser context outside a session, as the agent
+ * evals' own browser needs, with the admin failure policy. Preview access's
+ * own failures keep their status; any other cause is discarded.
+ */
 export const primePreviewBypass = (input: {
   readonly bypassSecret: string | undefined;
   readonly context: BrowserContext;
+  /** Tests point the probe at a local server. */
+  readonly fetch?: typeof fetch;
   readonly origin: string;
-}) => {
-  const bypassSecret = input.bypassSecret;
-  if (!bypassSecret) return Effect.void;
-  return sanitizedBrowserOperation(
-    "prime the Vercel protection bypass cookie",
-    async () => {
-      const response = await input.context.request.get(
-        new URL("/favicon.svg", input.origin).toString(),
-        {
-          headers: {
-            "x-vercel-protection-bypass": bypassSecret,
-            "x-vercel-set-bypass-cookie": "true",
-          },
-          timeout: workspaceE2ETimeouts.browserAction,
-        }
-      );
-      try {
-        if (!response.ok()) {
-          throw new Error(
-            `The Vercel protection bypass probe failed with ${response.status()}`
-          );
-        }
-      } finally {
-        await response.dispose();
-      }
-    }
-  );
-};
-
-/**
- * Runs the timed case body with the interruption-safe cleanup finalizer
- * attached first, then applies the caller's trace wrapper to that finalized
- * effect, and only observes the settled exit in an outer `onExit`, so the
- * annotation always describes the traced final outcome of body and cleanup
- * together and is emitted after trace finalization and cleanup.
- */
-export const runFinalizedCase = <A, E, R, R2>(input: {
-  readonly body: Effect.Effect<A, E, R>;
-  readonly cleanup: Effect.Effect<void, never, R2>;
-  readonly trace: (
-    finalized: Effect.Effect<A, E, R | R2>
-  ) => Effect.Effect<A, E, R | R2>;
-  readonly onExit: (exit: Exit.Exit<A, E>) => void;
-}): Effect.Effect<A, E, R | R2> =>
-  input
-    .trace(input.body.pipe(Effect.ensuring(input.cleanup)))
-    .pipe(Effect.onExit((exit) => Effect.sync(() => input.onExit(exit))));
-
-/**
- * Emits one failure annotation for a genuinely failed or timed-out admin case.
- * Interrupted siblings stay unannotated, and the annotation never masks the
- * case outcome.
- */
-export const reportAdminCaseFailure =
-  (input: {
-    readonly caseId: string;
-    readonly reportFailure: WorkspaceE2EFailureReporter | undefined;
-    readonly terminalStepId: () => string | undefined;
-  }) =>
-  <A, E>(exit: Exit.Exit<A, E>): void => {
-    if (Exit.isSuccess(exit) || !input.reportFailure) return;
-    if (Cause.hasInterruptsOnly(exit.cause)) return;
-    const result = toE2EResult(exit);
-    if (result.outcome !== "failed" && result.outcome !== "timed_out") {
-      return;
-    }
-    const error = Cause.findErrorOption(exit.cause);
-    const terminalStepId = input.terminalStepId();
-    try {
-      input.reportFailure({
-        caseId: input.caseId,
-        ...(Option.isSome(error) &&
-        error.value instanceof WorkspaceE2EError &&
-        error.value.diagnosticCode
-          ? { diagnosticCode: error.value.diagnosticCode }
-          : {}),
-        failureKind: result.failureKind,
-        outcome: result.outcome,
-        ...(terminalStepId ? { stepId: terminalStepId } : {}),
-      });
-    } catch {
-      // The annotation must never mask the case outcome.
-    }
-  };
+  readonly timeoutMs?: number;
+}) =>
+  Effect.tryPromise({
+    catch: (cause) =>
+      cause instanceof WorkspaceE2EError
+        ? asAdminFailure(cause, primePreviewBypassOperation)
+        : workspaceE2EError(`${primePreviewBypassOperation} failed`, {
+            operation: primePreviewBypassOperation,
+          }),
+    try: (signal) =>
+      primePreviewAccess(input.context, input.origin, input.bypassSecret, {
+        fetch: input.fetch,
+        signal,
+        timeoutMs: input.timeoutMs,
+      }),
+  });
 
 export type ActionResponseOutcome =
   | { readonly kind: "responded" }
@@ -238,7 +230,7 @@ type ServerActionRequest = Pick<
 /**
  * Retains the next Server Action request the page sends to `origin`. The wait
  * has no timeout, so the submission settles as undispatched only when the page
- * closes without sending one. Close the browser context before awaiting it:
+ * closes without sending one. Close the browser session before awaiting it:
  * after the close, no late request can leave the browser.
  */
 export const retainServerActionSubmission = (

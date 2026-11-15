@@ -100,16 +100,9 @@ afterAll(unregisterWorkspaceComponentTestEnv);
 
 function renderForm(
   state: MarketingPreferencesState,
-  locale: Locale = "en-US",
-  accountsEnabled = true
+  locale: Locale = "en-US"
 ) {
-  return render(
-    <MarketingPreferencesForm
-      accountsEnabled={accountsEnabled}
-      locale={locale}
-      state={state}
-    />
-  );
+  return render(<MarketingPreferencesForm locale={locale} state={state} />);
 }
 
 function getSwitch(
@@ -559,30 +552,7 @@ test("renders unavailable guidance without presenting account availability as a 
 });
 
 test.each(["en-US"] as const)(
-  "hides sign-in affordances when accounts are disabled in %s",
-  (locale) => {
-    const view = renderForm({ status: "unavailable" }, locale, false);
-
-    expect(
-      view.getByText(
-        m.marketingPreferencesFormUnavailableNextStep({}, { locale })
-      )
-    ).toBeTruthy();
-    expect(
-      view.queryByText(
-        m.marketingPreferencesFormUnavailableSignInNextStep({}, { locale })
-      )
-    ).toBeNull();
-    expect(
-      view.queryByRole("link", {
-        name: m.marketingPreferencesFormSignInAction({}, { locale }),
-      })
-    ).toBeNull();
-  }
-);
-
-test.each(["en-US"] as const)(
-  "keeps a link-authorized preference actionable when accounts are disabled in %s",
+  "keeps a link-authorized preference actionable in %s",
   async (locale) => {
     const context = `synthetic-${locale}-link-save-context`;
     const view = renderForm(
@@ -592,8 +562,7 @@ test.each(["en-US"] as const)(
         source: "link",
         status: "absent",
       },
-      locale,
-      false
+      locale
     );
 
     expect(
@@ -880,7 +849,7 @@ test("keeps save feedback and the focused switch when refreshed props report the
 
 test("announces the invalid-link rejection reason when continuing a replayed link", async () => {
   confirmMarketingManagementAction.mockImplementationOnce(() =>
-    Promise.resolve({ serverError: "invalid-link" })
+    Promise.resolve({ data: { status: "rejected", reason: "invalid-link" } })
   );
   const view = renderForm({
     context: "synthetic-replayed-confirm-context",
@@ -904,7 +873,7 @@ test("announces the invalid-link rejection reason when continuing a replayed lin
 test("announces a stale-context save rejection in the visitor's locale", async () => {
   const locale = "cs-CZ" as const;
   saveMarketingPreferencesAction.mockImplementationOnce(() =>
-    Promise.resolve({ serverError: "stale-context" })
+    Promise.resolve({ data: { status: "rejected", reason: "stale-context" } })
   );
   const view = renderForm(
     {
