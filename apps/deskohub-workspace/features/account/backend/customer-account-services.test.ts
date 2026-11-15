@@ -2,14 +2,20 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { testCustomerSession } from "./account-operations.test-utils";
+import {
+  testCustomerSession,
+  testLinkedAccount,
+} from "./account-operations.test-utils";
 import {
   asBrowserRequest,
   fakeAccountServiceStores,
 } from "./customer-account-services.test-utils";
 
-// Every account is unlinked, so no read reaches Dotypos.
-const stores = await fakeAccountServiceStores(new Map());
+// The supplied session's account is linked, so its standing and contact name
+// it; Dotypos is faked.
+const stores = await fakeAccountServiceStores(
+  new Map([[testLinkedAccount.accountId, testLinkedAccount.dotyposCustomerId]])
+);
 
 const { CurrentCustomerAccount } = await import("./current-customer-account");
 const { CustomerAccountContactService } = await import(
@@ -68,7 +74,8 @@ const peekedStanding = CurrentCustomerAccount.pipe(
   Effect.flatMap((current) => current.peek)
 );
 const bookingContact = CustomerAccountContactService.pipe(
-  Effect.flatMap((contact) => contact.current)
+  Effect.flatMap((contact) => contact.current),
+  Effect.map((contact) => contact?.accountId ?? null)
 );
 
 describe("CustomerAccountServices", () => {
@@ -87,8 +94,8 @@ describe("CustomerAccountServices", () => {
           Effect.flatMap((ownership) => ownership.activeAccountId)
         )
       ),
-      // The profile service reads no session itself: it holds the account
-      // through the same sections.
+      // The profile service reads no session: its sections run the `active`
+      // recheck for the account they are given.
       profile: Effect.map(CustomerProfileService, () => "provided"),
     }).pipe(
       Effect.provide(CustomerAccountServices.pipe(Layer.provide(layer))),
@@ -100,11 +107,12 @@ describe("CustomerAccountServices", () => {
       sections: { value: testCustomerSession.accountId, sessionReads: 1 },
       standing: {
         value: {
-          kind: "unlinked",
+          kind: "linked",
           session: { accountId: testCustomerSession.accountId },
+          account: testLinkedAccount,
         },
       },
-      contact: { value: null },
+      contact: { value: testCustomerSession.accountId },
       author: { value: testCustomerSession.accountId },
       profile: "provided",
     });
