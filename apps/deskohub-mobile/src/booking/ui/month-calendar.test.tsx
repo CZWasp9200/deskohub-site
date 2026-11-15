@@ -59,7 +59,9 @@ const calendar = (props: Partial<CalendarProps> = {}) => {
  */
 const buttons = (node: ReactNode): ReadonlyArray<DayButton> => {
   if (!isValidElement<Partial<DayButton["props"]>>(node)) return [];
-  const nested = Children.toArray(node.props.children).flatMap(buttons);
+  const nested = Children.toArray(node.props.children as ReactNode).flatMap(
+    buttons
+  );
   return typeof node.props.onPress === "function" &&
     typeof node.props["aria-label"] === "string"
     ? [node as DayButton, ...nested]
