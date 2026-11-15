@@ -9,7 +9,7 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { customerSignInLocaleHeader } from "@deskohub/workspace-customer-api/customer-locale";
-import { DateTime, Effect, Exit, Option } from "effect";
+import { DateTime, Effect, Exit, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { analytics } from "../analytics/analytics";
 
@@ -36,6 +36,10 @@ const recordLocale = (fetchOptions: FetchOptions | undefined) => {
 let emailSent: unknown = { status: true, signInCode: true };
 /** The error the server answers a sign-in email request with instead. */
 let emailRefused: Readonly<Record<string, unknown>> | null = null;
+/** Holds the sign-in email answer until the test releases it. */
+let emailAnswerHeld: Promise<void> = Promise.resolve();
+/** Settles once the page asked the server for a sign-in email. */
+let emailRequested: () => void = () => undefined;
 
 /** The return URIs the page asked the server to mint a handoff for. */
 let mintedFor: Array<string> = [];
@@ -55,10 +59,13 @@ mock.module("./auth-client.web", () => ({
     },
     getSession: () => readSession(),
     signIn: {
-      magicLink: async () =>
-        emailRefused === null
+      magicLink: async () => {
+        emailRequested();
+        await emailAnswerHeld;
+        return emailRefused === null
           ? { data: emailSent, error: null }
-          : { data: null, error: emailRefused },
+          : { data: null, error: emailRefused };
+      },
       emailOtp: async ({
         fetchOptions,
       }: {
@@ -161,6 +168,8 @@ beforeEach(() => {
   linkAccount = "bob";
   emailSent = { status: true, signInCode: true };
   emailRefused = null;
+  emailAnswerHeld = Promise.resolve();
+  emailRequested = () => undefined;
   readSession = async () => ({ data: { user: { id: "ada" } }, error: null });
 });
 
@@ -713,6 +722,22 @@ describe("sendSignInEmail", () => {
       sentAt: now,
       nextSignInEmailAt: Option.some(Date.parse(nextAt)),
     });
+  });
+
+  test("stamps the send when the server answers, not when it was asked", async () => {
+    const answer = Promise.withResolvers<void>();
+    const requested = Promise.withResolvers<void>();
+    emailAnswerHeld = answer.promise;
+    emailRequested = requested.resolve;
+    const result = await Effect.gen(function* () {
+      yield* TestClock.setTime(now);
+      const sending = yield* Effect.forkChild(sendSignInEmail(email, "en-US"));
+      yield* Effect.promise(() => requested.promise);
+      yield* TestClock.adjust("5 seconds");
+      answer.resolve();
+      return yield* Fiber.join(sending);
+    }).pipe(Effect.provide(TestClock.layer()), Effect.runPromise);
+    expect(result.sentAt).toBe(now + 5000);
   });
 
   test("tolerates an answer without the server's next send", async () => {
