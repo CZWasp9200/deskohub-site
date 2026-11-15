@@ -1,17 +1,22 @@
 import "@/shared/testing/workspace-test-env";
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 import {
   AlgoPinSchema,
+  IgloohomeDeviceIdSchema,
   IgloohomePinIdSchema,
+  IgloohomeRequestError,
   IgloohomeService,
 } from "@deskohub/igloohome";
 import { NodeCrypto } from "@effect/platform-node";
 import { Deferred, Effect, Fiber, Layer, Option, Result } from "effect";
 import { TestClock } from "effect/testing";
+import { WorkspaceDatabase } from "@/db/database.service";
+import { reservationAccessGrants } from "@/db/schema";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import type { ReservationAccessGrantState } from "../reservation-access";
 import { getIgloohomeAccessWindow } from "./igloohome-access-window";
 import { ReservationAccessRepository } from "./reservation-access.repository";
 import { ReservationAccessService } from "./reservation-access.service";
@@ -201,5 +206,265 @@ describe.skipIf(!testDatabase)(
         );
       }
     );
+
+    describe("restoring a cancelled reservation", () => {
+      const upcoming = {
+        reservedFrom: Temporal.Instant.from("2099-07-01T08:00:00Z"),
+        reservedUntil: Temporal.Instant.from("2099-07-01T16:00:00Z"),
+      };
+      const restoredAt = Temporal.Instant.from("2099-06-01T10:00:00Z");
+      const restoredPin = AlgoPinSchema.make("135792468");
+
+      const insertGrant = async (
+        reservationId: WorkspaceReservationId,
+        state: ReservationAccessGrantState
+      ) => {
+        const [grant] = await Effect.runPromise(
+          testDatabase.db
+            .insert(reservationAccessGrants)
+            .values({
+              workspaceReservationId: reservationId,
+              deviceId: IgloohomeDeviceIdSchema.make("fixture-ek1"),
+              state,
+              accessName: "Deskohub synthetic-cancelled-grant",
+              scheduledAccessStartsAt: upcoming.reservedFrom,
+              accessStartsAt: upcoming.reservedFrom,
+              accessEndsAt: upcoming.reservedUntil,
+              providerCredentialId: IgloohomePinIdSchema.make(
+                "synthetic-removed-pin"
+              ),
+              issuedAt: Temporal.Instant.from("2099-05-01T10:00:00Z"),
+              ...(state === "provisioning" && {
+                provisioningStartedAt: Temporal.Now.instant(),
+              }),
+              ...(state === "issued" && {
+                accessCode: AlgoPinSchema.make("975318642"),
+              }),
+              ...((state === "failed" || state === "uncertain") && {
+                failedAt: Temporal.Instant.from("2099-05-01T10:00:00Z"),
+                failureCode: "provider_request_rejected",
+              }),
+            })
+            .returning()
+        );
+        if (!grant) throw new Error("Synthetic grant was not inserted.");
+        return grant;
+      };
+
+      const igloohomeIssuing = (
+        issued: Effect.Effect<
+          {
+            pin: typeof restoredPin;
+            pinId: ReturnType<typeof IgloohomePinIdSchema.make>;
+          },
+          IgloohomeRequestError
+        >
+      ) => {
+        const issueHourlyAlgoPin = mock(() => issued);
+        return {
+          issueHourlyAlgoPin,
+          layer: Layer.mock(IgloohomeService, { issueHourlyAlgoPin }),
+        };
+      };
+
+      const run = <A, E>(
+        program: (
+          service: typeof ReservationAccessService.Service
+        ) => Effect.Effect<A, E, WorkspaceDatabase>,
+        igloohome = igloohomeIssuing(
+          Effect.die("Igloohome must not be called")
+        ).layer
+      ) =>
+        Effect.gen(function* () {
+          return yield* program(yield* ReservationAccessService);
+        }).pipe(
+          Effect.provide(
+            ReservationAccessService.Default.pipe(
+              Layer.provide(
+                Layer.mergeAll(ReservationAccessRepository.Default, igloohome)
+              ),
+              Layer.provide(NodeCrypto.layer),
+              Layer.provideMerge(testDatabase.layer)
+            )
+          ),
+          Effect.runPromise
+        );
+
+      /** Prepares restored access in its own committed transaction. */
+      const prepare = (
+        reservationId: WorkspaceReservationId,
+        reservedUntil = upcoming.reservedUntil
+      ) =>
+        run((service) =>
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(
+              service.prepareRestoredAccess({
+                reservationId,
+                reservedUntil,
+                now: restoredAt,
+              })
+            )
+          )
+        );
+
+      const loadGrant = (reservationId: WorkspaceReservationId) =>
+        run((service) => service.loadGrant(reservationId));
+
+      test("reopens an expired grant and issues fresh access through normal issuance", async () => {
+        const reservationId = await insertReservation();
+        const expired = await insertGrant(reservationId, "expired");
+
+        expect(await prepare(reservationId)).toBe("issue");
+        const reopened = await loadGrant(reservationId);
+        expect(reopened).toMatchObject({
+          id: expired.id,
+          state: "pending",
+          providerCredentialId: null,
+          issuedAt: null,
+          accessName: expired.accessName,
+        });
+
+        const igloohome = igloohomeIssuing(
+          Effect.succeed({
+            pin: restoredPin,
+            pinId: IgloohomePinIdSchema.make("synthetic-restored-pin"),
+          })
+        );
+        expect(
+          await run(
+            (service) =>
+              service.issueRestoredAccess({ reservationId, ...upcoming }),
+            igloohome.layer
+          )
+        ).toBe("issued");
+        expect(igloohome.issueHourlyAlgoPin).toHaveBeenCalledTimes(1);
+        expect(await loadGrant(reservationId)).toMatchObject({
+          id: expired.id,
+          state: "issued",
+          providerCredentialId: "synthetic-restored-pin",
+        });
+      });
+
+      test("rolls the reopened grant back with the restoring transaction", async () => {
+        const reservationId = await insertReservation();
+        await insertGrant(reservationId, "expired");
+
+        const rolledBack = await run((service) =>
+          Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+            transaction(
+              service
+                .prepareRestoredAccess({
+                  reservationId,
+                  reservedUntil: upcoming.reservedUntil,
+                  now: restoredAt,
+                })
+                .pipe(Effect.andThen(Effect.fail("restore refused" as const)))
+            )
+          ).pipe(Effect.result)
+        );
+
+        expect(Result.isFailure(rolledBack)).toBe(true);
+        expect((await loadGrant(reservationId))?.state).toBe("expired");
+      });
+
+      test("leaves the expired grant of an ended reservation as it is", async () => {
+        const reservationId = await insertReservation();
+        const expired = await insertGrant(reservationId, "expired");
+
+        expect(
+          await prepare(reservationId, restoredAt.subtract({ hours: 1 }))
+        ).toBe("not_needed");
+        expect(await loadGrant(reservationId)).toMatchObject({
+          state: "expired",
+          updatedAt: expired.updatedAt,
+        });
+      });
+
+      test.each(["issued", "provisioning", "uncertain"] as const)(
+        "refuses a %s grant without changing it",
+        async (state) => {
+          const reservationId = await insertReservation();
+          const grant = await insertGrant(reservationId, state);
+
+          expect(await prepare(reservationId)).toBe("uncertain");
+          expect(await loadGrant(reservationId)).toMatchObject({
+            state,
+            updatedAt: grant.updatedAt,
+          });
+        }
+      );
+
+      test.each(["pending", "failed"] as const)(
+        "leaves a %s grant for normal issuance",
+        async (state) => {
+          const reservationId = await insertReservation();
+          const grant = await insertGrant(reservationId, state);
+
+          expect(await prepare(reservationId)).toBe("issue");
+          expect(await loadGrant(reservationId)).toMatchObject({
+            state,
+            updatedAt: grant.updatedAt,
+          });
+        }
+      );
+
+      test("issues access for a reservation without a grant", async () => {
+        const reservationId = await insertReservation();
+
+        expect(await prepare(reservationId)).toBe("issue");
+        expect(await loadGrant(reservationId)).toBeNull();
+      });
+
+      test.each([
+        { outcome: "rejected", state: "failed" },
+        { outcome: "ambiguous", state: "uncertain" },
+      ] as const)(
+        "reports a $outcome reissue as failed and leaves a $state grant for the administration retry",
+        async ({ outcome, state }) => {
+          const reservationId = await insertReservation();
+          await insertGrant(reservationId, "expired");
+          expect(await prepare(reservationId)).toBe("issue");
+
+          const failing = igloohomeIssuing(
+            Effect.fail(
+              new IgloohomeRequestError({
+                operation: "issue_hourly_algopin",
+                outcome,
+                message: "synthetic provider failure",
+              })
+            )
+          );
+          expect(
+            await run(
+              (service) =>
+                service.issueRestoredAccess({ reservationId, ...upcoming }),
+              failing.layer
+            )
+          ).toBe("failed");
+          expect((await loadGrant(reservationId))?.state).toBe(state);
+        }
+      );
+
+      test("issues a reopened grant whose restore committed before issuance ran", async () => {
+        const reservationId = await insertReservation();
+        await insertGrant(reservationId, "expired");
+        expect(await prepare(reservationId)).toBe("issue");
+
+        // The administration retry issues through normal issuance.
+        const igloohome = igloohomeIssuing(
+          Effect.succeed({
+            pin: restoredPin,
+            pinId: IgloohomePinIdSchema.make("synthetic-recovered-pin"),
+          })
+        );
+        const issued = await run(
+          (service) =>
+            service.issueForReservation({ reservationId, ...upcoming }),
+          igloohome.layer
+        );
+        expect(issued.accessStartsAt.equals(upcoming.reservedFrom)).toBe(true);
+        expect((await loadGrant(reservationId))?.state).toBe("issued");
+      });
+    });
   }
 );

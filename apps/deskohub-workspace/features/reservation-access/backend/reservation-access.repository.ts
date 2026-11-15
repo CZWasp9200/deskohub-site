@@ -7,7 +7,7 @@ import { AlgoPinSchema } from "@deskohub/igloohome";
 import { NodeCrypto } from "@effect/platform-node";
 import { and, asc, eq, inArray, lte, or } from "drizzle-orm";
 import { Context, Crypto, Data, Effect, Layer, Schema } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
 import { reservationAccessGrants } from "@/db/schema";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -51,10 +51,12 @@ export class ReservationAccessStorageError extends Data.TaggedError(
     | "claim"
     | "ensure"
     | "load"
+    | "lock"
     | "mark_failed"
     | "mark_issued"
     | "mark_uncertain"
     | "reconcile_uncertain"
+    | "reopen_expired"
     | "reschedule_issued";
   readonly reservationId?: WorkspaceReservationId;
   readonly message: string;
@@ -181,6 +183,29 @@ export interface IReservationAccessRepository {
     readonly reconciledAt: Temporal.Instant;
     readonly provisioningStaleBefore: Temporal.Instant;
   }) => Effect.Effect<ReservationAccessGrant, ReservationAccessStorageError>;
+  /** In the caller's transaction: locks the reservation's grant, if it has one. */
+  readonly lockForReservation: (
+    reservationId: WorkspaceReservationId
+  ) => Effect.Effect<
+    ReservationAccessGrant | null,
+    ReservationAccessStorageError,
+    WorkspaceTransaction
+  >;
+  /**
+   * In the caller's transaction: resets an `expired` grant to `pending`
+   * without a credential, so normal issuance claims it again. Keeps its
+   * access name and bounds; issuance records the reservation's current ones.
+   * Returns null, writing nothing, when the grant is not `expired`.
+   */
+  readonly reopenExpired: (input: {
+    readonly id: ReservationAccessGrantId;
+    readonly reservationId: WorkspaceReservationId;
+    readonly reopenedAt: Temporal.Instant;
+  }) => Effect.Effect<
+    ReservationAccessGrant | null,
+    ReservationAccessStorageError,
+    WorkspaceTransaction
+  >;
 }
 
 export class ReservationAccessRepository extends Context.Service<
@@ -258,9 +283,80 @@ export class ReservationAccessRepository extends Context.Service<
         return yield* requireWithinReadLimit(rows, input.limit);
       });
 
+      const lockForReservation = Effect.fn(
+        "ReservationAccessRepository.lockForReservation"
+      )(function* (reservationId: WorkspaceReservationId) {
+        const { db } = yield* WorkspaceTransaction;
+        const [row] = yield* db
+          .select(reservationAccessGrantSelection)
+          .from(reservationAccessGrants)
+          .where(
+            eq(reservationAccessGrants.workspaceReservationId, reservationId)
+          )
+          .limit(1)
+          .for("update")
+          .pipe(
+            Effect.mapError(
+              () =>
+                new ReservationAccessStorageError({
+                  operation: "lock",
+                  reservationId,
+                  message: "Reservation access grant could not be locked.",
+                })
+            )
+          );
+        return row ?? null;
+      });
+
+      const reopenExpired = Effect.fn(
+        "ReservationAccessRepository.reopenExpired"
+      )(function* (input: {
+        readonly id: ReservationAccessGrantId;
+        readonly reservationId: WorkspaceReservationId;
+        readonly reopenedAt: Temporal.Instant;
+      }) {
+        const { db } = yield* WorkspaceTransaction;
+        const [grant] = yield* db
+          .update(reservationAccessGrants)
+          .set({
+            state: "pending",
+            providerCredentialId: null,
+            accessCode: null,
+            provisioningStartedAt: null,
+            issuedAt: null,
+            failedAt: null,
+            failureCode: null,
+            updatedAt: input.reopenedAt,
+          })
+          .where(
+            and(
+              eq(reservationAccessGrants.id, input.id),
+              eq(
+                reservationAccessGrants.workspaceReservationId,
+                input.reservationId
+              ),
+              eq(reservationAccessGrants.state, "expired")
+            )
+          )
+          .returning(reservationAccessGrantSelection)
+          .pipe(
+            Effect.mapError(
+              () =>
+                new ReservationAccessStorageError({
+                  operation: "reopen_expired",
+                  reservationId: input.reservationId,
+                  message: "Expired reservation access could not be reopened.",
+                })
+            )
+          );
+        return grant ?? null;
+      });
+
       return ReservationAccessRepository.of({
         findByReservationId,
         listForReservations,
+        lockForReservation,
+        reopenExpired,
         ensure: Effect.fn("ReservationAccessRepository.ensure")(
           function* (input) {
             const id = yield* crypto.randomUUIDv7.pipe(
