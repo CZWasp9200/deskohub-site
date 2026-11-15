@@ -376,7 +376,13 @@ describe("sign-in code gate", () => {
       );
 
     const sentFrom = Date.now();
-    const first = await sendSignInEmail(auth, email);
+    // The server's instant replaces any the client sends.
+    const first = await sendSignInEmail(auth, email, {
+      metadata: {
+        locale: "en-US",
+        nextSignInEmailAt: "2000-01-01T00:00:00.000Z",
+      },
+    });
     const sentUntil = Date.now();
     expect(first.status).toBe(200);
     const firstNext = await nextEmailAt(first);
@@ -600,7 +606,11 @@ describe.skipIf(!testDatabase)(
         nextSignInEmailAt: expect.any(String),
       });
       const [captured] = sentLinks;
-      expect(captured?.metadata).toEqual({ locale: "cs-CZ", signInCode: true });
+      expect(captured?.metadata).toEqual({
+        locale: "cs-CZ",
+        signInCode: true,
+        nextSignInEmailAt: expect.any(String),
+      });
 
       const { text } = await Effect.runPromise(
         renderMagicLinkEmail({

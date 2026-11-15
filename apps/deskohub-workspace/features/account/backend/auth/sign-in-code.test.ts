@@ -5,7 +5,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { DateTime, Effect } from "effect";
 import { TestClock } from "effect/testing";
-import { signInEmailLimit } from "./auth-options";
+import { digestVerificationKey, signInEmailLimit } from "./auth-options";
 import { reserveSignInEmail } from "./sign-in-code";
 
 const windowMs = signInEmailLimit.window * 1000;
@@ -23,7 +23,21 @@ const sendsTo = (email: string) => {
         nextSignInEmailAt: DateTime.toEpochMillis(nextSignInEmailAt),
       }))
     );
-  return { store, send };
+  /** A send record another request wrote, expiring at `expiresAt`. */
+  const recordedSend = (expiresAt: number) =>
+    Effect.promise(async () =>
+      verifications.create({
+        model: "verification",
+        data: {
+          identifier: `sign-in-email-${await digestVerificationKey(email.toLowerCase())}`,
+          value: "sent",
+          expiresAt: new Date(expiresAt),
+          createdAt: new Date(expiresAt - windowMs),
+          updatedAt: new Date(expiresAt - windowMs),
+        },
+      })
+    );
+  return { store, send, recordedSend };
 };
 
 const run = <A, E>(effect: Effect.Effect<A, E>) =>
@@ -82,6 +96,28 @@ describe("reserveSignInEmail", () => {
       nextSignInEmailAt: minute(0) + windowMs,
     });
     expect(store.verification).toHaveLength(signInEmailLimit.max);
+  });
+
+  test("with more rows than the limit, names the expiry that brings it back under", async () => {
+    // Concurrent sends can leave many rows; the answer depends on the newest.
+    const { send, recordedSend } = sendsTo(
+      testEmailAddress("next-email-crowded")
+    );
+    const expiries = Array.from(
+      { length: 120 },
+      (_, index) => startedAt + windowMs / 2 + index * 1000
+    );
+
+    const refused = await run(
+      Effect.forEach(expiries, recordedSend).pipe(
+        Effect.andThen(send(startedAt))
+      )
+    );
+
+    expect(refused).toEqual({
+      admitted: false,
+      nextSignInEmailAt: expiries.at(-signInEmailLimit.max)!,
+    });
   });
 
   test("once the oldest record expires, the next send names the following one", async () => {

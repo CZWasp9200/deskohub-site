@@ -236,8 +236,9 @@ const isSignInCodeRequested = (metadata: SignInEmail["metadata"]) =>
 
 /**
  * The sign-in email response: whether the email carries a code and, while
- * codes are on, when the address takes its next email. Only the server
- * writes this metadata (see {@link isSignInCodeRequested}).
+ * codes are on, when the address takes its next email. The guard writes the
+ * instant whenever codes are on; with codes off a client value may remain in
+ * the metadata, so it is read only with the code.
  */
 const signInEmailCompletion = (
   metadata: SignInEmail["metadata"]

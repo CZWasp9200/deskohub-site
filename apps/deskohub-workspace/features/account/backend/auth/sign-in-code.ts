@@ -399,7 +399,10 @@ const recordSend = ({ verifications, identifier, now }: SignInEmailSend) =>
 
 type SendRecord = { readonly id: string; readonly expiresAt: Date };
 
-/** The address's unexpired send records, oldest expiry first. */
+/**
+ * The address's newest unexpired send records, newest expiry first. One more
+ * than the limit is enough to tell whether it is exceeded.
+ */
 const listRecentSends = ({ verifications, identifier, now }: SignInEmailSend) =>
   store(() =>
     verifications.findMany<SendRecord>({
@@ -408,15 +411,16 @@ const listRecentSends = ({ verifications, identifier, now }: SignInEmailSend) =>
         { field: "identifier", value: identifier },
         { field: "expiresAt", operator: "gt", value: new Date(now) },
       ],
-      sortBy: { field: "expiresAt", direction: "asc" },
+      sortBy: { field: "expiresAt", direction: "desc" },
+      limit: signInEmailLimit.max + 1,
     })
   );
 
 /**
  * When the address next takes a sign-in email: now while fewer than
- * `signInEmailLimit.max` records remain, else when the record whose expiry
- * leaves fewer than that expires (the oldest one, unless concurrent sends
- * left extra rows).
+ * `signInEmailLimit.max` records remain, else when the
+ * `signInEmailLimit.max`-th newest expires and leaves fewer than that (the
+ * oldest one, unless concurrent sends left extra rows).
  */
 const nextSignInEmailAt = ({
   now,
@@ -424,7 +428,7 @@ const nextSignInEmailAt = ({
 }: {
   readonly now: number;
   readonly kept: ReadonlyArray<SendRecord>;
-}) => DateTime.makeUnsafe(kept.at(-signInEmailLimit.max)?.expiresAt ?? now);
+}) => DateTime.makeUnsafe(kept.at(signInEmailLimit.max - 1)?.expiresAt ?? now);
 
 /** A rejected send gives its row back, so it doesn't extend the window. */
 const withdrawRejectedSend = ({
