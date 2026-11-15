@@ -159,10 +159,21 @@ type Fakes = {
   >;
   readonly acknowledgeRefundedPayment: boolean;
   readonly sendRestorationEmailRequested: boolean;
+  /** Fails the next SQL statement after the reservation write: the cancellation event's retraction. */
+  readonly failRetraction: boolean;
 };
 
-/** Runs one restore over fakes, recording each call, the SQL its transaction ran, and the levels it logged. */
+/** Runs one restore over fakes, recording each call, the SQL its transaction ran, the order of both, and the levels it logged. */
 const restoreWith = async (overrides: Partial<Fakes> = {}) => {
+  const database = await makeRecordingWorkspaceDatabase();
+  const events: { readonly name: string; readonly at: number }[] = [];
+  /** Records when the fake runs, relative to the SQL statements so far. */
+  const traced =
+    <A, E>(name: string, fake: () => Effect.Effect<A, E>) =>
+    () =>
+      Effect.sync(() => {
+        events.push({ name, at: database.statements.length });
+      }).pipe(Effect.andThen(fake));
   const queue = [...(overrides.reservations ?? [cancelledReservation])];
   const fakes = {
     findById: () => Effect.succeed(queue.length > 1 ? queue.shift() : queue[0]),
@@ -191,28 +202,51 @@ const restoreWith = async (overrides: Partial<Fakes> = {}) => {
     getRestorationBooking: () => Effect.succeed(booking),
     ...overrides,
   };
+  const markAdministrationRestored = overrides.failRetraction
+    ? () =>
+        fakes
+          .markAdministrationRestored()
+          .pipe(
+            Effect.tap(() =>
+              Effect.sync(() =>
+                database.failNextQueriesWith(new Error("events unavailable"), 1)
+              )
+            )
+          )
+    : fakes.markAdministrationRestored;
   const calls = {
     findById: mock(fakes.findById),
     findCurrentByCheckoutSessionKey: mock(
       fakes.findCurrentByCheckoutSessionKey
     ),
     hasRecordedCancellation: mock(fakes.hasRecordedCancellation),
-    markAdministrationRestored: mock(fakes.markAdministrationRestored),
+    markAdministrationRestored: mock(
+      traced("markAdministrationRestored", markAdministrationRestored)
+    ),
     getReservationWithoutCustomer: mock(fakes.getReservationWithoutCustomer),
-    restoreCancelledReservation: mock(fakes.restoreCancelledReservation),
-    cancelReservation: mock(fakes.cancelReservation),
+    restoreCancelledReservation: mock(
+      traced("restoreCancelledReservation", fakes.restoreCancelledReservation)
+    ),
+    cancelReservation: mock(
+      traced("cancelReservation", fakes.cancelReservation)
+    ),
     loadGrant: mock(fakes.loadGrant),
-    prepareRestoredAccess: mock(fakes.prepareRestoredAccess),
-    issueRestoredAccess: mock(fakes.issueRestoredAccess),
+    prepareRestoredAccess: mock(
+      traced("prepareRestoredAccess", fakes.prepareRestoredAccess)
+    ),
+    issueRestoredAccess: mock(
+      traced("issueRestoredAccess", fakes.issueRestoredAccess)
+    ),
     reconcileReservationRefunds: mock(fakes.reconcileReservationRefunds),
     getAssignedTableAvailability: mock(fakes.getAssignedTableAvailability),
     getReservation: mock(fakes.getReservation),
-    sendRestorationEmail: mock(fakes.sendRestorationEmail),
+    sendRestorationEmail: mock(
+      traced("sendRestorationEmail", fakes.sendRestorationEmail)
+    ),
     getRestorationBooking: mock(fakes.getRestorationBooking),
   };
   getRestorationBooking = calls.getRestorationBooking as never;
 
-  const database = await makeRecordingWorkspaceDatabase();
   const logs: { readonly level: string; readonly annotations: object }[] = [];
   const result = await Effect.gen(function* () {
     const service = yield* ReservationRestorationService;
@@ -276,13 +310,42 @@ const restoreWith = async (overrides: Partial<Fakes> = {}) => {
     Effect.runPromise
   );
   const statements = database.statements.map(({ sql }) => sql);
+  const timeline = [
+    ...database.statements.flatMap(({ sql }, index) => [
+      ...events.filter(({ at }) => at === index).map(({ name }) => name),
+      sql.trimStart().split(/\s/)[0]?.toLowerCase() ?? "",
+    ]),
+    ...events
+      .filter(({ at }) => at === database.statements.length)
+      .map(({ name }) => name),
+  ];
   return {
     result,
     calls,
     logs,
     committed: statements.some((sql) => /^commit\b/i.test(sql)),
     rolledBack: statements.some((sql) => /^rollback\b/i.test(sql)),
-    retracted: statements.some((sql) => /customer_events/.test(sql)),
+    retracted: database.statements.some(
+      ({ sql, params }) =>
+        /^update "customer_events"/i.test(sql) &&
+        params.includes(id) &&
+        params.includes("reservation-cancelled")
+    ),
+    /** The provider calls and transaction statements a restore's ordering rests on, in the order they ran. */
+    order: timeline.filter((step) =>
+      [
+        "restoreCancelledReservation",
+        "begin",
+        "prepareRestoredAccess",
+        "markAdministrationRestored",
+        "update",
+        "commit",
+        "rollback",
+        "cancelReservation",
+        "issueRestoredAccess",
+        "sendRestorationEmail",
+      ].includes(step)
+    ),
   };
 };
 
@@ -349,6 +412,18 @@ test("restores an upcoming reservation: checks the table, confirms Dotypos, reco
   });
   expect(run.calls.cancelReservation).not.toHaveBeenCalled();
   expect(run).toMatchObject({ committed: true, retracted: true });
+  // Dotypos before the transaction, the reservation and its event inside it,
+  // access and email only after it committed.
+  expect(run.order).toEqual([
+    "restoreCancelledReservation",
+    "begin",
+    "prepareRestoredAccess",
+    "markAdministrationRestored",
+    "update",
+    "commit",
+    "issueRestoredAccess",
+    "sendRestorationEmail",
+  ]);
 });
 
 test("restores an ended reservation without a table check or new access", async () => {
@@ -430,7 +505,14 @@ test("a successor that took the checkout after this restore's Dotypos write gets
   expect(run.calls.cancelReservation).toHaveBeenCalledWith(
     dotyposReservationId
   );
-  expect(run.rolledBack).toBe(true);
+  expect(run.order).toEqual([
+    "restoreCancelledReservation",
+    "begin",
+    "prepareRestoredAccess",
+    "markAdministrationRestored",
+    "rollback",
+    "cancelReservation",
+  ]);
   expect(run.calls.issueRestoredAccess).not.toHaveBeenCalled();
   expect(run.calls.sendRestorationEmail).not.toHaveBeenCalled();
 });
@@ -629,6 +711,7 @@ test("refuses a restore its transaction can't record, rolling it back", async ()
   const reservationWrite = await refused({
     markAdministrationRestored: () => failure("EffectDrizzleQueryError"),
   });
+  const retraction = await refused({ failRetraction: true });
 
   expect(uncertain).toMatchObject({
     code: "not_restorable",
@@ -647,7 +730,12 @@ test("refuses a restore its transaction can't record, rolling it back", async ()
     rolledBack: true,
     retracted: false,
   });
-  for (const run of [uncertain, accessStorage, reservationWrite]) {
+  expect(retraction).toMatchObject({
+    code: "restoration_failed",
+    reason: "record_failed",
+    rolledBack: true,
+  });
+  for (const run of [uncertain, accessStorage, reservationWrite, retraction]) {
     expect(run.committed).toBe(false);
     expect(run.calls.issueRestoredAccess).not.toHaveBeenCalled();
   }

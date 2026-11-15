@@ -149,69 +149,79 @@ export class ReservationRestorationService extends Context.Service<
           )
         );
 
+      /** Whether another reservation of the checkout session is active. */
+      const hasActiveSuccessor = (reservation: WorkspaceReservation) =>
+        reservations
+          .findCurrentByCheckoutSessionKey(reservation.checkoutSessionKey)
+          .pipe(
+            Effect.mapError((cause) =>
+              restorationError("details_unavailable", cause)
+            ),
+            Effect.map(
+              (successor) =>
+                successor !== null && successor.id !== reservation.id
+            )
+          );
+
       /**
        * The cancellation a restore undoes, or why the reservation can't be
        * restored as Workspace records it. Every fact is checked again under
        * the restore's locks.
        */
-      const getRestorableCancellation = Effect.fnUntraced(function* ({
+      const getRestorableCancellation = ({
         reservation,
       }: {
         readonly reservation: WorkspaceReservation;
-      }) {
-        if (reservation.reservationState === "cancelling") {
-          return yield* restorationError("cancellation_in_progress");
-        }
-        if (reservation.reservationState !== "cancelled") {
-          return yield* restorationError("invalid_state");
-        }
-        const successor = yield* reservations
-          .findCurrentByCheckoutSessionKey(reservation.checkoutSessionKey)
-          .pipe(
-            Effect.mapError((cause) =>
-              restorationError("details_unavailable", cause)
+      }) =>
+        Effect.succeed(reservation).pipe(
+          Effect.filterOrFail(
+            ({ reservationState }) => reservationState !== "cancelling",
+            () => restorationError("cancellation_in_progress")
+          ),
+          Effect.filterOrFail(
+            ({ reservationState }) => reservationState === "cancelled",
+            () => restorationError("invalid_state")
+          ),
+          Effect.flatMap(hasActiveSuccessor),
+          Effect.flatMap((successorActive) =>
+            Option.match(
+              findRestorableCancellation(reservation, successorActive),
+              {
+                onNone: () =>
+                  Effect.fail(
+                    restorationError(
+                      successorActive ? "superseded" : "invalid_state"
+                    )
+                  ),
+                onSome: Effect.succeed,
+              }
             )
-          );
-        const hasActiveSuccessor =
-          successor !== null && successor.id !== reservation.id;
-        const { dotyposReservationId, reservationCancelledAt } = reservation;
-        if (
-          !canRestoreReservation(reservation, { hasActiveSuccessor }) ||
-          dotyposReservationId === null ||
-          reservationCancelledAt === null
-        ) {
-          return yield* restorationError(
-            hasActiveSuccessor ? "superseded" : "invalid_state"
-          );
-        }
-        return {
-          cancelledAt: reservationCancelledAt,
-          dotyposReservationId,
-        } satisfies RestorableCancellation;
-      });
+          )
+        );
 
       /**
        * The Dotypos reservation of a confirmed reservation whose
        * cancellation a restore undid, or invalid_state for one that was
        * never cancelled.
        */
-      const getUndoneCancellation = Effect.fnUntraced(function* ({
+      const getUndoneCancellation = ({
         reservation,
       }: {
         readonly reservation: WorkspaceReservation;
-      }) {
-        const wasCancelled = yield* reservations
-          .hasRecordedCancellation(reservation.id)
-          .pipe(
-            Effect.mapError((cause) =>
-              restorationError("details_unavailable", cause)
-            )
-          );
-        if (!wasCancelled || reservation.dotyposReservationId === null) {
-          return yield* restorationError("invalid_state");
-        }
-        return reservation.dotyposReservationId;
-      });
+      }) =>
+        reservations.hasRecordedCancellation(reservation.id).pipe(
+          Effect.mapError((cause) =>
+            restorationError("details_unavailable", cause)
+          ),
+          Effect.filterOrFail(
+            (wasCancelled) => wasCancelled,
+            () => restorationError("invalid_state")
+          ),
+          Effect.as(reservation.dotyposReservationId),
+          Effect.filterOrFail(Predicate.isNotNull, () =>
+            restorationError("invalid_state")
+          )
+        );
 
       /** The reservation as Dotypos holds it now, read past every cache. */
       const readDotyposReservation = (
@@ -726,6 +736,19 @@ export class ReservationRestorationService extends Context.Service<
     })
   );
 }
+
+/** The cancellation of a reservation a restore may undo, as Workspace records it. */
+const findRestorableCancellation = (
+  reservation: WorkspaceReservation,
+  hasActiveSuccessor: boolean
+): Option.Option<RestorableCancellation> => {
+  const { dotyposReservationId, reservationCancelledAt } = reservation;
+  return canRestoreReservation(reservation, { hasActiveSuccessor }) &&
+    dotyposReservationId !== null &&
+    reservationCancelledAt !== null
+    ? Option.some({ cancelledAt: reservationCancelledAt, dotyposReservationId })
+    : Option.none();
+};
 
 /** Whether Dotypos books the reservation for the customer the restore expects; the table, span and seats are checked by getRestorationBooking. */
 const booksCustomer = (

@@ -105,7 +105,7 @@ test("operator cancellation cancels Dotypos, records the result, and optionally 
   });
 });
 
-/** Cancels a confirmed reservation, recording whether its cancellation email was stamped as sent. */
+/** Cancels a confirmed reservation, recording in order when its cancellation email went out and when it was stamped as sent. */
 const cancelAndEmail = async ({
   send,
   sendCancellationEmail = () => Effect.void,
@@ -138,7 +138,16 @@ const cancelAndEmail = async ({
     reservationState: "confirmed",
     updatedAt: Temporal.Now.instant(),
   } as never;
-  const stamp = mock(recordCancellationEmailSent);
+  const order: ("sent" | "stamped")[] = [];
+  const stamp = mock(() =>
+    Effect.sync(() => order.push("stamped")).pipe(
+      Effect.andThen(recordCancellationEmailSent)
+    )
+  );
+  const sendAndRecord = () =>
+    sendCancellationEmail().pipe(
+      Effect.tap(() => Effect.sync(() => order.push("sent")))
+    );
 
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
@@ -158,7 +167,7 @@ const cancelAndEmail = async ({
               cancelReservation: () => Effect.void,
             }),
             Layer.mock(WorkspaceReservationEmailService, {
-              sendCancellationEmail,
+              sendCancellationEmail: sendAndRecord,
             } as never),
             Layer.mock(WorkspaceReservationRepository, {
               claimAdministrationCancellation: () => Effect.succeed(current),
@@ -177,7 +186,7 @@ const cancelAndEmail = async ({
     ),
     Effect.runPromise
   );
-  return { email: result.email, stamped: stamp.mock.calls.length };
+  return { email: result.email, order };
 };
 
 test("stamps the cancellation email only after it was sent, and a failed stamp keeps it sent", async () => {
@@ -199,11 +208,11 @@ test("stamps the cancellation email only after it was sent, and a failed stamp k
       cancelAndEmail({ send: false }),
     ])
   ).toEqual([
-    { email: "sent", stamped: 1 },
-    { email: "sent", stamped: 1 },
-    { email: "sent", stamped: 1 },
-    { email: "failed", stamped: 0 },
-    { email: "not_requested", stamped: 0 },
+    { email: "sent", order: ["sent", "stamped"] },
+    { email: "sent", order: ["sent", "stamped"] },
+    { email: "sent", order: ["sent", "stamped"] },
+    { email: "failed", order: [] },
+    { email: "not_requested", order: [] },
   ]);
 });
 
