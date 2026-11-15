@@ -63,18 +63,11 @@ export const makeInvoiceReads = Effect.gen(function* () {
   const keys = yield* AccountingSnapshotKeyService;
 
   const loadInvoice = Effect.fn("InvoiceRepository.loadInvoice")(
-    function* (input: {
-      readonly where: SQL;
-      readonly lookupId: string;
-      /** Picks one of several matches: the most recently issued. */
-      readonly latest?: boolean;
-    }) {
-      const order = input.latest ? latestIssuedFirst : [];
+    function* (input: { readonly where: SQL; readonly lookupId: string }) {
       const [metadata] = yield* db
-        .select({ keyId: invoices.keyId })
+        .select({ id: invoices.id, keyId: invoices.keyId })
         .from(invoices)
         .where(input.where)
-        .orderBy(...order)
         .limit(1);
 
       if (!metadata) return null;
@@ -121,8 +114,9 @@ export const makeInvoiceReads = Effect.gen(function* () {
         )
         .leftJoin(invoiceArchives, eq(invoiceArchives.invoiceId, invoices.id))
         .leftJoin(successor, eq(successor.replacesInvoiceId, invoices.id))
-        .where(input.where)
-        .orderBy(...order)
+        // The row whose key was read: a selector could match another row
+        // by now, encrypted under another key.
+        .where(eq(invoices.id, metadata.id))
         .limit(1)
         .pipe(
           Effect.withTracerEnabled(false),
@@ -212,17 +206,22 @@ export const makeInvoiceReads = Effect.gen(function* () {
     }).pipe(Effect.map(asReservationInvoice))
   );
 
-  /** The payment attempt's most recently issued invoice, cancelled or not. */
+  /**
+   * The payment attempt's latest invoice in its replacement chain, cancelled
+   * or not: no later invoice of the attempt replaces it.
+   */
   const findLatestByPaymentAttemptId = Effect.fn(
     "InvoiceRepository.findLatestByPaymentAttemptId"
   )((paymentAttemptId: string) =>
     loadInvoice({
-      where: eq(
-        invoices.paymentAttemptId,
-        paymentAttemptIdSchema.make(paymentAttemptId)
-      ),
+      where: and(
+        eq(
+          invoices.paymentAttemptId,
+          paymentAttemptIdSchema.make(paymentAttemptId)
+        ),
+        isAttemptChainTail
+      )!,
       lookupId: paymentAttemptId,
-      latest: true,
     }).pipe(Effect.map(asReservationInvoice))
   );
 
@@ -395,18 +394,21 @@ const decodeInvoiceId = Schema.decodeUnknownOption(invoiceIdSchema);
 /** A later invoice of the same chain that replaces the read one. */
 const successor = alias(invoices, "successor");
 
-const latestIssuedFirst = [
-  desc(invoices.issuedAt),
-  desc(invoices.numberingYear),
-  desc(invoices.numberingSequence),
-];
-
 /** No cancellation is recorded for the invoice. */
 const isUncancelled = sql`not exists (select 1 from ${invoiceCancellations} where ${invoiceCancellations.invoiceId} = ${invoices.id})`;
 
-/** No later invoice replaces the invoice: it is its chain's tail. */
 const chainSuccessor = sql.identifier("chain_successor");
-const isChainTail = sql`not exists (select 1 from ${invoices} ${chainSuccessor} where ${chainSuccessor}.${sql.identifier(invoices.replacesInvoiceId.name)} = ${invoices.id})`;
+const successorColumn = (column: { readonly name: string }) =>
+  sql`${chainSuccessor}.${sql.identifier(column.name)}`;
+
+/**
+ * No later invoice replaces the invoice: it is its chain's tail. The chain's
+ * links, not issue times, decide its order.
+ */
+export const isChainTail = sql`not exists (select 1 from ${invoices} ${chainSuccessor} where ${successorColumn(invoices.replacesInvoiceId)} = ${invoices.id})`;
+
+/** No later invoice of the same payment attempt replaces the invoice. */
+const isAttemptChainTail = sql`not exists (select 1 from ${invoices} ${chainSuccessor} where ${successorColumn(invoices.replacesInvoiceId)} = ${invoices.id} and ${successorColumn(invoices.paymentAttemptId)} = ${invoices.paymentAttemptId})`;
 
 /**
  * A cancellation and its corrective document are recorded together, so a

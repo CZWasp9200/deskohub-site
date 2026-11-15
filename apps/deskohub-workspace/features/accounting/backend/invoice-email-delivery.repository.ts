@@ -2,15 +2,17 @@ import "@/shared/polyfills/temporal";
 
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import type { EmailDeliveryId } from "@deskohub/email";
-import { and, asc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
+  invoiceCancellations,
   invoiceEmailDeliveries,
   invoiceEmailDeliveryAudiences,
   invoices,
 } from "@/db/schema";
+import type { DatabaseQueryError } from "@/db/sql-constraint";
 import type { InvoiceNumber } from "@/features/accounting/invoice";
 import type {
   InvoiceDeliveryStatus,
@@ -44,19 +46,30 @@ export interface CustomerInvoiceDelivery {
 }
 
 export interface IInvoiceEmailDeliveryRepository {
+  /**
+   * Claims the audience's original invoice email: a first claim, or another
+   * attempt after a failure or an expired lease. `null` when it was accepted
+   * or another worker holds it; `cancelled` when the invoice is cancelled.
+   * Admission waits for a cancellation of the invoice in progress.
+   */
   readonly claim: (input: {
     readonly invoiceId: string;
     readonly audience: InvoiceEmailDeliveryAudience;
   }) => Effect.Effect<
-    InvoiceEmailDeliveryClaim | null,
-    EffectDrizzleQueryError
+    InvoiceEmailDeliveryClaim | "cancelled" | null,
+    DatabaseQueryError
   >;
+  /** Claims an explicit customer resend, admitted like `claim`. */
   readonly claimResend: (input: {
     readonly invoiceId: string;
   }) => Effect.Effect<
-    InvoiceEmailDeliveryClaim | null,
-    EffectDrizzleQueryError
+    InvoiceEmailDeliveryClaim | "cancelled" | null,
+    DatabaseQueryError
   >;
+  /**
+   * Records the claimed attempt as accepted. An attempt another claim has
+   * superseded still records that the email was accepted (`sentTo`).
+   */
   readonly markAccepted: (input: {
     readonly invoiceId: string;
     readonly audience: InvoiceEmailDeliveryAudience;
@@ -99,86 +112,138 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const { db } = yield* WorkspaceDatabase;
+      const { db, transaction } = yield* WorkspaceDatabase;
+
+      const claimOriginal = Effect.fnUntraced(function* ({
+        audience,
+        invoiceId,
+      }: {
+        readonly invoiceId: string;
+        readonly audience: InvoiceEmailDeliveryAudience;
+      }) {
+        const now = Temporal.Now.instant();
+        const [claimed] = yield* db
+          .insert(invoiceEmailDeliveries)
+          .values({
+            invoiceId,
+            audience,
+            state: "processing",
+            attemptCount: 1,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [
+              invoiceEmailDeliveries.invoiceId,
+              invoiceEmailDeliveries.audience,
+            ],
+            set: {
+              state: "processing",
+              attemptCount: sql`${invoiceEmailDeliveries.attemptCount} + 1`,
+              providerDeliveryId: null,
+              failureCode: null,
+              // An earlier acceptance stays recorded: the invoice was sent.
+              updatedAt: now,
+            },
+            setWhere: or(
+              eq(invoiceEmailDeliveries.state, "failed"),
+              isStaleProcessing()
+            ),
+          })
+          .returning({
+            attemptNumber: invoiceEmailDeliveries.attemptCount,
+          });
+
+        return claimed ?? null;
+      });
+
+      const claimCustomerResend = Effect.fnUntraced(function* (
+        invoiceId: string
+      ) {
+        const now = Temporal.Now.instant();
+        const [claimed] = yield* db
+          .insert(invoiceEmailDeliveries)
+          .values({
+            invoiceId,
+            audience: "customer",
+            state: "processing",
+            attemptCount: 1,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [
+              invoiceEmailDeliveries.invoiceId,
+              invoiceEmailDeliveries.audience,
+            ],
+            set: {
+              state: "processing",
+              attemptCount: sql`case when ${invoiceEmailDeliveries.state} = 'processing' then ${invoiceEmailDeliveries.attemptCount} else ${invoiceEmailDeliveries.attemptCount} + 1 end`,
+              failureCode: null,
+              updatedAt: now,
+            },
+            setWhere: or(
+              eq(invoiceEmailDeliveries.state, "accepted"),
+              eq(invoiceEmailDeliveries.state, "failed"),
+              isStaleProcessing()
+            ),
+          })
+          .returning({
+            attemptNumber: invoiceEmailDeliveries.attemptCount,
+          });
+
+        return claimed ?? null;
+      });
+
+      /**
+       * Admits a claim only while the invoice is not cancelled. The share lock
+       * waits for a cancellation that holds the invoice row, so a claim either
+       * lands before it (and the cancellation sees the email in flight) or
+       * sees it.
+       */
+      const admitUncancelled = <A, E>(
+        invoiceId: string,
+        claim: Effect.Effect<A, E>
+      ) =>
+        transaction(
+          Effect.gen(function* () {
+            const [invoice] = yield* db
+              .select({ id: invoices.id })
+              .from(invoices)
+              .where(eq(invoices.id, invoiceId))
+              .limit(1)
+              .for("share");
+            const [cancellation] = invoice
+              ? yield* db
+                  .select({ invoiceId: invoiceCancellations.invoiceId })
+                  .from(invoiceCancellations)
+                  .where(eq(invoiceCancellations.invoiceId, invoiceId))
+                  .limit(1)
+              : [];
+            if (cancellation) return "cancelled" as const;
+            return yield* claim;
+          })
+        );
 
       return {
         claim: Effect.fn("InvoiceEmailDeliveryRepository.claim")(function* ({
           audience,
           invoiceId,
         }) {
-          const now = Temporal.Now.instant();
-          const [claimed] = yield* db
-            .insert(invoiceEmailDeliveries)
-            .values({
-              invoiceId,
-              audience,
-              state: "processing",
-              attemptCount: 1,
-              updatedAt: now,
-            })
-            .onConflictDoUpdate({
-              target: [
-                invoiceEmailDeliveries.invoiceId,
-                invoiceEmailDeliveries.audience,
-              ],
-              set: {
-                state: "processing",
-                attemptCount: sql`${invoiceEmailDeliveries.attemptCount} + 1`,
-                providerDeliveryId: null,
-                failureCode: null,
-                // An earlier acceptance stays recorded: the invoice was sent.
-                updatedAt: now,
-              },
-              setWhere: or(
-                eq(invoiceEmailDeliveries.state, "failed"),
-                isStaleProcessing()
-              ),
-            })
-            .returning({
-              attemptNumber: invoiceEmailDeliveries.attemptCount,
-            });
-
-          return claimed ?? null;
+          return yield* admitUncancelled(
+            invoiceId,
+            claimOriginal({ audience, invoiceId })
+          );
         }),
         claimResend: Effect.fn("InvoiceEmailDeliveryRepository.claimResend")(
           function* ({ invoiceId }) {
-            const now = Temporal.Now.instant();
-            const [claimed] = yield* db
-              .insert(invoiceEmailDeliveries)
-              .values({
-                invoiceId,
-                audience: "customer",
-                state: "processing",
-                attemptCount: 1,
-                updatedAt: now,
-              })
-              .onConflictDoUpdate({
-                target: [
-                  invoiceEmailDeliveries.invoiceId,
-                  invoiceEmailDeliveries.audience,
-                ],
-                set: {
-                  state: "processing",
-                  attemptCount: sql`case when ${invoiceEmailDeliveries.state} = 'processing' then ${invoiceEmailDeliveries.attemptCount} else ${invoiceEmailDeliveries.attemptCount} + 1 end`,
-                  failureCode: null,
-                  updatedAt: now,
-                },
-                setWhere: or(
-                  eq(invoiceEmailDeliveries.state, "accepted"),
-                  eq(invoiceEmailDeliveries.state, "failed"),
-                  isStaleProcessing()
-                ),
-              })
-              .returning({
-                attemptNumber: invoiceEmailDeliveries.attemptCount,
-              });
-
-            return claimed ?? null;
+            return yield* admitUncancelled(
+              invoiceId,
+              claimCustomerResend(invoiceId)
+            );
           }
         ),
         markAccepted: Effect.fn("InvoiceEmailDeliveryRepository.markAccepted")(
           function* (input) {
-            yield* db
+            const [recorded] = yield* db
               .update(invoiceEmailDeliveries)
               .set({
                 state: "accepted",
@@ -193,6 +258,19 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
                   eq(invoiceEmailDeliveries.audience, input.audience),
                   eq(invoiceEmailDeliveries.state, "processing"),
                   eq(invoiceEmailDeliveries.attemptCount, input.attemptNumber)
+                )
+              )
+              .returning({ id: invoiceEmailDeliveries.id });
+            if (recorded) return;
+            // Another claim superseded the attempt; the email still went out.
+            yield* db
+              .update(invoiceEmailDeliveries)
+              .set({ acceptedAt: input.acceptedAt })
+              .where(
+                and(
+                  eq(invoiceEmailDeliveries.invoiceId, input.invoiceId),
+                  eq(invoiceEmailDeliveries.audience, input.audience),
+                  isNull(invoiceEmailDeliveries.acceptedAt)
                 )
               );
           }

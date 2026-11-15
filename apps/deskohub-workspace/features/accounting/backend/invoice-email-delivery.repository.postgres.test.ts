@@ -452,5 +452,38 @@ describe.skipIf(!testDatabase)(
         false
       );
     });
+
+    test("records an acceptance that arrives after another attempt took over", async () => {
+      const invoiceId = await insertInvoice();
+
+      const summary = await runRepository((repository) =>
+        Effect.gen(function* () {
+          yield* repository.claim({ invoiceId, audience: "customer" });
+          yield* Effect.promise(() => expireLease(invoiceId, "customer"));
+          const takeover = yield* repository.claim({
+            invoiceId,
+            audience: "customer",
+          });
+          yield* repository.markAccepted({
+            invoiceId,
+            audience: "customer",
+            attemptNumber: 1,
+            providerDeliveryId: EmailDeliveryIdSchema.make("superseded-send"),
+            acceptedAt,
+          });
+          return { takeover, status: yield* repository.status([invoiceId]) };
+        })
+      );
+
+      expect(summary.takeover).toEqual({ attemptNumber: 2 });
+      expect(summary.status.get(invoiceId)).toMatchObject({
+        customer: "processing",
+        sentTo: ["customer"],
+      });
+      expect(await readDelivery(invoiceId, "customer")).toEqual({
+        state: "processing",
+        attempt_count: 2,
+      });
+    });
   }
 );

@@ -1,5 +1,5 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import { desc, eq, exists } from "drizzle-orm";
+import { and, eq, exists } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -60,6 +60,7 @@ import { isFulfilledReservation } from "./invoice-eligibility";
 import {
   asReservationInvoice,
   InvoiceStorageError,
+  isChainTail,
   makeInvoiceReads,
 } from "./invoice-reads";
 
@@ -443,8 +444,8 @@ export class InvoiceRepository extends Context.Service<
               );
             }
 
-            // The reservation row lock serializes issuance and cancellation,
-            // so the chain tail read here stays the tail.
+            // The reservation row lock serializes issuances, so the chain
+            // tail read here stays the tail.
             const [latest] = yield* db
               .select({
                 id: invoices.id,
@@ -457,11 +458,11 @@ export class InvoiceRepository extends Context.Service<
                 ),
               })
               .from(invoices)
-              .where(eq(invoices.workspaceReservationId, locked.reservationId))
-              .orderBy(
-                desc(invoices.issuedAt),
-                desc(invoices.numberingYear),
-                desc(invoices.numberingSequence)
+              .where(
+                and(
+                  eq(invoices.workspaceReservationId, locked.reservationId),
+                  isChainTail
+                )
               )
               .limit(1);
 

@@ -96,8 +96,9 @@ export interface IInvoiceCancellationRepository {
   /**
    * Claims the audience's notice of a cancelled invoice: a first claim when
    * none exists, or another attempt after a failure or an expired lease.
-   * `null` when it was accepted or another worker holds it. Claim the
-   * customer's only when the invoice was sent to them.
+   * `null` when it was accepted, another worker holds it, or it isn't owed:
+   * a customer notice is first claimed only once the customer's invoice
+   * email was accepted, as when that acceptance lands after the cancellation.
    */
   readonly claimNotice: (input: {
     readonly invoiceId: InvoiceId;
@@ -457,12 +458,47 @@ export class InvoiceCancellationRepository extends Context.Service<
         );
       });
 
+      const isCustomerNoticeOwed = Effect.fnUntraced(function* (
+        invoiceId: InvoiceId
+      ) {
+        const [owed] = yield* db
+          .select({ id: invoiceCancellationNoticeDeliveries.id })
+          .from(invoiceCancellationNoticeDeliveries)
+          .where(
+            and(
+              eq(invoiceCancellationNoticeDeliveries.invoiceId, invoiceId),
+              eq(invoiceCancellationNoticeDeliveries.audience, "customer")
+            )
+          )
+          .limit(1);
+        if (owed) return true;
+        const [delivery] = yield* db
+          .select({ acceptedAt: invoiceEmailDeliveries.acceptedAt })
+          .from(invoiceEmailDeliveries)
+          .where(
+            and(
+              eq(invoiceEmailDeliveries.invoiceId, invoiceId),
+              eq(invoiceEmailDeliveries.audience, "customer")
+            )
+          )
+          .limit(1);
+        return delivery?.acceptedAt != null;
+      });
+
       const claimNotice = Effect.fn(
         "InvoiceCancellationRepository.claimNotice"
       )(function* ({
         invoiceId,
         audience,
       }: Parameters<IInvoiceCancellationRepository["claimNotice"]>[0]) {
+        // The customer is owed a notice only once their invoice email was
+        // accepted; an owed notice is retried whatever happens later.
+        if (
+          audience === "customer" &&
+          !(yield* isCustomerNoticeOwed(invoiceId))
+        ) {
+          return null;
+        }
         const now = Temporal.Now.instant();
         const [claimed] = yield* db
           .insert(invoiceCancellationNoticeDeliveries)

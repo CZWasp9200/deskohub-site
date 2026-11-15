@@ -355,41 +355,81 @@ describe.skipIf(!testDatabase)(
       ).toEqual([{ count: 1 }]);
     });
 
-    test("claims a late customer notice once, and none for a live invoice", async () => {
+    test("owes the customer a notice once an in-flight invoice email is accepted after the cancellation", async () => {
       const actor = await makeActor("cancellation-late-notice");
-      const cancelled = await issueManualInvoice(actor);
+      const invoice = await issueManualInvoice(actor);
       const live = await issueManualInvoice(actor);
-      await run(cancel({ invoiceId: cancelled.id, actor }));
-
-      const claims = await run(
-        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
-          Effect.all([
-            cancellations.claimNotice({
-              invoiceId: cancelled.id,
-              audience: "customer",
-            }),
-            cancellations.claimNotice({
-              invoiceId: cancelled.id,
-              audience: "customer",
-            }),
-          ])
+      const inFlight = await run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          deliveries.claim({ invoiceId: invoice.id, audience: "customer" })
         )
       );
-      expect(claims).toEqual([
+      await run(
+        cancel({ invoiceId: invoice.id, actor, confirmedCustomerNotice: true })
+      );
+      const claimCustomerNotice = (invoiceId: InvoiceId) =>
+        run(
+          Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+            cancellations.claimNotice({ invoiceId, audience: "customer" })
+          )
+        );
+
+      const beforeAcceptance = await claimCustomerNotice(invoice.id);
+      await run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          deliveries.markAccepted({
+            invoiceId: invoice.id,
+            audience: "customer",
+            attemptNumber: (inFlight as { attemptNumber: number })
+              .attemptNumber,
+            providerDeliveryId: EmailDeliveryIdSchema.make("late-original"),
+            acceptedAt: Temporal.Now.instant(),
+          })
+        )
+      );
+      const afterAcceptance = await claimCustomerNotice(invoice.id);
+      const again = await claimCustomerNotice(invoice.id);
+
+      expect([beforeAcceptance, afterAcceptance, again]).toEqual([
+        null,
         { audience: "customer", attemptNumber: 1 },
         null,
       ]);
-
+      // A live invoice has no cancellation for a notice to belong to.
       const refused = await run(
         Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
           cancellations.claimNotice({
             invoiceId: live.id,
-            audience: "customer",
+            audience: "internal",
           })
         ).pipe(Effect.flip)
       );
       expect(refused).toBeDefined();
       expect(await readNotices(live.id)).toEqual([]);
+    });
+
+    test("refuses original invoice email claims once the invoice is cancelled", async () => {
+      const actor = await makeActor("cancellation-claim-refused");
+      const invoice = await issueManualInvoice(actor);
+      await run(cancel({ invoiceId: invoice.id, actor }));
+
+      const claims = await run(
+        Effect.flatMap(InvoiceEmailDeliveryRepository, (deliveries) =>
+          Effect.all([
+            deliveries.claim({ invoiceId: invoice.id, audience: "customer" }),
+            deliveries.claim({ invoiceId: invoice.id, audience: "internal" }),
+            deliveries.claimResend({ invoiceId: invoice.id }),
+          ])
+        )
+      );
+
+      expect(claims).toEqual(["cancelled", "cancelled", "cancelled"]);
+      expect(
+        await query(
+          "select audience from invoice_email_deliveries where invoice_id = $1",
+          [invoice.id]
+        )
+      ).toEqual([]);
     });
 
     test("keeps the actor's email but detaches the deleted account", async () => {

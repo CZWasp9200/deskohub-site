@@ -1150,5 +1150,43 @@ describe.skipIf(!testDatabase)(
         "23505"
       );
     });
+
+    test("follows the chain's links, not issue times, to the invoice it replaces", async () => {
+      const fixture = await createPaidFixture();
+      const original = await issue(fixture.paymentAttemptId);
+      await cancelIssuedInvoice(original.invoice.id);
+      // A replacement whose issue time precedes its predecessor's, as a
+      // clock step back would leave it, is cancelled in turn.
+      expect(await insertRawInvoice(fixture, original.invoice.id)).toBeNull();
+      const [skewed] = (
+        await testDatabase!.pool.query<{ id: string }>(
+          "select id from invoices where replaces_invoice_id = $1",
+          [original.invoice.id]
+        )
+      ).rows;
+      await testDatabase!.pool.query(
+        `insert into invoice_cancellations
+           (invoice_id, cancelled_at, cause, actor_account_email, source)
+         values ($1, now(), 'reservation_cancellation', 'synthetic administrator', 'admin-ui')`,
+        [skewed!.id]
+      );
+
+      const replacement = await issue(fixture.paymentAttemptId);
+
+      expect(replacement).toMatchObject({
+        changed: true,
+        invoice: { replacesInvoiceId: skewed!.id },
+      });
+      const latest = await runRepository((repository) =>
+        Effect.all([
+          repository.findLatestByReservationId(fixture.reservationId),
+          repository.findLatestByPaymentAttemptId(fixture.paymentAttemptId),
+        ])
+      );
+      expect(latest.map((invoice) => invoice?.id)).toEqual([
+        replacement.invoice.id,
+        replacement.invoice.id,
+      ]);
+    });
   }
 );

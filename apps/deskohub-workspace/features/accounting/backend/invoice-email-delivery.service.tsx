@@ -36,6 +36,7 @@ export class InvoiceEmailDeliveryError extends Data.TaggedError(
     | "delivery_recipient_unavailable"
     | "delivery_in_progress"
     | "email_delivery_failed"
+    | "invoice_cancelled"
     | "invoice_load_failed"
     | "pdf_render_failed"
     | "persistence_failed";
@@ -112,6 +113,14 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           )
         );
 
+        if (claim === "cancelled") {
+          return yield* deliveryError({
+            code: "invoice_cancelled",
+            paymentAttemptId:
+              input.invoice.paymentAttemptId ?? input.invoice.id,
+            message: "The invoice was cancelled before its email was sent.",
+          });
+        }
         if (!claim) return false;
 
         const category = {
