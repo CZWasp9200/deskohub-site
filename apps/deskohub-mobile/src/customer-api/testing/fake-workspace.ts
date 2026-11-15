@@ -80,7 +80,7 @@ export type FakeRequestOutcome =
    */
   | "session-not-fresh";
 
-type EndpointName = HttpApiEndpoint.Name<
+type EndpointName = HttpApiEndpoint.Identifier<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
   | HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
@@ -735,7 +735,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
     // Injected outcomes are answered as the Workspace's own middleware would.
     Layer.succeed(CustomerSessionAuthentication, (httpEffect, { endpoint }) =>
       Effect.gen(function* () {
-        const name = endpoint.name as EndpointName;
+        const name = endpoint.identifier as EndpointName;
         workspace.calls.push(name);
         const outcome = workspace.nextOutcome(name);
         if (outcome === "session-required" || !workspace.signedIn) {
