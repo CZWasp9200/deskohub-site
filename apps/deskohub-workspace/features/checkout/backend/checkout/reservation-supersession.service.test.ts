@@ -3,26 +3,27 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import type { WorkspaceReservation } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
+  type PayableReservation,
   PayableReservationService,
   PayableReservationUnavailableError,
 } from "./payable-reservation.service";
 import { ReservationSupersessionService } from "./reservation-supersession.service";
 
 const reservation = (
-  overrides: Partial<WorkspaceReservation> = {}
-): WorkspaceReservation =>
+  overrides: Partial<PayableReservation> = {}
+): PayableReservation =>
   ({
     id: "reservation-id",
     reservationState: "held",
     paymentState: "not_started",
     dotyposReservationId: "dotypos-reservation-id",
+    reservationHoldExpiresAt: Temporal.Instant.from("2099-06-01T10:10:00Z"),
     ...overrides,
-  }) as WorkspaceReservation;
+  }) as PayableReservation;
 
 const findCurrent = async (input: {
-  readonly current?: WorkspaceReservation;
+  readonly current?: PayableReservation;
   readonly unavailable?: boolean;
 }) => {
   const requireCurrent = mock(() =>

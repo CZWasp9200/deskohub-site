@@ -696,6 +696,7 @@
   "checkoutDiscountCodePlaceholder": "Nhập mã",
   "checkoutDiscountCodeApply": "Áp dụng mã",
   "checkoutDiscountCodeApplying": "Đang áp dụng...",
+  "checkoutDiscountCodeRemove": "Xóa mã",
   "checkoutDiscountCodeUnavailable": "Mã giảm giá, mã giới thiệu hoặc voucher này không khả dụng. Hãy kiểm tra lại và thử lại, hoặc tiếp tục với giá hiện tại.",
   "checkoutVoucherLabel": "Voucher",
   "checkoutDiscountCodeApplied": "Đã áp dụng mã: giảm {discount} 🎉",

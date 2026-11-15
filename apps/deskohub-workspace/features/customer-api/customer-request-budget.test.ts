@@ -27,7 +27,7 @@ describe("customer request budget classes", () => {
       )
       .toSorted();
 
-    expect(contractEndpoints()).toHaveLength(29);
+    expect(contractEndpoints()).toHaveLength(30);
     expect(classified).toEqual(contractEndpoints());
   });
 
@@ -84,7 +84,13 @@ describe("customer request budget classes", () => {
       Object.values(customerRequestBudgetClasses.booking).filter(
         (budgetClass) => budgetClass === "dotypos-mutation"
       )
-    ).toHaveLength(3);
+    ).toHaveLength(4);
+  });
+
+  test("give removing a discount code the budget of entering one", () => {
+    expect(customerRequestBudgetClasses.booking.clearCheckoutDiscountCode).toBe(
+      customerRequestBudgetClasses.booking.applyCheckoutDiscountCode
+    );
   });
   // The app reads the account on every load, the history on every visit and
   // a settling order's status while it polls, so these reads spend their own

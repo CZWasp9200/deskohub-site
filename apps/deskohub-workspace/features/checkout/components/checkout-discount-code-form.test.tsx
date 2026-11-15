@@ -35,8 +35,15 @@ const applyDiscountCodeForm = mock(
 const capture = mock();
 let analyticsAccepted = true;
 
+const clearDiscountCodeForm = mock(
+  async (_locale: string, _payStateToken: string) => {}
+);
+
 mock.module("@/features/checkout/actions/apply-discount-code", () => ({
   applyDiscountCodeForm,
+}));
+mock.module("@/features/checkout/actions/clear-discount-code", () => ({
+  clearDiscountCodeForm,
 }));
 mock.module("@/features/reservation/actions/submit-reservation", () => ({
   submitReservation: mock(),
@@ -60,6 +67,7 @@ describe("CheckoutDiscountCodeForm", () => {
     capture.mockClear();
     applyDiscountCodeForm.mockClear();
     applyDiscountCodeForm.mockImplementation(async () => {});
+    clearDiscountCodeForm.mockClear();
     workspaceUseAction.mockReturnValue({
       execute: mock(),
       isExecuting: false,
@@ -534,6 +542,85 @@ describe("CheckoutDiscountCodeForm", () => {
           name: m.checkoutDiscountCodeApply({}, { locale: "en-US" }),
         })
       ).toHaveProperty("disabled", false)
+    );
+  });
+
+  describe("removing the entered code", () => {
+    const removeControl = (container: HTMLElement) =>
+      container.querySelector("[data-checkout-discount-code-remove]");
+
+    test("offers it beside an applied code and removes that state's code", async () => {
+      const { CheckoutDiscountCodeForm } = await import(
+        "./checkout-discount-code-form"
+      );
+      const view = render(
+        <CheckoutDiscountCodeForm
+          appliedAdjustment={{ kind: "percentage", basisPoints: 2000 }}
+          enabled={false}
+          locale="en-US"
+          payStateToken="signed-state"
+        />
+      );
+
+      const form = removeControl(view.container);
+      expect(form).not.toBeNull();
+      expect(view.queryByRole("textbox")).toBeNull();
+      const removeButton = form?.querySelector("button[type=submit]");
+      if (!(removeButton instanceof HTMLButtonElement)) {
+        throw new Error("Expected the remove button");
+      }
+      fireEvent.click(removeButton);
+
+      await waitFor(() =>
+        expect(clearDiscountCodeForm).toHaveBeenCalledTimes(1)
+      );
+      expect(clearDiscountCodeForm.mock.calls[0]?.slice(0, 2)).toEqual([
+        "en-US",
+        "signed-state",
+      ]);
+      expect(applyDiscountCodeForm).not.toHaveBeenCalled();
+    });
+
+    test("shows the field error beside the applied code when a removal failed", async () => {
+      const { CheckoutDiscountCodeForm } = await import(
+        "./checkout-discount-code-form"
+      );
+      const view = render(
+        <CheckoutDiscountCodeForm
+          appliedAdjustment={{ kind: "percentage", basisPoints: 2000 }}
+          enabled={false}
+          locale="en-US"
+          payStateToken="signed-state"
+          rejection="unavailable"
+          rejectionId="rejection-id"
+        />
+      );
+
+      expect(removeControl(view.container)).not.toBeNull();
+      expect(view.getByRole("alert")).toBeTruthy();
+    });
+
+    test.each([
+      ["open code entry", true],
+      ["closed code entry", false],
+    ])(
+      "is not offered without an applied code, with %s",
+      async (_case, enabled) => {
+        const { CheckoutDiscountCodeForm } = await import(
+          "./checkout-discount-code-form"
+        );
+        const view = render(
+          <CheckoutDiscountCodeForm
+            defaultCode="SUMMER10"
+            enabled={enabled}
+            locale="en-US"
+            payStateToken="signed-state"
+            referralApplied
+          />
+        );
+
+        expect(removeControl(view.container)).toBeNull();
+      }
     );
   });
 });

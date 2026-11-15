@@ -708,6 +708,7 @@
   "checkoutDiscountCodePlaceholder": "Zadaj kód",
   "checkoutDiscountCodeApply": "Použiť kód",
   "checkoutDiscountCodeApplying": "Uplatňuje sa...",
+  "checkoutDiscountCodeRemove": "Odstrániť kód",
   "checkoutDiscountCodeUnavailable": "Tento zľavový kód, odporúčací kód alebo kód poukážky nie je dostupný. Skontroluj ho a skús to znova alebo pokračuj s aktuálnou cenou.",
   "checkoutVoucherLabel": "Poukážka",
   "checkoutDiscountCodeApplied": "Kód uplatnený: zľava {discount} 🎉",

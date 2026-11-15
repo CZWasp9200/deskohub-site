@@ -13,6 +13,7 @@ import {
   type SealedStateSealOptions,
   type SealedStateTokenError,
 } from "@/shared/backend/sealed-state";
+import type { Instant } from "@/shared/utils/temporal";
 import {
   type BuildSignedCoworkPayStateInput,
   buildSignedCoworkPayState,
@@ -66,6 +67,16 @@ export const signedPayStateSchema = Schema.Union([
 
 export type SignedPayState = typeof signedPayStateSchema.Type &
   PayStateSubmittedCodeMetadata;
+
+/**
+ * A Pay state whose reservation hold deadline is known. Every Pay state built
+ * carries it; an opened one may predate the claim, so it gets the stored
+ * deadline from `withPayStateHoldExpiry` or `loadPayStateHoldExpiry` before
+ * it is reissued.
+ */
+export type PayStateWithHoldExpiry = SignedPayState & {
+  readonly holdExpiresAt: Instant;
+};
 
 const preserveSignedPayStateMetadataInvariant = (
   state: typeof signedPayStateSchema.Type
@@ -194,6 +205,7 @@ export const buildSignedPayState = Effect.fn("payState.build")(function* (
     locale: input.locale,
     orderId: input.orderId,
     bookedAt: input.bookedAt,
+    holdExpiresAt: input.holdExpiresAt,
   };
   const state = Match.value(input).pipe(
     Match.when({ reservation: { kind: "cowork" } }, (coworkInput) =>
@@ -211,7 +223,12 @@ export const buildSignedPayState = Effect.fn("payState.build")(function* (
   return yield* Schema.decodeUnknownEffect(signedPayStateSchema, {
     onExcessProperty: "error",
   })(state).pipe(
-    Effect.map(preserveSignedPayStateMetadataInvariant),
+    Effect.map(
+      (decoded): PayStateWithHoldExpiry => ({
+        ...preserveSignedPayStateMetadataInvariant(decoded),
+        holdExpiresAt: input.holdExpiresAt,
+      })
+    ),
     Effect.mapError(PayStateTokenError.invalidState)
   );
 });

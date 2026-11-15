@@ -327,6 +327,9 @@ const coworkReplacementToken = Effect.runPromise(
       bookedAt: Schema.decodeUnknownSync(instantStringSchema)(
         "2099-06-01T10:00:00Z"
       ),
+      holdExpiresAt: Schema.decodeUnknownSync(instantStringSchema)(
+        "2099-06-01T10:10:00Z"
+      ),
       checkoutSessionId: "session-id",
     });
     return yield* sealPayState(state);

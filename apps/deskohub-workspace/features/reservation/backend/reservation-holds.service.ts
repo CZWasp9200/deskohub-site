@@ -97,6 +97,8 @@ export type ReservationHold =
       readonly kind: "created";
       readonly reservationId: WorkspaceReservationId;
       readonly checkoutSessionId: CheckoutSessionId;
+      /** The hold deadline stored with the reservation. */
+      readonly reservationHoldExpiresAt: Temporal.Instant;
     }
   /**
    * The attempt's live hold, reused for an immediate retry. `pricedFor` is set
@@ -104,7 +106,7 @@ export type ReservationHold =
    */
   | {
       readonly kind: "reused";
-      readonly reservation: WorkspaceReservation;
+      readonly reservation: LiveHoldReservation;
       readonly checkoutSessionId: CheckoutSessionId;
       readonly pricedFor?: DotyposCustomerId;
     }
@@ -487,6 +489,7 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
       kind: "created",
       reservationId: reservationDraft.id,
       checkoutSessionId,
+      reservationHoldExpiresAt: holdExpiresAt,
     } satisfies ReservationHold;
   });
 
@@ -514,15 +517,26 @@ export const getDotyposCustomerId = Effect.fn(
   )
 );
 
-const isReusableSubmissionReservation = (reservation: WorkspaceReservation) =>
+/** A held reservation whose stored hold deadline is still ahead. */
+type LiveHoldReservation = WorkspaceReservation & {
+  readonly reservationHoldExpiresAt: Temporal.Instant;
+};
+
+/**
+ * Whether a retry may reuse the reservation's hold. A hold without a stored
+ * deadline can't be paid, so it is never reused.
+ */
+const isReusableSubmissionReservation = (
+  reservation: WorkspaceReservation
+): reservation is LiveHoldReservation =>
   reservation.reservationState === "held" &&
   reservation.paymentState === "not_started" &&
   Boolean(reservation.dotyposReservationId) &&
-  (!reservation.reservationHoldExpiresAt ||
-    Temporal.Instant.compare(
-      reservation.reservationHoldExpiresAt,
-      Temporal.Now.instant()
-    ) > 0);
+  reservation.reservationHoldExpiresAt !== null &&
+  Temporal.Instant.compare(
+    reservation.reservationHoldExpiresAt,
+    Temporal.Now.instant()
+  ) > 0;
 
 /**
  * A session's current reservation another account authored is never this
