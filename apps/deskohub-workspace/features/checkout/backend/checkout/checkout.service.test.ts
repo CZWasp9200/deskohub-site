@@ -75,6 +75,7 @@ import {
   payStateTokenQueryParam,
   sealPayState,
 } from "./pay-state";
+import { withoutPayStateHoldExpiry } from "./signed-pay-state.test-utils";
 
 type LogAnnotations = Context.Service.Shape<
   typeof References.CurrentLogAnnotations
@@ -84,6 +85,14 @@ const testEmailAddressForAda = testEmailAddress("ada");
 mock.module("server-only", () => ({}));
 
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
+/** The hold deadline test Pay states sign. */
+const payStateHoldExpiresAt = instantStringSchema.make(
+  "2099-06-20T09:58:00.000Z"
+);
+/** The deadline the held reservation stores, apart from the signed one. */
+const storedHoldExpiresAt = instantStringSchema.make(
+  "2099-06-20T10:00:00.000Z"
+);
 
 const testInstant = (value = "2026-06-01T10:00:00Z") =>
   Temporal.Instant.from(value);
@@ -256,26 +265,35 @@ const buildPayStateToken = (input: {
   readonly submittedCode?: CanonicalPromotionCode;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
   readonly changedKeys?: CheckoutSummaryChangedKeys;
+  readonly issuedAt?: Temporal.Instant;
+  /** Seals it as a token issued before Pay states signed the hold deadline. */
+  readonly withoutHoldExpiry?: true;
 }) =>
   Effect.runSync(
     Effect.gen(function* () {
       const reservation = input.reservation ?? reservationData;
-      const state = yield* buildSignedPayState({
-        locale: input.locale ?? "en-US",
-        reservation,
-        quote: input.quote ?? buildCoworkReservationQuote(reservation),
-        orderId: input.orderId,
-        bookedAt: payStateBookedAt,
-        checkoutSessionId: input.checkoutSessionId ?? "checkout-session-id",
-        ...(input.submittedCode !== undefined && {
-          submittedCode: input.submittedCode,
-          submittedCodeDiscountId: application.discount.id,
-        }),
-        requestedDiscountCode: input.requestedDiscountCode,
-        changedKeys: input.changedKeys,
-        ttlMilliseconds: 10 * 60 * 1000,
-      });
-      return yield* sealPayState(state);
+      const state = yield* buildSignedPayState(
+        {
+          locale: input.locale ?? "en-US",
+          reservation,
+          quote: input.quote ?? buildCoworkReservationQuote(reservation),
+          orderId: input.orderId,
+          bookedAt: payStateBookedAt,
+          holdExpiresAt: payStateHoldExpiresAt,
+          checkoutSessionId: input.checkoutSessionId ?? "checkout-session-id",
+          ...(input.submittedCode !== undefined && {
+            submittedCode: input.submittedCode,
+            submittedCodeDiscountId: application.discount.id,
+          }),
+          requestedDiscountCode: input.requestedDiscountCode,
+          changedKeys: input.changedKeys,
+          ttlMilliseconds: 10 * 60 * 1000,
+        },
+        { issuedAt: input.issuedAt }
+      );
+      return yield* sealPayState(
+        input.withoutHoldExpiry ? withoutPayStateHoldExpiry(state) : state
+      );
     }).pipe(Effect.provide(TestSealedStateKeys))
   );
 
@@ -337,6 +355,7 @@ const buildMeetingRoomPayStateToken = (input: {
         quote: input.quote ?? buildMeetingRoomQuote(undefined, reservation),
         orderId: input.orderId,
         bookedAt: payStateBookedAt,
+        holdExpiresAt: payStateHoldExpiresAt,
         checkoutSessionId:
           input.checkoutSessionId ?? "meeting-room-checkout-session-id",
         ...(input.submittedCode !== undefined && {
@@ -449,6 +468,7 @@ const buildOfficePayStateToken = (input: {
         quote,
         orderId: input.orderId,
         bookedAt: payStateBookedAt,
+        holdExpiresAt: payStateHoldExpiresAt,
         checkoutSessionId: "office-checkout-session-id",
         ttlMilliseconds: 10 * 60 * 1000,
       });
@@ -501,7 +521,7 @@ const makeReservation = <Overrides extends object>(
   },
   locale: "en-US",
   reservationState: "held",
-  reservationHoldExpiresAt: testInstant("2099-06-20T10:00:00.000Z"),
+  reservationHoldExpiresAt: testInstant(storedHoldExpiresAt),
   reservationHoldExpiredAt: null,
   reservationCreatedAt: testInstant("2026-06-01T10:00:00.000Z"),
   reservationCancelledAt: null,
@@ -1606,18 +1626,6 @@ describe("CheckoutService", () => {
       redirectUrl: "https://payments.example/hosted",
       statusUrl: "/en-US/reservation/status/reservation-starts-new-attempt",
     });
-    expect(harness.createPendingNexiAttempt).toHaveBeenCalledTimes(1);
-  });
-
-  test("starts a provider session for a hold without a recorded expiry", async () => {
-    const harness = await createCheckoutHarness({
-      orderId: "reservation-without-hold-expiry",
-      reservationOverrides: { reservationHoldExpiresAt: null },
-    });
-
-    const result = await Effect.runPromise(harness.effect);
-
-    expect(result.status).toBe("redirect");
     expect(harness.createPendingNexiAttempt).toHaveBeenCalledTimes(1);
   });
 
@@ -3220,5 +3228,114 @@ describe("CheckoutService", () => {
     expect(harness.updateReservation).not.toHaveBeenCalled();
     expect(harness.recordLegalEvidence).not.toHaveBeenCalled();
     expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+  });
+
+  describe("hold deadline on a price review", () => {
+    const signedFiveMinutesAgo = () =>
+      Temporal.Now.instant().subtract({ minutes: 5 });
+
+    const reviewedPayState = async (
+      harness: Awaited<ReturnType<typeof createCheckoutHarness>>
+    ) => {
+      const result = await Effect.runPromise(harness.effect);
+      if (result.status !== "pricing_changed") {
+        throw new Error("Expected pricing_changed result");
+      }
+      return Effect.runSync(
+        openPayState(result.freshPayStateToken).pipe(
+          Effect.provide(TestSealedStateKeys)
+        )
+      );
+    };
+
+    const signedExp = (payStateToken: string) =>
+      Effect.runSync(
+        openPayState(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
+      ).exp;
+
+    test("keeps the signed deadline while a pending review moves the token's expiry", async () => {
+      const orderId = "reservation-review-hold-deadline";
+      const payStateToken = buildPayStateToken({
+        orderId,
+        changedKeys: { sectionKeys: ["total"], itemKeys: ["total:final"] },
+        issuedAt: signedFiveMinutesAgo(),
+      });
+
+      const fresh = await reviewedPayState(
+        await createCheckoutHarness({ orderId, payStateToken })
+      );
+
+      expect(fresh.holdExpiresAt).toBe(payStateHoldExpiresAt);
+      expect(fresh.exp).toBeGreaterThan(signedExp(payStateToken));
+    });
+
+    test("keeps the signed deadline while a repricing moves the token's expiry", async () => {
+      const orderId = "reservation-reprice-hold-deadline";
+      const payStateToken = buildPayStateToken({
+        orderId,
+        quote: buildCoworkReservationQuote(reservationData, {
+          discountQuote: discountedQuote,
+        }),
+        submittedCode: canonicalCode("SUMMER50"),
+        issuedAt: signedFiveMinutesAgo(),
+      });
+      const affirm = mock(() =>
+        Effect.succeed({
+          quote: buildCoworkReservationQuote(reservationData, {
+            discountQuote: undiscountedQuote,
+          }),
+          commitment: emptyCommitment,
+        })
+      );
+
+      const fresh = await reviewedPayState(
+        await createCheckoutHarness({ orderId, payStateToken, affirm })
+      );
+
+      expect(affirm).toHaveBeenCalled();
+      expect(fresh.holdExpiresAt).toBe(payStateHoldExpiresAt);
+      expect(fresh.exp).toBeGreaterThan(signedExp(payStateToken));
+    });
+
+    test.each([
+      { name: "a pending review", changedKeys: true },
+      { name: "a repricing", changedKeys: false },
+    ] as const)(
+      "gives $name of a token signed without the deadline the stored one",
+      async ({ changedKeys }) => {
+        const orderId = `reservation-unsigned-hold-deadline-${changedKeys}`;
+        const affirm = mock(() =>
+          Effect.succeed({
+            quote: buildCoworkReservationQuote(reservationData, {
+              discountQuote: undiscountedQuote,
+            }),
+            commitment: emptyCommitment,
+          })
+        );
+        const payStateToken = changedKeys
+          ? buildPayStateToken({
+              orderId,
+              changedKeys: {
+                sectionKeys: ["total"],
+                itemKeys: ["total:final"],
+              },
+              withoutHoldExpiry: true,
+            })
+          : buildPayStateToken({
+              orderId,
+              quote: buildCoworkReservationQuote(reservationData, {
+                discountQuote: discountedQuote,
+              }),
+              submittedCode: canonicalCode("SUMMER50"),
+              withoutHoldExpiry: true,
+            });
+
+        const fresh = await reviewedPayState(
+          await createCheckoutHarness({ orderId, payStateToken, affirm })
+        );
+
+        expect(fresh.holdExpiresAt).toBe(storedHoldExpiresAt);
+      }
+    );
   });
 });

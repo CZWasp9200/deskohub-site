@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
   type CreateCustomerCheckout,
+  type CustomerCheckout,
   customerReferralCodeHeader,
   type SubmitCustomerCheckout,
 } from "@deskohub/workspace-customer-api";
@@ -18,16 +19,23 @@ import {
   CheckoutError,
   CheckoutService,
   openPayState,
+  openPayStateWithHoldExpiry,
   PayStateAuthorNotFoundError,
   PayStateIssueError,
   PayStateTokenError,
 } from "@/features/checkout/backend/checkout";
+import { sealPayState } from "@/features/checkout/backend/checkout/pay-state";
+import { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
 import {
   sealSyntheticPayStateToken,
   syntheticChangedKeys,
+  syntheticHoldExpiresAt,
   syntheticPayStateOrderId,
 } from "@/features/checkout/backend/checkout/signed-pay-state.test-utils";
-import { canonicalPromotionCodeSchema } from "@/features/discounts/contracts";
+import {
+  canonicalPromotionCodeSchema,
+  discountIdSchema,
+} from "@/features/discounts/contracts";
 import {
   DiscountAffirmationUnavailableError,
   DiscountProviderError,
@@ -39,6 +47,10 @@ import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate"
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { WorkspaceTableUnavailableError } from "@/features/reservation/backend/workspace-availability.service";
+import {
+  type WorkspaceReservation,
+  WorkspaceReservationRepository,
+} from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import {
@@ -70,6 +82,18 @@ const unsignablePayState = new PayStateIssueError({
   }),
 });
 
+/** The hold deadline the checkout's reservation stores. */
+const storedHoldExpiresAt = "2099-07-01T10:09:00.000Z";
+
+/** The reservation a state signed without its hold deadline reads it from. */
+const storedReservations = Layer.mock(WorkspaceReservationRepository, {
+  findById: (id) =>
+    Effect.succeed({
+      id,
+      reservationHoldExpiresAt: Temporal.Instant.from(storedHoldExpiresAt),
+    } as WorkspaceReservation),
+});
+
 const openTestPayState = (token: string) =>
   openPayState(token).pipe(Effect.provide(TestSealedStateKeys));
 
@@ -79,7 +103,10 @@ const openTestPayState = (token: string) =>
  */
 const operationsWith = (overrides: Partial<Operations> = {}) =>
   Layer.mock(CustomerCheckoutOperations, {
-    readPayState: openTestPayState,
+    readPayState: (token) =>
+      openPayStateWithHoldExpiry(token).pipe(
+        Effect.provide(Layer.merge(TestSealedStateKeys, storedReservations))
+      ),
     requireAuthor: ({ payStateToken }) => openTestPayState(payStateToken),
     ...overrides,
   });
@@ -179,6 +206,7 @@ const expectedReadyCheckout = {
   orderId: syntheticPayStateOrderId,
   payStateToken: readyToken,
   expiresAt: expect.any(String),
+  holdExpiresAt: syntheticHoldExpiresAt,
   summary: expect.objectContaining({ sections: expect.any(Array) }),
   earlyPerformanceConsent: {
     required: expect.any(Boolean),
@@ -596,6 +624,104 @@ describe("applyCheckoutDiscountCode", () => {
     });
   });
 
+  describe("hold deadline and applied code", () => {
+    const answerApplied = async (input: {
+      readonly payStateToken: string;
+      readonly freshPayStateToken: string;
+    }) => {
+      const api = makeCustomerApiTestServer({
+        bookingCheckout: {
+          operations: operationsWith({
+            applyDiscountCode: () =>
+              Effect.succeed({
+                status: "applied",
+                freshPayUrl: "/en-US/checkout/pay?payState=fresh",
+                freshPayStateToken: input.freshPayStateToken,
+                expiresAt: "2099-07-01T10:13:00.000Z",
+              }),
+          }),
+        },
+      });
+      const response = await api.handle(
+        customerApiRequest({
+          method: "POST",
+          path: "/booking/checkouts/discount-code",
+          body: {
+            locale: "en-US",
+            payStateToken: input.payStateToken,
+            code: "SPRING",
+          },
+        })
+      );
+      expect(response.status).toBe(200);
+      return (await response.json()) as typeof CustomerCheckout.Encoded;
+    };
+
+    /** `token`'s state with an entered code its price includes. */
+    const withAppliedCode = (token: string) =>
+      Effect.runPromise(
+        openTestPayState(token).pipe(
+          Effect.flatMap((state) =>
+            sealPayState({
+              ...state,
+              submittedCode: canonicalPromotionCodeSchema.make("SPRING"),
+              submittedCodeDiscountId: discountIdSchema.make("spring-discount"),
+            })
+          ),
+          Effect.provide(TestSealedStateKeys)
+        )
+      );
+
+    test("keeps the hold deadline while the replacement moves the checkout's expiry", async () => {
+      const signedEarlier = await sealSyntheticPayStateToken({
+        issuedAt: Temporal.Now.instant().subtract({ minutes: 5 }),
+      });
+      const signedEarlierExpiresAt = new Date(
+        (await Effect.runPromise(openTestPayState(signedEarlier))).exp * 1000
+      ).toISOString();
+
+      const body = await answerApplied({
+        payStateToken: signedEarlier,
+        freshPayStateToken: await sealSyntheticPayStateToken(),
+      });
+
+      expect(body.holdExpiresAt).toBe(syntheticHoldExpiresAt);
+      expect(body.expiresAt).not.toBe(signedEarlierExpiresAt);
+    });
+
+    test("names the entered code the replacement's price includes", async () => {
+      const body = await answerApplied({
+        payStateToken: readyToken,
+        freshPayStateToken: await withAppliedCode(readyToken),
+      });
+
+      expect(body.appliedDiscountCode).toEqual({
+        code: "SPRING",
+        discountId: "spring-discount",
+      });
+    });
+
+    test("leaves the applied code out of a checkout without one", async () => {
+      const body = await answerApplied({
+        payStateToken: readyToken,
+        freshPayStateToken: readyToken,
+      });
+
+      expect(body).not.toHaveProperty("appliedDiscountCode");
+    });
+
+    test("answers a state signed without the deadline with its reservation's stored one", async () => {
+      const body = await answerApplied({
+        payStateToken: readyToken,
+        freshPayStateToken: await sealSyntheticPayStateToken({
+          withoutHoldExpiry: true,
+        }),
+      });
+
+      expect(body.holdExpiresAt).toBe(storedHoldExpiresAt);
+    });
+  });
+
   test("tells the client to remember an accepted referral code while referrals are released", async () => {
     const acceptedCode = canonicalPromotionCodeSchema.make("RFLTYPED1");
     const accepting = (released: boolean) =>
@@ -878,6 +1004,30 @@ describe("acceptCheckoutPriceChange", () => {
     expect(await response.json()).toEqual({
       _tag: "CustomerCheckoutUnavailable",
       reason: "expired",
+    });
+  });
+
+  test("answers acceptance of a checkout whose reservation is gone as unavailable", async () => {
+    const api = makeCustomerApiTestServer({
+      bookingCheckout: {
+        operations: operationsWith({
+          acceptPriceChange: () =>
+            Effect.fail(
+              new PayableReservationUnavailableError({
+                orderId: syntheticPayStateOrderId,
+                reason: "missing_reservation",
+              })
+            ),
+        }),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(acceptPrice));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerCheckoutUnavailable",
+      reason: "not_payable",
     });
   });
 
@@ -1202,6 +1352,7 @@ describe("submitCheckout", () => {
     expect(await response.json()).toMatchObject({
       status: "price_review",
       payStateToken: reviewToken,
+      holdExpiresAt: syntheticHoldExpiresAt,
       priceReview: { changedKeys: syntheticChangedKeys },
     });
   });

@@ -1392,6 +1392,9 @@ describe("prepareWorkspacePayState", () => {
         eventOrder.push("bot-verification");
       })
     );
+    const createdHoldExpiresAt = Temporal.Instant.from(
+      "2030-07-01T10:08:00.000Z"
+    );
     // The hold lands in a session other than the submitted one, as after a
     // rotation, so the Pay state must carry the hold's session.
     const holdForAttempt = mock(() =>
@@ -1401,6 +1404,7 @@ describe("prepareWorkspacePayState", () => {
           kind: "created" as const,
           reservationId: "reservation-id",
           checkoutSessionId: "hold-session-id",
+          reservationHoldExpiresAt: createdHoldExpiresAt,
         };
       })
     );
@@ -1506,6 +1510,7 @@ describe("prepareWorkspacePayState", () => {
     );
     expect(state.orderId).toBe("reservation-id");
     expect(state.checkoutSessionId).toBe("hold-session-id");
+    expect(state.holdExpiresAt).toBe("2030-07-01T10:08:00.000Z");
     expect(state.submittedCode).toBeUndefined();
     // A site tool reports when the prepared Pay URL stops working.
     expect(result.expiresAt).toBe(new Date(state.exp * 1000).toISOString());
@@ -1538,6 +1543,26 @@ describe("prepareWorkspacePayState", () => {
       )
     );
     expect(state.orderId).toBe(scenario.result.orderId);
+  });
+
+  test("signs a reused hold's stored deadline into its Pay state", async () => {
+    const { openPayState } = await import(
+      "@/features/checkout/backend/checkout"
+    );
+    const scenario = await runReusableReservationScenario({
+      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
+    });
+
+    if (scenario.result?.status !== "ready") {
+      throw new Error("Expected ready result");
+    }
+    const state = Effect.runSync(
+      openPayState(scenario.result.payStateToken).pipe(
+        Effect.provide(TestSealedStateKeys)
+      )
+    );
+    expect(scenario.createDraft).not.toHaveBeenCalled();
+    expect(state.holdExpiresAt).toBe("2030-07-01T12:00:00.000Z");
   });
 
   test("quotes a hold another request created for the customer it holds", async () => {
@@ -2584,6 +2609,30 @@ describe("prepareWorkspacePayState", () => {
 
         expect(initial.first.result?.orderId).toBe("agent-live-hold-id");
         expect(retry.result?.orderId).toBe("agent-live-hold-id");
+      });
+
+      test("signs the stored deadline into both links of a reused agent hold", async () => {
+        const { openPayState } = await import(
+          "@/features/checkout/backend/checkout"
+        );
+        const { initial, retry } = await runLiveHoldRetry(
+          Temporal.Instant.from("2026-10-20T12:10:01Z")
+        );
+        const signedHoldExpiresAt = (payStateToken: string | undefined) =>
+          Effect.runSync(
+            openPayState(payStateToken ?? "").pipe(
+              Effect.provide(TestSealedStateKeys)
+            )
+          ).holdExpiresAt;
+
+        // The deadline stored when the hold was created, not ten minutes
+        // after the retry.
+        expect(signedHoldExpiresAt(initial.first.result?.payStateToken)).toBe(
+          "2026-10-20T12:19:59.000Z"
+        );
+        expect(signedHoldExpiresAt(retry.result?.payStateToken)).toBe(
+          "2026-10-20T12:19:59.000Z"
+        );
       });
 
       test("returns a byte-identical Pay URL for a same-time identical retry", async () => {
