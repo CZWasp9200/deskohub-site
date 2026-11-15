@@ -16,7 +16,7 @@ import {
 const searchLimit = 50;
 
 /** A search's customers that are not deleted, in Dotypos order, at most 50. */
-export type AdministrationCustomerSearch = {
+type AdministrationCustomerSearch = {
   /** Classified on the returned customers: one is `matched`, more are `ambiguous`. */
   readonly kind: "matched" | "not-found" | "ambiguous";
   readonly customers: readonly DotyposCustomer[];

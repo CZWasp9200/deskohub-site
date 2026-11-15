@@ -2,7 +2,7 @@ import { Data, Effect } from "effect";
 import { unstable_rethrow } from "next/navigation";
 
 /** The Dotypos data a list export can't do without. */
-export type AdministrationListSource =
+type AdministrationListSource =
   | "booking-dates"
   | "booking-details"
   | "customer-details";
@@ -18,7 +18,7 @@ export class AdministrationListSourceUnavailableError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export type ProviderReadFailure = {
+type ProviderReadFailure = {
   /** What a failed read logs beside the cause, such as its date range. */
   readonly annotations?: Readonly<Record<string, string | undefined>>;
   readonly cause: unknown;
