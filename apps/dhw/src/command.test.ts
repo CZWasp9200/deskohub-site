@@ -1851,6 +1851,13 @@ describe("dhw invoices cancellation and archive", () => {
         reservation: "cancellation_in_progress",
       }),
       {
+        ...(liveInvoice({
+          customerNotice: "owed",
+          reservation: "cancels_reservation",
+        }) as object),
+        reservationId: null,
+      } as never,
+      {
         id: invoiceId,
         invoiceNumber: "WS-FV-2026-000009",
         reservationId: null,
@@ -1878,6 +1885,10 @@ describe("dhw invoices cancellation and archive", () => {
       ["--json", "invoices", "cancel", invoiceId, "--yes"],
       layer
     ).pipe(Effect.flip, Effect.runPromise);
+    const unnamedReservation = await runCommand(
+      ["--json", "invoices", "cancel", invoiceId, "--yes"],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
     await runCommand(
       ["--json", "invoices", "cancel", invoiceId, "--yes"],
       layer
@@ -1888,6 +1899,9 @@ describe("dhw invoices cancellation and archive", () => {
       operation: "administration.cancelInvoice",
     });
     expect(inProgress).toMatchObject({ _tag: "InvalidMutationInputError" });
+    expect(unnamedReservation).toMatchObject({
+      _tag: "InvalidMutationInputError",
+    });
     expect(cancellations).toBe(0);
   });
 

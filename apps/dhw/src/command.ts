@@ -83,6 +83,7 @@ import {
   AuthenticationRequiredError,
   confirmationFlag,
   confirmChange,
+  confirmChangeShowingConsequences,
   InvalidMutationInputError,
   makeMutationRequestId,
   reportCancellation,
@@ -363,7 +364,7 @@ const reservationsCancelCommand = Command.make(
         const invoiceConsequences = planReservationInvoiceConsequences(
           detail.invoice
         );
-        const confirmed = yield* confirmChange(
+        const confirmed = yield* confirmChangeShowingConsequences(
           "administration.cancelReservation",
           yes,
           json,
@@ -1054,6 +1055,14 @@ const invoicesCancelCommand = Command.make(
             message: `The reservation of invoice ${invoice.invoiceNumber} is being cancelled. Try again once that finishes.`,
           });
         }
+        if (
+          plan.reservation === "cancels_reservation" &&
+          invoice.reservationId === null
+        ) {
+          return yield* new InvalidMutationInputError({
+            message: `Invoice ${invoice.invoiceNumber} reports a reservation to cancel but names none. Try again, or cancel it in the Admin UI.`,
+          });
+        }
         const reservation =
           plan.reservation === "cancels_reservation" &&
           invoice.reservationId !== null
@@ -1065,7 +1074,7 @@ const invoicesCancelCommand = Command.make(
           reservation,
           flags: { providerCredentialRemoved, sendCancellationEmail },
         });
-        const confirmed = yield* confirmChange(
+        const confirmed = yield* confirmChangeShowingConsequences(
           "administration.cancelInvoice",
           yes,
           json,
