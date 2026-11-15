@@ -953,6 +953,7 @@ describe("toWorkspaceWebHandler", () => {
     );
     const first = toWorkspaceWebHandler(serving);
     const second = toWorkspaceWebHandler(serving);
+    expect(builds).toBe(0);
 
     await expect(first(request("/unavailable", "ada"))).rejects.toThrow(
       "build 1 failed"
