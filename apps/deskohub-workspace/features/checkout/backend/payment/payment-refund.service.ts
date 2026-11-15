@@ -47,7 +47,6 @@ export class PaymentRefundReconciliationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export type { ReservationRefundAttempt } from "../repositories/payment-refund.repository";
 
 export interface IPaymentRefundService {
   /**

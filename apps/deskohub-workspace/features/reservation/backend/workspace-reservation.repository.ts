@@ -105,7 +105,7 @@ export class WorkspaceReservationSessionTakenError extends Data.TaggedError(
 }> {}
 
 /** The payment facts of a restored reservation, read in its restore. */
-export type RestoredReservationPaymentAttempt = Pick<
+type RestoredReservationPaymentAttempt = Pick<
   PaymentAttemptRow,
   | "amountExponent"
   | "amountValue"

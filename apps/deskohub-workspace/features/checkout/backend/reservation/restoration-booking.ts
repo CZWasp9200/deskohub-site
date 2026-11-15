@@ -28,7 +28,7 @@ import {
 import { workspaceBookingSeatCount } from "./workspace-table-occupancy";
 
 /** The Dotypos record no longer holds the booking Workspace stored. */
-export class RestorationBookingChanged extends Data.TaggedError(
+class RestorationBookingChanged extends Data.TaggedError(
   "RestorationBookingChanged"
 )<{
   readonly message: string;
@@ -38,7 +38,7 @@ export class RestorationBookingChanged extends Data.TaggedError(
  * The booking can't be determined: the Dotypos record has no readable table,
  * span or seats, or the reservation's own booking facts can't be read.
  */
-export class RestorationBookingUnreadable extends Data.TaggedError(
+class RestorationBookingUnreadable extends Data.TaggedError(
   "RestorationBookingUnreadable"
 )<{
   readonly message: string;
