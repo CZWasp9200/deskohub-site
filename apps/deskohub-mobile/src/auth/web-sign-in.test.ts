@@ -9,7 +9,8 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { customerSignInLocaleHeader } from "@deskohub/workspace-customer-api/customer-locale";
-import { Effect, Exit, Option } from "effect";
+import { DateTime, Effect, Exit, Option } from "effect";
+import { TestClock } from "effect/testing";
 import { analytics } from "../analytics/analytics";
 
 type SessionRead = () => Promise<{
@@ -33,6 +34,8 @@ const recordLocale = (fetchOptions: FetchOptions | undefined) => {
 };
 /** What the server answers a sign-in email request with. */
 let emailSent: unknown = { status: true, signInCode: true };
+/** The error the server answers a sign-in email request with instead. */
+let emailRefused: Readonly<Record<string, unknown>> | null = null;
 
 /** The return URIs the page asked the server to mint a handoff for. */
 let mintedFor: Array<string> = [];
@@ -52,7 +55,10 @@ mock.module("./auth-client.web", () => ({
     },
     getSession: () => readSession(),
     signIn: {
-      magicLink: async () => ({ data: emailSent, error: null }),
+      magicLink: async () =>
+        emailRefused === null
+          ? { data: emailSent, error: null }
+          : { data: null, error: emailRefused },
       emailOtp: async ({
         fetchOptions,
       }: {
@@ -154,6 +160,7 @@ beforeEach(() => {
   signOuts = 0;
   linkAccount = "bob";
   emailSent = { status: true, signInCode: true };
+  emailRefused = null;
   readSession = async () => ({ data: { user: { id: "ada" } }, error: null });
 });
 
@@ -665,26 +672,144 @@ describe("the app's locale", () => {
 
 describe("sendSignInEmail", () => {
   const email = testEmailAddress("ada");
-  const send = () => Effect.runPromise(sendSignInEmail(email, "en-US"));
+  const now = Date.UTC(2026, 10, 15, 20, 0, 0);
+  const nextAt = "2026-11-15T20:41:07.123Z";
+  const send = () =>
+    TestClock.setTime(now).pipe(
+      Effect.andThen(sendSignInEmail(email, "en-US")),
+      Effect.provide(TestClock.layer()),
+      Effect.runPromise
+    );
+  /** The parts of a sent email the page reads, the instant as epoch ms. */
+  const sent = async () => {
+    const result = await send();
+    return {
+      ...result,
+      nextSignInEmailAt: Option.map(
+        result.nextSignInEmailAt,
+        DateTime.toEpochMillis
+      ),
+    };
+  };
+  const refusal = async () => {
+    const exit = await Effect.runPromiseExit(sendSignInEmail(email, "en-US"));
+    const failure = Option.getOrUndefined(Exit.findErrorOption(exit));
+    return {
+      reason: failure?.reason,
+      nextSignInEmailAt:
+        failure?.nextSignInEmailAt === undefined
+          ? undefined
+          : DateTime.toEpochMillis(failure.nextSignInEmailAt),
+      carriesInstant:
+        failure !== undefined && Object.hasOwn(failure, "nextSignInEmailAt"),
+    };
+  };
 
-  test("reports a code when the server issued one", async () => {
-    expect(await send()).toEqual({ email, signInCode: true });
+  test("reports a code and the server's next send when it issued one", async () => {
+    emailSent = { status: true, signInCode: true, nextSignInEmailAt: nextAt };
+    expect(await sent()).toEqual({
+      email,
+      signInCode: true,
+      sentAt: now,
+      nextSignInEmailAt: Option.some(Date.parse(nextAt)),
+    });
+  });
+
+  test("tolerates an answer without the server's next send", async () => {
+    expect(await sent()).toEqual({
+      email,
+      signInCode: true,
+      sentAt: now,
+      nextSignInEmailAt: Option.none(),
+    });
+  });
+
+  test("ignores an invalid next send", async () => {
+    for (const nextSignInEmailAt of [
+      "soon",
+      60,
+      null,
+      "2026-13-45T99:00:00Z",
+    ]) {
+      emailSent = { status: true, signInCode: true, nextSignInEmailAt };
+      expect((await sent()).nextSignInEmailAt).toEqual(Option.none());
+    }
   });
 
   test("reports a link-only email when the server issued no code", async () => {
     emailSent = { status: true, signInCode: false };
-    expect(await send()).toEqual({ email, signInCode: false });
+    expect(await sent()).toEqual({
+      email,
+      signInCode: false,
+      sentAt: now,
+      nextSignInEmailAt: Option.none(),
+    });
   });
 
   test("treats an answer without the decision as link-only", async () => {
     emailSent = { status: true };
-    expect(await send()).toEqual({ email, signInCode: false });
+    expect((await send()).signInCode).toBe(false);
     emailSent = null;
-    expect(await send()).toEqual({ email, signInCode: false });
+    expect(await sent()).toEqual({
+      email,
+      signInCode: false,
+      sentAt: now,
+      nextSignInEmailAt: Option.none(),
+    });
   });
 
   test("takes only a literal yes as a code", async () => {
     emailSent = { status: true, signInCode: "true" };
-    expect(await send()).toEqual({ email, signInCode: false });
+    expect((await send()).signInCode).toBe(false);
+  });
+
+  test("keeps the server's next send from an address-limit refusal", async () => {
+    emailRefused = {
+      status: 429,
+      code: "SIGN_IN_EMAIL_LIMIT_REACHED",
+      message: "limit",
+      nextSignInEmailAt: nextAt,
+    };
+    expect(await refusal()).toEqual({
+      reason: "address-limit",
+      nextSignInEmailAt: Date.parse(nextAt),
+      carriesInstant: true,
+    });
+  });
+
+  test("leaves the instant out of an address-limit refusal without a valid one", async () => {
+    for (const answer of [
+      { status: 429, code: "SIGN_IN_EMAIL_LIMIT_REACHED" },
+      {
+        status: 429,
+        code: "SIGN_IN_EMAIL_LIMIT_REACHED",
+        nextSignInEmailAt: "soon",
+      },
+    ]) {
+      emailRefused = answer;
+      expect(await refusal()).toEqual({
+        reason: "address-limit",
+        nextSignInEmailAt: undefined,
+        carriesInstant: false,
+      });
+    }
+  });
+
+  test("leaves the instant out of other refusals", async () => {
+    for (const [answer, reason] of [
+      [{ status: 429, nextSignInEmailAt: nextAt }, "rate-limited"],
+      [
+        { status: 403, code: "BOT_DETECTED", nextSignInEmailAt: nextAt },
+        "automated",
+      ],
+      [{ status: 400, code: "INVALID_EMAIL" }, "failed"],
+    ] as const) {
+      emailRefused = answer;
+      expect(await refusal()).toEqual({
+        reason,
+        nextSignInEmailAt: undefined,
+        carriesInstant: false,
+      });
+    }
   });
 });
