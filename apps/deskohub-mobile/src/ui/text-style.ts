@@ -1,7 +1,7 @@
 import { getLocaleDefinition } from "@deskohub/i18n/locale-registry";
 import { type StyleProp, StyleSheet, type TextStyle } from "react-native";
 import type { AppLocale } from "../i18n/app-locale";
-import { brandFontFamily } from "../theme";
+import { brandFontFamily } from "./tokens";
 
 const setsBrandFace = (locale: AppLocale) =>
   getLocaleDefinition(locale).script === "latin";
@@ -9,18 +9,18 @@ const setsBrandFace = (locale: AppLocale) =>
 /**
  * The family text in `locale` is set in: the brand face, which has only
  * Latin glyphs and lacks Vietnamese's stacked diacritics, for a Latin-script
- * locale; the system font (no family) otherwise. The theme's type styles set
- * no line height, so the system font's own metrics leave room for
- * Devanagari's marks above and below.
+ * locale; the system font (no family) otherwise.
  */
 export const textFontFamily = (locale: AppLocale): string | undefined =>
   setsBrandFace(locale) ? brandFontFamily : undefined;
 
 /**
- * `style` for text in `locale`. The theme's type styles name the brand face;
- * for a script it doesn't cover they lose the family and the brand face's
- * weight axis, so the system font draws the text at the same size and
- * weight. Without a locale the style stays as it is.
+ * `style` for text in `locale`. The type scale names the brand face; for a
+ * script it doesn't cover the style loses the family, the brand face's
+ * weight axis, its line height and its tracking, so the system font draws
+ * the text at the same size and weight with its own metrics, which leave
+ * room for Devanagari's and Vietnamese's marks above and below. Without a
+ * locale the style stays as it is.
  */
 export const localeTextStyle = <Style extends StyleProp<TextStyle>>(
   style: Style,
@@ -30,6 +30,8 @@ export const localeTextStyle = <Style extends StyleProp<TextStyle>>(
   const {
     fontFamily: _family,
     fontVariationSettings: _variation,
+    lineHeight: _lineHeight,
+    letterSpacing: _letterSpacing,
     ...systemStyle
   } = StyleSheet.flatten(style) ?? {};
   return systemStyle;

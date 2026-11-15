@@ -6,9 +6,10 @@ import {
   useContext,
   useRef,
 } from "react";
-import { RefreshControl, ScrollView, StyleSheet } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { theme } from "../theme";
+import { LoadingIndicator } from "./loading-indicator";
+import { color, radius, shadow, space } from "./tokens";
 
 /**
  * Scrolls the enclosing `ScrollScreen` back to its top; outside one, it does
@@ -23,18 +24,31 @@ export const ScrollScreenContext = createContext<() => void>(() => undefined);
  */
 export const useScrollScreenToTop = () => useContext(ScrollScreenContext);
 
+// The pull gesture stays native; its spinner is drawn see-through so the
+// shared loading indicator stands in for it.
+const hiddenSpinner = "transparent";
+
+/** How far the first content overlaps the masthead's navy band. */
+const mastheadOverlap = 40;
+
 /**
- * A scrolling screen under a navigation header and above the tab bar, which
- * own the top and bottom insets. Passing `onRefresh` turns on
- * pull-to-refresh; `refreshing` shows the pull spinner while it runs. Its
- * content can scroll it back to the top with `useScrollScreenToTop`.
+ * A scrolling screen under a navigation header (or its own `masthead`) and
+ * above the tab bar, which own the top and bottom insets. Content sits on
+ * the screen gutter. A `masthead` scrolls with the content, and the first
+ * content overlaps its navy band. Passing `onRefresh` turns on
+ * pull-to-refresh; `refreshing` shows the loading indicator at the top
+ * while it runs. Its content can scroll it back to the top with
+ * `useScrollScreenToTop`.
  */
 export function ScrollScreen({
   children,
+  masthead,
   refreshing = false,
   onRefresh,
 }: {
   readonly children: ReactNode;
+  /** The tab root's `Masthead`, drawn above the content. */
+  readonly masthead?: ReactNode;
   readonly refreshing?: boolean;
   readonly onRefresh?: () => void;
 }) {
@@ -44,40 +58,82 @@ export function ScrollScreen({
     () => scrollView.current?.scrollTo({ y: 0, animated: false }),
     []
   );
+  const withMasthead = masthead !== undefined;
   return (
     <SafeAreaView edges={["left", "right"]} style={styles.screen}>
       <ScrollView
         ref={scrollView}
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={styles.content}
+        // A masthead clears the status bar itself.
+        contentInsetAdjustmentBehavior={withMasthead ? "never" : "automatic"}
         refreshControl={
           onRefresh && (
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={theme.colors.accent}
-              colors={[theme.colors.background]}
-              progressBackgroundColor={theme.colors.accent}
+              tintColor={hiddenSpinner}
+              colors={[hiddenSpinner]}
+              progressBackgroundColor={hiddenSpinner}
             />
           )
         }
       >
         <ScrollScreenContext value={scrollToTop}>
-          {children}
+          {masthead}
+          <View style={styles.page}>
+            {withMasthead && <View aria-hidden style={styles.overlap} />}
+            <View style={[styles.content, withMasthead && styles.overlapping]}>
+              {children}
+            </View>
+          </View>
         </ScrollScreenContext>
       </ScrollView>
+      {refreshing && (
+        <View style={styles.refresh}>
+          <View style={styles.refreshDisc}>
+            <LoadingIndicator size="inline" tone="brand" />
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { backgroundColor: theme.colors.background, flex: 1 },
+  screen: { backgroundColor: color.paper, flex: 1 },
+  page: { width: "100%" },
+  overlap: {
+    backgroundColor: color.navy,
+    height: mastheadOverlap,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
   content: {
     alignSelf: "center",
-    gap: theme.spacing.md,
+    gap: space.md,
     maxWidth: 640,
-    padding: theme.spacing.md,
-    paddingBottom: theme.spacing.lg,
+    paddingBottom: space.xxl,
+    paddingHorizontal: space.gutter,
+    paddingTop: space.sm,
     width: "100%",
+  },
+  overlapping: { paddingTop: 0 },
+  refresh: {
+    alignItems: "center",
+    left: 0,
+    pointerEvents: "none",
+    position: "absolute",
+    right: 0,
+    top: space.lg,
+  },
+  refreshDisc: {
+    alignItems: "center",
+    backgroundColor: color.surface,
+    borderRadius: radius.pill,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+    ...shadow.refresh,
   },
 });
