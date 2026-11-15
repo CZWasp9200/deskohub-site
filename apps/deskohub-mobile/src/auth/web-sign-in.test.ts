@@ -9,6 +9,7 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { customerSignInLocaleHeader } from "@deskohub/workspace-customer-api/customer-locale";
+import { parseJSON } from "better-auth/client";
 import { DateTime, Effect, Exit, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { analytics } from "../analytics/analytics";
@@ -44,6 +45,12 @@ let emailRequested: () => void = () => undefined;
 /** The return URIs the page asked the server to mint a handoff for. */
 let mintedFor: Array<string> = [];
 
+/**
+ * An answer body as Better Auth's client hands it over: parsed by its own
+ * JSON parser, which revives ISO 8601 strings into `Date`s.
+ */
+const asClientReads = <A>(body: A): A => parseJSON<A>(JSON.stringify(body));
+
 mock.module("./auth-client.web", () => ({
   authClient: {
     $fetch: async (
@@ -63,8 +70,8 @@ mock.module("./auth-client.web", () => ({
         emailRequested();
         await emailAnswerHeld;
         return emailRefused === null
-          ? { data: emailSent, error: null }
-          : { data: null, error: emailRefused };
+          ? { data: asClientReads(emailSent), error: null }
+          : { data: null, error: asClientReads(emailRefused) };
       },
       emailOtp: async ({
         fetchOptions,
@@ -750,12 +757,10 @@ describe("sendSignInEmail", () => {
   });
 
   test("ignores an invalid next send", async () => {
-    for (const nextSignInEmailAt of [
-      "soon",
-      60,
-      null,
-      "2026-13-45T99:00:00Z",
-    ]) {
+    // An out-of-range ISO string is no case here: Better Auth's client rolls
+    // it over into a valid Date before the page sees it (the decoder's own
+    // test covers it as a string).
+    for (const nextSignInEmailAt of ["soon", 60, null]) {
       emailSent = { status: true, signInCode: true, nextSignInEmailAt };
       expect((await sent()).nextSignInEmailAt).toEqual(Option.none());
     }

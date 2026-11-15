@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
+import { parseJSON } from "better-auth/client";
 import { Effect } from "effect";
 import { act, type ReactElement, type ReactNode } from "react";
 import { View } from "react-native";
@@ -64,7 +65,9 @@ mock.module("./auth-client.web", () => ({
     signIn: {
       magicLink: async () => {
         emailsSent += 1;
-        return next(emailAnswers);
+        // Better Auth's client parses answers with its own JSON parser,
+        // which revives ISO 8601 strings into Dates.
+        return parseJSON<Answer>(JSON.stringify(next(emailAnswers)));
       },
       emailOtp: async () => next(codeAnswers),
     },

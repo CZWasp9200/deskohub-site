@@ -1,5 +1,14 @@
-import { NextSignInEmailAt } from "@deskohub/workspace-customer-api/sign-in-email";
+import { NextSignInEmailAtFromClient } from "@deskohub/workspace-customer-api/sign-in-email";
 import { Data, type DateTime, Option, Schema } from "effect";
+
+/**
+ * Reads `nextSignInEmailAt` from a sign-in email answer, a success or an
+ * address-limit refusal; anything that is no valid instant (an older server)
+ * is none.
+ */
+export const decodeNextSignInEmailAt = Schema.decodeUnknownOption(
+  NextSignInEmailAtFromClient
+);
 
 export type WebSignInOperation =
   | "send-email"
@@ -64,9 +73,7 @@ export class WebSignInFailure extends Data.TaggedError("WebSignInFailure")<{
       const reason = webSignInFailureReason(operation, answer);
       const nextSignInEmailAt =
         reason === "address-limit"
-          ? Schema.decodeUnknownOption(NextSignInEmailAt)(
-              answer.nextSignInEmailAt
-            )
+          ? decodeNextSignInEmailAt(answer.nextSignInEmailAt)
           : Option.none();
       return Option.match(nextSignInEmailAt, {
         onNone: () => new WebSignInFailure({ operation, reason }),

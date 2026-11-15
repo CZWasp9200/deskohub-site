@@ -1,5 +1,4 @@
-import { NextSignInEmailAt } from "@deskohub/workspace-customer-api/sign-in-email";
-import { Clock, type DateTime, Effect, Match, Option, Schema } from "effect";
+import { Clock, type DateTime, Effect, Match, Option } from "effect";
 import { type SignInMethod, trackSignInCompleted } from "../analytics/events";
 import type { AppLocale } from "../i18n/app-locale";
 import { webCallbackPath, withSignInMethod } from "./auth-callback";
@@ -14,6 +13,7 @@ import {
   saveReauthenticatingUser,
 } from "./web-reauthentication-store";
 import {
+  decodeNextSignInEmailAt,
   type WebSignInErrorAnswer,
   WebSignInFailure,
   type WebSignInOperation,
@@ -83,9 +83,7 @@ export const sendSignInEmail = (email: string, locale: AppLocale) =>
       email,
       signInCode: data?.signInCode === true,
       sentAt,
-      nextSignInEmailAt: Schema.decodeUnknownOption(NextSignInEmailAt)(
-        data?.nextSignInEmailAt
-      ),
+      nextSignInEmailAt: decodeNextSignInEmailAt(data?.nextSignInEmailAt),
     })
   ).pipe(Effect.withSpan("WebSignIn.sendSignInEmail"));
 
