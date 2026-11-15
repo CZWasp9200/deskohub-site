@@ -42,7 +42,9 @@ test("operator cancellation cancels Dotypos, records the result, and optionally 
   } as never;
   const cancelReservation = mock(() => Effect.void);
   const claimAdministrationCancellation = mock(() => Effect.succeed(current));
-  const markAdministrationCancelled = mock(() => Effect.void);
+  const markAdministrationCancelled = mock(
+    (_input: { readonly cancelledAt: Temporal.Instant }) => Effect.void
+  );
   const sendCancellationEmail = mock(() => Effect.void);
   const recordCancellationEmailSent = mock(() => Effect.succeed(true));
 
@@ -96,14 +98,113 @@ test("operator cancellation cancels Dotypos, records the result, and optionally 
     staleCancellingBefore: expect.any(Temporal.Instant),
   });
   expect(sendCancellationEmail).toHaveBeenCalledWith({ reservation: details });
-  const [cancelled] = markAdministrationCancelled.mock.calls[0] as unknown as [
-    { readonly cancelledAt: Temporal.Instant },
-  ];
   expect(recordCancellationEmailSent).toHaveBeenCalledWith({
     id,
-    cancelledAt: cancelled.cancelledAt,
+    cancelledAt: markAdministrationCancelled.mock.calls[0]?.[0].cancelledAt,
     sentAt: expect.any(Temporal.Instant),
   });
+});
+
+/** Cancels a confirmed reservation, recording whether its cancellation email was stamped as sent. */
+const cancelAndEmail = async ({
+  send,
+  sendCancellationEmail = () => Effect.void,
+  recordCancellationEmailSent = () => Effect.succeed(true),
+}: {
+  readonly send: boolean;
+  readonly sendCancellationEmail?: () => Effect.Effect<void, unknown>;
+  readonly recordCancellationEmailSent?: () => Effect.Effect<boolean, unknown>;
+}) => {
+  const { WorkspaceReservationEmailService } = await import(
+    "@/features/checkout/backend/fulfillment/workspace-reservation-email.service"
+  );
+  const { WorkspaceReservationRepository } = await import(
+    "@/features/reservation/backend/workspace-reservation.repository"
+  );
+  const { WorkspaceReservationService } = await import(
+    "@/features/reservation/backend/workspace-reservation.service"
+  );
+  const { ReservationAdministrationService } = await import(
+    "./reservation-administration.service"
+  );
+  const { ReservationRestorationService } = await import(
+    "./reservation-restoration.service"
+  );
+  const id = workspaceReservationIdSchema.make("reservation-email-stamp");
+  const current = {
+    id,
+    dotyposReservationId: "dotypos-email-stamp",
+    fulfillmentState: "fulfilled",
+    reservationState: "confirmed",
+    updatedAt: Temporal.Now.instant(),
+  } as never;
+  const stamp = mock(recordCancellationEmailSent);
+
+  const result = await Effect.gen(function* () {
+    const service = yield* ReservationAdministrationService;
+    return yield* service.cancel({
+      accessGrantUpdatedAt: null,
+      providerCredentialRemoved: false,
+      reservationId: id,
+      sendCancellationEmail: send,
+    });
+  }).pipe(
+    Effect.provide(
+      ReservationAdministrationService.Default.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(ReservationRestorationService, {}),
+            Layer.mock(DotyposService, {
+              cancelReservation: () => Effect.void,
+            }),
+            Layer.mock(WorkspaceReservationEmailService, {
+              sendCancellationEmail,
+            } as never),
+            Layer.mock(WorkspaceReservationRepository, {
+              claimAdministrationCancellation: () => Effect.succeed(current),
+              findById: () => Effect.succeed(current),
+              markAdministrationCancellationFailed: () => Effect.void,
+              markAdministrationCancelled: () => Effect.void,
+              recordCancellationEmailSent: stamp,
+            } as never),
+            Layer.mock(WorkspaceReservationService, {
+              getReservation: () =>
+                Effect.succeed({ id, providerStatus: "CONFIRMED" } as never),
+            })
+          )
+        )
+      )
+    ),
+    Effect.runPromise
+  );
+  return { email: result.email, stamped: stamp.mock.calls.length };
+};
+
+test("stamps the cancellation email only after it was sent, and a failed stamp keeps it sent", async () => {
+  expect(
+    await Promise.all([
+      cancelAndEmail({ send: true }),
+      cancelAndEmail({
+        send: true,
+        recordCancellationEmailSent: () => Effect.succeed(false),
+      }),
+      cancelAndEmail({
+        send: true,
+        recordCancellationEmailSent: () => Effect.fail("database down"),
+      }),
+      cancelAndEmail({
+        send: true,
+        sendCancellationEmail: () => Effect.fail("Resend down"),
+      }),
+      cancelAndEmail({ send: false }),
+    ])
+  ).toEqual([
+    { email: "sent", stamped: 1 },
+    { email: "sent", stamped: 1 },
+    { email: "sent", stamped: 1 },
+    { email: "failed", stamped: 0 },
+    { email: "not_requested", stamped: 0 },
+  ]);
 });
 
 test("forced operator cancellation terminalizes a pending payment before cancelling", async () => {
