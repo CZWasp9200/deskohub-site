@@ -1,0 +1,400 @@
+import type { Money } from "@deskohub/workspace-customer-api";
+import ChevronDown from "lucide-react-native/icons/chevron-down";
+import ChevronUp from "lucide-react-native/icons/chevron-up";
+import Info from "lucide-react-native/icons/info";
+import { useRef, useState } from "react";
+import {
+  type GestureResponderEvent,
+  LayoutAnimation,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { AppLocale } from "../../i18n/app-locale";
+import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
+import { Button } from "../../ui/controls";
+import { Icon, type IconComponent } from "../../ui/icon";
+import { useLiveRegionAnnouncement } from "../../ui/live-announcement";
+import { LoadingIndicator } from "../../ui/loading-indicator";
+import { idleLiveRegionLayout } from "../../ui/notice-presentation";
+import { useReducedMotion } from "../../ui/reduced-motion";
+import { Text } from "../../ui/text";
+import { useToastObstruction } from "../../ui/toast";
+import { color, space, touchTarget, typeScale } from "../../ui/tokens";
+import type { PriceBreakdown, PriceLine } from "./price-breakdown";
+import type { PriceLineDescription } from "./price-line-description";
+import { PriceLines, wasPriceLabel } from "./price-lines";
+
+/** What the bar shows on the right of its summary. */
+export type BookingBarPrice =
+  /** Nothing priced yet: loading, or the quote failed. */
+  | { readonly kind: "none" }
+  /** A new quote is on its way: "Updating price…", announced. */
+  | { readonly kind: "updating" }
+  /** The from-price before a date is chosen, such as "per day"; not expandable. */
+  | {
+      readonly kind: "from";
+      readonly amount: Money;
+      readonly was?: Money;
+      readonly unit: string;
+    }
+  /** The quoted total, which opens to its itemized lines. */
+  | {
+      readonly kind: "quoted";
+      readonly breakdown: PriceBreakdown;
+      readonly describeLine: (line: PriceLine) => PriceLineDescription;
+      readonly was?: Money;
+    };
+
+/** What and when is booked, and its price. */
+export interface BookingBarSummary {
+  /** What and when, bold; wraps, never cut. */
+  readonly title: string;
+  /** The grey line under it, such as the add-ons; one line, truncated. */
+  readonly detail?: string;
+  readonly price: BookingBarPrice;
+}
+
+/** The screen's one action, under the summary. */
+export interface BookingBarAction {
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly disabled?: boolean;
+  readonly busy?: boolean;
+  readonly icon?: IconComponent;
+}
+
+/** A finger's travel since it touched the bar, in dp. */
+export interface SwipeTravel {
+  readonly dx: number;
+  readonly dy: number;
+}
+
+// A finger that moves further than a tap's jitter, mostly up or down, is
+// swiping the bar; one that travels this far opens or closes it.
+const swipeSlop = 10;
+const swipeDistance = 24;
+
+/** Whether a finger's travel is a vertical swipe the bar takes over from a press. */
+export const claimsSwipe = ({ dx, dy }: SwipeTravel): boolean =>
+  Math.abs(dy) > swipeSlop && Math.abs(dy) > Math.abs(dx);
+
+/** What a finished swipe asks for: up opens, down closes, a short or sideways one nothing. */
+export const swipeIntent = ({
+  dx,
+  dy,
+}: SwipeTravel): "open" | "close" | undefined => {
+  if (Math.abs(dy) <= Math.abs(dx)) return undefined;
+  if (dy <= -swipeDistance) return "open";
+  if (dy >= swipeDistance) return "close";
+  return undefined;
+};
+
+// The grey arrow on the bar's top edge (`.bk-grab`).
+const chevronColor = "#A9A59B";
+const chevronSize = 22;
+
+/**
+ * The sticky footer of a booking screen: what and when on the left, the
+ * price on the right, the screen's one action under them and, under the
+ * action, why it is off. A quoted price opens to its itemized lines above
+ * the summary: tap the summary or the grey arrow, or swipe the bar up;
+ * swipe down or tap again to close. The arrow is the accessible toggle.
+ * Without a `summary` the bar is the action alone (the Pay step). Toasts
+ * rise above the bar.
+ */
+export function BookingBar({
+  summary,
+  action,
+  reason,
+  locale,
+  initiallyOpen = false,
+}: {
+  readonly summary?: BookingBarSummary;
+  readonly action: BookingBarAction;
+  /** Why the action is off, under it; announced when it changes. */
+  readonly reason?: string;
+  readonly locale: AppLocale;
+  /** Draws the breakdown open at first; for the gallery and captures. */
+  readonly initiallyOpen?: boolean;
+}) {
+  const { bottom } = useSafeAreaInsets();
+  const [height, setHeight] = useState(0);
+  useToastObstruction(height);
+  const reducedMotion = useReducedMotion() !== false;
+  const [open, setOpen] = useState(initiallyOpen);
+  const quoted = summary?.price.kind === "quoted" ? summary.price : undefined;
+  // The breakdown closes when the price stops being quoted.
+  if (open && quoted === undefined) setOpen(false);
+  const shownOpen = open && quoted !== undefined;
+
+  const toggle = (next: boolean) => {
+    if (quoted === undefined || next === shownOpen) return;
+    if (!reducedMotion) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
+    setOpen(next);
+  };
+
+  const touchStart = useRef({ x: 0, y: 0 });
+  const travel = ({ nativeEvent }: GestureResponderEvent): SwipeTravel => ({
+    dx: nativeEvent.pageX - touchStart.current.x,
+    dy: nativeEvent.pageY - touchStart.current.y,
+  });
+  // The summary area takes a vertical swipe from the presses inside it.
+  const swipeResponder = {
+    onStartShouldSetResponderCapture: ({
+      nativeEvent,
+    }: GestureResponderEvent) => {
+      touchStart.current = { x: nativeEvent.pageX, y: nativeEvent.pageY };
+      return false;
+    },
+    onMoveShouldSetResponderCapture: (event: GestureResponderEvent) =>
+      quoted !== undefined && claimsSwipe(travel(event)),
+    onResponderTerminationRequest: () => true,
+    onResponderRelease: (event: GestureResponderEvent) => {
+      const intent = swipeIntent(travel(event));
+      if (intent !== undefined) toggle(intent === "open");
+    },
+  };
+
+  const detailsLabel = shownOpen
+    ? m.booking_price_hide_details({}, { locale })
+    : m.booking_price_show_details({}, { locale });
+
+  return (
+    <View
+      onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
+      style={[
+        styles.bar,
+        summary === undefined ? styles.actionOnly : styles.withSummary,
+        shownOpen && styles.open,
+        { paddingBottom: space.md + bottom },
+      ]}
+    >
+      {summary !== undefined && (
+        <View {...swipeResponder} style={styles.summaryArea}>
+          {quoted !== undefined && (
+            <Pressable
+              role="button"
+              aria-label={detailsLabel}
+              aria-expanded={shownOpen}
+              hitSlop={{ top: 14, bottom: 14 }}
+              onPress={() => toggle(!shownOpen)}
+              style={styles.grab}
+            >
+              <Chevron open={shownOpen} />
+            </Pressable>
+          )}
+          {quoted !== undefined && shownOpen && (
+            <PriceLines
+              breakdown={quoted.breakdown}
+              describeLine={quoted.describeLine}
+              locale={locale}
+              variant="bar"
+            />
+          )}
+          <Pressable
+            // A pointer convenience: the arrow is the accessible toggle.
+            accessible={false}
+            focusable={false}
+            disabled={quoted === undefined}
+            onPress={() => toggle(!shownOpen)}
+            style={styles.summary}
+          >
+            <View style={styles.what}>
+              <Text style={styles.title}>{summary.title}</Text>
+              {summary.detail !== undefined && summary.detail !== "" && (
+                <Text numberOfLines={1} style={styles.detail}>
+                  {summary.detail}
+                </Text>
+              )}
+            </View>
+            <BarPrice price={summary.price} locale={locale} />
+          </Pressable>
+        </View>
+      )}
+      <Button
+        label={action.label}
+        onPress={action.onPress}
+        disabled={action.disabled}
+        busy={action.busy}
+        icon={action.icon}
+      />
+      <Reason reason={reason} />
+    </View>
+  );
+}
+
+/** The grey arrow: up while closed, down while open. Drawn at the board's 22, hidden as the toggle names itself. */
+function Chevron({ open }: { readonly open: boolean }) {
+  const Glyph = open ? ChevronDown : ChevronUp;
+  return (
+    <Glyph
+      size={chevronSize}
+      color={chevronColor}
+      strokeWidth={2}
+      {...Platform.select({
+        web: { "aria-hidden": true },
+        default: {
+          accessible: false,
+          importantForAccessibility: "no-hide-descendants" as const,
+        },
+      })}
+    />
+  );
+}
+
+/** The price column, centred against the summary: struck earlier price, total, unit. */
+function BarPrice({
+  price,
+  locale,
+}: {
+  readonly price: BookingBarPrice;
+  readonly locale: AppLocale;
+}) {
+  const updating =
+    price.kind === "updating"
+      ? m.booking_price_updating({}, { locale })
+      : undefined;
+  useLiveRegionAnnouncement(updating, "polite");
+  switch (price.kind) {
+    case "none":
+      return null;
+    case "updating":
+      return (
+        <View
+          role="status"
+          aria-live="polite"
+          accessibilityLiveRegion="polite"
+          style={styles.updating}
+        >
+          <LoadingIndicator size="inline" tone={{ color: color.action }} />
+          <Text style={styles.updatingText}>{updating}</Text>
+        </View>
+      );
+    case "from":
+      return (
+        <View style={styles.price}>
+          {price.was !== undefined && <Was was={price.was} locale={locale} />}
+          <Text numeric style={styles.total}>
+            {formatMoney(price.amount, locale)}
+          </Text>
+          <Text style={styles.unit}>{price.unit}</Text>
+        </View>
+      );
+    case "quoted":
+      return (
+        <View style={styles.price}>
+          {price.was !== undefined && <Was was={price.was} locale={locale} />}
+          <Text numeric style={styles.total}>
+            {formatMoney(price.breakdown.total, locale)}
+          </Text>
+        </View>
+      );
+  }
+}
+
+function Was({
+  was,
+  locale,
+}: {
+  readonly was: Money;
+  readonly locale: AppLocale;
+}) {
+  return (
+    <Text numeric aria-label={wasPriceLabel(was, locale)} style={styles.was}>
+      {formatMoney(was, locale)}
+    </Text>
+  );
+}
+
+/** Why the action is off (`.bk-why`), in a live region that stays mounted. */
+function Reason({ reason }: { readonly reason: string | undefined }) {
+  const shown = reason !== undefined && reason !== "";
+  useLiveRegionAnnouncement(shown ? reason : undefined, "polite");
+  return (
+    <View
+      role="status"
+      aria-live="polite"
+      accessibilityLiveRegion="polite"
+      style={shown ? styles.reason : idleLiveRegionLayout}
+    >
+      {shown && <Icon icon={Info} size={16} color={color.ink2} />}
+      <Text style={styles.reasonText}>{shown ? reason : ""}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  // `.ft.bk-bar`: white, a hairline on top, 10 between its parts.
+  bar: {
+    backgroundColor: color.surface,
+    borderTopColor: color.line,
+    borderTopWidth: 1,
+    gap: 10,
+    paddingHorizontal: space.gutter,
+  },
+  withSummary: { paddingTop: space.xs },
+  actionOnly: { paddingTop: space.md },
+  open: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    boxShadow: "0 -12px 28px -12px rgba(0, 2, 79, 0.35)",
+  },
+  summaryArea: { gap: 10 },
+  grab: {
+    alignItems: "center",
+    alignSelf: "center",
+    height: 20,
+    justifyContent: "center",
+    marginBottom: -6,
+    minWidth: touchTarget,
+  },
+  summary: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.md,
+    justifyContent: "space-between",
+  },
+  what: { flex: 1, minWidth: 0 },
+  title: { ...typeScale.subhead, color: color.navy },
+  detail: { ...typeScale.hint, color: color.ink2 },
+  price: { alignItems: "flex-end", flexShrink: 0 },
+  was: {
+    ...typeScale.hint,
+    color: color.ink2,
+    lineHeight: 16,
+    textDecorationLine: "line-through",
+  },
+  total: {
+    ...typeScale.titleLarge,
+    color: color.navy,
+    fontSize: 22,
+    lineHeight: 26,
+  },
+  unit: { ...typeScale.hint, color: color.ink2, fontSize: 12, lineHeight: 16 },
+  updating: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 0,
+    gap: 6,
+    minHeight: 26,
+  },
+  updatingText: { ...typeScale.hint, color: color.ink2 },
+  reason: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+  },
+  reasonText: {
+    ...typeScale.hint,
+    color: color.ink2,
+    flexShrink: 1,
+    textAlign: "center",
+  },
+});
