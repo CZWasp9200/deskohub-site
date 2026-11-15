@@ -1,4 +1,5 @@
 import { Context, Layer } from "effect";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   type AccountReleaseLayers,
   type AccountServiceLayers,
@@ -49,6 +50,12 @@ export type CustomerAccountServiceLayers = Omit<
     Layer.Error<typeof CustomerLocalePreference.Live>,
     CustomerAuthentication
   >;
+  /** The account's data archive, under the request's authentication. */
+  readonly dataExport: Layer.Layer<
+    AccountDataExportService,
+    Layer.Error<typeof AccountDataExportService.ForProvidedAuthentication>,
+    CustomerAuthentication
+  >;
 };
 
 interface ICustomerAccountLayers {
@@ -80,6 +87,7 @@ export class CustomerAccountLayers extends Context.Service<
       analyticsConsentLedger: AnalyticsConsentLedger.Live,
       analyticsPersonAnonymisation: AnalyticsPersonAnonymisation.Live,
       localePreference: CustomerLocalePreference.Live,
+      dataExport: AccountDataExportService.ForProvidedAuthentication,
     },
     releases: runAccountReleaseLayers,
   });

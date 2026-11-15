@@ -44,7 +44,7 @@ import {
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReadLimitExceededError } from "@/shared/backend/read-limit";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
 import { isFulfilledReservation } from "./invoice-eligibility";
 import { makeInvoiceReads, sealedInvoiceDocuments } from "./invoice-reads";
@@ -237,7 +237,7 @@ export class InvoiceRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
-      const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
+      const accountingSnapshots = yield* AccountingDocumentSnapshots;
       const sealedDocuments = yield* sealedInvoiceDocuments;
       const reads = yield* makeInvoiceReads;
       const { findById, findByPaymentAttemptId } = reads;
@@ -328,8 +328,7 @@ export class InvoiceRepository extends Context.Service<
           return { invoice: alreadyIssued, changed: false };
         }
 
-        const source =
-          yield* accountingSnapshots.findByPaymentAttemptId(paymentAttemptId);
+        const source = yield* accountingSnapshots.find(paymentAttemptId);
         if (!source) {
           return yield* new InvoiceEligibilityError({
             paymentAttemptId,
@@ -627,9 +626,7 @@ export class InvoiceRepository extends Context.Service<
     Layer.provide(
       Layer.merge(
         invoiceStorage,
-        AccountingDocumentSnapshotRepository.Default.pipe(
-          Layer.provide(invoiceStorage)
-        )
+        AccountingDocumentSnapshots.Default.pipe(Layer.provide(invoiceStorage))
       )
     )
   );

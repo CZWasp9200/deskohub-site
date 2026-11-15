@@ -30,7 +30,7 @@ import type { InvoiceEmailDeliveryAudience } from "@/features/accounting/invoice
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
 import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 import * as emailRendering from "@/shared/backend/email/render-react-email";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import {
   type IInvoiceRepository,
   type Invoice,
@@ -362,9 +362,7 @@ describe("invoice email delivery", () => {
         recipient: { audience: "internal" },
       },
     ]);
-    expect(
-      harness.accountingSnapshots.findByPaymentAttemptId
-    ).not.toHaveBeenCalled();
+    expect(harness.accountingSnapshots.find).not.toHaveBeenCalled();
   });
 
   test("does not request payment in the email for a paid manual invoice", async () => {
@@ -432,7 +430,7 @@ const runDelivery = (harness: ReturnType<typeof makeHarness>) =>
           Layer.mergeAll(
             Layer.succeed(InvoiceRepository, harness.invoices),
             Layer.succeed(
-              AccountingDocumentSnapshotRepository,
+              AccountingDocumentSnapshots,
               harness.accountingSnapshots
             ),
             Layer.succeed(InvoiceEmailDeliveryRepository, harness.deliveries),
@@ -458,7 +456,7 @@ const runCustomerResend = (harness: ReturnType<typeof makeHarness>) =>
           Layer.mergeAll(
             Layer.succeed(InvoiceRepository, harness.invoices),
             Layer.succeed(
-              AccountingDocumentSnapshotRepository,
+              AccountingDocumentSnapshots,
               harness.accountingSnapshots
             ),
             Layer.succeed(InvoiceEmailDeliveryRepository, harness.deliveries),
@@ -485,7 +483,7 @@ const runDeliveryByInvoiceId = (
           Layer.mergeAll(
             Layer.succeed(InvoiceRepository, harness.invoices),
             Layer.succeed(
-              AccountingDocumentSnapshotRepository,
+              AccountingDocumentSnapshots,
               harness.accountingSnapshots
             ),
             Layer.succeed(InvoiceEmailDeliveryRepository, harness.deliveries),
@@ -559,9 +557,7 @@ const makeHarness = (options: {
     list: mock(() => Effect.succeed([])),
   };
   const accountingSnapshots = {
-    findByPaymentAttemptId: mock(() =>
-      Effect.succeed(options.source ?? source)
-    ),
+    find: mock(() => Effect.succeed(options.source ?? source)),
   };
   const emailService: EmailService = {
     send:

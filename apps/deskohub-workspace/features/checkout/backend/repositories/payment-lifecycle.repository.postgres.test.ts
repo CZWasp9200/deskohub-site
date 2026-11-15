@@ -138,7 +138,7 @@ const makeRepository = async (
       return yield* PaymentLifecycleRepository;
     }).pipe(
       Effect.provide(
-        PaymentLifecycleRepository.Default.pipe(Layer.provide(databaseLayer))
+        PaymentLifecycleRepository.Live.pipe(Layer.provide(databaseLayer))
       )
     )
   );
@@ -2541,7 +2541,7 @@ describe.skipIf(!testDatabase)(
         Effect.gen(function* () {
           return yield* operation(yield* PaymentLifecycleRepository);
         }).pipe(
-          Effect.provide(PaymentLifecycleRepository.Default),
+          Effect.provide(PaymentLifecycleRepository.Live),
           Effect.provide(testDatabase.layer),
           Effect.provide(referralFeatureFlag(true)),
           Effect.result

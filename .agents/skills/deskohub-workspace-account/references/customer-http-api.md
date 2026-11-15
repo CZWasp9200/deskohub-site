@@ -50,8 +50,8 @@ The app's client and data layer are in the `deskohub-mobile` skill
    and may reactivate an expired one). A GET the app repeats on every load,
    history visit or status poll (the account, the reservation history, an
    order's status and its door code) is `account-read` (40 per 30 minutes);
-   any other Dotypos-backed GET (consent, referrals, the invoice) is
-   `dotypos-read` (20 per 30 minutes); any other method is `dotypos-mutation`
+   any other Dotypos-backed GET (consent, referrals, the invoice, the data
+   archive) is `dotypos-read` (20 per 30 minutes); any other method is `dotypos-mutation`
    (15 per 30 minutes, which account edits and checkout steps share; two
    bookings fit). Each has its own per-account budget so reads can't use up
    what edits, bookings and deletion need; the test checks the method.
@@ -117,10 +117,11 @@ The app's client and data layer are in the `deskohub-mobile` skill
   `runToCompletion` (`shared/backend/run-to-completion.ts`).
 - A file download declares its success as bytes with
   `HttpApiSchema.asUint8Array({ contentType })`, so the OpenAPI document and
-  the typed client treat the body as binary. Return an
-  `HttpServerResponse.uint8Array` when the file needs a header the success
-  schema can't carry, such as `Content-Disposition`, as `getReservationInvoice`
-  does; the router still marks it private and uncached. Describe that header
+  the typed client treat the body as binary. Answer it with
+  `answerFileDownload(contentType)` (`customer-file-download.ts`), which
+  returns an `HttpServerResponse.uint8Array` with the `Content-Disposition`
+  the success schema can't carry, as `getReservationInvoice` and
+  `getDataExport` do; the router still marks it private and uncached. Describe that header
   in the OpenAPI document with `.annotateMerge(responseHeaders(200, { ... }))`
   (`src/openapi-response-headers.ts`) and regenerate the golden.
 - A reservation service that decides who may see an order takes the

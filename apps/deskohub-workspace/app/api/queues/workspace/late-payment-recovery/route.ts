@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
 import { ReservationFulfillment } from "@/features/checkout/backend/fulfillment";
 import { UnpaidHoldRelease } from "@/features/checkout/backend/holds";
@@ -19,7 +19,7 @@ export const maxDuration = 300;
 
 const databaseRepositories = Layer.mergeAll(
   LatePaymentRecoveryRepository.Default,
-  AccountingDocumentSnapshotRepository.Default,
+  AccountingDocumentSnapshots.Default,
   WorkspaceReservationRepository.Default
 ).pipe(
   Layer.provide(
