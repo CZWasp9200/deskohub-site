@@ -287,7 +287,7 @@ const implementation = Effect.gen(function* () {
       input: WorkspaceAvailabilityRequest
     ) {
       const { query } = input;
-      yield* Effect.annotateLogsScoped({ query });
+      yield* Effect.annotateLogsScoped(query);
       yield* Effect.logInfo("Workspace availability computation started");
 
       const dates = yield* getDateRange(query.from, query.to);
@@ -369,7 +369,7 @@ const implementation = Effect.gen(function* () {
   const ensureAvailable = Effect.fn("workspaceAvailability.ensureAvailable")(
     function* (reservation: AvailabilityReservation) {
       const query = yield* getAvailabilityEnsureQuery(reservation);
-      yield* Effect.annotateLogsScoped({ query });
+      yield* Effect.annotateLogsScoped(query);
       yield* Effect.logInfo("Workspace availability assurance started");
 
       const reservationInterval = yield* Match.value(query).pipe(
@@ -484,7 +484,7 @@ const implementation = Effect.gen(function* () {
   )(
     (input: MeetingRoomStartTimesRequest) =>
       Effect.succeed(input).pipe(
-        Effect.tap(({ query }) => Effect.annotateLogsScoped({ query })),
+        Effect.tap(({ query }) => Effect.annotateLogsScoped(query)),
         Effect.tap(() =>
           Effect.logInfo("Meeting-room start times computation started")
         ),
