@@ -1,40 +1,36 @@
-import type { NexiOrderId } from "@deskohub/nexi";
 import { eq } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Data, Effect, Layer } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import { Context, Effect, Layer } from "effect";
 import { accountingDocumentSnapshots } from "@/db/schema";
 import {
   type AccountingDocumentSnapshot,
-  decodeStoredAccountingDocumentSnapshot,
+  accountingDocumentSnapshotSchema,
+  encodeStoredAccountingDocumentSnapshot,
 } from "@/features/accounting/accounting-document-snapshot";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
-import { decryptAccountingSnapshot } from "./accounting-snapshot-sql";
+import {
+  type AccountingRecordUnavailable,
+  sealedAccountingJson,
+} from "./sealed-accounting-json";
 
-export type AccountingPaymentReference =
-  | { readonly type: "paymentAttemptId"; readonly id: PaymentAttemptId }
-  | { readonly type: "providerOrderId"; readonly id: NexiOrderId }
-  | {
-      readonly type: "workspaceReservationId";
-      readonly id: WorkspaceReservationId;
-    };
-
-export class AccountingDocumentSnapshotStorageError extends Data.TaggedError(
-  "AccountingDocumentSnapshotStorageError"
-)<{
-  readonly operation: "decrypt" | "encrypt" | "load" | "parse" | "validate";
-  readonly paymentReference: AccountingPaymentReference;
-  readonly message: string;
-}> {}
+/** Payment-time source snapshots, sealed one per payment attempt. */
+export const sealedAccountingDocumentSnapshots = sealedAccountingJson({
+  label: "Accounting snapshot",
+  table: accountingDocumentSnapshots,
+  keyId: accountingDocumentSnapshots.keyId,
+  ciphertext: accountingDocumentSnapshots.encryptedSnapshot,
+  plaintext: {},
+  encode: (snapshot: AccountingDocumentSnapshot) =>
+    encodeStoredAccountingDocumentSnapshot(snapshot),
+  schema: accountingDocumentSnapshotSchema,
+});
 
 export interface IAccountingDocumentSnapshotRepository {
   readonly findByPaymentAttemptId: (
     paymentAttemptId: PaymentAttemptId
   ) => Effect.Effect<
     AccountingDocumentSnapshot | null,
-    AccountingDocumentSnapshotStorageError | EffectDrizzleQueryError
+    AccountingRecordUnavailable | EffectDrizzleQueryError
   >;
 }
 
@@ -45,101 +41,20 @@ export class AccountingDocumentSnapshotRepository extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const { db } = yield* WorkspaceDatabase;
-      const keys = yield* AccountingSnapshotKeyService;
+      const snapshots = yield* sealedAccountingDocumentSnapshots;
 
       return {
         findByPaymentAttemptId: Effect.fn(
           "AccountingDocumentSnapshotRepository.findByPaymentAttemptId"
         )(function* (paymentAttemptId: PaymentAttemptId) {
-          const [metadata] = yield* db
-            .select({ keyId: accountingDocumentSnapshots.keyId })
-            .from(accountingDocumentSnapshots)
-            .where(
-              eq(accountingDocumentSnapshots.paymentAttemptId, paymentAttemptId)
-            )
-            .limit(1);
-
-          if (!metadata) return null;
-
-          const key = yield* keys.getById(metadata.keyId).pipe(
-            Effect.mapError(
-              () =>
-                new AccountingDocumentSnapshotStorageError({
-                  operation: "decrypt",
-                  paymentReference: {
-                    type: "paymentAttemptId",
-                    id: paymentAttemptId,
-                  },
-                  message: "Accounting snapshot decryption key is unavailable.",
-                })
-            )
-          );
-
-          const [row] = yield* db
-            .select({
-              snapshotJson: decryptAccountingSnapshot(
-                accountingDocumentSnapshots.encryptedSnapshot,
-                key.secret
-              ),
-            })
-            .from(accountingDocumentSnapshots)
-            .where(
-              eq(accountingDocumentSnapshots.paymentAttemptId, paymentAttemptId)
-            )
-            .limit(1)
-            .pipe(
-              Effect.withTracerEnabled(false),
-              Effect.mapError(
-                () =>
-                  new AccountingDocumentSnapshotStorageError({
-                    operation: "decrypt",
-                    paymentReference: {
-                      type: "paymentAttemptId",
-                      id: paymentAttemptId,
-                    },
-                    message: "Accounting snapshot could not be decrypted.",
-                  })
-              )
-            );
-
-          if (!row) {
-            return yield* new AccountingDocumentSnapshotStorageError({
-              operation: "load",
-              paymentReference: {
-                type: "paymentAttemptId",
-                id: paymentAttemptId,
-              },
-              message: "Accounting snapshot disappeared while loading.",
-            });
-          }
-
-          const encoded = yield* Effect.try({
-            try: () => JSON.parse(row.snapshotJson) as unknown,
-            catch: () =>
-              new AccountingDocumentSnapshotStorageError({
-                operation: "parse",
-                paymentReference: {
-                  type: "paymentAttemptId",
-                  id: paymentAttemptId,
-                },
-                message: "Accounting snapshot JSON is invalid.",
-              }),
+          const opened = yield* snapshots.open({
+            reference: { type: "paymentAttemptId", id: paymentAttemptId },
+            where: eq(
+              accountingDocumentSnapshots.paymentAttemptId,
+              paymentAttemptId
+            ),
           });
-
-          return yield* decodeStoredAccountingDocumentSnapshot(encoded).pipe(
-            Effect.mapError(
-              () =>
-                new AccountingDocumentSnapshotStorageError({
-                  operation: "parse",
-                  paymentReference: {
-                    type: "paymentAttemptId",
-                    id: paymentAttemptId,
-                  },
-                  message: "Accounting snapshot schema is invalid.",
-                })
-            )
-          );
+          return opened?.value ?? null;
         }),
       } satisfies IAccountingDocumentSnapshotRepository;
     })

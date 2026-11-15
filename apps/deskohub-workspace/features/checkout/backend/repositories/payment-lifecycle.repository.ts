@@ -48,18 +48,15 @@ import { WorkspaceLocks } from "@/db/workspace-locks";
 import {
   type AccountingDocumentSnapshot,
   accountingDocumentSnapshotSchema,
-  encodeStoredAccountingDocumentSnapshot,
   getAccountingDocumentSnapshotFirstServiceDate,
 } from "@/features/accounting/accounting-document-snapshot";
+import { sealedAccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
 import {
-  AccountingDocumentSnapshotStorageError,
-  type AccountingPaymentReference,
-} from "@/features/accounting/backend/accounting-document-snapshot.repository";
-import {
-  type AccountingSnapshotKey,
-  AccountingSnapshotKeyService,
-} from "@/features/accounting/backend/accounting-snapshot-key.service";
-import { encryptAccountingSnapshot } from "@/features/accounting/backend/accounting-snapshot-sql";
+  type AccountingRecordReference,
+  type AccountingRecordSealer,
+  AccountingRecordUnavailable,
+} from "@/features/accounting/backend/sealed-accounting-json";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
 import {
@@ -125,7 +122,7 @@ interface PaymentLifecycleTransition {
 }
 
 export type PaymentLifecycleRepositoryError =
-  | AccountingDocumentSnapshotStorageError
+  | AccountingRecordUnavailable
   | DiscountClaimError
   | EffectDrizzleQueryError
   | PaymentLifecycleStateError
@@ -205,7 +202,7 @@ export class PaymentLifecycleRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
-      const accountingSnapshotKeys = yield* AccountingSnapshotKeyService;
+      const sealedSnapshots = yield* sealedAccountingDocumentSnapshots;
 
       const createPendingNexiAttempt = Effect.fn(
         "PaymentLifecycleRepository.createPendingNexiAttempt"
@@ -228,20 +225,10 @@ export class PaymentLifecycleRepository extends Context.Service<
               id: input.providerOrderId,
             },
           });
-        const accountingSnapshotKey =
-          yield* accountingSnapshotKeys.getActive.pipe(
-            Effect.mapError(
-              () =>
-                new AccountingDocumentSnapshotStorageError({
-                  operation: "encrypt",
-                  paymentReference: {
-                    type: "providerOrderId",
-                    id: input.providerOrderId,
-                  },
-                  message: "Accounting snapshot encryption key is unavailable.",
-                })
-            )
-          );
+        const accountingSnapshotSealer = yield* sealedSnapshots.sealer({
+          type: "providerOrderId",
+          id: input.providerOrderId,
+        });
         const commitment = getDiscountCommitmentPayload(input.commitment);
         const claimedApplications =
           yield* validateDiscountCommitment(commitment);
@@ -344,7 +331,7 @@ export class PaymentLifecycleRepository extends Context.Service<
               paymentAttemptId: attemptRow.id,
               workspaceReservationId: input.workspaceReservationId,
               snapshot: accountingSnapshot,
-              key: accountingSnapshotKey,
+              sealer: accountingSnapshotSealer,
             });
 
             const [linked] = yield* db
@@ -524,21 +511,10 @@ export class PaymentLifecycleRepository extends Context.Service<
               dotyposReservationId: reservation.dotyposReservationId,
             });
 
-            const accountingSnapshotKey =
-              yield* accountingSnapshotKeys.getActive.pipe(
-                Effect.mapError(
-                  () =>
-                    new AccountingDocumentSnapshotStorageError({
-                      operation: "encrypt",
-                      paymentReference: {
-                        type: "workspaceReservationId",
-                        id: input.workspaceReservationId,
-                      },
-                      message:
-                        "Accounting snapshot encryption key is unavailable.",
-                    })
-                )
-              );
+            const accountingSnapshotSealer = yield* sealedSnapshots.sealer({
+              type: "workspaceReservationId",
+              id: input.workspaceReservationId,
+            });
 
             const [attemptRow] = yield* db
               .insert(paymentAttempts)
@@ -566,7 +542,7 @@ export class PaymentLifecycleRepository extends Context.Service<
               paymentAttemptId: attemptRow.id,
               workspaceReservationId: input.workspaceReservationId,
               snapshot: accountingSnapshot,
-              key: accountingSnapshotKey,
+              sealer: accountingSnapshotSealer,
             });
 
             const [completedReservation] = yield* db
@@ -1507,16 +1483,16 @@ const validateAccountingDocumentSnapshotForAttempt = Effect.fn(
 )(function* (input: {
   readonly snapshot: AccountingDocumentSnapshot;
   readonly workspaceReservationId: WorkspaceReservationId;
-  readonly paymentReference: AccountingPaymentReference;
+  readonly paymentReference: AccountingRecordReference;
   readonly amount: Money;
   readonly locale: Locale;
 }) {
   const snapshot = yield* decodeAccountingDocumentSnapshot(input.snapshot).pipe(
     Effect.mapError(
       () =>
-        new AccountingDocumentSnapshotStorageError({
+        new AccountingRecordUnavailable({
           operation: "validate",
-          paymentReference: input.paymentReference,
+          reference: input.paymentReference,
           message: "Accounting snapshot schema is invalid.",
         })
     )
@@ -1528,9 +1504,9 @@ const validateAccountingDocumentSnapshotForAttempt = Effect.fn(
     !moneyEquals(snapshot.quote.payment.expectedPrice, input.amount) ||
     !accountingSnapshotMoneyReconciles(snapshot)
   ) {
-    return yield* new AccountingDocumentSnapshotStorageError({
+    return yield* new AccountingRecordUnavailable({
       operation: "validate",
-      paymentReference: input.paymentReference,
+      reference: input.paymentReference,
       message: "Accounting snapshot does not match the payment attempt.",
     });
   }
@@ -1572,7 +1548,7 @@ const validateAccountingDocumentSnapshotProviderIdentity = Effect.fn(
   "PaymentLifecycle.validateAccountingDocumentSnapshotProviderIdentity"
 )(function* (input: {
   readonly snapshot: AccountingDocumentSnapshot;
-  readonly paymentReference: AccountingPaymentReference;
+  readonly paymentReference: AccountingRecordReference;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly dotyposReservationId: DotyposReservationId | null;
 }) {
@@ -1580,9 +1556,9 @@ const validateAccountingDocumentSnapshotProviderIdentity = Effect.fn(
     input.snapshot.dotyposCustomerId !== input.dotyposCustomerId ||
     input.snapshot.dotyposReservationId !== input.dotyposReservationId
   ) {
-    return yield* new AccountingDocumentSnapshotStorageError({
+    return yield* new AccountingRecordUnavailable({
       operation: "validate",
-      paymentReference: input.paymentReference,
+      reference: input.paymentReference,
       message: "Accounting snapshot provider identity is inconsistent.",
     });
   }
@@ -1594,38 +1570,21 @@ const persistAccountingDocumentSnapshot = Effect.fn(
   readonly paymentAttemptId: PaymentAttemptId;
   readonly workspaceReservationId: WorkspaceReservationId;
   readonly snapshot: AccountingDocumentSnapshot;
-  readonly key: AccountingSnapshotKey;
+  readonly sealer: AccountingRecordSealer<AccountingDocumentSnapshot>;
 }) {
   const { db } = yield* WorkspaceTransaction;
-  const snapshotJson = JSON.stringify(
-    encodeStoredAccountingDocumentSnapshot(input.snapshot)
-  );
 
-  yield* db
-    .insert(accountingDocumentSnapshots)
-    .values({
-      paymentAttemptId: input.paymentAttemptId,
-      workspaceReservationId: input.workspaceReservationId,
-      keyId: input.key.id,
-      encryptedSnapshot: encryptAccountingSnapshot(
-        snapshotJson,
-        input.key.secret
-      ),
-    })
-    .pipe(
-      Effect.withTracerEnabled(false),
-      Effect.mapError(
-        () =>
-          new AccountingDocumentSnapshotStorageError({
-            operation: "encrypt",
-            paymentReference: {
-              type: "paymentAttemptId",
-              id: input.paymentAttemptId,
-            },
-            message: "Accounting snapshot could not be encrypted.",
-          })
-      )
-    );
+  yield* input.sealer.seal({
+    reference: { type: "paymentAttemptId", id: input.paymentAttemptId },
+    value: input.snapshot,
+    insert: (sealed) =>
+      db.insert(accountingDocumentSnapshots).values({
+        paymentAttemptId: input.paymentAttemptId,
+        workspaceReservationId: input.workspaceReservationId,
+        keyId: sealed.keyId,
+        encryptedSnapshot: sealed.ciphertext,
+      }),
+  });
 });
 
 type ClaimedApplication<Claim extends DiscountClaimInstruction> = {

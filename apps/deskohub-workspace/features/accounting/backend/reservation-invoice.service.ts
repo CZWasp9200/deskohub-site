@@ -24,10 +24,7 @@ import {
   getReservationInvoiceBuyer,
 } from "@/features/reservation/reservation-billing";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
-import {
-  AccountingDocumentSnapshotRepository,
-  type AccountingDocumentSnapshotStorageError,
-} from "./accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
 import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
 import {
   InvoiceRepository,
@@ -38,9 +35,10 @@ import {
   type InvoiceEmailDeliveryError,
   InvoiceEmailDeliveryService,
 } from "./invoice-email-delivery.service";
+import type { AccountingRecordUnavailable } from "./sealed-accounting-json";
 
 type ReservationInvoiceProcessingError =
-  | AccountingDocumentSnapshotStorageError
+  | AccountingRecordUnavailable
   | EffectDrizzleQueryError
   | DotyposConditionalWriteFailure
   | InvoiceEmailDeliveryError

@@ -15,7 +15,10 @@ import {
   getPayStateExpiresAt,
 } from "@/features/checkout/backend/checkout/checkout-pay-url";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
-import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
+import {
+  CheckoutPricingServiceMock,
+  paymentPricingFrom,
+} from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import {
   buildSignedPayState,
   openPayState,
@@ -232,9 +235,11 @@ const prepareSubmission = async (input?: SubmissionInput) => {
                     evaluateCheckoutReferral:
                       input.referralAcceptance.evaluateCheckoutReferral,
                   } as never),
-                  CheckoutPricingServiceMock({
-                    affirmForPayment: input.referralAcceptance.affirmForPayment,
-                  }),
+                  CheckoutPricingServiceMock(
+                    paymentPricingFrom(
+                      input.referralAcceptance.affirmForPayment as never
+                    )
+                  ),
                   Layer.succeed(PayableReservationService, { requireCurrent }),
                   input.referralAcceptance.sealedStateKeys ??
                     TestSealedStateKeys
