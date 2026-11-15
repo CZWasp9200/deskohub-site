@@ -1,7 +1,7 @@
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import { Children, Fragment, isValidElement, type ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Icon, type IconComponent } from "./icon";
 import { listDividerInset, listRowLayout } from "./list-row-layout";
 import {
@@ -143,6 +143,11 @@ export function ListRow({
   });
   const tile = iconTileColors[iconTone ?? (destructive ? "danger" : "neutral")];
   const end = trailing ?? (chevron ? "chevron" : "none");
+  const ownTrailing = end !== "chevron" && end !== "external" && end !== "none";
+  // At large font sizes a custom trailing node, such as a badge, moves under
+  // the label instead of squeezing it to a few letters per line.
+  const { fontScale } = useWindowDimensions();
+  const trailingUnder = ownTrailing && fontScale >= 1.3;
   const content = (
     <>
       {icon && (
@@ -178,11 +183,11 @@ export function ListRow({
             {value}
           </Text>
         )}
+        {trailingUnder && <View style={styles.trailingUnder}>{end}</View>}
       </View>
-      {trailingContent(end)}
+      {!trailingUnder && trailingContent(end)}
     </>
   );
-  const ownTrailing = end !== "chevron" && end !== "external" && end !== "none";
   // A custom trailing node, such as a badge, is read from the row's content.
   const accessibleLabel = ownTrailing
     ? undefined
@@ -257,6 +262,11 @@ const styles = StyleSheet.create({
   bodyBeside: { flexWrap: "nowrap" },
   // Leaves the label at least half the row; a badge inside wraps instead.
   trailing: { maxWidth: "50%" },
+  trailingUnder: {
+    alignItems: "flex-start",
+    flexBasis: "100%",
+    paddingTop: space.xs,
+  },
   valueBeside: { flexShrink: 1, maxWidth: "65%", textAlign: "right" },
   pressed: { backgroundColor: color.pressed },
   disabledText: { color: color.disabledInk },
