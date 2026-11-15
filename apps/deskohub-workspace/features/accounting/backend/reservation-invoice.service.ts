@@ -5,7 +5,6 @@ import {
 } from "@deskohub/dotypos";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Result } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
 import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
 import type { InvoiceBuyerAddress } from "@/features/accounting/billing-identity";
 import type { InvoiceBuyer } from "@/features/accounting/invoice";
@@ -25,7 +24,7 @@ import {
 } from "@/features/reservation/reservation-billing";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
+import { AccountingStorage } from "./accounting-storage";
 import {
   InvoiceRepository,
   type InvoiceRepositoryError,
@@ -273,7 +272,14 @@ export class ReservationInvoiceService extends Context.Service<
   );
 
   static Live = this.Default.pipe(
-    Layer.provide(getReservationInvoiceDependencies()),
+    Layer.provide(
+      Layer.mergeAll(
+        AccountingStorage.Live,
+        WorkspaceDotyposLayer,
+        WorkspaceReservationRepository.Live,
+        InvoiceEmailDeliveryService.Live
+      )
+    ),
     Layer.orDie
   );
 }
@@ -314,24 +320,3 @@ const isUnrequestedPersonalInvoice = (
   source.billing?.purpose === "personal" &&
   source.billing.invoice === "none" &&
   source.buyer.kind === "person";
-
-function getReservationInvoiceDependencies() {
-  const accountingStorage = Layer.merge(
-    WorkspaceDatabase.Default,
-    AccountingSnapshotKeyService.Default
-  );
-  const accountingSnapshots = AccountingDocumentSnapshots.Default.pipe(
-    Layer.provide(accountingStorage)
-  );
-  const invoices = InvoiceRepository.Default.pipe(
-    Layer.provide(Layer.merge(accountingStorage, accountingSnapshots))
-  );
-
-  return Layer.mergeAll(
-    accountingSnapshots,
-    WorkspaceDotyposLayer,
-    invoices,
-    WorkspaceReservationRepository.Live,
-    InvoiceEmailDeliveryService.Live
-  );
-}

@@ -4,7 +4,6 @@ import {
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
 import { Context, Data, Effect, Layer } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
 import { env } from "@/env";
 import { isManualInvoiceDocument } from "@/features/accounting/invoice";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
@@ -15,7 +14,7 @@ import {
 } from "@/shared/backend/email/workspace-email-recipients";
 import { censorLogValue } from "@/shared/backend/logging/censorship";
 import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
+import { AccountingStorage } from "./accounting-storage";
 import { type Invoice, InvoiceRepository } from "./invoice.repository";
 import { renderInvoiceDeliveryEmail } from "./invoice-delivery-email";
 import {
@@ -375,27 +374,13 @@ export class InvoiceEmailDeliveryService extends Context.Service<
   );
 
   static Live = this.Default.pipe(
-    Layer.provide(getInvoiceEmailDeliveryDependencies())
-  );
-}
-
-function getInvoiceEmailDeliveryDependencies() {
-  const accountingStorage = Layer.merge(
-    WorkspaceDatabase.Default,
-    AccountingSnapshotKeyService.Default
-  );
-  const accountingSnapshots = AccountingDocumentSnapshots.Default.pipe(
-    Layer.provide(accountingStorage)
-  );
-  const invoices = InvoiceRepository.Default.pipe(
-    Layer.provide(Layer.merge(accountingStorage, accountingSnapshots))
-  );
-
-  return Layer.mergeAll(
-    accountingSnapshots,
-    invoices,
-    InvoiceEmailDeliveryRepository.Live,
-    WorkspaceEmailLayer
+    Layer.provide(
+      Layer.mergeAll(
+        AccountingStorage.Live,
+        InvoiceEmailDeliveryRepository.Live,
+        WorkspaceEmailLayer
+      )
+    )
   );
 }
 

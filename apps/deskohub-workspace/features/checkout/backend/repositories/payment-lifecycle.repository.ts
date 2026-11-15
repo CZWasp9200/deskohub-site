@@ -40,6 +40,7 @@ import {
   AccountingDocumentSnapshots,
   type AccountingRecordUnavailable,
 } from "@/features/accounting/backend/accounting-document-snapshots";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
 import {
@@ -863,9 +864,8 @@ export class PaymentLifecycleRepository extends Context.Service<
     })
   );
 
-  static Live = this.Default.pipe(
-    Layer.provide(AccountingDocumentSnapshots.Live)
-  );
+  /** `Default` over the accounting storage; the database comes from context. */
+  static Live = this.Default.pipe(Layer.provide(AccountingStorage.Live));
 }
 
 /** Reads the reservation's customer, whose first-booking lock comes next. */

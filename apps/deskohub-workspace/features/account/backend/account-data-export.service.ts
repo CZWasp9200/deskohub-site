@@ -1,5 +1,6 @@
 import { Context, Data, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import {
   type InvoiceMetadata,
   InvoiceRepository,
@@ -458,7 +459,7 @@ export class AccountDataExportService extends Context.Service<
           DiscountApplicationRepository.Default
         ).pipe(Layer.provide(WorkspaceDatabase.Default)),
         LegalEvidenceEventRepository.Live,
-        InvoiceRepository.Live,
+        AccountingStorage.Live,
         InvoiceEmailDeliveryRepository.Live,
         MarketingConsentLedger.Live,
         ReservationAccessRepository.Live

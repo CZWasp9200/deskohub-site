@@ -16,6 +16,8 @@ import {
   referralAttributions,
   referralCodes,
 } from "@/db/schema";
+import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { PaymentLifecycleRepository } from "@/features/checkout/backend/repositories/payment-lifecycle.repository";
 import { admitPendingNexiPayment } from "@/features/checkout/backend/repositories/payment-lifecycle.test-utils";
 import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
@@ -338,16 +340,28 @@ const retrySignupReferral = (account: {
     Effect.runPromise
   );
 
-const paymentLifecycle = () =>
-  Effect.runPromise(
+const paymentLifecycle = () => {
+  const database = databaseLayer();
+  return Effect.runPromise(
     Effect.gen(function* () {
       return yield* PaymentLifecycleRepository;
     }).pipe(
       Effect.provide(
-        PaymentLifecycleRepository.Live.pipe(Layer.provide(databaseLayer()))
+        PaymentLifecycleRepository.Default.pipe(
+          Layer.provide(
+            Layer.merge(
+              database,
+              testAccountingStorage(
+                database,
+                AccountingSnapshotKeyService.Default
+              )
+            )
+          )
+        )
       )
     )
   );
+};
 
 /**
  * Starts a Nexi payment for the customer through the real lifecycle,
