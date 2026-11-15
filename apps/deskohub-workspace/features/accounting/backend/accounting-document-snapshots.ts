@@ -27,10 +27,7 @@ export type {
   AccountingRecordUnavailable,
 } from "./sealed-accounting-json";
 
-/**
- * A snapshot accepted for a payment attempt that is about to be inserted,
- * sealed under the key that was active when it was accepted.
- */
+/** A snapshot accepted for a payment attempt that is about to be inserted. */
 export interface PreparedAccountingDocumentSnapshot {
   /** The snapshot as decoded strictly. */
   readonly snapshot: AccountingDocumentSnapshot;
@@ -38,7 +35,8 @@ export interface PreparedAccountingDocumentSnapshot {
    * Records the snapshot for the attempt the caller has just inserted, in
    * the caller's transaction: a failure rolls the attempt back with it. The
    * reservation's provider identity, read under the caller's locks, must be
-   * the snapshot's.
+   * the snapshot's, and an encryption key must be active. A caller that
+   * returns an earlier attempt without recording needs no key.
    */
   readonly record: (attempt: {
     readonly paymentAttemptId: PaymentAttemptId;
@@ -59,8 +57,8 @@ export interface IAccountingDocumentSnapshots {
    * Accepts a snapshot for a payment attempt before the attempt's
    * transaction opens, so the payment can refuse before it writes anything:
    * the snapshot must decode strictly, belong to the attempt's reservation,
-   * locale and amount, and reconcile its own money, and an encryption key
-   * must be active. `reference` names the attempt in errors until it exists.
+   * locale and amount, and reconcile its own money. `reference` names the
+   * attempt in this and `record`'s errors until the attempt exists.
    */
   readonly prepare: (input: {
     readonly snapshot: AccountingDocumentSnapshot;
@@ -121,7 +119,6 @@ export class AccountingDocumentSnapshots extends Context.Service<
           readonly reference: AccountingRecordReference;
         }) {
           const snapshot = yield* acceptForAttempt(input);
-          const sealer = yield* snapshots.sealer(input.reference);
 
           const record = Effect.fn("AccountingDocumentSnapshots.record")(
             function* (attempt: {
@@ -143,6 +140,7 @@ export class AccountingDocumentSnapshots extends Context.Service<
                 });
               }
 
+              const sealer = yield* snapshots.sealer(input.reference);
               yield* sealer.seal({
                 reference: {
                   type: "paymentAttemptId",

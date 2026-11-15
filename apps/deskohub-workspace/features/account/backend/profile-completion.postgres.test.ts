@@ -344,7 +344,7 @@ const paymentLifecycle = () =>
       return yield* PaymentLifecycleRepository;
     }).pipe(
       Effect.provide(
-        PaymentLifecycleRepository.Default.pipe(Layer.provide(databaseLayer()))
+        PaymentLifecycleRepository.Live.pipe(Layer.provide(databaseLayer()))
       )
     )
   );

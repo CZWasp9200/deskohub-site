@@ -861,11 +861,13 @@ export class PaymentLifecycleRepository extends Context.Service<
         markPaid,
         markTerminal,
       } satisfies IPaymentLifecycleRepository;
-    }).pipe(
-      Effect.provide(
-        AccountingDocumentSnapshots.Default.pipe(
-          Layer.provide(AccountingSnapshotKeyService.Default)
-        )
+    })
+  );
+
+  static Live = this.Default.pipe(
+    Layer.provide(
+      AccountingDocumentSnapshots.Default.pipe(
+        Layer.provide(AccountingSnapshotKeyService.Default)
       )
     )
   );

@@ -201,7 +201,7 @@ const storedRows = async (
 class CallerFailure extends Data.TaggedError("CallerFailure") {}
 
 describe("AccountingDocumentSnapshots.prepare", () => {
-  test("accepts a snapshot that matches its attempt and seals it under the active key", async () => {
+  test("accepts a snapshot that matches its attempt, and record seals it under the active key", async () => {
     const { reservationId, snapshot } = await createReservation();
 
     const paymentAttemptId = await run(
@@ -323,7 +323,7 @@ describe("AccountingDocumentSnapshots.prepare", () => {
   ];
 
   for (const mismatch of mismatches) {
-    test(`refuses ${mismatch.name} before taking a key`, async () => {
+    test(`refuses ${mismatch.name} without taking a key`, async () => {
       const { snapshot } = await createReservation();
       const reference = providerOrderReference();
       const getActive = mock(() => Effect.succeed(testKey));
@@ -345,31 +345,6 @@ describe("AccountingDocumentSnapshots.prepare", () => {
       expect(getActive).not.toHaveBeenCalled();
     });
   }
-
-  test("refuses when no encryption key is active, naming the attempt by its reference", async () => {
-    const { snapshot } = await createReservation();
-    const reference = providerOrderReference();
-
-    const failure = await run(
-      Effect.flip(prepareFor(snapshot, reference)),
-      makeKeys({
-        getActive: Effect.fail(
-          new AccountingSnapshotKeyError({
-            keyId: testKey.id,
-            message: "Synthetic key is unavailable.",
-          })
-        ),
-      })
-    );
-
-    expect(failure).toMatchObject({
-      _tag: "AccountingRecordUnavailable",
-      operation: "encrypt",
-      reference,
-      message: "Accounting snapshot encryption key is unavailable.",
-    });
-    expect(JSON.stringify(failure)).not.toContain(testKey.secret);
-  });
 });
 
 describe("AccountingDocumentSnapshots.record", () => {
@@ -426,6 +401,50 @@ describe("AccountingDocumentSnapshots.record", () => {
       });
     });
   }
+
+  test("needs no key to prepare; record refuses without one, naming the attempt by the prepared reference, and rolls the attempt back", async () => {
+    const { reservationId, snapshot } = await createReservation();
+    const reference = providerOrderReference();
+    const noKey = makeKeys({
+      getActive: Effect.fail(
+        new AccountingSnapshotKeyError({
+          keyId: testKey.id,
+          message: "Synthetic key is unavailable.",
+        })
+      ),
+    });
+
+    const failure = await run(
+      Effect.flip(
+        Effect.gen(function* () {
+          const prepared = yield* prepareFor(snapshot, reference);
+          expect(prepared.snapshot).toEqual(snapshot);
+          yield* inTransaction(
+            Effect.gen(function* () {
+              const paymentAttemptId = yield* insertAttempt(snapshot);
+              yield* prepared.record({
+                paymentAttemptId,
+                ...providerIdentity(snapshot),
+              });
+            })
+          );
+        })
+      ),
+      noKey
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "AccountingRecordUnavailable",
+      operation: "encrypt",
+      reference,
+      message: "Accounting snapshot encryption key is unavailable.",
+    });
+    expect(JSON.stringify(failure)).not.toContain(testKey.secret);
+    expect(await storedRows(reservationId)).toEqual({
+      attempts: [],
+      snapshots: [],
+    });
+  });
 
   test("rolls back with the caller's transaction", async () => {
     const { reservationId, snapshot } = await createReservation();
