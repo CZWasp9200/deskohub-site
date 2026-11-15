@@ -32,6 +32,7 @@ const workspaceE2EAdministrationRecipientLabels = {
   "administrator-agent-tools": ["aat-admin"],
   "administrator-agent-tools-customer-refusal": ["aatc-member"],
   "administrator-invoice-customer-download": ["aicd-admin", "aicd-customer"],
+  "administrator-invoice-cancellation": ["aic-admin", "aic-customer"],
   "administrator-non-administrator-refusal": ["anr-member"],
   "administrator-sign-in-return": ["asr-admin"],
   "automation-reservation-booked": ["arb-admin"],
