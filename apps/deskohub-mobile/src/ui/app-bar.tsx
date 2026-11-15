@@ -77,5 +77,12 @@ const styles = StyleSheet.create({
   pressed: { backgroundColor: color.sunken },
   lead: { width: space.md },
   title: { flex: 1, minWidth: 0, paddingLeft: space.xs },
-  actions: { alignItems: "center", flexDirection: "row", flexShrink: 0 },
+  // Actions keep to half the bar and stack, so a long action label wraps
+  // inside the bar at large font sizes instead of pushing past its edge.
+  actions: {
+    alignItems: "flex-end",
+    flexShrink: 1,
+    gap: space.xs,
+    maxWidth: "50%",
+  },
 });
