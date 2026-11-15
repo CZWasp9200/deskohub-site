@@ -7,9 +7,9 @@ import {
   supportedLocales,
 } from "@deskohub/i18n/locale-registry";
 import type { AudienceFilterType } from "@deskohub/workspace-admin-api";
-import { BunServices } from "@effect/platform-bun";
 import { Effect, Option } from "effect";
 import { InvalidMutationInputError } from "../command-runtime";
+import { PlatformLive } from "../platform";
 import {
   type ContentChangeFlags,
   campaignBodyFileName,
@@ -35,7 +35,7 @@ test("reads and preserves completed coworking visit filters from inline JSON", a
     readAudienceFilter({
       filter: Option.some(JSON.stringify(filter)),
       filterFile: Option.none(),
-    }).pipe(Effect.provide(BunServices.layer))
+    }).pipe(Effect.provide(PlatformLive))
   );
   expect(Option.getOrThrow(result)).toEqual(filter);
 });
@@ -70,7 +70,7 @@ const writeBody = async (body: string) => {
 const contentPatch = (flags: Partial<ContentChangeFlags>) =>
   Effect.runPromise(
     makeCampaignContentPatch({ ...noContentChanges, ...flags }).pipe(
-      Effect.provide(BunServices.layer)
+      Effect.provide(PlatformLive)
     )
   );
 
@@ -78,7 +78,7 @@ const contentPatchFailure = (flags: Partial<ContentChangeFlags>) =>
   Effect.runPromise(
     makeCampaignContentPatch({ ...noContentChanges, ...flags }).pipe(
       Effect.flip,
-      Effect.provide(BunServices.layer)
+      Effect.provide(PlatformLive)
     )
   );
 

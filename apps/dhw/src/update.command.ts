@@ -49,7 +49,8 @@ export const checkAndInstallUpdate = ({
 export const updateCommand = Command.make(
   "update",
   {
-    yes: Flag.boolean("yes").pipe(
+    yes: Flag.Boolean("yes").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Install an available update without prompting")
     ),
   },

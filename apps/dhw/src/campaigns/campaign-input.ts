@@ -49,11 +49,11 @@ export const campaignBodyFileName = (
 ) => `${campaignLocaleLanguage(locale)}.md`;
 
 export const campaignLocaleFlag = (name: string) =>
-  Flag.choiceWithValue(name, campaignLocaleChoices);
+  Flag.ChoiceWithValue(name, campaignLocaleChoices);
 
 /** A repeatable `--<name> <locale>=<value>` flag. */
 export const localizedFlag = (name: string, description: string, min = 0) =>
-  Flag.string(name).pipe(
+  Flag.String(name).pipe(
     Flag.atLeast(min),
     Flag.withDescription(
       `${description}, as <locale>=<value> where the locale is ${campaignLocaleShortNames}; repeat per locale`

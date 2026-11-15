@@ -137,11 +137,7 @@ import {
   Schedule,
   type Schema,
 } from "effect";
-import {
-  HttpClient,
-  HttpClientError,
-  HttpClientRequest,
-} from "effect/http";
+import { HttpClient, HttpClientError, HttpClientRequest } from "effect/http";
 import { HttpApiClient } from "effect/http-api";
 import { DHW_VERSION } from "../build-info";
 import { DhwConfig } from "../config/dhw-config.service";
