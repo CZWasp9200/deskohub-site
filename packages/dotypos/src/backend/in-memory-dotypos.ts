@@ -34,9 +34,12 @@ import {
   DotyposService,
   dotyposMaximumPageSize,
   type IDotyposService,
+  normalizeReservationBooking,
   type ReservationListOptions,
   type ReservationPage,
+  RestoreCancelledReservationResult,
   reservationListQuery,
+  restorableReservationStatus,
   validateReservationInterval,
   validateReservationPageNumber,
 } from "./service";
@@ -450,6 +453,50 @@ export const makeInMemoryDotypos = (
               writeReservation(reservation, { status: "CONFIRMED" })
             ),
             Match.exhaustive
+          )
+        )
+      ),
+    restoreCancelledReservation: ({ reservationId, expectedBooking }) =>
+      normalizeId(
+        DotyposReservationIdSchema,
+        reservationId,
+        "Reservation ID",
+        "restoreCancelledReservation"
+      ).pipe(
+        Effect.andThen(
+          normalizeReservationBooking(
+            expectedBooking,
+            "restoreCancelledReservation"
+          )
+        ),
+        Effect.flatMap((expected) =>
+          readReservationRecord(
+            reservationId,
+            "restoreCancelledReservation",
+            "reservation.version"
+          ).pipe(
+            Effect.flatMap((reservation) =>
+              restorableReservationStatus(reservation, expected).pipe(
+                Effect.flatMap(
+                  (status): Effect.Effect<RestoreCancelledReservationResult> =>
+                    status === "CANCELLED"
+                      ? writeReservation(reservation, {
+                          status: "CONFIRMED",
+                        }).pipe(
+                          Effect.map((restored) =>
+                            RestoreCancelledReservationResult.Restored({
+                              reservation: restored,
+                            })
+                          )
+                        )
+                      : Effect.succeed(
+                          RestoreCancelledReservationResult.AlreadyConfirmed({
+                            reservation,
+                          })
+                        )
+                )
+              )
+            )
           )
         )
       ),

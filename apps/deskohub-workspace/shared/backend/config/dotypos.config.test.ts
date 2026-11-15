@@ -27,6 +27,7 @@ const dotypos = Layer.succeed(DotyposService, {
   updateReservation: () => Effect.succeed("updated"),
   cancelReservation: () => Effect.fail(failure),
   confirmReservation: () => Effect.succeed("confirmed"),
+  restoreCancelledReservation: () => Effect.succeed("restored"),
   getTables,
 } as never);
 
@@ -54,10 +55,13 @@ describe("Dotypos reservation writes", () => {
       Effect.all([
         service.createReservation({} as never),
         service.updateReservation({} as never),
+        service.restoreCancelledReservation({} as never),
       ])
     );
 
     expect(revalidateTag.mock.calls).toEqual([
+      [availabilityTags.reservations, { expire: 1 }],
+      [reservationRecordTags.records, { expire: 1 }],
       [availabilityTags.reservations, { expire: 1 }],
       [reservationRecordTags.records, { expire: 1 }],
       [availabilityTags.reservations, { expire: 1 }],

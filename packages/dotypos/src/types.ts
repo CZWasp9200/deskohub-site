@@ -182,11 +182,15 @@ export interface DotyposReservationInterval {
   readonly endDate: Date;
 }
 
-export interface CreateDotyposReservationInput
-  extends DotyposReservationInterval {
+/** Who holds which table, when, and for how many seats: the facts a reservation books. */
+export interface DotyposReservationBooking extends DotyposReservationInterval {
   readonly customerId: DotyposCustomerId;
   readonly seats: number;
   readonly tableId: DotyposTableId;
+}
+
+export interface CreateDotyposReservationInput
+  extends DotyposReservationBooking {
   readonly status: DotyposReservationStatus;
   readonly note?: string;
 }
@@ -194,4 +198,10 @@ export interface CreateDotyposReservationInput
 export interface UpdateDotyposReservationInput {
   readonly reservationId: DotyposReservationId;
   readonly note: string;
+}
+
+export interface RestoreDotyposReservationInput {
+  readonly reservationId: DotyposReservationId;
+  /** The booking the caller holds for the reservation. A reservation that books anything else is not restored. */
+  readonly expectedBooking: DotyposReservationBooking;
 }
