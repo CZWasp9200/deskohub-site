@@ -474,13 +474,10 @@ export class AccountDataExportService extends Context.Service<
     )
   );
 
-  /** The archive of the session this authentication reads. */
-  static withAuthentication = <E, R>(
-    authentication: Layer.Layer<CustomerAuthentication, E, R>
-  ) => this.ForProvidedAuthentication.pipe(Layer.provide(authentication));
-
   /** The archive of the browser session's account, as the website serves it. */
-  static Live = this.withAuthentication(CustomerAuthentication.Default);
+  static Live = this.ForProvidedAuthentication.pipe(
+    Layer.provide(CustomerAuthentication.Default)
+  );
 }
 
 /**
