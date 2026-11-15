@@ -6,12 +6,14 @@ import { customerEvents } from "@/db/schema/customer-events";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 
 /**
- * What retracting an undone cancellation's event found:
- * - `retracted`: no automation had planned it, and now none will;
- * - `in_intake`: intake owns or is planning it, and withdraws it when it
- *   finds the reservation no longer cancelled at that instant;
- * - `processed`: automations already took it in, and their runs are
- *   withdrawn before they send;
+ * The processing state retraction found the undone cancellation's event in:
+ * - `retracted`: no intake unit owned it and it wasn't processed; it is
+ *   now processed, so no automation takes it in;
+ * - `in_intake`: an intake unit owns it, or another transaction held it
+ *   (a planner planning it); intake's reservation recheck withdraws it;
+ * - `processed`: already processed, whether automations took it in, none
+ *   matched it, or an earlier retraction did; runs it started are withdrawn
+ *   before they send;
  * - `absent`: no event records that cancellation.
  */
 export type CancellationEventRetraction =
