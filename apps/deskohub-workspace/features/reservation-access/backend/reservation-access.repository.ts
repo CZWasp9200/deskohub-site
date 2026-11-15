@@ -7,7 +7,7 @@ import { AlgoPinSchema } from "@deskohub/igloohome";
 import { NodeCrypto } from "@effect/platform-node";
 import { and, asc, eq, inArray, lte, or } from "drizzle-orm";
 import { Context, Crypto, Data, Effect, Layer, Schema } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
 import { reservationAccessGrants } from "@/db/schema";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -49,12 +49,15 @@ export class ReservationAccessStorageError extends Data.TaggedError(
 )<{
   readonly operation:
     | "claim"
+    | "create_pending"
     | "ensure"
     | "load"
+    | "lock"
     | "mark_failed"
     | "mark_issued"
     | "mark_uncertain"
     | "reconcile_uncertain"
+    | "reopen_expired"
     | "reschedule_issued";
   readonly reservationId?: WorkspaceReservationId;
   readonly message: string;
@@ -75,6 +78,31 @@ const hasBounds = (bounds: ReservationAccessBounds) =>
     eq(reservationAccessGrants.accessStartsAt, bounds.accessStartsAt),
     eq(reservationAccessGrants.accessEndsAt, bounds.accessEndsAt)
   );
+
+/** What a new grant targets before its first request. */
+interface ReservationAccessTarget extends ReservationAccessBounds {
+  readonly reservationId: WorkspaceReservationId;
+  readonly deviceId: IgloohomeDeviceId;
+}
+
+/**
+ * The row of a new `pending` grant. It carries the name its first request
+ * will use. A grant created by a deployment that predates stored names has
+ * none, and a reset keeps the name of the latest request.
+ */
+const newPendingGrant = (
+  id: ReservationAccessGrantId,
+  target: ReservationAccessTarget
+) => ({
+  id,
+  accessName: makeReservationAccessName(id),
+  workspaceReservationId: target.reservationId,
+  deviceId: target.deviceId,
+  state: "pending" as const,
+  scheduledAccessStartsAt: target.scheduledAccessStartsAt,
+  accessStartsAt: target.accessStartsAt,
+  accessEndsAt: target.accessEndsAt,
+});
 
 /**
  * A reservation's door-access grant state and access window. The access
@@ -98,14 +126,11 @@ export interface IReservationAccessRepository {
    * only a grant programmed for other Igloohome hours, so a grant any
    * deployment issued for the requested hours is never reset.
    */
-  readonly ensure: (input: {
-    readonly reservationId: WorkspaceReservationId;
-    readonly deviceId: IgloohomeDeviceId;
-    readonly scheduledAccessStartsAt: Temporal.Instant;
-    readonly accessStartsAt: Temporal.Instant;
-    readonly accessEndsAt: Temporal.Instant;
-    readonly replacingIssued: ReservationAccessBounds | null;
-  }) => Effect.Effect<ReservationAccessGrant, ReservationAccessStorageError>;
+  readonly ensure: (
+    input: ReservationAccessTarget & {
+      readonly replacingIssued: ReservationAccessBounds | null;
+    }
+  ) => Effect.Effect<ReservationAccessGrant, ReservationAccessStorageError>;
   readonly findByReservationId: (
     reservationId: WorkspaceReservationId
   ) => Effect.Effect<
@@ -181,6 +206,40 @@ export interface IReservationAccessRepository {
     readonly reconciledAt: Temporal.Instant;
     readonly provisioningStaleBefore: Temporal.Instant;
   }) => Effect.Effect<ReservationAccessGrant, ReservationAccessStorageError>;
+  /** In the caller's transaction: locks the reservation's grant, if it has one. */
+  readonly lockForReservation: (
+    reservationId: WorkspaceReservationId
+  ) => Effect.Effect<
+    ReservationAccessGrant | null,
+    ReservationAccessStorageError,
+    WorkspaceTransaction
+  >;
+  /**
+   * In the caller's transaction: creates a `pending` grant for a reservation
+   * that has none. Returns null, writing nothing, when it has one.
+   */
+  readonly createPending: (
+    input: ReservationAccessTarget
+  ) => Effect.Effect<
+    ReservationAccessGrant | null,
+    ReservationAccessStorageError,
+    WorkspaceTransaction
+  >;
+  /**
+   * In the caller's transaction: resets an `expired` grant to `pending`
+   * without a credential, so normal issuance claims it again. Keeps its
+   * access name and bounds; issuance records the reservation's current ones.
+   * Returns null, writing nothing, when the grant is not `expired`.
+   */
+  readonly reopenExpired: (input: {
+    readonly id: ReservationAccessGrantId;
+    readonly reservationId: WorkspaceReservationId;
+    readonly reopenedAt: Temporal.Instant;
+  }) => Effect.Effect<
+    ReservationAccessGrant | null,
+    ReservationAccessStorageError,
+    WorkspaceTransaction
+  >;
 }
 
 export class ReservationAccessRepository extends Context.Service<
@@ -258,38 +317,131 @@ export class ReservationAccessRepository extends Context.Service<
         return yield* requireWithinReadLimit(rows, input.limit);
       });
 
+      const generateGrantId = (
+        operation: "create_pending" | "ensure",
+        reservationId: WorkspaceReservationId
+      ) =>
+        crypto.randomUUIDv7.pipe(
+          Effect.map(reservationAccessGrantIdSchema.make),
+          Effect.mapError(
+            () =>
+              new ReservationAccessStorageError({
+                operation,
+                reservationId,
+                message: "Reservation access grant ID could not be generated.",
+              })
+          )
+        );
+
+      const createPending = Effect.fn(
+        "ReservationAccessRepository.createPending"
+      )(function* (input: ReservationAccessTarget) {
+        const { db } = yield* WorkspaceTransaction;
+        const id = yield* generateGrantId(
+          "create_pending",
+          input.reservationId
+        );
+        const [grant] = yield* db
+          .insert(reservationAccessGrants)
+          .values(newPendingGrant(id, input))
+          .onConflictDoNothing({
+            target: reservationAccessGrants.workspaceReservationId,
+          })
+          .returning(reservationAccessGrantSelection)
+          .pipe(
+            Effect.mapError(
+              () =>
+                new ReservationAccessStorageError({
+                  operation: "create_pending",
+                  reservationId: input.reservationId,
+                  message: "Reservation access grant could not be created.",
+                })
+            )
+          );
+        return grant ?? null;
+      });
+
+      const lockForReservation = Effect.fn(
+        "ReservationAccessRepository.lockForReservation"
+      )(function* (reservationId: WorkspaceReservationId) {
+        const { db } = yield* WorkspaceTransaction;
+        const [row] = yield* db
+          .select(reservationAccessGrantSelection)
+          .from(reservationAccessGrants)
+          .where(
+            eq(reservationAccessGrants.workspaceReservationId, reservationId)
+          )
+          .limit(1)
+          .for("update")
+          .pipe(
+            Effect.mapError(
+              () =>
+                new ReservationAccessStorageError({
+                  operation: "lock",
+                  reservationId,
+                  message: "Reservation access grant could not be locked.",
+                })
+            )
+          );
+        return row ?? null;
+      });
+
+      const reopenExpired = Effect.fn(
+        "ReservationAccessRepository.reopenExpired"
+      )(function* (input: {
+        readonly id: ReservationAccessGrantId;
+        readonly reservationId: WorkspaceReservationId;
+        readonly reopenedAt: Temporal.Instant;
+      }) {
+        const { db } = yield* WorkspaceTransaction;
+        const [grant] = yield* db
+          .update(reservationAccessGrants)
+          .set({
+            state: "pending",
+            providerCredentialId: null,
+            accessCode: null,
+            provisioningStartedAt: null,
+            issuedAt: null,
+            failedAt: null,
+            failureCode: null,
+            updatedAt: input.reopenedAt,
+          })
+          .where(
+            and(
+              eq(reservationAccessGrants.id, input.id),
+              eq(
+                reservationAccessGrants.workspaceReservationId,
+                input.reservationId
+              ),
+              eq(reservationAccessGrants.state, "expired")
+            )
+          )
+          .returning(reservationAccessGrantSelection)
+          .pipe(
+            Effect.mapError(
+              () =>
+                new ReservationAccessStorageError({
+                  operation: "reopen_expired",
+                  reservationId: input.reservationId,
+                  message: "Expired reservation access could not be reopened.",
+                })
+            )
+          );
+        return grant ?? null;
+      });
+
       return ReservationAccessRepository.of({
         findByReservationId,
         listForReservations,
+        lockForReservation,
+        createPending,
+        reopenExpired,
         ensure: Effect.fn("ReservationAccessRepository.ensure")(
           function* (input) {
-            const id = yield* crypto.randomUUIDv7.pipe(
-              Effect.map(reservationAccessGrantIdSchema.make),
-              Effect.mapError(
-                () =>
-                  new ReservationAccessStorageError({
-                    operation: "ensure",
-                    reservationId: input.reservationId,
-                    message:
-                      "Reservation access grant ID could not be generated.",
-                  })
-              )
-            );
+            const id = yield* generateGrantId("ensure", input.reservationId);
             yield* db
               .insert(reservationAccessGrants)
-              .values({
-                id,
-                // A new grant carries the name its first request will use. A
-                // grant created by a deployment that predates stored names
-                // has none, and a reset keeps the name of the latest request.
-                accessName: makeReservationAccessName(id),
-                workspaceReservationId: input.reservationId,
-                deviceId: input.deviceId,
-                state: "pending",
-                scheduledAccessStartsAt: input.scheduledAccessStartsAt,
-                accessStartsAt: input.accessStartsAt,
-                accessEndsAt: input.accessEndsAt,
-              })
+              .values(newPendingGrant(id, input))
               .onConflictDoUpdate({
                 target: reservationAccessGrants.workspaceReservationId,
                 set: {

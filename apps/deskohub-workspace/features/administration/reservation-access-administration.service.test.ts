@@ -124,6 +124,32 @@ describe("ReservationAccessAdministration", () => {
     expect(harness.confirmProviderCredentialRemoved).not.toHaveBeenCalled();
   });
 
+  test("retries a pending grant whose issuance never ran, as a restored reservation's", async () => {
+    const harness = runMutation(
+      { kind: "retry-failed", reservationId },
+      { ...baseGrant, state: "pending", failedAt: null, failureCode: null }
+    );
+
+    expect((await harness.result).state).toBe("issued");
+    expect(harness.issueForReservation).toHaveBeenCalledWith({
+      reservationId,
+      reservedFrom: reservation.reservedFrom,
+      reservedUntil: reservation.reservedUntil,
+    });
+  });
+
+  test("refuses to retry an expired grant", async () => {
+    const harness = runMutation(
+      { kind: "retry-failed", reservationId },
+      { ...baseGrant, state: "expired", failedAt: null, failureCode: null }
+    );
+
+    await expect(harness.result).rejects.toMatchObject({
+      reason: "invalid_state",
+    });
+    expect(harness.issueForReservation).not.toHaveBeenCalled();
+  });
+
   test("requires provider removal confirmation before retrying uncertain access", async () => {
     const uncertain = { ...baseGrant, state: "uncertain" as const };
     const rejected = runMutation(
