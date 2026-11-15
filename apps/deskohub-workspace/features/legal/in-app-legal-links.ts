@@ -14,6 +14,9 @@ type LegalElementProps = {
 
 const sentinelOrigin = "https://in-app-legal-links.invalid";
 
+const isNodeList = (node: ReactNode): node is readonly ReactNode[] =>
+  Array.isArray(node);
+
 // Authored links to other legal documents are same-site paths; mail and
 // external links never are.
 const isLegalDocumentHref = (href: string) =>
@@ -34,7 +37,7 @@ const keepElementLinksInApp = (
   if (children === undefined) return element;
   // Authored children pass on as they were given, a list as separate
   // arguments, so React sees the same children and keys it validated.
-  return Array.isArray(children)
+  return isNodeList(children)
     ? cloneElement(element, undefined, ...children.map(keepLegalLinksInApp))
     : cloneElement(element, undefined, keepLegalLinksInApp(children));
 };
@@ -46,7 +49,7 @@ const keepElementLinksInApp = (
  * authored; every other node renders unchanged.
  */
 export const keepLegalLinksInApp = (node: ReactNode): ReactNode => {
-  if (Array.isArray(node)) {
+  if (isNodeList(node)) {
     return node.map(keepLegalLinksInApp);
   }
   return isValidElement<LegalElementProps>(node)
