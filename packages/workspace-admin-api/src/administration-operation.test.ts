@@ -65,6 +65,11 @@ const operations = administrationOperations(WorkspaceAdminApi);
 const operationByReference = new Map(
   operations.map((operation) => [operation.reference, operation])
 );
+/** Whether `schemas` holds `schema`; reflection returns new schema objects over the declared ASTs. */
+const declares = (
+  schemas: ReadonlyArray<Schema.Top> | undefined,
+  schema: Schema.Top
+) => schemas?.some(({ ast }) => ast === schema.ast) ?? false;
 const isCliOnly = (endpoint: ReflectedEndpoint) =>
   Option.isSome(Context.getOption(endpoint.annotations, CliOnly));
 
@@ -195,8 +200,8 @@ describe("administration operations", () => {
       .filter((endpoint) => !isCliOnly(endpoint))
       .filter(
         ({ errors }) =>
-          !errors.get(401)?.includes(CliSessionUnauthorized.schema) ||
-          !errors.get(503)?.includes(CliServiceUnavailable.schema)
+          !declares(errors.get(401), CliSessionUnauthorized.schema) ||
+          !declares(errors.get(503), CliServiceUnavailable.schema)
       )
       .map(({ reference }) => reference);
 
