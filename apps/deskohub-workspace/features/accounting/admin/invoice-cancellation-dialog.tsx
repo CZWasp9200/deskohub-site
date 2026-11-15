@@ -160,17 +160,16 @@ export function InvoiceCancellation({
             )}
           </DialogDescription>
         </DialogHeader>
+        {/* One region for the dialog's life: a re-read plan changes the
+            form around it, never the region that announces a refusal. */}
+        <div role="alert">
+          {error && (
+            <AdministrationAlert status="error">{error}</AdministrationAlert>
+          )}
+        </div>
         {preview?.state === "live" ? (
           <InvoiceCancellationForm
-            error={error}
             isExecuting={cancelAction.isExecuting}
-            // A changed plan gets a fresh form: the PIN confirmation
-            // and its validation follow the current reservation.
-            key={[
-              preview.customerNotice,
-              preview.reservation?.reservationId,
-              preview.reservation?.requiresProviderCredentialRemoval,
-            ].join(":")}
             locale={locale}
             onSubmit={(values) => {
               setError(null);
@@ -191,7 +190,7 @@ export function InvoiceCancellation({
           />
         ) : (
           <InvoiceCancellationPending
-            error={error}
+            loading={!preview && !error}
             locale={locale}
             preview={preview}
           />
@@ -203,26 +202,21 @@ export function InvoiceCancellation({
 
 /** The dialog while it reads the plan, when reading failed, or when the invoice was cancelled meanwhile. */
 function InvoiceCancellationPending({
-  error,
+  loading,
   locale,
   preview,
 }: {
-  readonly error: string | null;
+  readonly loading: boolean;
   readonly locale: Locale;
   readonly preview: InvoiceCancellationPreview | null;
 }) {
   return (
     <>
-      {!preview && !error && (
+      {loading && (
         <AdministrationPanelLoading
           label={m.accountingInvoiceCancelLoading({}, { locale })}
         />
       )}
-      <div role="alert">
-        {error && (
-          <AdministrationAlert status="error">{error}</AdministrationAlert>
-        )}
-      </div>
       {preview?.state === "cancelled" && (
         <AdministrationAlert status="warning">
           {m.accountingInvoiceCancelAlreadyCancelled({}, { locale })}
@@ -245,13 +239,11 @@ function InvoiceCancellationPending({
  * confirmations come from the reservation dialog's shared part.
  */
 function InvoiceCancellationForm({
-  error,
   isExecuting,
   locale,
   onSubmit,
   preview,
 }: {
-  readonly error: string | null;
   readonly isExecuting: boolean;
   readonly locale: Locale;
   readonly onSubmit: (values: ReservationCancellationFormValues) => void;
@@ -260,6 +252,7 @@ function InvoiceCancellationForm({
   const requiresProviderCredentialRemoval =
     preview.reservation?.requiresProviderCredentialRemoval ?? false;
   const form = useReservationCancellationForm({
+    accessGrantUpdatedAt: preview.reservation?.accessGrantUpdatedAt ?? null,
     locale,
     requiresProviderCredentialRemoval,
   });
@@ -309,11 +302,6 @@ function InvoiceCancellationForm({
             />
           </>
         )}
-        <div role="alert">
-          {error && (
-            <AdministrationAlert status="error">{error}</AdministrationAlert>
-          )}
-        </div>
         <DialogFooter>
           <DialogClose asChild>
             <Button disabled={isExecuting} type="button" variant="secondary">

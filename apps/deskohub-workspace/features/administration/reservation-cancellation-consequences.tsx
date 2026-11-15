@@ -2,6 +2,7 @@
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Schema } from "effect";
+import { useEffect, useRef } from "react";
 import { type UseFormReturn, useForm, useWatch } from "react-hook-form";
 import type { Locale } from "@/features/i18n";
 import { Checkbox } from "@/shared/components/ui/checkbox";
@@ -57,27 +58,42 @@ const reservationCancellationFormDefaults = {
 /**
  * The operator's answers for cancelling a reservation: the door PIN removal,
  * required when the reservation has an active PIN, and the cancellation email.
+ * The PIN removal is confirmed for the access grant revision the dialog
+ * showed, so a newer revision, as a refreshed page brings, asks again.
  */
 export const useReservationCancellationForm = ({
+  accessGrantUpdatedAt,
   locale,
   requiresProviderCredentialRemoval,
 }: {
+  readonly accessGrantUpdatedAt: string | null;
   readonly locale: Locale;
   readonly requiresProviderCredentialRemoval: boolean;
-}): ReservationCancellationForm =>
-  useForm<
+}): ReservationCancellationForm => {
+  const form = useForm<
     ReservationCancellationFormInput,
     unknown,
     ReservationCancellationFormValues
   >({
     defaultValues: reservationCancellationFormDefaults,
     mode: "onSubmit",
+    // Read on every render, so a re-read plan that starts or stops needing
+    // the PIN removal validates against it without a new form.
     resolver: effectSchemaResolver(
       requiresProviderCredentialRemoval
         ? getConfirmedReservationCancellationFormSchema(locale)
         : reservationCancellationFormSchema
     ),
   });
+  // The revision arrives with a refresh, which has no completion callback.
+  const confirmedRevision = useRef(accessGrantUpdatedAt);
+  useEffect(() => {
+    if (confirmedRevision.current === accessGrantUpdatedAt) return;
+    confirmedRevision.current = accessGrantUpdatedAt;
+    form.resetField("providerCredentialRemoved");
+  }, [accessGrantUpdatedAt, form]);
+  return form;
+};
 
 /** Whether the form still waits for the operator to confirm the PIN removal. */
 export const useAwaitsProviderCredentialRemoval = (

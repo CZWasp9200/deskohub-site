@@ -16,7 +16,9 @@ import { workspaceE2ETimeouts } from "../timeouts";
 import type { WorkspaceE2EAdministrationLinkedAccount } from "./identities";
 
 // The manual invoice an administrator issues in the Admin UI, shared by the
-// administration cases that start from one.
+// administration cases that start from one. The form's controls are found by
+// their en-US labels, as the download case always did, so callers drive the
+// form on the en-US route.
 
 export type IssuedInvoice = {
   readonly id: string;

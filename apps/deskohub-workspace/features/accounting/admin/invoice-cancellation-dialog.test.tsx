@@ -281,7 +281,56 @@ describe("InvoiceCancellation", () => {
       });
     });
     expect(dialog.queryByText(sentWarning)).not.toBeNull();
-    expect(dialog.getByRole("alert").textContent).toBe(refusal);
+    // The same mounted region keeps the refusal while the warnings change.
+    expect(dialog.getByRole("alert")).toBe(alert);
+    expect(alert.textContent).toBe(refusal);
+  });
+
+  test("asks for the door PIN removal again when the re-read plan names a newer access grant", async () => {
+    const { view } = renderCancellation();
+    const dialog = await openWith(
+      view,
+      livePreview({ sent: false, reservation: true, pin: true })
+    );
+    fireEvent.click(dialog.getByRole("checkbox", { name: pinCheckbox }));
+    expect(
+      dialog
+        .getByRole("checkbox", { name: pinCheckbox })
+        .getAttribute("aria-checked")
+    ).toBe("true");
+
+    await act(async () => {
+      cancelCallbacks?.onError({
+        error: {
+          serverError: m.accountingInvoiceCancelErrorConfirmationStale(
+            {},
+            { locale }
+          ),
+        },
+      });
+    });
+    const preview = livePreview({ sent: false, reservation: true, pin: true });
+    await act(async () => {
+      previewCallbacks?.onSuccess({
+        data: {
+          ...preview,
+          reservation: preview.state === "live" &&
+            preview.reservation && {
+              ...preview.reservation,
+              accessGrantUpdatedAt: "2026-09-29T08:00:00.000Z",
+            },
+        },
+      });
+    });
+
+    expect(
+      dialog
+        .getByRole("checkbox", { name: pinCheckbox })
+        .getAttribute("aria-checked")
+    ).toBe("false");
+    expect(
+      dialog.getByRole("button", { name: submitLabel }).hasAttribute("disabled")
+    ).toBe(true);
   });
 
   test("closes and reports the outcome once the invoice is cancelled", async () => {

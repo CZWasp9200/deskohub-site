@@ -391,4 +391,45 @@ describe("ReservationCancellation", () => {
     expect(workspaceRouterRefresh).toHaveBeenCalled();
     expect(view.getByRole("dialog")).toBeDefined();
   });
+
+  test("asks for the door PIN removal again when a refresh brings a newer access grant", async () => {
+    withActionOptions();
+    const { ReservationCancellation } = await import(
+      "./reservation-cancellation"
+    );
+    const pinName = m.administrationReservationCancellationPinRemoved(
+      {},
+      { locale: "en-US" }
+    );
+    const cancellation = (accessGrantUpdatedAt: string) => (
+      <RouteLocaleProvider locale="en-US">
+        <ReservationCancellation
+          accessGrantUpdatedAt={accessGrantUpdatedAt}
+          canCancel={true}
+          invoice={null}
+          requiresProviderCredentialRemoval={true}
+          reservationId={fixtureReservationId}
+        />
+      </RouteLocaleProvider>
+    );
+    const view = render(cancellation("2026-09-28T10:00:00.000Z"));
+    await openDialog(view);
+    const dialog = within(view.getByRole("dialog"));
+    fireEvent.click(dialog.getByRole("checkbox", { name: pinName }));
+    expect(
+      dialog
+        .getByRole("checkbox", { name: pinName })
+        .getAttribute("aria-checked")
+    ).toBe("true");
+
+    await act(async () => {
+      view.rerender(cancellation("2026-09-29T08:00:00.000Z"));
+    });
+
+    expect(
+      dialog
+        .getByRole("checkbox", { name: pinName })
+        .getAttribute("aria-checked")
+    ).toBe("false");
+  });
 });

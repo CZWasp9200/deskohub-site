@@ -57,6 +57,7 @@ export function ReservationCancellation({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const form = useReservationCancellationForm({
+    accessGrantUpdatedAt,
     locale,
     requiresProviderCredentialRemoval,
   });
