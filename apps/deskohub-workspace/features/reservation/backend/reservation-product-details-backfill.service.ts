@@ -149,7 +149,7 @@ const triageRow = (
 };
 
 const triageRows = ({ rows }: { readonly rows: readonly BackfillRow[] }) => {
-  const [unresolved, pending] = Arr.partition(rows, triageRow);
+  const [pending, unresolved] = Arr.partition(rows, triageRow);
   const incomplete = Arr.getSomes(pending);
   return {
     unresolved,
@@ -267,7 +267,7 @@ const resolveRows = ({
       (reservation) => [reservation.id, reservation] as const
     )
   );
-  const [unresolved, resolved] = Arr.partition(incomplete, (row) =>
+  const [resolved, unresolved] = Arr.partition(incomplete, (row) =>
     resolveRow({ row, dotyposById })
   );
   return { unresolved, resolved };
