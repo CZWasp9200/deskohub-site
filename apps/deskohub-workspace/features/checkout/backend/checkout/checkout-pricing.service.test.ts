@@ -4,16 +4,19 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
+import { makeDiscountCommitment } from "@/features/discounts/commitment";
 import {
   affirmedDiscountAdvertisementQuoteCodec,
   type DiscountAdvertisementInput,
   discountAdvertisementQuoteCodec,
   discountIdSchema,
+  discountQuoteCodec,
 } from "@/features/discounts/contracts";
 import { DiscountServiceMock } from "@/features/discounts/discount.service.mock";
 import { DiscountAffirmationUnavailableError } from "@/features/discounts/errors";
 import type { Locale } from "@/features/i18n";
 import { getCoworkAdvertisedPriceReservation } from "@/features/reservation/cowork-reservation";
+import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import {
   getMeetingRoomAdvertisedPriceReservation,
   normalizeMeetingRoomReservationOrder,
@@ -359,5 +362,172 @@ describe("CheckoutPricingService.affirmAdvertisement", () => {
       },
     });
     expect(affirmAdvertisement).not.toHaveBeenCalled();
+  });
+});
+
+describe("CheckoutPricingService.affirmForPayment", () => {
+  const dotyposCustomerId = Schema.decodeUnknownSync(dotyposCustomerIdSchema)(
+    "customer-id"
+  );
+
+  /** The discounts payment affirms again, with an empty commitment. */
+  const displayed =
+    (quote: typeof halfOffSale) =>
+    (
+      input: DiscountedProduct &
+        Pick<DiscountAdvertisementInput, "firstServiceDate">
+    ) =>
+      Effect.succeed({
+        quote: discountQuoteCodec.make(quote(input)),
+        commitment: makeDiscountCommitment({
+          product: input.product,
+          firstServiceDate: input.firstServiceDate,
+          applications: [],
+        }),
+      });
+
+  describe.each(families)("$kind", (family) => {
+    /** Signs the advertised sale price, then affirms it for payment. */
+    const affirmSigned = async (input: {
+      readonly acceptedTotal?: (signed: number) => number;
+      readonly affirmDisplayedDiscounts: Parameters<
+        typeof DiscountServiceMock
+      >[0]["affirmDisplayedDiscounts"];
+    }) => {
+      const signed = (await family.advertise("en-US")).quote;
+      const signedTotal = signed.payment.expectedPrice;
+      const acceptedTotal = {
+        ...signedTotal,
+        value: input.acceptedTotal?.(signedTotal.value) ?? signedTotal.value,
+      };
+      const affirmDisplayedDiscounts = mock(input.affirmDisplayedDiscounts);
+      const result = await run(
+        CheckoutPricingService.pipe(
+          Effect.flatMap((pricing) =>
+            pricing.affirmForPayment({
+              reservation: family.order,
+              dotyposCustomerId,
+              locale: "en-US",
+              quote: signed,
+              acceptedTotal,
+              bookedAt,
+            } as Parameters<ICheckoutPricingService["affirmForPayment"]>[0])
+          ),
+          Effect.result
+        ),
+        DiscountServiceMock({ affirmDisplayedDiscounts })
+      );
+      return { signed, affirmDisplayedDiscounts, result };
+    };
+
+    test("affirms the signed price while its discounts and total still hold", async () => {
+      const { signed, affirmDisplayedDiscounts, result } = await affirmSigned({
+        affirmDisplayedDiscounts: displayed(halfOffSale),
+      });
+
+      expect(affirmDisplayedDiscounts).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bookedAt,
+          dotyposCustomerId,
+          locale: "en-US",
+          displayedDiscountIds: [saleId],
+        })
+      );
+      expect(result).toMatchObject({
+        _tag: "Success",
+        success: {
+          status: "affirmed",
+          priced: {
+            kind: family.kind,
+            reservation: family.order,
+            quote: { fingerprint: signed.fingerprint },
+            summary: { total: signed.payment.expectedPrice },
+          },
+        },
+      });
+      expect(result).not.toHaveProperty("success.changedKeys");
+    });
+
+    test("names the changed summary keys when a signed discount is gone", async () => {
+      const { signed, result } = await affirmSigned({
+        affirmDisplayedDiscounts: displayed(noSale),
+      });
+
+      expect(result).toMatchObject({
+        _tag: "Success",
+        success: {
+          status: "pricing_changed",
+          priced: { kind: family.kind, reservation: family.order },
+          changedKeys: family.changedKeys,
+        },
+      });
+      if (result._tag === "Success") {
+        expect(result.success.priced.quote.fingerprint).not.toBe(
+          signed.fingerprint
+        );
+      }
+    });
+
+    test("reports a changed price when the quote holds but the accepted total differs", async () => {
+      const { signed, result } = await affirmSigned({
+        acceptedTotal: (signedTotal) => signedTotal + 100,
+        affirmDisplayedDiscounts: displayed(halfOffSale),
+      });
+
+      expect(result).toMatchObject({
+        _tag: "Success",
+        success: {
+          status: "pricing_changed",
+          priced: { quote: { fingerprint: signed.fingerprint } },
+          changedKeys: { sectionKeys: [], itemKeys: [] },
+        },
+      });
+    });
+
+    test("keeps an unknown discount a retryable failure, never a changed price", async () => {
+      const { result } = await affirmSigned({
+        affirmDisplayedDiscounts: () =>
+          Effect.fail(
+            new DiscountAffirmationUnavailableError({
+              message: "The sale could not be affirmed.",
+              discountIds: [saleId],
+            })
+          ),
+      });
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "DiscountAffirmationUnavailableError",
+          discountIds: [saleId],
+        },
+      });
+    });
+
+    test("re-prices for payment without judging the signed price", async () => {
+      const signed = (await family.advertise("en-US")).quote;
+      const result = await run(
+        CheckoutPricingService.pipe(
+          Effect.flatMap((pricing) =>
+            pricing.repriceForPayment({
+              reservation: family.order,
+              dotyposCustomerId,
+              locale: "en-US",
+              quote: signed,
+              bookedAt,
+            } as Parameters<ICheckoutPricingService["repriceForPayment"]>[0])
+          )
+        ),
+        DiscountServiceMock({ affirmDisplayedDiscounts: displayed(noSale) })
+      );
+
+      expect(result).not.toHaveProperty("status");
+      expect(result).toMatchObject({
+        kind: family.kind,
+        reservation: family.order,
+        quote: { payment: { discounts: [] } },
+      });
+      expect(result.summary.total).toEqual(result.quote.payment.expectedPrice);
+    });
   });
 });

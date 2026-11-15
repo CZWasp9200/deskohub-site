@@ -59,6 +59,7 @@ import {
   type PaymentPriceAffirmation,
   type PaymentPriceAffirmationInput,
 } from "./checkout-pricing.service";
+import { paymentPricingFrom } from "./checkout-pricing.service.mock";
 import {
   type CheckoutReferralResult,
   CheckoutReferralService,
@@ -375,15 +376,19 @@ const makeServiceLayer = (input: {
           : Effect.fail(input.codeKindFailure),
       evaluateCheckoutReferral: input.evaluateCheckoutReferral,
     }),
-    Layer.mock(CheckoutPricingService, {
-      affirmForPayment: (affirmationInput) =>
+    Layer.mock(
+      CheckoutPricingService,
+      paymentPricingFrom((affirmationInput) =>
         Effect.suspend(() => {
-          input.onPricingAffirmation?.(affirmationInput);
+          input.onPricingAffirmation?.(
+            affirmationInput as PaymentPriceAffirmationInput
+          );
           return input.pricingFailure === undefined
             ? Effect.succeed(input.affirmation)
             : Effect.fail(input.pricingFailure);
-        }),
-    }),
+        })
+      )
+    ),
     Layer.mock(PayableReservationService, {
       requireCurrent: () =>
         Effect.suspend(() => {
