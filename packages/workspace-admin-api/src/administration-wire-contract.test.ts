@@ -125,7 +125,10 @@ const reachableComponents = (
  * declaration order (the last declared runs first), and the annotations
  * `dhw`, the MCP tools and the middleware read.
  */
-const wireContractOf = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+const wireContractOf = <
+  Id extends string,
+  Groups extends HttpApiGroup.Constraint,
+>(
   api: HttpApi.HttpApi<Id, Groups>
 ) => {
   const spec = OpenApi.fromApi(api);

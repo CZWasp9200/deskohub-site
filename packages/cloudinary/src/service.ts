@@ -2,8 +2,8 @@ import "server-only";
 
 import { v2 as cloudinary } from "cloudinary";
 import { Clock, Context, Effect, Layer, Predicate, pipe } from "effect";
-import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpClient } from "effect/http";
+import * as Schema from "effect/Schema";
 import { decodeCloudinaryAsset } from "./asset-decoding";
 import {
   type CloudinaryConfig,

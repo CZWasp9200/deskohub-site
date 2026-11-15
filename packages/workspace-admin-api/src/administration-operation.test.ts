@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Context, Option, Schema, SchemaAST } from "effect";
-import {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-} from "effect/http-api";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import {
   AdministrationOperationBehavior,
   AdministrationOperationVariants,
@@ -33,7 +29,10 @@ type ReflectedEndpoint = {
   readonly errors: ReadonlyMap<number, ReadonlyArray<Schema.Top>>;
 };
 
-const reflectEndpoints = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+const reflectEndpoints = <
+  Id extends string,
+  Groups extends HttpApiGroup.Constraint,
+>(
   api: HttpApi.HttpApi<Id, Groups>
 ) => {
   const endpoints: Array<ReflectedEndpoint> = [];
@@ -69,10 +68,7 @@ const operationByReference = new Map(
 const isCliOnly = (endpoint: ReflectedEndpoint) =>
   Option.isSome(Context.getOption(endpoint.annotations, CliOnly));
 
-const payloadProperty = (
-  endpoint: HttpApiEndpoint.Top,
-  name: string
-) =>
+const payloadProperty = (endpoint: HttpApiEndpoint.Top, name: string) =>
   [...endpoint.payload.values()]
     .flatMap(({ schemas }) => schemas)
     .map((schema) => SchemaAST.toType(schema.ast))

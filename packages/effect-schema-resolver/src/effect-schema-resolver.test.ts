@@ -26,13 +26,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import {
-  Context,
-  Effect,
-  Schema,
-  SchemaGetter,
-  SchemaIssue,
-} from "effect";
+import { Context, Effect, Schema, SchemaGetter, SchemaIssue } from "effect";
 import type {
   CriteriaMode,
   Field,

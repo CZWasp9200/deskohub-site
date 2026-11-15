@@ -7,9 +7,9 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 import { Effect, Fiber, Layer, Logger, References } from "effect";
+import { FetchHttpClient } from "effect/http";
 import * as Schema from "effect/Schema";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/http";
 
 mock.module("server-only", () => ({}));
 

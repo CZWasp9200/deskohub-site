@@ -1,9 +1,5 @@
 import { Schema } from "effect";
-import {
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpApiSchema,
-} from "effect/http-api";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
 import { CustomerServiceUnavailable } from "./customer-session";
 import { responseHeaders } from "./openapi-response-headers";
