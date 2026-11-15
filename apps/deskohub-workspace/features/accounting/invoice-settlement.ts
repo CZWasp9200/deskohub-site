@@ -7,7 +7,10 @@ import {
 import type { InvoiceVariableSymbol } from "@/features/accounting/manual-invoice";
 import type { Locale } from "@/features/i18n";
 import { findWorkspaceCurrencyDefinition } from "@/shared/money/currencies";
-import { moneyToDecimalString } from "@/shared/money/money";
+import {
+  moneyToDecimalString,
+  toPlainDecimalString,
+} from "@/shared/money/money";
 import type { PlainDate } from "@/shared/utils/temporal";
 
 /** What an issued invoice tells its buyer about payment. */
@@ -56,7 +59,14 @@ const nonPositiveTotalSettlement: Readonly<
 
 export const getInvoiceTotal = (document: InvoiceDocument): InvoiceTotal =>
   isManualInvoiceDocument(document)
-    ? { amount: document.total, currency: document.currency }
+    ? {
+        // Issuance stores the sum as `BigDecimal.format` writes it, which
+        // turns large totals into scientific notation.
+        amount: toPlainDecimalString(
+          BigDecimal.fromStringUnsafe(document.total)
+        ),
+        currency: document.currency,
+      }
     : {
         amount: moneyToDecimalString(document.quote.payment.expectedPrice),
         currency: document.quote.payment.expectedPrice.currency,

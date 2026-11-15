@@ -5,7 +5,7 @@ import type { AdministrationWorkspaceReservationIdType } from "@deskohub/workspa
 import { Schema } from "effect";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { type UseFormReturn, useForm, useWatch } from "react-hook-form";
+import { type UseFormReturn, useForm } from "react-hook-form";
 import type { Locale } from "@/features/i18n";
 import { useRouteLocale } from "@/features/i18n/route-locale";
 import { Button } from "@/shared/components/ui/button";
@@ -35,26 +35,8 @@ import { m } from "./i18n";
 import { AdministrationAlert } from "./notice";
 
 const reservationCancellationFormSchema = Schema.Struct({
-  providerCredentialRemoved: Schema.Boolean,
   sendCancellationEmail: Schema.Boolean,
 });
-
-const getConfirmedReservationCancellationFormSchema = (locale: Locale) =>
-  reservationCancellationFormSchema.check(
-    Schema.makeFilter<{
-      readonly providerCredentialRemoved: boolean;
-      readonly sendCancellationEmail: boolean;
-    }>(
-      (values) =>
-        values.providerCredentialRemoved || {
-          path: ["providerCredentialRemoved"],
-          issue: m.administrationReservationCancellationPinRemovedRequired(
-            {},
-            { locale }
-          ),
-        }
-    )
-  );
 
 type ReservationCancellationFormInput =
   typeof reservationCancellationFormSchema.Encoded;
@@ -63,19 +45,14 @@ type ReservationCancellationFormValues =
   typeof reservationCancellationFormSchema.Type;
 
 const reservationCancellationFormDefaults = {
-  providerCredentialRemoved: false,
   sendCancellationEmail: true,
 } satisfies ReservationCancellationFormInput;
 
 export function ReservationCancellation({
   canCancel,
-  accessGrantUpdatedAt,
-  requiresProviderCredentialRemoval,
   reservationId,
 }: {
   readonly canCancel: boolean;
-  readonly accessGrantUpdatedAt: string | null;
-  readonly requiresProviderCredentialRemoval: boolean;
   readonly reservationId: AdministrationWorkspaceReservationIdType;
 }) {
   const router = useRouter();
@@ -90,11 +67,7 @@ export function ReservationCancellation({
   >({
     defaultValues: reservationCancellationFormDefaults,
     mode: "onSubmit",
-    resolver: effectSchemaResolver(
-      requiresProviderCredentialRemoval
-        ? getConfirmedReservationCancellationFormSchema(locale)
-        : reservationCancellationFormSchema
-    ),
+    resolver: effectSchemaResolver(reservationCancellationFormSchema),
   });
   const { execute, isExecuting } = useWorkspaceAction(
     cancelAdministrationReservation,
@@ -141,14 +114,11 @@ export function ReservationCancellation({
           onSubmit={(values) => {
             setError(null);
             execute({
-              accessGrantUpdatedAt,
-              providerCredentialRemoved: values.providerCredentialRemoved,
               reservationId,
               sendCancellationEmail: values.sendCancellationEmail,
             });
           }}
           open={open}
-          requiresProviderCredentialRemoval={requiresProviderCredentialRemoval}
         />
       )}
       {message && (
@@ -160,7 +130,7 @@ export function ReservationCancellation({
   );
 }
 
-/** Asks the operator to confirm the cancellation, and the door PIN removal when it's needed. */
+/** Asks the operator to confirm the cancellation. */
 function ReservationCancellationDialog({
   error,
   form,
@@ -169,7 +139,6 @@ function ReservationCancellationDialog({
   onOpenChange,
   onSubmit,
   open,
-  requiresProviderCredentialRemoval,
 }: {
   readonly error: string | null;
   readonly form: UseFormReturn<
@@ -182,12 +151,7 @@ function ReservationCancellationDialog({
   readonly onOpenChange: (open: boolean) => void;
   readonly onSubmit: (values: ReservationCancellationFormValues) => void;
   readonly open: boolean;
-  readonly requiresProviderCredentialRemoval: boolean;
 }) {
-  const [providerCredentialRemoved] = useWatch({
-    control: form.control,
-    name: ["providerCredentialRemoved", "sendCancellationEmail"],
-  });
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogTrigger asChild>
@@ -215,35 +179,6 @@ function ReservationCancellationDialog({
               void form.handleSubmit(onSubmit)(event);
             }}
           >
-            {requiresProviderCredentialRemoval && (
-              <FormField
-                control={form.control}
-                name="providerCredentialRemoved"
-                render={({ field: { onChange, ...field } }) => (
-                  <FormItem>
-                    <FormLabel asChild>
-                      <ChoiceCard tone="warning">
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={(checked) =>
-                              onChange(checked === true)
-                            }
-                          />
-                        </FormControl>
-                        <span className="leading-6">
-                          {m.administrationReservationCancellationPinRemoved(
-                            {},
-                            { locale }
-                          )}
-                        </span>
-                      </ChoiceCard>
-                    </FormLabel>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
             <FormField
               control={form.control}
               name="sendCancellationEmail"
@@ -287,11 +222,7 @@ function ReservationCancellationDialog({
                 </Button>
               </DialogClose>
               <Button
-                disabled={
-                  isExecuting ||
-                  (requiresProviderCredentialRemoval &&
-                    !providerCredentialRemoved)
-                }
+                disabled={isExecuting}
                 tone="burned-orange-ink"
                 type="submit"
               >

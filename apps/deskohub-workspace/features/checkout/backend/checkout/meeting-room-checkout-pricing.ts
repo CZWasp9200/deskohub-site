@@ -27,9 +27,10 @@ import {
   type ReservationAdvertisementQuoteInput,
   type ReservationCustomerQuoteInput,
   type ReservationDiscountCodePriceInput,
-  type ReservationDiscountCodePriceResult,
+  type ReservationDiscountCodeVerdict,
   type ReservationPaymentPriceAffirmation,
   type ReservationPaymentPriceAffirmationInput,
+  type ReservationPaymentRepricingInput,
   type ReservationPreparedCustomerQuote,
   reservationCheckoutPricing,
 } from "./reservation-checkout-pricing";
@@ -49,14 +50,21 @@ export type MeetingRoomAdvertisementAffirmationInput =
     MeetingRoomReservationQuote
   >;
 
-export type MeetingRoomCustomerQuoteInput =
-  ReservationCustomerQuoteInput<NormalizedMeetingRoomReservationOrder>;
+export type MeetingRoomCustomerQuoteInput = ReservationCustomerQuoteInput<
+  NormalizedMeetingRoomReservationOrder,
+  MeetingRoomReservationQuote
+>;
 
 export type MeetingRoomPaymentPriceAffirmationInput =
   ReservationPaymentPriceAffirmationInput<
     NormalizedMeetingRoomReservationOrder,
     MeetingRoomReservationQuote
   >;
+
+export type MeetingRoomPaymentRepricingInput = ReservationPaymentRepricingInput<
+  NormalizedMeetingRoomReservationOrder,
+  MeetingRoomReservationQuote
+>;
 
 export type MeetingRoomDiscountCodePriceInput =
   ReservationDiscountCodePriceInput<
@@ -86,11 +94,10 @@ export type MeetingRoomPaymentPriceAffirmation =
     MeetingRoomReservationQuote
   >;
 
-export type MeetingRoomDiscountCodePriceResult =
-  ReservationDiscountCodePriceResult<
-    NormalizedMeetingRoomReservationOrder,
-    MeetingRoomReservationQuote
-  >;
+export type MeetingRoomDiscountCodeVerdict = ReservationDiscountCodeVerdict<
+  NormalizedMeetingRoomReservationOrder,
+  MeetingRoomReservationQuote
+>;
 
 const getMeetingRoomPricingContext = Effect.fn(
   "MeetingRoomCheckoutPricing.getPricingContext"

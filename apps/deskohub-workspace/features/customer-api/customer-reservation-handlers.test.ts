@@ -63,29 +63,27 @@ const orderId = workspaceReservationIdSchema.make(
 
 /**
  * Authorization that lets the session's own account see `orderId`, read
- * through the authentication the handler hands it.
+ * through the authentication the handler provides.
  */
 const ownOrderAuthorization = (
   authorized: boolean
-): CustomerReservationServiceLayers["authorization"] => {
-  return (authentication) =>
-    Layer.effect(
-      ReservationAuthorizationService,
-      Effect.map(CustomerAuthentication, (session) => {
-        const isAuthorized = (input: ReservationAuthorizationInput) =>
-          session.currentUser.pipe(
-            Effect.map(
-              (user) =>
-                authorized &&
-                input.orderId === orderId &&
-                user?.accountId === testCustomerSession.accountId
-            ),
-            Effect.orElseSucceed(() => false)
-          );
-        return { isAuthorized, authorize: isAuthorized };
-      })
-    ).pipe(Layer.provide(authentication));
-};
+): CustomerReservationServiceLayers["authorization"] =>
+  Layer.effect(
+    ReservationAuthorizationService,
+    Effect.map(CustomerAuthentication, (session) => {
+      const isAuthorized = (input: ReservationAuthorizationInput) =>
+        session.currentUser.pipe(
+          Effect.map(
+            (user) =>
+              authorized &&
+              input.orderId === orderId &&
+              user?.accountId === testCustomerSession.accountId
+          ),
+          Effect.orElseSucceed(() => false)
+        );
+      return { isAuthorized, authorize: isAuthorized };
+    })
+  );
 
 describe("listReservations", () => {
   const listReservations: CustomerApiCall = {
@@ -145,8 +143,7 @@ describe("listReservations", () => {
         })
     );
     const reservations: Partial<CustomerReservationServiceLayers> = {
-      currentAccount: () =>
-        peeking(options.standing ?? testPeekedStandings.linked),
+      currentAccount: peeking(options.standing ?? testPeekedStandings.linked),
       history: () =>
         Layer.mock(CustomerReservationHistoryWithAccessService, { load }),
     };
@@ -339,25 +336,43 @@ describe("listReservations", () => {
   });
 
   test("builds the history's door codes from the authorization of the session's account", async () => {
+    // The history sees the session's own order only through the
+    // authorization the handler hands it.
     const history = mock(
       (
-        _authorization: Parameters<
+        authorization: Parameters<
           CustomerReservationServiceLayers["history"]
         >[0]
       ) =>
-        Layer.mock(CustomerReservationHistoryWithAccessService, {
-          load: () =>
-            Effect.succeed<CustomerReservationHistory>({
-              kind: "available",
-              groups: { current: [], past: [], unavailable: [] },
-            }),
-        })
+        Layer.effect(
+          CustomerReservationHistoryWithAccessService,
+          Effect.map(ReservationAuthorizationService, (authorizations) => ({
+            load: () =>
+              authorizations
+                .isAuthorized({
+                  orderId,
+                  locale: "en-US",
+                  permission: "view-access-code",
+                })
+                .pipe(
+                  Effect.map(
+                    (authorized): CustomerReservationHistory => ({
+                      kind: "available",
+                      groups: {
+                        current: authorized ? [ownReservation] : [],
+                        past: [],
+                        unavailable: [],
+                      },
+                    })
+                  )
+                ),
+          }))
+        ).pipe(Layer.provide(authorization))
     );
-    const authorization = mock(ownOrderAuthorization(true));
     const api = makeCustomerApiTestServer({
       reservations: {
-        currentAccount: () => peeking(testPeekedStandings.linked),
-        authorization,
+        currentAccount: peeking(testPeekedStandings.linked),
+        authorization: ownOrderAuthorization(true),
         history,
       },
     });
@@ -366,7 +381,7 @@ describe("listReservations", () => {
 
     expect(response.status).toBe(200);
     expect(history).toHaveBeenCalledTimes(1);
-    expect(authorization).toHaveBeenCalled();
+    expect((await response.json()).current).toHaveLength(1);
   });
 
   test("tells an account whose deletion is pending why it has no history", async () => {

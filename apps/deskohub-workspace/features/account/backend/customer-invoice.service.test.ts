@@ -8,7 +8,7 @@ import { TestClock } from "effect/testing";
 import { SqlError } from "effect/unstable/sql";
 import type { Invoice } from "@/features/accounting/backend/invoice.repository";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
-import { InvoiceStorageError } from "@/features/accounting/backend/invoice-reads";
+import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";
 import { getCustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
 import {
   makeCoworkInvoiceDocument,
@@ -20,6 +20,7 @@ import {
   CustomerAccountAccessError,
   type CustomerAccountId,
   customerAccountIdSchema,
+  customerAccountUnavailable,
 } from "../customer-account";
 import { CurrentCustomerAccount } from "./current-customer-account";
 import {
@@ -72,10 +73,10 @@ type Fixture = {
   /** The resolved standing, or the session read's failure. */
   standing: ResolvedStanding | CustomerAccountAccessError;
   activity: Effect.Effect<CustomerAccountActivityState, SqlError.SqlError>;
-  list: Effect.Effect<readonly Invoice[], InvoiceStorageError>;
+  list: Effect.Effect<readonly Invoice[], AccountingRecordUnavailable>;
   find: (
     invoiceId: string
-  ) => Effect.Effect<Invoice | null, InvoiceStorageError>;
+  ) => Effect.Effect<Invoice | null, AccountingRecordUnavailable>;
 };
 
 let fixture: Fixture;
@@ -151,30 +152,57 @@ const runFailure = <A, E>(
   operation: (service: CustomerInvoiceService["Service"]) => Effect.Effect<A, E>
 ) => Effect.runPromise(Effect.flip(provideService(operation)));
 
+/** Each refused authority, and the refusal the unavailable error carries. */
 const deniedAuthorities: readonly (readonly [
   string,
   Pick<Fixture, "standing"> | Pick<Fixture, "activity">,
+  CustomerAccountAccessError,
 ])[] = [
-  ["a signed-out session", { standing: testResolvedStandings["signed out"] }],
-  ["an unverified email", { standing: testResolvedStandings.unverified }],
+  [
+    "a signed-out session",
+    { standing: testResolvedStandings["signed out"] },
+    new CustomerAccountAccessError({ reason: "unauthenticated" }),
+  ],
+  [
+    "an unverified email",
+    { standing: testResolvedStandings.unverified },
+    new CustomerAccountAccessError({ reason: "unverified-email" }),
+  ],
   [
     "authentication that isn't configured",
     {
       standing: new CustomerAccountAccessError({ reason: "not-configured" }),
     },
+    new CustomerAccountAccessError({ reason: "not-configured" }),
   ],
   [
     "an account without a Dotypos customer",
     { standing: testResolvedStandings["profile missing"] },
+    new CustomerAccountAccessError({
+      reason: "link-required",
+      linkReason: "not-found",
+    }),
   ],
   [
     "an account whose customers only support can link",
     { standing: testResolvedStandings["support required, ambiguous"] },
+    new CustomerAccountAccessError({
+      reason: "link-required",
+      linkReason: "ambiguous",
+    }),
   ],
-  ["a review account", { standing: testResolvedStandings["review account"] }],
+  [
+    "a review account",
+    { standing: testResolvedStandings["review account"] },
+    customerAccountUnavailable("account.review"),
+  ],
   [
     "an account awaiting deletion",
     { standing: testResolvedStandings["awaiting deletion"] },
+    new CustomerAccountAccessError({
+      reason: "link-required",
+      linkReason: "deletion-requested",
+    }),
   ],
   [
     "an account with deletion pending",
@@ -185,10 +213,15 @@ const deniedAuthorities: readonly (readonly [
         deletionRequestedAt: new Date("2026-09-01T10:00:00Z"),
       }),
     },
+    new CustomerAccountAccessError({
+      reason: "link-required",
+      linkReason: "deletion-requested",
+    }),
   ],
   [
     "an account whose login is gone",
     { activity: Effect.succeed({ kind: "missing" }) },
+    new CustomerAccountAccessError({ reason: "unauthenticated" }),
   ],
 ];
 
@@ -219,12 +252,14 @@ describe("CustomerInvoiceService.list", () => {
 
   test.each(deniedAuthorities)(
     "is unavailable to %s without reading invoices",
-    async (_, denial) => {
+    async (_, denial, refusal) => {
       Object.assign(fixture, denial);
 
       const error = await runFailure((service) => service.list);
 
-      expect(error).toEqual(new CustomerInvoicesUnavailableError());
+      expect(error).toEqual(
+        new CustomerInvoicesUnavailableError({ account: refusal })
+      );
       expect(events.some((event) => event.startsWith("list:"))).toBe(false);
     }
   );
@@ -261,9 +296,9 @@ describe("CustomerInvoiceService.list", () => {
 
   test("fails to load without the storage cause when invoices can't be read", async () => {
     fixture.list = Effect.fail(
-      new InvoiceStorageError({
+      new AccountingRecordUnavailable({
         operation: "decrypt",
-        paymentAttemptId: dueInvoice.id,
+        reference: { type: "invoiceId", id: dueInvoice.id },
         message: "synthetic decryption failure",
       })
     );
@@ -299,12 +334,14 @@ describe("CustomerInvoiceService.pdf", () => {
 
   test.each(deniedAuthorities)(
     "is unavailable to %s without reading the invoice",
-    async (_, denial) => {
+    async (_, denial, refusal) => {
       Object.assign(fixture, denial);
 
       const error = await runFailure((service) => service.pdf(dueInvoice.id));
 
-      expect(error).toEqual(new CustomerInvoicesUnavailableError());
+      expect(error).toEqual(
+        new CustomerInvoicesUnavailableError({ account: refusal })
+      );
       expect(events.some((event) => event.startsWith("find:"))).toBe(false);
     }
   );
@@ -312,9 +349,9 @@ describe("CustomerInvoiceService.pdf", () => {
   test("fails to load when the invoice can't be read", async () => {
     fixture.find = () =>
       Effect.fail(
-        new InvoiceStorageError({
+        new AccountingRecordUnavailable({
           operation: "decrypt",
-          paymentAttemptId: dueInvoice.id,
+          reference: { type: "invoiceId", id: dueInvoice.id },
           message: "synthetic decryption failure",
         })
       );
@@ -344,11 +381,16 @@ describe("CustomerInvoiceService.csv", () => {
     ]);
   });
 
-  test.each(deniedAuthorities)("is unavailable to %s", async (_, denial) => {
-    Object.assign(fixture, denial);
+  test.each(deniedAuthorities)(
+    "is unavailable to %s",
+    async (_, denial, refusal) => {
+      Object.assign(fixture, denial);
 
-    const error = await runFailure((service) => service.csv("en-US"));
+      const error = await runFailure((service) => service.csv("en-US"));
 
-    expect(error).toEqual(new CustomerInvoicesUnavailableError());
-  });
+      expect(error).toEqual(
+        new CustomerInvoicesUnavailableError({ account: refusal })
+      );
+    }
+  );
 });
