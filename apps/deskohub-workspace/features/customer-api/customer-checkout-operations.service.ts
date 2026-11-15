@@ -114,9 +114,10 @@ export class CustomerCheckoutOperations extends Context.Service<
         CustomerAuthentication,
         yield* CustomerAuthentication
       );
-      const currentAccount = CurrentCustomerAccount.ForProvidedAuthentication.pipe(
-        Layer.provide(authentication)
-      );
+      const currentAccount =
+        CurrentCustomerAccount.ForProvidedAuthentication.pipe(
+          Layer.provide(authentication)
+        );
       const releases = {
         referral: Layer.succeed(
           ReferralReleaseGate,

@@ -77,7 +77,9 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
                 histories.load(account)
               )
             ),
-            Effect.provide(Layer.mergeAll(currentAccount, reservations.history)),
+            Effect.provide(
+              Layer.mergeAll(currentAccount, reservations.history)
+            ),
             answerCustomerApiFailure("customerApi.listReservations"),
             Effect.flatMap(answerReservationHistory)
           )

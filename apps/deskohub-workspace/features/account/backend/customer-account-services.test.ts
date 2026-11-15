@@ -19,9 +19,7 @@ const { CustomerAccountReservationOwnership } = await import(
   "./customer-account-reservation-ownership"
 );
 const { CustomerAccountSections } = await import("./customer-account-sections");
-const { CustomerAccountServices } = await import(
-  "./customer-account-services"
-);
+const { CustomerAccountServices } = await import("./customer-account-services");
 const { CustomerAuthentication } = await import(
   "./customer-authentication.service"
 );
@@ -121,7 +119,9 @@ describe("CustomerAccountServices", () => {
 });
 
 /** The browser requests whose session `effect` read. */
-const browserSessionReadsOf = async (effect: Effect.Effect<unknown, unknown>) => {
+const browserSessionReadsOf = async (
+  effect: Effect.Effect<unknown, unknown>
+) => {
   stores.browserSessionReads.length = 0;
   await effect.pipe(asBrowserRequest, Effect.runPromise);
   return [...stores.browserSessionReads];

@@ -62,21 +62,21 @@ const ownOrderAuthorization = (
   authorized: boolean
 ): CustomerReservationServiceLayers["authorization"] =>
   Layer.effect(
-      ReservationAuthorizationService,
-      Effect.map(CustomerAuthentication, (session) => {
-        const isAuthorized = (input: ReservationAuthorizationInput) =>
-          session.currentUser.pipe(
-            Effect.map(
-              (user) =>
-                authorized &&
-                input.orderId === orderId &&
-                user?.accountId === testCustomerSession.accountId
-            ),
-            Effect.orElseSucceed(() => false)
-          );
-        return { isAuthorized, authorize: isAuthorized };
-      })
-    );
+    ReservationAuthorizationService,
+    Effect.map(CustomerAuthentication, (session) => {
+      const isAuthorized = (input: ReservationAuthorizationInput) =>
+        session.currentUser.pipe(
+          Effect.map(
+            (user) =>
+              authorized &&
+              input.orderId === orderId &&
+              user?.accountId === testCustomerSession.accountId
+          ),
+          Effect.orElseSucceed(() => false)
+        );
+      return { isAuthorized, authorize: isAuthorized };
+    })
+  );
 
 describe("listReservations", () => {
   const listReservations: CustomerApiCall = {
