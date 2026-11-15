@@ -206,6 +206,8 @@ describe("the web SignInScreen", () => {
     await settle(() => shownStep(AppSignInCodeStep).invalid);
     const wrong = shownStep(AppSignInCodeStep);
     expect(wrong.notice?.tone).toBe("error");
+    // The rejected code leaves the boxes empty for the next one.
+    expect(wrong.code).toBe("");
     expect(wrong.resendAvailableAt).toBeLessThanOrEqual(Date.now());
 
     const before = Date.now();
@@ -245,6 +247,37 @@ describe("the web SignInScreen", () => {
     expect(limited.exhausted).toBe(true);
     expect(limited.notice?.tone).toBe("error");
     expect(limited.resendAvailableAt).toBe(serverAt);
+  });
+
+  test("the server's latest instant keeps gating the resend through later tries", async () => {
+    await toCode();
+    codeAnswers.push(refused({ status: 400, code: "INVALID_OTP" }));
+    await runInPage(() => shownStep(AppSignInCodeStep).onSubmit("000000"));
+    await settle(() => shownStep(AppSignInCodeStep).invalid);
+
+    const serverAt = Date.now() + 10 * 60_000;
+    emailAnswers.push(
+      refused({
+        status: 429,
+        code: "SIGN_IN_EMAIL_LIMIT_REACHED",
+        nextSignInEmailAt: new Date(serverAt).toISOString(),
+      })
+    );
+    await runInPage(() => shownStep(AppSignInCodeStep).onResend());
+    await settle(
+      () => shownStep(AppSignInCodeStep).resendAvailableAt === serverAt
+    );
+
+    // Another wrong code clears the refusal's message, not its instant.
+    codeAnswers.push(refused({ status: 400, code: "INVALID_OTP" }));
+    await runInPage(() => shownStep(AppSignInCodeStep).onSubmit("111111"));
+    await settle(
+      () =>
+        shownStep(AppSignInCodeStep).invalid &&
+        codeAnswers.length === 0 &&
+        !shownStep(AppSignInCodeStep).checking
+    );
+    expect(shownStep(AppSignInCodeStep).resendAvailableAt).toBe(serverAt);
   });
 
   test("an email with only a link shows the link step", async () => {

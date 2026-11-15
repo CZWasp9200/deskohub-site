@@ -101,6 +101,11 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
   const [passkeyPending, setPasskeyPending] = useState(false);
   // A new email went out from the code or link step; said until the next try.
   const [resent, setResent] = useState(false);
+  // What paces the next email for the sent address: the latest instant the
+  // server named and whether a wrong code waived the page's own cooldown.
+  // It lasts until another email goes out, through later tries.
+  const [resendGate, setResendGate] =
+    useState<Omit<Parameters<typeof signInResendAvailableAt>[0], "sentAt">>();
   const returnPath = safeReturnPath(params.return_to);
 
   const send = useAuthTask(
@@ -247,7 +252,15 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
       const sentEmail = Option.flatMap(exit, Exit.getSuccess);
       if (Option.isNone(sentEmail)) return;
       trackSignInStarted("link");
-      setSent(sentEmail.value);
+      emailSent(sentEmail.value);
+    });
+  };
+
+  const emailSent = (sentEmail: SentSignInEmail) => {
+    setSent(sentEmail);
+    setResendGate({
+      nextSignInEmailAt: sentEmail.nextSignInEmailAt,
+      cooldownWaived: false,
     });
   };
 
@@ -258,7 +271,20 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
       send.reset();
       setResent(false);
     }
-    void verify.start(sent.email, entered.trim(), accountExpectation());
+    void verify
+      .start(sent.email, entered.trim(), accountExpectation())
+      .then((exit) => {
+        if (!openedByApp) return;
+        const failure = Option.flatMap(exit, Exit.findErrorOption);
+        if (Option.isNone(failure)) return;
+        // A rejected code leaves the boxes empty for the next one, as on
+        // the site, so a pasted or suggested code replaces it whole.
+        setCode("");
+        const { reason } = failure.value;
+        if (reason === "wrong-code" || reason === "too-many-attempts") {
+          setResendGate((gate) => gate && { ...gate, cooldownWaived: true });
+        }
+      });
   };
   const submitCode = () => verifyCode(code);
 
@@ -270,8 +296,21 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     setResent(false);
     void send.start(sent.email, accountExpectation()).then((exit) => {
       const sentEmail = Option.flatMap(exit, Exit.getSuccess);
-      if (Option.isNone(sentEmail)) return;
-      setSent(sentEmail.value);
+      if (Option.isNone(sentEmail)) {
+        // A refusal that names the server's next instant is the latest word.
+        const refusedUntil = Option.flatMap(exit, Exit.findErrorOption).pipe(
+          Option.flatMap(({ nextSignInEmailAt }) =>
+            Option.fromUndefinedOr(nextSignInEmailAt)
+          )
+        );
+        if (Option.isSome(refusedUntil)) {
+          setResendGate(
+            (gate) => gate && { ...gate, nextSignInEmailAt: refusedUntil }
+          );
+        }
+        return;
+      }
+      emailSent(sentEmail.value);
       setCode("");
       setResent(true);
       verify.reset();
@@ -280,6 +319,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
 
   const startOver = () => {
     setSent(undefined);
+    setResendGate(undefined);
     setCode("");
     setResent(false);
     setUseAnotherAccount(true);
@@ -290,8 +330,6 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
   };
 
   if (openedByApp) {
-    const sendFailure =
-      send.state.status === "failed" ? send.state.failure : undefined;
     const verifyFailure =
       verify.state.status === "failed" ? verify.state.failure : undefined;
     // A refused resend outranks the earlier code result, so it is seen.
@@ -312,20 +350,9 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
         }
       : resentNotice;
     const resendAvailableAt =
-      sent === undefined
+      sent === undefined || resendGate === undefined
         ? 0
-        : signInResendAvailableAt({
-            sentAt: sent.sentAt,
-            // A refusal that says when the server takes the next email is
-            // the latest word on it.
-            nextSignInEmailAt:
-              sendFailure?.nextSignInEmailAt === undefined
-                ? sent.nextSignInEmailAt
-                : Option.some(sendFailure.nextSignInEmailAt),
-            cooldownWaived:
-              verifyFailure?.reason === "wrong-code" ||
-              verifyFailure?.reason === "too-many-attempts",
-          });
+        : signInResendAvailableAt({ sentAt: sent.sentAt, ...resendGate });
     // Once signed in, the page stays busy until the app takes over.
     const finishing = finished !== undefined;
     const resending = send.state.status === "running";
@@ -346,8 +373,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
       return (
         <AppSignInCodeStep
           email={sent?.email ?? ""}
-          // A code that can no longer work leaves the boxes empty.
-          code={exhausted ? "" : code}
+          code={code}
           onCodeChange={setCode}
           onSubmit={verifyCode}
           checking={

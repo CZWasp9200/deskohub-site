@@ -69,17 +69,17 @@ describe("useKeyboardResizedViewport", () => {
     expect(viewportMeta()).toBe(original);
   });
 
-  test("keeps a page's own keyboard setting", async () => {
+  test("replaces a page's own keyboard setting until the screen goes", async () => {
+    const own = `${original}, interactive-widget=overlays-content`;
     document
       .querySelector('meta[name="viewport"]')
-      ?.setAttribute(
-        "content",
-        `${original}, interactive-widget=overlays-content`
-      );
+      ?.setAttribute("content", own);
     await render(<Probe />);
     expect(viewportMeta()).toBe(
-      `${original}, interactive-widget=overlays-content`
+      `${original}, interactive-widget=resizes-content`
     );
+    await render(null);
+    expect(viewportMeta()).toBe(own);
   });
 
   test("follows the visible area where only the visual viewport shrinks", async () => {
