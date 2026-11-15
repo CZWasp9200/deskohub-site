@@ -30,6 +30,7 @@ import {
   findViolatedConstraint,
   isDatabaseQueryError,
 } from "@/db/sql-constraint";
+import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
 import type { AdministrationCustomerName } from "@/features/administration/customer-name";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DiscountGroupListing } from "@/features/discounts/discount-groups";
@@ -1208,6 +1209,9 @@ export class DiscountAdministration extends Context.Service<
         updateVoucher: withDiscountAdminConflict(updateVoucher),
       } satisfies IDiscountAdministration;
     })
+  ).pipe(
+    // The directory has one implementation: tests substitute `DotyposService` beneath it.
+    Layer.provide(AdministrationCustomerDirectory.Default)
   );
 
   static Live = this.Default.pipe(

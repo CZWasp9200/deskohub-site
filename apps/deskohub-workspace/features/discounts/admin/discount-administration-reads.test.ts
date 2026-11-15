@@ -1,13 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
   type Customer as DotyposCustomer,
+  type DotyposCustomerId,
   DotyposService,
+  DotyposUnavailable,
 } from "@deskohub/dotypos";
 import { GoogleCalendarService } from "@deskohub/google-calendar";
 import { AdministrationCustomerSearchResult } from "@deskohub/workspace-admin-api";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
+import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
 import { CalendarResourceConfig } from "@/shared/backend/config/calendar-resource.config";
 import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
+import type { DiscountCodeId } from "../persistence-contracts";
 import {
   getAdminDiscountCodeUsage,
   makeDiscountAdministrationReads,
@@ -74,6 +79,94 @@ describe("discount administration customers", () => {
   });
 });
 
+/** The reads over a substituted Dotypos and database; the directory is the real one. */
+const readsLayer = (
+  database: Layer.Layer<WorkspaceDatabase>,
+  dotypos: Layer.Layer<DotyposService>
+) =>
+  Layer.mergeAll(
+    database,
+    AdministrationCustomerDirectory.Default.pipe(Layer.provide(dotypos)),
+    dotypos,
+    Layer.mock(GoogleCalendarService, {}),
+    Layer.mock(CalendarResourceConfig, {
+      salesCalendarId: "sales-calendar" as never,
+    })
+  );
+
+describe("discount administration audiences", () => {
+  test("lists audience customers in audience order when the batch read fails", async () => {
+    const audience = ["failing", "deleted", "active", "missing"].map((id) => ({
+      dotyposCustomerId: id as DotyposCustomerId,
+    }));
+    const customers = new Map(
+      [
+        { id: "active", firstName: "Jana" },
+        { id: "deleted", firstName: "Petr", deleted: true },
+      ].map((customer) => [customer.id, customer as DotyposCustomer])
+    );
+    const unavailable = new DotyposUnavailable({
+      operation: "getCustomer",
+      reason: "server",
+    });
+    const row = {
+      id: "code",
+      discountId: "discount",
+      maxUses: null,
+      maxUsesPerCustomer: null,
+      serviceDateFrom: null,
+      serviceDateUntil: null,
+      promotion: {
+        code: "SYNTHETIC",
+        enabled: true,
+        validFrom: null,
+        validUntil: null,
+        customers: audience,
+      },
+      discount: { labels: { "en-US": "Synthetic" } },
+      redemptions: [],
+    };
+
+    const detail = await Effect.gen(function* () {
+      const reads = yield* makeDiscountAdministrationReads;
+      return yield* reads.loadCodeDetail({ codeId: "code" as DiscountCodeId });
+    }).pipe(
+      Effect.provide(
+        readsLayer(
+          Layer.succeed(
+            WorkspaceDatabase,
+            WorkspaceDatabase.make({
+              query: {
+                discountCodes: { findFirst: () => Effect.succeed(row) },
+              },
+            } as never)
+          ),
+          Layer.mock(DotyposService, {
+            getCustomersByIds: () => Effect.fail(unavailable),
+            getCustomer: (id) =>
+              id === "failing"
+                ? Effect.fail(unavailable)
+                : Effect.succeed(Option.fromNullishOr(customers.get(id))),
+          })
+        )
+      ),
+      Effect.runPromise
+    );
+
+    expect(
+      detail.customers.map(({ customerId, customer }) => [
+        customerId,
+        customer?.id ?? null,
+      ])
+    ).toEqual([
+      ["failing", null],
+      ["deleted", "deleted"],
+      ["active", "active"],
+      ["missing", null],
+    ]);
+  });
+});
+
 describe("discount administration customer search", () => {
   const searchCustomers = async (found: readonly DotyposCustomer[]) => {
     const recording = await makeRecordingWorkspaceDatabase();
@@ -83,17 +176,13 @@ describe("discount administration customer search", () => {
       return yield* reads.searchCustomers({ query: "novak" });
     }).pipe(
       Effect.provide(
-        Layer.mergeAll(
+        readsLayer(
           recording.layer,
-          Layer.mock(GoogleCalendarService, {}),
           Layer.mock(DotyposService, {
             searchCustomers: (query) => {
               queries.push(query);
               return Effect.succeed([...found]);
             },
-          }),
-          Layer.mock(CalendarResourceConfig, {
-            salesCalendarId: "sales-calendar" as never,
           })
         )
       ),

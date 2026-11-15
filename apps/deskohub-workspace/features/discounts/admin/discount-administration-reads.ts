@@ -12,7 +12,9 @@ import type {
   Voucher,
   VoucherRedemption,
 } from "@/db/schema";
-import { unnamedCustomerDisplayName } from "@/features/administration/customer-name";
+import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
+import { describeAdministrationCustomer } from "@/features/administration/customer-identity";
+import { degradeProviderRead } from "@/features/administration/provider-read-policy";
 import { listDiscountGroups } from "@/features/discounts/discount-groups";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -48,13 +50,13 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
   const { db } = yield* WorkspaceDatabase;
   const calendar = yield* GoogleCalendarService;
   const dotypos = yield* DotyposService;
+  const customerDirectory = yield* AdministrationCustomerDirectory;
   const { salesCalendarId } = yield* CalendarResourceConfig;
 
   const loadActiveCustomer = Effect.fn(
     "DiscountAdministration.loadActiveCustomer"
   )((customerId: DotyposCustomerId) =>
-    dotypos.getCustomer(customerId).pipe(
-      Effect.map(Option.filter((customer) => !customer.deleted)),
+    customerDirectory.find(customerId).pipe(
       Effect.flatMap(
         Option.match({
           onNone: () =>
@@ -176,6 +178,30 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
     )
   );
 
+  /**
+   * A promotion audience's customers in audience order. Deleted customers are
+   * still shown; a missing customer, or one Dotypos fails to return, is `null`.
+   */
+  const loadAudienceCustomers = (
+    audience: readonly { readonly dotyposCustomerId: DotyposCustomerId }[]
+  ) =>
+    customerDirectory
+      .findMany(
+        audience.map(({ dotyposCustomerId }) => dotyposCustomerId),
+        degradeProviderRead
+      )
+      .pipe(
+        Effect.map((customersById) =>
+          audience.map(({ dotyposCustomerId }) => {
+            const customer = customersById.get(dotyposCustomerId);
+            return {
+              customerId: dotyposCustomerId,
+              customer: customer ? toAdminDotyposCustomer(customer) : null,
+            };
+          })
+        )
+      );
+
   const loadCodeDetail = Effect.fn("DiscountAdministration.loadCodeDetail")(
     (input: { readonly codeId: DiscountCodeId }) =>
       db.query.discountCodes
@@ -207,24 +233,7 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
           ),
           Effect.bindTo("row"),
           Effect.bind("customers", ({ row }) =>
-            Effect.forEach(
-              row.promotion.customers,
-              ({ dotyposCustomerId }) =>
-                dotypos.getCustomer(dotyposCustomerId).pipe(
-                  Effect.map(
-                    Option.match({
-                      onNone: () => null,
-                      onSome: toAdminDotyposCustomer,
-                    })
-                  ),
-                  Effect.orElseSucceed(() => null),
-                  Effect.map((customer) => ({
-                    customerId: dotyposCustomerId,
-                    customer,
-                  }))
-                ),
-              { concurrency: 5 }
-            )
+            loadAudienceCustomers(row.promotion.customers)
           ),
           Effect.map(({ customers, row }) => ({
             code: toAdminDiscountCode(row),
@@ -264,24 +273,7 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
         ),
         Effect.bindTo("row"),
         Effect.bind("customers", ({ row }) =>
-          Effect.forEach(
-            row.promotion.customers,
-            ({ dotyposCustomerId }) =>
-              dotypos.getCustomer(dotyposCustomerId).pipe(
-                Effect.map(
-                  Option.match({
-                    onNone: () => null,
-                    onSome: toAdminDotyposCustomer,
-                  })
-                ),
-                Effect.orElseSucceed(() => null),
-                Effect.map((customer) => ({
-                  customerId: dotyposCustomerId,
-                  customer,
-                }))
-              ),
-            { concurrency: 5 }
-          )
+          loadAudienceCustomers(row.promotion.customers)
         ),
         Effect.map(({ customers, row }) => ({
           voucher: toAdminVoucher(row),
@@ -569,26 +561,10 @@ export const getAdminDiscountCodeUsage = (input: {
 
 export const toAdminDotyposCustomer = (
   customer: DotyposCustomer
-): AdminDotyposCustomer => {
-  const personName = [customer.firstName, customer.lastName]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-  const name =
-    customer.companyName?.trim() ||
-    personName ||
-    customer.email?.trim() ||
-    customer.phone?.trim();
-
-  return {
-    id: customer.id,
-    displayName: name || unnamedCustomerDisplayName,
-    hasName: Boolean(name),
-    email: customer.email?.trim() || null,
-    phone: customer.phone?.trim() || null,
-    discountGroupId: customer._discountGroupId ?? null,
-  };
-};
+): AdminDotyposCustomer => ({
+  ...describeAdministrationCustomer(customer, "company-person-email-phone"),
+  discountGroupId: customer._discountGroupId ?? null,
+});
 
 const toAdminDiscountCodeClaim = (
   row: DiscountCodeRedemption & {
