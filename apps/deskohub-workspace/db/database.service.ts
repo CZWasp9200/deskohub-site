@@ -188,23 +188,44 @@ export class WorkspaceDatabase extends Context.Service<
                 "A Workspace transaction was opened on a different database client inside another"
               )
             )
-          : db.transaction(() => {
-              const body = effect.pipe(
-                Effect.provideService(
-                  WorkspaceTransaction,
-                  WorkspaceTransaction.of({ db })
-                ),
-                // Bounded lock waits nest on this client's own transaction.
-                openLockLedger({
-                  nested: Option.isSome(open),
-                  db,
-                  savepoint: transaction,
+          : Effect.suspend(() => {
+              // Effect SQL fails the transaction when COMMIT fails and its
+              // rollback succeeds; past a successful body that is a defect.
+              let bodySucceeded = false;
+              return db
+                .transaction(() => {
+                  const body = effect.pipe(
+                    Effect.provideService(
+                      WorkspaceTransaction,
+                      WorkspaceTransaction.of({ db })
+                    ),
+                    // Bounded lock waits nest on this client's own transaction.
+                    openLockLedger({
+                      nested: Option.isSome(open),
+                      db,
+                      savepoint: transaction,
+                    })
+                  );
+                  // A nested call already runs on the guarded connection.
+                  return (
+                    Option.isSome(open)
+                      ? body
+                      : oneStatementAtATime(db.$client, body)
+                  ).pipe(
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        bodySucceeded = true;
+                      })
+                    )
+                  );
                 })
-              );
-              // A nested call already runs on the guarded connection.
-              return Option.isSome(open)
-                ? body
-                : oneStatementAtATime(db.$client, body);
+                .pipe(
+                  Effect.catch((error) =>
+                    bodySucceeded && Option.isNone(open)
+                      ? Effect.die(error)
+                      : Effect.fail(error)
+                  )
+                );
             })
       );
     return WorkspaceDatabase.of({ db, transaction });

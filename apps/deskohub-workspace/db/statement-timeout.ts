@@ -102,14 +102,20 @@ const boundStatements = <Client extends PgClient.PgClient>(
     Effect.flatMap(Effect.serviceOption(client.transactionService), (open) =>
       Option.isSome(open) ? statement : boundFromCheckout(timeout)(statement)
     );
-  const unsafe = (sql: string, params?: ReadonlyArray<unknown>) => {
-    const statement = client.unsafe(sql, params);
-    return Object.assign(bound(statement), {
-      values: bound(statement.values),
-      withoutTransform: bound(statement.withoutTransform),
-      raw: bound(statement.raw),
+  const boundedResults = new Set<PropertyKey>([
+    "values",
+    "withoutTransform",
+    "raw",
+  ]);
+  const unsafe = (sql: string, params?: ReadonlyArray<unknown>) =>
+    new Proxy(client.unsafe(sql, params), {
+      get: (target, key, receiver) => {
+        const value = Reflect.get(target, key, receiver);
+        return boundedResults.has(key) && Effect.isEffect(value)
+          ? bound(value)
+          : value;
+      },
     });
-  };
   return new Proxy(client, {
     get: (target, key, receiver) =>
       key === "unsafe" ? unsafe : Reflect.get(target, key, receiver),

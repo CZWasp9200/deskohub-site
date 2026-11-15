@@ -15,22 +15,29 @@ import {
   Option,
   Redacted,
   Ref,
-  References,
   Scope,
   Stream,
 } from "effect";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import {
   createWorkspacePostgresSuiteDatabase,
   holdDatabaseConnection,
   withHeldTransaction,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { WorkspaceDatabase, WorkspaceTransaction } from "./database.service";
+import {
+  WorkspaceDatabase,
+  WorkspaceTransaction,
+  workspaceStatementConcurrency,
+} from "./database.service";
 import { databaseClient, makeDatabaseClient } from "./database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 
 const suiteDatabase = await createWorkspacePostgresSuiteDatabase(
   "workspace_transaction"
 );
+
+/** A statement from work that outlived its transaction, refused. */
+const refusedAfterEnd =
+  /after the transaction's effect ended|the transaction has already ended/;
 
 describe.skipIf(!suiteDatabase)(
   "Workspace transactions on disposable Postgres",
@@ -163,7 +170,7 @@ describe.skipIf(!suiteDatabase)(
       ]);
     });
 
-    test("runs inherited concurrency one effect at a time inside, and not outside", async () => {
+    test("runs statement concurrency one effect at a time inside, and not outside", async () => {
       const interleaving = Effect.gen(function* () {
         const log = yield* Ref.make<ReadonlyArray<string>>([]);
         const step = (name: string) =>
@@ -173,11 +180,9 @@ describe.skipIf(!suiteDatabase)(
               Ref.update(log, (entries) => [...entries, `${name}:end`])
             )
           );
-        yield* Effect.all([step("a"), step("b")], { concurrency: "inherit" });
-        return {
-          log: yield* Ref.get(log),
-          limit: yield* References.CurrentConcurrency,
-        };
+        const concurrency = yield* workspaceStatementConcurrency;
+        yield* Effect.all([step("a"), step("b")], { concurrency });
+        return { log: yield* Ref.get(log), limit: concurrency };
       });
 
       const inside = await Effect.runPromise(transaction(interleaving));
@@ -264,8 +269,10 @@ describe.skipIf(!suiteDatabase)(
       expect(lateFibers).toHaveLength(4);
       for (const late of lateFibers) {
         const exit = await Effect.runPromiseExit(Fiber.join(late));
-        expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toContain(
-          "after the transaction's effect ended"
+        // Effect SQL refuses it once the level ended; the view refuses it
+        // between the body's end and that.
+        expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toMatch(
+          refusedAfterEnd
         );
       }
       expect(await labels(prefix)).toEqual([]);
@@ -303,8 +310,10 @@ describe.skipIf(!suiteDatabase)(
       ).toBe(true);
       await Effect.runPromise(Deferred.succeed(release, undefined));
       const exit = await Effect.runPromiseExit(Fiber.join(late));
-      expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toContain(
-        "after the transaction's effect ended"
+      // Effect SQL refuses it once the level ended; the view refuses it
+      // between the body's end and that.
+      expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toMatch(
+        refusedAfterEnd
       );
       expect(await labels(prefix)).toEqual([]);
     });
@@ -332,9 +341,14 @@ describe.skipIf(!suiteDatabase)(
         Object.assign(socket, {
           write: (...args: Array<unknown>) => {
             const [chunk] = args;
-            const text = Buffer.isBuffer(chunk)
-              ? chunk.toString("latin1")
-              : String(chunk);
+            const text =
+              chunk instanceof Uint8Array
+                ? Buffer.from(
+                    chunk.buffer,
+                    chunk.byteOffset,
+                    chunk.byteLength
+                  ).toString("latin1")
+                : String(chunk);
             if (text.includes(lateLabel)) {
               reached.openUnsafe();
               Effect.runFork(

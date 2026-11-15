@@ -90,9 +90,10 @@ const makeControlledClient = async (onSocket: (socket: Net.Socket) => void) => {
 };
 
 // A CancelRequest is the one 16-byte frame carrying code 80877102.
-const isCancelRequest = (chunk: Buffer) =>
+const isCancelRequest = (chunk: Uint8Array) =>
   chunk.length === 16 &&
-  chunk.readInt32BE(4) === 80_877_102;
+  new DataView(chunk.buffer, chunk.byteOffset, chunk.length).getInt32(4) ===
+    80_877_102;
 
 const observerQuery = <Row extends object>(
   text: string,
@@ -255,7 +256,7 @@ describe.skipIf(!postgresDatabase)(
           Exit.isFailure(outcome.failure) && Cause.pretty(outcome.failure.cause)
         ).toContain("StatementTimeoutError");
         expect(outcome.failureMillis).toBeLessThan(2_500);
-        expect(outcome.followUp).toEqual([{ n: 42 }]);
+        expect(outcome.followUp.rows).toEqual([{ n: 42 }]);
         expect(outcome.followUpMillis).toBeLessThan(2_000);
         const stats = await Effect.runPromise(probe.stats);
         expect(stats.pending).toBe(0);
@@ -294,7 +295,7 @@ describe.skipIf(!postgresDatabase)(
 
         expect(Exit.isFailure(outcome.failure)).toBe(true);
         expect(outcome.failureMillis).toBeLessThan(2_500);
-        expect(outcome.committed).toEqual([{ n: 42 }]);
+        expect(outcome.committed.rows).toEqual([{ n: 42 }]);
         expect(await observeStatementsEnded()).toBe(true);
         expect(await probeSessionLeftovers()).toEqual({
           inTransaction: 0,
@@ -385,12 +386,12 @@ describe.skipIf(!postgresDatabase)(
               yield* Fiber.interrupt(section);
             })
           );
-          const [setting] = await Effect.runPromise(
+          const setting = await Effect.runPromise(
             probe.db.execute(
               drizzleSql`select current_setting('lock_timeout') as timeout`
             )
           );
-          expect(setting).toEqual({ timeout: "0" });
+          expect(setting.rows).toEqual([{ timeout: "0" }]);
           expect(await probeSessionLeftovers()).toEqual({
             inTransaction: 0,
             advisoryLocks: 0,
@@ -412,7 +413,7 @@ describe.skipIf(!postgresDatabase)(
         Object.assign(socket, {
           write: (...args: Array<unknown>) => {
             const [chunk] = args;
-            if (Buffer.isBuffer(chunk) && isCancelRequest(chunk)) {
+            if (chunk instanceof Uint8Array && isCancelRequest(chunk)) {
               socket.destroy();
               return true;
             }

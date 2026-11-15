@@ -72,7 +72,7 @@ describe.skipIf(!postgresDatabase)("Database statement timeout", () => {
       const rows = await Effect.runPromise(
         db.execute(sql`select current_setting('statement_timeout') as timeout`)
       );
-      expect(rows).toEqual([{ timeout: "10s" }]);
+      expect(rows.rows).toEqual([{ timeout: "10s" }]);
     } finally {
       await pool.close();
     }
@@ -136,7 +136,7 @@ describe.skipIf(!postgresDatabase)("Database statement timeout", () => {
           return rows;
         })
       );
-      expect(result).toEqual([{ n: 1 }]);
+      expect(result.rows).toEqual([{ n: 1 }]);
     } finally {
       await pool.close();
     }

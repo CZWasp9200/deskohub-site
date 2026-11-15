@@ -46,7 +46,7 @@ const backendPid = (db: Awaited<ReturnType<typeof clientOver>>["db"]) =>
   Effect.runPromise(
     Effect.map(
       db.execute(sql`select pg_backend_pid()::int as pid`),
-      (rows) => (rows[0] as { readonly pid: number }).pid
+      (result) => (result.rows[0] as { readonly pid: number }).pid
     )
   );
 

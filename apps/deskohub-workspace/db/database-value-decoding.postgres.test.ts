@@ -137,7 +137,7 @@ describe.skipIf(!suiteDatabase)(
     });
 
     test("reads cast raw results as the declared JS values", async () => {
-      const rows = await run(
+      const { rows } = await run(
         db.execute(sql`select count(*)::int as n, min(day)::text as day,
         min(at)::text as at from database_value_decoding_probe`)
       );
@@ -149,7 +149,9 @@ describe.skipIf(!suiteDatabase)(
     test("reads uncast raw int8 as bigint and timestamptz as Date", async () => {
       // Pins the native driver's raw values, which Workspace code casts in SQL
       // or decodes through a column wherever it needs a number or an instant.
-      const [row] = await run(
+      const {
+        rows: [row],
+      } = await run(
         db.execute(
           sql`select count(*) as n, max(plain_at) as at from database_value_decoding_probe`
         )

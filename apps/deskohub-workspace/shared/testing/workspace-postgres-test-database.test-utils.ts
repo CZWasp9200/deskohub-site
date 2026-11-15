@@ -1,13 +1,28 @@
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { Context, Effect, Exit, Layer, Scope } from "effect";
+import {
+  Cause,
+  Context,
+  Data,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+} from "effect";
 import { SqlClient, type SqlConnection } from "effect/sql";
 import type { Pool } from "pg";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { type DatabasePool, makeDatabaseClient, makeDatabasePool, type RootDatabaseClient } from "@/db/database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
+import {
+  type DatabasePool,
+  makeDatabaseClient,
+  makeDatabasePool,
+  type RootDatabaseClient,
+} from "@/db/database-client";
 import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { createScratchPostgresDatabase } from "./postgres-scratch-database.test-utils";
 import { fixtureReservationAuthorId } from "./workspace-fixtures.test-utils";
 
@@ -136,18 +151,23 @@ export const createWorkspacePostgresSuiteDatabase = async (
 };
 
 /**
- * One connection of the database's native pool, held by the test, which runs
- * its own `begin`, `commit` or `rollback` through `query`. `query` answers as
- * node-postgres does (`rows`, `rowCount`), with the native driver's values.
+ * A transaction on one connection of the database's native pool, held open
+ * by the test, which ends it through `query`. Effect SQL opens it, so the
+ * client's own transactions inside become savepoints of it; the test's
+ * `begin` is therefore a no-op, and its `commit` or `rollback` ends the held
+ * transaction. Other statements run on the transaction's connection, and
+ * `query` answers as node-postgres does (`rows`, `rowCount`), with the native
+ * driver's values.
  */
 export interface HeldDatabaseConnection {
   readonly pool: DatabasePool;
-  readonly connection: SqlConnection.Connection;
+  /** The held transaction's level, which `withHeldTransaction` joins. */
+  readonly context: Context.Context<never>;
   readonly query: <Row>(
     sql: string,
     params?: ReadonlyArray<unknown>
   ) => Promise<{ readonly rows: Row[]; readonly rowCount: number | null }>;
-  /** Hands the connection back; the driver retires it mid-transaction. */
+  /** Rolls the transaction back if the test has not ended it. */
   readonly release: () => Promise<void>;
 }
 
@@ -156,40 +176,73 @@ type NativeResult = {
   readonly rowCount: number | null;
 };
 
-export const holdDatabaseConnection = (database: {
+class HeldRollback extends Data.TaggedError("HeldRollback") {}
+
+export const holdDatabaseConnection = async (database: {
   readonly databasePool: DatabasePool;
-}): Promise<HeldDatabaseConnection> =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const pool = database.databasePool;
-      const scope = yield* Scope.make();
-      const connection = yield* Scope.provide(
-        Context.get(pool.postgres, SqlClient.SqlClient).reserve,
-        scope
-      );
-      return {
-        pool,
-        connection,
-        query: <Row>(sql: string, params: ReadonlyArray<unknown> = []) =>
-          Effect.runPromise(connection.executeRaw(sql, params)).then(
-            (result) => {
-              const { rows, rowCount } = result as NativeResult;
-              return { rows: [...rows] as Row[], rowCount };
-            }
-          ),
-        release: () => Effect.runPromise(Scope.close(scope, Exit.void)),
-      };
-    })
+}): Promise<HeldDatabaseConnection> => {
+  const pool = database.databasePool;
+  const client = Context.get(pool.postgres, SqlClient.SqlClient);
+  const opened = Effect.runSync(
+    Deferred.make<{
+      readonly connection: SqlConnection.Connection;
+      readonly context: Context.Context<never>;
+    }>()
   );
+  const ending = Effect.runSync(Deferred.make<"commit" | "rollback">());
+  const held = Effect.runFork(
+    // biome-ignore lint/plugin: the held transaction is the raw client's own, so Workspace transactions inside it become its savepoints.
+    client.withTransaction(
+      Effect.gen(function* () {
+        const context = yield* Effect.context<never>();
+        const [connection] = yield* client.transactionService;
+        yield* Deferred.succeed(opened, { connection, context });
+        if ((yield* Deferred.await(ending)) === "rollback") {
+          return yield* Effect.fail(new HeldRollback());
+        }
+      })
+    )
+  );
+  const { connection, context } = await Effect.runPromise(
+    Deferred.await(opened)
+  );
+  const end = async (outcome: "commit" | "rollback") => {
+    await Effect.runPromise(Deferred.succeed(ending, outcome));
+    const exit = await Effect.runPromise(Fiber.await(held));
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.findErrorOption(exit.cause);
+      if (!(Option.isSome(failure) && failure.value instanceof HeldRollback)) {
+        throw Cause.squash(exit.cause);
+      }
+    }
+  };
+  return {
+    pool,
+    context,
+    query: async <Row>(sql: string, params: ReadonlyArray<unknown> = []) => {
+      const statement = sql.trim().toLowerCase();
+      if (statement === "begin") return { rows: [], rowCount: null };
+      if (statement === "commit" || statement === "rollback") {
+        await end(statement);
+        return { rows: [], rowCount: null };
+      }
+      const { rows, rowCount } = (await Effect.runPromise(
+        connection.executeRaw(sql, params)
+      )) as NativeResult;
+      return { rows: [...rows] as Row[], rowCount };
+    },
+    release: async () => {
+      if (!Deferred.isDoneUnsafe(ending)) await end("rollback");
+    },
+  };
+};
 
 /**
- * Runs `use` with a database client that writes inside the transaction the
- * held connection has open, such as one a test began with `begin` to keep
- * its rows uncommitted. The client's own transactions become savepoints named
- * `effect_sql_<depth>`, so the test's commit or rollback decides every write.
- * Run its transactions one after another: concurrent ones share a savepoint
- * name. The test keeps owning the connection and its transaction, and
- * releases it.
+ * Runs `use` with a database client that writes inside the held transaction,
+ * such as one a test keeps open to leave its rows uncommitted. The client's
+ * own transactions become savepoints named `effect_sql_<depth>`, so the
+ * test's commit or rollback decides every write. Run its transactions one
+ * after another: concurrent ones share a savepoint name.
  */
 export const withHeldTransaction = <A, E, R>(
   held: HeldDatabaseConnection,
@@ -197,7 +250,9 @@ export const withHeldTransaction = <A, E, R>(
 ) =>
   Effect.flatMap(makeDatabaseClient(held.pool), (db) =>
     use(db).pipe(
-      Effect.provideService(db.$client.transactionService, [held.connection, 0])
+      Effect.updateContext((current: Context.Context<R>) =>
+        Context.merge(current, held.context)
+      )
     )
   );
 
