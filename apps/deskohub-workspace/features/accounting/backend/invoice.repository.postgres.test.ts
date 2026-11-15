@@ -12,7 +12,6 @@ import { asc, eq, sql } from "drizzle-orm";
 import { Data, Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
-  accountingDocumentSnapshots,
   invoiceNumberCounters,
   invoices,
   manualInvoiceActors,
@@ -42,17 +41,14 @@ import {
   buildCoworkReservationQuote,
   type CoworkReservationQuoteOrder,
 } from "@/features/checkout/checkout-quote.test-utils";
-import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   createWorkspacePostgresSuiteDatabase,
   type WorkspacePostgresSuiteDatabase,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
-import {
-  AccountingDocumentSnapshotRepository,
-  sealedAccountingDocumentSnapshots,
-} from "./accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
+import { recordAccountingDocumentSnapshot } from "./accounting-document-snapshots.test-utils";
 import {
   type AccountingSnapshotKey,
   AccountingSnapshotKeyError,
@@ -143,9 +139,7 @@ const runRepository = <A, E>(
     Layer.provide(
       Layer.merge(
         baseLayer,
-        AccountingDocumentSnapshotRepository.Default.pipe(
-          Layer.provide(baseLayer)
-        )
+        AccountingDocumentSnapshots.Default.pipe(Layer.provide(baseLayer))
       )
     )
   );
@@ -158,38 +152,25 @@ const runRepository = <A, E>(
   );
 };
 
-// Seals a payment attempt's source snapshot under the test key, joining the
+// Records a payment attempt's source snapshot under the test key, joining the
 // caller's transaction.
-const insertSourceSnapshot = (
-  db: WorkspaceDatabase["Service"]["db"],
-  input: {
-    readonly paymentAttemptId: PaymentAttemptId;
-    readonly workspaceReservationId: WorkspaceReservationId;
-    readonly snapshot: AccountingDocumentSnapshot;
-  }
-) =>
-  Effect.gen(function* () {
-    const snapshots = yield* sealedAccountingDocumentSnapshots;
-    const reference = {
-      type: "paymentAttemptId",
-      id: input.paymentAttemptId,
-    } as const;
-    const sealer = yield* snapshots.sealer(reference);
-    yield* sealer.seal({
-      reference,
-      value: input.snapshot,
-      insert: (sealed) =>
-        db.insert(accountingDocumentSnapshots).values({
-          paymentAttemptId: input.paymentAttemptId,
-          workspaceReservationId: input.workspaceReservationId,
-          keyId: sealed.keyId,
-          encryptedSnapshot: sealed.ciphertext,
-        }),
-    });
-  }).pipe(
-    Effect.provideService(
-      AccountingSnapshotKeyService,
-      AccountingSnapshotKeyService.of(makeKeyService())
+const insertSourceSnapshot = (input: {
+  readonly paymentAttemptId: PaymentAttemptId;
+  readonly snapshot: AccountingDocumentSnapshot;
+}) =>
+  recordAccountingDocumentSnapshot(input).pipe(
+    Effect.provide(
+      AccountingDocumentSnapshots.Default.pipe(
+        Layer.provide(
+          Layer.merge(
+            testDatabase!.layer,
+            Layer.succeed(
+              AccountingSnapshotKeyService,
+              AccountingSnapshotKeyService.of(makeKeyService())
+            )
+          )
+        )
+      )
     )
   );
 
@@ -267,11 +248,7 @@ const createPaidFixture = async (
             amountExponent: source.quote.payment.expectedPrice.exponent,
             currency: source.quote.payment.expectedPrice.currency,
           });
-          yield* insertSourceSnapshot(db, {
-            paymentAttemptId,
-            workspaceReservationId: reservation.id,
-            snapshot: source,
-          });
+          yield* insertSourceSnapshot({ paymentAttemptId, snapshot: source });
           return reservation.id;
         })
       )
@@ -316,11 +293,7 @@ const createAdditionalFailedAttempt = async (fixture: PaidFixture) => {
             amountExponent: source.quote.payment.expectedPrice.exponent,
             currency: source.quote.payment.expectedPrice.currency,
           });
-          yield* insertSourceSnapshot(db, {
-            paymentAttemptId,
-            workspaceReservationId: fixture.reservationId,
-            snapshot: source,
-          });
+          yield* insertSourceSnapshot({ paymentAttemptId, snapshot: source });
         })
       )
     ).pipe(Effect.provide(testDatabase!.layer))

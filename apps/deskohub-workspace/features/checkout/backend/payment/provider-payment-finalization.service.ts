@@ -133,7 +133,7 @@ export class ProviderPaymentFinalizationService extends Context.Service<
 
   static Live = this.Default.pipe(
     Layer.provide(PaymentAttemptRepository.Default),
-    Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(PaymentLifecycleRepository.Live),
     Layer.provide(CheckoutAnalytics.Live),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),

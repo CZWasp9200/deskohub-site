@@ -3,7 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import {
   makeCoworkInvoiceDocument,
   makeMeetingRoomInvoiceDocument,
@@ -201,8 +201,8 @@ const makeRecoveryHarness = (options: {
           markCancelled: spies.markCancelled,
           markCancellationFailed: spies.markCancellationFailed,
         }),
-        Layer.mock(AccountingDocumentSnapshotRepository, {
-          findByPaymentAttemptId: mock(() => Effect.succeed(snapshot)),
+        Layer.mock(AccountingDocumentSnapshots, {
+          find: mock(() => Effect.succeed(snapshot)),
         }),
         Layer.mock(WorkspaceAvailabilityService, {
           ensureAvailable: spies.ensureAvailable as never,

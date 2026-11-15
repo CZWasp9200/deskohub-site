@@ -73,7 +73,7 @@ export class ReservationHoldCleanupService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(UnpaidHoldRelease.Default),
     Layer.provide(ProviderPaymentFinalizationService.Live),
-    Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(PaymentLifecycleRepository.Live),
     Layer.provide(CheckoutAnalytics.Live),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),

@@ -102,7 +102,7 @@ export class NexiWebhookService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(WebhookEventRepository.Default),
     Layer.provide(PaymentAttemptRepository.Default),
-    Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(PaymentLifecycleRepository.Live),
     Layer.provide(LatePaymentRecoveryRepository.Default),
     Layer.provide(LatePaymentRecoveryQueueService.Live),
     Layer.provide(CheckoutAnalytics.Live),
