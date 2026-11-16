@@ -3,15 +3,10 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import {
-  buildCheckoutPayContinuationPath,
   discountCodeErrorIdQueryParam,
   discountCodeErrorQueryParam,
-  getPayStateRestartKind,
-  getSignedPayStateCheckoutSummary,
-  getSignedPayStateSubmittedCodeApplication,
-  openPayState,
   PayableReservationService,
-  payStateContinuesOn,
+  PayState,
   payStateTokenQueryParam,
   withPayStateHoldExpiry,
 } from "@/features/checkout/backend/checkout";
@@ -50,7 +45,7 @@ import {
 } from "@/shared/components/ui/card";
 import { getSearchParam, type SearchParamsRecord } from "@/shared/utils";
 
-type SignedPayState = Effect.Success<ReturnType<typeof openPayState>>;
+type SignedPayState = Effect.Success<ReturnType<typeof PayState.open>>;
 
 type LocalizedCheckoutPayPageProps = {
   searchParams: Promise<SearchParamsRecord>;
@@ -92,7 +87,7 @@ export default async function LocalizedCheckoutPayPage({
  * restart when the token can still name one.
  */
 const openCheckoutPayState = (payStateToken: string) =>
-  openPayState(payStateToken).pipe(
+  PayState.open(payStateToken).pipe(
     Effect.map((state) => ({
       state,
       restartKind: state.reservation.kind,
@@ -106,7 +101,7 @@ const openCheckoutPayState = (payStateToken: string) =>
         reason: "payStateUnavailable",
       }).pipe(
         Effect.andThen(
-          getPayStateRestartKind(payStateToken).pipe(
+          PayState.restartKind(payStateToken).pipe(
             Effect.map((restartKind) => ({
               state: undefined,
               restartKind,
@@ -143,9 +138,10 @@ const loadPayableCheckout = (state: SignedPayState) =>
     ),
     Effect.bind("discountCodeEntryEnabled", () => getDiscountCodeEntryEnabled),
     Effect.bind("freshPayUrl", ({ currentReservation }) =>
-      buildCheckoutPayContinuationPath(
-        withPayStateHoldExpiry(state, currentReservation)
-      ).pipe(
+      PayState.reissue(withPayStateHoldExpiry(state, currentReservation), {
+        kind: "reviewed",
+      }).pipe(
+        Effect.map(({ payUrl }) => payUrl),
         Effect.when(Effect.succeed(state.changedKeys !== undefined)),
         Effect.map(Option.getOrUndefined)
       )
@@ -206,7 +202,7 @@ async function CheckoutPayContent({
 
   const { state, restartKind } = await openCheckoutPayState(payStateToken);
   const restartPath = getPayRestartPath(locale, restartKind);
-  if (!state || !payStateContinuesOn(state, { locale })) {
+  if (!state || !PayState.continuesOn(state, { locale })) {
     return runWithRequestLocale(() => (
       <InvalidPayState locale={locale} restartPath={restartPath} />
     ));
@@ -286,7 +282,7 @@ function renderCheckoutPay(input: CheckoutPayRenderInput) {
         locale={locale}
         key={earlyPerformanceRequestRequired ? "early-performance" : "standard"}
         payStateToken={state.changedKeys ? undefined : payStateToken}
-        summary={getSignedPayStateCheckoutSummary(state)}
+        summary={PayState.summary(state)}
         variant={state.changedKeys ? "pricingChanged" : "pay"}
       />
     </CheckoutFlowLayout>
@@ -304,8 +300,7 @@ function renderDiscountCodeForm({
   searchParams,
   state,
 }: CheckoutPayRenderInput) {
-  const submittedCodeApplication =
-    getSignedPayStateSubmittedCodeApplication(state);
+  const submittedCodeApplication = PayState.submittedCodeApplication(state);
   return (
     <CheckoutDiscountCodeForm
       appliedAdjustment={submittedCodeApplication?.discount.adjustment}

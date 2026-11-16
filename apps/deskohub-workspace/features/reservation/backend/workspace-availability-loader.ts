@@ -1,5 +1,5 @@
 import { Effect, Exit, Layer } from "effect";
-import { openPayState } from "@/features/checkout/backend/checkout/pay-state";
+import { PayState } from "@/features/checkout/backend/checkout/pay-state";
 import { recoverReplacementPayState } from "@/features/checkout/backend/checkout/replacement-pay-state";
 import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
 import { meetingRoomReservationKind } from "@/features/reservation/reservation-kind";
@@ -39,7 +39,7 @@ const verifyReplacementOccupancyExclusion = Effect.fn(
   const token = replacementToken?.trim();
   if (!token) return undefined;
 
-  const state = yield* openPayState(token).pipe(recoverReplacementPayState);
+  const state = yield* PayState.open(token).pipe(recoverReplacementPayState);
   if (!state || state.reservation.kind !== kind) return undefined;
 
   const supersessions = yield* ReservationSupersessionService;

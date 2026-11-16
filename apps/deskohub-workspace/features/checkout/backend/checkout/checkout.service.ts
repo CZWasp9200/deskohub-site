@@ -71,32 +71,24 @@ import {
 import { PaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
 import { formatWorkspaceReservationNote } from "../reservation/dotypos-reservation.adapter";
 import {
-  type FreshPayState,
-  issueFreshPayState,
-  toFreshPayState,
-} from "./checkout-pay-url";
-import {
   CheckoutPricingService,
   type PaymentPriceAffirmation,
 } from "./checkout-pricing.service";
 import {
-  type BuildSignedPayStateInput,
-  getSignedPayStateBookedAt,
-  getSignedPayStateCheckoutSummary,
-  getSignedPayStateSubmittedCode,
-  openPayState,
+  type FreshPayState,
+  PayState,
+  type PayStateReissue,
+  type PayStateWithHoldExpiry,
   type SignedPayState,
-} from "./pay-state.server";
-import {
-  getPayStateHoldExpiresAt,
-  withPayStateHoldExpiry,
-} from "./pay-state-hold";
+  toFreshPayState,
+} from "./pay-state";
+import { withPayStateHoldExpiry } from "./pay-state-hold";
 import {
   type PayableReservation,
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
-import { getPriceVerdictChangedKeys, type PriceVerdict } from "./price-verdict";
+import type { PriceVerdict } from "./price-verdict";
 import { getReservationStatusPath } from "./reservation-status-url";
 import {
   getReusableProviderRedirectUrl,
@@ -336,7 +328,7 @@ const openFinalPayState: (
 ) => Effect.Effect<SignedPayState, CheckoutError, SealedStateKeys> = Effect.fn(
   "openFinalPayState"
 )(function* (payStateToken, locale) {
-  const state = yield* openPayState(payStateToken).pipe(
+  return yield* PayState.open(payStateToken, { locale }).pipe(
     Effect.mapError(
       (cause) =>
         new CheckoutError({
@@ -347,23 +339,15 @@ const openFinalPayState: (
         })
     )
   );
-
-  if (state.locale !== locale) {
-    return yield* new CheckoutError({
-      code: "checkout_failed",
-      message: "Pay state locale does not match this checkout session.",
-    });
-  }
-
-  return state;
 });
 
-const issuePriceReviewPayState: (
-  input: BuildSignedPayStateInput
+const reissuePriceReviewPayState: (
+  state: PayStateWithHoldExpiry,
+  outcome: PayStateReissue
 ) => Effect.Effect<FreshPayState, CheckoutError, SealedStateKeys> = Effect.fn(
-  "issuePriceReviewPayState"
-)((input) =>
-  issueFreshPayState(input).pipe(
+  "reissuePriceReviewPayState"
+)((state, outcome) =>
+  PayState.reissue(state, outcome).pipe(
     Effect.map(toFreshPayState),
     Effect.mapError(
       (cause) =>
@@ -908,7 +892,6 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         function* (input: {
           readonly state: SignedPayState;
           readonly changedKeys: CheckoutSummaryChangedKeys;
-          readonly locale: Locale;
           readonly reservation: PayableReservation;
         }) {
           const { state } = input;
@@ -916,17 +899,14 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
             "Hosted payment checkout returned existing pricing_changed review"
           );
 
-          const priceReviewPayState = yield* issuePriceReviewPayState({
-            ...withPayStateHoldExpiry(state, input.reservation),
-            locale: input.locale,
-            orderId: input.reservation.id,
-            requestedDiscountCode:
-              state.requestedDiscountCode ?? state.submittedCode,
-          }).pipe(provideSealedStateKeys);
+          const priceReviewPayState = yield* reissuePriceReviewPayState(
+            withPayStateHoldExpiry(state, input.reservation),
+            { kind: "review_pending" }
+          ).pipe(provideSealedStateKeys);
           return {
             status: "pricing_changed" as const,
             changedKeys: input.changedKeys,
-            freshSummary: getSignedPayStateCheckoutSummary(state),
+            freshSummary: PayState.summary(state),
             ...priceReviewPayState,
           };
         }
@@ -953,7 +933,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         );
         const verdict = yield* pricing.affirmForPayment({
           ...state,
-          bookedAt: getSignedPayStateBookedAt(state),
+          bookedAt: PayState.bookedAt(state),
           dotyposCustomerId,
           locale,
         });
@@ -973,13 +953,12 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
        */
       const findRepricedResult = Effect.fnUntraced(function* (input: {
         readonly state: SignedPayState;
-        readonly locale: Locale;
         readonly reservation: PayableReservation;
         readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
       }) {
         const { state, verdict } = input;
-        const changedKeys = getPriceVerdictChangedKeys(verdict);
-        if (changedKeys === undefined) return undefined;
+        if (verdict.status === "affirmed") return undefined;
+        const { changedKeys } = verdict;
         const prepared = verdict.priced;
         const freshSummary = prepared.summary;
         yield* Effect.annotateLogsScoped({
@@ -994,22 +973,10 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           "Hosted payment checkout returned pricing_changed"
         );
 
-        const priceReviewPayState = yield* issuePriceReviewPayState({
-          ...prepared,
-          locale: input.locale,
-          orderId: input.reservation.id,
-          bookedAt: state.bookedAt,
-          holdExpiresAt: getPayStateHoldExpiresAt(state, input.reservation),
-          checkoutSessionId: state.checkoutSessionId,
-          referralCode: state.referralCode,
-          requestedDiscountCode:
-            state.requestedDiscountCode ?? state.submittedCode,
-          ...getSignedPayStateSubmittedCode(
-            state,
-            prepared.quote.payment.discounts
-          ),
-          changedKeys,
-        }).pipe(provideSealedStateKeys);
+        const priceReviewPayState = yield* reissuePriceReviewPayState(
+          withPayStateHoldExpiry(state, input.reservation),
+          { kind: "repriced", verdict }
+        ).pipe(provideSealedStateKeys);
         return {
           status: "pricing_changed" as const,
           changedKeys,
@@ -1078,7 +1045,6 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
               return yield* getPendingPricingReviewResult({
                 state,
                 changedKeys: state.changedKeys,
-                locale,
                 reservation,
               });
             }
@@ -1091,7 +1057,6 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
 
             const repricedResult = yield* findRepricedResult({
               state,
-              locale,
               reservation,
               verdict,
             });
@@ -1246,13 +1211,13 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                         // it compares to: no verdict, only the changed keys.
                         const refreshed = yield* pricing.repriceForPayment({
                           ...state,
-                          bookedAt: getSignedPayStateBookedAt(state),
+                          bookedAt: PayState.bookedAt(state),
                           dotyposCustomerId,
                           locale,
                         });
                         const refreshedSummary = refreshed.summary;
                         const changedKeys = getCheckoutSummaryChangedKeys(
-                          getSignedPayStateCheckoutSummary(state),
+                          PayState.summary(state),
                           refreshedSummary
                         );
                         const refreshedCheckoutDetails = getCheckoutDetails({
@@ -1269,26 +1234,17 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                           }),
                         });
                         const priceReviewPayState =
-                          yield* issuePriceReviewPayState({
-                            ...refreshed,
-                            locale,
-                            orderId: reservation.id,
-                            bookedAt: state.bookedAt,
-                            holdExpiresAt: getPayStateHoldExpiresAt(
-                              state,
-                              reservation
-                            ),
-                            checkoutSessionId: state.checkoutSessionId,
-                            referralCode: state.referralCode,
-                            requestedDiscountCode:
-                              state.requestedDiscountCode ??
-                              state.submittedCode,
-                            ...getSignedPayStateSubmittedCode(
-                              state,
-                              refreshed.quote.payment.discounts
-                            ),
-                            changedKeys,
-                          }).pipe(provideSealedStateKeys);
+                          yield* reissuePriceReviewPayState(
+                            withPayStateHoldExpiry(state, reservation),
+                            {
+                              kind: "repriced",
+                              verdict: {
+                                status: "pricing_changed",
+                                priced: refreshed,
+                                changedKeys,
+                              },
+                            }
+                          ).pipe(provideSealedStateKeys);
 
                         return {
                           status: "pricing_changed" as const,
