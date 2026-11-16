@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { StyleSheet } from "react-native";
 import { theme } from "../theme";
 import { ChoiceGroup } from "./choice-group";
 import {
@@ -8,6 +9,7 @@ import {
   type HostProps,
   hostTree,
 } from "./testing/element-tree";
+import { color } from "./tokens";
 
 type Value = "a" | "b" | "c";
 
@@ -159,5 +161,23 @@ describe("ChoiceGroup", () => {
           )
       ).toBe(true);
     }
+  });
+
+  test("options are radio cards, the chosen one outlined orange on the action tint", () => {
+    const looks = group().radios.map((radio) =>
+      StyleSheet.flatten(
+        (radio.style as (state: { pressed: boolean }) => unknown)({
+          pressed: false,
+        }) as never
+      )
+    );
+    expect(looks[1]).toMatchObject({
+      borderColor: color.action,
+      backgroundColor: color.actionTint,
+    });
+    expect(looks[0]).toMatchObject({
+      borderColor: color.line,
+      backgroundColor: color.surface,
+    });
   });
 });

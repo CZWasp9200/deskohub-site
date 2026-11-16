@@ -6,6 +6,8 @@ import {
 } from "effect/unstable/httpapi";
 import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
 import { CustomerCheckoutReturnTarget } from "./customer-booking-checkout-api";
+import { CustomerBookingSelection } from "./customer-booking-selection";
+import { CustomerLocale } from "./customer-locale";
 import { customerInputParseOptions } from "./customer-profile";
 import { CustomerServiceUnavailable } from "./customer-session";
 import { responseHeaders } from "./openapi-response-headers";
@@ -142,6 +144,26 @@ export const CustomerReservationStatus = Schema.Literals([
 ]).annotate({ identifier: "CustomerReservationStatus" });
 export type CustomerReservationStatus = typeof CustomerReservationStatus.Type;
 
+/**
+ * The door code of a paid, confirmed order, and when the lock accepts it.
+ */
+export const CustomerReservationAccess = Schema.Struct({
+  code: Schema.NonEmptyString,
+  accessStartsAt: isoInstant,
+  accessEndsAt: isoInstant,
+}).annotate({ identifier: "CustomerReservationAccess" });
+export type CustomerReservationAccess = typeof CustomerReservationAccess.Type;
+
+/**
+ * What booking a reservation again sends to `createCheckout`: its selection,
+ * and `earlySetup` beside it for a meeting room booked with early setup.
+ */
+export const CustomerBookedSelection = Schema.Struct({
+  selection: CustomerBookingSelection,
+  earlySetup: Schema.optionalKey(Schema.Boolean),
+}).annotate({ identifier: "CustomerBookedSelection" });
+export type CustomerBookedSelection = typeof CustomerBookedSelection.Type;
+
 /** A reservation as the account page's history lists it. */
 export const CustomerReservationSummary = Schema.Struct({
   /** Unique within the history; only for telling entries apart. */
@@ -167,6 +189,30 @@ export const CustomerReservationSummary = Schema.Struct({
   /** Null when the provider's seat count can't be read. */
   seats: Schema.NullOr(Schema.Int),
   status: CustomerReservationStatus,
+  /**
+   * The catalog name of `product` in the request's locale, as the website
+   * names it.
+   */
+  productName: Schema.optional(Schema.String),
+  /**
+   * When the order's door code works: the span the reservation system holds,
+   * early setup included. Absent for a reservation not booked on the website
+   * or whose time can't be read.
+   */
+  accessStartsAt: Schema.optional(isoInstant),
+  accessEndsAt: Schema.optional(isoInstant),
+  /**
+   * What booking it again sends, so a client can preselect it. Absent when
+   * its product can no longer be booked, such as a retired cowork tier.
+   */
+  bookedSelection: Schema.optional(CustomerBookedSelection),
+  /**
+   * The door code of a confirmed booking whose access starts by today in
+   * Prague and hasn't ended. Absent otherwise, for a review account, or
+   * while the code can't be shown now: the order's access endpoint then
+   * answers why.
+   */
+  todayAccess: Schema.optional(CustomerReservationAccess),
 }).annotate({ identifier: "CustomerReservationSummary" });
 export type CustomerReservationSummary = typeof CustomerReservationSummary.Type;
 
@@ -250,18 +296,13 @@ export const CustomerOrderState = Schema.Struct({
    */
   setupStartsAt: Schema.optional(isoInstant),
   total: Schema.optional(Money),
+  /**
+   * What booking the order again sends, while its time and total are known
+   * and its product can still be booked.
+   */
+  bookedSelection: Schema.optional(CustomerBookedSelection),
 }).annotate({ identifier: "CustomerOrderState" });
 export type CustomerOrderState = typeof CustomerOrderState.Type;
-
-/**
- * The door code of a paid, confirmed order, and when the lock accepts it.
- */
-export const CustomerReservationAccess = Schema.Struct({
-  code: Schema.NonEmptyString,
-  accessStartsAt: isoInstant,
-  accessEndsAt: isoInstant,
-}).annotate({ identifier: "CustomerReservationAccess" });
-export type CustomerReservationAccess = typeof CustomerReservationAccess.Type;
 
 /**
  * An order's issued invoice as a PDF document, served as an attachment
@@ -273,6 +314,27 @@ export const CustomerInvoicePdf = Schema.Uint8Array.pipe(
   identifier: "CustomerInvoicePdf",
   description: "The issued invoice as a PDF document.",
 });
+
+/** Where the booked space is: its address, position, and map links. */
+export const CustomerEstablishment = Schema.Struct({
+  name: Schema.String,
+  /** The whole address on one line. */
+  formattedAddress: Schema.String,
+  address: Schema.Struct({
+    street: Schema.String,
+    cityDistrict: Schema.String,
+    city: Schema.String,
+    postalCode: Schema.String,
+    /** ISO 3166-1 alpha-2 country code. */
+    country: Schema.String,
+  }),
+  coordinates: Schema.Struct({ lat: Schema.Number, lng: Schema.Number }),
+  /** Google Maps directions to the space. */
+  directionsUrl: Schema.String,
+  /** Google Maps centred on the space. */
+  mapUrl: Schema.String,
+}).annotate({ identifier: "CustomerEstablishment" });
+export type CustomerEstablishment = typeof CustomerEstablishment.Type;
 
 // Endpoints
 
@@ -304,20 +366,27 @@ export const CustomerPaymentPage = Schema.Struct({
 export type CustomerPaymentPage = typeof CustomerPaymentPage.Type;
 
 /**
- * The signed-in customer's reservations: the history, and the status, door
- * code and invoice of an order the account booked or whose customer it is,
- * and the payment page of one it hasn't paid yet.
+ * The signed-in customer's reservations: the history, where the space is,
+ * the status, door code and invoice of an order the account booked or whose
+ * customer it is, and the payment page of one it hasn't paid yet.
  * The status and door code reads refresh the order, as the website's pages
  * do, and the door code and invoice only the order's customer sees.
  */
 export const CustomerReservationsApi = HttpApiGroup.make("reservations")
   .add(
     HttpApiEndpoint.get("listReservations", "/", {
+      /** The language of `productName`; the default locale when absent. */
+      query: Schema.Struct({ locale: Schema.optionalKey(CustomerLocale) }),
       success: CustomerReservationHistory,
       error: [
         CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
+    })
+  )
+  .add(
+    HttpApiEndpoint.get("getEstablishment", "/establishment", {
+      success: CustomerEstablishment,
     })
   )
   .add(

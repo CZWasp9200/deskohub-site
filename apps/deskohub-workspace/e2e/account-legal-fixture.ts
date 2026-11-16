@@ -327,11 +327,16 @@ export type ConsentCategory = "necessary" | "analytics" | "marketing" | "prefere
 export const visitorConsent = {
   accept: (_category: ConsentCategory) => undefined,
   accepts: (_category: ConsentCategory) => false,
+  hasChoice: () => false,
   reject: (_category: ConsentCategory) => undefined,
   subscribe: () => () => undefined,
 };
 
 export function useVisitorConsent(_category: ConsentCategory) {
+  return false;
+}
+
+export function useVisitorConsentAnswered() {
   return false;
 }
 `;

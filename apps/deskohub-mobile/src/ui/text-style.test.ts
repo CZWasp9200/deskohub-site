@@ -6,6 +6,7 @@ import {
 } from "@deskohub/brand-tokens";
 import { theme } from "../theme";
 import { localeTextStyle, textFontFamily } from "./text-style";
+import { typeScale } from "./tokens";
 
 describe("textFontFamily", () => {
   test("sets Latin-script locales in the brand face", () => {
@@ -39,6 +40,13 @@ describe("localeTextStyle", () => {
         marginTop: 4,
       }
     );
+  });
+
+  test("leaves the brand face's line height and tracking out of the system font", () => {
+    const style = localeTextStyle(typeScale.display, "hi-IN");
+    expect(style).not.toHaveProperty("lineHeight");
+    expect(style).not.toHaveProperty("letterSpacing");
+    expect(style).toHaveProperty("fontSize", typeScale.display.fontSize);
   });
 
   test("keeps a style as it is without a locale", () => {

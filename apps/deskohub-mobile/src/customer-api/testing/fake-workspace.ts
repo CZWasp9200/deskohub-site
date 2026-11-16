@@ -12,7 +12,9 @@ import {
   type CustomerAvatarRejectionReason,
   CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
+  CustomerInvoiceNotFound,
   CustomerInvoiceNotIssued,
+  type CustomerInvoicesApi,
   CustomerMarketingPreferencesRejected,
   type CustomerOrderStatus,
   type CustomerProfile,
@@ -55,6 +57,7 @@ import { fakeBookingGroup } from "../../booking/testing/fake-booking-api";
 import {
   type FakeWorkspaceData,
   type SampleAccountKind,
+  sampleEstablishment,
   sampleWorkspaceData,
 } from "./sample-fixtures";
 
@@ -84,6 +87,7 @@ export type FakeRequestOutcome =
 type EndpointName = HttpApiEndpoint.Name<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
+  | HttpApiGroup.Endpoints<typeof CustomerInvoicesApi>
   | HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
 >;
 
@@ -617,6 +621,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
                 );
           })
         )
+        .handle("getEstablishment", () => Effect.succeed(sampleEstablishment))
         .handle("getReservationStatus", ({ params }) =>
           Effect.map(order(params.orderId), (found) => found.state)
         )
@@ -632,6 +637,24 @@ const serverLayer = (workspace: FakeWorkspace) => {
             found.invoice === undefined
               ? Effect.fail(new CustomerInvoiceNotIssued())
               : Effect.succeed(found.invoice)
+          )
+        )
+  );
+
+  // The sample data issues no invoices yet: the list is empty and every
+  // invoice is not found, as the Workspace answers an account without any.
+  const invoices = HttpApiBuilder.group(
+    WorkspaceCustomerApi,
+    "invoices",
+    (handlers) =>
+      handlers
+        .handle("listInvoices", () =>
+          Effect.as(linkedAccount, { invoices: [] })
+        )
+        .handle("getInvoicePdf", () =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.fail(new CustomerInvoiceNotFound())
           )
         )
   );
@@ -788,7 +811,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
 
   return Layer.mergeAll(
     HttpApiBuilder.layer(WorkspaceCustomerApi).pipe(
-      Layer.provide(Layer.mergeAll(account, reservations, booking)),
+      Layer.provide(Layer.mergeAll(account, reservations, invoices, booking)),
       Layer.provide(customerMiddleware)
     ),
     HttpApiBuilder.layer(CustomerAuthHttpApi).pipe(Layer.provide(auth))

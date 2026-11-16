@@ -1,5 +1,6 @@
 import { Context, Data, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import {
   type InvoiceMetadata,
   InvoiceRepository,
@@ -466,7 +467,7 @@ export class AccountDataExportService extends Context.Service<
           DiscountApplicationRepository.Default
         ).pipe(Layer.provide(WorkspaceDatabase.Default)),
         LegalEvidenceEventRepository.Live,
-        InvoiceRepository.Live,
+        AccountingStorage.Live,
         InvoiceEmailDeliveryRepository.Live,
         MarketingConsentLedger.Live,
         ReservationAccessRepository.Live
@@ -474,13 +475,10 @@ export class AccountDataExportService extends Context.Service<
     )
   );
 
-  /** The archive of the session this authentication reads. */
-  static withAuthentication = <E, R>(
-    authentication: Layer.Layer<CustomerAuthentication, E, R>
-  ) => this.ForProvidedAuthentication.pipe(Layer.provide(authentication));
-
   /** The archive of the browser session's account, as the website serves it. */
-  static Live = this.withAuthentication(CustomerAuthentication.Default);
+  static Live = this.ForProvidedAuthentication.pipe(
+    Layer.provide(CustomerAuthentication.Default)
+  );
 }
 
 /**

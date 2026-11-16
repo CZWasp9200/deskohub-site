@@ -90,7 +90,8 @@ export const customerRequestBudgetClasses = {
   },
   reservations: {
     // Reservation details are read live from Dotypos; the status refresh
-    // and the door code also call the payment and lock providers.
+    // and the door code also call the payment and lock providers, as the
+    // history does for today's door codes, from the records it read.
     listReservations: "account-read",
     getReservationStatus: "account-read",
     getReservationAccess: "account-read",
@@ -98,6 +99,14 @@ export const customerRequestBudgetClasses = {
     getReservationInvoice: "dotypos-read",
     // Authorizes like the invoice, then records the page's return target.
     reopenPaymentPage: "dotypos-mutation",
+    // The space's address is the site's own constant.
+    getEstablishment: "workspace-only",
+  },
+  invoices: {
+    // Authorizing either read can resolve the account's Dotypos customer;
+    // the app reads them when the customer opens or downloads an invoice.
+    listInvoices: "dotypos-read",
+    getInvoicePdf: "dotypos-read",
   },
   booking: {
     // The office's seat maximum reads the shared table snapshot, which
@@ -107,6 +116,7 @@ export const customerRequestBudgetClasses = {
     // miss.
     getAvailability: "catalog-read",
     getMeetingRoomStartTimes: "catalog-read",
+    getMeetingRoomUnavailableDates: "catalog-read",
     // An office quote checks the seats against the shared table snapshot.
     getQuote: "catalog-read",
     // The published documents' versions.

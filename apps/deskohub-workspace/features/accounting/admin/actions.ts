@@ -1,12 +1,12 @@
 "use server";
 
 import {
-  AdministrationCustomerSearchQuery,
   AdministrationInvoiceCreateInput,
   AdministrationInvoiceId,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Match, Schema } from "effect";
 import { administrationHref } from "@/features/administration/administration-href";
+import { customerSearchQuerySchema } from "@/features/administration/customer-search-query";
 import { m } from "@/features/administration/i18n";
 import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
@@ -90,9 +90,7 @@ const searchCustomersAction = defineAdministrationAction(
   {
     operation: "invoice-administration.search-customers",
     failureCopy,
-    schema: Schema.toStandardSchemaV1(AdministrationCustomerSearchQuery, {
-      parseOptions: strict,
-    }),
+    schema: customerSearchQuerySchema,
     logInput: false,
     fallback: m.accountingInvoiceCustomerSearchUnavailable,
     capabilities: InvoiceAdministrationService.Live,

@@ -9,6 +9,7 @@ import type { WorkspaceReservationDetailsMalformedError } from "@/features/reser
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReservationAccessToken } from "@/features/reservation/reservation-access-token";
+import { AccountingStorage } from "./accounting-storage";
 import { InvoiceRepository } from "./invoice.repository";
 import {
   type InvoicePdfFile,
@@ -125,7 +126,7 @@ export class ReservationInvoicePdfService extends Context.Service<
       Layer.provide(
         Layer.mergeAll(
           authorization,
-          InvoiceRepository.Live,
+          AccountingStorage.Live,
           WorkspaceReservationRepository.Live
         )
       )

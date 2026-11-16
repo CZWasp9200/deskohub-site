@@ -392,8 +392,6 @@ describe.skipIf(!testDatabase)(
         run((repository) =>
           repository.claimAdministrationCancellation({
             id,
-            providerCredentialRemoved: false,
-            accessGrantUpdatedAt: null,
             staleCancellingBefore: at(10),
             ...input,
           })
@@ -478,8 +476,6 @@ describe.skipIf(!testDatabase)(
         const error = await runFailure((repository) =>
           repository.claimAdministrationCancellation({
             id,
-            providerCredentialRemoved: false,
-            accessGrantUpdatedAt: null,
             staleCancellingBefore: at(10),
             pendingPaymentCancellation: {
               paymentAttemptId,
@@ -502,49 +498,51 @@ describe.skipIf(!testDatabase)(
         );
       });
 
-      test("expires a live access credential only once the provider removed it", async () => {
-        const id = await insertReservation(confirmedPaid);
-        const grantUpdatedAt = at(2);
-        await Effect.runPromise(
-          testDatabase.db.insert(reservationAccessGrants).values({
-            workspaceReservationId: id,
-            deviceId: IgloohomeDeviceIdSchema.make("synthetic-keypad"),
+      test.each([
+        {
+          name: "an issued",
+          grant: {
             state: "issued",
             providerCredentialId: IgloohomePinIdSchema.make(
               "synthetic-credential"
             ),
             accessCode: AlgoPinSchema.make("1234567"),
-            scheduledAccessStartsAt: at(0),
-            accessStartsAt: at(0),
-            accessEndsAt: Temporal.Instant.from("2099-01-01T00:00:00Z"),
             issuedAt: at(1),
-            updatedAt: grantUpdatedAt,
-          })
-        );
-        const readGrant = async () => {
-          const [grant] = await Effect.runPromise(
+          },
+        },
+        {
+          name: "a provisioning",
+          grant: {
+            state: "provisioning",
+            provisioningStartedAt: Temporal.Now.instant(),
+          },
+        },
+      ] as const)(
+        "expires $name access grant whose access hasn't ended when it claims the cancellation",
+        async ({ grant }) => {
+          const id = await insertReservation(confirmedPaid);
+          await Effect.runPromise(
+            testDatabase.db.insert(reservationAccessGrants).values({
+              workspaceReservationId: id,
+              deviceId: IgloohomeDeviceIdSchema.make("synthetic-keypad"),
+              scheduledAccessStartsAt: at(0),
+              accessStartsAt: at(0),
+              accessEndsAt: Temporal.Instant.from("2099-01-01T00:00:00Z"),
+              updatedAt: at(2),
+              ...grant,
+            })
+          );
+
+          expect((await claimCancellation(id))?.id).toBe(id);
+          const [stored] = await Effect.runPromise(
             testDatabase.db
               .select()
               .from(reservationAccessGrants)
               .where(eq(reservationAccessGrants.workspaceReservationId, id))
           );
-          return grant;
-        };
-
-        expect(await claimCancellation(id)).toBeNull();
-        expect((await readGrant())?.state).toBe("issued");
-
-        const claimed = await claimCancellation(id, {
-          providerCredentialRemoved: true,
-          accessGrantUpdatedAt: grantUpdatedAt.toString(),
-        });
-
-        expect(claimed?.id).toBe(id);
-        expect(await readGrant()).toMatchObject({
-          state: "expired",
-          accessCode: null,
-        });
-      });
+          expect(stored).toMatchObject({ state: "expired", accessCode: null });
+        }
+      );
 
       test("marks the claimed revision cancelled and requires a refund of its paid Nexi attempt", async () => {
         const claimedAt = at(5);

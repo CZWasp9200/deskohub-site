@@ -25,7 +25,7 @@ import {
   type ReservationAdvertisementQuoteInput,
   type ReservationCustomerQuoteInput,
   type ReservationDiscountCodePriceInput,
-  type ReservationDiscountCodePriceResult,
+  type ReservationDiscountCodeVerdict,
   type ReservationPaymentPriceAffirmation,
   type ReservationPaymentPriceAffirmationInput,
   type ReservationPaymentRepricingInput,
@@ -44,8 +44,10 @@ export type OfficeAdvertisementAffirmationInput =
     NormalizedOfficeReservationOrder,
     OfficeReservationQuote
   >;
-export type OfficeCustomerQuoteInput =
-  ReservationCustomerQuoteInput<NormalizedOfficeReservationOrder>;
+export type OfficeCustomerQuoteInput = ReservationCustomerQuoteInput<
+  NormalizedOfficeReservationOrder,
+  OfficeReservationQuote
+>;
 export type OfficePaymentPriceAffirmationInput =
   ReservationPaymentPriceAffirmationInput<
     NormalizedOfficeReservationOrder,
@@ -77,7 +79,7 @@ export type OfficePaymentPriceAffirmation = ReservationPaymentPriceAffirmation<
   NormalizedOfficeReservationOrder,
   OfficeReservationQuote
 >;
-export type OfficeDiscountCodePriceResult = ReservationDiscountCodePriceResult<
+export type OfficeDiscountCodeVerdict = ReservationDiscountCodeVerdict<
   NormalizedOfficeReservationOrder,
   OfficeReservationQuote
 >;
