@@ -36,7 +36,8 @@ export type AccountScreenSection = Exclude<AccountSection, "payment-methods">;
  */
 export const accountSectionHref = {
   referrals: "/account/referrals",
-  complete: "/account/complete",
+  // Onboarding opens above the tabs, over whichever tab asked for it.
+  complete: "/onboarding",
   profile: "/account/profile",
   language: "/account/language",
   security: "/account/security",
@@ -126,7 +127,7 @@ export const accountIndexModel = (
 /** What the Reservations tab may show for the account. */
 export type ReservationsAccess =
   | { readonly kind: "available" }
-  /** The tab asks for the profile first and links to `account/complete`. */
+  /** The tab asks for the profile first and links to onboarding. */
   | { readonly kind: "completion-required" }
   | { readonly kind: "unavailable"; readonly notice: AccountNotice };
 
