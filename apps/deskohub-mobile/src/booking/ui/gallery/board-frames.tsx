@@ -1476,7 +1476,9 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: color.paper },
-  earlySetup: { marginTop: space.xl },
+  // The row's own gutter would inset the box; the board puts it on the
+  // screen's.
+  earlySetup: { marginHorizontal: -space.lg, marginTop: space.xl },
   banner: {
     backgroundColor: color.paper,
     borderBottomColor: color.line,

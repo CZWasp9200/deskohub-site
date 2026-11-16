@@ -687,6 +687,13 @@ const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
   after: { marginTop: space.md },
   loading: { alignItems: "center", paddingVertical: space.xl },
-  earlySetup: { marginTop: space.xl },
-  earlySetupReason: { color: color.ink2, paddingLeft: 34 },
+  // The row's own gutter would inset the box; the board puts it on the
+  // screen's.
+  earlySetup: { marginHorizontal: -space.lg, marginTop: space.xl },
+  // Under the label: the row's gutter, the 22 box and the 14 between.
+  earlySetupReason: {
+    color: color.ink2,
+    paddingLeft: space.lg + 22 + 14,
+    paddingRight: space.lg,
+  },
 });
