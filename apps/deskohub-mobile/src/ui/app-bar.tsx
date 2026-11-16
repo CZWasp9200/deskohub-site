@@ -1,4 +1,5 @@
 import ArrowLeft from "lucide-react-native/icons/arrow-left";
+import X from "lucide-react-native/icons/x";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useAppLocale } from "../i18n/locale-context";
@@ -14,15 +15,19 @@ import { color, space, touchTarget } from "./tokens";
  * the actions no longer fit beside it, as at large font sizes, they move to
  * a line of their own under it, at the end.
  * `raised` draws a hairline under the bar once content scrolls beneath it.
+ * `back="close"` draws a close cross instead of the arrow, for a screen that
+ * ends a flow rather than stepping back through it.
  */
 export function AppBar({
   title,
   onBack,
   actions,
   raised = false,
+  back = "back",
 }: {
   readonly title: string;
   readonly onBack?: () => void;
+  readonly back?: "back" | "close";
   readonly actions?: ReactNode;
   readonly raised?: boolean;
 }) {
@@ -32,11 +37,15 @@ export function AppBar({
       {onBack ? (
         <Pressable
           role="button"
-          aria-label={m.navigation_back({}, { locale })}
+          aria-label={
+            back === "close"
+              ? m.navigation_close({}, { locale })
+              : m.navigation_back({}, { locale })
+          }
           onPress={onBack}
           style={({ pressed }) => [styles.back, pressed && styles.pressed]}
         >
-          <Icon icon={ArrowLeft} />
+          <Icon icon={back === "close" ? X : ArrowLeft} />
         </Pressable>
       ) : (
         <View style={styles.lead} />

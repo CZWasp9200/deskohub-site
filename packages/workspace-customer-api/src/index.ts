@@ -104,6 +104,13 @@ export {
   CustomerCheckoutSummaryItem,
 } from "./customer-checkout-summary";
 export {
+  CustomerCompaniesApi,
+  CustomerCompanyDetails,
+  CustomerCompanyIdInvalid,
+  CustomerCompanyNotFound,
+  CustomerCompanyRegistryUnavailable,
+} from "./customer-companies-api";
+export {
   CustomerInvoice,
   CustomerInvoiceId,
   CustomerInvoiceList,

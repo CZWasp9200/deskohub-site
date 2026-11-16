@@ -10,4 +10,10 @@ describe("sitePageUrl", () => {
       "https://example.test/contact"
     );
   });
+
+  test("prefixes the path with a given locale", () => {
+    expect(sitePageUrl("/contact", "https://example.test", "de-DE")).toBe(
+      "https://example.test/de-DE/contact"
+    );
+  });
 });
