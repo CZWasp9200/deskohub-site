@@ -41,7 +41,7 @@ export const statementTimedOut = (timeout: Duration.Duration) =>
  */
 const liveClock = Clock.Clock.defaultValue();
 
-const onLiveClock = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+export const onLiveClock = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.provideService(effect, Clock.Clock, liveClock);
 
 const timedOutAfter = (timeout: Duration.Duration) =>
@@ -108,7 +108,9 @@ export const statementTimeoutOf = (client: Pick<SqlClient.Base, "reserve">) =>
  * A Temporal value a raw `sql` template binds directly, outside any column's
  * encoder, goes as its ISO text, which the server types from the
  * parameter's context, as the previous driver sent it. The native driver
- * refuses objects it cannot type.
+ * refuses objects it cannot type. It also refuses plain objects, nested
+ * arrays and mixed-type arrays that node-postgres serialized; bind those
+ * through a column's encoder or an explicit cast.
  */
 type StatementParameter = NonNullable<
   Parameters<PgClient.PgClient["unsafe"]>[1]

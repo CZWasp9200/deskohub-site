@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { sql } from "drizzle-orm";
-import { Cause, Context, Effect, Exit, Fiber, Option } from "effect";
+import { Cause, Clock, Context, Effect, Exit, Fiber, Option } from "effect";
 import { SqlClient, SqlError } from "effect/sql";
 import { TestClock } from "effect/testing";
 import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
@@ -147,6 +147,42 @@ describe.skipIf(!postgresDatabase)("Database statement timeout", () => {
         }).pipe(Effect.provide(TestClock.layer()))
       );
       expect(Exit.isSuccess(exit)).toBe(true);
+    } finally {
+      await pool.close();
+    }
+  });
+
+  test("hands a transaction's body, its nested bodies and its afterCommit callbacks the caller's clock", async () => {
+    const pool = await openProbe({});
+    try {
+      const db = await Effect.runPromise(makeDatabaseClient(pool));
+      const { transaction } = WorkspaceDatabase.make(db);
+      const seen = await Effect.runPromise(
+        Effect.gen(function* () {
+          const caller = yield* Clock.clockWith(Effect.succeed);
+          let callback: Clock.Clock | undefined;
+          const [outer, nested] = yield* transaction(
+            Effect.gen(function* () {
+              const outer = yield* Clock.clockWith(Effect.succeed);
+              const nested = yield* transaction(
+                Clock.clockWith(Effect.succeed)
+              );
+              yield* db.$client.afterCommit(
+                Clock.clockWith((clock) =>
+                  Effect.sync(() => {
+                    callback = clock;
+                  })
+                )
+              );
+              return [outer, nested] as const;
+            })
+          );
+          return { caller, outer, nested, callback };
+        }).pipe(Effect.provide(TestClock.layer()))
+      );
+      expect(seen.outer).toBe(seen.caller);
+      expect(seen.nested).toBe(seen.caller);
+      expect(seen.callback).toBe(seen.caller);
     } finally {
       await pool.close();
     }

@@ -12,7 +12,11 @@ import {
 import { normalizePostgresConnectionUrl } from "./postgres-connection-url";
 import { drizzleRawTypeParsers } from "./postgres-type-parsers";
 import { relations } from "./relations";
-import { startStatementClock, withStatementTimeout } from "./statement-timeout";
+import {
+  onLiveClock,
+  startStatementClock,
+  withStatementTimeout,
+} from "./statement-timeout";
 
 export type DatabaseClient = EffectPgDatabase<typeof relations>;
 
@@ -70,29 +74,33 @@ export const databasePostgresLayer = (settings: DatabasePoolSettings) => {
   const onRelease = settings.onRelease;
   return PgClient.layerFrom(
     Effect.map(
-      PgClient.make({
-        url: Redacted.make(
-          normalizePostgresConnectionUrl(settings.connectionString)
-        ),
-        maxConnections: settings.maxConnections,
-        minConnections: 0,
-        idleTimeout: settings.idleTimeout ?? databaseIdleTimeout,
-        connectTimeout,
-        acquireTimeout: connectTimeout,
-        prepare: false,
-        applicationName: settings.applicationName,
-        startupParameters: {
-          statement_timeout: String(Duration.toMillis(statementTimeout)),
-          ...settings.startupParameters,
-        },
-        onAcquire:
-          onRelease === undefined
-            ? startStatementClock
-            : Effect.andThen(
-                startStatementClock,
-                Effect.addFinalizer(() => Effect.sync(onRelease))
-              ),
-      }),
+      // On the live clock, so the pool's idle reaper keeps real time even
+      // when a test builds it under a TestClock.
+      onLiveClock(
+        PgClient.make({
+          url: Redacted.make(
+            normalizePostgresConnectionUrl(settings.connectionString)
+          ),
+          maxConnections: settings.maxConnections,
+          minConnections: 0,
+          idleTimeout: settings.idleTimeout ?? databaseIdleTimeout,
+          connectTimeout,
+          acquireTimeout: connectTimeout,
+          prepare: false,
+          applicationName: settings.applicationName,
+          startupParameters: {
+            statement_timeout: String(Duration.toMillis(statementTimeout)),
+            ...settings.startupParameters,
+          },
+          onAcquire:
+            onRelease === undefined
+              ? startStatementClock
+              : Effect.andThen(
+                  startStatementClock,
+                  Effect.addFinalizer(() => Effect.sync(onRelease))
+                ),
+        })
+      ),
       (client) => withStatementTimeout(client, statementTimeout)
     )
   ).pipe(
