@@ -585,7 +585,7 @@ function NoPin({ orderId }: { readonly orderId: CustomerReservationOrderId }) {
             onPress={openContactPage}
           />
           <Button
-            variant="text"
+            variant="quiet"
             label={m.reservations_access_back_to_booking({}, { locale })}
             onPress={() =>
               router.dismissTo({
