@@ -14,6 +14,9 @@ Prefer, in order: make invalid states unrepresentable, enforce trusted construct
 - Reuse built-in schemas such as `Schema.NonEmptyString` instead of local equivalents.
 - For struct schemas that share fields, declare a base `Schema.Struct` and extend its `fields`, not a standalone fields object.
 - Add a version field or discriminator only when multiple live formats need different decoding.
+- Put decode strictness (`onExcessProperty`, `errors: "all"`) on the parser call: decode options at the call site, or `HttpApi.PayloadParseOptions` / `QueryParseOptions` / `SuccessParseOptions` on an HttpApi endpoint. Effect 4.1 ignores `parseOptions` set as a schema annotation.
+- A `Schema.Union` tries members in declaration order. When a lenient decode could match an untagged object member before a tagged one, make the members disjoint or decode strictly.
+- `Array.partition`, `Array.separate` and `Option.partition` return `[passes, fails]`.
 - Parse external decimal percentages with Effect Schema and exact `BigDecimal` arithmetic, never string slicing or floating point.
 
 ## Errors
