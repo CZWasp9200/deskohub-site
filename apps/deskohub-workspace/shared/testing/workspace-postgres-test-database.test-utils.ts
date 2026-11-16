@@ -245,8 +245,13 @@ export const holdDatabaseConnection = async (database: {
         await end(statement);
         return { rows: [], rowCount: null };
       }
+      // Rejects with the driver's error, which carries the server's fields
+      // (`code`, `constraint`) as node-postgres errors do.
       const { rows, rowCount } = (await Effect.runPromise(
-        connection.executeRaw(sql, params)
+        Effect.mapError(
+          connection.executeRaw(sql, params),
+          (error) => error.reason.cause
+        )
       )) as NativeResult;
       return { rows: [...rows] as Row[], rowCount };
     },
