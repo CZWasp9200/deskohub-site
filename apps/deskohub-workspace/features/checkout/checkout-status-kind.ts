@@ -25,6 +25,11 @@ type CheckoutStatusTraits = {
   readonly autoRefresh: boolean;
   readonly offersNewReservation: boolean;
   readonly offersReservationRetry: boolean;
+  /**
+   * Offers the payment page the order's unpaid payment attempt already
+   * opened, while the status still awaits that payment.
+   */
+  readonly offersPaymentPageReopening: boolean;
   readonly supportTopic:
     | "fulfillment_failed"
     | "late_payment_review"
@@ -41,6 +46,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: true,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: false,
@@ -50,6 +56,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: true,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: false,
@@ -59,6 +66,7 @@ export const checkoutStatusTraits = {
     autoRefresh: true,
     offersNewReservation: false,
     offersReservationRetry: false,
+    offersPaymentPageReopening: true,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: true,
@@ -68,6 +76,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: false,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: "payment_pending",
     showsCustomerContact: true,
     promisesEmail: true,
@@ -77,6 +86,7 @@ export const checkoutStatusTraits = {
     autoRefresh: true,
     offersNewReservation: false,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: true,
@@ -86,6 +96,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: false,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: "fulfillment_failed",
     showsCustomerContact: true,
     promisesEmail: true,
@@ -95,6 +106,7 @@ export const checkoutStatusTraits = {
     autoRefresh: true,
     offersNewReservation: false,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: true,
     promisesEmail: true,
@@ -104,6 +116,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: false,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: "fulfillment_failed",
     showsCustomerContact: true,
     promisesEmail: true,
@@ -113,6 +126,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: true,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: true,
@@ -122,6 +136,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: false,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: "fulfillment_failed",
     showsCustomerContact: true,
     promisesEmail: false,
@@ -131,6 +146,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: true,
     offersReservationRetry: true,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: false,
@@ -140,6 +156,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: true,
     offersReservationRetry: true,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: false,
@@ -149,6 +166,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: true,
     offersReservationRetry: true,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: false,
@@ -158,6 +176,7 @@ export const checkoutStatusTraits = {
     autoRefresh: true,
     offersNewReservation: false,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: false,
@@ -167,6 +186,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: true,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: undefined,
     showsCustomerContact: false,
     promisesEmail: false,
@@ -176,6 +196,7 @@ export const checkoutStatusTraits = {
     autoRefresh: false,
     offersNewReservation: false,
     offersReservationRetry: false,
+    offersPaymentPageReopening: false,
     supportTopic: "late_payment_review",
     showsCustomerContact: true,
     promisesEmail: false,

@@ -23,6 +23,18 @@ describe("customer message modules", () => {
     );
   });
 
+  // The base-locale fallback keeps a page working, but a customer would read
+  // another language: every locale translates every message.
+  test("translates every base-locale message in each locale's catalog", () => {
+    const baseKeys = Object.keys(readCatalog(baseLocale)).toSorted();
+    for (const locale of locales) {
+      expect({
+        locale,
+        keys: Object.keys(readCatalog(locale)).toSorted(),
+      }).toEqual({ locale, keys: baseKeys });
+    }
+  });
+
   test("renders each locale's catalog text, else the base locale's", () => {
     const baseText = readCatalog(baseLocale).accountHelpTitle;
     expect(baseText).toBeString();
