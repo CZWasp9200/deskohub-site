@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Option } from "effect";
 import { nativeReturnUri } from "./auth-callback";
 import {
@@ -50,12 +51,12 @@ describe("native sign-in URL", () => {
     const reauthentication = {
       ...request,
       reauthenticate: true,
-      loginHint: "customer@example.com",
+      loginHint: testEmailAddress("customer"),
       purpose: "delete-account",
     } as const;
     const url = nativeSignInUrl(origin, reauthentication);
     expect(searchOf(url).getAll("login_hint")).toEqual([
-      "customer@example.com",
+      testEmailAddress("customer"),
     ]);
     expect(searchOf(url).getAll("purpose")).toEqual(["delete-account"]);
     expect(readNativeHandoffRequest(searchOf(url), origin)).toEqual(
@@ -180,9 +181,9 @@ describe("readNativeHandoffRequest", () => {
   test("ignores a malformed or repeated login hint", () => {
     for (const hints of [
       ["not-an-email"],
-      ["a b@example.com"],
-      [`${"a".repeat(250)}@example.com`],
-      ["one@example.com", "two@example.com"],
+      [testEmailAddress("a b")],
+      [testEmailAddress("a".repeat(250))],
+      [testEmailAddress("one"), testEmailAddress("two")],
     ]) {
       const search = valid();
       search.set("prompt", "login");
@@ -285,7 +286,7 @@ describe("stored native handoff request", () => {
     const reauthentication = {
       ...request,
       reauthenticate: true,
-      loginHint: "customer@example.com",
+      loginHint: testEmailAddress("customer"),
       purpose: "delete-account",
     } as const;
     const raw = serializeNativeHandoffRequest(reauthentication, now);
@@ -356,7 +357,7 @@ describe("URL stripping", () => {
     const url = `${nativeSignInUrl(origin, {
       ...request,
       reauthenticate: true,
-      loginHint: "customer@example.com",
+      loginHint: testEmailAddress("customer"),
       purpose: "delete-account",
       analytics: granted,
     })}&lang=cs#top`;
