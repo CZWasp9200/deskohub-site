@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { formatPragueDate } from "../../booking/ui/prague-date-format";
 import { sampleInvoices } from "../../customer-api/testing/sample-fixtures";
-import { reservationPeriodText } from "../reservations/reservation-period";
+import { formatInstantRange, parseInstant } from "../../i18n/date-time-format";
 import {
   formatInvoiceTotal,
   type InvoiceSubject,
@@ -16,13 +16,16 @@ const [desk] = invoices;
 if (desk === undefined) throw new Error("the sample has invoices");
 
 // What a described invoice was for, fed by hand until the list says it (#1301).
+// One whole Prague day, which reads as that day alone.
 const subject: InvoiceSubject = {
   productName: "Sample desk",
-  period: {
-    kind: "cowork",
-    startsAt: "2026-11-25T23:00:00.000Z",
-    endsAt: "2026-11-26T23:00:00.000Z",
-  },
+  startsAt: "2026-11-25T23:00:00.000Z",
+  endsAt: "2026-11-26T23:00:00.000Z",
+};
+const instant = (iso: string) => {
+  const parsed = parseInstant(iso);
+  if (parsed._tag === "None") throw new Error("a readable instant");
+  return parsed.value;
 };
 
 describe("invoiceListOf", () => {
@@ -59,7 +62,13 @@ describe("invoice rows", () => {
 
     expect(row._tag).toBe("Described");
     expect(text.title).toBe(subject.productName);
-    expect(text.when).toBe(reservationPeriodText(subject.period, locale));
+    expect(text.when).toBe(
+      formatInstantRange(
+        instant(subject.startsAt),
+        instant(subject.endsAt),
+        locale
+      ).start
+    );
     expect(text.amount).toContain(formatInvoiceTotal(desk.total, locale));
     expect(text.amount).toContain(desk.invoiceNumber);
   });

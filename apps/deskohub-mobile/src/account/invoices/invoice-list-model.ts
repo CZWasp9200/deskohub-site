@@ -4,14 +4,11 @@ import type {
   CustomerInvoiceId,
   CustomerInvoiceTotal,
 } from "@deskohub/workspace-customer-api";
-import { Data, Match } from "effect";
+import { Data, Match, Option } from "effect";
 import { formatPragueDate } from "../../booking/ui/prague-date-format";
 import type { AppLocale } from "../../i18n/app-locale";
+import { formatInstantRange, parseInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
-import {
-  type ReservationPeriod,
-  reservationPeriodText,
-} from "../reservations/reservation-period";
 
 /**
  * What an invoice was for: the booked product and when, once the invoice
@@ -19,8 +16,33 @@ import {
  */
 export interface InvoiceSubject {
   readonly productName: string;
-  readonly period: ReservationPeriod;
+  /** The reservation's start and exclusive end, as ISO instants. */
+  readonly startsAt: string;
+  readonly endsAt: string;
 }
+
+/**
+ * The reservation's dates as a row line: whole Prague days as days, a
+ * shorter span with its times; unreadable instants read as unavailable.
+ */
+const subjectDates = (
+  { startsAt, endsAt }: InvoiceSubject,
+  locale: AppLocale
+): string =>
+  Option.match(Option.all([parseInstant(startsAt), parseInstant(endsAt)]), {
+    onNone: () => m.reservations_value_unavailable({}, { locale }),
+    onSome: ([start, end]) => {
+      const range = formatInstantRange(start, end, locale);
+      return Option.match(range.end, {
+        onNone: () => range.start,
+        onSome: (last) =>
+          m.reservations_time_range(
+            { start: range.start, end: last },
+            { locale }
+          ),
+      });
+    },
+  });
 
 /**
  * One row of the invoice list, in one of two shapes. A described invoice
@@ -87,7 +109,7 @@ export const invoiceRowText = (
   Match.valueTags(row, {
     Described: ({ subject, total, invoiceNumber }) => ({
       title: subject.productName,
-      when: reservationPeriodText(subject.period, locale),
+      when: subjectDates(subject, locale),
       amount: m.invoices_row_amount_number(
         { amount: formatInvoiceTotal(total, locale), number: invoiceNumber },
         { locale }

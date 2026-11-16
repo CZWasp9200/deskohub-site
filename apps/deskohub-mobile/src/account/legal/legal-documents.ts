@@ -1,4 +1,5 @@
 import type { AppLocale } from "../../i18n/app-locale";
+import { sitePageUrl } from "../../routing/site-page";
 
 /** The site's legal documents the Legal & Privacy screen links to, in order. */
 export const legalDocuments = [
@@ -11,7 +12,7 @@ export type LegalDocument = (typeof legalDocuments)[number];
 
 // The site's page paths without a locale prefix: the site redirects each to
 // the reader's language.
-const legalDocumentPath: Record<LegalDocument, string> = {
+const legalDocumentPath: Record<LegalDocument, `/${string}`> = {
   privacy: "/privacy-policy",
   marketing: "/marketing-communications",
   terms: "/terms-and-conditions",
@@ -28,10 +29,4 @@ export const legalDocumentUrl = (
   document: LegalDocument,
   siteOrigin: string,
   locale?: AppLocale
-): string =>
-  new URL(
-    locale === undefined
-      ? legalDocumentPath[document]
-      : `/${locale}${legalDocumentPath[document]}`,
-    siteOrigin
-  ).href;
+): string => sitePageUrl(legalDocumentPath[document], siteOrigin, locale);

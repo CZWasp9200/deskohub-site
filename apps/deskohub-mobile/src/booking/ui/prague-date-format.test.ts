@@ -23,4 +23,11 @@ describe("formatPragueTime", () => {
     expect(formatPragueTime("23:30", "cs-CZ")).toBe("23:30");
     expect(formatPragueTime("00:15", "cs-CZ")).toBe("0:15");
   });
+
+  test("reads the 24-hour clock in every language", () => {
+    for (const locale of ["en-US", "hi-IN", "vi-VN"] as const) {
+      expect(formatPragueTime("14:00", locale)).toContain("14");
+      expect(formatPragueTime("14:00", locale)).not.toContain("2");
+    }
+  });
 });

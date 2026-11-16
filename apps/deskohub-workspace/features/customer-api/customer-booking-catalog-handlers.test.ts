@@ -225,6 +225,26 @@ describe("listOfferings", () => {
     }
   });
 
+  test("gives each meeting-room length the room's capacity and equipment", async () => {
+    const api = makeCustomerApiTestServer({ bookingCatalog: pricedCatalog() });
+
+    const response = await api.handle(customerApiRequest(listOfferings));
+
+    const meetingRooms = (await response.json()).offerings.filter(
+      (offering: { family: string }) => offering.family === "meeting-room"
+    );
+    expect(meetingRooms).toHaveLength(3);
+    for (const offering of meetingRooms) {
+      expect(offering.facts.map((fact: { kind: string }) => fact.kind)).toEqual(
+        ["capacity", "equipment"]
+      );
+      for (const fact of offering.facts) {
+        expect(fact.text).toEqual(expect.any(String));
+        expect(fact.text).not.toBe("");
+      }
+    }
+  });
+
   test("lists the office while office reservations are open", async () => {
     const api = makeCustomerApiTestServer({
       bookingCatalog: pricedCatalog({ releases: officeOpen }),

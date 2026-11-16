@@ -14,6 +14,11 @@ import {
   fakeWorkspaceOrigin,
   sampleRequestOutcomes,
 } from "./fake-workspace";
+import {
+  type SampleHistory,
+  sampleHistoryOf,
+  withSampleHistory,
+} from "./sample-history";
 
 // Every request the session makes, however many.
 const everyRequest = 10_000;
@@ -26,9 +31,12 @@ const everyRequest = 10_000;
  * (`sampleRequestOutcomes`).
  */
 export const sampleCustomerDataLayer = (
-  kind: SampleAccountKind
+  kind: SampleAccountKind,
+  history: SampleHistory = sampleHistoryOf(
+    process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_HISTORY
+  )
 ): Layer.Layer<CustomerDataServices> => {
-  const workspace = FakeWorkspace.forKind(kind);
+  const workspace = withSampleHistory(FakeWorkspace.forKind(kind), history);
   for (const [endpoint, outcome] of sampleRequestOutcomes(
     process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_OUTCOMES
   ))

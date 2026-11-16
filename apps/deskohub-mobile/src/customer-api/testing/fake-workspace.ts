@@ -10,6 +10,9 @@ import {
   CustomerAuthApi as CustomerAuthHttpApi,
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
+  type CustomerCompaniesApi,
+  type CustomerCompanyDetails,
+  CustomerCompanyNotFound,
   CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
   CustomerInvoiceNotFound,
@@ -58,6 +61,7 @@ import { fakeBookingGroup } from "../../booking/testing/fake-booking-api";
 import {
   type FakeWorkspaceData,
   type SampleAccountKind,
+  sampleCompanies,
   sampleEstablishment,
   sampleWorkspaceData,
 } from "./sample-fixtures";
@@ -89,6 +93,7 @@ type EndpointName = HttpApiEndpoint.Name<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
   | HttpApiGroup.Endpoints<typeof CustomerInvoicesApi>
+  | HttpApiGroup.Endpoints<typeof CustomerCompaniesApi>
   | HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
 >;
 
@@ -163,6 +168,8 @@ export class FakeWorkspace {
    * the answer is the account's decision once it settles.
    */
   analyticsSyncDelay: Promise<void> | undefined;
+  /** The companies the company lookup finds, by company ID. */
+  companies: ReadonlyMap<string, CustomerCompanyDetails> = sampleCompanies;
   private readonly outcomes = new Map<EndpointName, FakeRequestOutcome[]>();
 
   constructor(data: FakeWorkspaceData = sampleWorkspaceData("linked")) {
@@ -711,6 +718,32 @@ const serverLayer = (workspace: FakeWorkspace) => {
         )
   );
 
+  // Any ID the sample companies lack is not found; an account awaiting
+  // deletion is refused, as the Workspace refuses it.
+  const companies = HttpApiBuilder.group(
+    WorkspaceCustomerApi,
+    "companies",
+    (handlers) =>
+      handlers.handle("lookupCompany", ({ params }) =>
+        Effect.suspend(
+          (): Effect.Effect<
+            CustomerCompanyDetails,
+            CustomerAccountLinkRequired | CustomerCompanyNotFound
+          > => {
+            if (workspace.data.account.kind === "deletion-pending") {
+              return Effect.fail(
+                new CustomerAccountLinkRequired({ reason: "deletion-pending" })
+              );
+            }
+            const company = workspace.companies.get(params.companyId.trim());
+            return company === undefined
+              ? Effect.fail(new CustomerCompanyNotFound())
+              : Effect.succeed(company);
+          }
+        )
+      )
+  );
+
   const booking = fakeBookingGroup(workspace);
 
   const auth = HttpApiBuilder.group(CustomerAuthHttpApi, "auth", (handlers) =>
@@ -863,7 +896,9 @@ const serverLayer = (workspace: FakeWorkspace) => {
 
   return Layer.mergeAll(
     HttpApiBuilder.layer(WorkspaceCustomerApi).pipe(
-      Layer.provide(Layer.mergeAll(account, reservations, invoices, booking)),
+      Layer.provide(
+        Layer.mergeAll(account, reservations, invoices, companies, booking)
+      ),
       Layer.provide(customerMiddleware)
     ),
     HttpApiBuilder.layer(CustomerAuthHttpApi).pipe(Layer.provide(auth))

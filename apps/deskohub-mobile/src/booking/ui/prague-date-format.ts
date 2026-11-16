@@ -31,8 +31,9 @@ export const formatShortPragueDate = (
   });
 
 /**
- * A Prague time of day, HH:mm, as the customer reads it, such as "9:00" or
- * "9:00 AM". The time is formatted on a fixed day in UTC, so no time zone
+ * A Prague time of day, HH:mm, as the customer reads it, on the 24-hour
+ * clock in every language as the booking boards write it ("14:00", never
+ * "2:00 PM"). The time is formatted on a fixed day in UTC, so no time zone
  * moves it.
  */
 export const formatPragueTime = (
@@ -42,5 +43,6 @@ export const formatPragueTime = (
   new Intl.DateTimeFormat(locale, {
     hour: "numeric",
     minute: "2-digit",
+    hourCycle: "h23",
     timeZone: "UTC",
   }).format(new Date(`1970-01-01T${time}:00Z`));

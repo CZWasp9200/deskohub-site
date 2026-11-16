@@ -78,6 +78,7 @@ describe("app route tree", () => {
         "/dev/booking-components",
         "/dev/design-system",
         "/dev/effect-smoke",
+        "/dev/reservations",
         "/reservations",
         "/reservations/[orderId]",
         "/reservations/[orderId]/access",
