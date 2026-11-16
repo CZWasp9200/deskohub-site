@@ -473,9 +473,11 @@ describe("cowork checkout pricing", () => {
       submittedCode,
     });
     expect(result).toMatchObject({
-      status: "applied",
-      submittedCodeDiscountId: codeApplication.discount.id,
-      quote: { payment: { expectedPrice: money(19_000) } },
+      status: "affirmed",
+      priced: {
+        submittedCodeDiscountId: codeApplication.discount.id,
+        quote: { payment: { expectedPrice: money(19_000) } },
+      },
     });
   });
 
@@ -561,18 +563,27 @@ describe("cowork checkout pricing", () => {
       buildCoworkReservationQuote(profiOrder, { discountQuote: profiQuote })
     );
 
-    const customerQuote = await runWithDiscounts(
+    const customerVerdict = await runWithDiscounts(
       Effect.gen(function* () {
         const pricing = yield* coworkCheckoutPricing;
         return yield* pricing.quoteForCustomer({
-          reservation: profiOrder,
+          advertisement: {
+            status: "affirmed",
+            priced: {
+              kind: profiOrder.kind,
+              reservation: profiOrder,
+              advertisedQuote: expectedQuote,
+              discountQuote: profiAffirmedAdvertisement,
+            },
+          },
           locale: "en-US",
           dotyposCustomerId,
-          affirmedAdvertisement: profiAffirmedAdvertisement,
         });
       }),
       DiscountServiceMock({ applyCustomerDiscount })
     );
+    expect(customerVerdict.status).toBe("affirmed");
+    const customerQuote = customerVerdict.priced;
 
     expect(applyCustomerDiscount).toHaveBeenCalledWith({
       affirmedAdvertisement: profiAffirmedAdvertisement,

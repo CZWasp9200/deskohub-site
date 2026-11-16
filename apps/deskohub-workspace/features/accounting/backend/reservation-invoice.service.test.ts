@@ -13,6 +13,10 @@ import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers
 import { createReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { ReservationAccessToken } from "@/features/reservation/reservation-access-token";
+import {
+  recordEffectTrace,
+  startEffectTrace,
+} from "@/shared/testing/effect-trace.test-utils";
 import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { InvoiceRepository } from "./invoice.repository";
 import { ReservationInvoiceService } from "./reservation-invoice.service";
@@ -141,6 +145,62 @@ describe("reservation invoice processing", () => {
     expect(harness.issue).toHaveBeenCalledTimes(1);
     expect(harness.deliver).toHaveBeenCalledTimes(1);
   });
+
+  test("issues for the reservation's active payment attempt", async () => {
+    const activePaymentAttemptId = paymentAttemptIdSchema.make(
+      "payment-attempt-active"
+    );
+    const harness = makeHarness(
+      makeSource({
+        purpose: "personal",
+        invoice: "requested",
+        address: personalAddress,
+      }),
+      { reservation: { activePaymentAttemptId } }
+    );
+
+    const { exit, trace } = await traceProcessing(harness);
+
+    expect(exit._tag).toBe("Success");
+    expect(trace).toEqual([
+      "span ReservationInvoiceService.issueAfterFulfillment",
+      `call reservations.findById(${harness.source?.workspaceReservationId})`,
+      "call accountingSnapshots.find(payment-attempt-active)",
+      "call invoices.findByPaymentAttemptId(payment-attempt-active)",
+      "call dotypos.updateCustomerBillingDetails(dotypos-customer-1; addressLine1=Synthetic 1, addressLine2=, city=Praha, zip=100 00, country=CZ, companyName=, companyId=, vatId=)",
+      "call invoices.issue(paymentAttemptId=payment-attempt-active, buyer=<Object>)",
+      "call deliveries.deliverByPaymentAttemptId(paymentAttemptId=payment-attempt-active)",
+    ]);
+  });
+
+  test.each([
+    ["has no active payment attempt", { activePaymentAttemptId: null }],
+    ["is missing", null],
+  ] as const)(
+    "skips with a warning when the reservation %s",
+    async (_, reservation) => {
+      const harness = makeHarness(
+        makeSource({
+          purpose: "personal",
+          invoice: "requested",
+          address: personalAddress,
+        }),
+        { reservation }
+      );
+
+      const { exit, trace } = await traceProcessing(harness);
+
+      expect(exit._tag).toBe("Success");
+      expect(trace).toEqual([
+        "span ReservationInvoiceService.issueAfterFulfillment",
+        `call reservations.findById(${harness.source?.workspaceReservationId})`,
+        `Warn Reservation invoice processing skipped: payment attempt missing (workspaceReservationId=${harness.source?.workspaceReservationId}) {} in ReservationInvoiceService.issueAfterFulfillment`,
+      ]);
+      expect(harness.findSnapshot).not.toHaveBeenCalled();
+      expect(harness.issue).not.toHaveBeenCalled();
+      expect(harness.deliver).not.toHaveBeenCalled();
+    }
+  );
 
   test("does not issue when committed billing persistence fails", async () => {
     const billingFailure = new DotyposVersionConflict({
@@ -479,29 +539,37 @@ describe("reservation invoice processing", () => {
   });
 });
 
+const issueAfterFulfillment = Effect.fnUntraced(function* (
+  harness: ReturnType<typeof makeHarness>
+) {
+  const service = yield* ReservationInvoiceService;
+  yield* service.issueAfterFulfillment({
+    reservationId: harness.source?.workspaceReservationId as never,
+  });
+});
+
 const runProcessing = (harness: ReturnType<typeof makeHarness>) =>
-  Effect.gen(function* () {
-    const service = yield* ReservationInvoiceService;
-    yield* service.processByPaymentAttemptId({ paymentAttemptId });
-  }).pipe(
-    Effect.provide(
-      ReservationInvoiceService.Default.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            Layer.mock(
-              AccountingDocumentSnapshots,
-              harness.accountingSnapshots
-            ),
-            Layer.mock(DotyposService, harness.dotypos),
-            Layer.mock(InvoiceRepository, harness.invoices),
-            Layer.mock(InvoiceEmailDeliveryService, harness.deliveries),
-            Layer.mock(WorkspaceReservationRepository, harness.reservations)
-          )
-        )
-      )
-    ),
-    Effect.runPromise
+  runWithHarness(harness, issueAfterFulfillment(harness));
+
+/** Runs the issuance with every collaborator call, span and log recorded. */
+const traceProcessing = async (harness: ReturnType<typeof makeHarness>) => {
+  const trace = startEffectTrace();
+  const exit = await runWithHarness(
+    {
+      ...harness,
+      accountingSnapshots: trace.recordCalls(
+        "accountingSnapshots",
+        harness.accountingSnapshots
+      ),
+      dotypos: trace.recordCalls("dotypos", harness.dotypos),
+      invoices: trace.recordCalls("invoices", harness.invoices),
+      deliveries: trace.recordCalls("deliveries", harness.deliveries),
+      reservations: trace.recordCalls("reservations", harness.reservations),
+    },
+    recordEffectTrace(trace, issueAfterFulfillment(harness))
   );
+  return { exit, trace: trace.entries };
+};
 
 const makeAccessToken = (source: AccountingDocumentSnapshot) =>
   Effect.runPromise(

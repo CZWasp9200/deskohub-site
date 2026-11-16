@@ -55,6 +55,7 @@ export {
   CustomerLegalDocument,
   CustomerLegalDocuments,
   CustomerMeetingRoomStartTimes,
+  CustomerMeetingRoomUnavailableDates,
   CustomerOffering,
   CustomerOfferingAddOn,
   customerAvailabilityReplacementHeader,
@@ -126,7 +127,9 @@ export {
 } from "./customer-profile";
 export {
   CustomerAccessCodeUnavailable,
+  CustomerBookedSelection,
   CustomerCoworkTier,
+  CustomerEstablishment,
   CustomerInvoiceNotIssued,
   CustomerInvoicePdf,
   CustomerOrderFulfillmentStatus,
