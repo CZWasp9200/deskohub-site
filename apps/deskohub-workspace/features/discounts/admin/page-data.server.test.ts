@@ -142,25 +142,15 @@ describe("discount administration record pages", () => {
 });
 
 describe("discount administration pages that never 404", () => {
-  test("shows the customer page without a profile it can't read", async () => {
-    administration = { loadCustomerProfile: missingRecord };
-    expect(
-      await pages.loadOptionalDiscountAdminCustomerPageData(
-        customerId,
-        Promise.resolve({})
-      )
-    ).toEqual({ profile: null, notice: undefined });
-
+  test("shows the customer page without discount sections it can't read", async () => {
     administration = {
-      loadCustomerProfile: () => Effect.fail(new Error("Dotypos unavailable")),
+      loadCustomerDiscountSections: () =>
+        Effect.fail(new Error("Dotypos unavailable")),
     };
     expect(
-      await pages.loadOptionalDiscountAdminCustomerPageData(
-        customerId,
-        searchParams()
-      )
+      await pages.loadDiscountCustomerSections(customerId, searchParams())
     ).toEqual({
-      profile: null,
+      sections: null,
       notice: { message: "Saved", status: "success" },
     });
   });

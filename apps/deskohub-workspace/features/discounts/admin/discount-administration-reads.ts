@@ -285,11 +285,10 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
       )
   );
 
-  const loadCustomerProfile = Effect.fn(
-    "DiscountAdministration.loadCustomerProfile"
+  const loadCustomerDiscountSections = Effect.fn(
+    "DiscountAdministration.loadCustomerDiscountSections"
   )((input: { readonly customerId: DotyposCustomerId }) =>
     Effect.all({
-      customer: loadActiveCustomer(input.customerId),
       discountGroups: dotypos.getDiscountGroups(),
       codeRows: db.query.discountCodes.findMany({
         with: {
@@ -309,8 +308,7 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
         },
       }),
     }).pipe(
-      Effect.map(({ codeRows, customer, discountGroups, voucherRows }) => ({
-        customer: toAdminDotyposCustomer(customer),
+      Effect.map(({ codeRows, discountGroups, voucherRows }) => ({
         discountGroups: discountGroups
           .flatMap(toAdminDiscountGroup)
           .toSorted((left, right) => left.name.localeCompare(right.name)),
@@ -357,6 +355,20 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
           .toSorted((left, right) =>
             Temporal.Instant.compare(right.reservedAt, left.reservedAt)
           ),
+      }))
+    )
+  );
+
+  const loadCustomerProfile = Effect.fn(
+    "DiscountAdministration.loadCustomerProfile"
+  )((input: { readonly customerId: DotyposCustomerId }) =>
+    Effect.all({
+      customer: loadActiveCustomer(input.customerId),
+      sections: loadCustomerDiscountSections(input),
+    }).pipe(
+      Effect.map(({ customer, sections }) => ({
+        customer: toAdminDotyposCustomer(customer),
+        ...sections,
       }))
     )
   );
@@ -409,6 +421,7 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
     loadCodesPage,
     loadCustomerBreadcrumbLabel,
     loadCustomerCodeCreation,
+    loadCustomerDiscountSections,
     loadCustomerProfile,
     loadCustomerVoucherCreation,
     loadDashboard,

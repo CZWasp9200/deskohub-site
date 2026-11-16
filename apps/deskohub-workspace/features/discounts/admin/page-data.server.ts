@@ -196,29 +196,29 @@ export const loadDiscountAdminCustomerVoucherCreationPageData = (
   );
 
 /**
- * The customer page without a 404: a customer the discount administration
- * can't read still shows their workspace activity.
+ * The discount sections of the customer detail page, beside the page's
+ * notice. Sections that can't load are null, so the page shows only the
+ * customer's Workspace activity.
  */
-export const loadOptionalDiscountAdminCustomerPageData = (
+export const loadDiscountCustomerSections = (
   customerId: DotyposCustomerId,
   searchParams: DiscountAdminSearchParams
 ) =>
   runDiscountAdministration(
-    "discount-administration.load-customer-optional",
+    "discount-administration.load-customer-sections",
     (administration) =>
       Effect.all(
         {
-          profile: administration.loadCustomerProfile({ customerId }).pipe(
-            Effect.catchTag("DiscountAdminNotFoundError", () =>
-              Effect.succeed(null)
+          sections: administration
+            .loadCustomerDiscountSections({ customerId })
+            .pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning(
+                  "Customer administration details unavailable",
+                  { cause, customerId }
+                ).pipe(Effect.as(null))
+              )
             ),
-            Effect.catch((cause) =>
-              Effect.logWarning("Customer administration details unavailable", {
-                cause,
-                customerId,
-              }).pipe(Effect.as(null))
-            )
-          ),
           notice: readNotice(searchParams),
         },
         { concurrency: "unbounded" }

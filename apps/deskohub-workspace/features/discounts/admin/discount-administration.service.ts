@@ -196,6 +196,10 @@ type AdminCustomerCode = AdminDiscountCode & {
 
 export type AdminCustomerProfile = {
   readonly customer: AdminDotyposCustomer;
+} & AdminCustomerDiscountSections;
+
+/** What the customer detail's discount sections show of one customer. */
+export type AdminCustomerDiscountSections = {
   readonly discountGroups: readonly AdminDiscountGroup[];
   readonly codes: readonly AdminCustomerCode[];
   readonly claims: readonly AdminDiscountCodeClaim[];
@@ -396,6 +400,12 @@ export interface IDiscountAdministration {
     | SqlError
     | DotyposReadFailure
     | DiscountAdminNotFoundError
+  >;
+  readonly loadCustomerDiscountSections: (input: {
+    readonly customerId: DotyposCustomerId;
+  }) => Effect.Effect<
+    AdminCustomerDiscountSections,
+    EffectDrizzleQueryError | SqlError | DotyposReadFailure
   >;
   readonly loadCustomerBreadcrumbLabel: (input: {
     readonly customerId: DotyposCustomerId;

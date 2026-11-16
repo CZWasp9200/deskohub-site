@@ -288,11 +288,7 @@ describe("administration entry points without the administrator grant", () => {
         ),
       () =>
         discounts.loadDiscountAdminCustomerCodeCreationPageData("customer-id"),
-      () =>
-        discounts.loadOptionalDiscountAdminCustomerPageData(
-          "customer-id",
-          searchParams
-        ),
+      () => discounts.loadDiscountCustomerSections("customer-id", searchParams),
       () => discounts.loadDiscountAdminCustomerBreadcrumbLabel("customer-id"),
       () => accounting.loadInvoiceAdministrationList(searchParams),
       () => accounting.loadInvoiceCreationPage(),
