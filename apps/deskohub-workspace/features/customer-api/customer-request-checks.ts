@@ -109,7 +109,7 @@ export const CustomerSessionAuthenticationLive = Layer.effect(
           spendCustomerRequestBudgets({
             session,
             group: group.identifier,
-            endpoint: endpoint.name,
+            endpoint: endpoint.identifier,
           }).pipe(Effect.provideService(RequestBudget, budget))
         ),
         Effect.flatMap((session) =>

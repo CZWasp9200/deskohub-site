@@ -19,7 +19,11 @@ import {
   Schema,
 } from "effect";
 import { HttpServerRequest, type HttpServerResponse } from "effect/http";
-import type { HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
+import {
+  HttpApi,
+  type HttpApiEndpoint,
+  type HttpApiGroup,
+} from "effect/http-api";
 import { CurrentAdministrationAction } from "./administration-action";
 import {
   type AdministrationActionEnd,
@@ -103,9 +107,8 @@ const recordedOperation = (
   HttpServerRequest.HttpServerRequest
 > => {
   const reference: AdministrationOperationReference = `${group.identifier}.${endpoint.identifier}`;
-  const declaration = administrationOperationDeclaration(
-    Context.merge(group.annotations, endpoint.annotations)
-  );
+  const annotations = Context.merge(group.annotations, endpoint.annotations);
+  const declaration = administrationOperationDeclaration(annotations);
   if (Option.isNone(declaration)) {
     return Effect.succeed(Option.none());
   }
@@ -124,7 +127,7 @@ const recordedOperation = (
             () => Effect.succeed(Option.none())
           ),
           Match.when({ preview: { _tag: "DryRun" } }, () =>
-            requestsDryRun(endpoint).pipe(
+            requestsDryRun(endpoint, annotations).pipe(
               Effect.map((dryRun) =>
                 dryRun ? Option.none() : Option.some(reference)
               )
@@ -169,10 +172,14 @@ const requestBody = HttpServerRequest.HttpServerRequest.pipe(
 /**
  * Whether the request runs its operation as the dry run its contract
  * declares as the preview: the body decodes to `dryRun: true` with the
- * payload schema the endpoint picks for the request's JSON media type. A
- * body that doesn't decode is no dry run; the endpoint rejects it.
+ * payload schema the endpoint picks for the request's JSON media type and
+ * the payload parse options it declares. A body that doesn't decode is no
+ * dry run; the endpoint rejects it.
  */
-const requestsDryRun = (endpoint: HttpApiEndpoint.Top) =>
+const requestsDryRun = (
+  endpoint: HttpApiEndpoint.Top,
+  annotations: Context.Context<never>
+) =>
   HttpServerRequest.HttpServerRequest.pipe(
     Effect.flatMap((request) =>
       Option.fromNullishOr(endpoint.payload.get(mediaTypeOf(request))).pipe(
@@ -186,7 +193,8 @@ const requestsDryRun = (endpoint: HttpApiEndpoint.Top) =>
                 Option.firstSomeOf(
                   schemas.map((schema) =>
                     Schema.decodeUnknownOption(schema as Schema.Codec<unknown>)(
-                      body
+                      body,
+                      payloadParseOptionsOf(annotations)
                     )
                   )
                 ).pipe(
@@ -202,6 +210,11 @@ const requestsDryRun = (endpoint: HttpApiEndpoint.Top) =>
       )
     )
   );
+
+/** The payload's parse options, as `HttpApiBuilder` reads them. */
+const payloadParseOptionsOf = (annotations: Context.Context<never>) =>
+  Context.getOrUndefined(annotations, HttpApi.PayloadParseOptions) ??
+  Context.getOrUndefined(annotations, HttpApi.ParseOptions);
 
 /** The request's media type, as `HttpApiBuilder` picks a payload by it. */
 const mediaTypeOf = (request: HttpServerRequest.HttpServerRequest) =>
