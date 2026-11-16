@@ -40,7 +40,7 @@ import {
  * Another payment of the invited customer already holds their first booking,
  * so an ordinary payment waits for it. The caller reports it in its own terms.
  */
-export class ReferralFirstBookingAdmittedError extends Data.TaggedError(
+class ReferralFirstBookingAdmittedError extends Data.TaggedError(
   "ReferralFirstBookingAdmittedError"
 )<{
   readonly message: string;
@@ -50,7 +50,7 @@ export class ReferralFirstBookingAdmittedError extends Data.TaggedError(
  * The reservation hold the claim would expire with ended before admission.
  * The caller reports it in its own terms.
  */
-export class ReferralClaimHoldEndedError extends Data.TaggedError(
+class ReferralClaimHoldEndedError extends Data.TaggedError(
   "ReferralClaimHoldEndedError"
 )<{
   readonly message: string;
@@ -60,7 +60,7 @@ export class ReferralClaimHoldEndedError extends Data.TaggedError(
  * The attribution a payment transaction may record, which decides whether it
  * takes the referral graph lock before the first-booking lock.
  */
-export type ReferralLockedAttribution =
+type ReferralLockedAttribution =
   /** Admission, terminal release or late-recovery start: no attribution. */
   | "nothing"
   /**
