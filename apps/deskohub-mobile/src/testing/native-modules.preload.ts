@@ -1,6 +1,7 @@
 import { mock } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { Component, createContext, useContext } from "react";
+import { postHogStandIn } from "./posthog-stand-in";
 
 /**
  * Bun can't load React Native or Expo's native modules, so tests get small
@@ -219,3 +220,6 @@ mock.module("@react-native-async-storage/async-storage", () => ({
     },
   },
 }));
+
+// Analytics clients are built on this stand-in in every test file.
+mock.module("posthog-react-native", postHogStandIn);
