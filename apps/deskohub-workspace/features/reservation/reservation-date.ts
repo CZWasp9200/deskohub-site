@@ -5,6 +5,7 @@ import {
   formatInstantDateRange,
   formatPlainDate,
   formatPlainDateRange,
+  withPlainSpaces,
 } from "@/shared/utils/date-time-format";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
@@ -148,6 +149,27 @@ export const formatReservationDisplayTimeRange = (
     locale,
     reservationDisplayTimeFormatOptions
   ).formatRange(temporalInstantToDate(start), temporalInstantToDate(end));
+
+/**
+ * A reservation interval that spans dates, each end with its short date and
+ * time of day. Plain spaces keep it hydrating when both the server and the
+ * client render it.
+ */
+export const formatReservationDisplayDateTimeRange = (
+  start: Temporal.Instant,
+  end: Temporal.Instant,
+  locale: Locale
+) =>
+  withPlainSpaces(
+    new Intl.DateTimeFormat(locale, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: workspaceSiteConstants.location.timeZone,
+    }).formatRange(temporalInstantToDate(start), temporalInstantToDate(end))
+  );
 
 export const formatReservationDisplayDateTime = (
   instant: Temporal.Instant,

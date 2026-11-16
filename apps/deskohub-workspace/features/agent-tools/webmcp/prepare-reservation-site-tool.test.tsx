@@ -18,7 +18,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import type { Schema } from "effect";
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useEffect, useLayoutEffect, useState } from "react";
 import {
   type Resolver,
   type UseFormReturn,
@@ -119,13 +119,25 @@ const contactResolver: Resolver<HarnessValues> = async (values) => {
       };
 };
 
-/** Availability for the watched date settles a moment after it changes. */
-function useHarnessAvailability(date: string, unavailableDates: string[]) {
+/**
+ * Availability for the watched date settles a moment after it changes, or
+ * with `settlesAtOnce` in a synchronous commit right after the pending one,
+ * before any waiting tool resumes.
+ */
+function useHarnessAvailability(
+  date: string,
+  unavailableDates: string[],
+  settlesAtOnce: boolean
+) {
   const [settledDate, setSettledDate] = useState(date);
+  useLayoutEffect(() => {
+    if (settlesAtOnce) setSettledDate(date);
+  }, [date, settlesAtOnce]);
   useEffect(() => {
+    if (settlesAtOnce) return;
     const timer = setTimeout(() => setSettledDate(date), 5);
     return () => clearTimeout(timer);
-  }, [date]);
+  }, [date, settlesAtOnce]);
   return {
     isPending: settledDate !== date,
     unavailableMessage:
@@ -170,6 +182,7 @@ function Harness({
   signedOut = false,
   kind = "cowork",
   priceError = false,
+  settlesAtOnce = false,
   unavailableDates = [],
 }: {
   readonly existingCustomer?: ReservationExistingCustomerForm;
@@ -177,6 +190,7 @@ function Harness({
   readonly typed?: Partial<Pick<HarnessValues, "name" | "email" | "phone">>;
   readonly signedOut?: boolean;
   readonly priceError?: boolean;
+  readonly settlesAtOnce?: boolean;
   readonly unavailableDates?: string[];
 }) {
   const checkoutCustomer = getHarnessCheckoutCustomer({
@@ -208,7 +222,11 @@ function Harness({
         retry: () => undefined,
         token: `signed-price-${date}`,
       }}
-      availability={useHarnessAvailability(date, unavailableDates)}
+      availability={useHarnessAvailability(
+        date,
+        unavailableDates,
+        settlesAtOnce
+      )}
       checkoutCustomer={checkoutCustomer}
       form={form}
       getReservation={({ date: reservationDate, email, name, phone }) =>
@@ -474,6 +492,17 @@ describe("prepare_reservation site tool", () => {
       expect.objectContaining(typedContact)
     );
     expect(executeAsync).not.toHaveBeenCalled();
+  });
+
+  test("prepares a selection that settles in the commit right after it changes", async () => {
+    await renderForm({ existingCustomer: accountCustomer(), settlesAtOnce: true });
+
+    expect(await runTool({ family: "cowork", date: "2099-07-31" })).toMatchObject(
+      { status: "ready" }
+    );
+    expect(lastPrepareInput()).toMatchObject({
+      reservation: { reservationDate: "2099-07-31" },
+    });
   });
 
   test("returns the form's own message when the selection is no longer available", async () => {

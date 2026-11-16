@@ -61,6 +61,10 @@ import {
 } from "@/features/reservation/cowork-reservation";
 import { coworkSelectionLink } from "@/features/reservation/cowork-selection-link";
 import {
+  type CoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
+import {
   formatReservationInputDate,
   getCurrentWorkspaceDate,
 } from "@/features/reservation/reservation-date";
@@ -73,9 +77,11 @@ import {
   FormMessage,
 } from "@/shared/components/ui/form";
 import { Label } from "@/shared/components/ui/label";
+import { SegmentedControl } from "@/shared/components/ui/segmented-control";
 import { cn } from "@/shared/utils";
 import { CoworkOptionalAddonToggle } from "./cowork-optional-addon-toggle";
 import { getCoworkReservationSelectionSummary } from "./cowork-reservation-selection-summary";
+import { formatCoworkOvernightStay } from "./cowork-stay-display";
 import { useCoworkAddonNormalization } from "./use-cowork-addon-normalization";
 import { useCoworkAdvertisedPrices } from "./use-cowork-advertised-prices";
 import { useCoworkSelectionAvailability } from "./use-cowork-selection-availability";
@@ -85,6 +91,11 @@ type CoworkReservationFormProps = {
   initialAdvertisedPrices?: ReadonlyArray<PreloadedAdvertisedPrice>;
   initialValues?: CoworkReservationInput;
   locale: Locale;
+  /**
+   * Whether the overnight-stay release is open, so a Reserved Desk can be
+   * booked as an overnight stay.
+   */
+  overnightStayOffered?: boolean;
   checkoutSessionId?: CheckoutSessionId;
   checkoutCustomer: ReservationCheckoutCustomerForm;
   initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
@@ -138,6 +149,7 @@ export function CoworkReservationForm({
   initialAdvertisedPrices = [],
   initialValues,
   locale,
+  overnightStayOffered = false,
   checkoutSessionId,
   checkoutCustomer,
   initialAvailability,
@@ -160,8 +172,14 @@ export function CoworkReservationForm({
     reValidateMode: "onChange",
   });
   const selection = useWatchedSelection(coworkSelectionLink, form.control);
-  const { entryTier: selectedTier, monitorOption: selectedMonitorOption } =
-    selection;
+  const {
+    date: selectedDate,
+    entryTier: selectedTier,
+    monitorOption: selectedMonitorOption,
+    stay: selectedStay,
+  } = selection;
+  const offersStayChoice =
+    overnightStayOffered && selectedTier === overnightCoworkStayTier;
   useReservationSelectionUrl(coworkSelectionLink, selection);
   const allowedMonitorOptions =
     getAllowedMonitorOptionsForCoworkTier(selectedTier);
@@ -221,6 +239,10 @@ export function CoworkReservationForm({
                 onBlur={field.onBlur}
                 onChange={(tier) => {
                   field.onChange(tier);
+                  // Only a Reserved Desk offers an overnight stay.
+                  if (tier !== overnightCoworkStayTier) {
+                    form.setValue("stay", undefined);
+                  }
                   onTierChange(tier);
                 }}
                 presentation="illustrated"
@@ -312,11 +334,30 @@ export function CoworkReservationForm({
 
       <div data-cowork-date-addon-row className="grid gap-5 md:grid-cols-2">
         <div data-cowork-date-column className="space-y-5">
+          {offersStayChoice && (
+            <CoworkStayField control={form.control} locale={locale} />
+          )}
+
           <CoworkReservationDateField
             control={form.control}
             locale={locale}
             unavailableDates={selectionAvailability.unavailableDates}
           />
+
+          {offersStayChoice && selectedStay === "overnight" && selectedDate && (
+            <p
+              data-cowork-overnight-stay-times
+              className="flex items-start gap-2 text-sm leading-6 text-navy-blue/70"
+            >
+              <Clock3 className="mt-1 h-4 w-4 shrink-0 text-burned-orange" />
+              <span>
+                {m.coworkReservationOvernightStaySummary(
+                  { interval: formatCoworkOvernightStay(selectedDate, locale) },
+                  { locale }
+                )}
+              </span>
+            </p>
+          )}
 
           {selectionAvailability.selectedDateNotices.length > 0 && (
             <div className="space-y-3">
@@ -653,6 +694,49 @@ function CoworkWorkstationAddonField({
             </div>
           )}
           <FormMessage className="md:col-span-2" />
+        </FormItem>
+      )}
+    />
+  );
+}
+
+/** The Reserved Desk's Day / Overnight choice; a day stay leaves it unset. */
+function CoworkStayField({
+  control,
+  locale,
+}: {
+  readonly control: Control<
+    CoworkReservationInput,
+    unknown,
+    CoworkReservationData
+  >;
+  readonly locale: Locale;
+}) {
+  return (
+    <FormField
+      control={control}
+      name="stay"
+      render={({ field }) => (
+        <FormItem>
+          <SegmentedControl<CoworkStay>
+            className="flex w-full [&>label]:flex-1"
+            label={m.coworkReservationStayLabel({}, { locale })}
+            name={field.name}
+            onValueChange={(stay) =>
+              field.onChange(stay === "overnight" ? stay : undefined)
+            }
+            options={[
+              {
+                value: "day",
+                label: m.coworkReservationStayDay({}, { locale }),
+              },
+              {
+                value: "overnight",
+                label: m.coworkReservationStayOvernight({}, { locale }),
+              },
+            ]}
+            value={field.value ?? "day"}
+          />
         </FormItem>
       )}
     />

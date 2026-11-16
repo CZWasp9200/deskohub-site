@@ -41,6 +41,13 @@ import {
   getWorkspaceProductTierTitle,
   workspaceProductTierCardMessages,
 } from "@/features/checkout/product-catalog.i18n";
+import { publishQuoteTool } from "@/features/agent-tools/webmcp/site-tool-catalog";
+import {
+  agentToolEventStream,
+  installFakeModelContext,
+  mockAgentToolEndpoint,
+  publishedQuoteTool,
+} from "@/features/agent-tools/webmcp/webmcp.test-utils";
 import { discountIdSchema } from "@/features/discounts/contracts";
 import { type Locale, m } from "@/features/i18n";
 import {
@@ -68,6 +75,7 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+import { formatCoworkOvernightStay } from "./cowork-stay-display";
 
 const testEmailAddressForAda = testEmailAddress("ada");
 
@@ -2395,6 +2403,291 @@ describe("CoworkReservationForm advertised pricing", () => {
         process.env.TZ = originalTimeZone;
       }
     }
+  });
+
+  describe("CoworkReservationForm overnight stay", () => {
+    let availabilityRequests: URLSearchParams[] = [];
+    const stayGroup = (view: ReturnType<typeof renderForm>) =>
+      view.queryByRole("group", {
+        name: m.coworkReservationStayLabel({}, { locale: "en-US" }),
+      });
+    const stayOption = (
+      view: ReturnType<typeof renderForm>,
+      stay: "day" | "overnight"
+    ) =>
+      view.getByRole("radio", {
+        name: {
+          day: m.coworkReservationStayDay({}, { locale: "en-US" }),
+          overnight: m.coworkReservationStayOvernight({}, { locale: "en-US" }),
+        }[stay],
+      }) as HTMLInputElement;
+    const tierRadio = (
+      view: ReturnType<typeof renderForm>,
+      tier: "open-space" | "reserved-desk"
+    ) =>
+      view.container.querySelector(
+        `input[type='radio'][value='${tier}']`
+      ) as HTMLInputElement;
+    const overnightTimes = (view: ReturnType<typeof renderForm>) =>
+      view.container.querySelector("[data-cowork-overnight-stay-times]");
+    const linkedStay = () =>
+      new URL(window.location.href).searchParams.get("stay");
+    const submitReservation = async (view: ReturnType<typeof renderForm>) => {
+      const continueButton = view.getByRole("button", {
+        name: "Continue",
+      }) as HTMLButtonElement;
+      await waitFor(() => {
+        expect(continueButton.hasAttribute("disabled")).toBe(false);
+      });
+      await continueAndSubmitReservation(continueButton);
+      await waitFor(() => {
+        expect(executeAsync).toHaveBeenCalledTimes(1);
+      });
+      return (
+        executeAsync.mock.calls[0]?.[0] as unknown as {
+          readonly reservation: Record<string, unknown>;
+        }
+      ).reservation;
+    };
+
+    let originalHref = "";
+
+    beforeEach(() => {
+      originalHref = window.location.href;
+      window.happyDOM.setURL("https://deskohub.test/en-US/reservation/cowork");
+      availabilityRequests = [];
+      workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
+      getAdvertisedPrices.mockImplementation((requests) =>
+        Promise.resolve(
+          advertisedPricesResult(requests, getCoworkAdvertisedPriceResponse)
+        )
+      );
+      globalThis.fetch = mock((request: RequestInfo | URL) => {
+        const url = String(request);
+        if (!url.startsWith("/api/workspace/availability")) {
+          return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+        }
+        const searchParams = new URL(url, "http://localhost").searchParams;
+        availabilityRequests.push(searchParams);
+        return Promise.resolve(
+          jsonResponse({
+            ...availabilityResponse,
+            date: searchParams.get("date") ?? undefined,
+            from: searchParams.get("from"),
+            to: searchParams.get("to"),
+          })
+        );
+      }) as typeof fetch;
+    });
+
+    afterEach(() => {
+      window.happyDOM.setURL(originalHref);
+    });
+
+    test("offers no stay choice while the overnight release is closed", () => {
+      const view = renderForm({
+        initialValues: { ...reservedDeskFormValues(), stay: "overnight" },
+      });
+
+      expect(stayGroup(view)).toBeNull();
+      expect(overnightTimes(view)).toBeNull();
+    });
+
+    test("offers the stay choice for a Reserved Desk only", async () => {
+      const view = renderForm({
+        overnightStayOffered: true,
+        initialValues: { ...reservedDeskFormValues(), entryTier: "open-space" },
+      });
+      expect(stayGroup(view)).toBeNull();
+
+      await act(async () => fireEvent.click(tierRadio(view, "reserved-desk")));
+
+      expect(stayGroup(view)).not.toBeNull();
+      expect(stayOption(view, "day").checked).toBe(true);
+      expect(overnightTimes(view)).toBeNull();
+    });
+
+    test("an overnight stay asks for its own availability, links it, shows its exact times and submits it", async () => {
+      const view = renderForm({
+        overnightStayOffered: true,
+        initialValues: reservedDeskFormValues(),
+      });
+
+      await act(async () => fireEvent.click(stayOption(view, "overnight")));
+
+      await waitFor(() => {
+        expect(linkedStay()).toBe("overnight");
+        expect(
+          availabilityRequests.some(
+            (params) =>
+              params.get("stay") === "overnight" &&
+              params.get("date") === "2099-07-30"
+          )
+        ).toBe(true);
+        expect(
+          availabilityRequests.some(
+            (params) =>
+              params.get("stay") === "overnight" && !params.has("date")
+          )
+        ).toBe(true);
+      });
+      expect(overnightTimes(view)?.textContent).toContain(
+        formatCoworkOvernightStay("2099-07-30", "en-US")
+      );
+
+      expect(await submitReservation(view)).toMatchObject({
+        entryTier: "reserved-desk",
+        date: "2099-07-30",
+        stay: "overnight",
+      });
+    });
+
+    test("opens on a linked overnight stay", () => {
+      workspaceUseSearchParams.mockReturnValue(
+        new URLSearchParams("entryTier=reserved-desk&date=2099-07-30&stay=overnight")
+      );
+
+      const view = renderForm({ overnightStayOffered: true });
+
+      expect(stayOption(view, "overnight").checked).toBe(true);
+      expect(overnightTimes(view)).not.toBeNull();
+    });
+
+    test("an overnight quote prepared through the page's WebMCP tool reaches the submitted order", async () => {
+      const { preparePayState } = await import(
+        "@/features/reservation/actions/prepare-pay-state"
+      );
+      const ready = {
+        data: {
+          status: "ready",
+          redirectUrl: "/en-US/checkout/pay?payState=sealed-state&orderId=order-1",
+          expiresAt: "2099-07-29T08:10:00.000Z",
+        },
+      } as const;
+      // Like next-safe-action, a settled call runs the hook's callbacks first.
+      workspaceUseAction.mockImplementation(((
+        action: unknown,
+        options: { readonly onSuccess?: (result: typeof ready) => void }
+      ) => ({
+        executeAsync: async (input: unknown) => {
+          await (executeAsync as (input: unknown) => Promise<unknown>)(input);
+          if (action === preparePayState) act(() => options.onSuccess?.(ready));
+          return ready;
+        },
+        isExecuting: false,
+        result: {},
+      })) as never);
+      const availabilityFetch = globalThis.fetch;
+      const endpoint = mockAgentToolEndpoint(({ params }) =>
+        agentToolEventStream({
+          structuredContent:
+            params.name === "get_quote"
+              ? {
+                  family: "cowork",
+                  total: { amount: "410.00", currency: "CZK" },
+                  regular_price: { amount: "410.00", currency: "CZK" },
+                  quoted_at: "2099-07-29T08:00:00Z",
+                  reservation_url:
+                    "https://deskohub.test/reservation/cowork?entryTier=reserved-desk&date=2099-07-30&coffee=true&monitorOption=none&stay=overnight",
+                }
+              : {},
+        })
+      );
+      const agentToolFetch = globalThis.fetch;
+      globalThis.fetch = ((...args: Parameters<typeof fetch>) =>
+        (String(args[0]) === "/api/mcp" ? agentToolFetch : availabilityFetch)(
+          ...args
+        )) as typeof fetch;
+      const modelContext = installFakeModelContext();
+
+      try {
+        const view = renderForm({
+          overnightStayOffered: true,
+          checkoutCustomer: {
+            status: "linked",
+            existingCustomer: {
+              contact: {
+                name: "Ada Lovelace",
+                email: testEmailAddressForAda,
+                phone: "+420777777777",
+              },
+              hasMarketingConsent: false,
+              initialMode: "account",
+              otherContact: { name: "", email: "", phone: "" },
+            },
+            replacesTypedContact: false,
+          },
+          // The page fills a linked account's contact into the form.
+          initialValues: { ...reservedDeskFormValues(), entryTier: "open-space" },
+        });
+        act(() => publishQuoteTool(publishedQuoteTool));
+        await waitFor(() => {
+          expect(modelContext.registered.has("prepare_reservation")).toBe(true);
+        });
+
+        const result = await modelContext.getTool("prepare_reservation").execute({
+          family: "cowork",
+          date: "2099-07-30",
+          tier: "reserved-desk",
+          stay: "overnight",
+        });
+
+        expect(endpoint.requests.at(-1)?.params).toMatchObject({
+          name: "get_quote",
+          arguments: { stay: "overnight" },
+        });
+        expect(result).toMatchObject({ status: "ready" });
+        expect(stayOption(view, "overnight").checked).toBe(true);
+        expect(executeAsync).toHaveBeenCalledTimes(1);
+        expect(executeAsync.mock.calls[0]?.[0]).toMatchObject({
+          reservation: {
+            entryTier: "reserved-desk",
+            date: "2099-07-30",
+            stay: "overnight",
+          },
+        });
+      } finally {
+        act(() => publishQuoteTool(undefined));
+        modelContext.uninstall();
+        endpoint.restore();
+        workspaceUseAction.mockReset();
+      }
+    });
+
+    test("switching to Open Space drops the stay from the link, the availability and the order", async () => {
+      window.history.replaceState(
+        null,
+        "",
+        "/en-US/reservation/cowork?entryTier=reserved-desk&date=2099-07-30&stay=overnight"
+      );
+      const view = renderForm({
+        overnightStayOffered: true,
+        initialValues: { ...reservedDeskFormValues(), stay: "overnight" },
+      });
+      expect(stayOption(view, "overnight").checked).toBe(true);
+
+      await act(async () => fireEvent.click(tierRadio(view, "open-space")));
+
+      expect(stayGroup(view)).toBeNull();
+      expect(overnightTimes(view)).toBeNull();
+      await waitFor(() => {
+        expect(new URL(window.location.href).searchParams.get("entryTier")).toBe(
+          "open-space"
+        );
+      });
+      expect(linkedStay()).toBeNull();
+      const openSpaceRequests = availabilityRequests.filter(
+        (params) => params.get("entryTier") === "open-space"
+      );
+      expect(openSpaceRequests.length).toBeGreaterThan(0);
+      expect(openSpaceRequests.some((params) => params.has("stay"))).toBe(
+        false
+      );
+
+      const reservation = await submitReservation(view);
+      expect(reservation).toMatchObject({ entryTier: "open-space" });
+      expect(reservation.stay).toBeUndefined();
+    });
   });
 
   describe("CoworkReservationForm phone region", () => {
