@@ -43,6 +43,7 @@ import {
   tabGate,
 } from "../account-gating";
 import { TabGateCard } from "../tab-gate-card";
+import { accessPinGroups } from "./access-pin-groups";
 import { useAccessPinView } from "./access-pin-view";
 import { copyAccessCodeAtom } from "./access-screen-state";
 import { bookingEntryEnabled } from "./booking-entry";
@@ -622,7 +623,6 @@ function TodayPin({
           }
     );
   }, [copied, toast, locale]);
-  const half = Math.ceil(code.length / 2);
   return (
     <>
       <AccessTile />
@@ -638,7 +638,7 @@ function TodayPin({
           )}
           style={styles.pin}
         >
-          {`${code.slice(0, half)} ${code.slice(half)}`}
+          {accessPinGroups(code).join(" ")}
         </Text>
       </View>
       <Pressable

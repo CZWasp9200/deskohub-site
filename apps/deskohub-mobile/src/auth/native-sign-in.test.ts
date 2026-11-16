@@ -873,7 +873,7 @@ describe("reauthentication", () => {
     const app = launchApp(server, store, webSignInAs(server, ada));
     const signals = sessionSignals(app.client);
 
-    const user = await app.runtime.runPromise(reauthenticate);
+    const user = await app.runtime.runPromise(reauthenticate());
 
     expect(user).toEqual(ada);
     expect(new URL(app.opened[0] ?? "").searchParams.get("prompt")).toBe(
@@ -886,6 +886,32 @@ describe("reauthentication", () => {
     expect((await app.client.getSession()).data?.user.id).toBe(ada.id);
   });
 
+  test("names the account and the purpose to the page", async () => {
+    const server = makeFakeAuthServer(origin);
+    const store = makeMemorySecureStore();
+    await signedInAs(server, store, ada);
+    const app = launchApp(server, store, webSignInAs(server, ada));
+
+    await app.runtime.runPromise(reauthenticate("delete-account"));
+
+    const search = new URL(app.opened[0] ?? "").searchParams;
+    expect(search.getAll("login_hint")).toEqual([ada.email]);
+    expect(search.getAll("purpose")).toEqual(["delete-account"]);
+  });
+
+  test("names no purpose when the action gives none", async () => {
+    const server = makeFakeAuthServer(origin);
+    const store = makeMemorySecureStore();
+    await signedInAs(server, store, ada);
+    const app = launchApp(server, store, webSignInAs(server, ada));
+
+    await app.runtime.runPromise(reauthenticate());
+
+    const search = new URL(app.opened[0] ?? "").searchParams;
+    expect(search.getAll("login_hint")).toEqual([ada.email]);
+    expect(search.has("purpose")).toBe(false);
+  });
+
   test("records the reauthentication as a started sign-in, as the web page does", async () => {
     const server = makeFakeAuthServer(origin);
     const store = makeMemorySecureStore();
@@ -896,7 +922,7 @@ describe("reauthentication", () => {
     try {
       const app = launchApp(server, store, webSignInAs(server, ada));
 
-      await app.runtime.runPromise(reauthenticate);
+      await app.runtime.runPromise(reauthenticate());
 
       expect(
         capture.mock.calls.filter(([event]) => event.name === "sign-in started")
@@ -914,7 +940,7 @@ describe("reauthentication", () => {
     const adaCookie = await signedInAs(server, store, ada);
     const app = launchApp(server, store, webSignInAs(server, bob));
 
-    const exit = await app.runtime.runPromiseExit(reauthenticate);
+    const exit = await app.runtime.runPromiseExit(reauthenticate());
 
     expect(failureTag(exit)).toBe("AccountSwitchRefused");
     expect(server.openSessions()).not.toContainEqual(bob);
@@ -928,7 +954,7 @@ describe("reauthentication", () => {
     const adaCookie = await signedInAs(server, store, ada);
     const first = launchApp(server, store);
     const request = await first.runtime.runPromise(
-      startPendingSignIn(Option.some(ada.id))
+      startPendingSignIn(Option.some({ user: ada }))
     );
     const callbackUrl = server.mintHandoff(bob, request);
     await first.runtime.dispose();
@@ -950,7 +976,7 @@ describe("reauthentication", () => {
     server.failSessionReadsAfterExchange(100);
     const app = launchApp(server, store, webSignInAs(server, bob));
 
-    const exit = await app.runtime.runPromiseExit(reauthenticate);
+    const exit = await app.runtime.runPromiseExit(reauthenticate());
 
     expect(Exit.isFailure(exit)).toBe(true);
     expect(server.openSessions()).toEqual([ada]);
@@ -968,7 +994,7 @@ describe("reauthentication", () => {
       links.push(server.issueMagicLink(bob), server.issueMagicLink(bob));
       return AuthSessionResult.Closed();
     });
-    const flow = app.runtime.runPromiseExit(reauthenticate);
+    const flow = app.runtime.runPromiseExit(reauthenticate());
     while (links.length === 0) await Bun.sleep(1);
 
     const [first, second] = links;
@@ -1031,7 +1057,7 @@ describe("reauthentication", () => {
       link = server.issueMagicLink(bob);
       return AuthSessionResult.Closed();
     });
-    const flow = app.runtime.runPromiseExit(reauthenticate);
+    const flow = app.runtime.runPromiseExit(reauthenticate());
     while (link === undefined) await Bun.sleep(1);
 
     const linkExit = await app.runtime.runPromiseExit(
@@ -1102,7 +1128,7 @@ describe("reauthentication", () => {
   test("needs a signed-in session", async () => {
     const server = makeFakeAuthServer(origin);
     const app = launchApp(server, makeMemorySecureStore());
-    const exit = await app.runtime.runPromiseExit(reauthenticate);
+    const exit = await app.runtime.runPromiseExit(reauthenticate());
     expect(failureTag(exit)).toBe("NotSignedIn");
     expect(app.opened).toEqual([]);
   });
