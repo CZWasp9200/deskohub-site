@@ -11,15 +11,26 @@ import { BookingReadView } from "./booking-read-view";
  * renders it, so an account the gate turns away spends no catalog read.
  */
 export function BookingOfferingsView({
+  loading,
+  failedTitle,
   children,
 }: {
+  /** The first load's placeholder in the screen's layout; a spinner without. */
+  readonly loading?: ReactNode;
+  /** What a first load that failed names as not loaded, over its cause. */
+  readonly failedTitle?: string;
   readonly children: (catalog: CustomerBookingOfferings) => ReactNode;
 }) {
   const locale = useAppLocale();
   const offerings = useAtomValue(bookingOfferingsAtom(locale));
   const refresh = useAtomRefresh(bookingOfferingsAtom(locale));
   return (
-    <BookingReadView read={bookingReadOf(offerings)} onRetry={refresh}>
+    <BookingReadView
+      read={bookingReadOf(offerings)}
+      onRetry={refresh}
+      loading={loading}
+      failedTitle={failedTitle}
+    >
       {children}
     </BookingReadView>
   );

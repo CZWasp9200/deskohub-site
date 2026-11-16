@@ -2,7 +2,9 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
   CustomerAccountLinkRequired,
   type CustomerCheckout,
+  CustomerCheckoutUnavailable,
   CustomerQuoteExpired,
+  CustomerServiceUnavailable,
   type ReferralCode,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Option } from "effect";
@@ -379,6 +381,109 @@ describe("ApplyDiscountCode", () => {
     expect(
       await run(checkout, applyCommand(held, fakeBookingCodes.discount))
     ).toEqual(failed(3, BookingProblem.Unconfirmed()));
+  });
+});
+
+describe("ClearDiscountCode", () => {
+  const clearCommand = (payStateToken: string) =>
+    CheckoutCommand.ClearDiscountCode({
+      operationId: 5,
+      request: { locale: "en-US", payStateToken },
+    });
+
+  /** A held checkout with the sample discount code applied. */
+  const withCode = async (checkout: FakeCheckout) => {
+    const held = await hold(checkout);
+    const applied = Option.getOrThrow(
+      await run(
+        checkout,
+        CheckoutCommand.ApplyDiscountCode({
+          operationId: 3,
+          request: {
+            locale: "en-US",
+            payStateToken: held.payStateToken,
+            code: fakeBookingCodes.discount,
+          },
+          referralCode: Option.none(),
+        })
+      )
+    );
+    if (applied._tag !== "CodeApplied") {
+      throw new Error(`The code wasn't applied: ${applied._tag}`);
+    }
+    return applied.result;
+  };
+
+  test("clears the code with the current token and answers the reviewed checkout", async () => {
+    const checkout = await harness();
+    const applied = await withCode(checkout);
+
+    const answer = await run(checkout, clearCommand(applied.payStateToken));
+
+    expect(answer).toMatchObject(
+      Option.some({
+        _tag: "CodeCleared",
+        operationId: 5,
+        checkout: {
+          status: "price_review",
+          holdExpiresAt: applied.holdExpiresAt,
+        },
+      })
+    );
+    expect(checkout.booking.calls.at(-1)).toEqual({
+      endpoint: "clearCheckoutDiscountCode",
+      input: { locale: "en-US", payStateToken: applied.payStateToken },
+      referralCode: undefined,
+    });
+  });
+
+  test.each([
+    [
+      "an ended hold restarts",
+      new CustomerCheckoutUnavailable({ reason: "expired" }),
+      BookingProblem.Restart({ reason: "hold_expired" }),
+    ],
+    [
+      "a payment in progress shows the status",
+      new CustomerCheckoutUnavailable({ reason: "payment_in_progress" }),
+      BookingProblem.ShowStatus(),
+    ],
+    [
+      "a pending price review waits for the price",
+      new CustomerCheckoutUnavailable({ reason: "price_review_pending" }),
+      BookingProblem.PriceReviewPending(),
+    ],
+    [
+      "a service failure is retryable",
+      new CustomerServiceUnavailable(),
+      BookingProblem.Retryable({ kind: "service_unavailable" }),
+    ],
+  ] as const)("%s", async (_name, error, problem) => {
+    const checkout = await harness();
+    const applied = await withCode(checkout);
+    checkout.booking.reject("clearCheckoutDiscountCode", error);
+
+    expect(await run(checkout, clearCommand(applied.payStateToken))).toEqual(
+      failed(5, problem)
+    );
+  });
+
+  test("an unknown checkout starts over", async () => {
+    const checkout = await harness();
+
+    expect(await run(checkout, clearCommand("ps1.unknown"))).toEqual(
+      failed(5, BookingProblem.Restart({ reason: "checkout_not_found" }))
+    );
+  });
+
+  test("a clear whose answer was lost is unconfirmed", async () => {
+    const checkout = await harness();
+    const applied = await withCode(checkout);
+    checkout.booking.fail("clearCheckoutDiscountCode", "transport-failure");
+
+    expect(await run(checkout, clearCommand(applied.payStateToken))).toEqual(
+      failed(5, BookingProblem.Unconfirmed())
+    );
   });
 });
 

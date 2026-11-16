@@ -73,6 +73,7 @@ export type CheckoutIntent = Extract<
     readonly _tag:
       | "CodeChanged"
       | "ApplyCode"
+      | "ClearCode"
       | "AcceptPrice"
       | "ToggleConsent"
       | "Pay"

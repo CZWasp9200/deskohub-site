@@ -93,6 +93,11 @@ import {
   getPayStateBindingInput,
 } from "./pay-state-contract";
 import {
+  getPayStateHoldExpiresAt,
+  withPayStateHoldExpiry,
+} from "./pay-state-hold";
+import {
+  type PayableReservation,
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
@@ -912,7 +917,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           readonly state: SignedPayState;
           readonly changedKeys: CheckoutSummaryChangedKeys;
           readonly locale: Locale;
-          readonly reservation: WorkspaceReservation;
+          readonly reservation: PayableReservation;
         }) {
           const { state } = input;
           yield* Effect.logInfo(
@@ -920,7 +925,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           );
 
           const priceReviewPayState = yield* issuePriceReviewPayState({
-            ...state,
+            ...withPayStateHoldExpiry(state, input.reservation),
             locale: input.locale,
             orderId: input.reservation.id,
             requestedDiscountCode:
@@ -977,7 +982,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
       const findRepricedResult = Effect.fnUntraced(function* (input: {
         readonly state: SignedPayState;
         readonly locale: Locale;
-        readonly reservation: WorkspaceReservation;
+        readonly reservation: PayableReservation;
         readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
       }) {
         const { state, verdict } = input;
@@ -1002,6 +1007,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           locale: input.locale,
           orderId: input.reservation.id,
           bookedAt: state.bookedAt,
+          holdExpiresAt: getPayStateHoldExpiresAt(state, input.reservation),
           ...getPayStateBindingInput(state),
           referralCode: state.referralCode,
           requestedDiscountCode:
@@ -1299,6 +1305,10 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                             locale,
                             orderId: reservation.id,
                             bookedAt: state.bookedAt,
+                            holdExpiresAt: getPayStateHoldExpiresAt(
+                              state,
+                              reservation
+                            ),
                             ...getPayStateBindingInput(state),
                             referralCode: state.referralCode,
                             requestedDiscountCode:

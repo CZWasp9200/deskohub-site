@@ -40,18 +40,23 @@ export type PayableReservationRequest = Pick<
   "orderId" | "checkoutSessionId" | "binding" | "retriedAttemptId"
 >;
 
+/** A reservation that holds its booking until its stored deadline. */
+export type PayableReservation = WorkspaceReservation & {
+  readonly reservationHoldExpiresAt: Temporal.Instant;
+};
+
 interface IPayableReservationService {
   /**
    * The order a Pay state may still pay: a session-bound state's order while
    * it is its session's current order, an order-bound (payment retry) state's
-   * order while it is the current order of its own stored session and the
-   * retried attempt is still its active one; either way held, unexpired, and
-   * pending in Dotypos.
+   * order while it is the current order of its own stored session and awaits
+   * its retry (no attempt active); either way held, unexpired, and pending in
+   * Dotypos.
    */
   readonly requireCurrent: (
     input: PayableReservationRequest
   ) => Effect.Effect<
-    WorkspaceReservation,
+    PayableReservation,
     | PayableReservationUnavailableError
     | SealedStateTokenError
     | EffectDrizzleQueryError
@@ -144,8 +149,11 @@ export class PayableReservationService extends Context.Service<
                     checkoutSessionId: binding.checkoutSessionId,
                   });
 
+            const { reservationHoldExpiresAt } = reservation;
             const holdRefusal = getHoldRefusal(reservation);
-            if (holdRefusal) return yield* unavailable(input, holdRefusal);
+            if (holdRefusal || reservationHoldExpiresAt === null) {
+              return yield* unavailable(input, holdRefusal ?? "not_held");
+            }
 
             if (!reservation.dotyposReservationId) {
               return yield* unavailable(input, "missing_dotypos_reservation");
@@ -158,7 +166,11 @@ export class PayableReservationService extends Context.Service<
               return yield* unavailable(input, "dotypos_not_pending");
             }
 
-            return reservation;
+            const payable: PayableReservation = {
+              ...reservation,
+              reservationHoldExpiresAt,
+            };
+            return payable;
           }
         ),
       });
@@ -189,8 +201,9 @@ const getHoldRefusal = (
   >
 ): PayableReservationUnavailableError["reason"] | undefined => {
   if (reservation.reservationState !== "held") return "not_held";
+  // Payment never starts on a hold without a deadline, so it holds nothing.
+  if (reservation.reservationHoldExpiresAt === null) return "not_held";
   if (
-    reservation.reservationHoldExpiresAt &&
     Temporal.Instant.compare(
       reservation.reservationHoldExpiresAt,
       Temporal.Now.instant()

@@ -108,7 +108,11 @@ describe("PayableReservationService", () => {
   test("accepts the current held reservation only while Dotypos reports NEW", async () => {
     const { getReservationStatus, result } = runRequireCurrent({});
 
-    await expect(result).resolves.toMatchObject({ id: "reservation-id" });
+    const payable = await result;
+    expect(payable.id).toBe("reservation-id");
+    expect(payable.reservationHoldExpiresAt).toEqual(
+      Temporal.Instant.from("2030-07-22T12:00:00Z")
+    );
     expect(getReservationStatus).toHaveBeenCalledWith("dotypos-reservation-id");
   });
 
@@ -206,13 +210,18 @@ describe("PayableReservationService", () => {
     }
   );
 
-  test("accepts a held reservation without a recorded hold expiry", async () => {
+  test("rejects a held reservation without a stored hold deadline without calling Dotypos", async () => {
     const { getReservationStatus, result } = runRequireCurrent({
       candidate: reservation({ reservationHoldExpiresAt: null }),
     });
 
-    await expect(result).resolves.toMatchObject({ id: "reservation-id" });
-    expect(getReservationStatus).toHaveBeenCalledWith("dotypos-reservation-id");
+    await expect(result).rejects.toEqual(
+      new PayableReservationUnavailableError({
+        orderId: "reservation-id",
+        reason: "not_held",
+      })
+    );
+    expect(getReservationStatus).not.toHaveBeenCalled();
   });
 
   describe("an order-bound Pay state", () => {

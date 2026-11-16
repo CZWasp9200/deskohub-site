@@ -703,6 +703,7 @@
   "checkoutDiscountCodePlaceholder": "कोड दर्ज करें",
   "checkoutDiscountCodeApply": "कोड लागू करें",
   "checkoutDiscountCodeApplying": "लागू हो रहा है…",
+  "checkoutDiscountCodeRemove": "कोड हटाएँ",
   "checkoutDiscountCodeUnavailable": "यह छूट कोड, रेफ़रल कोड या वाउचर उपलब्ध नहीं है। उसे जाँचकर फिर से कोशिश करें, या मौजूदा कीमत पर आगे बढ़ें।",
   "checkoutVoucherLabel": "वाउचर",
   "checkoutDiscountCodeApplied": "कोड लागू हो गया: {discount} की छूट 🎉",

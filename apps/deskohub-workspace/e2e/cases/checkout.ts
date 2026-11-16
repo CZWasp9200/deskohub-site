@@ -110,7 +110,7 @@ export const executeCheckoutFlow = ({
   state: CheckoutFlowState;
   payPageSteps?: (
     orderId: CheckoutRow["reservation_id"]
-  ) => readonly WorkspaceE2EStep<void>[];
+  ) => readonly WorkspaceE2EStep<void, E2EDatabase>[];
   beforeReservationSubmit?: Effect.Effect<void, WorkspaceE2EError>;
   expectedDiscounts?: readonly ExpectedDiscountApplication[];
   // Checks on the fulfilled reservation beyond the status page, before any

@@ -24,6 +24,7 @@ import {
   type NativeHandoffRequest,
   nativeHandoffRequestTtlMs,
   nativeSignInUrl,
+  type ReauthenticationPurpose,
 } from "./native-handoff-request";
 import {
   AccountSwitchRefused,
@@ -95,9 +96,18 @@ const fromAuthFailure = (failure: NativeAuthFailure): NativeSignInFailure =>
 const unavailable = (failure: { readonly cause: unknown }) =>
   new SignInUnavailable({ cause: failure.cause });
 
+/**
+ * The account a reauthentication must come back as, and what it is for. The
+ * page shows the account's email locked and says the purpose.
+ */
+export interface Reauthenticating {
+  readonly user: AuthUser;
+  readonly purpose?: ReauthenticationPurpose;
+}
+
 /** Starts an attempt: fresh PKCE values, persisted before the page opens. */
 export const startPendingSignIn = Effect.fn("NativeSignIn.startPendingSignIn")(
-  function* (expectedUserId: Option.Option<string>) {
+  function* (reauthenticating: Option.Option<Reauthenticating>) {
     const crypto = yield* AuthCrypto;
     const pendingSignIns = yield* PendingSignIns;
     const verifier = pkceVerifierFromBytes(
@@ -114,9 +124,9 @@ export const startPendingSignIn = Effect.fn("NativeSignIn.startPendingSignIn")(
       state,
       returnUri: nativeReturnUri,
       startedAt: yield* Clock.currentTimeMillis,
-      ...Option.match(expectedUserId, {
+      ...Option.match(reauthenticating, {
         onNone: () => ({}),
-        onSome: (id) => ({ expectedUserId: id }),
+        onSome: ({ user }) => ({ expectedUserId: user.id }),
       }),
     };
     yield* pendingSignIns.save(pending);
@@ -128,8 +138,15 @@ export const startPendingSignIn = Effect.fn("NativeSignIn.startPendingSignIn")(
       codeChallenge,
       state,
       returnUri: nativeReturnUri,
-      reauthenticate: Option.isSome(expectedUserId),
+      reauthenticate: Option.isSome(reauthenticating),
       locale: yield* SignInLocale,
+      ...Option.match(reauthenticating, {
+        onNone: () => ({}),
+        onSome: ({ user, purpose }) => ({
+          loginHint: user.email,
+          ...(purpose === undefined ? {} : { purpose }),
+        }),
+      }),
       ...(analytics === undefined ? {} : { analytics }),
     };
     return request;
@@ -351,16 +368,16 @@ const recordCompletion = (method: SignInMethod | undefined) => () =>
 
 /**
  * Runs the email sign-in in the in-app auth session and returns the signed-in
- * user. A reauthentication passes the current user's id: the page then signs
- * in again instead of continuing its browser session, and only that account
- * is accepted back.
+ * user. A reauthentication passes the current user: the page then signs in
+ * again as that account instead of continuing its browser session, and only
+ * that account is accepted back.
  */
 export const signInWithEmail = Effect.fn("NativeSignIn.signInWithEmail")(
-  function* (expectedUserId: Option.Option<string>) {
+  function* (reauthenticating: Option.Option<Reauthenticating>) {
     const auth = yield* NativeAuth;
     const browser = yield* AuthSessionBrowser;
     const completions = yield* AuthCallbackCompletions;
-    const request = yield* startPendingSignIn(expectedUserId);
+    const request = yield* startPendingSignIn(reauthenticating);
     // The email and its code or link are handled by the web page, so the
     // app records the start as the page would: an email sign-in, by link.
     yield* Effect.sync(() => trackSignInStarted("link"));
@@ -391,22 +408,25 @@ export const signInWithEmail = Effect.fn("NativeSignIn.signInWithEmail")(
  * sign-in through the auth session; the handoff session inherits the browser
  * sign-in's age, so the page always signs in again. Signing in to another
  * account is refused: that session is ended and the app stays signed in.
+ * The purpose, when the action names one, is what the page says it is for.
  */
-export const reauthenticate: Effect.Effect<
-  AuthUser,
-  NativeSignInFailure,
-  NativeSignInServices
-> = Effect.service(NativeAuth).pipe(
-  Effect.flatMap((auth) => auth.currentUser),
-  Effect.mapError(fromAuthFailure),
-  Effect.flatMap(
-    Option.match({
-      onNone: () => Effect.fail(new NotSignedIn()),
-      onSome: (user) => signInWithEmail(Option.some(user.id)),
-    })
-  ),
-  Effect.withSpan("NativeSignIn.reauthenticate")
-);
+export const reauthenticate = (
+  purpose?: ReauthenticationPurpose
+): Effect.Effect<AuthUser, NativeSignInFailure, NativeSignInServices> =>
+  Effect.service(NativeAuth).pipe(
+    Effect.flatMap((auth) => auth.currentUser),
+    Effect.mapError(fromAuthFailure),
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.fail(new NotSignedIn()),
+        onSome: (user) =>
+          signInWithEmail(
+            Option.some(purpose === undefined ? { user } : { user, purpose })
+          ),
+      })
+    ),
+    Effect.withSpan("NativeSignIn.reauthenticate")
+  );
 
 /** The exit's expected failure, with a defect read as unavailable. */
 export const signInFailureOf = (

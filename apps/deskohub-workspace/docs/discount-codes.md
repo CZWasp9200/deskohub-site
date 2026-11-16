@@ -70,6 +70,12 @@ The intended code and the applied code are kept distinct. A code that is eligibl
 
 Once shown, a discount cannot disappear, change, or be replaced silently. Checkout presents an updated summary for acceptance before payment begins. A code error does not prevent the customer from paying the prior valid summary without that code.
 
+The customer may remove an entered code before paying. Checkout prices the order again without it, and the customer accepts the updated summary before payment begins. The other shown discounts stay, each confirmed again, and removal also forgets the intended code, so editing the reservation does not bring it back. A code that was entered but never applied can be removed the same way, without a new price. Removing a code is refused once a payment has started or the reservation hold has ended.
+
+Entering or removing a code never extends or restarts the reservation hold. The time left to pay always counts down to the moment the hold was created to end.
+
+The customer can remove an entered code from the order summary. Removing it also drops the intended code, so it is not entered again. When the code was part of the price, checkout shows the updated summary, which the customer accepts before paying. A referral benefit is not an entered code and stays. Entering or removing a code never extends or restarts the reservation hold.
+
 A bounded discount may show a localized expiry countdown near the end of its active period. Automatic sales use a 24-hour countdown window; bounded codes use a one-hour window. The presentation depends on the declared expiry, not on how the discount was sourced. An automatic sale's countdown and home-page banner both end when its booking window closes, which is the last moment a reservation can be submitted at the sale price.
 
 ## Usage evidence

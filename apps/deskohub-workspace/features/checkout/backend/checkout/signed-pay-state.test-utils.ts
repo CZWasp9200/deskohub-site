@@ -10,14 +10,31 @@ import type { Locale } from "@/features/i18n";
 import { normalizedCoworkReservationOrderSchema } from "@/features/reservation/cowork-reservation";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
-import { instantStringSchema } from "@/shared/utils/temporal";
-import { buildSignedPayState, sealPayState } from "./pay-state";
+import { type Instant, instantStringSchema } from "@/shared/utils/temporal";
+import {
+  buildSignedPayState,
+  type SignedPayState,
+  sealPayState,
+} from "./pay-state";
 
 export const syntheticPayStateOrderId =
   workspaceReservationIdSchema.make("reservation-id");
 
 /** The attempt a synthetic order-bound state retries. */
 export const syntheticRetriedAttemptId = "retried-attempt-id";
+
+/** The stored hold deadline synthetic Pay states sign. */
+export const syntheticHoldExpiresAt: Instant = instantStringSchema.make(
+  "2099-07-01T10:08:00.000Z"
+);
+
+/** `state` as a token issued before Pay states signed the hold deadline. */
+export const withoutPayStateHoldExpiry = (
+  state: SignedPayState
+): SignedPayState => {
+  const { holdExpiresAt: _signed, ...signedBefore } = state;
+  return signedBefore;
+};
 
 export const syntheticChangedKeys: CheckoutSummaryChangedKeys = {
   sectionKeys: ["order"],
@@ -34,6 +51,8 @@ export const sealSyntheticPayStateToken = (input?: {
   readonly issuedAt?: Temporal.Instant;
   /** Seal an order-bound (payment retry) state instead of a session one. */
   readonly orderBound?: boolean;
+  /** Seals it as a token issued before Pay states signed the hold deadline. */
+  readonly withoutHoldExpiry?: true;
 }) => {
   const reservation = Schema.decodeUnknownSync(
     normalizedCoworkReservationOrderSchema
@@ -54,6 +73,7 @@ export const sealSyntheticPayStateToken = (input?: {
         quote: buildCoworkReservationQuote(reservation),
         orderId: syntheticPayStateOrderId,
         bookedAt: instantStringSchema.make("2099-07-01T09:58:00.000Z"),
+        holdExpiresAt: syntheticHoldExpiresAt,
         ...(input?.orderBound
           ? {
               binding: "order" as const,
@@ -70,7 +90,11 @@ export const sealSyntheticPayStateToken = (input?: {
       },
       { issuedAt: input?.issuedAt }
     ).pipe(
-      Effect.flatMap((state) => sealPayState(state)),
+      Effect.flatMap((state) =>
+        sealPayState(
+          input?.withoutHoldExpiry ? withoutPayStateHoldExpiry(state) : state
+        )
+      ),
       Effect.provide(TestSealedStateKeys)
     )
   );

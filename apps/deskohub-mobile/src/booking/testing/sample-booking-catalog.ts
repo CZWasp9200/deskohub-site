@@ -182,6 +182,10 @@ interface PricedLine {
   readonly crowns: number;
   readonly dayCount?: number;
   readonly seats?: number;
+  /** An office line's access part, before discounts. */
+  readonly accessCrowns?: number;
+  /** One office seat for the days booked, before discounts. */
+  readonly seatCrowns?: number;
 }
 
 /** Inclusive Prague days between two plain dates. */
@@ -236,9 +240,14 @@ export const pricedLines = (
         dayCount * (samplePrices.officeDay + seats * samplePrices.officeSeat),
       dayCount,
       seats,
+      accessCrowns: dayCount * samplePrices.officeDay,
+      seatCrowns: dayCount * samplePrices.officeSeat,
     },
   ];
 };
+
+/** The id of the one discount a sample summary lists. */
+export const sampleDiscountId = "sample-code";
 
 /**
  * The checkout summary for priced lines, taking `discountShare` (0 to 1) off
@@ -267,7 +276,7 @@ export const sampleSummary = ({
             originalAmount: czk(original),
             discounts: [
               {
-                discount: { id: "sample-code", label: discountLabel },
+                discount: { id: sampleDiscountId, label: discountLabel },
                 amount: czk(off),
               },
             ],
@@ -275,6 +284,12 @@ export const sampleSummary = ({
         : {}),
       ...(line.dayCount === undefined ? {} : { dayCount: line.dayCount }),
       ...(line.seats === undefined ? {} : { seats: line.seats }),
+      ...(line.accessCrowns === undefined
+        ? {}
+        : { accessAmount: czk(line.accessCrowns) }),
+      ...(line.seatCrowns === undefined
+        ? {}
+        : { seatAmount: czk(line.seatCrowns) }),
     };
   });
   const total = czk(

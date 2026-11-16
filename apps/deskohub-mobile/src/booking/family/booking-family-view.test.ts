@@ -25,11 +25,13 @@ import {
   restartReasonOf,
 } from "./booking-family-view";
 
-const selection = toOfficeSelection({
-  date: "2026-11-20",
-  dayCount: 2,
-  seats: 2,
-});
+const selection = Option.getOrThrow(
+  toOfficeSelection({
+    date: Option.some("2026-11-20"),
+    dayCount: 2,
+    seats: 2,
+  })
+);
 const quote = {
   family: "office",
   advertisedPriceToken: "quote-token",

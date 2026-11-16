@@ -56,7 +56,7 @@ const texts = (summary: CustomerCheckoutSummary, locale: AppLocale) =>
   findAll(
     hostTree(
       elementTree(PriceSummary, {
-        summary: summaryView(summary, Option.none()),
+        summary: summaryView(summary, Option.none(), Option.none()),
         lineLabel: () => "office",
         locale,
       })

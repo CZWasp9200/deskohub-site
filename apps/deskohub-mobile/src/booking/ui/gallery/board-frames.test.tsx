@@ -17,7 +17,7 @@ describe("board frames", () => {
   test("each frame names a booking board, in board order", () => {
     const boards = boardFrames.map((frame) => frame.board);
     for (const board of boards) {
-      expect(board).toMatch(/^(2[6-9]|3[0-6])[bc]?$/);
+      expect(board).toMatch(/^(2[5-9]|3[0-6])[bc]?$/);
     }
     expect(boards).toEqual(
       [...boards].sort((a, b) => a.localeCompare(b, "en", { numeric: true }))

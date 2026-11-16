@@ -45,7 +45,6 @@ import {
 } from "@/features/referrals/contracts";
 import { getReferralBenefitIds } from "@/features/referrals/referral-benefits";
 import { calculateReferrerDiscountAmount } from "@/features/referrals/referrer-discount";
-import type { WorkspaceReservation } from "@/features/reservation/backend/workspace-reservation.repository";
 import { normalizedCoworkReservationOrderSchema } from "@/features/reservation/cowork-reservation";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
@@ -68,6 +67,7 @@ import {
 } from "./checkout-referral.service";
 import type { SignedPayState } from "./pay-state";
 import {
+  type PayableReservation,
   PayableReservationService,
   PayableReservationUnavailableError,
 } from "./payable-reservation.service";
@@ -81,6 +81,9 @@ const {
   sealPayState,
   getSignedPayStateCheckoutSummary,
 } = await import("./pay-state");
+const { withoutPayStateHoldExpiry } = await import(
+  "./signed-pay-state.test-utils"
+);
 
 const money = (value: number) => ({
   value,
@@ -120,6 +123,14 @@ const ordinaryDiscountId = discountIdSchema.make(
   "checkout-referral-service-test-ordinary-code"
 );
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
+/** The hold deadline test Pay states sign. */
+const payStateHoldExpiresAt = instantStringSchema.make(
+  "2099-06-01T10:08:00.000Z"
+);
+/** The deadline the payable reservation stores, apart from the signed one. */
+const storedHoldExpiresAt = instantStringSchema.make(
+  "2099-06-01T10:09:00.000Z"
+);
 
 const reservation = Schema.decodeUnknownSync(
   normalizedCoworkReservationOrderSchema
@@ -314,19 +325,24 @@ const tokenFor = (
     readonly submittedCode?: CanonicalPromotionCode;
     readonly submittedCodeDiscountId?: DiscountId;
   },
-  adjustState: (state: SignedPayState) => SignedPayState = (state) => state
+  adjustState: (state: SignedPayState) => SignedPayState = (state) => state,
+  options: { readonly issuedAt?: Temporal.Instant } = {}
 ) =>
   Effect.runSync(
     Effect.gen(function* () {
-      const state = yield* buildSignedPayState({
-        locale: "en-US",
-        ...input,
-        orderId: workspaceReservationIdSchema.make(
-          "checkout-referral-service-test-reservation"
-        ),
-        checkoutSessionId: "checkout-referral-service-test-session",
-        ttlMilliseconds: 10 * 60 * 1000,
-      });
+      const state = yield* buildSignedPayState(
+        {
+          locale: "en-US",
+          holdExpiresAt: payStateHoldExpiresAt,
+          ...input,
+          orderId: workspaceReservationIdSchema.make(
+            "checkout-referral-service-test-reservation"
+          ),
+          checkoutSessionId: "checkout-referral-service-test-session",
+          ttlMilliseconds: 10 * 60 * 1000,
+        },
+        options
+      );
       return yield* sealPayState(adjustState(state));
     }).pipe(Effect.provide(TestSealedStateKeys))
   );
@@ -336,6 +352,7 @@ const tokenForOrder = (input: TestPayStateInput, orderId: string) =>
     Effect.gen(function* () {
       const state = yield* buildSignedPayState({
         locale: "en-US",
+        holdExpiresAt: payStateHoldExpiresAt,
         ...input,
         orderId: workspaceReservationIdSchema.make(orderId),
         checkoutSessionId: "checkout-referral-service-test-session",
@@ -411,7 +428,9 @@ const makeServiceLayer = (input: {
             // Admitting an attempt makes the order's payment pending.
             paymentState:
               activePaymentAttemptId === undefined ? "not_started" : "pending",
-          } as WorkspaceReservation);
+            reservationHoldExpiresAt:
+              Temporal.Instant.from(storedHoldExpiresAt),
+          } as PayableReservation);
         }),
     })
   );
@@ -1269,4 +1288,52 @@ describe("CheckoutReferralService", () => {
       );
     }
   );
+
+  describe("hold deadline", () => {
+    const acceptedPayState = (payStateToken: string) => {
+      const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
+      const layer = makeServiceLayer({
+        affirmation: { quote, commitment: makeCommitment(coworkProduct, []) },
+        evaluateCheckoutReferral: () => Effect.succeed(eligible),
+      });
+      return Effect.runPromise(runAcceptCode(layer, payStateToken)).then(
+        (result) => {
+          expect(result.status).toBe("accepted");
+          return openFreshPayState(result);
+        }
+      );
+    };
+
+    test("keeps the signed hold deadline while the token's expiry moves", async () => {
+      const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
+      const payStateToken = tokenFor(
+        { reservation, quote, bookedAt: payStateBookedAt },
+        undefined,
+        { issuedAt: Temporal.Now.instant().subtract({ minutes: 5 }) }
+      );
+      const signed = Effect.runSync(
+        openPayState(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
+      );
+
+      const fresh = await acceptedPayState(payStateToken);
+
+      expect(fresh.holdExpiresAt).toBe(payStateHoldExpiresAt);
+      expect(getPayStateExpiresAt(fresh)).not.toBe(
+        getPayStateExpiresAt(signed)
+      );
+    });
+
+    test("gives a token signed without the deadline its reservation's stored one", async () => {
+      const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
+
+      const fresh = await acceptedPayState(
+        tokenFor(
+          { reservation, quote, bookedAt: payStateBookedAt },
+          withoutPayStateHoldExpiry
+        )
+      );
+
+      expect(fresh.holdExpiresAt).toBe(storedHoldExpiresAt);
+    });
+  });
 });
