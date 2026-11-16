@@ -111,6 +111,16 @@ describe("previewEmailDraft", () => {
     expect(result?.validationErrors?.fieldErrors?.draft).toHaveLength(1);
   });
 
+  test("reports every problem in a draft", async () => {
+    const result = await previewEmailDraft({
+      draft: { ...draft, templateKey: "unknown", unexpected: true } as never,
+      locale: "en-US",
+    });
+
+    expect(result?.data).toBeUndefined();
+    expect(result?.validationErrors?.fieldErrors?.draft).toHaveLength(2);
+  });
+
   test("ignores an unknown key beside the draft", async () => {
     const result = await previewEmailDraft({
       draft,
