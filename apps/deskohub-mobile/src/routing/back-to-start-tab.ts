@@ -1,6 +1,6 @@
 import { useIsFocused, useNavigation, useRoute } from "expo-router";
 import { useEffect } from "react";
-import { BackHandler } from "react-native";
+import { BackHandler, Platform } from "react-native";
 import type { StartTab } from "./start-tab";
 
 /** The part of the tab navigator's state that system back reads. */
@@ -42,7 +42,10 @@ export const useBackToStartTab = (startTab: StartTab | undefined) => {
   const { key } = useRoute();
   const focused = useIsFocused();
   useEffect(() => {
-    if (!focused || startTab === undefined) return;
+    // Only Android has a system back; the web's is the browser's history.
+    if (Platform.OS !== "android" || !focused || startTab === undefined) {
+      return;
+    }
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
