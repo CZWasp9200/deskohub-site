@@ -19,6 +19,7 @@ type InputProps = Pick<
   | "keyboardType"
   | "autoCapitalize"
   | "maxLength"
+  | "optional"
 >;
 
 // Lengths are the contract's limits, so typing stops where saving would fail.
@@ -35,6 +36,7 @@ const fieldInput: Record<
   },
   lastName: {
     label: (locale) => m.profile_last_name_label({}, { locale }),
+    optional: true,
     autoComplete: "family-name",
     textContentType: "familyName",
     autoCapitalize: "words",
@@ -42,6 +44,7 @@ const fieldInput: Record<
   },
   phone: {
     label: (locale) => m.profile_phone_label({}, { locale }),
+    optional: true,
     autoComplete: "tel",
     textContentType: "telephoneNumber",
     keyboardType: "phone-pad",

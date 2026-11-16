@@ -152,9 +152,25 @@ const styles = StyleSheet.create({
   errorText: { flexShrink: 1, minWidth: 0 },
 });
 
-/** The label above a field: never floating, so a long label wraps. */
-export function FieldLabel({ label }: { readonly label: string }) {
-  return <Text variant="label">{label}</Text>;
+/**
+ * The label above a field: never floating, so a long label wraps. A `note`,
+ * such as "(optional)", follows it in a lighter weight.
+ */
+export function FieldLabel({
+  label,
+  note,
+}: {
+  readonly label: string;
+  readonly note?: string;
+}) {
+  return (
+    <Text variant="label">
+      {label}
+      {note !== undefined && (
+        <Text variant="bodySmall" tone="muted">{` ${note}`}</Text>
+      )}
+    </Text>
+  );
 }
 
 /** The column a field's label, frame and messages stack in. */

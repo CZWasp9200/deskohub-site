@@ -3614,6 +3614,16 @@
           },
           "shareUrl": {
             "type": "string"
+          },
+          "discountPerInvitee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["summary", "shareUrl"],

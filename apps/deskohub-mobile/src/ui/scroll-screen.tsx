@@ -5,9 +5,13 @@ import {
   useCallback,
   useContext,
   useRef,
+  useState,
 } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { LoadingIndicator } from "./loading-indicator";
 import { color, radius, shadow, space } from "./tokens";
 
@@ -38,20 +42,29 @@ const mastheadOverlap = 40;
  * content overlaps its navy band. Passing `onRefresh` turns on
  * pull-to-refresh; `refreshing` shows the loading indicator at the top
  * while it runs. Its content can scroll it back to the top with
- * `useScrollScreenToTop`.
+ * `useScrollScreenToTop`. A `collapsedHeader`, such as an `AppBar` with the
+ * masthead's title and actions (and a dark `FocusedStatusBar`), takes the
+ * top of the screen under the status bar once the masthead has scrolled
+ * away.
  */
 export function ScrollScreen({
   children,
   masthead,
+  collapsedHeader,
   refreshing = false,
   onRefresh,
 }: {
   readonly children: ReactNode;
   /** The tab root's `Masthead`, drawn above the content. */
   readonly masthead?: ReactNode;
+  /** Shown at the top while the masthead is scrolled out of view. */
+  readonly collapsedHeader?: ReactNode;
   readonly refreshing?: boolean;
   readonly onRefresh?: () => void;
 }) {
+  const insets = useSafeAreaInsets();
+  const [mastheadHeight, setMastheadHeight] = useState<number>();
+  const [collapsed, setCollapsed] = useState(false);
   const scrollView = useRef<ComponentRef<typeof ScrollView>>(null);
   // Instantly: a screen coming back into view shows its top right away.
   const scrollToTop = useCallback(
@@ -63,6 +76,15 @@ export function ScrollScreen({
     <SafeAreaView edges={["left", "right"]} style={styles.screen}>
       <ScrollView
         ref={scrollView}
+        scrollEventThrottle={collapsedHeader === undefined ? undefined : 16}
+        onScroll={
+          collapsedHeader === undefined || mastheadHeight === undefined
+            ? undefined
+            : (event) =>
+                setCollapsed(
+                  event.nativeEvent.contentOffset.y >= mastheadHeight
+                )
+        }
         // A masthead clears the status bar itself.
         contentInsetAdjustmentBehavior={withMasthead ? "never" : "automatic"}
         refreshControl={
@@ -78,7 +100,15 @@ export function ScrollScreen({
         }
       >
         <ScrollScreenContext value={scrollToTop}>
-          {masthead}
+          {masthead !== undefined && (
+            <View
+              onLayout={(event) =>
+                setMastheadHeight(event.nativeEvent.layout.height)
+              }
+            >
+              {masthead}
+            </View>
+          )}
           <View style={styles.page}>
             {withMasthead && <View aria-hidden style={styles.overlap} />}
             <View style={[styles.content, withMasthead && styles.overlapping]}>
@@ -87,6 +117,11 @@ export function ScrollScreen({
           </View>
         </ScrollScreenContext>
       </ScrollView>
+      {collapsed && collapsedHeader !== undefined && (
+        <View style={[styles.collapsedHeader, { paddingTop: insets.top }]}>
+          {collapsedHeader}
+        </View>
+      )}
       {refreshing && (
         <View style={styles.refresh}>
           <View style={styles.refreshDisc}>
@@ -119,6 +154,13 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   overlapping: { paddingTop: 0 },
+  collapsedHeader: {
+    backgroundColor: color.paper,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
   refresh: {
     alignItems: "center",
     left: 0,

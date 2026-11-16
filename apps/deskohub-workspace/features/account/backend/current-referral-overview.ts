@@ -4,11 +4,15 @@ import { ReferralService } from "@/features/referrals";
 import { getReferralShareUrl } from "@/features/referrals/client";
 import type { ReferralAccountOverview } from "@/features/referrals/contracts";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
+import { formatReferrerDiscountPercentage } from "@/features/referrals/referrer-discount";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import { requireAccountFeature } from "./account-feature-withheld";
 import { requireLinkedCustomerAccount } from "./linked-customer-account";
 
-/** The linked account's referral summary and absolute share link. */
+/**
+ * The linked account's referral summary, absolute share link and the
+ * programme's discount per eligible invitee.
+ */
 export const accountReferralOverview = (account: LinkedCustomerAccount) =>
   Effect.flatMap(ReferralService, (service) =>
     service.getAccountSummary({
@@ -22,6 +26,7 @@ export const accountReferralOverview = (account: LinkedCustomerAccount) =>
           (origin): ReferralAccountOverview => ({
             summary,
             shareUrl: getReferralShareUrl(summary.code, origin),
+            discountPerInvitee: formatReferrerDiscountPercentage(1),
           })
         )
       )
