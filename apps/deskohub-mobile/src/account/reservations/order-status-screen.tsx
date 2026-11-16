@@ -21,7 +21,10 @@ import { apiOrigin } from "../../auth/auth-client";
 import { bookAgainHref, reservationsHref } from "../../booking/booking-routes";
 import { AsyncView, viewErrorOf } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
-import { CustomerViewError } from "../../customer-api/customer-view-error";
+import {
+  type CustomerRequestFailure,
+  CustomerViewError,
+} from "../../customer-api/customer-view-error";
 import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-message";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
@@ -364,10 +367,13 @@ function OrderNotFound() {
   );
 }
 
-const isNotFound = <E,>(result: AsyncResult.AsyncResult<unknown, E>) =>
+/** The first read found no order the account may see. */
+const isNotFound = <E extends CustomerRequestFailure>(
+  result: AsyncResult.AsyncResult<unknown, E>
+) =>
   AsyncResult.isFailure(result) &&
   Option.isNone(AsyncResult.value(result)) &&
-  CustomerViewError.$is("NotFound")(viewErrorOf(result.cause as never));
+  CustomerViewError.$is("NotFound")(viewErrorOf(result.cause));
 
 /**
  * An order as its booking ticket (GET status, which refreshes the order and

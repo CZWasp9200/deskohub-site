@@ -34,6 +34,12 @@ describe("withSampleHistory", () => {
     );
   });
 
+  test("loading never answers the list or a status", () => {
+    const loading = workspace("loading");
+    expect(loading.nextOutcome("listReservations")).toBe("hang");
+    expect(loading.nextOutcome("getReservationStatus")).toBe("hang");
+  });
+
   test("an unknown variant reads as today", () => {
     expect(sampleHistoryOf(undefined)).toBe("today");
     expect(sampleHistoryOf("nonsense")).toBe("today");

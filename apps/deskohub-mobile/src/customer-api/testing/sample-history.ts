@@ -11,6 +11,8 @@ import { sampleDeskReservation } from "./sample-fixtures";
  * - `empty`: no bookings at all.
  * - `offline`: the list never loads, as without a connection; what the
  *   device saved earlier shows, or the retry state when nothing is saved.
+ * - `loading`: the list and every booking's status never answer, so their
+ *   skeletons stay.
  */
 export const sampleHistories = [
   "today",
@@ -19,6 +21,7 @@ export const sampleHistories = [
   "nothing-upcoming",
   "empty",
   "offline",
+  "loading",
 ] as const;
 export type SampleHistory = (typeof sampleHistories)[number];
 
@@ -45,6 +48,7 @@ export const withSampleHistory = (
     "nothing-upcoming": () => [],
     empty: () => [],
     offline: () => data.history.current,
+    loading: () => data.history.current,
   }[history]();
   workspace.data = {
     ...data,
@@ -55,6 +59,10 @@ export const withSampleHistory = (
   };
   if (history === "offline") {
     workspace.fail("listReservations", "transport-failure", 10_000);
+  }
+  if (history === "loading") {
+    workspace.fail("listReservations", "hang", 10_000);
+    workspace.fail("getReservationStatus", "hang", 10_000);
   }
   return workspace;
 };
