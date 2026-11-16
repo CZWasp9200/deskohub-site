@@ -54,6 +54,11 @@ export const sampleOfferings = (
         "Any free desk in the shared room.",
         "Libovolný volný stůl ve sdílené místnosti."
       ),
+      summary: copy(
+        locale,
+        "Sit wherever you like, until 17:00.",
+        "Seď, kde chceš, do 17:00."
+      ),
       usage: copy(locale, "Weekdays 8:00–18:00.", "Všední dny 8:00–18:00."),
       price: czk(samplePrices.openSpace),
       advertisedPrice: { price: czk(samplePrices.openSpace), ...noSale },
@@ -74,6 +79,11 @@ export const sampleOfferings = (
         locale,
         "Your own desk for the day.",
         "Vlastní stůl na celý den."
+      ),
+      summary: copy(
+        locale,
+        "Your own desk for uninterrupted flow.",
+        "Tvůj vlastní stůl pro nerušenou práci."
       ),
       usage: copy(locale, "Weekdays 8:00–18:00.", "Všední dny 8:00–18:00."),
       price: czk(samplePrices.reservedDesk),

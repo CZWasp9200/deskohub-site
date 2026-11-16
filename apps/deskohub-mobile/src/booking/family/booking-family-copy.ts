@@ -57,7 +57,7 @@ export const restartMessage = (
   locale: AppLocale
 ) =>
   ({
-    hold_expired: m.booking_restart_hold_expired,
+    hold_expired: m.booking_restart_hold_expired_body,
     availability_changed: m.booking_restart_availability_changed,
     checkout_conflict: m.booking_restart_availability_changed,
     reservation_ended: m.booking_restart_availability_changed,
@@ -68,6 +68,15 @@ export const restartMessage = (
     offering_unavailable: m.booking_restart_selection_unavailable,
     checkout_not_found: m.booking_restart_checkout_not_found,
   })[reason]({}, { locale });
+
+/** The restart notice's title, for the restart the boards name. */
+export const restartTitle = (
+  reason: CheckoutRestartReason,
+  locale: AppLocale
+): string | undefined =>
+  reason === "hold_expired"
+    ? m.booking_hold_ended_title({}, { locale })
+    : undefined;
 
 const pragueTime = (locale: AppLocale) =>
   new Intl.DateTimeFormat(locale, {

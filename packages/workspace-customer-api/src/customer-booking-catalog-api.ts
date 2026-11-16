@@ -74,6 +74,11 @@ export const CustomerOffering = Schema.Union([
     family: Schema.Literal("cowork"),
     tier: CustomerBookableCoworkTier,
     ...offeringCopyFields,
+    /**
+     * The tier in one line, as the booking page's offer card says it.
+     * Optional while servers that don't send it are still deployed.
+     */
+    summary: Schema.optionalKey(Schema.String),
     /** Per Prague calendar day. */
     price: Money,
     advertisedPrice: CustomerAdvertisedPrice,

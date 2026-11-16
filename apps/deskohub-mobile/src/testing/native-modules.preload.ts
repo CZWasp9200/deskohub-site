@@ -1,6 +1,7 @@
 import { mock } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { Component, createContext, useContext } from "react";
+import { postHogStandIn } from "./posthog-stand-in";
 
 /**
  * Bun can't load React Native or Expo's native modules, so tests get small
@@ -46,6 +47,8 @@ const stillAnimation = () => ({
 mock.module("react-native", () => ({
   // Host components stand in as their names, so a test can read the element
   // tree a component returns without a native renderer.
+  Image: "Image",
+  KeyboardAvoidingView: "KeyboardAvoidingView",
   Modal: "Modal",
   Pressable: "Pressable",
   RefreshControl: "RefreshControl",
@@ -107,6 +110,7 @@ mock.module("react-native", () => ({
   Keyboard: {
     addListener: () => ({ remove: () => undefined }),
     dismiss: () => undefined,
+    isVisible: () => false,
   },
   // The design's narrowest phone at the default font size.
   useWindowDimensions: () => ({
@@ -223,3 +227,6 @@ mock.module("@react-native-async-storage/async-storage", () => ({
     },
   },
 }));
+
+// Analytics clients are built on this stand-in in every test file.
+mock.module("posthog-react-native", postHogStandIn);

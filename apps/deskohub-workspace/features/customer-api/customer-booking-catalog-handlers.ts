@@ -288,6 +288,7 @@ const toCustomerOffering = (offering: PublicOffering): CustomerOffering => {
         family: "cowork",
         tier: cowork.tier,
         ...copy,
+        summary: cowork.summary,
         price: cowork.price,
         advertisedPrice,
         addOns: cowork.addOns,
