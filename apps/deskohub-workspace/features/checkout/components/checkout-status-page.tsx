@@ -286,7 +286,8 @@ export function CheckoutStatusPage({
         )}
         reserveAgainPath={reserveAgainPath}
         reopensPaymentPageFor={
-          checkoutStatusTraits[status.status].offersPaymentPageReopening
+          checkoutStatusTraits[status.status].offersPaymentPageReopening &&
+          status.paymentPageReopenable
             ? status.orderId
             : undefined
         }

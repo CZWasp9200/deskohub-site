@@ -39,8 +39,9 @@ const makeReservation = (overrides: Partial<WorkspaceReservation> = {}) =>
   ({
     id: "reservation-reopen",
     reservationState: "held",
-    // The ten-minute hold expired; the pending provider order keeps it held.
-    reservationHoldExpiresAt: instant("2026-06-01T10:10:00Z"),
+    // The ten-minute hold from 09:52 expired; the pending provider order
+    // keeps it held.
+    reservationHoldExpiresAt: instant("2026-06-01T10:02:00Z"),
     paymentState: "pending",
     activePaymentAttemptId: "attempt-reopen",
     ...overrides,
@@ -131,7 +132,7 @@ const createHarness = (harness: Harness = {}) => {
     Effect.runPromise(
       Effect.gen(function* () {
         yield* TestClock.setTime(
-          (harness.now ?? instant("2026-06-01T10:20:00Z")).epochMilliseconds
+          (harness.now ?? instant("2026-06-01T10:03:00Z")).epochMilliseconds
         );
         const service = yield* CheckoutPaymentPageService;
         return yield* service.reopen({ ...input, ...overrides });
@@ -179,7 +180,7 @@ describe("CheckoutPaymentPageService.reopen", () => {
   });
 
   test("records no return for a page it doesn't open", async () => {
-    const harness = createHarness({ now: instant("2026-06-01T10:30:00Z") });
+    const harness = createHarness({ now: instant("2026-06-01T10:06:00Z") });
 
     await harness.reopen({ returnTarget: "native-app" });
 
@@ -206,14 +207,14 @@ describe("CheckoutPaymentPageService.reopen", () => {
     });
   });
 
-  test("opens the page until just before the provider order's abandonment window ends", async () => {
-    const harness = createHarness({ now: instant("2026-06-01T10:29:59Z") });
+  test("opens the page until just before its reopening window ends", async () => {
+    const harness = createHarness({ now: instant("2026-06-01T10:05:59Z") });
 
     expect((await harness.reopen()).state).toBe("opened");
   });
 
-  test("closes the page once the provider order's abandonment window ends", async () => {
-    const harness = createHarness({ now: instant("2026-06-01T10:30:00Z") });
+  test("closes the page once its reopening window ends, well inside the abandonment window", async () => {
+    const harness = createHarness({ now: instant("2026-06-01T10:06:00Z") });
 
     expect(await harness.reopen()).toEqual({
       state: "closed",
@@ -224,7 +225,7 @@ describe("CheckoutPaymentPageService.reopen", () => {
   test("counts the window from the attempt's creation when the provider order's creation time was not stored", async () => {
     const harness = createHarness({
       attempt: makeAttempt({ providerOrderCreatedAt: null }),
-      now: instant("2026-06-01T10:29:59Z"),
+      now: instant("2026-06-01T10:05:59Z"),
     });
 
     expect(await harness.reopen()).toEqual({

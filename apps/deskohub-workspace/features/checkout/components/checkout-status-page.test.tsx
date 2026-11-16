@@ -1336,6 +1336,7 @@ describe("CheckoutStatusPage payment page reopening", () => {
             status: "pending",
             paymentStatus: "pending",
             fulfillmentStatus: "not_started",
+            paymentPageReopenable: true,
           }}
         />
       );
@@ -1359,6 +1360,13 @@ describe("CheckoutStatusPage payment page reopening", () => {
       returnOutcome: "unknown",
       status: "not_found",
     },
+    // Pending past the page's reopening window.
+    {
+      ...baseStatus,
+      status: "pending",
+      paymentStatus: "pending",
+      fulfillmentStatus: "not_started",
+    },
     ...checkoutStatusKinds
       .filter(
         (kind): kind is Exclude<CheckoutStatusKind, "not_found" | "pending"> =>
@@ -1370,6 +1378,7 @@ describe("CheckoutStatusPage payment page reopening", () => {
           status: kind,
           paymentStatus: "pending",
           fulfillmentStatus: "not_started",
+          paymentPageReopenable: true,
         })
       ),
   ];
@@ -1377,7 +1386,10 @@ describe("CheckoutStatusPage payment page reopening", () => {
   test.each(
     statusesWithoutPaymentPage.flatMap((status) =>
       (["page", "modal"] as const).map((presentation) => ({
-        kind: status.status,
+        kind:
+          status.status === "pending"
+            ? "pending past its window"
+            : status.status,
         presentation,
         status,
       }))

@@ -2,7 +2,6 @@ import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
-import { getPaymentAttemptAbandonmentCutoff } from "@/features/checkout/provider-order-abandonment";
 import type { Locale } from "@/features/i18n";
 import {
   ReservationAuthorizationService,
@@ -21,13 +20,16 @@ import {
   PaymentAttemptRepository,
 } from "../repositories/payment-attempt.repository";
 import { getLatePaymentStatusKind } from "./checkout-reservation-status-kind";
-import { getReusableProviderRedirectUrl } from "./reusable-payment-attempt";
+import {
+  getPaymentPageReopeningCutoff,
+  getReusableProviderRedirectUrl,
+} from "./reusable-payment-attempt";
 
 /**
  * Why an order's payment page can't be opened again, each matching a status
  * the order already shows: it is paid, a late payment is being reconciled,
  * its hold was released, it has no payment page that is still open, or the
- * local abandonment window of that page ended.
+ * page's reopening window ended.
  */
 type PaymentPageClosedReason =
   | "paid"
@@ -65,9 +67,10 @@ export interface ICheckoutPaymentPageService {
    * The payment page the order's unpaid payment attempt already opened, for
    * a visitor who closed it. It never starts a payment attempt or contacts
    * the provider; it only records where the page's payment returns. The page
-   * is offered while the reservation stays held for it, which the provider
-   * order keeps up to its local abandonment window, past the hold's own
-   * expiry. The state can change after the answer, as for any page already
+   * is offered while the reservation stays held for it, past the hold's own
+   * expiry (the provider order keeps it held), and only within the page's
+   * reopening window, which ends before the provider cancels an abandoned
+   * page. The state can change after the answer, as for any page already
    * open: a payment that settles after its attempt ended is reconciled by
    * late-payment recovery.
    */
@@ -85,7 +88,7 @@ const closed = (reason: PaymentPageClosedReason): PaymentPageReopening => ({
 /**
  * Decides from what was read. An attempt that settled or ended, or that has
  * no stored page, leaves nothing to open; the stored page stays offered until
- * the window the status page also stops promising confirmation at.
+ * its reopening window ends, as the status page's action does.
  */
 const decideReopening = (input: {
   readonly reservation: WorkspaceReservation;
@@ -99,10 +102,7 @@ const decideReopening = (input: {
   const providerRedirectUrl = getReusableProviderRedirectUrl(attempt);
   if (!providerRedirectUrl) return closed("no_active_attempt");
   if (
-    Temporal.Instant.compare(
-      now,
-      getPaymentAttemptAbandonmentCutoff(attempt)
-    ) >= 0
+    Temporal.Instant.compare(now, getPaymentPageReopeningCutoff(attempt)) >= 0
   ) {
     return closed("window_elapsed");
   }

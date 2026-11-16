@@ -60,6 +60,7 @@ import {
   getLatePaymentStatusKind,
   toCheckoutStatusKind,
 } from "./checkout-reservation-status-kind";
+import { isPaymentPageReopenable } from "./reusable-payment-attempt";
 
 export type CheckoutStatusReturnOutcome = "success" | "cancelled" | "unknown";
 
@@ -103,6 +104,12 @@ type CheckoutReservationStatusViewModelBase = CheckoutStatusViewModelBase &
     readonly supportContactPrefill?: CheckoutStatusContactPrefill;
     /** The booked selection a retry status reopens on the reservation page. */
     readonly retrySelection?: ReservationSelection;
+    /**
+     * Marks a pending payment whose stored payment page may still be opened
+     * again: inside its reopening window, which ends before the provider
+     * cancels an abandoned page.
+     */
+    readonly paymentPageReopenable?: true;
     /**
      * What booking the order's reservation again sends, read from the same
      * stored details and Dotypos reservation as the summary.
@@ -612,23 +619,28 @@ const implementation = Effect.gen(function* () {
    * A provider payment unsettled past the abandonment cutoff may never settle,
    * so the page stops promising confirmation and offers support. Hold
    * cleanup later expires an empty order, which then allows a new booking.
+   * Its stored payment page is offered again only within the shorter
+   * reopening window.
    */
-  const isPendingPaymentOverdue = Effect.fn(
-    "CheckoutStatusService.isPendingPaymentOverdue"
+  const getPendingPaymentTiming = Effect.fn(
+    "CheckoutStatusService.getPendingPaymentTiming"
   )(function* (reservation: WorkspaceReservation, now: Temporal.Instant) {
-    if (!reservation.activePaymentAttemptId) return false;
+    const unknown = { overdue: false, paymentPageReopenable: false };
+    if (!reservation.activePaymentAttemptId) return unknown;
 
     const attempt = yield* paymentAttempts.findById(
       reservation.activePaymentAttemptId
     );
-    if (!attempt) return false;
+    if (!attempt) return unknown;
 
-    return (
-      Temporal.Instant.compare(
-        now,
-        getPaymentAttemptAbandonmentCutoff(attempt)
-      ) >= 0
-    );
+    return {
+      overdue:
+        Temporal.Instant.compare(
+          now,
+          getPaymentAttemptAbandonmentCutoff(attempt)
+        ) >= 0,
+      paymentPageReopenable: isPaymentPageReopenable(attempt, now),
+    };
   });
 
   /** Derives the customer status and its support contact prefill. */
@@ -648,17 +660,28 @@ const implementation = Effect.gen(function* () {
     );
     const now = yield* currentInstant;
     const reservationStatusKind = toCheckoutStatusKind(reservation, now);
+    const pendingPaymentTiming =
+      !latePaymentStatusKind && reservationStatusKind === "pending"
+        ? yield* getPendingPaymentTiming(reservation, now)
+        : undefined;
     const statusKind =
       latePaymentStatusKind ??
-      (reservationStatusKind === "pending" &&
-      (yield* isPendingPaymentOverdue(reservation, now))
+      (pendingPaymentTiming?.overdue
         ? "payment_pending_delayed"
         : reservationStatusKind);
+    const paymentPageReopenable =
+      statusKind === "pending" &&
+      pendingPaymentTiming?.paymentPageReopenable === true;
     const supportContactPrefill = includeSupportContact
       ? yield* loadSupportContactPrefill(reservation, statusKind)
       : undefined;
 
-    return { latePaymentStatusKind, statusKind, supportContactPrefill };
+    return {
+      latePaymentStatusKind,
+      statusKind,
+      paymentPageReopenable,
+      supportContactPrefill,
+    };
   });
 
   const getStatus = Effect.fn("CheckoutStatusService.getStatus")(
@@ -690,7 +713,12 @@ const implementation = Effect.gen(function* () {
         ),
       };
       const [
-        { latePaymentStatusKind, statusKind, supportContactPrefill },
+        {
+          latePaymentStatusKind,
+          statusKind,
+          paymentPageReopenable,
+          supportContactPrefill,
+        },
         reconstruction,
         retrySelection,
       ] = yield* Effect.all(
@@ -721,6 +749,7 @@ const implementation = Effect.gen(function* () {
         // a reservation; the original hold's table may belong to someone else.
         ...(!latePaymentStatusKind && reconstruction.placement),
         supportContactPrefill,
+        ...(paymentPageReopenable && { paymentPageReopenable: true as const }),
         // A late payment that settled takes over the status, and with it the
         // retry of the payment it replaced.
         ...(checkoutStatusTraits[statusKind].offersReservationRetry &&
