@@ -15,7 +15,7 @@ import Copy from "lucide-react-native/icons/copy";
 import Hourglass from "lucide-react-native/icons/hourglass";
 import KeyRound from "lucide-react-native/icons/key-round";
 import { type ReactNode, useEffect, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import type { CustomerRequestFailure } from "../../customer-api/customer-view-error";
@@ -239,13 +239,24 @@ function ReservationsListView<E extends CustomerRequestFailure>({
     AsyncResult.value(list),
     (shown) => shown.savedAt
   );
+  // The saved list says it is the one on this device; a failed refresh
+  // under it needs no second notice.
+  const shown = Option.match(AsyncResult.value(list), {
+    onSome: (value) =>
+      Option.isSome(value.savedAt) && AsyncResult.isFailure(list)
+        ? AsyncResult.success<ReservationsList, E>(value, {
+            waiting: list.waiting,
+          })
+        : list,
+    onNone: () => list,
+  });
   return (
     <ReservationsScreen
       refreshing={list.waiting && !AsyncResult.isInitial(list)}
       onRefresh={refresh}
     >
       <AsyncView
-        result={list}
+        result={shown}
         onRetry={refresh}
         loading={<ReservationsListSkeleton />}
       >
@@ -510,6 +521,16 @@ function AccessTile({ waiting = false }: { readonly waiting?: boolean }) {
   );
 }
 
+/**
+ * The least width the stub's text keeps: what fits beside the action at the
+ * default font size, growing with the system font so the action wraps under
+ * the text rather than squeezing it.
+ */
+const useStubTextWidth = () => {
+  const { fontScale } = useWindowDimensions();
+  return { minWidth: 140 * fontScale };
+};
+
 /** The stub of the next booking's ticket: today's PIN, or the way to it. */
 function NextAccessLine({
   access,
@@ -521,6 +542,7 @@ function NextAccessLine({
   const locale = useAppLocale();
   const router = useRouter();
   const open = useOpenReservation();
+  const stubTextWidth = useStubTextWidth();
   switch (access._tag) {
     case "Pin":
       return orderId === undefined ? null : (
@@ -530,7 +552,7 @@ function NextAccessLine({
       return (
         <>
           <AccessTile />
-          <View style={styles.rowText}>
+          <View style={[styles.stubText, stubTextWidth]}>
             <Text variant="subhead">
               {m.reservations_pin_ready({}, { locale })}
             </Text>
@@ -563,7 +585,7 @@ function NextAccessLine({
       return (
         <>
           <AccessTile waiting />
-          <Text variant="subhead" style={styles.rowText}>
+          <Text variant="subhead" style={[styles.stubText, stubTextWidth]}>
             {m.reservations_pin_after_payment({}, { locale })}
           </Text>
           {orderId !== undefined && (
@@ -592,6 +614,7 @@ function TodayPin({
 }) {
   const locale = useAppLocale();
   const toast = useToast();
+  const stubTextWidth = useStubTextWidth();
   const [copied, copy] = useAtom(copyAccessCodeAtom(orderId));
   useAccessPinView(useIsFocused());
   // Says how the copy went, once per copy.
@@ -610,7 +633,7 @@ function TodayPin({
   return (
     <>
       <AccessTile />
-      <View style={styles.rowText}>
+      <View style={[styles.stubText, stubTextWidth]}>
         <Text variant="hint">
           {m.reservations_pin_today_until({ time: until }, { locale })}
         </Text>
@@ -667,6 +690,9 @@ const styles = StyleSheet.create({
   },
   noTile: { width: 52 },
   rowText: { flex: 1, minWidth: 0 },
+  // The stub's text keeps room to read; at large font sizes the action
+  // wraps under it (see `useStubTextWidth`).
+  stubText: { flexBasis: 0, flexGrow: 1 },
   rowBadge: { marginTop: space.xs },
   skeletonText: { gap: space.sm },
   sectionSkeleton: { paddingBottom: space.sm, paddingTop: space.xl },

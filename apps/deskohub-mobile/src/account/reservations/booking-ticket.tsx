@@ -406,11 +406,13 @@ const styles = StyleSheet.create({
   tile: {
     alignItems: "center",
     borderRadius: 14,
+    minWidth: 56,
     paddingBottom: space.sm,
+    paddingHorizontal: 6,
     paddingTop: 7,
-    width: 56,
   },
-  tileCompact: { paddingBottom: 7, paddingTop: 6, width: 52 },
+  // At large font sizes the tile grows with its text rather than cutting it.
+  tileCompact: { minWidth: 52, paddingBottom: 7, paddingTop: 6 },
   tileSmall: brandText(12, 14, 600),
   tileDay: brandText(24, 28, 700),
   tileDayCompact: brandText(20, 24, 700),
@@ -462,9 +464,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: space.lg,
   },
+  // At large font sizes its action wraps under the text.
   stubRow: {
     alignItems: "center",
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: space.md,
     paddingBottom: space.lg,
     paddingHorizontal: 18,

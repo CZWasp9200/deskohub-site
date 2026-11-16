@@ -30,7 +30,7 @@ describe("withSampleHistory", () => {
       unavailable: [],
     });
     expect(workspace("offline").nextOutcome("listReservations")).toBe(
-      "transport-failure"
+      "service-unavailable"
     );
   });
 

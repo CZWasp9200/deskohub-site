@@ -1,3 +1,4 @@
+import { CustomerAccountId } from "@deskohub/workspace-customer-api";
 import type { FakeWorkspace } from "./fake-workspace";
 import { sampleDeskReservation } from "./sample-fixtures";
 
@@ -9,10 +10,12 @@ import { sampleDeskReservation } from "./sample-fixtures";
  * - `pending`: the next booking waits for payment.
  * - `nothing-upcoming`: only past bookings.
  * - `empty`: no bookings at all.
- * - `offline`: the list never loads, as without a connection; what the
+ * - `offline`: the list never loads (the service can't be reached); what the
  *   device saved earlier shows, or the retry state when nothing is saved.
+ * - `offline-fresh`: as `offline`, for another sample account, which has
+ *   nothing saved on the device.
  * - `loading`: the list and every booking's status never answer, so their
- *   skeletons stay.
+ *   skeletons stay; for the account with nothing saved.
  */
 export const sampleHistories = [
   "today",
@@ -21,6 +24,7 @@ export const sampleHistories = [
   "nothing-upcoming",
   "empty",
   "offline",
+  "offline-fresh",
   "loading",
 ] as const;
 export type SampleHistory = (typeof sampleHistories)[number];
@@ -48,17 +52,26 @@ export const withSampleHistory = (
     "nothing-upcoming": () => [],
     empty: () => [],
     offline: () => data.history.current,
+    "offline-fresh": () => data.history.current,
     loading: () => data.history.current,
   }[history]();
   workspace.data = {
     ...data,
+    // An account of its own, which never loads a list, so has none saved.
+    ...(history === "offline-fresh" || history === "loading"
+      ? {
+          accountId: CustomerAccountId.make(
+            `sample-account-unsaved-${history}`
+          ),
+        }
+      : {}),
     history:
       history === "empty"
         ? { current: [], past: [], unavailable: [] }
         : { ...data.history, current },
   };
-  if (history === "offline") {
-    workspace.fail("listReservations", "transport-failure", 10_000);
+  if (history === "offline" || history === "offline-fresh") {
+    workspace.fail("listReservations", "service-unavailable", 10_000);
   }
   if (history === "loading") {
     workspace.fail("listReservations", "hang", 10_000);
