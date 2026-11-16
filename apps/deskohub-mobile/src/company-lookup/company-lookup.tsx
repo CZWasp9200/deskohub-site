@@ -18,9 +18,9 @@ import {
   CompanyLookupState,
   type LookupStatus,
   lookupAction,
+  lookupAfterEdit,
   lookupApplied,
   lookupSettled,
-  lookupShown,
   lookupStarted,
   lookupStatus,
 } from "./company-lookup-model";
@@ -68,7 +68,10 @@ export function CompanyLookup({
     CompanyLookupState.Idle()
   );
   const lookUp = useAtomSet(companyLookupAtom, { mode: "promiseExit" });
-  const shown = lookupShown(state, companyId);
+  // An edit to another ID drops the lookup at once (state adjusted while
+  // rendering), so neither its result nor a late answer comes back with the ID.
+  const shown = lookupAfterEdit(state, companyId);
+  if (shown !== state) setState(shown);
   const busy = shown._tag === "LookingUp";
   const formFields = fields.map(({ field }) => field);
 
@@ -77,7 +80,8 @@ export function CompanyLookup({
     setState(started);
     if (started._tag !== "LookingUp") return;
     void lookUp(started.companyId).then((exit) =>
-      // A newer press owns the state by now; this answer is stale.
+      // Only the lookup still in the state takes its answer: a newer press or
+      // an edit to another ID has dropped this one.
       setState((current) =>
         current === started ? lookupSettled(started.companyId, exit) : current
       )

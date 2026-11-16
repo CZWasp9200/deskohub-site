@@ -16,9 +16,9 @@ import {
   type CompanyLookupFailure,
   CompanyLookupState,
   lookupAction,
+  lookupAfterEdit,
   lookupApplied,
   lookupSettled,
-  lookupShown,
   lookupStarted,
   lookupStatus,
 } from "./company-lookup-model";
@@ -179,7 +179,7 @@ describe("appliedDetails", () => {
   });
 });
 
-describe("lookupShown: typing by hand stays possible in every state", () => {
+describe("lookupAfterEdit: typing by hand stays possible in every state", () => {
   const states = [
     CompanyLookupState.LookingUp({ companyId: "12345679" }),
     lookupSettled("12345679", Exit.succeed(withVat)),
@@ -191,15 +191,17 @@ describe("lookupShown: typing by hand stays possible in every state", () => {
 
   test("the state shows while the field holds its ID", () => {
     for (const state of states) {
-      expect(lookupShown(state, " 12345679 ")).toBe(state);
+      expect(lookupAfterEdit(state, " 12345679 ")).toBe(state);
     }
   });
 
   test("another typed ID returns the field to idle, ready to look up", () => {
     for (const state of states) {
-      const shown = lookupShown(state, "87654321");
+      const shown = lookupAfterEdit(state, "87654321");
       expect(shown._tag).toBe("Idle");
       expect(lookupAction(shown)).toBe("look-up");
+      // Typing the old ID back finds nothing left to show.
+      expect(lookupAfterEdit(shown, "12345679")._tag).toBe("Idle");
     }
   });
 

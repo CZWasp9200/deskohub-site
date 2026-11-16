@@ -141,10 +141,11 @@ export const lookupApplied = (
   });
 
 /**
- * The state as the form shows it while its field holds `typed`: a lookup of
- * another ID no longer describes the field, so the field is idle.
+ * The state once the field holds `typed`: an edit to another ID drops the
+ * lookup, its result and any answer still on its way, as the website's
+ * lookup does; typing the old ID back needs a new lookup.
  */
-export const lookupShown = (
+export const lookupAfterEdit = (
   state: CompanyLookupState,
   typed: string
 ): CompanyLookupState =>

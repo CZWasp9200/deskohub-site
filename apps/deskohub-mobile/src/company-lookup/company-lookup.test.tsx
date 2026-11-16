@@ -204,4 +204,35 @@ describe("CompanyLookup over the customer API", () => {
     expect(lookup.lookupButton().busy).toBe(false);
     expect(lookup.status()).toBeUndefined();
   });
+
+  test("a found company doesn't come back when its ID is typed again", async () => {
+    const lookup = await mountLookup({ companyId: "12345679" });
+    await lookup.press();
+    await lookup.settled();
+    expect(lookup.found()).toBeDefined();
+    await lookup.type("00000019");
+    await lookup.type("12345679");
+    expect(lookup.found()).toBeUndefined();
+    expect(lookup.status()).toBeUndefined();
+    expect(lookup.applied).toEqual([]);
+  });
+
+  test("an edit drops a pending lookup; the next press asks again and answers", async () => {
+    const lookup = await mountLookup({ companyId: "12345679" });
+    lookup.workspace.fail("lookupCompany", "hang");
+    await lookup.press();
+    await lookup.type("00000019");
+    await lookup.type("12345679");
+    expect(lookup.lookupButton().busy).toBe(false);
+    expect(lookup.status()).toBeUndefined();
+
+    // The new request interrupts the one that never answered.
+    await lookup.press();
+    await lookup.settled();
+    expect(lookup.status()?.tone).toBe("positive");
+    expect(lookup.found()).toBeDefined();
+    expect(
+      lookup.workspace.calls.filter((call) => call === "lookupCompany")
+    ).toHaveLength(2);
+  });
 });
