@@ -87,7 +87,7 @@ const renderWorkspaceLog = async <T>(value: T) => {
  * any depth, JSON, Effect's rendering of it as a failure, and the Workspace
  * logger's output.
  */
-export const renderEveryRepresentation = async <T>(
+const renderEveryRepresentation = async <T>(
   value: T
 ): Promise<readonly RenderedRepresentation[]> => [
   { name: "object graph", text: collectStrings(value) },
