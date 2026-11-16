@@ -10,9 +10,9 @@ import { color, space } from "../ui/tokens";
 /**
  * The page layout of each sign-in step the app opens in the browser: the
  * title, instructions and a quiet "Use a different email" link on top, the
- * step's field in the middle, its one action at the bottom (directly above
- * the on-screen keyboard while it is open), and a footnote that the app takes
- * over again once signed in. The content scrolls when it doesn't fit.
+ * step's field in the middle, and its one action at the bottom (directly
+ * above the on-screen keyboard while it is open). The content scrolls when it
+ * doesn't fit.
  */
 export function AppSignInLayout({
   title,
@@ -78,9 +78,6 @@ export function AppSignInLayout({
         {children !== undefined && <View>{children}</View>}
         <View style={styles.spacer} />
         {action}
-        <Text variant="hint" style={styles.footnote}>
-          {m.signin_app_handoff_note({}, { locale })}
-        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -105,5 +102,4 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   spacer: { flexGrow: 1, minHeight: space.xxl },
-  footnote: { marginTop: space.md, textAlign: "center" },
 });

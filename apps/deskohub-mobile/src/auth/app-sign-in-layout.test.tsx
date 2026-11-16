@@ -23,7 +23,7 @@ const grows = (props: Readonly<Record<string, unknown>>) =>
   )?.flexGrow === 1;
 
 describe("AppSignInLayout", () => {
-  test("puts the heading, instructions and link on top, the field in the middle and the action at the bottom, above the footnote", () => {
+  test("puts the heading, instructions and link on top, the field in the middle and the action at the bottom", () => {
     const elements = layout();
     const at = (match: (props: Record<string, unknown>) => boolean) =>
       elements.findIndex(({ props }) => match(props));
@@ -32,15 +32,12 @@ describe("AppSignInLayout", () => {
     const link = at((props) => props.role === "link");
     const field = at((props) => props.testID === "field");
     const action = at((props) => props.testID === "action");
-    const footnote = elements.length - 1;
     expect(heading).toBeGreaterThanOrEqual(0);
-    expect([heading, instructions, link, field, action, footnote]).toEqual(
-      [heading, instructions, link, field, action, footnote]
-        .slice()
-        .sort((a, b) => a - b)
+    expect([heading, instructions, link, field, action]).toEqual(
+      [heading, instructions, link, field, action].slice().sort((a, b) => a - b)
     );
     expect(new Set([heading, instructions, link, field, action]).size).toBe(5);
-    expect(elements[footnote]?.type).toBe("Text");
+    expect(action).toBe(elements.length - 1);
     // Free space opens above and below the field, so it sits in the middle
     // and the action at the bottom.
     const spacers = elements.flatMap((element, index) =>

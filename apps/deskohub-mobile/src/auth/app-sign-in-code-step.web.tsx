@@ -71,7 +71,11 @@ export function AppSignInCodeStep({
     />
   ) : (
     <Button
-      label={m.signin_sign_in({}, { locale })}
+      label={
+        checking
+          ? m.signin_signing_in({}, { locale })
+          : m.signin_sign_in({}, { locale })
+      }
       onPress={() => onSubmit(code)}
       busy={checking}
       disabled={!checking && (resending || code.length !== signInCodeLength)}

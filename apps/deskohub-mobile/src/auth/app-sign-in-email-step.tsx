@@ -41,7 +41,13 @@ export function AppSignInEmailStep({
     <AppSignInLayout
       title={title}
       instructions={body}
-      action={<Button label={submitLabel} onPress={onSubmit} busy={busy} />}
+      action={
+        <Button
+          label={busy ? m.signin_sending_code({}, { locale }) : submitLabel}
+          onPress={onSubmit}
+          busy={busy}
+        />
+      }
     >
       <View style={styles.field}>
         {illustration}
