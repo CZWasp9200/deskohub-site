@@ -6,11 +6,14 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { customerAvailabilityReplacementHeader } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Schema } from "effect";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import { CheckoutUnavailableError } from "@/features/checkout/backend/checkout/checkout-unavailable";
 import {
   buildSignedPayState,
+  type SignedPayState,
   sealPayState,
 } from "@/features/checkout/backend/checkout/pay-state";
-import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
+import type { PayableReservation } from "@/features/checkout/backend/checkout/payable-checkout.service";
+import { PayableCheckoutMock } from "@/features/checkout/backend/checkout/payable-checkout.service.mock";
 import { buildReservationQuote } from "@/features/checkout/reservation-quote";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
 import {
@@ -152,16 +155,38 @@ const emptyInventory = Layer.succeed(AdvisoryAvailabilityInventory, {
   listLimitations: () => Effect.succeed([]),
 });
 
+/** A replaced Pay state's hold that is still payable and unpaid. */
+const supersedableHold = (state: SignedPayState) =>
+  ({
+    id: state.orderId,
+    reservationState: "held",
+    paymentState: "not_started",
+    dotyposReservationId: "dotypos-reservation-1",
+    reservationHoldExpiresAt: Temporal.Instant.from("2099-06-01T10:10:00Z"),
+  }) as PayableReservation;
+
+/** Payable checkouts that confirm every replaced hold with `confirm`. */
+const replacedHolds = (confirm: Parameters<typeof PayableCheckoutMock>[0]) =>
+  Layer.merge(
+    PayableCheckoutMock(confirm).pipe(Layer.provide(TestSealedStateKeys)),
+    TestSealedStateKeys
+  );
+
 /** Availability served by `service`, with no replacement hold to ignore. */
 const availabilityWith = (
   service: Partial<WorkspaceAvailabilityService["Service"]>
 ) =>
-  Layer.mergeAll(
+  Layer.merge(
     Layer.mock(WorkspaceAvailabilityService, service),
-    Layer.mock(ReservationSupersessionService, {
-      findCurrent: () => Effect.succeed(undefined),
-    }),
-    TestSealedStateKeys
+    replacedHolds((state) =>
+      Effect.fail(
+        new CheckoutUnavailableError({
+          orderId: state.orderId,
+          reason: "not_current",
+          restartKind: state.reservation.kind,
+        })
+      )
+    )
   );
 
 /** The catalog with prices quoted and no sale running. */
@@ -447,15 +472,10 @@ describe("getAvailability", () => {
               return Effect.succeed(testAvailability);
             },
           }),
-          Layer.mock(ReservationSupersessionService, {
-            findCurrent: (input) => {
-              lookups.push(input);
-              return Effect.succeed({
-                dotyposReservationId: "dotypos-reservation-1",
-              } as never);
-            },
-          }),
-          TestSealedStateKeys
+          replacedHolds((state) => {
+            lookups.push(state);
+            return Effect.succeed(supersedableHold(state));
+          })
         ),
       },
     });
@@ -471,7 +491,10 @@ describe("getAvailability", () => {
 
     expect(response.status).toBe(200);
     expect(lookups).toEqual([
-      { orderId: "reservation-id", checkoutSessionId: "session-id" },
+      expect.objectContaining({
+        orderId: "reservation-id",
+        checkoutSessionId: "session-id",
+      }),
     ]);
     expect(queries.map(({ occupancyExclusion }) => occupancyExclusion)).toEqual(
       [{ dotyposReservationId: "dotypos-reservation-1" }]
@@ -748,13 +771,7 @@ describe("getMeetingRoomUnavailableDates", () => {
                 return Effect.succeed(calendar);
               },
             }),
-            Layer.mock(ReservationSupersessionService, {
-              findCurrent: () =>
-                Effect.succeed({
-                  dotyposReservationId: "dotypos-reservation-1",
-                } as never),
-            }),
-            TestSealedStateKeys
+            replacedHolds((state) => Effect.succeed(supersedableHold(state)))
           ),
         },
       });
