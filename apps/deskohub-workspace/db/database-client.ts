@@ -117,7 +117,12 @@ export const databaseClient: Effect.Effect<
   RootDatabaseClient,
   never,
   PgClient.PgClient
-> = make({ relations }).pipe(Effect.provide(databaseClientServices));
+> = make({
+  relations,
+  // Drizzle 1.0.0-rc.4 always kept a failed query's parameters on its error;
+  // the Workspace's log censorship reads their count.
+  paramsInErrors: true,
+}).pipe(Effect.provide(databaseClientServices));
 
 /** A native pool its owner opened and closes, such as a test's (`openDatabasePool`). */
 export interface DatabasePool {

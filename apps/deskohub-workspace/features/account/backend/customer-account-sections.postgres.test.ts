@@ -39,7 +39,9 @@ describe.skipIf(!suiteDatabase)(
 
     afterAll(() => suiteDatabase.close());
 
-    const healthyAdvisoryLock = WorkspaceDatabaseAdvisoryLock.makeLayer(pool);
+    const healthyAdvisoryLock = WorkspaceDatabaseAdvisoryLock.makeLayer(
+      suiteDatabase.databasePool
+    );
 
     /** What the faked session authority answers on every read. */
     type SessionAnswer =

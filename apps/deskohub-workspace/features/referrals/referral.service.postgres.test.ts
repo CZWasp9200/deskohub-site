@@ -2190,7 +2190,7 @@ describe.skipIf(!testDatabase)(
           "eligible"
         );
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
         await context.cleanup();
       }
     });
@@ -2401,7 +2401,7 @@ describe.skipIf(!testDatabase)(
             outcomeOf(await acceptAtAccount(context, context.referrer.code))
           ).toBe("accepted");
         } finally {
-          await unreachable.pool.end();
+          await unreachable.pool.close();
           await context.cleanup();
         }
       }
@@ -2447,7 +2447,7 @@ describe.skipIf(!testDatabase)(
             )._tag
           ).toBe("Success");
         } finally {
-          await unreachable.pool.end();
+          await unreachable.pool.close();
           await context.cleanup();
         }
       }
@@ -2485,7 +2485,7 @@ describe.skipIf(!testDatabase)(
           outcomeOf(await acceptAtAccount(context, context.referrer.code))
         ).toBe("accepted");
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
         await context.cleanup();
       }
     });

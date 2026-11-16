@@ -559,7 +559,7 @@ describe.skipIf(!testDatabase)(
           referrer.promotionCodeId,
         ]);
       } finally {
-        await unreachable.pool.end();
+        await unreachable.pool.close();
       }
 
       expect(await retrySignupReferral(account)).toEqual({
