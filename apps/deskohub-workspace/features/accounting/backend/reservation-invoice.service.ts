@@ -6,7 +6,10 @@ import {
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Result } from "effect";
 import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
-import type { InvoiceBuyerAddress } from "@/features/accounting/billing-identity";
+import {
+  type InvoiceBuyerAddress,
+  toDotyposCustomerBillingDetails,
+} from "@/features/accounting/billing-identity";
 import type { InvoiceBuyer } from "@/features/accounting/invoice";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { Locale } from "@/features/i18n";
@@ -18,14 +21,12 @@ import {
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReservationAccessToken } from "@/features/reservation/reservation-access-token";
-import {
-  getDotyposCustomerBillingDetails,
-  getReservationInvoiceBuyer,
-} from "@/features/reservation/reservation-billing";
+import { getReservationInvoiceBuyer } from "@/features/reservation/reservation-billing";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { AccountingStorage } from "./accounting-storage";
 import {
+  type IInvoiceRepository,
   InvoiceRepository,
   type InvoiceRepositoryError,
 } from "./invoice.repository";
@@ -64,6 +65,31 @@ interface PostOrderInvoiceAccess {
   readonly locale: Locale;
   readonly accessToken?: ReservationAccessToken;
 }
+
+type InvoiceIssueRequest = Parameters<IInvoiceRepository["issue"]>[0];
+
+/** Where an issuance's buyer comes from, which decides what Dotypos holds. */
+type InvoiceBuyerOrigin<E> =
+  | {
+      /**
+       * The payment attempt's snapshot froze the buyer, so every issuance of
+       * the attempt derives the same one and a lost race committed it too.
+       */
+      readonly kind: "frozen";
+      /** The invoice exists, and Dotypos took this buyer before it was issued. */
+      readonly issued: boolean;
+    }
+  | {
+      /**
+       * The customer submitted the buyer after payment. A concurrent
+       * submission can commit another buyer, which Dotypos must then hold
+       * once `acceptCommitted` accepts it.
+       */
+      readonly kind: "submitted";
+      readonly acceptCommitted: (
+        committed: InvoiceBuyer
+      ) => Effect.Effect<void, E>;
+    };
 
 export interface IReservationInvoiceService {
   /**
@@ -105,35 +131,6 @@ export class ReservationInvoiceService extends Context.Service<
       const invoiceDeliveries = yield* InvoiceEmailDeliveryService;
       const invoices = yield* InvoiceRepository;
       const reservations = yield* WorkspaceReservationRepository;
-
-      /**
-       * A concurrent request may have issued the invoice first: Dotypos must
-       * hold the buyer the issued invoice committed, not this request's.
-       */
-      const syncCommittedInvoiceBuyer = Effect.fnUntraced(function* (input: {
-        readonly dotyposCustomerId: DotyposCustomerId;
-        readonly buyer: InvoiceBuyer;
-      }) {
-        if (input.buyer.kind !== "person") {
-          return yield* new PostOrderInvoiceUnavailableError({
-            message: "The issued invoice buyer does not match the reservation.",
-          });
-        }
-        const committedBillingDetails = getDotyposCustomerBillingDetails({
-          purpose: "personal",
-          invoice: "requested",
-          address: input.buyer.address,
-        });
-        if (!committedBillingDetails) {
-          return yield* new PostOrderInvoiceUnavailableError({
-            message: "The issued invoice billing details are unavailable.",
-          });
-        }
-        yield* dotypos.updateCustomerBillingDetails(
-          input.dotyposCustomerId,
-          committedBillingDetails
-        );
-      });
 
       const getPostOrderContext = Effect.fn(
         "ReservationInvoiceService.getPostOrderContext"
@@ -187,34 +184,34 @@ export class ReservationInvoiceService extends Context.Service<
           .findLatestByReservationId(reservation.id)
           .pipe(Effect.map((latest) => Boolean(latest?.cancellation)));
 
-      const issueForPaymentAttempt = Effect.fnUntraced(function* (
-        paymentAttemptId: PaymentAttemptId
-      ) {
-        const source = yield* accountingSnapshots.find(paymentAttemptId);
-        if (!source?.billing) return;
-
-        const billingDetails = getDotyposCustomerBillingDetails(source.billing);
-        if (!billingDetails) return;
-
-        const buyer = getReservationInvoiceBuyer({
-          billing: source.billing,
-          customerName: source.buyer.legalName,
-        });
-        if (!buyer) return;
-
-        const existing =
-          yield* invoices.findLiveByPaymentAttemptId(paymentAttemptId);
-        if (!existing) {
-          yield* dotypos.updateCustomerBillingDetails(
-            source.dotyposCustomerId,
-            billingDetails
+      /**
+       * Issues the payment attempt's invoice. Dotypos takes the buyer before
+       * the invoice commits it, so a failed PATCH stops issuance; after a lost
+       * race it takes the committed buyer, when the origin allows one. The
+       * caller delivers the issued invoice under its own policy.
+       */
+      const issueInvoice = Effect.fnUntraced(function* <E = never>(input: {
+        readonly request: InvoiceIssueRequest;
+        readonly dotyposCustomerId: DotyposCustomerId;
+        readonly origin: InvoiceBuyerOrigin<E>;
+      }) {
+        const { request, origin } = input;
+        const updateBilling = (buyer: InvoiceBuyer) =>
+          dotypos.updateCustomerBillingDetails(
+            input.dotyposCustomerId,
+            toDotyposCustomerBillingDetails(buyer)
           );
-        }
 
-        yield* invoices.issue({ paymentAttemptId, buyer });
-        yield* invoiceDeliveries.deliverByPaymentAttemptId({
-          paymentAttemptId,
-        });
+        if (origin.kind === "submitted" || !origin.issued) {
+          yield* updateBilling(request.buyer);
+        }
+        const issuance = yield* invoices.issue(request);
+        if (origin.kind === "submitted" && !issuance.changed) {
+          const committed = issuance.invoice.document.buyer;
+          yield* origin.acceptCommitted(committed);
+          yield* updateBilling(committed);
+        }
+        return issuance;
       });
 
       return ReservationInvoiceService.of({
@@ -230,7 +227,25 @@ export class ReservationInvoiceService extends Context.Service<
             );
             return;
           }
-          yield* issueForPaymentAttempt(paymentAttemptId);
+
+          const source = yield* accountingSnapshots.find(paymentAttemptId);
+          if (!source?.billing) return;
+          const buyer = getReservationInvoiceBuyer({
+            billing: source.billing,
+            customerName: source.buyer.legalName,
+          });
+          if (!buyer) return;
+
+          const issued =
+            yield* invoices.findLiveByPaymentAttemptId(paymentAttemptId);
+          yield* issueInvoice({
+            request: { paymentAttemptId, buyer },
+            dotyposCustomerId: source.dotyposCustomerId,
+            origin: { kind: "frozen", issued: issued !== null },
+          });
+          yield* invoiceDeliveries.deliverByPaymentAttemptId({
+            paymentAttemptId,
+          });
         }),
         getPostOrderState: Effect.fn(
           "ReservationInvoiceService.getPostOrderState"
@@ -250,37 +265,19 @@ export class ReservationInvoiceService extends Context.Service<
             });
           }
 
-          const billing = {
-            purpose: "personal" as const,
-            invoice: "requested" as const,
-            address: input.address,
-          };
-          const billingDetails = getDotyposCustomerBillingDetails(billing);
-          const buyer = getReservationInvoiceBuyer({
-            billing,
-            customerName: context.source.buyer.legalName,
+          const issuance = yield* issueInvoice({
+            request: {
+              paymentAttemptId: context.paymentAttemptId,
+              buyer: {
+                kind: "person",
+                legalName: context.source.buyer.legalName,
+                address: input.address,
+              },
+              provenance: { source: "post-order-link" },
+            },
+            dotyposCustomerId: context.source.dotyposCustomerId,
+            origin: { kind: "submitted", acceptCommitted: requirePerson },
           });
-          if (!billingDetails || !buyer) {
-            return yield* new PostOrderInvoiceUnavailableError({
-              message: "Complete billing details are required.",
-            });
-          }
-
-          yield* dotypos.updateCustomerBillingDetails(
-            context.source.dotyposCustomerId,
-            billingDetails
-          );
-          const issuance = yield* invoices.issue({
-            paymentAttemptId: context.paymentAttemptId,
-            buyer,
-            provenance: { source: "post-order-link" },
-          });
-          if (!issuance.changed) {
-            yield* syncCommittedInvoiceBuyer({
-              dotyposCustomerId: context.source.dotyposCustomerId,
-              buyer: issuance.invoice.document.buyer,
-            });
-          }
           const delivered = yield* invoiceDeliveries
             .deliverByPaymentAttemptId({
               paymentAttemptId: context.paymentAttemptId,
@@ -352,6 +349,18 @@ const isDeliverableReservationSnapshot = (
   Boolean(source.delivery) &&
   source.workspaceReservationId === reservation.id &&
   source.dotyposCustomerId === reservation.dotyposCustomerId;
+
+/**
+ * A post-order request only submits a person, so the request it lost to
+ * committed a person too; any other buyer is not this reservation's.
+ */
+const requirePerson = Effect.fnUntraced(function* (buyer: InvoiceBuyer) {
+  if (buyer.kind !== "person") {
+    return yield* new PostOrderInvoiceUnavailableError({
+      message: "The issued invoice buyer does not match the reservation.",
+    });
+  }
+});
 
 /** A personal reservation that asked for no invoice when it was paid. */
 const isUnrequestedPersonalInvoice = (

@@ -215,6 +215,7 @@ describe("listOfferings", () => {
     ]);
     expect(body.offerings[0]).toMatchObject({
       name: "Open Space",
+      summary: expect.any(String),
       price: { currency: "CZK" },
       addOns: [{ id: "coffee", included: false }],
     });

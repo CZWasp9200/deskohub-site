@@ -903,6 +903,8 @@
   "checkoutStatusBookAgain": "Erneut reservieren",
   "checkoutStatusTryAgain": "Erneut versuchen",
   "checkoutStatusBackHome": "Zur Startseite",
+  "checkoutStatusOpenPaymentPage": "Zahlungsseite öffnen",
+  "checkoutStatusOpenPaymentPageError": "Die Zahlungsseite konnte nicht geöffnet werden. Versuch es bitte noch einmal.",
   "reservationEmailTierLabel": "Zutritt",
   "reservationEmailReservationLabel": "Reservierung",
   "reservationEmailDateLabel": "Reservierungsdatum",

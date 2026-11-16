@@ -23,7 +23,7 @@ const monitorOptionNames = {
   "2x32-4k": "2× 32″ 4K",
 } as const satisfies Record<CustomerMonitorOption, string>;
 
-const monitorOptionName = (option: string): string =>
+export const monitorOptionName = (option: string): string =>
   option in monitorOptionNames
     ? monitorOptionNames[option as CustomerMonitorOption]
     : option;
@@ -61,17 +61,18 @@ const productDetail = (
 const chargeDescription = (
   subject: PriceLineSubject,
   selection: CustomerBookingSelection,
-  locale: AppLocale
+  locale: AppLocale,
+  productName: string
 ): PriceLineDescription => {
   switch (subject._tag) {
     case "Product":
       return {
-        label: productLabel(selection, locale),
+        label: productName,
         detail: productDetail(selection, locale),
       };
     case "OfficeAccess":
       return {
-        label: productLabel(selection, locale),
+        label: productName,
         detail: m.booking_checkout_summary_office_days(
           { count: subject.dayCount },
           { locale }
@@ -110,8 +111,13 @@ const chargeDescription = (
  * no plural rules.
  */
 export const describePriceLine =
-  (selection: CustomerBookingSelection, locale: AppLocale) =>
+  (
+    selection: CustomerBookingSelection,
+    locale: AppLocale,
+    /** The catalog's name for the product, where the screen has it. */
+    productName: string = productLabel(selection, locale)
+  ) =>
   (line: PriceLine): PriceLineDescription =>
     line._tag === "Reduction"
       ? { label: line.label }
-      : chargeDescription(line.subject, selection, locale);
+      : chargeDescription(line.subject, selection, locale, productName);

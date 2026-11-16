@@ -903,6 +903,8 @@
   "checkoutStatusBookAgain": "Book again",
   "checkoutStatusTryAgain": "Try again",
   "checkoutStatusBackHome": "Back home",
+  "checkoutStatusOpenPaymentPage": "Open payment page",
+  "checkoutStatusOpenPaymentPageError": "The payment page could not be opened. Please try again.",
   "reservationEmailTierLabel": "Entry tier",
   "reservationEmailReservationLabel": "Reservation",
   "reservationEmailDateLabel": "Reservation date",

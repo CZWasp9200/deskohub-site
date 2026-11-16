@@ -177,7 +177,10 @@ describe("an expired hold's return notice", () => {
       await show({ focused: true, params: expired });
       expect(seen.message).toBe(expiredMessage);
       expect(seen.scrollsToTop).toBe(returns);
-      expect(announced).toEqual(Array(returns).fill(expiredMessage));
+      // The notice announces its title with the message.
+      expect(announced).toEqual(
+        Array(returns).fill(expect.stringContaining(expiredMessage))
+      );
     }
   });
 });
