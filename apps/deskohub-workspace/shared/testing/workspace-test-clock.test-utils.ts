@@ -44,6 +44,8 @@ export const countWallClockReads = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         currentTimeMillis: Effect.sync(currentTimeMillisUnsafe),
         currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
         currentTimeNanos: clock.currentTimeNanos,
+        monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+        monotonicTimeNanos: clock.monotonicTimeNanos,
         sleep: (duration) => clock.sleep(duration),
       })
     );

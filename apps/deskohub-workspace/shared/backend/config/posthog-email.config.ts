@@ -12,13 +12,13 @@ export const configuredPostHogEmailConnection: Effect.Effect<
   Config.ConfigError
 > = Effect.gen(function* () {
   const secretKey = (yield* Config.option(
-    Config.string("POSTHOG_EMAIL_SECRET_KEY")
+    Config.String("POSTHOG_EMAIL_SECRET_KEY")
   )).pipe(
     Option.map((key) => key.trim()),
     Option.filter((key) => key !== "")
   );
   if (Option.isNone(secretKey)) return Option.none();
-  const host = yield* Config.option(Config.string("POSTHOG_API_HOST"));
+  const host = yield* Config.option(Config.String("POSTHOG_API_HOST"));
   if (Option.isNone(host)) {
     // The validated env requires the host; without it, keep mail flowing
     // through Resend rather than failing every send.

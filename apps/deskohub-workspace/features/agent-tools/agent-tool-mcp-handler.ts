@@ -362,6 +362,7 @@ const makeAgentToolMcpServer = <R>({
  * the stored handler protected; a route test pins both protocol eras.
  */
 const listSecuritySchemes = (server: McpServer) => {
+  // biome-ignore lint/complexity/useLiteralKeys: the SDK declares _getRequestHandler protected; only bracket access reaches it.
   const listTools = server.server["_getRequestHandler"]("tools/list");
   if (listTools === undefined) return;
   server.server.setRequestHandler("tools/list", async (request, context) => {
@@ -373,7 +374,7 @@ const listSecuritySchemes = (server: McpServer) => {
       ...listed,
       tools: listed.tools.map((tool) => ({
         ...tool,
-        securitySchemes: tool._meta?.["securitySchemes"],
+        securitySchemes: tool._meta?.securitySchemes,
       })),
     };
   });

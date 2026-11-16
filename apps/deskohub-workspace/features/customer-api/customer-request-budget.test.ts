@@ -11,7 +11,10 @@ const contractMethods = () => {
   HttpApi.reflect(WorkspaceCustomerApi, {
     onGroup: () => undefined,
     onEndpoint: ({ group, endpoint }) => {
-      methods.set(`${group.identifier}.${endpoint.name}`, endpoint.method);
+      methods.set(
+        `${group.identifier}.${endpoint.identifier}`,
+        endpoint.method
+      );
     },
   });
   return methods;

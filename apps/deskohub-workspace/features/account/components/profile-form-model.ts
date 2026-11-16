@@ -1,7 +1,6 @@
 import {
   Array as Arr,
   Effect,
-  Option,
   Predicate,
   Schema,
   type SchemaAST,
@@ -331,7 +330,7 @@ const toProfileFormFieldIssue = (
         key,
         new SchemaIssue.Pointer(
           field === undefined ? segments : [field],
-          new SchemaIssue.InvalidValue(Option.none(), {
+          new SchemaIssue.InvalidValue({
             message:
               field === undefined
                 ? message
@@ -345,7 +344,7 @@ const toProfileFormFieldIssue = (
   if (!Arr.isArrayNonEmpty(fieldIssueList)) return issue;
   return fieldIssueList.length === 1
     ? fieldIssueList[0]
-    : new SchemaIssue.Composite(contract, Option.none(), fieldIssueList);
+    : new SchemaIssue.Composite(contract, fieldIssueList);
 };
 
 const reportedOnProfileFormFields =

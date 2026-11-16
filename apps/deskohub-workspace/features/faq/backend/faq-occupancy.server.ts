@@ -14,7 +14,7 @@ const loadFaqOccupancy = Effect.fn("FaqOccupancy.load")(function* () {
   const dotypos = yield* DotyposService;
   const [tables, reservations] = yield* Effect.all(
     [dotypos.getTables(), dotypos.listReservations(reservationBounds)],
-    { concurrency: "inherit" }
+    { concurrency: "unbounded" }
   );
 
   return yield* getFaqOccupancyStats({ now, reservations, tables });

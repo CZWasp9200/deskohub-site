@@ -25,6 +25,9 @@ beforeAll(async () => {
   const build = await Bun.build({
     entrypoints: [join(import.meta.dir, "date-input.browser-harness.tsx")],
     format: "iife",
+    // A classic script can't hold `import.meta`, which Effect 4.1's
+    // ConfigProvider reads.
+    define: { "import.meta": "{}" },
     // The calendar brings its stylesheet, so each output keeps its own name.
     naming: "[name].[ext]",
     outdir: buildDirectory,

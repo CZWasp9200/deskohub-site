@@ -114,7 +114,7 @@ export const recordEffectTrace = <A, E, R>(
       Array.isArray(message) ? message : [message]
     ) as ReadonlyArray<TraceValue>;
     trace.entries.push(
-      `${logLevel} ${describeLogMessage(parts)} {${annotations}} in ${describeSpan(fiber.currentSpan)}`
+      `${logLevel} ${describeLogMessage(parts)} {${annotations}} in ${describeSpan(fiber.cache.span)}`
     );
   });
 

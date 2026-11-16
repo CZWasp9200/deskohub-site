@@ -147,7 +147,8 @@ describe("Workspace actions", () => {
     await expect(action(staleInput)).resolves.toMatchObject({
       validationErrors: {
         fieldErrors: {
-          discount: ['products[0].tier: Unexpected key with value "basic"'],
+          // The issue keeps its path inside the field; its text is Effect's.
+          discount: [expect.stringMatching(/^products\[0\]\.tier: /)],
         },
       },
     });

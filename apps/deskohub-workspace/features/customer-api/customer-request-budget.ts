@@ -7,11 +7,7 @@ import {
   type WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Duration, Effect, Match } from "effect";
-import type {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-} from "effect/http-api";
+import type { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import {
   RequestBudget,
   type RequestBudgetPolicy,
@@ -39,8 +35,8 @@ type CustomerApiGroup =
 
 /** Every endpoint of every group, by group then endpoint name. */
 export type CustomerApiEndpointClassification = {
-  readonly [Group in CustomerApiGroup as HttpApiGroup.Name<Group>]: Record<
-    HttpApiEndpoint.Name<HttpApiGroup.Endpoints<Group>>,
+  readonly [Group in CustomerApiGroup as HttpApiGroup.Identifier<Group>]: Record<
+    HttpApiEndpoint.Identifier<HttpApiGroup.Endpoints<Group>>,
     CustomerRequestBudgetClass
   >;
 };

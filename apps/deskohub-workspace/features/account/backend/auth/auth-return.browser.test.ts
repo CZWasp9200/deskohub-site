@@ -436,6 +436,9 @@ if (window.location.pathname === ${JSON.stringify(CALLBACK_PATH)}) {
     entrypoints: [entrypoint],
     target: "browser",
     format: "iife",
+    // A classic script can't hold `import.meta`, which Effect 4.1's
+    // ConfigProvider reads.
+    define: { "import.meta": "{}" },
     minify: false,
     sourcemap: "none",
     plugins: [

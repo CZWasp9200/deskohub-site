@@ -1,6 +1,6 @@
 import { CloudinarySignatureRedactor } from "@deskohub/cloudinary/telemetry";
+import * as OtelTracer from "@effect/opentelemetry/OtelTracer";
 import * as OtelResource from "@effect/opentelemetry/Resource";
-import * as OtelTracer from "@effect/opentelemetry/Tracer";
 import type { TracerProvider } from "@opentelemetry/api";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
