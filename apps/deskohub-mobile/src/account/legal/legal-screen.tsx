@@ -6,7 +6,6 @@ import {
 } from "@effect/atom-react";
 import { Effect, Match, Option } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
-import Archive from "lucide-react-native/icons/archive";
 import ChartColumn from "lucide-react-native/icons/chart-column";
 import FileText from "lucide-react-native/icons/file-text";
 import Megaphone from "lucide-react-native/icons/megaphone";
@@ -35,6 +34,7 @@ import {
   isAnalyticsPreferenceUnavailable,
   saveAnalyticsPreferenceAtom,
 } from "./analytics-preference";
+import { DataExportRow } from "./data-export-row";
 import {
   type LegalDocument,
   legalDocuments,
@@ -137,12 +137,7 @@ export function LegalScreen() {
       <SectionHeader title={m.legal_analytics_heading({}, { locale })} />
       <AnalyticsPreference onOpenPrivacyPolicy={openPrivacyPolicy} />
       <SectionHeader title={m.legal_archive_heading({}, { locale })} />
-      <ListGroup>
-        <ListRow
-          icon={Archive}
-          label={m.legal_archive_unavailable({}, { locale })}
-        />
-      </ListGroup>
+      <DataExportRow />
     </ScrollScreen>
   );
 }
