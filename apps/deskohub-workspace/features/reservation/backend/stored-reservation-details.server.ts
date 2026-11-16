@@ -32,6 +32,9 @@ export class WorkspaceReservationDetailsMalformedError extends Data.TaggedError(
  */
 type StoredDocument = StoredWorkspaceReservationDetails;
 
+/** What a read of the column returns before decoding: any JSON value. */
+type ColumnValue = WorkspaceReservationRow["reservationDetails"];
+
 const storedDetailsCodec: Schema.Codec<StoredDocument> =
   storedWorkspaceReservationDetailsSchema;
 
@@ -45,10 +48,7 @@ const decodeDetails = Schema.decodeUnknownEffect(
   parseOptions
 );
 
-const encodeDetails = Schema.encodeEffect(
-  storedDetailsCodec,
-  parseOptions
-);
+const encodeDetails = Schema.encodeEffect(storedDetailsCodec, parseOptions);
 
 // A document typed as stored details that fails their schema is a bug in the
 // code that built it, not a state the caller can handle, so it dies.
@@ -57,7 +57,7 @@ const encode = Effect.fn("StoredReservationDetails.encode")(
 );
 
 const decode = Effect.fn("StoredReservationDetails.decode")(
-  (reservationId: WorkspaceReservationId, raw: unknown) =>
+  (reservationId: WorkspaceReservationId, raw: ColumnValue) =>
     decodeDetails(raw).pipe(
       Effect.mapError(
         (cause) =>
@@ -161,7 +161,7 @@ export const StoredReservationDetails = {
     Effect.forEach(rows, decodeRow),
 
   /** Reads a document for a view that shows less, not fails, when it's malformed. */
-  project: (raw: unknown) => projectDetails(raw),
+  project: (raw: ColumnValue) => projectDetails(raw),
 
   /**
    * The column value to write for a document, checked against the schema the

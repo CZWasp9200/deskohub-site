@@ -42,10 +42,13 @@ import {
 import { supersedableReservationPaymentStates } from "./reservation-supersession";
 import {
   StoredReservationDetails,
+  type WithStoredReservationDetails,
   type WorkspaceReservationDetailsMalformedError,
 } from "./stored-reservation-details.server";
 
-const withReservationKindFields = (reservation: WorkspaceReservationRow) => {
+const withReservationKindFields = (
+  reservation: WithStoredReservationDetails<WorkspaceReservationRow>
+) => {
   const reservationWithCoworkFields = withCoworkProductFields(reservation);
 
   // Compose field enrichments for additional reservation kinds here.

@@ -555,25 +555,25 @@ export type AdministrationOverviewSource = {
 
 type SafeReservationRow = WithStoredReservationDetails<
   Pick<
-  WorkspaceReservationRow,
-  | "id"
-  | "dotyposCustomerId"
-  | "dotyposReservationId"
-  | "reservationState"
-  | "paymentState"
-  | "fulfillmentState"
-  | "reservationDetails"
-  | "reservationPurpose"
-  | "reservationCreatedAt"
-  | "reservationConfirmedAt"
-  | "reservationCancelledAt"
-  | "reservationHoldExpiredAt"
-  | "paidAt"
-  | "fulfilledAt"
-  | "fulfillmentFailedAt"
-  | "failureCode"
-  | "createdAt"
-  | "updatedAt"
+    WorkspaceReservationRow,
+    | "id"
+    | "dotyposCustomerId"
+    | "dotyposReservationId"
+    | "reservationState"
+    | "paymentState"
+    | "fulfillmentState"
+    | "reservationDetails"
+    | "reservationPurpose"
+    | "reservationCreatedAt"
+    | "reservationConfirmedAt"
+    | "reservationCancelledAt"
+    | "reservationHoldExpiredAt"
+    | "paidAt"
+    | "fulfilledAt"
+    | "fulfillmentFailedAt"
+    | "failureCode"
+    | "createdAt"
+    | "updatedAt"
   >
 >;
 
