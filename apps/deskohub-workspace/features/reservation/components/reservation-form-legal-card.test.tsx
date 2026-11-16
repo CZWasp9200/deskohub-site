@@ -8,11 +8,26 @@ import {
 } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { useForm, useWatch } from "react-hook-form";
-import type { Locale } from "@/features/i18n";
+import { type Locale, locales } from "@/features/i18n";
 import csCzCatalog from "@/features/i18n/messages/cs-CZ.json" with {
   type: "json",
 };
+import deDeCatalog from "@/features/i18n/messages/de-DE.json" with {
+  type: "json",
+};
 import enUsCatalog from "@/features/i18n/messages/en-US.json" with {
+  type: "json",
+};
+import hiInCatalog from "@/features/i18n/messages/hi-IN.json" with {
+  type: "json",
+};
+import skSkCatalog from "@/features/i18n/messages/sk-SK.json" with {
+  type: "json",
+};
+import ukUaCatalog from "@/features/i18n/messages/uk-UA.json" with {
+  type: "json",
+};
+import viVnCatalog from "@/features/i18n/messages/vi-VN.json" with {
   type: "json",
 };
 import { Form } from "@/shared/components/ui/form";
@@ -23,9 +38,14 @@ import {
 import { ReservationMarketingConsentField } from "./reservation-marketing-consent-field";
 import { ReservationPrivacyNotice } from "./reservation-privacy-notice";
 
-const catalogs = {
-  "en-US": enUsCatalog as Record<string, string>,
-  "cs-CZ": csCzCatalog as Record<string, string>,
+const catalogs: Readonly<Record<Locale, Record<string, string>>> = {
+  "cs-CZ": csCzCatalog,
+  "de-DE": deDeCatalog,
+  "en-US": enUsCatalog,
+  "hi-IN": hiInCatalog,
+  "sk-SK": skSkCatalog,
+  "uk-UA": ukUaCatalog,
+  "vi-VN": viVnCatalog,
 };
 
 const copyWithoutInterpolationTags = (copy: string, tag: string) =>
@@ -85,7 +105,7 @@ describe("reservation form legal cards", () => {
   });
 
   test("privacy exposes no form control and only marketing is a checkbox", () => {
-    for (const locale of ["en-US", "cs-CZ"] as const) {
+    for (const locale of locales) {
       const view = render(<LegalCardsHarness locale={locale} />);
 
       const checkboxes = view.getAllByRole("checkbox");
@@ -116,7 +136,7 @@ describe("reservation form legal cards", () => {
   });
 
   test("marketing is a labeled real checkbox, initially unchecked and togglable", () => {
-    for (const locale of ["en-US", "cs-CZ"] as const) {
+    for (const locale of locales) {
       const view = render(<LegalCardsHarness locale={locale} />);
       const catalog = catalogs[locale];
 
@@ -146,7 +166,7 @@ describe("reservation form legal cards", () => {
   });
 
   test("renders each locale's complete copy around its linked text", () => {
-    for (const locale of ["en-US", "cs-CZ"] as const) {
+    for (const locale of locales) {
       const catalog = catalogs[locale];
       const view = render(<LegalCardsHarness locale={locale} />);
       const cards = legalCards(view, locale);
