@@ -35,14 +35,39 @@ export const finishOnlyState = (stack: NavigationState): NavigationState => ({
 });
 
 /**
- * Leaves onboarding for the screen it opened over: down to the stack's
- * first step, then back out of the stack.
+ * Whether About you sits below the step `key` in the onboarding stack's own
+ * state, so Back reaches it. Billing details opened on its own has nothing
+ * below it here, whatever the stacks around onboarding hold.
+ */
+export const aboutYouBelow = (
+  stack: Pick<NavigationState, "routes">,
+  key: string
+) => {
+  const at = stack.routes.findIndex((route) => route.key === key);
+  return stack.routes
+    .slice(0, Math.max(at, 0))
+    .some((route) => route.name === "index");
+};
+
+/** The navigation of a screen inside onboarding, as closing reads it. */
+export interface OnboardingScreenNavigation {
+  readonly getParent: () =>
+    | { readonly canGoBack: () => boolean; readonly goBack: () => void }
+    | undefined;
+}
+
+/**
+ * Leaves onboarding for the screen it opened over: the navigator that holds
+ * the onboarding stack takes the whole stack off. With nothing below it (a
+ * link straight into onboarding) the app's start replaces it.
  */
 export const closeOnboarding = (
-  router: Pick<ImperativeRouter, "canDismiss" | "dismissAll" | "back">
+  navigation: OnboardingScreenNavigation,
+  router: Pick<ImperativeRouter, "replace">
 ) => {
-  if (router.canDismiss()) router.dismissAll();
-  router.back();
+  const parent = navigation.getParent();
+  if (parent?.canGoBack()) parent.goBack();
+  else router.replace("/");
 };
 
 /**

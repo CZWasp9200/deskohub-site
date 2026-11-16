@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { NavigationState } from "expo-router/react-navigation";
 import {
+  aboutYouBelow,
   closeOnboarding,
   finishOnboardingAt,
   finishOnlyState,
@@ -47,15 +48,29 @@ describe("onboarding routes", () => {
     expect(visited).toEqual(["/book", "/reservations"]);
   });
 
-  test("closing goes down to the first step only when there is one below", () => {
+  test("About you is below Billing details only inside the onboarding stack", () => {
+    expect(aboutYouBelow(steps, "billing-2")).toBe(true);
+    // Billing details opened on its own, above a tab with its own history.
+    const direct = { routes: [{ key: "billing-1", name: "billing" }] };
+    expect(aboutYouBelow(direct, "billing-1")).toBe(false);
+    expect(aboutYouBelow(steps, "index-1")).toBe(false);
+  });
+
+  test("closing takes the whole onboarding stack off its navigator", () => {
     const calls: Array<string> = [];
-    const router = (canDismiss: boolean) => ({
-      canDismiss: () => canDismiss,
-      dismissAll: () => void calls.push("dismissAll"),
-      back: () => void calls.push("back"),
+    const router = {
+      replace: (href: unknown) => void calls.push(`replace ${href}`),
+    };
+    const screen = (canGoBack: boolean) => ({
+      getParent: () => ({
+        canGoBack: () => canGoBack,
+        goBack: () => void calls.push("parent back"),
+      }),
     });
-    closeOnboarding(router(true));
-    closeOnboarding(router(false));
-    expect(calls).toEqual(["dismissAll", "back", "back"]);
+    // Opened over a tab: the tab's screen comes back.
+    closeOnboarding(screen(true), router);
+    // Opened by a link with nothing below: the app's start.
+    closeOnboarding(screen(false), router);
+    expect(calls).toEqual(["parent back", "replace /"]);
   });
 });

@@ -1,5 +1,9 @@
 import { Option } from "effect";
-import { useIsFocused, useRouter } from "expo-router";
+import { useIsFocused, useNavigation, useRoute, useRouter } from "expo-router";
+import type {
+  NavigationProp,
+  ParamListBase,
+} from "expo-router/react-navigation";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect } from "react";
 import { KeyboardAvoidingView, StyleSheet } from "react-native";
@@ -22,7 +26,7 @@ import {
 import { OnboardingFooter } from "./onboarding-footer";
 import { OnboardingGate } from "./onboarding-gate";
 import { stepOfInvalid } from "./onboarding-model";
-import { onboardingHref } from "./onboarding-routes";
+import { aboutYouBelow, onboardingHref } from "./onboarding-routes";
 import { OnboardingStepHead } from "./onboarding-step-head";
 
 /**
@@ -46,6 +50,8 @@ function BillingStepForm({
 }) {
   const locale = useAppLocale();
   const router = useRouter();
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
+  const route = useRoute();
   const focused = useIsFocused();
   const headerHeight = useHeaderHeight();
   const draft = useOnboardingDraft(account);
@@ -64,9 +70,11 @@ function BillingStepForm({
   // About you when this step was opened on its own.
   useEffect(() => {
     if (!(focused && backToAboutYou && attempt !== undefined)) return;
-    if (router.canDismiss()) router.back();
+    const stack = navigation.getState();
+    if (stack !== undefined && aboutYouBelow(stack, route.key))
+      navigation.goBack();
     else router.replace(onboardingHref);
-  }, [focused, backToAboutYou, attempt, router]);
+  }, [focused, backToAboutYou, attempt, navigation, route.key, router]);
 
   const billingFields = {
     draft: draft.draft,

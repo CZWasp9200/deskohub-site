@@ -64,11 +64,12 @@ function ShowFinish() {
 
 /** Leaves onboarding once in view, like a `Redirect` back out of the stack. */
 export function LeaveOnboarding() {
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const router = useRouter();
   useFocusEffect(
     useCallback(() => {
-      closeOnboarding(router);
-    }, [router])
+      closeOnboarding(navigation, router);
+    }, [navigation, router])
   );
   return null;
 }
