@@ -1,0 +1,1 @@
+ALTER TABLE "workspace_reservations" ADD COLUMN "cancellation_cause" text;

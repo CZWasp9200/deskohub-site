@@ -676,7 +676,10 @@ describe.skipIf(!postgresDatabase)(
         const dotypos = makeDotypos(hold.id);
         dotypos.getReservationStatus.mockImplementationOnce(() =>
           elsewhere((reservations) =>
-            reservations.claimCancellation({ id: hold.id })
+            reservations.claimCancellation({
+              id: hold.id,
+              cause: "hold_expired",
+            })
           ).pipe(Effect.orDie, Effect.as("NEW" as const))
         );
 

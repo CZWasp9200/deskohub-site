@@ -51,6 +51,27 @@ export const reservationStates = [
   "cancellation_failed",
 ] as const;
 
+/**
+ * Why a reservation's cancellation was claimed, recorded when it is first
+ * claimed and kept by every later claim of the same cancellation:
+ * - `hold_expired`, `late_payment`, `payment_retry`: the unpaid-hold release
+ *   reasons that claim it;
+ * - `operator`: an administrator cancelled it;
+ * - `checkout_superseded`: a newer submission of its checkout session (the
+ *   customer's edit, or an agent's rotated session) replaced it.
+ * Null for cancellations recorded before causes were (their origin is unknown).
+ */
+const reservationCancellationCauses = [
+  "hold_expired",
+  "late_payment",
+  "payment_retry",
+  "operator",
+  "checkout_superseded",
+] as const;
+
+export type ReservationCancellationCause =
+  (typeof reservationCancellationCauses)[number];
+
 export const paymentStates = orderPaymentStates;
 
 export const fulfillmentStates = orderFulfillmentStates;
@@ -145,6 +166,8 @@ export const workspaceReservations = pgTable(
     reservationCreatedAt: instant("reservation_created_at"),
     reservationConfirmedAt: instant("reservation_confirmed_at"),
     reservationCancelledAt: instant("reservation_cancelled_at"),
+    cancellationCause:
+      text("cancellation_cause").$type<ReservationCancellationCause>(),
     paidAt: instant("paid_at"),
     fulfilledAt: instant("fulfilled_at"),
     fulfillmentFailedAt: instant("fulfillment_failed_at"),

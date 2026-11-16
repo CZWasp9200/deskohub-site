@@ -560,6 +560,13 @@ type CheckoutHarnessOptions<ReservationOverrides extends object> = {
   readonly requestedDiscountCode?: CanonicalPromotionCode;
   readonly changedKeys?: CheckoutSummaryChangedKeys;
   readonly reservationOverrides?: ReservationOverrides;
+  /**
+   * The order as read again under the account lock, when it changed after
+   * the payable check: another submission of it started a payment.
+   */
+  readonly lockedReservationOverrides?: Partial<
+    ReturnType<typeof makeReservation>
+  >;
   readonly confirm?: ReturnType<typeof mock>;
   /** How long each default live payable-checkout guard takes. */
   readonly liveGuardDuration?: Duration.Input;
@@ -687,8 +694,20 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
       readonly paymentReturnTarget: PaymentReturnTarget | undefined;
     }): Effect.Effect<void, EffectDrizzleQueryError> => Effect.void
   );
+  const lockedReservationRecord = options.lockedReservationOverrides
+    ? { ...reservationRecord, ...options.lockedReservationOverrides }
+    : reservationRecord;
+  // Whether each read of the order happened while the account lock was held.
+  const rereadUnderAccountLock: boolean[] = [];
   const reservations = {
-    findById: mock(() => Effect.succeed(reservationRecord)),
+    findById: mock(() =>
+      Effect.sync(() => {
+        rereadUnderAccountLock.push(
+          options.accountAuthority?.lockProbe?.held === true
+        );
+        return lockedReservationRecord;
+      })
+    ),
     updateReservationDetails,
     recordPaymentReturnTarget,
   };
@@ -781,6 +800,7 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
   return {
     effect,
     accountEvents: accountAuthority.events,
+    rereadUnderAccountLock,
     affirm,
     createPendingNexiAttempt,
     completeInternalPayment,
@@ -1621,6 +1641,55 @@ describe("CheckoutService", () => {
       statusUrl: "/en-US/reservation/status/reservation-starts-new-attempt",
     });
     expect(harness.createPendingNexiAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  test("decides again under the account lock before it records the evidence and starts the payment", async () => {
+    const lockProbe = { held: false };
+    const harness = await createCheckoutHarness({
+      orderId: "reservation-starts-under-account-lock",
+      accountAuthority: { session: {}, lockProbe },
+    });
+
+    const result = await Effect.runPromise(harness.effect);
+
+    expect(result.status).toBe("redirect");
+    expect(harness.rereadUnderAccountLock).toEqual([true]);
+    expect(harness.accountEvents).toContain("account-lock-acquired");
+    expect(harness.recordLegalEvidence).toHaveBeenCalledTimes(1);
+    expect(harness.createPendingNexiAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns the payment another submission started while this one waited for the account lock, without new evidence or a second payment", async () => {
+    const orderId = "reservation-started-by-concurrent-submission";
+    const concurrentAttempt = makeAttempt({
+      id: "concurrent-attempt",
+      orderId,
+      state: "pending",
+      securityToken: "concurrent-security-token",
+      providerRedirectUrl: "https://payments.example/concurrent",
+    });
+    const harness = await createCheckoutHarness({
+      orderId,
+      activeAttempt: concurrentAttempt,
+      lockedReservationOverrides: {
+        activePaymentAttemptId: concurrentAttempt.id,
+        paymentState: "pending",
+      },
+    });
+
+    const result = await Effect.runPromise(harness.effect);
+
+    expect(result).toEqual({
+      status: "redirect",
+      orderId,
+      redirectUrl: "https://payments.example/concurrent",
+      statusUrl: `/en-US/reservation/status/${orderId}`,
+    });
+    expect(harness.recordLegalEvidence).not.toHaveBeenCalled();
+    expect(harness.updateReservationDetails).not.toHaveBeenCalled();
+    expect(harness.updateReservation).not.toHaveBeenCalled();
+    expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+    expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
   });
 
   test("fails a Pay state for another locale without reading its reservation", async () => {

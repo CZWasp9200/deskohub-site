@@ -401,7 +401,11 @@ describe.skipIf(!testDatabase)(
         const expectedHold = await expectedHoldOf(id);
 
         const claimed = await run((repository) =>
-          repository.claimCancellation({ id, expectedHold })
+          repository.claimCancellation({
+            id,
+            expectedHold,
+            cause: "hold_expired",
+          })
         );
 
         expect(claimed?.reservationState).toBe("cancelling");
@@ -431,7 +435,11 @@ describe.skipIf(!testDatabase)(
 
           expect(
             await run((repository) =>
-              repository.claimCancellation({ id, expectedHold })
+              repository.claimCancellation({
+                id,
+                expectedHold,
+                cause: "hold_expired",
+              })
             )
           ).toBeNull();
           expect((await readReservation(id))?.reservationState).toBe("held");
@@ -498,12 +506,39 @@ describe.skipIf(!testDatabase)(
         ).toBeNull();
       });
 
+      test("records the cause when a claim starts the cancellation, and keeps it when a later claim retries it", async () => {
+        const fresh = await expiredHold();
+        const operatorFailed = await expiredHold(
+          { reservation: "cancellation_failed" },
+          { cancellationCause: "operator" }
+        );
+        const unknownFailed = await expiredHold({
+          reservation: "cancellation_failed",
+        });
+
+        const claims = await Promise.all(
+          [fresh, operatorFailed, unknownFailed].map((id) =>
+            run((repository) =>
+              repository.claimCancellation({ id, cause: "payment_retry" })
+            )
+          )
+        );
+
+        expect(claims.map((claim) => claim?.cancellationCause)).toEqual([
+          "payment_retry",
+          "operator",
+          null,
+        ]);
+      });
+
       test("records an outcome only under the current claim's stamp", async () => {
         const cancelled = await expiredHold();
         const failed = await expiredHold();
         const claims = await Promise.all(
           [cancelled, failed].map((id) =>
-            run((repository) => repository.claimCancellation({ id }))
+            run((repository) =>
+              repository.claimCancellation({ id, cause: "hold_expired" })
+            )
           )
         );
         const [cancelledClaim, failedClaim] = claims.map(
@@ -583,6 +618,28 @@ describe.skipIf(!testDatabase)(
             ...input,
           })
         );
+
+      test("records an administrator's cause on a new cancellation and keeps the cause of one it resumes", async () => {
+        const booked = await insertReservation(confirmedPaid);
+        const expiryFailed = await insertReservation(
+          { reservation: "cancellation_failed" },
+          { cancellationCause: "hold_expired" }
+        );
+        const unknownFailed = await insertReservation({
+          reservation: "cancellation_failed",
+        });
+
+        for (const id of [booked, expiryFailed, unknownFailed]) {
+          await claimCancellation(id);
+        }
+
+        const causes = await Promise.all(
+          [booked, expiryFailed, unknownFailed].map(
+            async (id) => (await readReservation(id))?.cancellationCause
+          )
+        );
+        expect(causes).toEqual(["operator", "hold_expired", null]);
+      });
 
       test("claims a confirmed paid booking for cancellation", async () => {
         const id = await insertReservation(confirmedPaid);
