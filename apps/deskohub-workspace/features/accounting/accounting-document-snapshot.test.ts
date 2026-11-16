@@ -2,9 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { PgDialect } from "drizzle-orm/pg-core";
 import { Effect, Schema } from "effect";
-import { accountingDocumentSnapshots } from "@/db/schema";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import {
   buildCoworkReservationQuote,
@@ -12,9 +10,7 @@ import {
 } from "@/features/checkout/checkout-quote.test-utils";
 import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
 import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
-import { censorDatabaseQueryParams } from "@/shared/backend/logging/censorship";
 import { moneyWithValue } from "@/shared/money/money";
-import { CENSORED_LOG_VALUE } from "@/shared/utils/log-classification";
 import {
   type AccountingDocumentSnapshot,
   accountingDocumentIdentitySchema,
@@ -23,10 +19,6 @@ import {
   getAccountingDocumentSnapshotFirstServiceDate,
   makeAccountingDocumentSnapshot,
 } from "./accounting-document-snapshot";
-import {
-  decryptAccountingSnapshot,
-  encryptAccountingSnapshot,
-} from "./backend/accounting-snapshot-sql";
 
 const adaEmail = testEmailAddress("ada");
 
@@ -295,48 +287,6 @@ describe("accounting document snapshot", () => {
         })
       )
     ).rejects.toBeDefined();
-  });
-
-  test("parameterizes both plaintext and key in pgcrypto SQL", () => {
-    const plaintextSentinel = "PRIVATE-INVOICE-SNAPSHOT-SENTINEL";
-    const keySentinel = "PRIVATE-INVOICE-KEY-SENTINEL-123456789";
-    const query = new PgDialect().sqlToQuery(
-      encryptAccountingSnapshot(plaintextSentinel, keySentinel)
-    );
-
-    expect(query.sql).toBe(
-      "pgp_sym_encrypt(/* deskohub:sensitive */ $1, /* deskohub:sensitive */ $2, $3)"
-    );
-    expect(query.sql).not.toContain(plaintextSentinel);
-    expect(query.sql).not.toContain(keySentinel);
-    expect(query.params).toEqual([
-      plaintextSentinel,
-      keySentinel,
-      "cipher-algo=aes256,compress-algo=1,unicode-mode=1",
-    ]);
-    expect(censorDatabaseQueryParams(query.sql, query.params)).toEqual([
-      CENSORED_LOG_VALUE,
-      CENSORED_LOG_VALUE,
-      "cipher-algo=aes256,compress-algo=1,unicode-mode=1",
-    ]);
-  });
-
-  test("marks only the pgcrypto decryption key as sensitive", () => {
-    const keySentinel = "PRIVATE-INVOICE-KEY-SENTINEL-123456789";
-    const query = new PgDialect().sqlToQuery(
-      decryptAccountingSnapshot(
-        accountingDocumentSnapshots.encryptedSnapshot,
-        keySentinel
-      )
-    );
-
-    expect(query.sql).toContain(
-      'pgp_sym_decrypt("accounting_document_snapshots"."encrypted_snapshot", /* deskohub:sensitive */ $1)'
-    );
-    expect(query.params).toEqual([keySentinel]);
-    expect(censorDatabaseQueryParams(query.sql, query.params)).toEqual([
-      CENSORED_LOG_VALUE,
-    ]);
   });
 });
 

@@ -10,8 +10,6 @@ import {
 import { CustomerAgentConnections } from "@/features/account/backend/auth/customer-agent-connections.service";
 import { CustomerPasskeys } from "@/features/account/backend/auth/customer-passkeys.service";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
@@ -53,9 +51,11 @@ export type AccountStateLayers = {
     Layer.Error<typeof CurrentCustomerAccount.ForProvidedAuthentication>,
     CustomerAuthentication
   >;
+  /** The profile service, its sections reading the session through `authentication`. */
   readonly profile: Layer.Layer<
     CustomerProfileService,
-    Layer.Error<typeof CustomerProfileService.Live>
+    Layer.Error<typeof CustomerProfileService.ForProvidedAuthentication>,
+    CustomerAuthentication
   >;
   readonly avatar: Layer.Layer<
     CustomerAvatarService,
@@ -74,7 +74,7 @@ export type AccountStateLayers = {
   readonly referralRelease: Layer.Layer<ReferralReleaseGate>;
   readonly rememberedReferral: Layer.Layer<
     RememberedReferral,
-    Layer.Error<typeof CustomerAccountContactService.Live>,
+    Layer.Error<typeof CurrentCustomerAccount.Live>,
     ReferralService | ReferralReleaseGate
   >;
   readonly passkeyRelease: Layer.Layer<PasskeyReleaseGate>;
@@ -88,32 +88,19 @@ export type AccountStateLayers = {
 export type AccountServiceLayers = Omit<
   AccountStateLayers,
   "referralRelease" | "rememberedReferral" | "passkeyRelease" | "avatarRelease"
-> & {
-  /** The session's customer, for the remembered referral's order bookers. */
-  readonly contacts: Layer.Layer<
-    CustomerAccountContactService,
-    Layer.Error<typeof CustomerAccountContactService.Live>
-  >;
-  /** Link resolution for the operations outside the account state. */
-  readonly resolver: Layer.Layer<
-    CustomerAccountResolver,
-    Layer.Error<typeof CustomerAccountResolver.Live>
-  >;
-};
+>;
 
 /** The account services' live layers. */
 export const liveAccountServiceLayers: AccountServiceLayers = {
   authentication: CustomerAuthentication.Default,
   currentAccount: CurrentCustomerAccount.ForProvidedAuthentication,
-  resolver: CustomerAccountResolver.Live,
-  profile: CustomerProfileService.Live,
+  profile: CustomerProfileService.ForProvidedAuthentication,
   avatar: CustomerAvatarService.Live,
   passkeys: CustomerPasskeys.Default,
   assistants: CustomerAgentConnections.Default,
   reviewAccounts: ReviewAccounts.Live,
   referrals: ReferralService.Live,
   signupIntents: ReferralSignupIntentRepository.Live,
-  contacts: CustomerAccountContactService.Live,
 };
 
 /** The account release gates, which each edge decides its own way. */
@@ -151,9 +138,14 @@ export const accountStateCapabilitiesForRun = (
   accountStateCapabilities({
     ...services,
     ...releases,
+    // The session's standing, for the remembered referral's order bookers.
     rememberedReferral: RememberedReferral.fromClient(
       request.referralCode
-    ).pipe(Layer.provide(services.contacts)),
+    ).pipe(
+      Layer.provide(
+        services.currentAccount.pipe(Layer.provide(services.authentication))
+      )
+    ),
   });
 
 /**
@@ -201,6 +193,7 @@ export const accountStateCapabilities = (
       Layer.provide(layers.authentication)
     ),
     layers.profile.pipe(
+      Layer.provide(layers.authentication),
       unavailableUntilUsed(CustomerProfileService, (failure) => ({
         load: () => failure,
         update: () => failure,
@@ -250,11 +243,13 @@ export const accountStateCapabilities = (
     layers.passkeyRelease.pipe(
       unavailableUntilUsed(PasskeyReleaseGate, (failure) => ({
         isOpen: failure,
+        decision: failure,
       }))
     ),
     layers.avatarRelease.pipe(
       unavailableUntilUsed(AccountAvatarReleaseGate, (failure) => ({
         isOpen: failure,
+        decision: failure,
       }))
     )
   ).pipe(Layer.provideMerge(layers.referralRelease));

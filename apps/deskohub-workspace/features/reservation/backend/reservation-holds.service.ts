@@ -30,6 +30,7 @@ import {
 } from "@/features/checkout/backend/holds";
 import {
   createWorkspaceDotyposReservation,
+  dotyposReservationLogFields,
   WorkspaceTableAssignmentService,
 } from "@/features/checkout/backend/reservation";
 import {
@@ -37,11 +38,11 @@ import {
   type CheckoutSessionId,
   promoteCheckoutAttemptToSessionId,
 } from "@/features/checkout/checkout-identifiers";
-import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
+import {
+  type CheckoutDetails,
+  checkoutDetailsLogFields,
+} from "@/features/checkout/schemas/checkout-details";
 import type { Locale } from "@/features/i18n";
-import { ensureCoworkPayStateAvailable } from "@/features/reservation/actions/prepare-cowork-pay-state";
-import { ensureMeetingRoomPayStateAvailable } from "@/features/reservation/actions/prepare-meeting-room-pay-state";
-import { ensureOfficePayStateAvailable } from "@/features/reservation/actions/prepare-office-pay-state";
 import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import {
   AgentBookingPaymentInProgressError,
@@ -54,6 +55,7 @@ import { WorkspaceAvailabilityService } from "@/features/reservation/backend/wor
 import {
   type CreateWorkspaceReservationInput,
   type IWorkspaceReservationRepository,
+  reservationLogFields,
   type WorkspaceReservation,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -296,7 +298,12 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
         reservationId: reservationDraft.id,
       }
     );
-    yield* Effect.annotateLogsScoped({ claimConflictReservation });
+    // A missing reservation keeps the draft's fields.
+    yield* Effect.annotateLogsScoped({
+      claimConflictReservationFound: claimConflictReservation !== null,
+      ...(claimConflictReservation &&
+        reservationLogFields(claimConflictReservation)),
+    });
 
     if (
       claimConflictReservation &&
@@ -339,7 +346,11 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
     checkoutSessionId,
     reservationDraft,
   }: typeof preparedDraft) {
-    yield* Effect.annotateLogsScoped({ reservationDraft });
+    yield* Effect.annotateLogsScoped({
+      ...reservationLogFields(reservationDraft),
+      checkoutSessionKey: reservationDraft.checkoutSessionKey,
+      checkoutAttemptKey: reservationDraft.checkoutAttemptKey,
+    });
 
     // A draft another account authored isn't this account's to resume.
     if (reservationDraft.authorAccountId !== booking.author) {
@@ -378,7 +389,7 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
     yield* Effect.logDebug("Workspace reservation hold creation claimed");
 
     const { checkoutDetails } = request;
-    yield* Effect.annotateLogsScoped({ checkoutDetails });
+    yield* Effect.annotateLogsScoped(checkoutDetailsLogFields(checkoutDetails));
 
     const dotyposReservation = yield* createWorkspaceDotyposReservation({
       paymentOrderId: reservationDraft.id,
@@ -400,10 +411,11 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
         })
       )
     );
-    yield* Effect.annotateLogsScoped({ dotyposReservation });
+    yield* Effect.annotateLogsScoped(
+      dotyposReservationLogFields(dotyposReservation)
+    );
 
     const dotyposReservationId = dotyposReservation.id;
-    yield* Effect.annotateLogsScoped({ dotyposReservationId });
     yield* Effect.logInfo("Workspace Dotypos reservation hold created");
 
     const reservationCreatedAt = Temporal.Now.instant();
@@ -648,30 +660,6 @@ class CheckoutAttemptUnavailableError extends Data.TaggedError(
   readonly reservation: WorkspaceReservation;
 }> {}
 
-const ensureReservationAvailable = (input: {
-  readonly availability: typeof WorkspaceAvailabilityService.Service;
-  readonly reservation: PreparePayStateInput["reservation"];
-}) =>
-  Match.value(input.reservation).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (reservation) =>
-        ensureCoworkPayStateAvailable({
-          availability: input.availability,
-          reservation,
-        }),
-      "meeting-room": (reservation) =>
-        ensureMeetingRoomPayStateAvailable({
-          availability: input.availability,
-          reservation,
-        }),
-      office: (reservation) =>
-        ensureOfficePayStateAvailable({
-          availability: input.availability,
-          reservation,
-        }),
-    })
-  );
-
 /**
  * Cancels the Dotypos hold of a reservation claimed for supersession. A hold
  * Dotypos no longer keeps pending is never cancelled. A failed cancellation
@@ -903,10 +891,7 @@ const supersedeSessionReservation = Effect.fnUntraced(function* (input: {
   }
 
   const cancelledAt = Temporal.Now.instant();
-  return yield* ensureReservationAvailable({
-    availability,
-    reservation: request.reservation,
-  }).pipe(
+  return yield* availability.ensureAvailable(request.reservation).pipe(
     Effect.andThen(
       reservations.completeSupersessionAndCreateDraft({
         cancelledReservationId: claimed.id,
@@ -991,10 +976,7 @@ const createSessionDraft = Effect.fnUntraced(function* (input: {
 }) {
   const { reservations, availability } = input.services;
   const { checkoutSessionId, checkoutAttemptKeys, request } = input;
-  yield* ensureReservationAvailable({
-    availability,
-    reservation: request.reservation,
-  });
+  yield* availability.ensureAvailable(request.reservation);
   const reservationDraft = yield* reservations.createDraft({
     ...request.draft,
     checkoutSessionKey: input.checkoutSessionKey,

@@ -83,6 +83,7 @@ describe("coworkBookingModel", () => {
         locale: "en-US",
         selection: model.selection,
         advertisedPriceToken: quote.advertisedPriceToken,
+        quote: { summary: quote.summary, regularPrice: quote.regularPrice },
       })
     );
   });

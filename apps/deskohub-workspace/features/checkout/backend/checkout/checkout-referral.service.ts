@@ -4,9 +4,6 @@ import {
   type CheckoutSummaryChangedKeys,
   getCheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
-import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
-import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
-import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
 import {
   type CanonicalPromotionCode,
   canonicalPromotionCodeSchema,
@@ -48,6 +45,7 @@ import {
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
+import type { PriceVerdict } from "./price-verdict";
 
 /**
  * Why a referral code could not be accepted. The customer sees one generic
@@ -154,89 +152,39 @@ const getCarriedReferral = (input: {
   return referralCode === undefined ? {} : { referralCode };
 };
 
-/** Re-prices the signed reservation for payment, carrying the referral. */
-const affirmReferralPricing = Effect.fnUntraced(function* (input: {
+/** Affirms the signed price for payment, carrying the referral. */
+const affirmReferralPricing = (input: {
   readonly pricing: ICheckoutPricingService;
   readonly opened: SignedPayState;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly referralInput: { readonly referralCode?: CanonicalPromotionCode };
-}) {
-  const { pricing, opened, dotyposCustomerId, locale, referralInput } = input;
-  return yield* Match.value(opened).pipe(
-    Match.when({ reservation: { kind: "cowork" } }, (state) =>
-      pricing.affirmForPayment({
-        reservation: state.reservation,
-        dotyposCustomerId,
-        locale,
-        quote: state.quote,
-        bookedAt: getSignedPayStateBookedAt(opened),
-        ...referralInput,
-        // biome-ignore lint/plugin: Preserve exact optional-property typing for the ordinary code slot.
-        ...(state.submittedCode === undefined
-          ? {}
-          : { submittedCode: state.submittedCode }),
-      })
-    ),
-    Match.when({ reservation: { kind: "meeting-room" } }, (state) =>
-      pricing.affirmForPayment({
-        reservation: state.reservation,
-        dotyposCustomerId,
-        locale,
-        quote: state.quote,
-        bookedAt: getSignedPayStateBookedAt(opened),
-        ...referralInput,
-        // biome-ignore lint/plugin: Preserve exact optional-property typing for the ordinary code slot.
-        ...(state.submittedCode === undefined
-          ? {}
-          : { submittedCode: state.submittedCode }),
-      })
-    ),
-    Match.when({ reservation: { kind: "office" } }, (state) =>
-      pricing.affirmForPayment({
-        reservation: state.reservation,
-        dotyposCustomerId,
-        locale,
-        quote: state.quote,
-        bookedAt: getSignedPayStateBookedAt(opened),
-        ...referralInput,
-        // biome-ignore lint/plugin: Preserve exact optional-property typing for the ordinary code slot.
-        ...(state.submittedCode === undefined
-          ? {}
-          : { submittedCode: state.submittedCode }),
-      })
-    ),
-    Match.exhaustive
-  );
-});
+}) =>
+  input.pricing.affirmForPayment({
+    ...input.opened,
+    bookedAt: getSignedPayStateBookedAt(input.opened),
+    dotyposCustomerId: input.dotyposCustomerId,
+    locale: input.locale,
+    ...input.referralInput,
+  });
 
 /**
  * Whether the referral re-pricing changed the order beyond the expected
- * referral addition, with the summary keys the customer must review.
+ * referral addition, with the summary keys the customer must review. A
+ * signed total that disagrees with its own summary is always a change; the
+ * payment verdict's change is not one when it is only the expected addition.
  */
 const getReferralRepricing = (input: {
   readonly opened: SignedPayState;
-  readonly prepared: PaymentPriceAffirmation;
+  readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
   readonly dotyposCustomerId: DotyposCustomerId;
 }): {
   readonly changed: boolean;
   readonly changedKeys?: CheckoutSummaryChangedKeys;
 } => {
-  const { opened, prepared } = input;
-  const freshSummary: CheckoutSummary = Match.value(prepared).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: ({ quote, reservation }) =>
-        getCoworkCheckoutSummary(reservation, quote),
-      "meeting-room": ({ quote }) => getMeetingRoomCheckoutSummary(quote),
-      office: ({ quote }) => getOfficeCheckoutSummary(quote),
-    })
-  );
+  const { opened, verdict } = input;
+  const prepared = verdict.priced;
   const oldSummary: CheckoutSummary = getSignedPayStateCheckoutSummary(opened);
-  const quoteChanged = prepared.quote.fingerprint !== opened.quote.fingerprint;
-  const acceptedTotalChanged = !moneyEquals(
-    freshSummary.total,
-    opened.acceptedTotal
-  );
   const signedTotalWasConsistent = moneyEquals(
     oldSummary.total,
     opened.acceptedTotal
@@ -249,11 +197,19 @@ const getReferralRepricing = (input: {
   });
   const changed =
     !signedTotalWasConsistent ||
-    ((quoteChanged || acceptedTotalChanged) && !expectedReferralAddition);
+    Match.value(verdict).pipe(
+      Match.discriminatorsExhaustive("status")({
+        affirmed: () => false,
+        pricing_changed: () => !expectedReferralAddition,
+      })
+    );
   return changed
     ? {
         changed,
-        changedKeys: getCheckoutSummaryChangedKeys(oldSummary, freshSummary),
+        changedKeys: getCheckoutSummaryChangedKeys(
+          oldSummary,
+          prepared.summary
+        ),
       }
     : { changed };
 };
@@ -326,7 +282,7 @@ export class CheckoutReferralService extends Context.Service<
             evaluation: evaluation.success,
             opened,
           });
-          const prepared = yield* affirmReferralPricing({
+          const verdict = yield* affirmReferralPricing({
             pricing,
             opened,
             dotyposCustomerId,
@@ -335,9 +291,10 @@ export class CheckoutReferralService extends Context.Service<
           });
           const { changed, changedKeys } = getReferralRepricing({
             opened,
-            prepared,
+            verdict,
             dotyposCustomerId,
           });
+          const prepared = verdict.priced;
           // A payment that started while the referral was priced keeps the
           // summary it was admitted with.
           const repricedReservation =

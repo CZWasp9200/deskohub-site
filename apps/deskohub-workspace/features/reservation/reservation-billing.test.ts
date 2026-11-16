@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
 import {
-  getDotyposCustomerBillingDetails,
   getReservationInvoiceBuyer,
   reservationBillingSelectionSchema,
 } from "./reservation-billing";
@@ -54,7 +53,7 @@ describe("reservation billing", () => {
     ).toThrow();
   });
 
-  test("uses the reservation name for personal invoices and maps Dotypos fields", () => {
+  test("uses the reservation name for personal invoices and has no buyer without an invoice", () => {
     const billing = decodeBilling({
       purpose: "personal",
       invoice: "requested",
@@ -71,20 +70,10 @@ describe("reservation billing", () => {
       legalName: "Synthetic Customer",
       address: { ...address, line2: "Unit 2" },
     });
-    expect(getDotyposCustomerBillingDetails(billing)).toEqual({
-      addressLine1: "Synthetic street 1",
-      addressLine2: "Unit 2",
-      city: "Prague",
-      zip: "100 00",
-      country: "CZ",
-      companyName: "",
-      companyId: "",
-      vatId: "",
-    });
     expect(
-      getDotyposCustomerBillingDetails({
-        purpose: "personal",
-        invoice: "none",
+      getReservationInvoiceBuyer({
+        billing: { purpose: "personal", invoice: "none" },
+        customerName: "Synthetic Customer",
       })
     ).toBeUndefined();
   });

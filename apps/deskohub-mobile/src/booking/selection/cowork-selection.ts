@@ -33,6 +33,8 @@ type CoworkOffering = Extract<CustomerOffering, { readonly family: "cowork" }>;
 
 // Bookable from 00:00 to 17:00 Prague time; same-day booking ends with it.
 const openSpaceClosingHour = 17;
+/** When Open Space access ends, Prague HH:mm. */
+export const openSpaceClosingTime = `${openSpaceClosingHour}:00`;
 const horizonMonths = 6;
 
 const coworkOfferings = (offerings: ReadonlyArray<CustomerOffering>) =>

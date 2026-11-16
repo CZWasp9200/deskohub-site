@@ -13,13 +13,13 @@ import {
 } from "../customer-account";
 import { requireAccountActivity } from "./customer-account-activity";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import { resolveHeldCustomerAccountLink } from "./customer-account-resolver.service";
 import {
   CustomerAccountSections,
   HeldCustomerAccount,
 } from "./customer-account-sections";
 import { CustomerAuthentication } from "./customer-authentication.service";
 import { CustomerDotyposAdapter } from "./customer-dotypos-adapter.service";
+import { resolveHeldCustomerAccountLink } from "./held-customer-account-link";
 
 const readLinkedProfile = (
   dotypos: CustomerDotyposAdapter["Service"],
@@ -207,23 +207,22 @@ export class CustomerProfileService extends Context.Service<
   );
 
   /**
-   * The service whose sections read the session through this
-   * authentication, such as an agent's access token instead of the browser
-   * session.
+   * The service whose sections read the session through the
+   * `CustomerAuthentication` the caller provides.
    */
-  static withAuthentication = <E, R>(
-    authentication: Layer.Layer<CustomerAuthentication, E, R>
-  ) =>
-    this.Default.pipe(
-      Layer.provide(
-        Layer.mergeAll(
-          CustomerAccountLinkRepository.Live,
-          CustomerAccountSections.withAuthentication(authentication),
-          CustomerDotyposAdapter.Live,
-          ReviewAccounts.Live
-        )
+  static ForProvidedAuthentication = this.Default.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        CustomerAccountLinkRepository.Live,
+        CustomerAccountSections.ForProvidedAuthentication,
+        CustomerDotyposAdapter.Live,
+        ReviewAccounts.Live
       )
-    );
+    )
+  );
 
-  static Live = this.withAuthentication(CustomerAuthentication.Default);
+  /** The service whose sections read the browser session. */
+  static Live = this.ForProvidedAuthentication.pipe(
+    Layer.provide(CustomerAuthentication.Default)
+  );
 }

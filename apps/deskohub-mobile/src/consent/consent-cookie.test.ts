@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { consentBannerRevision } from "@deskohub/workspace-customer-api/consent-banner";
 import type { ConsentCategory, StoredConsent } from "./analytics-consent";
 import { consentCookieAssignment, readConsentCookie } from "./consent-cookie";
 
 const cookieWithCategories = (...categories: readonly unknown[]) =>
-  `cc_cookie=${encodeURIComponent(JSON.stringify({ categories }))}`;
+  `cc_cookie=${encodeURIComponent(
+    JSON.stringify({ categories, revision: consentBannerRevision })
+  )}`;
 
 const declined: StoredConsent = { kind: "decided", categories: [] };
 
@@ -52,7 +55,10 @@ describe("readConsentCookie", () => {
   });
 
   test("reads raw JSON values and URI-encoded JSON values", () => {
-    const value = JSON.stringify({ categories: ["marketing"] });
+    const value = JSON.stringify({
+      categories: ["marketing"],
+      revision: consentBannerRevision,
+    });
     expect(readConsentCookie(`cc_cookie=${value}`)).toEqual(
       decided("marketing")
     );
@@ -69,6 +75,20 @@ describe("readConsentCookie", () => {
     expect(readConsentCookie(cookie)).toEqual(
       decided("necessary", "marketing")
     );
+  });
+
+  test("reads a copy saved under another banner revision as no answer, as the site does", () => {
+    for (const revision of [0, consentBannerRevision + 1, undefined]) {
+      const cookie = `cc_cookie=${encodeURIComponent(
+        JSON.stringify({ categories: ["necessary", "analytics"], revision })
+      )}`;
+      expect(readConsentCookie(cookie)).toEqual({ kind: "undecided" });
+      expect(
+        readConsentCookie(
+          `${cookieWithCategories("necessary", "analytics")}; ${cookie}`
+        )
+      ).toEqual({ kind: "undecided" });
+    }
   });
 
   test("reads every copy as declined when any copy is malformed", () => {
@@ -110,7 +130,7 @@ describe("consentCookieAssignment", () => {
     const assignment = assign("", ["necessary", "analytics"]);
     expect(recordOf(assignment)).toEqual({
       categories: ["necessary", "analytics"],
-      revision: 0,
+      revision: consentBannerRevision,
       data: null,
       services: {},
       languageCode: "cs-CZ",
@@ -159,7 +179,7 @@ describe("consentCookieAssignment", () => {
     const earlier = `cc_cookie=${encodeURIComponent(
       JSON.stringify({
         categories: ["necessary", "analytics", "marketing"],
-        revision: 0,
+        revision: consentBannerRevision,
         data: { source: "site" },
         consentId: "site-id",
         consentTimestamp: "2026-01-01T00:00:00.000Z",
@@ -171,7 +191,7 @@ describe("consentCookieAssignment", () => {
     )}`;
     expect(recordOf(assign(earlier, ["necessary", "marketing"]))).toEqual({
       categories: ["necessary", "marketing"],
-      revision: 0,
+      revision: consentBannerRevision,
       data: { source: "site" },
       consentId: "site-id",
       consentTimestamp: "2026-01-01T00:00:00.000Z",
@@ -179,6 +199,25 @@ describe("consentCookieAssignment", () => {
       languageCode: "en-US",
       lastConsentTimestamp: "2026-11-07T10:00:00.000Z",
       expirationTime: Date.parse("2027-05-08T10:00:00.000Z"),
+    });
+  });
+
+  test("starts afresh over a record of another banner revision", () => {
+    const earlier = `cc_cookie=${encodeURIComponent(
+      JSON.stringify({
+        categories: ["necessary", "analytics"],
+        revision: 0,
+        consentId: "old-id",
+        consentTimestamp: "2026-01-01T00:00:00.000Z",
+        languageCode: "en-US",
+      })
+    )}`;
+    const record = recordOf(assign(earlier, ["necessary"]));
+    expect(record).toMatchObject({
+      revision: consentBannerRevision,
+      consentId: "new-id",
+      consentTimestamp: "2026-11-07T10:00:00.000Z",
+      languageCode: "cs-CZ",
     });
   });
 });

@@ -1,0 +1,69 @@
+import { describe, expect, test } from "bun:test";
+import { m } from "../../i18n/messages";
+import { productLabel } from "../checkout-screen/checkout-copy";
+import { bookingSummaryOf } from "./booking-summary";
+import { monitorOptionName } from "./price-line-description";
+
+const locale = "en-US" as const;
+const parts = (detail: string) => detail.split(" · ");
+
+describe("bookingSummaryOf", () => {
+  test("names the product first, then each extra", () => {
+    const openSpace = {
+      family: "cowork",
+      tier: "open-space",
+      date: "2026-11-26",
+      coffee: true,
+    } as const;
+    expect(parts(bookingSummaryOf(openSpace, locale).detail)).toEqual([
+      productLabel(openSpace, locale),
+      m.booking_summary_coffee({}, { locale }),
+    ]);
+    const desk = {
+      family: "cowork",
+      tier: "reserved-desk",
+      date: "2026-11-26",
+      monitorOption: "2x27-qhd",
+    } as const;
+    expect(parts(bookingSummaryOf(desk, locale).detail)).toEqual([
+      productLabel(desk, locale),
+      monitorOptionName("2x27-qhd"),
+    ]);
+  });
+
+  test("an Open Space day and a Reserved Desk day say different hours", () => {
+    const day = (tier: "open-space" | "reserved-desk") =>
+      bookingSummaryOf({ family: "cowork", tier, date: "2026-11-26" }, locale)
+        .title;
+    expect(day("open-space")).not.toBe(day("reserved-desk"));
+  });
+
+  test("an office over several days names both ends; one day names one", () => {
+    const office = (endDate: string) =>
+      bookingSummaryOf(
+        { family: "office", date: "2026-11-23", endDate, seats: 6 },
+        locale
+      ).title;
+    expect(office("2026-11-25")).not.toBe(office("2026-11-23"));
+    expect(office("2026-11-25").startsWith(office("2026-11-23"))).toBe(true);
+  });
+
+  test("a meeting room's hours and its whole day read differently", () => {
+    const hours = bookingSummaryOf(
+      {
+        family: "meeting-room",
+        date: "2026-11-18",
+        startTime: "14:00",
+        duration: "hour:1",
+      },
+      locale
+    );
+    const wholeDay = bookingSummaryOf(
+      { family: "meeting-room", date: "2026-11-18", duration: "day:1" },
+      locale
+    );
+    expect(parts(hours.detail)).toHaveLength(2);
+    expect(parts(wholeDay.detail)).toHaveLength(1);
+    expect(hours.title).not.toBe(wholeDay.title);
+  });
+});

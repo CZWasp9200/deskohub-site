@@ -12,6 +12,8 @@ Checkout has three price boundaries. Each one affirms what the previous one show
 
 Any change to price facts accepted at the previous boundary returns `pricing_changed` with the affected product keys (for example `product:cowork:basic`) and a refreshed signed summary. `pricing_changed` is a normal workflow result, not a failure.
 
+`CheckoutPricingService` judges every boundary and returns a `PriceVerdict` (`price-verdict.ts`), each operation with its own rule: `affirmAdvertisement`, `quoteForCustomer`, `applyDiscountCode`, and `affirmForPayment`. Callers branch on the verdict and never compare quotes or build changed keys. Only two judgments stay outside: referral acceptance's expected-addition rule (referrals skill) and claim-admission recovery, which uses `repriceForPayment`, judges nothing, and always shows the keys from the signed summary to the re-priced one.
+
 ### Advertisement
 
 - Evaluate only anonymously discoverable pricing: Calendar sales and, when the URL supplies `discountCode`, the public part of an ordinary code. Exclude vouchers.
@@ -24,12 +26,13 @@ Any change to price facts accepted at the previous boundary returns `pricing_cha
 - Affirm only the anonymous discounts that were advertised. Never add one that became available after the snapshot.
 - After Dotypos identity resolution, fully validate a query code and evaluate the customer discount. A query code that fails validation yields a summary without it. The customer discount may appear for the first time here without `pricing_changed`. This exception applies to nothing else.
 - Once a discount appears in a signed summary, it follows the normal affirmation and `pricing_changed` rules everywhere.
+- `quoteForCustomer` takes the advertisement's verdict. It returns `pricing_changed` when that verdict did, or when full validation dropped or changed an advertised query code. Its keys run from the advertised quote's summary to the customer quote's.
 
 ### Discount-code entry
 
 The summary page's code form is an independent action (`features/checkout/actions/apply-discount-code.ts`). It never resubmits the reservation or the order.
 
-1. Affirm every displayed discount. A change returns `pricing_changed`.
+1. Affirm every displayed discount. A changed fingerprint or total returns `pricing_changed` with the refreshed price and no code. `applyDiscountCode`'s `affirmed` verdict carries the code's priced order.
 2. An invalid or unavailable code returns a field error and leaves the current summary payable.
 3. A valid code returns a new signed summary. It creates no payment attempt, persists no application, and reserves no capacity.
 4. Ordinary and referral codes are priced between two live payable-reservation guards. An active payment attempt at either guard returns `payment_in_progress` and signs no repriced summary.
@@ -41,10 +44,16 @@ Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. 
 
 The accepted payment amount must equal the last signed summary total exactly. Order submission affirms exactly the signed discounts and compares the full quote fingerprint and total. A mismatch, or a failure to persist applications or admit a claim, returns `pricing_changed`, rolls back, and never calls Nexi.
 
+Order submission and referral acceptance branch on `affirmForPayment`'s verdict; referral acceptance adds its expected-addition rule on top of it.
+
 - Positive total: create a Nexi attempt and HPP session.
 - Zero total: in one transaction insert an already-paid `internal` attempt, mark the reservation paid, persist application snapshots, and redeem any admitted claim. Never call Nexi.
 
 Persist discount applications and admit code or voucher claims in the payment-attempt creation transaction. Redeem in the paid transaction; release in every failed, cancelled, or expired transaction. Any application or claim error is fatal to its owning transition. Never convert it to an empty discount result or `not_pending`. Voucher admission locks the voucher row and rechecks the exact available amount in that transaction.
+
+Promotion availability rules (enabled, validity window, service dates, allowlist, use limits, a voucher's reserved claim and remaining credit) live once, in `evaluatePromotionAvailability` (`features/discounts/promotion-availability.ts`). It is pure: callers pass the facts, including the instant. `PromotionCodeProvider`, claim admission (`PromotionClaims.admit`) and late-recovery readmission of a released code claim (`PromotionClaims.redeem` with `readmitReleased`) each run named stages from `promotionAvailabilityPrecedence`, which fixes their rule order and so which reason wins when several rules fail; pricing and admission order the rules differently on purpose. `PromotionCodeRepository`, admission and readmission all read allowlist, use-count and used-credit facts with the readers in `promotion-code.repository-query.ts` (`readPromotionAudience`, `readDiscountCodeUses`, `readVoucherUses`); admission and readmission pass the transaction's `db` and read after taking their row locks. Product targeting, the hold deadline, the stored-benefit and accepted-credit comparisons, and the claim-customer match stay outside the evaluator, in `PromotionClaims`.
+
+`PromotionClaims` (`features/discounts/promotion-claims.ts`) is the discount-code and voucher claim ledger and the only writer of `discount_code_redemptions` and `voucher_redemptions`. `admit`, `redeem` and `release` are steps of the caller's Workspace transaction: they require `WorkspaceTransaction`, open none, and take only row locks, which last until that transaction ends. The caller owns the advisory locks and the order of the steps: the payment lifecycle validates the commitment (one claim per ledger, application money, the claimed product, the first service date) before its transaction and admits, redeems or releases the code or voucher claim before the referral invitation claim, and reservation administration cancellation releases through `release`. `admit` reports an ended hold as `PromotionClaimHoldEndedError`, which the lifecycle reports as its own state error, and its own lost active-claim races as `claim_conflict`. Referral invitation claims keep their own ledger, `ReferralInvitationLedger` (referrals skill).
 
 ## Unknown discounts
 

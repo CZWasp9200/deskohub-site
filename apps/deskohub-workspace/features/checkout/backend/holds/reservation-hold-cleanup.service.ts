@@ -13,6 +13,7 @@ import { CheckoutAnalytics } from "../analytics/checkout-analytics.service";
 import {
   ProviderPaymentDeferral,
   ProviderPaymentFinalizationService,
+  providerPaymentFinalizationLogFields,
 } from "../payment/provider-payment-finalization.service";
 import { PaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
 import { UnpaidHoldRelease } from "./unpaid-hold-release.service";
@@ -72,7 +73,7 @@ export class ReservationHoldCleanupService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(UnpaidHoldRelease.Default),
     Layer.provide(ProviderPaymentFinalizationService.Live),
-    Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(PaymentLifecycleRepository.Live),
     Layer.provide(CheckoutAnalytics.Live),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
@@ -206,9 +207,9 @@ function makeReservationHoldCleanupServiceLayer(
               )
             )
           );
-        yield* Effect.annotateLogsScoped({
-          providerFinalizationResult: result,
-        });
+        yield* Effect.annotateLogsScoped(
+          providerPaymentFinalizationLogFields(result)
+        );
         yield* Effect.logInfo(
           "Reservation hold cancellation provider finalization completed"
         );
@@ -253,8 +254,10 @@ function makeReservationHoldCleanupServiceLayer(
           )
         );
 
-      // Hold cleanup releases whatever it claims without the live Dotypos
-      // NEW check that supersession and late payment apply.
+      // Cleanup claims the hold, then cancels it only while Dotypos still
+      // keeps it NEW. A hold Dotypos kept is left for an operator: the
+      // release moved it to `cancellation_failed`, and the skip acknowledges
+      // the cleanup so nothing retries it.
       const releaseExpiredHold = Effect.fnUntraced(function* (input: {
         readonly orderId: WorkspaceReservationId;
         readonly checkedAt?: Temporal.Instant;
@@ -286,7 +289,14 @@ function makeReservationHoldCleanupServiceLayer(
             { orderId: input.orderId }
           );
         }
-        if (Predicate.isString(outcome) || !("released" in outcome)) {
+        if (Predicate.isString(outcome)) {
+          return "skipped" as const;
+        }
+        if ("refused" in outcome) {
+          yield* Effect.logError(
+            "Reservation hold cancellation refused: Dotypos kept the hold",
+            { orderId: input.orderId, dotyposStatus: outcome.refused }
+          );
           return "skipped" as const;
         }
         yield* Effect.logInfo("Reservation hold marked cancelled");
@@ -304,7 +314,6 @@ function makeReservationHoldCleanupServiceLayer(
           readonly orderId: WorkspaceReservationId;
           readonly checkedAt?: Temporal.Instant;
         }) {
-          yield* Effect.annotateLogsScoped({ input });
           yield* Effect.logInfo("Reservation hold cancellation started");
 
           const active = yield* loadOrder(input.orderId);
@@ -336,7 +345,6 @@ function makeReservationHoldCleanupServiceLayer(
           "reservationHoldCleanup.sweepExpiredHolds"
         )(
           function* (input) {
-            yield* Effect.annotateLogsScoped({ input });
             yield* Effect.logInfo("Expired reservation hold sweep started");
 
             const orders = yield* reservations.selectExpiredHolds(input).pipe(

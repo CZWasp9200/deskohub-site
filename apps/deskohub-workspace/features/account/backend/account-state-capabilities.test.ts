@@ -43,6 +43,8 @@ mock.module(
                 .includes(key);
             })
           ),
+        decision: () =>
+          Effect.die("account state is never stored; it reads isOpen"),
         evaluateFlags: () => Effect.die("not used by release gates"),
         constantValue: () => Effect.succeed(Option.none()),
       } as never),
@@ -56,14 +58,8 @@ const { CustomerAgentConnections } = await import(
 const { CustomerPasskeys } = await import(
   "@/features/account/backend/auth/customer-passkeys.service"
 );
-const { CustomerAccountContactService } = await import(
-  "@/features/account/backend/customer-account-contact.service"
-);
 const { CurrentCustomerAccount } = await import(
   "@/features/account/backend/current-customer-account"
-);
-const { CustomerAccountResolver } = await import(
-  "@/features/account/backend/customer-account-resolver.service"
 );
 const { CustomerAuthentication } = await import(
   "@/features/account/backend/customer-authentication.service"
@@ -121,7 +117,6 @@ const services = {
       }))
     ) as never,
   }),
-  resolver: Layer.mock(CustomerAccountResolver, {}),
   profile: Layer.mock(CustomerProfileService, {
     load: () =>
       Effect.succeed({
@@ -155,7 +150,6 @@ const services = {
   signupIntents: Layer.mock(ReferralSignupIntentRepository, {
     find: () => Effect.succeed(undefined) as never,
   }),
-  contacts: Layer.mock(CustomerAccountContactService, {}),
 };
 
 /** One request served outside Next.js, with its own capabilities. */

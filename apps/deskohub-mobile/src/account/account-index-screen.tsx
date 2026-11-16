@@ -151,6 +151,14 @@ export function AccountIndexScreen() {
             label={m.account_dev_smoke_link({}, { locale })}
             onPress={() => router.push("/dev/effect-smoke")}
           />
+          <ListRow
+            label={m.account_dev_design_system_link({}, { locale })}
+            onPress={() => router.push("/dev/design-system")}
+          />
+          <ListRow
+            label={m.account_dev_booking_components_link({}, { locale })}
+            onPress={() => router.push("/dev/booking-components")}
+          />
         </ListGroup>
       )}
     </ScrollScreen>

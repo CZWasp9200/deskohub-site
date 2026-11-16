@@ -56,6 +56,8 @@ const cases: readonly (readonly [title: string, source: string, flagged: boolean
   ["permits the @deskohub/i18n pathname entry", 'import { stripLocaleFromPathname } from "@deskohub/i18n/pathname";\nexport { stripLocaleFromPathname };\n', false],
   ["permits the @deskohub/i18n effect entry", 'import { createParaglideLocaleBridge } from "@deskohub/i18n/effect";\nexport { createParaglideLocaleBridge };\n', false],
   ["permits a re-export from the @deskohub/i18n translatable entry", 'export { translatable } from "@deskohub/i18n/translatable";\n', false],
+  ["rejects the lucide-react-native root entry", 'import { Mail } from "lucide-react-native";\nexport { Mail };\n', true],
+  ["permits a lucide-react-native icon entry", 'import Mail from "lucide-react-native/icons/mail";\nexport { Mail };\n', false],
   ["permits @deskohub/reservation", 'import { reservationDraft } from "@deskohub/reservation";\nexport { reservationDraft };\n', false],
   ["permits @deskohub/standard-schema", 'import { parseWithSchema } from "@deskohub/standard-schema";\nexport { parseWithSchema };\n', false],
   ["permits react-native", 'import { View } from "react-native";\nexport { View };\n', false],
