@@ -1186,6 +1186,7 @@
     "pageDescription": "Tvůj účet Deskohub: členství, přihlášky na akce a trofeje z turnajů.",
     "title": "Můj účet",
     "signOut": "Odhlásit se",
+    "signOutFailed": "Odhlášení se nepodařilo. Zkus to prosím znovu.",
     "profile": {
       "title": "Profil",
       "nameLabel": "Jméno nebo přezdívka",
@@ -1234,7 +1235,16 @@
       "expiry": "Odkaz platí {minutes} minut a dá se použít jen jednou.",
       "ignore": "Pokud o přihlášení nevíš, tenhle e-mail ignoruj."
     },
-    "greeting": "Ahoj, {name}"
+    "greeting": "Ahoj, {name}",
+    "delete": {
+      "title": "Smazat účet",
+      "body": "Smažeme tvůj účet i všechno, co k němu patří: členství, přihlášky na akce, trofeje a medaile. Vrátit to nejde.",
+      "membershipWarning": "Máš platné členství. Smazáním účtu skončí a peníze za něj se nevracejí.",
+      "confirm": "Rozumím, že se účet smaže natrvalo.",
+      "submit": "Smazat účet natrvalo",
+      "deleting": "Mažu účet…",
+      "failed": "Účet se nepodařilo smazat. Zkus to prosím znovu."
+    }
   },
   "events": {
     "pageTitle": "Kalendář akcí - Deskohub",
@@ -1319,8 +1329,8 @@
       "greeting": "Ahoj {name},",
       "accountButton": "Zobrazit můj účet",
       "activated": {
-        "subject": "Tvoje členství v Deskohubu platí",
-        "heading": "Členství je aktivní",
+        "subject": "Potvrzení členství v Deskohubu",
+        "heading": "Platba přijata",
         "body": "platbu jsme přijali a tvoje {plan} platí od {from} do {to}.",
         "note": "Po tomhle datu členství samo skončí, nic rušit nemusíš."
       },
@@ -1335,7 +1345,7 @@
     "intro": {
       "heading": "Hraj bez vstupného",
       "entry": "Normálně u nás necháš padesátku pokaždé, když přijdeš. Jako PATŘOŇ už tohle vůbec neřešíš, prostě vezmeš partu nebo přijdeš sám a hraješ celý měsíc, jak je libo.",
-      "perks": "Každý náš člen od nás navíc dostane svou speciální členskou kartu. Každý rok vymyslíme úplně nový design, takže si z nich postupně můžeš udělat pěknou sbírku. A aby ti nic neuteklo, budeme ti posílat náš newsletter – dozvíš se v něm jako první, jaké nové deskovky nám zrovna přistály v poličkách a co dalšího v klubu chystáme."
+      "perks": "Každý náš člen od nás navíc dostane svou speciální členskou kartu. Každý rok vymyslíme úplně nový design, takže si z nich postupně můžeš udělat pěknou sbírku."
     }
   }
 }

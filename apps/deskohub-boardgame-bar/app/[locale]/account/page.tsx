@@ -2,13 +2,11 @@ import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { listTrophies } from "@/features/account/backend/trophies.server";
 import { AccountsUnavailable } from "@/features/account/components/accounts-unavailable";
+import { DeleteAccount } from "@/features/account/components/delete-account";
 import { ProfileForm } from "@/features/account/components/profile-form";
 import { SignOutButton } from "@/features/account/components/sign-out-button";
 import { TrophyList } from "@/features/account/components/trophy-list";
-import {
-  daysLeftForm,
-  membershipDaysLeft,
-} from "@/features/account/membership-days-left";
+
 import {
   areAccountsAvailable,
   getSessionUser,
@@ -25,6 +23,11 @@ import {
 } from "@/features/membership/backend/membership.server";
 import { CancelMembershipRequestButton } from "@/features/membership/components/membership-actions";
 import { PlanPicker } from "@/features/membership/components/plan-picker";
+import {
+  daysLeftForm,
+  membershipDaysLeft,
+  membershipLastMoment,
+} from "@/features/membership/membership-period";
 import { PageHeader } from "@/shared/components/page-header";
 import { siteConstants } from "@/shared/utils/constants";
 import { formatDate } from "@/shared/utils/date-formatting";
@@ -137,9 +140,13 @@ export default async function AccountPage({ params }: RouteProps_locale) {
                   <p className="mt-1 text-sm text-gray-400">
                     {m["account.membership.activeUntil"]({
                       plan: membership.current.planName,
-                      date: formatDate(membership.current.endsAt, locale, {
-                        dateStyle: "long",
-                      }),
+                      date: formatDate(
+                        membershipLastMoment(membership.current.endsAt),
+                        locale,
+                        {
+                          dateStyle: "long",
+                        }
+                      ),
                     })}
                   </p>
                 </>
@@ -272,8 +279,9 @@ export default async function AccountPage({ params }: RouteProps_locale) {
         </AccountSection>
 
         <AccountSection title={m["account.profile.title"]()}>
-          <div className="max-w-xl">
+          <div className="max-w-xl space-y-8">
             <ProfileForm name={user.name} email={user.email} />
+            <DeleteAccount hasMembership={membership.current !== null} />
           </div>
         </AccountSection>
       </div>

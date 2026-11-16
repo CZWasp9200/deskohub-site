@@ -55,26 +55,36 @@ export function monthRange(month: Temporal.PlainYearMonth): {
   return { from: startOf(month), to: startOf(month.add({ months: 1 })) };
 }
 
+/** One day in the calendar grid; days of the neighbouring months fill gaps. */
+export type CalendarCell = {
+  readonly date: Temporal.PlainDate;
+  readonly inMonth: boolean;
+};
+
 /**
- * The month laid out as Monday-first weeks. Cells outside the month are
- * `null`, so every week has exactly seven cells.
+ * The month laid out as Monday-first weeks of seven days. The first and last
+ * weeks are filled with days of the neighbouring months, marked as outside
+ * the month, so every cell has its own date to be keyed by.
  */
 export function calendarWeeks(
   month: Temporal.PlainYearMonth
-): (Temporal.PlainDate | null)[][] {
+): CalendarCell[][] {
   const firstDay = month.toPlainDate({ day: 1 });
-  const cells: (Temporal.PlainDate | null)[] = Array.from(
-    { length: firstDay.dayOfWeek - 1 },
-    () => null
-  );
-  for (let day = 1; day <= month.daysInMonth; day++) {
-    cells.push(month.toPlainDate({ day }));
-  }
-  while (cells.length % 7 !== 0) cells.push(null);
+  const lastDay = month.toPlainDate({ day: month.daysInMonth });
+  const gridStart = firstDay.subtract({ days: firstDay.dayOfWeek - 1 });
+  const gridEnd = lastDay.add({ days: 7 - lastDay.dayOfWeek });
 
-  const weeks: (Temporal.PlainDate | null)[][] = [];
-  for (let index = 0; index < cells.length; index += 7) {
-    weeks.push(cells.slice(index, index + 7));
+  const weeks: CalendarCell[][] = [];
+  for (
+    let day = gridStart;
+    Temporal.PlainDate.compare(day, gridEnd) <= 0;
+    day = day.add({ days: 1 })
+  ) {
+    if (day.dayOfWeek === 1) weeks.push([]);
+    weeks.at(-1)?.push({
+      date: day,
+      inMonth: day.year === month.year && day.month === month.month,
+    });
   }
   return weeks;
 }

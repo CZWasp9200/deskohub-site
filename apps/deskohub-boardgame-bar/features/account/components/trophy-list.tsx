@@ -1,4 +1,5 @@
 import { Award, Trophy } from "lucide-react";
+import Image from "next/image";
 import type { AwardedTrophy } from "@/features/account/backend/trophies.server";
 import { type Locale, m } from "@/features/i18n";
 import { formatDate } from "@/shared/utils/date-formatting";
@@ -28,13 +29,14 @@ export function TrophyList({
             className="flex gap-4 rounded-lg border border-gray-700 bg-gray-900/60 p-4"
           >
             {trophy.medal ? (
-              // biome-ignore lint/performance/noImgElement: the medal comes from the database, not from the image pipeline
-              <img
+              <Image
                 src={`/api/medals/${trophy.medal.id}`}
                 alt={trophy.medal.name}
                 width={64}
                 height={64}
-                loading="lazy"
+                // The picture is only for its owner, so it skips the shared
+                // image optimizer and its cache.
+                unoptimized
                 className="h-16 w-16 shrink-0 object-contain"
               />
             ) : (

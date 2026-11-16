@@ -1,4 +1,4 @@
-import { defineRelations } from "drizzle-orm";
+import { defineRelations, sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -178,31 +178,53 @@ export const membershipPlans = pgTable("membership_plans", {
 
 export type MembershipStatus = "requested" | "active" | "cancelled";
 
-export const memberships = pgTable("memberships", {
-  id: serial("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => authUser.id, { onDelete: "cascade" }),
-  planId: integer("plan_id")
-    .notNull()
-    .references(() => membershipPlans.id, { onDelete: "restrict" }),
-  status: text("status").$type<MembershipStatus>().notNull(),
-  priceCzk: integer("price_czk").notNull(),
-  requestedAt: timestamp("requested_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  startsAt: timestamp("starts_at", { withTimezone: true }),
-  endsAt: timestamp("ends_at", { withTimezone: true }),
-  note: text("note"),
-  /** When the member was emailed that the membership started; null = not yet. */
-  activationEmailSentAt: timestamp("activation_email_sent_at", {
-    withTimezone: true,
-  }),
-  /** When the member was reminded that the membership ends soon. */
-  expiryReminderSentAt: timestamp("expiry_reminder_sent_at", {
-    withTimezone: true,
-  }),
-});
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: serial("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => authUser.id, { onDelete: "cascade" }),
+    planId: integer("plan_id")
+      .notNull()
+      .references(() => membershipPlans.id, { onDelete: "restrict" }),
+    status: text("status").$type<MembershipStatus>().notNull(),
+    priceCzk: integer("price_czk").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    note: text("note"),
+    /** When the member was emailed that the membership started; null = not yet. */
+    activationEmailSentAt: timestamp("activation_email_sent_at", {
+      withTimezone: true,
+    }),
+    /** When the member was reminded that the membership ends soon. */
+    expiryReminderSentAt: timestamp("expiry_reminder_sent_at", {
+      withTimezone: true,
+    }),
+    /**
+     * When a cron run took on sending the email. A run that crashed leaves the
+     * claim behind; it expires after a while so the next run can send.
+     */
+    activationEmailClaimedAt: timestamp("activation_email_claimed_at", {
+      withTimezone: true,
+    }),
+    expiryReminderClaimedAt: timestamp("expiry_reminder_claimed_at", {
+      withTimezone: true,
+    }),
+  },
+  (t) => [
+    index("memberships_user_id_idx").on(t.userId),
+    index("memberships_status_idx").on(t.status),
+    // One request waiting for payment per customer; `requestMembership`
+    // relies on it to turn a second request into `alreadyRequested`.
+    uniqueIndex("memberships_one_request_per_user_idx")
+      .on(t.userId)
+      .where(sql`${t.status} = 'requested'`),
+  ]
+);
 
 export type EventKind = "event" | "tournament";
 

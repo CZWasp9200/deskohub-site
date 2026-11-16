@@ -1,7 +1,7 @@
 import "server-only";
 
 import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { getAccountsDatabase } from "@/db/database.server";
 import { authUser, membershipPlans, memberships } from "@/db/schema";
@@ -22,7 +22,26 @@ export type MembershipEmailRun = {
   readonly failed: number;
 };
 
-type SentColumn = "activationEmailSentAt" | "expiryReminderSentAt";
+/** Which email: the column that records it sent and the one that claims it. */
+type EmailKind = {
+  readonly name: "activation" | "expiry-reminder";
+  readonly sent: "activationEmailSentAt" | "expiryReminderSentAt";
+  readonly claimed: "activationEmailClaimedAt" | "expiryReminderClaimedAt";
+};
+
+const activationEmail: EmailKind = {
+  name: "activation",
+  sent: "activationEmailSentAt",
+  claimed: "activationEmailClaimedAt",
+};
+const expiryReminderEmail: EmailKind = {
+  name: "expiry-reminder",
+  sent: "expiryReminderSentAt",
+  claimed: "expiryReminderClaimedAt",
+};
+
+/** How long a claim stays valid; a run that crashed frees the email after it. */
+const CLAIM_LEASE_MINUTES = 15;
 
 type DueMembership = {
   readonly id: number;
@@ -32,6 +51,13 @@ type DueMembership = {
   readonly startsAt: Date | null;
   readonly endsAt: Date | null;
 };
+
+/**
+ * The provider's idempotency key for one email: the same on every run, so a
+ * retry after an unclear outcome reaches the provider as the same delivery.
+ */
+export const membershipEmailKey = (membershipId: number, kind: EmailKind) =>
+  `membership-${membershipId}-${kind.name}`;
 
 const sendEmail = (message: EmailMessage): Promise<boolean> =>
   Effect.runPromise(
@@ -49,10 +75,13 @@ const sendEmail = (message: EmailMessage): Promise<boolean> =>
   );
 
 /**
- * Sends the membership emails that are due: a confirmation for every
- * membership that became active and a reminder for every membership that
- * ends within a week and has no follow-up period. Each email goes out once;
- * one that fails to send is retried on the next run.
+ * Sends the membership emails that are due: a payment confirmation for every
+ * membership the operator approved and a reminder for every membership that
+ * ends within a week with no period following straight after it.
+ *
+ * Each email is sent before it is marked sent, so a run that dies halfway
+ * leaves it due for the next run. A short claim keeps two overlapping runs
+ * from sending the same email at once.
  */
 export async function sendDueMembershipEmails(): Promise<
   MembershipEmailRun | undefined
@@ -89,42 +118,51 @@ export async function sendDueMembershipEmails(): Promise<
       isNull(memberships.expiryReminderSentAt),
       stillRunning,
       sql`${memberships.endsAt} <= now() + make_interval(days => ${EXPIRY_REMINDER_DAYS})`,
-      // A member who already renewed has nothing to be reminded of.
+      // A member whose next period starts by the time this one ends has
+      // nothing to be reminded of. A later period after a gap still needs
+      // the reminder, so the member knows about the days without membership.
       sql`not exists (
         select 1 from memberships later
         where later.user_id = ${memberships.userId}
           and later.status = 'active'
+          and later.id <> ${memberships.id}
+          and later.starts_at <= ${memberships.endsAt}
           and later.ends_at > ${memberships.endsAt}
       )`
     )
   );
 
-  /**
-   * Marks the email as sent before sending it, so two overlapping runs can't
-   * both send it, and clears the mark again when the send fails.
-   */
   async function sendOnce(
     membership: DueMembership,
-    column: SentColumn,
+    kind: EmailKind,
     build: (details: MembershipEmailDetails) => EmailMessage
   ): Promise<"sent" | "failed" | "skipped"> {
     if (!(membership.startsAt && membership.endsAt && database)) {
       return "skipped";
     }
 
-    const unsent = and(
-      eq(memberships.id, membership.id),
-      isNull(memberships[column])
-    );
+    const claimedColumn = memberships[kind.claimed];
     const [claimed] = await database
       .update(memberships)
-      .set({ [column]: new Date() })
-      .where(unsent)
+      .set({ [kind.claimed]: sql`now()` })
+      .where(
+        and(
+          eq(memberships.id, membership.id),
+          isNull(memberships[kind.sent]),
+          or(
+            isNull(claimedColumn),
+            lt(
+              claimedColumn,
+              sql`now() - make_interval(mins => ${CLAIM_LEASE_MINUTES})`
+            )
+          )
+        )
+      )
       .returning({ id: memberships.id });
     if (!claimed) return "skipped";
 
-    const sent = await sendEmail(
-      build({
+    const sent = await sendEmail({
+      ...build({
         email: membership.email,
         name: membership.name,
         planName: membership.planName,
@@ -132,22 +170,26 @@ export async function sendDueMembershipEmails(): Promise<
         endsAt: membership.endsAt,
         // The member's language isn't stored; the bar's own language it is.
         locale: baseLocale,
-      })
-    );
-    if (sent) return "sent";
+      }),
+      idempotencyKey: membershipEmailKey(membership.id, kind),
+    });
 
     await database
       .update(memberships)
-      .set({ [column]: null })
+      .set(
+        sent
+          ? { [kind.sent]: sql`now()`, [kind.claimed]: null }
+          : { [kind.claimed]: null }
+      )
       .where(eq(memberships.id, membership.id));
-    return "failed";
+    return sent ? "sent" : "failed";
   }
 
   const run = { activated: 0, expiring: 0, failed: 0 };
   for (const membership of activated) {
     const result = await sendOnce(
       membership,
-      "activationEmailSentAt",
+      activationEmail,
       buildMembershipActivatedEmail
     );
     if (result === "sent") run.activated += 1;
@@ -156,7 +198,7 @@ export async function sendDueMembershipEmails(): Promise<
   for (const membership of expiring) {
     const result = await sendOnce(
       membership,
-      "expiryReminderSentAt",
+      expiryReminderEmail,
       buildMembershipExpiringEmail
     );
     if (result === "sent") run.expiring += 1;

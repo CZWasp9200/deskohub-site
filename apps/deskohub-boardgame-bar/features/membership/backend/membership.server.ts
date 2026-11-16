@@ -1,8 +1,9 @@
 import "server-only";
 
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { getAccountsDatabase } from "@/db/database.server";
 import { membershipPlans, memberships } from "@/db/schema";
+import { currentMembership } from "@/features/membership/membership-period";
 
 export type MembershipPlan = {
   readonly id: number;
@@ -60,22 +61,23 @@ export async function getMembershipState(
   const database = getAccountsDatabase();
   if (!database) return { current: null, pendingRequest: null };
 
-  const [[current], [pendingRequest]] = await Promise.all([
+  const now = new Date();
+  const [periods, [pendingRequest]] = await Promise.all([
     database
-      .select({ planName: membershipPlans.name, endsAt: memberships.endsAt })
+      .select({
+        planName: membershipPlans.name,
+        startsAt: memberships.startsAt,
+        endsAt: memberships.endsAt,
+      })
       .from(memberships)
       .innerJoin(membershipPlans, eq(membershipPlans.id, memberships.planId))
       .where(
         and(
           eq(memberships.userId, userId),
           eq(memberships.status, "active"),
-          gt(memberships.endsAt, new Date())
+          gt(memberships.endsAt, now)
         )
-      )
-      // A renewal starts when the running membership ends, so the latest
-      // end date is the day the customer stops being a member.
-      .orderBy(desc(memberships.endsAt))
-      .limit(1),
+      ),
     database
       .select({
         planId: memberships.planId,
@@ -92,9 +94,12 @@ export async function getMembershipState(
   ]);
 
   return {
-    current: current?.endsAt
-      ? { planName: current.planName, endsAt: current.endsAt }
-      : null,
+    current: currentMembership(
+      periods.flatMap(({ planName, startsAt, endsAt }) =>
+        startsAt && endsAt ? [{ planName, startsAt, endsAt }] : []
+      ),
+      now
+    ),
     pendingRequest: pendingRequest ?? null,
   };
 }

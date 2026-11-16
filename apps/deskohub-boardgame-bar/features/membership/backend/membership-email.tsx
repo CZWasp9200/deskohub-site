@@ -1,25 +1,13 @@
 import type { EmailMessage } from "@deskohub/email";
-import { renderBoardgameEmailHtml } from "@/features/email/backend/email-rendering";
+import {
+  boardgameEmailStyles,
+  renderBoardgameEmailHtml,
+} from "@/features/email/backend/email-rendering";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n/paraglide/messages";
+import { membershipLastMoment } from "@/features/membership/membership-period";
 import { siteConstants } from "@/shared/utils/constants";
-
-const containerStyle = {
-  fontFamily: "Arial, sans-serif",
-  maxWidth: "600px",
-  margin: "0 auto",
-  color: "#1f2937",
-} as const;
-const buttonStyle = {
-  display: "inline-block",
-  padding: "12px 24px",
-  backgroundColor: "#16a34a",
-  color: "#ffffff",
-  borderRadius: "6px",
-  textDecoration: "none",
-  fontWeight: "bold",
-} as const;
-const mutedStyle = { color: "#6b7280", fontSize: "13px" } as const;
+import { formatDate } from "@/shared/utils/date-formatting";
 
 /** What a membership email needs to know about the member and the period. */
 export type MembershipEmailDetails = {
@@ -33,10 +21,7 @@ export type MembershipEmailDetails = {
 
 /** The bar's calendar day, whatever time zone the server runs in. */
 const formatDay = (date: Date, locale: Locale): string =>
-  new Intl.DateTimeFormat(locale, {
-    dateStyle: "long",
-    timeZone: "Europe/Prague",
-  }).format(date);
+  formatDate(date, locale, { dateStyle: "long" });
 
 const accountUrl = (locale: Locale): string =>
   `https://${siteConstants.brand.publicDomain}/${locale}/account`;
@@ -65,17 +50,17 @@ function membershipEmail(input: {
     to: { email: details.email },
     subject: input.subject,
     html: renderBoardgameEmailHtml(
-      <div style={containerStyle}>
+      <div style={boardgameEmailStyles.container}>
         <h2>{input.heading}</h2>
         <p>
           {greeting} {input.body}
         </p>
         <p>
-          <a href={url} style={buttonStyle}>
+          <a href={url} style={boardgameEmailStyles.button}>
             {input.button}
           </a>
         </p>
-        <p style={mutedStyle}>{input.note}</p>
+        <p style={boardgameEmailStyles.muted}>{input.note}</p>
       </div>
     ),
     text: [`${greeting} ${input.body}`, input.note, url].join("\n\n"),
@@ -96,7 +81,7 @@ export function buildMembershipActivatedEmail(
       {
         plan: details.planName,
         from: formatDay(details.startsAt, locale),
-        to: formatDay(details.endsAt, locale),
+        to: formatDay(membershipLastMoment(details.endsAt), locale),
       },
       { locale }
     ),
@@ -116,7 +101,10 @@ export function buildMembershipExpiringEmail(
     subject: m["membership.email.expiring.subject"](undefined, { locale }),
     heading: m["membership.email.expiring.heading"](undefined, { locale }),
     body: m["membership.email.expiring.body"](
-      { plan: details.planName, to: formatDay(details.endsAt, locale) },
+      {
+        plan: details.planName,
+        to: formatDay(membershipLastMoment(details.endsAt), locale),
+      },
       { locale }
     ),
     note: m["membership.email.expiring.note"](undefined, { locale }),

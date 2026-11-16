@@ -12,7 +12,7 @@
       "schedule": "0 23 * * *"
     },
     {
-      "path": "/api/cron/membership-emails",
+      "path": "/api/cron/accounts",
       "schedule": "0 8 * * *"
     }
   ]

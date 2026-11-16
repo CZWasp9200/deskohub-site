@@ -64,15 +64,13 @@ export function MonthCalendar({
         </tr>
       </thead>
       <tbody>
-        {calendarWeeks(month).map((week, weekIndex) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: Weeks of one month have a fixed order and no identity of their own.
-          <tr key={weekIndex}>
-            {week.map((day, dayIndex) => {
-              if (!day) {
+        {calendarWeeks(month).map((week) => (
+          <tr key={week[0]?.date.toString()}>
+            {week.map(({ date: day, inMonth }) => {
+              if (!inMonth) {
                 return (
                   <td
-                    // biome-ignore lint/suspicious/noArrayIndexKey: Empty cells are positional padding.
-                    key={dayIndex}
+                    key={day.toString()}
                     className="border border-gray-800 bg-gray-900/40"
                   />
                 );

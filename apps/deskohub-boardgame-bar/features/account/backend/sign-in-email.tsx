@@ -1,26 +1,12 @@
 import type { EmailMessage } from "@deskohub/email";
-import { renderBoardgameEmailHtml } from "@/features/email/backend/email-rendering";
+import {
+  boardgameEmailStyles,
+  renderBoardgameEmailHtml,
+} from "@/features/email/backend/email-rendering";
 import { baseLocale, type Locale } from "@/features/i18n";
 import { m } from "@/features/i18n/paraglide/messages";
 import { getLocaleFromPathname } from "@/features/i18n/utils/locale-url";
 import { siteConstants } from "@/shared/utils/constants";
-
-const containerStyle = {
-  fontFamily: "Arial, sans-serif",
-  maxWidth: "600px",
-  margin: "0 auto",
-  color: "#1f2937",
-} as const;
-const buttonStyle = {
-  display: "inline-block",
-  padding: "12px 24px",
-  backgroundColor: "#16a34a",
-  color: "#ffffff",
-  borderRadius: "6px",
-  textDecoration: "none",
-  fontWeight: "bold",
-} as const;
-const mutedStyle = { color: "#6b7280", fontSize: "13px" } as const;
 
 /**
  * The sign-in link carries the page the customer returns to
@@ -57,16 +43,16 @@ export function buildSignInEmail({
     to: { email },
     subject: m["account.email.subject"](undefined, { locale }),
     html: renderBoardgameEmailHtml(
-      <div style={containerStyle}>
+      <div style={boardgameEmailStyles.container}>
         <h2>{m["account.email.heading"](undefined, { locale })}</h2>
         <p>{m["account.email.intro"](undefined, { locale })}</p>
         <p>
-          <a href={url} style={buttonStyle}>
+          <a href={url} style={boardgameEmailStyles.button}>
             {m["account.email.button"](undefined, { locale })}
           </a>
         </p>
-        <p style={mutedStyle}>{expiry}</p>
-        <p style={mutedStyle}>{ignore}</p>
+        <p style={boardgameEmailStyles.muted}>{expiry}</p>
+        <p style={boardgameEmailStyles.muted}>{ignore}</p>
       </div>
     ),
     text: [

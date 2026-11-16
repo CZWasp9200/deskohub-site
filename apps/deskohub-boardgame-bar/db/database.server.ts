@@ -3,6 +3,7 @@ import "server-only";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { env } from "@/env";
+import { siteConstants } from "@/shared/utils/constants";
 import { authRelations } from "./schema";
 
 export type AccountsDatabase = NodePgDatabase<typeof authRelations>;
@@ -13,12 +14,22 @@ const globalStore = globalThis as typeof globalThis & {
 };
 
 /**
- * The shared accounts database (accounts, memberships, events, trophies),
- * or `undefined` when this deployment has no `DATABASE_URL`. Callers treat
- * `undefined` as "accounts are unavailable" instead of failing the page.
+ * The shared accounts database (accounts, memberships, events, trophies), or
+ * `undefined` while accounts are off on this deployment: the feature flag is
+ * off, or `DATABASE_URL` or `BETTER_AUTH_SECRET` is missing. Every page,
+ * route and cron that touches account data asks here, so they all agree on
+ * whether accounts exist.
  */
 export function getAccountsDatabase(): AccountsDatabase | undefined {
-  if (!env.DATABASE_URL) return undefined;
+  if (
+    !(
+      siteConstants.featureFlags.accounts &&
+      env.DATABASE_URL &&
+      env.BETTER_AUTH_SECRET
+    )
+  ) {
+    return undefined;
+  }
 
   globalStore.accountsDatabasePool ??= new Pool({
     connectionString: env.DATABASE_URL,

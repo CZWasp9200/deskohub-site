@@ -12,6 +12,7 @@ import {
   CancelMembershipRequestButton,
   RequestMembershipButton,
 } from "@/features/membership/components/membership-actions";
+import { membershipLastMoment } from "@/features/membership/membership-period";
 import { planDuration } from "@/features/membership/plan-duration";
 import { PageHeader } from "@/shared/components/page-header";
 import { siteConstants } from "@/shared/utils/constants";
@@ -56,9 +57,13 @@ export default async function MembershipPage({ params }: RouteProps_locale) {
               <p className="mt-1 text-gray-200">
                 {m["membership.current.body"]({
                   plan: membership.current.planName,
-                  date: formatDate(membership.current.endsAt, locale, {
-                    dateStyle: "long",
-                  }),
+                  date: formatDate(
+                    membershipLastMoment(membership.current.endsAt),
+                    locale,
+                    {
+                      dateStyle: "long",
+                    }
+                  ),
                 })}
               </p>
               <p className="mt-1 text-sm text-gray-400">

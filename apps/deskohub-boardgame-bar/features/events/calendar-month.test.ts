@@ -46,9 +46,25 @@ describe("calendarWeeks", () => {
     // 1 November 2026 is a Sunday.
     const weeks = calendarWeeks(Temporal.PlainYearMonth.from("2026-11"));
     expect(weeks.every((week) => week.length === 7)).toBe(true);
-    expect(weeks[0]?.slice(0, 6)).toEqual([null, null, null, null, null, null]);
-    expect(weeks[0]?.[6]?.toString()).toBe("2026-11-01");
-    expect(weeks.at(-1)?.[0]?.toString()).toBe("2026-11-30");
+    expect(weeks[0]?.slice(0, 6).every((cell) => !cell.inMonth)).toBe(true);
+    expect(weeks[0]?.[0]?.date.toString()).toBe("2026-10-26");
+    expect(weeks[0]?.[6]).toEqual({
+      date: Temporal.PlainDate.from("2026-11-01"),
+      inMonth: true,
+    });
+    expect(weeks.at(-1)?.[0]?.date.toString()).toBe("2026-11-30");
+    expect(
+      weeks
+        .at(-1)
+        ?.slice(1)
+        .every((cell) => !cell.inMonth)
+    ).toBe(true);
     expect(weeks).toHaveLength(6);
+  });
+
+  it("gives every cell its own date", () => {
+    const weeks = calendarWeeks(Temporal.PlainYearMonth.from("2026-02"));
+    const dates = weeks.flat().map((cell) => cell.date.toString());
+    expect(new Set(dates).size).toBe(dates.length);
   });
 });

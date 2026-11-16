@@ -27,7 +27,14 @@ export function Header() {
 
   return (
     <header className="bg-gray-900 text-white px-6 sticky top-0 z-20 safe-padding-top flex items-center justify-center">
-      <div className="flex items-center justify-between max-w-7xl w-full gap-x-6 2xl:gap-x-8 min-h-[var(--header-height)]">
+      <div
+        className={`flex items-center justify-between max-w-7xl w-full min-h-[var(--header-height)] ${
+          // The account links make the bar wider, so it tightens below 2xl.
+          siteConstants.featureFlags.accounts
+            ? "gap-x-6 2xl:gap-x-8"
+            : "gap-x-8"
+        }`}
+      >
         <LocalizedLink href="/">
           <Image
             src={logoImage}
@@ -37,7 +44,13 @@ export function Header() {
             priority
           />
         </LocalizedLink>
-        <nav className="hidden xl:flex space-x-5 2xl:space-x-8 whitespace-nowrap">
+        <nav
+          className={`hidden xl:flex ${
+            siteConstants.featureFlags.accounts
+              ? "space-x-5 2xl:space-x-8 whitespace-nowrap"
+              : "space-x-8"
+          }`}
+        >
           <LocalizedLink
             href="/"
             className="hover:text-green-400 transition-colors"

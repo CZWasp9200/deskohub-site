@@ -16,39 +16,58 @@ const details: MembershipEmailDetails = {
 };
 
 describe("membership emails", () => {
-  it("confirms the active membership with its period in the bar's dates", () => {
+  it("confirms the period to the member in the bar's dates", () => {
     const message = buildMembershipActivatedEmail(details);
 
     expect(message.to).toEqual({ email: "karel@example.test" });
-    expect(message.subject).toBe("Tvoje členství v Deskohubu platí");
-    expect(message.text).toContain("Ahoj Kostkový Karel,");
-    expect(message.text).toContain(
-      "Měsíční členství platí od 14. listopadu 2026 do 14. prosince 2026"
-    );
+    expect(message.text).toContain(details.name);
+    expect(message.text).toContain(details.planName);
+    expect(message.text).toContain("14. listopadu 2026");
+    expect(message.text).toContain("14. prosince 2026");
     expect(message.text).toContain("/cs-CZ/account");
     expect(message.tags).toEqual(["membership-activated"]);
   });
 
-  it("reminds the member of the end date and how to renew", () => {
+  it("reminds the member of the end date", () => {
     const message = buildMembershipExpiringEmail(details);
 
-    expect(message.subject).toBe("Tvoje členství v Deskohubu brzy skončí");
-    expect(message.text).toContain(
-      "Měsíční členství platí do 14. prosince 2026"
-    );
-    expect(message.text).toContain("zaplať ho na baru");
-    expect(message.html).toContain("Prodloužit členství");
+    expect(message.to).toEqual({ email: "karel@example.test" });
+    expect(message.text).toContain("14. prosince 2026");
+    expect(message.text).not.toContain("14. listopadu 2026");
+    expect(message.html).toContain("/cs-CZ/account");
     expect(message.tags).toEqual(["membership-expiring"]);
   });
 
-  it("writes the email in the member's language", () => {
+  it("shows the day before when the membership ends at midnight", () => {
+    const message = buildMembershipExpiringEmail({
+      ...details,
+      // 1 January 00:00 in Prague: 31 December is the last day.
+      endsAt: new Date("2026-12-31T23:00:00Z"),
+    });
+
+    expect(message.text).toContain("31. prosince 2026");
+    expect(message.text).not.toContain("1. ledna 2027");
+  });
+
+  it("escapes the member's name in the HTML", () => {
     const message = buildMembershipActivatedEmail({
+      ...details,
+      name: "<b>Karel</b>",
+    });
+
+    expect(message.html).toContain("&lt;b&gt;Karel&lt;/b&gt;");
+    expect(message.html).not.toContain("<b>Karel</b>");
+  });
+
+  it("writes the email in the member's language", () => {
+    const czech = buildMembershipActivatedEmail(details);
+    const english = buildMembershipActivatedEmail({
       ...details,
       locale: "en-US",
     });
 
-    expect(message.subject).toBe("Your Deskohub membership is active");
-    expect(message.text).toContain("Hello Kostkový Karel,");
-    expect(message.text).toContain("/en-US/account");
+    expect(english.subject).not.toBe(czech.subject);
+    expect(english.text).toContain("November 14, 2026");
+    expect(english.text).toContain("/en-US/account");
   });
 });

@@ -50,6 +50,26 @@ describe("EmailConfigLayer", () => {
     });
   });
 
+  test("honours test mode outside the live site", async () => {
+    const preview = await readConfig({
+      EMAIL_TEST_MODE: "true",
+      VERCEL_ENV: "preview",
+    });
+    const local = await readConfig({ EMAIL_TEST_MODE: "true" });
+
+    expect(preview.testMode).toBe(true);
+    expect(local.testMode).toBe(true);
+  });
+
+  test("ignores test mode on the live site", async () => {
+    const config = await readConfig({
+      EMAIL_TEST_MODE: "true",
+      VERCEL_ENV: "production",
+    });
+
+    expect(config.testMode).toBe(false);
+  });
+
   test("keeps explicit console provider with an API key", async () => {
     const config = await readConfig({
       EMAIL_PROVIDER: "console",

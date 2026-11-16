@@ -1164,6 +1164,7 @@
     "pageDescription": "Your Deskohub account: membership, event registrations, and tournament trophies.",
     "title": "My account",
     "signOut": "Sign out",
+    "signOutFailed": "We couldn't sign you out. Please try again.",
     "profile": {
       "title": "Profile",
       "nameLabel": "Name or nickname",
@@ -1212,7 +1213,16 @@
       "expiry": "The link works for {minutes} minutes and can be used once.",
       "ignore": "If you didn't ask to sign in, you can ignore this email."
     },
-    "greeting": "Hi, {name}"
+    "greeting": "Hi, {name}",
+    "delete": {
+      "title": "Delete account",
+      "body": "We'll delete your account and everything that belongs to it: membership, event registrations, trophies and medals. This can't be undone.",
+      "membershipWarning": "You have an active membership. Deleting the account ends it and it isn't refunded.",
+      "confirm": "I understand the account will be deleted for good.",
+      "submit": "Delete account for good",
+      "deleting": "Deleting account…",
+      "failed": "We couldn't delete the account. Please try again."
+    }
   },
   "events": {
     "pageTitle": "Events calendar - Deskohub",
@@ -1297,8 +1307,8 @@
       "greeting": "Hello {name},",
       "accountButton": "View my account",
       "activated": {
-        "subject": "Your Deskohub membership is active",
-        "heading": "Your membership is active",
+        "subject": "Your Deskohub membership is confirmed",
+        "heading": "Payment received",
         "body": "we received your payment and your {plan} is valid from {from} to {to}.",
         "note": "After that date the membership ends on its own; there is nothing to cancel."
       },
@@ -1313,7 +1323,7 @@
     "intro": {
       "heading": "Play without an entry fee",
       "entry": "Normally you leave fifty crowns every time you come. As a PATŘOŇ you don't think about it at all: bring your group or come on your own and play as much as you like.",
-      "perks": "Every member also gets a special membership card. We design a brand-new one every year, so you can build up a nice collection. And so you don't miss anything, we'll send you our newsletter – you'll be the first to hear which new board games just landed on our shelves and what else is coming up at the club."
+      "perks": "Every member also gets a special membership card. We design a brand-new one every year, so you can build up a nice collection."
     }
   }
 }
