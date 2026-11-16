@@ -7,14 +7,10 @@ describe("wholeAddress", () => {
     const shown = wholeAddress(testEmailAddress("sign-in-toast"));
 
     expect(shown).not.toContain("-");
-    expect(shown.replaceAll("‑", "-")).toBe(
-      testEmailAddress("sign-in-toast")
-    );
+    expect(shown.replaceAll("‑", "-")).toBe(testEmailAddress("sign-in-toast"));
   });
 
   test("keeps an address without hyphens as it is", () => {
-    expect(wholeAddress(testEmailAddress("ada"))).toBe(
-      testEmailAddress("ada")
-    );
+    expect(wholeAddress(testEmailAddress("ada"))).toBe(testEmailAddress("ada"));
   });
 });
