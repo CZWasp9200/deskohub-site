@@ -6,6 +6,7 @@ import {
   StyleSheet,
   type TextInputInstance,
   type TextInputProps,
+  type TextStyle,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -475,8 +476,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     // The frame draws the focus ring; the web's own outline would double it.
-    // Chromium draws an `auto` outline whatever its width, so the style goes too.
-    outlineStyle: "none",
+    // Chromium draws an `auto` outline whatever its width, so the style goes
+    // too. React Native's types omit `none`, which React Native Web passes on.
+    outlineStyle: "none" as unknown as TextStyle["outlineStyle"],
     outlineWidth: 0,
     paddingHorizontal: 0,
     paddingVertical: space.md,
