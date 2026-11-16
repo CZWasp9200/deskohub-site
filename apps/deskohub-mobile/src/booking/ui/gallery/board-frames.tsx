@@ -2,13 +2,15 @@ import type {
   CustomerCheckoutSummary,
   Money,
 } from "@deskohub/workspace-customer-api";
+import { Option } from "effect";
 import Lock from "lucide-react-native/icons/lock";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
-import { type ComponentRef, type ReactNode, useRef } from "react";
+import { type ComponentRef, type ReactNode, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { AppLocale } from "../../../i18n/app-locale";
 import { useAppLocale } from "../../../i18n/locale-context";
+import { m } from "../../../i18n/messages";
 import { AppBar } from "../../../ui/app-bar";
 import { Card } from "../../../ui/card";
 import { FocusedStatusBar } from "../../../ui/focused-status-bar";
@@ -16,6 +18,12 @@ import { useSample } from "../../../ui/gallery/gallery-kit";
 import { Notice } from "../../../ui/notice";
 import { Text } from "../../../ui/text";
 import { color, radius, space } from "../../../ui/tokens";
+import {
+  type DetailsDraft,
+  type DetailsProfile,
+  initialDetailsDraft,
+} from "../../checkout-screen/details-form";
+import { DetailsStep } from "../../checkout-screen/details-step";
 import type { DateChoice } from "../../selection/booking-selection";
 import type { PragueDate } from "../../selection/prague-date";
 import { czk } from "../../testing/sample-booking-catalog";
@@ -24,6 +32,7 @@ import {
   type BookingBarAction,
   type BookingBarPrice,
 } from "../booking-bar";
+import { BookingSectionHeading } from "../booking-section-heading";
 import { type BookingStep, BookingSteps } from "../booking-steps";
 import {
   HoldEndedDialog,
@@ -201,30 +210,6 @@ function FlowScreen({
   );
 }
 
-/** A board section heading (`.bk-h`): 17/24 600, an optional aside. */
-function Heading({
-  title,
-  aside,
-  first = false,
-}: {
-  readonly title: string;
-  readonly aside?: string;
-  readonly first?: boolean;
-}) {
-  return (
-    <View style={[styles.heading, first && styles.headingFirst]}>
-      <Text variant="headline" role="heading">
-        {title}
-      </Text>
-      {aside !== undefined && (
-        <Text variant="bodySmall" tone="muted">
-          {aside}
-        </Text>
-      )}
-    </View>
-  );
-}
-
 /** Screen content another ticket builds, at the board's height. */
 function Placeholder({
   label,
@@ -293,9 +278,9 @@ function CoworkStart({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <Heading title={sample("Desk type")} first />
+      <BookingSectionHeading title={sample("Desk type")} first />
       <Placeholder label="Desk type cards (screen ticket)" height={232} />
-      <Heading title={sample("Date")} />
+      <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} />
     </FlowScreen>
   );
@@ -330,11 +315,11 @@ function CoworkChosen({
         />
       }
     >
-      <Heading title={sample("Desk type")} first />
+      <BookingSectionHeading title={sample("Desk type")} first />
       <Placeholder label="Desk type cards (screen ticket)" height={232} />
-      <Heading title={sample("Date")} />
+      <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} selected={chosenDay} />
-      <Heading title={sample("Coffee")} />
+      <BookingSectionHeading title={sample("Coffee")} />
       <Placeholder label="Coffee switch (screen ticket)" height={56} />
     </FlowScreen>
   );
@@ -362,7 +347,7 @@ function CoworkFullDay({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <Heading title={sample("Date")} first />
+      <BookingSectionHeading title={sample("Date")} first />
       <Calendar
         locale={locale}
         focusedDate={fullDay}
@@ -400,9 +385,9 @@ function ReservedDeskOpened({ onBack }: { readonly onBack: () => void }) {
       }
     >
       <Placeholder label="Reserved desk card (screen ticket)" height={112} />
-      <Heading title={sample("Workstation")} aside="+ CZK 120" />
+      <BookingSectionHeading title={sample("Workstation")} aside="+ CZK 120" />
       <Placeholder label="Workstation grid (screen ticket)" height={168} />
-      <Heading title={sample("Date")} />
+      <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} selected={chosenDay} legend={false} />
     </FlowScreen>
   );
@@ -425,9 +410,9 @@ function CoworkLoading({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <Heading title={sample("Desk type")} first />
+      <BookingSectionHeading title={sample("Desk type")} first />
       <Placeholder label="Desk type skeleton (screen ticket)" height={184} />
-      <Heading title={sample("Date")} />
+      <BookingSectionHeading title={sample("Date")} />
       <Placeholder label="Calendar skeleton (screen ticket)" height={232} />
     </FlowScreen>
   );
@@ -459,7 +444,7 @@ function CoworkPriceError({ onBack }: { readonly onBack: () => void }) {
         title={sample("Price not available")}
         message={sample("We couldn’t get the price for Thu 26 Nov.")}
       />
-      <Heading title={sample("Date")} />
+      <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} selected={chosenDay} legend={false} />
     </FlowScreen>
   );
@@ -487,9 +472,9 @@ function CoworkCzech({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <Heading title={sample("Datum")} first />
+      <BookingSectionHeading title={sample("Datum")} first />
       <Calendar locale={locale} selected={chosenDay} legend={false} />
-      <Heading title={sample("Káva")} />
+      <BookingSectionHeading title={sample("Káva")} />
       <Placeholder label="Coffee switch (screen ticket)" height={56} />
     </FlowScreen>
   );
@@ -528,9 +513,13 @@ function MeetingRoom({
         />
       }
     >
-      <Heading title={sample("How long?")} aside={sample("Wed 18 Nov")} first />
+      <BookingSectionHeading
+        title={sample("How long?")}
+        aside={sample("Wed 18 Nov")}
+        first
+      />
       <Placeholder label="Lengths with prices (screen ticket)" height={176} />
-      <Heading title={sample("Start time")} />
+      <BookingSectionHeading title={sample("Start time")} />
       <Placeholder label="Start times (screen ticket)" height={208} />
       {opened && (
         <Placeholder
@@ -573,7 +562,7 @@ function OfficeRange({
         />
       }
     >
-      <Heading title={sample("First day")} first />
+      <BookingSectionHeading title={sample("First day")} first />
       <Calendar
         locale={locale}
         dates={officeDates}
@@ -581,7 +570,7 @@ function OfficeRange({
         range={officeRange}
         legend={false}
       />
-      <Heading title={sample("Days and seats")} />
+      <BookingSectionHeading title={sample("Days and seats")} />
       <Placeholder
         label="Days and seats steppers (screen ticket)"
         height={152}
@@ -592,56 +581,129 @@ function OfficeRange({
 
 // ------------------------------------------------------------ boards 30–31: your details
 
+/** The boards' booker, Jana, with her saved invoice address. */
+const jana = (sample: (text: string) => string): DetailsProfile => ({
+  self: {
+    email: "jana.novakova@example.com",
+    name: Option.some(sample("Jana Nováková")),
+    phone: Option.some("+420 601 234 567"),
+  },
+  saved: {
+    address: Option.some({
+      line1: sample("Křižíkova 12"),
+      city: sample("Prague 8"),
+      postalCode: "186 00",
+      country: "CZ",
+    }),
+    company: Option.none(),
+  },
+});
+
+type DetailsFrameState = "self" | "someone" | "company" | "errors" | "holding";
+
+const detailsDraftFor = (
+  state: DetailsFrameState,
+  sample: (text: string) => string
+): DetailsDraft => {
+  const start = initialDetailsDraft({
+    address: Option.none(),
+    company: Option.none(),
+  });
+  switch (state) {
+    case "self":
+    case "holding":
+      return { ...start, billing: "personal-invoice" };
+    case "someone":
+      return {
+        ...start,
+        bookingFor: "someone-else",
+        someoneElse: {
+          name: sample("Petr Svoboda"),
+          email: "petr.svoboda@exam",
+          phone: "",
+        },
+      };
+    case "company":
+      return {
+        ...start,
+        billing: "business",
+        company: {
+          legalName: sample("Svoboda Studio s.r.o."),
+          companyId: "27082440",
+          vatId: "",
+          address: {
+            line1: sample("Sokolovská 87"),
+            city: sample("Prague"),
+            postalCode: "186 00",
+            country: "CZ",
+          },
+        },
+      };
+    case "errors":
+      return {
+        ...start,
+        billing: "personal-invoice",
+        personalAddress: {
+          line1: "",
+          city: "",
+          postalCode: "186 00",
+          country: "CZ",
+        },
+      };
+  }
+};
+
+/**
+ * Boards 30 and 31: the real details step with the boards' data. The
+ * errors frame has no saved address, so "Invoice to me" asks for one.
+ */
 function Details({
   onBack,
-  errors = false,
+  state,
 }: {
   readonly onBack: () => void;
-  readonly errors?: boolean;
+  readonly state: DetailsFrameState;
 }) {
   const locale = useAppLocale();
   const sample = useSample();
+  const profile = jana(sample);
+  const [draft, setDraft] = useState(() => detailsDraftFor(state, sample));
   return (
-    <FlowScreen
-      title={sample("Your details")}
-      step="details"
-      locale={locale}
-      onBack={onBack}
-      raised={errors}
-      bar={
-        <BookingBar
-          locale={locale}
-          summary={{
-            title: sample("Thu 26 Nov, until 17:00"),
-            detail: sample("Open Space desk · coffee"),
-            price: quoted(openSpaceWithCoffee, locale, czk(340)),
-          }}
-          action={next(sample("Continue to review"))}
-          reason={errors ? sample("Fix 2 fields to continue") : undefined}
-          reasonTone="error"
-        />
-      }
-    >
-      {errors ? (
-        <>
-          <Placeholder label="Invoice choices (screen ticket)" height={128} />
-          <Heading title={sample("Invoice address")} />
-          <Placeholder
-            label="Address fields with errors (screen ticket)"
-            height={300}
-          />
-        </>
-      ) : (
-        <>
-          <Heading title={sample("Who is this booking for?")} first />
-          <Placeholder label="Me / someone else (screen ticket)" height={104} />
-          <Heading title={sample("Booking as")} />
-          <Placeholder label="Profile card (screen ticket)" height={76} />
-          <Heading title={sample("Invoice")} />
-          <Placeholder label="Invoice choices (screen ticket)" height={128} />
-        </>
-      )}
-    </FlowScreen>
+    <SafeAreaView edges={["top"]} style={styles.screen}>
+      <FocusedStatusBar style="dark" />
+      <AppBar title={m.booking_details_title({}, { locale })} onBack={onBack} />
+      <DetailsStep
+        profile={
+          state === "errors"
+            ? {
+                ...profile,
+                saved: { ...profile.saved, address: Option.none() },
+              }
+            : profile
+        }
+        initials={Option.some("JN")}
+        onEditProfile={Option.some(ignore)}
+        draft={draft}
+        onDraftChange={setDraft}
+        notice={Option.none()}
+        busy={state === "holding"}
+        summary={{
+          title: sample("Thu 26 Nov, until 17:00"),
+          detail: sample("Open Space desk · coffee"),
+          price: quoted(openSpaceWithCoffee, locale, czk(340)),
+        }}
+        consentLocale={locale}
+        onOpenMarketingDocument={ignore}
+        onContinue={ignore}
+        onRetry={ignore}
+        locale={locale}
+        initialProblems={
+          state === "errors"
+            ? { "address.line1": "required", "address.city": "required" }
+            : undefined
+        }
+      />
+    </SafeAreaView>
   );
 }
 
@@ -717,9 +779,13 @@ function ReviewTop({
         )
       }
     >
-      <Heading title={sample("Your booking")} aside={sample("Change")} first />
+      <BookingSectionHeading
+        title={sample("Your booking")}
+        aside={sample("Change")}
+        first
+      />
       <Placeholder label="Booking summary (screen ticket)" height={196} />
-      <Heading title={sample("Price")} />
+      <BookingSectionHeading title={sample("Price")} />
       <PriceCard fixture={openSpaceWithCoffee} locale={locale} />
       <Placeholder label="Discount code row (screen ticket)" height={48} />
       <Placeholder label="Agreement (screen ticket)" height={120} />
@@ -746,7 +812,7 @@ function ReviewCodeApplied({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <Heading title={sample("Price")} first />
+      <BookingSectionHeading title={sample("Price")} first />
       <PriceCard fixture={openSpaceWithCode} was={czk(282)} locale={locale} />
       <Placeholder
         label="Code applied, with Remove (screen ticket)"
@@ -784,9 +850,13 @@ function ReviewLastMinute({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <Heading title={sample("Your booking")} aside={sample("Change")} first />
+      <BookingSectionHeading
+        title={sample("Your booking")}
+        aside={sample("Change")}
+        first
+      />
       <Placeholder label="Booking summary (screen ticket)" height={196} />
-      <Heading title={sample("Price")} />
+      <BookingSectionHeading title={sample("Price")} />
       <PriceCard fixture={openSpaceWithCoffee} locale={locale} />
       <Placeholder label="Discount code row (screen ticket)" height={48} />
       <Placeholder label="Agreement, ticked (screen ticket)" height={120} />
@@ -815,9 +885,13 @@ function PayBusy({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <Heading title={sample("Your booking")} aside={sample("Change")} first />
+      <BookingSectionHeading
+        title={sample("Your booking")}
+        aside={sample("Change")}
+        first
+      />
       <Placeholder label="Booking summary (screen ticket)" height={196} />
-      <Heading title={sample("Price")} />
+      <BookingSectionHeading title={sample("Price")} />
       <PriceCard fixture={openSpaceWithCode} was={czk(282)} locale={locale} />
       <Placeholder
         label="Code applied, with Remove (screen ticket)"
@@ -903,13 +977,31 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     key: "details",
     board: "30",
     state: "Booking for yourself",
-    Screen: Details,
+    Screen: ({ onBack }) => <Details onBack={onBack} state="self" />,
+  },
+  {
+    key: "details-someone",
+    board: "30",
+    state: "Booking for someone else",
+    Screen: ({ onBack }) => <Details onBack={onBack} state="someone" />,
+  },
+  {
+    key: "details-company",
+    board: "30",
+    state: "Invoice to a company",
+    Screen: ({ onBack }) => <Details onBack={onBack} state="company" />,
   },
   {
     key: "details-errors",
     board: "31",
     state: "Errors",
-    Screen: ({ onBack }) => <Details onBack={onBack} errors />,
+    Screen: ({ onBack }) => <Details onBack={onBack} state="errors" />,
+  },
+  {
+    key: "details-holding",
+    board: "31",
+    state: "Holding your spot",
+    Screen: ({ onBack }) => <Details onBack={onBack} state="holding" />,
   },
   { key: "review", board: "32", state: "Review", Screen: ReviewTop },
   {
@@ -954,15 +1046,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.gutter,
     paddingTop: space.xs,
   },
-  heading: {
-    alignItems: "baseline",
-    flexDirection: "row",
-    gap: space.md,
-    justifyContent: "space-between",
-    paddingBottom: space.sm,
-    paddingTop: space.xl,
-  },
-  headingFirst: { paddingTop: space.xs },
   placeholder: {
     alignItems: "center",
     backgroundColor: color.sunken,

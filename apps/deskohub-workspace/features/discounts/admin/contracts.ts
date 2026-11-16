@@ -1,6 +1,5 @@
 import {
   type AdministrationCustomerDiscountCodeCreateInput,
-  AdministrationCustomerSearchQuery,
   type AdministrationCustomerVoucherCreateInput,
   type AdministrationDiscountCodeCreateInput,
   type AdministrationDiscountCodeUpdateInput,
@@ -23,14 +22,6 @@ export const discountAdminMutationStandardSchema = Schema.toStandardSchemaV1(
   }
 );
 
-export const discountAdminCustomerSearchStandardSchema =
-  Schema.toStandardSchemaV1(AdministrationCustomerSearchQuery, {
-    parseOptions: {
-      errors: "all",
-      onExcessProperty: "error",
-    },
-  });
-
 export type CreateDiscountAdminInput =
   typeof AdministrationDiscountDefinitionInput.Type;
 export type UpdateDiscountAdminInput =
@@ -50,5 +41,3 @@ export type CreateCustomerVoucherAdminInput =
 export type UpdateVoucherAdminInput =
   typeof AdministrationVoucherUpdateInput.Type;
 export type DiscountAdminMutation = typeof AdministrationDiscountMutation.Type;
-export type DiscountAdminCustomerSearch =
-  typeof AdministrationCustomerSearchQuery.Type;

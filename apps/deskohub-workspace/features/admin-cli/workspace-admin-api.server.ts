@@ -30,6 +30,7 @@ import {
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/invoice-administration-identifier";
 import { AdministrationService } from "@/features/administration/administration.service";
+import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
 import {
   getAdministrationOperationFilters,
   getAdministrationOrderDateTimeBounds,
@@ -59,6 +60,7 @@ import {
   type DiscountAdminDashboard,
   DiscountAdministration,
 } from "@/features/discounts/admin/discount-administration.service";
+import { toAdminDotyposCustomer } from "@/features/discounts/admin/discount-administration-reads";
 import { executeDiscountAdminMutation } from "@/features/discounts/admin/execute-discount-admin-mutation";
 import { CampaignOperations } from "@/features/email-campaigns/backend/campaign-operations.service";
 import { ReservationProductDetailsBackfill } from "@/features/reservation/backend/reservation-product-details-backfill.service";
@@ -150,6 +152,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
     const reservationAccess = yield* ReservationAccessAdministration;
     const authentication = yield* CliAuthentication;
     const discounts = yield* DiscountAdministration;
+    const customerDirectory = yield* AdministrationCustomerDirectory;
     const invoices = yield* InvoiceAdministrationService;
     const standaloneAccessCodes = yield* StandaloneAccessCodeAdministration;
     const ledger = yield* AdministrationRequestLedger;
@@ -301,7 +304,13 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         administration.listCustomers(query).pipe(mapServiceFailure)
       )
       .handle("searchCustomers", ({ query }) =>
-        discounts.searchCustomers(query).pipe(mapServiceFailure)
+        customerDirectory.search(query.query).pipe(
+          Effect.map(({ kind, customers }) => ({
+            kind,
+            customers: customers.map(toAdminDotyposCustomer),
+          })),
+          mapServiceFailure
+        )
       )
       .handle("getCustomer", ({ params }) =>
         Effect.all(
@@ -898,6 +907,7 @@ export const provideWorkspaceAdminApiServices = <A, E, R>(
     Layer.provide(LegacyAdministratorBackfill.Live),
     Layer.provide(ReservationAccessAdministration.Live),
     Layer.provide(DiscountAdministration.Live),
+    Layer.provide(AdministrationCustomerDirectory.Live),
     Layer.provide(InvoiceAdministrationService.Live),
     Layer.provide(StandaloneAccessCodeAdministration.Live),
     Layer.provide(AdministrationRequestLedger.Live),

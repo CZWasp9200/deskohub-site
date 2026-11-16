@@ -9,6 +9,7 @@ import { screenPathPattern } from "../analytics/screen-path";
 import {
   bookCheckoutHref,
   bookFamilyHref,
+  bookProfileHref,
   paymentStatusHref,
   reservationsHref,
 } from "../booking/booking-routes";
@@ -72,6 +73,7 @@ describe("app route tree", () => {
         "/book/cowork",
         "/book/meeting-room",
         "/book/office",
+        "/book/profile",
         "/dev/booking-components",
         "/dev/design-system",
         "/dev/effect-smoke",
@@ -101,6 +103,7 @@ describe("app route tree", () => {
       "(account)/book/cowork",
       "(account)/book/meeting-room",
       "(account)/book/office",
+      "(account)/book/profile",
     ]);
   });
 
@@ -147,6 +150,7 @@ describe("app route tree", () => {
       bookFamilyHref("meeting-room"),
       bookFamilyHref("office", "quote_expired"),
       bookCheckoutHref,
+      bookProfileHref,
       reservationsHref,
       paymentStatusHref("synthetic-order"),
     ]) {

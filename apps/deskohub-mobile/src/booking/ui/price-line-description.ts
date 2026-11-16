@@ -23,7 +23,7 @@ const monitorOptionNames = {
   "2x32-4k": "2× 32″ 4K",
 } as const satisfies Record<CustomerMonitorOption, string>;
 
-const monitorOptionName = (option: string): string =>
+export const monitorOptionName = (option: string): string =>
   option in monitorOptionNames
     ? monitorOptionNames[option as CustomerMonitorOption]
     : option;
