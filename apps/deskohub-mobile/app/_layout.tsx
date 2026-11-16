@@ -48,7 +48,6 @@ export default function RootLayout() {
               <Stack screenOptions={{ headerShown: false }}>
                 <Stack.Screen name="sign-in" />
                 <Stack.Protected guard={session.status === "signed-in"}>
-                  <Stack.Screen name="index" />
                   <Stack.Screen name="(account)" />
                 </Stack.Protected>
                 <Stack.Screen name="auth/callback" />
