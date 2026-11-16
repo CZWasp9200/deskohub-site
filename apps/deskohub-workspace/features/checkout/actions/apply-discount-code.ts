@@ -6,7 +6,7 @@ import { RedirectType, redirect } from "next/navigation";
 import { env } from "@/env";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import {
-  buildCheckoutPayPathFromToken,
+  buildCheckoutPayPath,
   CheckoutReferralService,
   PayableReservationService,
 } from "@/features/checkout/backend/checkout";
@@ -143,7 +143,7 @@ const getRejectedPayPath = (
   payStateToken: string,
   status: ApplyDiscountCodeActionResult["status"] | undefined
 ) =>
-  buildCheckoutPayPathFromToken(
+  buildCheckoutPayPath(
     isLocale(locale) ? locale : defaultLocale,
     payStateToken,
     {

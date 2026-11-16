@@ -23,15 +23,12 @@ import type { CustomerAccountId } from "@/features/account/customer-account";
 import { CheckoutAnalytics } from "@/features/checkout/backend/analytics";
 import {
   type AdvertisementAffirmation,
-  buildCheckoutPayPath,
-  buildSignedPayState,
   CheckoutPricingService,
   getPriceVerdictChangedKeys,
   openSubmittedAdvertisedPriceState,
-  type PayStateLinkOptions,
+  PayState,
   type PreparedCustomerQuote,
   type PriceVerdict,
-  sealPayStateForUrl,
 } from "@/features/checkout/backend/checkout";
 import {
   deriveCheckoutAttemptKeys,
@@ -303,10 +300,7 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
      */
     readonly stableLink?: boolean;
   }) {
-    const linkOptions: PayStateLinkOptions = input.stableLink
-      ? { issuedAt: input.bookedAt, deterministic: true }
-      : {};
-    const state = yield* buildSignedPayState(
+    const payState = yield* PayState.issue(
       {
         ...input.prepared,
         locale: input.locale,
@@ -317,27 +311,20 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
         checkoutSessionId: input.checkoutSessionId,
         changedKeys: input.changedKeys,
       },
-      linkOptions
-    );
-    const sealedState = yield* sealPayStateForUrl(state, linkOptions);
-    const redirectUrl = buildCheckoutPayPath(input.locale, sealedState, {
-      orderId: input.reservationId,
-    });
-    // The Pay page accepts its sealed state until this instant.
-    const expiresAt = temporalInstantToIsoString(
-      Temporal.Instant.fromEpochMilliseconds(state.exp * 1000)
+      input.stableLink ? { stableAt: input.bookedAt } : {}
     );
     const referralApplied =
       input.referralCustomer !== undefined &&
       hasCheckoutReferralBenefit({
-        discounts: state.quote.payment.discounts,
+        discounts: input.prepared.quote.payment.discounts,
         dotyposCustomerId: input.referralCustomer,
       });
     const issued = {
       orderId: input.reservationId,
-      redirectUrl,
-      payStateToken: sealedState.token,
-      expiresAt,
+      redirectUrl: payState.payUrl,
+      payStateToken: payState.payStateToken,
+      // The Pay page accepts its sealed state until this instant.
+      expiresAt: payState.expiresAt,
       ...(referralApplied && { referralApplied: true as const }),
     };
 

@@ -8,11 +8,7 @@ import {
 } from "@/features/legal/early-performance";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
-import { getPayStateExpiresAt } from "./checkout-pay-url";
-import {
-  getSignedPayStateCheckoutSummary,
-  type SignedPayState,
-} from "./pay-state";
+import { PayState, type SignedPayState } from "./pay-state";
 
 /**
  * What a client shows for one signed Pay state: the order, its summary, a
@@ -38,8 +34,8 @@ export const getPayStateCheckoutView = (
   now: Temporal.Instant
 ): PayStateCheckoutView => ({
   orderId: state.orderId,
-  expiresAt: getPayStateExpiresAt(state),
-  summary: getSignedPayStateCheckoutSummary(state),
+  expiresAt: PayState.expiresAt(state),
+  summary: PayState.summary(state),
   changedKeys: state.changedKeys,
   earlyPerformanceConsent: {
     required: isEarlyPerformanceRequestRequired({

@@ -10,8 +10,8 @@ import { applyDiscountCodeToPayState } from "@/features/checkout/actions/apply-d
 import {
   acceptPayStatePriceChange,
   CheckoutReferralService,
-  openPayState,
   PayableReservationService,
+  PayState,
   requirePayStateAuthor,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
@@ -77,7 +77,7 @@ interface ICustomerCheckoutOperations {
   /** `requirePayStateAuthor`: the checkout's order was booked by the account. */
   readonly requireAuthor: Provided<typeof requirePayStateAuthor>;
   /** Opens a checkout state token the server issued. */
-  readonly readPayState: Provided<typeof openPayState>;
+  readonly readPayState: Provided<typeof PayState.open>;
   /**
    * `RememberedReferral.forgetIfSettled`: records that the client's code is
    * used once the booker's referral settles.
@@ -195,7 +195,7 @@ export class CustomerCheckoutOperations extends Context.Service<
             Effect.provide(CheckoutServicesUnavailable.whenUnbuilt(authorship))
           ),
         readPayState: (token) =>
-          openPayState(token).pipe(
+          PayState.open(token).pipe(
             Effect.provide(
               CheckoutServicesUnavailable.whenUnbuilt(SealedStateKeys.Default)
             )

@@ -1,20 +1,17 @@
-import { randomUUID } from "node:crypto";
 import { Effect, Match, Option, Schema } from "effect";
 import {
   CheckoutPricingService,
   CheckoutReferralService,
-  getSignedPayStateBookedAt,
-  issueFreshPayState,
-  openPayStateForLocale,
   PayableReservationService,
+  PayState,
 } from "@/features/checkout/backend/checkout";
+import type { CheckoutReferralResult } from "@/features/checkout/backend/checkout/checkout-referral.service";
 import {
   type FreshPayState,
   type NoFreshPayState,
+  type SignedPayState,
   toFreshPayState,
-} from "@/features/checkout/backend/checkout/checkout-pay-url";
-import type { CheckoutReferralResult } from "@/features/checkout/backend/checkout/checkout-referral.service";
-import type { SignedPayState } from "@/features/checkout/backend/checkout/pay-state";
+} from "@/features/checkout/backend/checkout/pay-state";
 import type { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import {
@@ -100,24 +97,14 @@ type DiscountCodeEntry = {
  * requested intent, with the field error to show beside it.
  */
 const issueRejectedCodePayState = (
-  { input, state, submittedCode }: DiscountCodeEntry,
-  discountCodeError: DiscountCodeRejection
+  { state, submittedCode }: DiscountCodeEntry,
+  rejection: DiscountCodeRejection
 ) =>
-  issueFreshPayState(
-    {
-      ...state,
-      locale: input.locale,
-      orderId: state.orderId,
-      checkoutSessionId: state.checkoutSessionId,
-      requestedDiscountCode: submittedCode,
-    },
-    {},
-    {
-      discountCodeError,
-      discountCodeErrorId: randomUUID(),
-      orderId: state.orderId,
-    }
-  ).pipe(Effect.map(toFreshPayState));
+  PayState.reissue(state, {
+    kind: "code_rejected",
+    code: submittedCode,
+    rejection,
+  }).pipe(Effect.map(toFreshPayState));
 
 /** Unavailable results without a replacement Pay state. */
 const unavailableBecause = (
@@ -252,7 +239,7 @@ const applyPromotionCode = Effect.fnUntraced(function* (
   const result = yield* pricing
     .applyDiscountCode({
       ...state,
-      bookedAt: getSignedPayStateBookedAt(state),
+      bookedAt: PayState.bookedAt(state),
       dotyposCustomerId,
       locale: input.locale,
       submittedCode,
@@ -282,49 +269,18 @@ const applyPromotionCode = Effect.fnUntraced(function* (
     return result;
   }
 
-  const priced: ApplyDiscountCodeResult = yield* Match.value(result).pipe(
+  const freshPayState = yield* PayState.reissue(state, {
+    kind: "code_entered",
+    code: submittedCode,
+    verdict: result,
+  }).pipe(Effect.map(toFreshPayState));
+  const priced: ApplyDiscountCodeResult = Match.value(result).pipe(
     Match.discriminatorsExhaustive("status")({
-      affirmed: (applied) =>
-        issueFreshPayState(
-          {
-            ...applied.priced,
-            locale: input.locale,
-            orderId: state.orderId,
-            bookedAt: state.bookedAt,
-            checkoutSessionId: state.checkoutSessionId,
-            submittedCode,
-            submittedCodeDiscountId: applied.priced.submittedCodeDiscountId,
-            requestedDiscountCode: submittedCode,
-            referralCode: state.referralCode,
-          },
-          {},
-          { orderId: state.orderId }
-        ).pipe(
-          Effect.map((freshPayState) => ({
-            status: "applied" as const,
-            ...toFreshPayState(freshPayState),
-          }))
-        ),
-      pricing_changed: (changed) =>
-        issueFreshPayState(
-          {
-            ...changed.priced,
-            locale: input.locale,
-            orderId: state.orderId,
-            bookedAt: state.bookedAt,
-            checkoutSessionId: state.checkoutSessionId,
-            changedKeys: changed.changedKeys,
-            requestedDiscountCode: submittedCode,
-            referralCode: state.referralCode,
-          },
-          {},
-          { orderId: state.orderId }
-        ).pipe(
-          Effect.map((freshPayState) => ({
-            status: "pricing_changed" as const,
-            ...toFreshPayState(freshPayState),
-          }))
-        ),
+      affirmed: () => ({ status: "applied" as const, ...freshPayState }),
+      pricing_changed: () => ({
+        status: "pricing_changed" as const,
+        ...freshPayState,
+      }),
     })
   );
   return priced;
@@ -336,7 +292,9 @@ export const applyDiscountCodeToPayState = Effect.fn(
   function* (input: ApplyDiscountCodeInput) {
     const referrals = yield* ReferralService;
 
-    const state = yield* openPayStateForLocale(input);
+    const state = yield* PayState.open(input.payStateToken, {
+      locale: input.locale,
+    });
 
     if (state.changedKeys) {
       return unavailableBecause({

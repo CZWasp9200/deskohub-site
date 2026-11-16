@@ -10,10 +10,7 @@ import { getEarlyPerformanceRequestRequiredAt } from "@/features/legal/early-per
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
-import {
-  buildSignedPayState,
-  getSignedPayStateCheckoutSummary,
-} from "./pay-state";
+import { buildSignedPayState, PayState } from "./pay-state";
 import { getPayStateCheckoutView } from "./pay-state-checkout-view";
 
 const reservation = {
@@ -58,7 +55,7 @@ describe("getPayStateCheckoutView", () => {
 
     expect(view.orderId).toBe(orderId);
     expect(view.expiresAt).toBe("2026-07-01T10:10:00.000Z");
-    expect(view.summary).toEqual(getSignedPayStateCheckoutSummary(state));
+    expect(view.summary).toEqual(PayState.summary(state));
     expect(view.changedKeys).toBeUndefined();
   });
 

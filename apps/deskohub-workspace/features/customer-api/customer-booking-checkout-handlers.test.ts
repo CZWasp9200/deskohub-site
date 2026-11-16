@@ -18,7 +18,7 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import {
   CheckoutError,
   CheckoutService,
-  openPayState,
+  PayState,
   PayStateAuthorNotFoundError,
   PayStateIssueError,
   PayStateTokenError,
@@ -73,7 +73,7 @@ const unsignablePayState = new PayStateIssueError({
 });
 
 const openTestPayState = (token: string) =>
-  openPayState(token).pipe(Effect.provide(TestSealedStateKeys));
+  PayState.open(token).pipe(Effect.provide(TestSealedStateKeys));
 
 /**
  * Checkout operations over the test key ring: tokens open, and the session's

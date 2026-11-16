@@ -38,7 +38,7 @@ The summary page's code form is an independent action (`features/checkout/action
 4. Ordinary and referral codes are priced between two live payable-reservation guards. An active payment attempt at either guard returns `payment_in_progress` and signs no repriced summary.
 5. A referral verdict (inactive, unknown, self-referral and the like) is a code failure. A referral store or Dotypos outage reaches no verdict and is a provider failure the customer can retry, never an unavailable code.
 
-Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. Every reservation family quotes and affirms through its own canonical product identity; dispatch family-owned quote, summary, persistence, and checkout-details projections exhaustively, with no implicit cowork default.
+Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. Issue a new order's Pay state with `PayState.issue` and replace an open one only with `PayState.reissue(state, outcome)` (`pay-state.ts`): each outcome owns the fields it carries forward, so callers never assemble a replacement's fields by hand. Every reservation family quotes and affirms through its own canonical product identity; dispatch family-owned quote, summary, persistence, and checkout-details projections exhaustively, with no implicit cowork default.
 
 ### Payment
 
@@ -74,7 +74,7 @@ A Calendar sale applies according to the booking instant. The eligibility rule i
 
 - Advertisement and the home-page banner use the current instant.
 - Reservation submission (`prepareWorkspacePayState`) captures the instant once and signs it into the Pay state as `bookedAt`. Re-signed Pay states carry it forward.
-- Every later affirmation reads `getSignedPayStateBookedAt`, never the clock: summary acceptance, code entry, payment start, and claim-conflict refresh.
+- Every later affirmation reads `PayState.bookedAt`, never the clock: summary acceptance, code entry, payment start, and claim-conflict refresh.
 - Editing the reservation creates a new Pay state and a new booking instant. Never use the reservation draft's creation time.
 - Webhook, finalization, and late-payment recovery read persisted application snapshots and never re-evaluate eligibility.
 

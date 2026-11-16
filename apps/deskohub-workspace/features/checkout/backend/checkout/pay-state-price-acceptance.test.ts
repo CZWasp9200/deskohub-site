@@ -4,11 +4,8 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
-import {
-  buildCheckoutPayPathFromToken,
-  getPayStateExpiresAt,
-} from "./checkout-pay-url";
-import { openPayState } from "./pay-state";
+import { buildCheckoutPayPath } from "./checkout-pay-url";
+import { PayState } from "./pay-state";
 import { acceptPayStatePriceChange } from "./pay-state-price-acceptance";
 import {
   sealSyntheticPayStateToken,
@@ -27,12 +24,12 @@ describe("acceptPayStatePriceChange", () => {
     const payStateToken = await sealSyntheticPayStateToken({
       changedKeys: syntheticChangedKeys,
     });
-    const reviewed = await run(openPayState(payStateToken));
+    const reviewed = await run(PayState.open(payStateToken));
 
     const accepted = await run(
       acceptPayStatePriceChange({ payStateToken, locale: "en-US" })
     );
-    const continued = await run(openPayState(accepted.payStateToken));
+    const continued = await run(PayState.open(accepted.payStateToken));
 
     expect(accepted.status).toBe("accepted");
     expect(accepted.payStateToken).not.toBe(payStateToken);
@@ -41,14 +38,14 @@ describe("acceptPayStatePriceChange", () => {
     expect(continued.orderId).toBe(reviewed.orderId);
     expect(continued.acceptedTotal).toEqual(reviewed.acceptedTotal);
     expect(accepted.payUrl).toBe(
-      buildCheckoutPayPathFromToken("en-US", accepted.payStateToken)
+      buildCheckoutPayPath("en-US", accepted.payStateToken)
     );
-    expect(accepted.expiresAt).toBe(getPayStateExpiresAt(continued));
+    expect(accepted.expiresAt).toBe(PayState.expiresAt(continued));
   });
 
   test("returns a state without a price review unchanged", async () => {
     const payStateToken = await sealSyntheticPayStateToken();
-    const opened = await run(openPayState(payStateToken));
+    const opened = await run(PayState.open(payStateToken));
 
     const accepted = await run(
       acceptPayStatePriceChange({ payStateToken, locale: "en-US" })
@@ -57,8 +54,8 @@ describe("acceptPayStatePriceChange", () => {
     expect(accepted).toEqual({
       status: "already_accepted",
       payStateToken,
-      payUrl: buildCheckoutPayPathFromToken("en-US", payStateToken),
-      expiresAt: getPayStateExpiresAt(opened),
+      payUrl: buildCheckoutPayPath("en-US", payStateToken),
+      expiresAt: PayState.expiresAt(opened),
     });
   });
 
