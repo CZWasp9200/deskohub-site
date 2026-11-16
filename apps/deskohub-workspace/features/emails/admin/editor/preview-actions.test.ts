@@ -101,14 +101,14 @@ describe("previewEmailDraft", () => {
     expect(result?.serverError).toEqual(expect.any(String));
   });
 
-  test("answers a draft with an unknown key with a failure", async () => {
+  test("rejects a draft with an unknown key as invalid input", async () => {
     const result = await previewEmailDraft({
       draft: { ...draft, unexpected: true } as typeof draft,
       locale: "en-US",
     });
 
     expect(result?.data).toBeUndefined();
-    expect(result?.serverError).toEqual(expect.any(String));
+    expect(result?.validationErrors?.fieldErrors?.draft).toHaveLength(1);
   });
 
   test.each(["signed-out", "not-administrator"] as const)(
