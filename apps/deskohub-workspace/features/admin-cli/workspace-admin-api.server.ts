@@ -832,6 +832,7 @@ const toCliVoucherDetail = (detail: AdminVoucherDetail) => ({
 const provenanceSourceOf = (channel: AdministrationChannel) =>
   Match.value(channel).pipe(
     Match.tagsExhaustive({
+      AdminUi: () => "admin-ui" as const,
       CliSession: () => "dhw-cli" as const,
       AssistantConnection: () => "assistant" as const,
     })
