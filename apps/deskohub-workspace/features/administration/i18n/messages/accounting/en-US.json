@@ -201,6 +201,7 @@
   "accountingInvoiceCancelErrorDocumentUnavailable": "The invoice document could not be read, so nothing was cancelled. Try again later.",
   "accountingInvoiceCancelErrorPersistenceFailed": "The cancellation could not be saved. Try again.",
   "accountingInvoiceCancelledBadge": "Cancelled",
+  "accountingInvoiceDocumentUnavailable": "Invoice document unavailable",
   "accountingInvoiceCancellationSection": "Cancellation",
   "accountingInvoiceCancellationCancelledAt": "Cancelled on",
   "accountingInvoiceCancellationActor": "Cancelled by",

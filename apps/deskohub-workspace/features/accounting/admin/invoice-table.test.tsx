@@ -149,3 +149,63 @@ test("marks only cancelled rows, which offer hiding instead of cancelling", () =
     })
   ).toBeNull();
 });
+
+test("shows an invoice whose document cannot be read without its document's fields or actions, except hiding once cancelled", () => {
+  workspaceUseAction.mockImplementation(
+    () => ({ execute: mock(), isExecuting: false }) as never
+  );
+  const locale = "en-US";
+  const unreadable: InvoiceAdministrationTableRow = {
+    documentUnavailable: true,
+    id: AdministrationInvoiceId.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb23"),
+    invoiceNumber: "2026000003",
+    issuedAt: "2026-08-18T10:30:00Z",
+    issuedAtLabel: "18. 8. 2026 12:30",
+    cancelledAt: null,
+    archivedAt: null,
+    replacesInvoiceId: null,
+    replacedByInvoiceId: null,
+  };
+  const cancelledUnreadable: InvoiceAdministrationTableRow = {
+    ...unreadable,
+    id: AdministrationInvoiceId.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb24"),
+    invoiceNumber: "2026000004",
+    cancelledAt: "2026-08-20T10:00:00Z",
+  };
+  const view = render(
+    <RouteLocaleProvider locale={locale}>
+      <InvoiceAdministrationTable
+        items={[invoice, unreadable, cancelledUnreadable]}
+        query={{}}
+      />
+    </RouteLocaleProvider>
+  );
+  const table = within(view.getByRole("table"));
+  const rowOf = (invoiceNumber: string) =>
+    table.getByText(invoiceNumber, { exact: true }).closest("tr")!;
+  const marker = '[data-slot="invoice-document-unavailable"]';
+  const badge = m.accountingInvoiceCancelledBadge({}, { locale });
+
+  expect(rowOf(invoice.invoiceNumber).querySelector(marker)).toBeNull();
+
+  const live = rowOf(unreadable.invoiceNumber);
+  expect(live.querySelectorAll(marker)).toHaveLength(1);
+  expect(live.querySelectorAll("a")).toHaveLength(0);
+  expect(live.querySelectorAll("button")).toHaveLength(0);
+  expect(within(live).queryByText(badge)).toBeNull();
+
+  const cancelled = rowOf(cancelledUnreadable.invoiceNumber);
+  expect(cancelled.querySelectorAll(marker)).toHaveLength(1);
+  expect(cancelled.querySelectorAll("a")).toHaveLength(0);
+  expect(within(cancelled).getByText(badge)).toBeTruthy();
+  expect(
+    within(cancelled)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"))
+  ).toEqual([
+    m.accountingInvoiceHideLabel(
+      { invoiceNumber: cancelledUnreadable.invoiceNumber },
+      { locale }
+    ),
+  ]);
+});

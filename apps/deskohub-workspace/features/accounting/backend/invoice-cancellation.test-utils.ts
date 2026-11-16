@@ -90,8 +90,9 @@ export const makeInvoiceCancellationTestKit = (
       | InvoiceEmailDeliveryRepository
       | InvoiceRepository
       | WorkspaceDatabase
-    >
-  ) => Effect.runPromise(effect.pipe(Effect.provide(layer())));
+    >,
+    keys?: IAccountingSnapshotKeyService
+  ) => Effect.runPromise(effect.pipe(Effect.provide(layer(keys))));
 
   const makeActor = async (label: string): Promise<AdministrationActor> => ({
     source: "dhw-cli",
@@ -100,7 +101,11 @@ export const makeInvoiceCancellationTestKit = (
     ),
   });
 
-  const issueManualInvoice = async (actor: AdministrationActor) => {
+  /** Issues a manual invoice, sealed under `keys`' active key when given. */
+  const issueManualInvoice = async (
+    actor: AdministrationActor,
+    keys?: IAccountingSnapshotKeyService
+  ) => {
     const input = Schema.decodeUnknownSync(manualInvoiceInputSchema)({
       invoiceId: randomUUID(),
       dotyposCustomerId: `invoice-cancellation-customer-${randomUUID()}`,
@@ -128,7 +133,8 @@ export const makeInvoiceCancellationTestKit = (
     const { invoice } = await run(
       Effect.flatMap(InvoiceRepository, (invoices) =>
         invoices.issueManual({ ...input, issuedBy: actor.administrator })
-      )
+      ),
+      keys
     );
     return invoice;
   };

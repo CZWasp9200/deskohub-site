@@ -201,6 +201,7 @@
   "accountingInvoiceCancelErrorDocumentUnavailable": "इनवॉइस दस्तावेज़ पढ़ा नहीं जा सका, इसलिए कुछ भी रद्द नहीं हुआ। बाद में फिर से कोशिश करें।",
   "accountingInvoiceCancelErrorPersistenceFailed": "रद्दीकरण सहेजा नहीं जा सका। फिर से कोशिश करें।",
   "accountingInvoiceCancelledBadge": "रद्द",
+  "accountingInvoiceDocumentUnavailable": "इनवॉइस दस्तावेज़ उपलब्ध नहीं है",
   "accountingInvoiceCancellationSection": "रद्दीकरण",
   "accountingInvoiceCancellationCancelledAt": "रद्द करने का समय",
   "accountingInvoiceCancellationActor": "रद्द करने वाले",

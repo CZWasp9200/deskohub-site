@@ -17,8 +17,12 @@ import { AdministrationCollectionLoading } from "@/features/administration/loadi
 import type { Locale } from "@/features/i18n";
 import { getRequestLocale } from "@/features/i18n/server/request-locale";
 import { Button } from "@/shared/components/ui/button";
+import { isUnreadableInvoiceListEntry } from "./invoice-list-entry";
 import { invoiceListQuery } from "./invoice-list-query";
-import { InvoiceAdministrationTable } from "./invoice-table";
+import {
+  InvoiceAdministrationTable,
+  type InvoiceAdministrationTableRow,
+} from "./invoice-table";
 import {
   type InvoiceAdministrationSearchParams,
   loadInvoiceAdministrationList,
@@ -102,14 +106,24 @@ async function InvoiceCollection({
   return (
     <>
       <InvoiceAdministrationTable
-        items={result.items.items.map((invoice) => ({
-          ...invoice,
-          issuedAtLabel: formatAdministrationDateTime(invoice.issuedAt, locale),
-          totalLabel: formatInvoiceTotal(
-            { amount: invoice.total, currency: invoice.currency },
-            locale
-          ),
-        }))}
+        items={result.items.items.map(
+          (invoice): InvoiceAdministrationTableRow => {
+            const issuedAtLabel = formatAdministrationDateTime(
+              invoice.issuedAt,
+              locale
+            );
+            return isUnreadableInvoiceListEntry(invoice)
+              ? { ...invoice, issuedAtLabel }
+              : {
+                  ...invoice,
+                  issuedAtLabel,
+                  totalLabel: formatInvoiceTotal(
+                    { amount: invoice.total, currency: invoice.currency },
+                    locale
+                  ),
+                };
+          }
+        )}
         query={result.query}
       />
       <Pagination

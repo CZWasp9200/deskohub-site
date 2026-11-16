@@ -37,6 +37,7 @@ import type {
   Invoice,
   InvoiceMetadata,
   ReservationInvoice,
+  UnreadableInvoice,
 } from "./invoice.repository";
 import { isVisibleToCustomer } from "./invoice-visibility-sql";
 import {
@@ -77,19 +78,15 @@ export const makeInvoiceReads = Effect.gen(function* () {
   const sealedDocuments = yield* sealedInvoiceDocuments;
 
   /**
-   * Reads the standing of the first invoice the selector matches, then opens
-   * that row's document while the selector still matches it. `moved` when the
-   * row stopped matching in between, as when a live invoice is cancelled.
+   * The cancellation, archive and chain links of the first invoice the
+   * selector matches, beside its unencrypted numbering. Decrypts nothing.
    */
-  const loadMatchingInvoice = Effect.fn(
-    "InvoiceRepository.loadMatchingInvoice"
-  )(function* (input: {
-    readonly where: SQL;
-    readonly reference: AccountingRecordReference;
-  }) {
-    const [standing] = yield* db
+  const readStanding = (where: SQL) =>
+    db
       .select({
         id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        issuedAt: invoices.issuedAt,
         replacesInvoiceId: invoices.replacesInvoiceId,
         replacedByInvoiceId: successor.id,
         cancelledAt: invoiceCancellations.cancelledAt,
@@ -108,8 +105,21 @@ export const makeInvoiceReads = Effect.gen(function* () {
       )
       .leftJoin(invoiceArchives, eq(invoiceArchives.invoiceId, invoices.id))
       .leftJoin(successor, eq(successor.replacesInvoiceId, invoices.id))
-      .where(input.where)
+      .where(where)
       .limit(1);
+
+  /**
+   * Reads the standing of the first invoice the selector matches, then opens
+   * that row's document while the selector still matches it. `moved` when the
+   * row stopped matching in between, as when a live invoice is cancelled.
+   */
+  const loadMatchingInvoice = Effect.fn(
+    "InvoiceRepository.loadMatchingInvoice"
+  )(function* (input: {
+    readonly where: SQL;
+    readonly reference: AccountingRecordReference;
+  }) {
+    const [standing] = yield* readStanding(input.where);
 
     if (!standing) return null;
 
@@ -244,6 +254,58 @@ export const makeInvoiceReads = Effect.gen(function* () {
     );
     return loaded.filter((invoice) => invoice !== null);
   });
+
+  /** The invoice's unencrypted columns and standing, for one whose document cannot be opened. */
+  const readUnreadable = Effect.fn("InvoiceRepository.readUnreadable")(
+    function* (id: InvoiceId) {
+      const [standing] = yield* readStanding(eq(invoices.id, id));
+      if (!standing) return null;
+      return {
+        id,
+        invoiceNumber: standing.invoiceNumber,
+        issuedAt: standing.issuedAt,
+        cancellation: yield* toCancellationFact(standing, {
+          type: "invoiceId",
+          id,
+        }),
+        archivedAt: standing.archivedAt,
+        replacesInvoiceId: standing.replacesInvoiceId,
+        replacedByInvoiceId: standing.replacedByInvoiceId
+          ? invoiceIdSchema.make(standing.replacedByInvoiceId)
+          : null,
+      } satisfies UnreadableInvoice;
+    }
+  );
+
+  const listWithUnreadable = Effect.fn("InvoiceRepository.listWithUnreadable")(
+    function* () {
+      const rows = yield* db.select({ id: invoices.id }).from(invoices);
+      const loaded = yield* Effect.all(
+        rows.map(({ id }) =>
+          findById(id).pipe(
+            Effect.map((invoice) => invoice && { readable: invoice }),
+            // Whatever keeps the document from opening (a foreign key, a
+            // missing key, a document that disagrees with its row), the
+            // unencrypted columns still name the invoice.
+            Effect.catchTag("AccountingRecordUnavailable", () =>
+              readUnreadable(invoiceIdSchema.make(id)).pipe(
+                Effect.map((invoice) => invoice && { unreadable: invoice })
+              )
+            )
+          )
+        ),
+        { concurrency: "inherit" }
+      );
+      return {
+        readable: loaded.flatMap((entry) =>
+          entry && "readable" in entry ? [entry.readable] : []
+        ),
+        unreadable: loaded.flatMap((entry) =>
+          entry && "unreadable" in entry ? [entry.unreadable] : []
+        ),
+      };
+    }
+  );
 
   const listManualInvoiceProvenance = Effect.fn(
     "InvoiceRepository.listManualInvoiceProvenance"
@@ -394,6 +456,7 @@ export const makeInvoiceReads = Effect.gen(function* () {
     listForCustomer,
     listManualInvoiceProvenance,
     listMetadataForCustomer,
+    listWithUnreadable,
   };
 });
 

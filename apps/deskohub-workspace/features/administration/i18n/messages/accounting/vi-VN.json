@@ -198,6 +198,7 @@
   "accountingInvoiceCancelErrorDocumentUnavailable": "Không thể đọc tài liệu hóa đơn nên chưa có gì bị hủy. Vui lòng thử lại sau.",
   "accountingInvoiceCancelErrorPersistenceFailed": "Không thể lưu việc hủy. Vui lòng thử lại.",
   "accountingInvoiceCancelledBadge": "Đã hủy",
+  "accountingInvoiceDocumentUnavailable": "Tài liệu hóa đơn không khả dụng",
   "accountingInvoiceCancellationSection": "Hủy hóa đơn",
   "accountingInvoiceCancellationCancelledAt": "Thời điểm hủy",
   "accountingInvoiceCancellationActor": "Người hủy",

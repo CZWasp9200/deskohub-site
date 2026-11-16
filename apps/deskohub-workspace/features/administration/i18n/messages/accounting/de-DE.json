@@ -201,6 +201,7 @@
   "accountingInvoiceCancelErrorDocumentUnavailable": "Das Rechnungsdokument konnte nicht gelesen werden, daher wurde nichts storniert. Versuchen Sie es später erneut.",
   "accountingInvoiceCancelErrorPersistenceFailed": "Die Stornierung konnte nicht gespeichert werden. Versuchen Sie es erneut.",
   "accountingInvoiceCancelledBadge": "Storniert",
+  "accountingInvoiceDocumentUnavailable": "Rechnungsdokument nicht verfügbar",
   "accountingInvoiceCancellationSection": "Stornierung",
   "accountingInvoiceCancellationCancelledAt": "Storniert am",
   "accountingInvoiceCancellationActor": "Storniert von",

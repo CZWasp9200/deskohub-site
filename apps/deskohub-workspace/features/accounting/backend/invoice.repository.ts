@@ -96,6 +96,22 @@ export interface Invoice {
 }
 
 /**
+ * An issued invoice whose document could not be opened, as when it was
+ * sealed under another deployment's key: only its unencrypted columns and
+ * its standing.
+ */
+export interface UnreadableInvoice {
+  readonly id: InvoiceId;
+  readonly invoiceNumber: InvoiceNumber;
+  readonly issuedAt: Temporal.Instant;
+  /** `null` while the invoice is live. */
+  readonly cancellation: InvoiceCancellationFact | null;
+  readonly archivedAt: Temporal.Instant | null;
+  readonly replacesInvoiceId: InvoiceId | null;
+  readonly replacedByInvoiceId: InvoiceId | null;
+}
+
+/**
  * An issued invoice's numbering and source references, read without its
  * document: no decryption, no encrypted bytes and no key id.
  * `documentSnapshotRecordedAt` is when the accounting snapshot of a
@@ -241,9 +257,21 @@ export interface IInvoiceRepository {
     | ReadLimitExceededError
     | AccountingRecordUnavailable
   >;
-  /** Decrypts every invoice. */
+  /** Decrypts every invoice; one that cannot be opened fails the listing. */
   readonly list: () => Effect.Effect<
     readonly Invoice[],
+    EffectDrizzleQueryError | AccountingRecordUnavailable
+  >;
+  /**
+   * Decrypts every invoice as `list` does, except that an invoice whose
+   * document cannot be opened is returned apart, from its unencrypted
+   * columns, instead of failing the listing.
+   */
+  readonly listWithUnreadable: () => Effect.Effect<
+    {
+      readonly readable: readonly Invoice[];
+      readonly unreadable: readonly UnreadableInvoice[];
+    },
     EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /** Decrypts every manual invoice to read who issued it, and through what. */

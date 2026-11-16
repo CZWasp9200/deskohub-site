@@ -26,7 +26,10 @@ export const loadInvoiceAdministrationList = (
         yield* Effect.promise(() => searchParams)
       );
       const administration = yield* InvoiceAdministrationService;
-      return { items: yield* administration.list(query), query };
+      return {
+        items: yield* administration.listWithUnreadable(query),
+        query,
+      };
     }),
     InvoiceAdministrationService.Live
   );

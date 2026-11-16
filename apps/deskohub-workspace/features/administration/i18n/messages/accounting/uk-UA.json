@@ -207,6 +207,7 @@
   "accountingInvoiceCancelErrorDocumentUnavailable": "Не вдалося прочитати документ рахунку-фактури, тому нічого не скасовано. Спробуйте пізніше.",
   "accountingInvoiceCancelErrorPersistenceFailed": "Не вдалося зберегти скасування. Спробуйте ще раз.",
   "accountingInvoiceCancelledBadge": "Скасовано",
+  "accountingInvoiceDocumentUnavailable": "Документ рахунку-фактури недоступний",
   "accountingInvoiceCancellationSection": "Скасування",
   "accountingInvoiceCancellationCancelledAt": "Скасовано",
   "accountingInvoiceCancellationActor": "Хто скасував",

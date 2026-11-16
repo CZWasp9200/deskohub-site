@@ -6,7 +6,7 @@ import {
   AdministrationInvoiceCreateInput,
   AdministrationInvoiceId,
 } from "@deskohub/workspace-admin-api";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Logger, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import {
@@ -15,7 +15,11 @@ import {
 } from "@/features/accounting/invoice.test-utils";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
 import { ReservationAdministrationService } from "@/features/administration/reservation-administration.service";
-import { type Invoice, InvoiceRepository } from "../backend/invoice.repository";
+import {
+  type Invoice,
+  InvoiceRepository,
+  type UnreadableInvoice,
+} from "../backend/invoice.repository";
 import { InvoiceArchiveRepository } from "../backend/invoice-archive.repository";
 import { InvoiceCancellationRepository } from "../backend/invoice-cancellation.repository";
 import { InvoiceCancellationService } from "../backend/invoice-cancellation.service";
@@ -34,6 +38,7 @@ import {
 import {
   type InvoiceAdministrationListItem,
   InvoiceAdministrationService,
+  type InvoiceAdministrationUnreadableListItem,
   sortInvoiceAdministrationItems,
 } from "./invoice-administration.service";
 import {
@@ -506,6 +511,35 @@ describe("invoice administration sorting", () => {
     ).toEqual([newer, olderAttention]);
   });
 
+  test("orders an unreadable invoice by its issue time, and after readable invoices by fields its document holds", () => {
+    const readable = item("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb21", {
+      issuedAt: "2026-08-18T00:00:00.000Z",
+    });
+    const unreadable = {
+      documentUnavailable: true,
+      id: AdministrationInvoiceId.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb22"),
+      invoiceNumber: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb22",
+      issuedAt: "2026-08-19T00:00:00.000Z",
+      cancelledAt: null,
+      archivedAt: null,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
+    } satisfies InvoiceAdministrationUnreadableListItem;
+
+    expect(sortInvoiceAdministrationItems([readable, unreadable], {})).toEqual([
+      unreadable,
+      readable,
+    ]);
+    for (const direction of ["asc", "desc"] as const) {
+      expect(
+        sortInvoiceAdministrationItems([unreadable, readable], {
+          sort: "customer",
+          direction,
+        })
+      ).toEqual([readable, unreadable]);
+    }
+  });
+
   test("sorts payment status only when explicitly requested", () => {
     const paid = item("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb21");
     const overdue = item("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb22", {
@@ -565,6 +599,7 @@ describe("InvoiceAdministrationService cancellation", () => {
   const makeService = (options: {
     readonly plan: ReturnType<typeof planOf>;
     readonly invoices?: readonly Invoice[];
+    readonly unreadable?: readonly UnreadableInvoice[];
     readonly correctiveDocument?: ReturnType<typeof makeCorrectiveDocument>;
   }) => {
     const cancelStandalone = mock(() =>
@@ -616,6 +651,11 @@ describe("InvoiceAdministrationService cancellation", () => {
                   null
               ),
             list: () => Effect.succeed([...(options.invoices ?? [])]),
+            listWithUnreadable: () =>
+              Effect.succeed({
+                readable: [...(options.invoices ?? [])],
+                unreadable: [...(options.unreadable ?? [])],
+              }),
           }),
           deliveryLedger(),
           Layer.mock(InvoiceEmailDeliveryService, { deliverByInvoiceId }),
@@ -818,6 +858,97 @@ describe("InvoiceAdministrationService cancellation", () => {
       },
       cancellationPlan: null,
     });
+  });
+
+  test("lists invoices whose documents cannot be read from their unencrypted columns, by issue time, and logs them once", async () => {
+    const document = makeTestManualInvoiceDocument("en-US");
+    const readable = {
+      id: invoiceIdSchema.make("01980000-0000-7000-8000-0000000000c2"),
+      workspaceReservationId: null,
+      paymentAttemptId: null,
+      dotyposCustomerId: document.dotyposCustomerId,
+      invoiceNumber: document.invoiceNumber,
+      issuedAt: Temporal.Instant.from("2026-11-10T10:00:00Z"),
+      document,
+      cancellation: null,
+      archivedAt: null,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
+    } satisfies Invoice;
+    const unreadable = (
+      id: string,
+      issuedAt: string,
+      standing: Partial<UnreadableInvoice> = {}
+    ): UnreadableInvoice => ({
+      id: invoiceIdSchema.make(id),
+      invoiceNumber: `WS-FV-2026-${id.slice(-6)}` as never,
+      issuedAt: Temporal.Instant.from(issuedAt),
+      cancellation: null,
+      archivedAt: null,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
+      ...standing,
+    });
+    const newer = unreadable(
+      "01980000-0000-7000-8000-0000000000d1",
+      "2026-11-12T10:00:00Z",
+      {
+        cancellation: {
+          cancelledAt: record.cancelledAt,
+          cause: record.cause,
+          correctiveDocumentNumber: record.correctiveDocumentNumber as never,
+        },
+      }
+    );
+    const older = unreadable(
+      "01980000-0000-7000-8000-0000000000d2",
+      "2026-11-01T10:00:00Z"
+    );
+    const hidden = unreadable(
+      "01980000-0000-7000-8000-0000000000d3",
+      "2026-11-05T10:00:00Z",
+      { archivedAt: Temporal.Instant.from("2026-11-15T11:00:00Z") }
+    );
+    const service = makeService({
+      plan: planOf("none"),
+      invoices: [readable],
+      unreadable: [older, hidden, newer],
+    });
+    const warnings: unknown[] = [];
+    const captureWarnings = Logger.make(({ logLevel, message }) => {
+      if (logLevel === "Warn") warnings.push(message);
+    });
+
+    const listed = await service.run((administration) =>
+      administration
+        .listWithUnreadable({ sort: "issuedAt", direction: "desc" })
+        .pipe(Effect.provide(Logger.layer([captureWarnings])))
+    );
+    const strict = await service.run((administration) => administration.list());
+
+    expect(listed.items.map(({ id }) => id)).toEqual([
+      newer.id,
+      readable.id,
+      older.id,
+    ]);
+    expect(listed.total).toBe(3);
+    expect(listed.items[0]).toEqual({
+      documentUnavailable: true,
+      id: AdministrationInvoiceId.make(newer.id),
+      invoiceNumber: newer.invoiceNumber,
+      issuedAt: newer.issuedAt.toString(),
+      cancelledAt: record.cancelledAt.toString(),
+      archivedAt: null,
+      replacesInvoiceId: null,
+      replacedByInvoiceId: null,
+    });
+    expect(listed.items[1]).not.toHaveProperty("documentUnavailable");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContainEqual({
+      count: 3,
+      invoiceIds: [older.id, hidden.id, newer.id],
+    });
+    expect(strict.items.map(({ id }) => id)).toEqual([readable.id]);
   });
 
   test("archives with the actor and retries a cancelled invoice's notices, never its original email", async () => {

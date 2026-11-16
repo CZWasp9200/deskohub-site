@@ -204,6 +204,7 @@
   "accountingInvoiceCancelErrorDocumentUnavailable": "Dokument faktury se nepodařilo načíst, proto se nic nezrušilo. Zkuste to znovu později.",
   "accountingInvoiceCancelErrorPersistenceFailed": "Zrušení se nepodařilo uložit. Zkuste to znovu.",
   "accountingInvoiceCancelledBadge": "Zrušena",
+  "accountingInvoiceDocumentUnavailable": "Dokument faktury je nedostupný",
   "accountingInvoiceCancellationSection": "Zrušení",
   "accountingInvoiceCancellationCancelledAt": "Zrušeno",
   "accountingInvoiceCancellationActor": "Kdo fakturu zrušil",

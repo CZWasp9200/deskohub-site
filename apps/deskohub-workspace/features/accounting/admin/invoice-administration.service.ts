@@ -96,7 +96,11 @@ import {
 } from "@/shared/utils/temporal";
 import { AccountingStorage } from "../backend/accounting-storage";
 import { renderCorrectiveDocumentPdfFile } from "../backend/corrective-document-pdf";
-import { type Invoice, InvoiceRepository } from "../backend/invoice.repository";
+import {
+  type Invoice,
+  InvoiceRepository,
+  type UnreadableInvoice,
+} from "../backend/invoice.repository";
 import { InvoiceArchiveRepository } from "../backend/invoice-archive.repository";
 import { InvoiceCancellationRepository } from "../backend/invoice-cancellation.repository";
 import {
@@ -111,6 +115,7 @@ import {
   decodeInvoiceAdministrationId,
   InvoiceAdministrationNotFoundError,
 } from "./invoice-administration-identifier";
+import { isUnreadableInvoiceListEntry } from "./invoice-list-entry";
 import {
   ManualInvoiceCreationRequestError,
   ManualInvoiceCreationRequests,
@@ -140,8 +145,10 @@ type InvoiceAdministrationReadScope = {
   readonly includeArchived: boolean;
 };
 
-type InvoiceAdministrationPage = {
-  readonly items: readonly InvoiceAdministrationListItem[];
+type InvoiceAdministrationPage<
+  Item extends InvoiceAdministrationListEntry = InvoiceAdministrationListItem,
+> = {
+  readonly items: readonly Item[];
   readonly total: number;
   readonly page: number;
   readonly pageSize: number;
@@ -181,6 +188,28 @@ export type InvoiceAdministrationListItem = {
   readonly replacesInvoiceId: AdministrationInvoiceIdType | null;
   readonly replacedByInvoiceId: AdministrationInvoiceIdType | null;
 };
+
+/**
+ * An invoice whose document could not be read, listed only from its
+ * unencrypted columns: it has no customer, total, payment status, source or
+ * delivery, and offers no action that needs the document.
+ */
+export type InvoiceAdministrationUnreadableListItem = {
+  readonly documentUnavailable: true;
+  readonly id: AdministrationInvoiceIdType;
+  readonly invoiceNumber: string;
+  readonly issuedAt: string;
+  /** When the invoice was cancelled; `null` while it is live. */
+  readonly cancelledAt: string | null;
+  readonly archivedAt: string | null;
+  readonly replacesInvoiceId: AdministrationInvoiceIdType | null;
+  readonly replacedByInvoiceId: AdministrationInvoiceIdType | null;
+};
+
+/** A row of the Admin UI's invoice list. */
+export type InvoiceAdministrationListEntry =
+  | InvoiceAdministrationListItem
+  | InvoiceAdministrationUnreadableListItem;
 
 /** Who cancelled the invoice, when, how and why, and its corrective document. */
 export type InvoiceAdministrationCancellation = {
@@ -361,57 +390,65 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     };
   });
 
+  /** The invoices with their delivery and cancellation standing, as the list shows them. */
+  const toListItems = (stored: readonly Invoice[]) => {
+    const ids = stored.map(({ id }) => id);
+    return Effect.all([
+      deliveryLedger.status(ids),
+      cancellationRecords.findMany(
+        stored.flatMap(({ cancellation, id }) => (cancellation ? [id] : []))
+      ),
+      currentPragueDate,
+    ]).pipe(
+      Effect.map(([statuses, cancellations, today]) =>
+        stored.map((invoice) =>
+          toListItem(
+            invoice,
+            statuses.get(invoice.id)!,
+            cancellations.get(invoice.id) ?? null,
+            today
+          )
+        )
+      )
+    );
+  };
+
+  /** Strict: an invoice whose document cannot be read fails the listing. */
   const list = Effect.fn("InvoiceAdministrationService.list")(
     (query: InvoiceAdministrationListQuery = {}) =>
       invoices.list().pipe(
-        Effect.map((stored) =>
-          query.includeArchived
-            ? stored
-            : stored.filter((invoice) => invoice.archivedAt === null)
-        ),
-        Effect.flatMap((stored) => {
-          const ids = stored.map(({ id }) => id);
-          return Effect.all([
-            deliveryLedger.status(ids),
-            cancellationRecords.findMany(
-              stored.flatMap(({ cancellation, id }) =>
-                cancellation ? [id] : []
-              )
-            ),
-            currentPragueDate,
-          ]).pipe(
-            Effect.map(([statuses, cancellations, today]) =>
-              stored.map((invoice) =>
-                toListItem(
-                  invoice,
-                  statuses.get(invoice.id)!,
-                  cancellations.get(invoice.id) ?? null,
-                  today
-                )
-              )
-            )
-          );
-        }),
-        Effect.map((items): InvoiceAdministrationPage => {
-          const sorted = sortInvoiceAdministrationItems(items, query);
-          const pageSize = 24;
-          const pagination = getAdministrationPagination({
-            pageSize,
-            requestedPage: query.page,
-            total: sorted.length,
-          });
-          return {
-            items: sorted.slice(
-              pagination.offset,
-              pagination.offset + pageSize
-            ),
-            total: sorted.length,
-            page: pagination.page,
-            pageSize,
-            pageCount: pagination.pageCount,
-          };
-        })
+        Effect.flatMap((stored) => toListItems(stored.filter(isListed(query)))),
+        Effect.map((items) => toPage(items, query))
       )
+  );
+
+  /**
+   * The Admin UI's list: `list`, except that an invoice whose document
+   * cannot be read is listed from its unencrypted columns, and the read logs
+   * them once. The administration API keeps the strict `list`.
+   */
+  const listWithUnreadable = Effect.fn(
+    "InvoiceAdministrationService.listWithUnreadable"
+  )((query: InvoiceAdministrationListQuery = {}) =>
+    invoices.listWithUnreadable().pipe(
+      Effect.tap(({ unreadable }) =>
+        unreadable.length === 0
+          ? Effect.void
+          : Effect.logWarning("Invoice documents unavailable", {
+              count: unreadable.length,
+              invoiceIds: unreadable.map(({ id }) => id),
+            })
+      ),
+      Effect.flatMap(({ readable, unreadable }) =>
+        toListItems(readable.filter(isListed(query))).pipe(
+          Effect.map((items): readonly InvoiceAdministrationListEntry[] => [
+            ...items,
+            ...unreadable.filter(isListed(query)).map(toUnreadableListItem),
+          ])
+        )
+      ),
+      Effect.map((entries) => toPage(entries, query))
+    )
   );
 
   /** The invoice the scope may read; an archived one is not found for the Admin UI. */
@@ -806,6 +843,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     getCreationDefaults,
     getPdf,
     list,
+    listWithUnreadable,
     preview,
     retry,
     searchCustomers,
@@ -1011,6 +1049,49 @@ const toCancellation = (
   notices: record.notices,
 });
 
+/** Whether the list query shows the invoice: the Admin UI never lists a hidden one. */
+const isListed =
+  (query: InvoiceAdministrationListQuery) =>
+  (invoice: { readonly archivedAt: Temporal.Instant | null }) =>
+    query.includeArchived || invoice.archivedAt === null;
+
+const toPage = <Item extends InvoiceAdministrationListEntry>(
+  items: readonly Item[],
+  query: InvoiceAdministrationListQuery
+): InvoiceAdministrationPage<Item> => {
+  const sorted = sortInvoiceAdministrationItems(items, query);
+  const pageSize = 24;
+  const pagination = getAdministrationPagination({
+    pageSize,
+    requestedPage: query.page,
+    total: sorted.length,
+  });
+  return {
+    items: sorted.slice(pagination.offset, pagination.offset + pageSize),
+    total: sorted.length,
+    page: pagination.page,
+    pageSize,
+    pageCount: pagination.pageCount,
+  };
+};
+
+const toUnreadableListItem = (
+  invoice: UnreadableInvoice
+): InvoiceAdministrationUnreadableListItem => ({
+  documentUnavailable: true,
+  id: AdministrationInvoiceId.make(invoice.id),
+  invoiceNumber: invoice.invoiceNumber,
+  issuedAt: invoice.issuedAt.toString(),
+  cancelledAt: invoice.cancellation?.cancelledAt.toString() ?? null,
+  archivedAt: invoice.archivedAt?.toString() ?? null,
+  replacesInvoiceId: invoice.replacesInvoiceId
+    ? AdministrationInvoiceId.make(invoice.replacesInvoiceId)
+    : null,
+  replacedByInvoiceId: invoice.replacedByInvoiceId
+    ? AdministrationInvoiceId.make(invoice.replacedByInvoiceId)
+    : null,
+});
+
 const toListItem = (
   invoice: Invoice,
   { customer, internal, needsAttention }: InvoiceDeliverySummary,
@@ -1127,21 +1208,45 @@ const currentPragueDate = currentPlainDate(
   workspaceSiteConstants.location.timeZone
 );
 
-export const sortInvoiceAdministrationItems = (
-  items: readonly InvoiceAdministrationListItem[],
+/**
+ * Orders the list. An unreadable invoice sorts by its issue time and number
+ * like any other; it has no customer, total, payment status, source or
+ * delivery, so by those it follows every readable invoice, newest first.
+ */
+export const sortInvoiceAdministrationItems = <
+  Item extends InvoiceAdministrationListEntry,
+>(
+  items: readonly Item[],
   query: InvoiceAdministrationListQuery
 ) => {
   const direction = query.direction === "asc" ? 1 : -1;
+  const needsAttention = (item: InvoiceAdministrationListEntry) =>
+    !isUnreadableInvoiceListEntry(item) && item.needsAttention;
   return items.toSorted((left, right) => {
     if (!query.sort) {
       return (
-        Number(right.needsAttention) - Number(left.needsAttention) ||
+        Number(needsAttention(right)) - Number(needsAttention(left)) ||
         right.issuedAt.localeCompare(left.issuedAt)
       );
     }
+    if (query.sort === "invoiceNumber" || query.sort === "issuedAt") {
+      return (
+        left[query.sort].localeCompare(right[query.sort]) * direction ||
+        left.id.localeCompare(right.id)
+      );
+    }
+    if (
+      isUnreadableInvoiceListEntry(left) ||
+      isUnreadableInvoiceListEntry(right)
+    ) {
+      return (
+        Number(isUnreadableInvoiceListEntry(left)) -
+          Number(isUnreadableInvoiceListEntry(right)) ||
+        right.issuedAt.localeCompare(left.issuedAt) ||
+        left.id.localeCompare(right.id)
+      );
+    }
     const compared = {
-      invoiceNumber: left.invoiceNumber.localeCompare(right.invoiceNumber),
-      issuedAt: left.issuedAt.localeCompare(right.issuedAt),
       customer: left.customerName.localeCompare(right.customerName),
       total: BigDecimal.Order(
         BigDecimal.fromStringUnsafe(left.total),
