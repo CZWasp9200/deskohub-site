@@ -11,6 +11,7 @@ import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
 import { LiveMessage } from "../ui/controls";
 import { ListGroup, ListRow } from "../ui/list";
+import { Masthead } from "../ui/masthead";
 import { Notice } from "../ui/notice";
 import { ScrollScreen } from "../ui/scroll-screen";
 import {
@@ -63,8 +64,8 @@ const noticeContent: Record<
 };
 
 /**
- * The Account tab: the account's sections in the site's order, gated by the
- * account's state (GET /account), then sign-out.
+ * The Account tab: under its masthead, the account's sections in the site's
+ * order, gated by the account's state (GET /account), then sign-out.
  */
 export function AccountIndexScreen() {
   const locale = useAppLocale();
@@ -85,7 +86,11 @@ export function AccountIndexScreen() {
   );
 
   return (
-    <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      masthead={<Masthead title={m.account_tab_account({}, { locale })} />}
+      refreshing={account.waiting}
+      onRefresh={refresh}
+    >
       {/* Kept mounted so assistive tech announces each change. */}
       <Notice
         tone={notice === undefined ? "info" : noticeContent[notice].tone}

@@ -7,7 +7,7 @@ import {
 } from "@effect/atom-react";
 import { DateTime, Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { Stack, useIsFocused, useRouter } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import CalendarIcon from "lucide-react-native/icons/calendar";
 import CalendarPlus from "lucide-react-native/icons/calendar-plus";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
@@ -28,7 +28,7 @@ import { Card } from "../../ui/card";
 import { Button } from "../../ui/controls";
 import { EmptyState } from "../../ui/empty-state";
 import { Icon } from "../../ui/icon";
-import { ListGroup, ListRow, SectionHeader } from "../../ui/list";
+import { ListGroup, SectionHeader } from "../../ui/list";
 import { Masthead } from "../../ui/masthead";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
@@ -40,7 +40,9 @@ import {
   type AccountNotice,
   type ReservationsAccess,
   reservationsAccess,
+  tabGate,
 } from "../account-gating";
+import { TabGateCard } from "../tab-gate-card";
 import { useAccessPinView } from "./access-pin-view";
 import { copyAccessCodeAtom } from "./access-screen-state";
 import { bookingEntryEnabled } from "./booking-entry";
@@ -133,7 +135,6 @@ export function ReservationsListScreen() {
   const account = useAtomValue(accountAtom);
   return (
     <>
-      <Stack.Screen options={{ headerShown: false }} />
       {Option.match(
         Option.map(AsyncResult.value(account), reservationsAccess),
         {
@@ -153,10 +154,11 @@ export function ReservationsListScreen() {
 /** When the account may not see reservations. */
 function ReservationsGate({ access }: { readonly access: ReservationsAccess }) {
   const locale = useAppLocale();
-  const router = useRouter();
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
-  const shownNotice = gateNoticeOf(access);
+  // A gate card says it all; other states keep their notice.
+  const gate = tabGate("reservations", access);
+  const shownNotice = gate === undefined ? gateNoticeOf(access) : undefined;
   const notice =
     shownNotice === undefined ? undefined : gateNotice[shownNotice](locale);
   return (
@@ -164,16 +166,7 @@ function ReservationsGate({ access }: { readonly access: ReservationsAccess }) {
       {/* Kept mounted so assistive tech announces each change. */}
       <Notice tone="info" message={notice} />
       <AsyncView result={account} onRetry={refresh}>
-        {() =>
-          access.kind === "completion-required" && (
-            <ListGroup>
-              <ListRow
-                label={m.account_section_complete({}, { locale })}
-                onPress={() => router.push("/account/complete")}
-              />
-            </ListGroup>
-          )
-        }
+        {() => gate !== undefined && <TabGateCard gate={gate} />}
       </AsyncView>
     </ReservationsScreen>
   );

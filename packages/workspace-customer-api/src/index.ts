@@ -136,6 +136,9 @@ export {
   CustomerOrderPaymentStatus,
   CustomerOrderState,
   CustomerOrderStatus,
+  CustomerPaymentPage,
+  CustomerPaymentPageClosed,
+  CustomerPaymentPageClosedReason,
   CustomerReservationAccess,
   CustomerReservationHistory,
   CustomerReservationKind,
@@ -146,6 +149,7 @@ export {
   CustomerReservationStatus,
   CustomerReservationSummary,
   CustomerReservationsApi,
+  ReopenCustomerPaymentPage,
 } from "./customer-reservations-api";
 export {
   CurrentCustomerSession,

@@ -91,17 +91,40 @@ describe("app route tree", () => {
     expect(layouts()).toContain("(account)/(tabs)");
   });
 
+  test("the Book tab holds only the choice of spaces; booking opens above the tabs", () => {
+    const screensIn = (prefix: string) =>
+      screens()
+        .map((segments) => segments.join("/"))
+        .filter((path) => path.startsWith(prefix));
+    expect(screensIn("(account)/(tabs)/book/")).toEqual([
+      "(account)/(tabs)/book/index",
+    ]);
+    expect(screensIn("(account)/book/").sort()).toEqual([
+      "(account)/book/checkout",
+      "(account)/book/cowork",
+      "(account)/book/meeting-room",
+      "(account)/book/office",
+      "(account)/book/profile",
+    ]);
+  });
+
+  test("the start-tab redirect sits in the signed-in group, where the account's data is", () => {
+    expect(screens().map((segments) => segments.join("/"))).toContain(
+      "(account)/index"
+    );
+  });
+
   test("only the tab stacks sit inside the tabs", () => {
     // A hidden tab (`href: null`) that gains focus is redirected to the
-    // initial tab, so screens outside the tab bar, such as booking, belong
-    // to the signed-in stack beside `(tabs)`.
+    // initial tab, so screens outside the tab bar, such as booking a space
+    // and its checkout, belong to the signed-in stack beside `(tabs)`.
     const tabs = readdirSync(join(appDir, "(account)", "(tabs)"), {
       withFileTypes: true,
     })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort();
-    expect(tabs).toEqual(["account", "reservations"]);
+    expect(tabs).toEqual(["account", "book", "reservations"]);
   });
 
   test("app and web link paths match a screen's route pattern", () => {

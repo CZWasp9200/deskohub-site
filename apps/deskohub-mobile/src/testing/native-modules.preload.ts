@@ -47,6 +47,7 @@ const stillAnimation = () => ({
 mock.module("react-native", () => ({
   // Host components stand in as their names, so a test can read the element
   // tree a component returns without a native renderer.
+  Image: "Image",
   KeyboardAvoidingView: "KeyboardAvoidingView",
   Modal: "Modal",
   Pressable: "Pressable",
@@ -77,6 +78,9 @@ mock.module("react-native", () => ({
     addEventListener: () => ({ remove: () => undefined }),
   },
   Linking: {
+    addEventListener: () => ({ remove: () => undefined }),
+  },
+  BackHandler: {
     addEventListener: () => ({ remove: () => undefined }),
   },
   // Animations stand still: values keep what they were set to and every
