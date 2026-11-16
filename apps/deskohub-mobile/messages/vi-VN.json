@@ -678,6 +678,7 @@
   "invoices_download_label": "Tải hóa đơn {number}",
   "invoices_downloading": "Đang tải hóa đơn {number}…",
   "invoices_download_not_found": "Không tìm thấy hóa đơn này. Hãy làm mới danh sách và thử lại.",
+  "invoices_row_product_seats": "{product}, số chỗ: {count}",
   "onboarding_step": "Bước {current}/{total}",
   "onboarding_about_you_title": "Về bạn",
   "onboarding_about_you_intro": "Chúng tôi ghi các thông tin này trên đặt chỗ và hóa đơn của bạn.",

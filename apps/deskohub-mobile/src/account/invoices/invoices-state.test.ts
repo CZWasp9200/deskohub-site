@@ -52,7 +52,7 @@ describe("invoiceListAtom", () => {
   test("lists the account's invoices newest first, one row each", async () => {
     const { registry } = makeFakeCustomerData("linked");
 
-    const result = await settle(registry, invoiceListAtom);
+    const result = await settle(registry, invoiceListAtom("en-US"));
 
     expect(result._tag).toBe("Success");
     const list = result._tag === "Success" ? result.success : undefined;
@@ -67,7 +67,7 @@ describe("invoiceListAtom", () => {
     workspace.data = { ...workspace.data, invoices: [] };
     const { registry } = makeFakeCustomerData("linked", workspace);
 
-    expect(await settle(registry, invoiceListAtom)).toMatchObject({
+    expect(await settle(registry, invoiceListAtom("en-US"))).toMatchObject({
       _tag: "Success",
       success: { kind: "empty" },
     });
@@ -78,7 +78,9 @@ describe("invoiceListAtom", () => {
     workspace.fail("listInvoices", "service-unavailable");
     const { registry } = makeFakeCustomerData("linked", workspace);
 
-    expect((await settle(registry, invoiceListAtom))._tag).toBe("Failure");
+    expect((await settle(registry, invoiceListAtom("en-US")))._tag).toBe(
+      "Failure"
+    );
   });
 });
 
