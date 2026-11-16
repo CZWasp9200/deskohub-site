@@ -29,7 +29,7 @@ import { getReusableProviderRedirectUrl } from "./reusable-payment-attempt";
  * its hold was released, it has no payment page that is still open, or the
  * local abandonment window of that page ended.
  */
-export type PaymentPageClosedReason =
+type PaymentPageClosedReason =
   | "paid"
   | "late_payment"
   | "released"
@@ -187,10 +187,14 @@ export class CheckoutPaymentPageService extends Context.Service<
     authorization: Layer.Layer<ReservationAuthorizationService, E, R>
   ) =>
     this.Default.pipe(
-      Layer.provide(authorization),
-      Layer.provide(WorkspaceReservationRepository.Default),
-      Layer.provide(PaymentAttemptRepository.Default),
-      Layer.provide(LatePaymentRecoveryRepository.Default),
+      Layer.provide(
+        Layer.mergeAll(
+          authorization,
+          WorkspaceReservationRepository.Default,
+          PaymentAttemptRepository.Default,
+          LatePaymentRecoveryRepository.Default
+        )
+      ),
       Layer.provide(WorkspaceDatabase.Default)
     );
 
