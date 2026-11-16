@@ -1,7 +1,9 @@
 import type { Locale } from "@/features/i18n";
+import { formatMoney } from "@/shared/money/money";
 import { m } from "./i18n";
 import type { ReservationAccessAdministrationError } from "./reservation-access-administration.service";
 import type { ReservationCancellationFailureReason } from "./reservation-administration.service";
+import type { RefundedReservationPayment } from "./reservation-restoration";
 
 /** The operator-facing reason a reservation cancellation stopped. */
 export const getReservationCancellationErrorMessage = (
@@ -40,3 +42,43 @@ export const getReservationAccessErrorMessage = (
       m.administrationReservationAccessErrorTemporarilyUnavailable,
     recovery_failed: m.administrationReservationAccessErrorRecoveryFailed,
   })[reason]({}, { locale });
+
+const reservationRestorationErrorMessages = {
+  not_found: m.administrationReservationRestorationErrorNotFound,
+  invalid_state: m.administrationReservationRestorationErrorInvalidState,
+  cancellation_in_progress:
+    m.administrationReservationRestorationErrorCancellationInProgress,
+  superseded: m.administrationReservationRestorationErrorSuperseded,
+  refund_acknowledgement_required:
+    m.administrationReservationRestorationErrorRefundAcknowledgementRequired,
+  refund_check_failed:
+    m.administrationReservationRestorationErrorRefundCheckFailed,
+  table_unavailable:
+    m.administrationReservationRestorationErrorTableUnavailable,
+  changed_in_dotypos:
+    m.administrationReservationRestorationErrorChangedInDotypos,
+  dotypos_failed: m.administrationReservationRestorationErrorDotyposFailed,
+  access_uncertain: m.administrationReservationRestorationErrorAccessUncertain,
+  details_unavailable:
+    m.administrationReservationRestorationErrorDetailsUnavailable,
+  record_failed: m.administrationReservationRestorationErrorRecordFailed,
+};
+
+/**
+ * The operator-facing reason a reservation restoration stopped. A refusal to
+ * restore over a refund names the refunded amount when the service reports it.
+ */
+export const getReservationRestorationErrorMessage = (
+  reason: keyof typeof reservationRestorationErrorMessages,
+  locale: Locale,
+  refundedPayment?: RefundedReservationPayment
+) =>
+  reason === "refund_acknowledgement_required" && refundedPayment
+    ? {
+        full: m.administrationReservationRestorationErrorRefundedFull,
+        partial: m.administrationReservationRestorationErrorRefundedPartial,
+      }[refundedPayment.coverage](
+        { amount: formatMoney(refundedPayment.amount, locale) },
+        { locale }
+      )
+    : reservationRestorationErrorMessages[reason]({}, { locale });
