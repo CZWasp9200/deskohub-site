@@ -10,17 +10,23 @@ import { Context, Effect, Layer, Option } from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceReservations } from "@/db/schema";
+import { defaultLocale, type Locale } from "@/features/i18n";
 import {
+  type BookedInterval,
   type BookedReservation,
   decodeBookedReservation,
 } from "@/features/reservation/backend/booked-reservation";
+import { getStoredRebookingSelection } from "@/features/reservation/backend/booking-selection";
 import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import {
   ReservationRecords,
   type ReservationRecordsError,
 } from "@/features/reservation/backend/reservation-records";
 import { StoredReservationDetails } from "@/features/reservation/backend/stored-reservation-details.server";
-import type { StoredWorkspaceReservationDetails } from "@/features/reservation/persistence-contracts";
+import type {
+  StoredWorkspaceReservationDetails,
+  WorkspaceReservationId,
+} from "@/features/reservation/persistence-contracts";
 import { ReviewAccounts, ReviewSandbox } from "@/features/review-accounts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
@@ -36,6 +42,7 @@ import type {
   CustomerAccountAccessError,
   CustomerAccountId,
 } from "../customer-account";
+import { getReservationProductName } from "../reservation-product-name";
 import { requireAccountActivity } from "./customer-account-activity";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
 import {
@@ -214,18 +221,55 @@ const getBookedStartFields = (
 
 const toReservationSummary = (
   { reservation, row, booked }: HistoryEntry,
-  party: CustomerReservationParty | undefined
-): CustomerReservationSummary => ({
-  id: row?.id ?? reservation.id,
-  ...(row?.id && { workspaceReservationId: row.id }),
-  ...(party && { party }),
-  product: getReservationProduct(row),
-  ...getBookedStartFields(reservation, booked),
-  endsAt: reservation.endDate,
-  // History shows no seat count when Dotypos's is unreadable.
-  seats: Option.getOrNull(booked.seats),
-  status: getReservationStatus(reservation, row),
-});
+  party: CustomerReservationParty | undefined,
+  todayAccess: CustomerReservationSummary["todayAccess"]
+): CustomerReservationSummary => {
+  const bookedSelection = row && getRebookingSelectionOf(row, booked);
+  return {
+    id: row?.id ?? reservation.id,
+    ...(row?.id && { workspaceReservationId: row.id }),
+    ...(party && { party }),
+    product: getReservationProduct(row),
+    ...getBookedStartFields(reservation, booked),
+    endsAt: reservation.endDate,
+    // History shows no seat count when Dotypos's is unreadable.
+    seats: Option.getOrNull(booked.seats),
+    status: getReservationStatus(reservation, row),
+    ...(row && getAccessWindowFields(booked)),
+    ...(bookedSelection && { bookedSelection }),
+    ...(todayAccess && { todayAccess }),
+  };
+};
+
+/** The span a website order's door code covers, as its issuance derives it. */
+const getAccessWindowFields = (
+  booked: BookedReservation
+): Pick<CustomerReservationSummary, "accessStartsAt" | "accessEndsAt"> =>
+  Option.match(booked.occupiedInterval, {
+    onNone: () => ({}),
+    onSome: ({ startsAt, endsAt }) => ({
+      accessStartsAt: temporalInstantToIsoString(startsAt),
+      accessEndsAt: temporalInstantToIsoString(endsAt),
+    }),
+  });
+
+/** What booking the row's stored product again sends, over its booked time. */
+const getRebookingSelectionOf = (
+  row: ReservationRow,
+  booked: BookedReservation
+) => {
+  const details = row.reservationDetails;
+  if (!details) return undefined;
+  return Option.match(booked.interval, {
+    onNone: () => undefined,
+    onSome: ({ startsAt, endsAt }) =>
+      getStoredRebookingSelection({
+        details,
+        booked,
+        timing: { reservedFrom: startsAt, reservedUntil: endsAt },
+      }),
+  });
+};
 
 /** The provider reservations and authors the account history describes. */
 type ReservationSources = {
@@ -281,20 +325,43 @@ const relateReservations = ({
 const toReservationHistory = ({
   entries,
   names,
+  access,
 }: {
   readonly entries: readonly HistoryEntry[];
   readonly names: ReadonlyMap<DotyposCustomerId, string>;
+  readonly access: ReservationHistoryAccess;
 }): CustomerReservationHistory => ({
   kind: "available",
   groups: groupCustomerReservations(
     entries.map((entry) =>
       toReservationSummary(
         entry,
-        entry.relation && toReservationParty(entry.relation, names)
+        entry.relation && toReservationParty(entry.relation, names),
+        entry.row && access.get(entry.row.id)
       )
     )
   ),
 });
+
+/** Names every reservation of a history in `locale`. */
+const withProductNames = (
+  history: CustomerReservationHistory,
+  locale: Locale
+): CustomerReservationHistory => {
+  if (history.kind !== "available") return history;
+  const name = (reservation: CustomerReservationSummary) => ({
+    ...reservation,
+    productName: getReservationProductName(reservation.product, locale),
+  });
+  return {
+    kind: "available",
+    groups: {
+      current: history.groups.current.map(name),
+      past: history.groups.past.map(name),
+      unavailable: history.groups.unavailable.map(name),
+    },
+  };
+};
 
 /** What a history load includes beyond the reservations themselves. */
 export type ReservationHistoryOptions = {
@@ -304,7 +371,36 @@ export type ReservationHistoryOptions = {
    * names passes false to skip the read.
    */
   readonly includePartyNames?: boolean;
+  /** The language of the reservations' product names; the default locale when absent. */
+  readonly locale?: Locale;
 };
+
+/**
+ * A website order in a history read live from Dotypos, with the provider
+ * record the history just read for it.
+ */
+export type LiveReservationHistoryOrder = {
+  readonly orderId: WorkspaceReservationId;
+  readonly record: ReservationRecord;
+  readonly status: CustomerReservationStatus;
+  /** The span its door code covers, when it can be read. */
+  readonly accessInterval: Option.Option<BookedInterval>;
+};
+
+/** Door codes of a history's orders, by order. */
+type ReservationHistoryAccess = ReadonlyMap<
+  WorkspaceReservationId,
+  NonNullable<CustomerReservationSummary["todayAccess"]>
+>;
+
+/**
+ * Resolves the door codes a history shows from the provider records it read.
+ * Only a history whose records come straight from Dotypos takes one.
+ */
+export type LiveReservationHistoryAccessLookup = (
+  orders: readonly LiveReservationHistoryOrder[],
+  locale: Locale
+) => Effect.Effect<ReservationHistoryAccess>;
 
 interface ICustomerReservationHistoryService {
   readonly load: (
@@ -316,203 +412,225 @@ interface ICustomerReservationHistoryService {
   >;
 }
 
+/**
+ * The history's implementation. `lookupAccess` resolves the door codes it
+ * shows; without it the history shows none. Only a history built over
+ * `ReservationRecords.Provider` passes one
+ * (`CustomerReservationHistoryWithAccessService`).
+ */
+export const makeCustomerReservationHistory = Effect.fn(function* (
+  lookupAccess?: LiveReservationHistoryAccessLookup
+) {
+  const { db } = yield* WorkspaceDatabase;
+  const dotypos = yield* DotyposService;
+  const records = yield* ReservationRecords;
+  const links = yield* CustomerAccountLinkRepository;
+  const authorDirectory = yield* ReservationAuthorDirectory;
+  const reviewAccounts = yield* ReviewAccounts;
+  const sandbox = yield* ReviewSandbox;
+
+  const logUnavailableParty = (code: string) =>
+    Effect.logWarning("Reservation history party unavailable").pipe(
+      Effect.annotateLogs({ code })
+    );
+
+  /**
+   * The account's own customer's reservations, when it has one, and the
+   * ones the account booked for other customers.
+   */
+  const selectReservationRows = ({
+    account,
+  }: {
+    readonly account: ReservationHistoryAccount;
+  }) =>
+    db
+      .select({
+        id: workspaceReservations.id,
+        dotyposCustomerId: workspaceReservations.dotyposCustomerId,
+        authorAccountId: workspaceReservations.authorAccountId,
+        dotyposReservationId: workspaceReservations.dotyposReservationId,
+        reservationDetails: workspaceReservations.reservationDetails,
+        reservationState: workspaceReservations.reservationState,
+        fulfillmentState: workspaceReservations.fulfillmentState,
+      })
+      .from(workspaceReservations)
+      .where(
+        or(
+          account.dotyposCustomerId === undefined
+            ? undefined
+            : eq(
+                workspaceReservations.dotyposCustomerId,
+                account.dotyposCustomerId
+              ),
+          eq(workspaceReservations.authorAccountId, account.accountId)
+        )
+      )
+      .orderBy(desc(workspaceReservations.createdAt))
+      .pipe(
+        Effect.map((rows) =>
+          rows.map(
+            (row): ReservationRow => ({
+              ...row,
+              reservationDetails: Option.getOrUndefined(
+                StoredReservationDetails.project(row.reservationDetails)
+              ),
+            })
+          )
+        )
+      );
+
+  const listRecorded = (rows: readonly ReservationRow[]) =>
+    records.listByIds(
+      rows.flatMap((row) =>
+        row.dotyposReservationId ? [row.dotyposReservationId] : []
+      )
+    );
+
+  const listOwn = ({
+    customerId,
+    rows,
+  }: {
+    readonly customerId: DotyposCustomerId;
+    readonly rows: readonly ReservationRow[];
+  }) =>
+    records.listForCustomer({
+      customerId,
+      recordedIds: rows.flatMap((row) =>
+        row.dotyposCustomerId === customerId && row.dotyposReservationId
+          ? [row.dotyposReservationId]
+          : []
+      ),
+    });
+
+  // Names only label a reservation, so a failed read leaves the party
+  // unnamed instead of failing the history.
+  const describeAuthors = (rows: readonly ReservationRow[]) =>
+    authorDirectory.describe(rows.map((row) => row.authorAccountId)).pipe(
+      Effect.tapError(() =>
+        logUnavailableParty("account.reservation-history.authors")
+      ),
+      Effect.orElseSucceed(
+        () => new Map<CustomerAccountId, ReservationAuthor>()
+      )
+    );
+
+  const readReservationSources = ({
+    account,
+    rows,
+  }: {
+    readonly account: ReservationHistoryAccount;
+    readonly rows: readonly ReservationRow[];
+  }): Effect.Effect<ReservationSources, CustomerReservationHistoryError> =>
+    Effect.all(
+      {
+        own: Option.match(Option.fromUndefinedOr(account.dotyposCustomerId), {
+          onNone: () => Effect.succeed([]),
+          onSome: (customerId) => listOwn({ customerId, rows }),
+        }),
+        bookedForOthers: listRecorded(
+          rows.filter((row) => isBookedForOtherCustomer(account, row))
+        ),
+        authors: describeAuthors(
+          rows.filter(
+            (row) =>
+              !isBookedForOtherCustomer(account, row) &&
+              row.authorAccountId !== account.accountId
+          )
+        ),
+      },
+      { concurrency: "inherit" }
+    );
+
+  const readPartyNames = ({
+    entries,
+    includePartyNames,
+  }: {
+    readonly entries: readonly HistoryEntry[];
+    readonly includePartyNames: boolean;
+  }) =>
+    includePartyNames
+      ? readPartyNamesOf(entries)
+      : Effect.succeed(new Map<DotyposCustomerId, string>());
+
+  const readPartyNamesOf = (entries: readonly HistoryEntry[]) =>
+    dotypos
+      .getCustomersByIds(
+        entries.flatMap(({ relation }) => getNamedCustomerId(relation) ?? [])
+      )
+      .pipe(
+        Effect.map(
+          (customers) =>
+            new Map<DotyposCustomerId, string>(
+              [...customers].flatMap(([id, customer]) => {
+                const name = getCustomerDisplayName(customer);
+                return name ? [[id, name] as const] : [];
+              })
+            )
+        ),
+        Effect.tapError(() =>
+          logUnavailableParty("account.reservation-history.names")
+        ),
+        Effect.orElseSucceed(() => new Map<DotyposCustomerId, string>())
+      );
+
+  const readAccess = ({
+    entries,
+    locale,
+  }: {
+    readonly entries: readonly HistoryEntry[];
+    readonly locale: Locale;
+  }): Effect.Effect<ReservationHistoryAccess> =>
+    lookupAccess
+      ? lookupAccess(entries.flatMap(toLiveOrder), locale)
+      : Effect.succeed(new Map());
+
+  const loadRecorded = (
+    account: ReservationHistoryAccount,
+    options: ReservationHistoryOptions & { readonly locale: Locale }
+  ) =>
+    Effect.succeed({
+      account,
+      includePartyNames: options.includePartyNames ?? true,
+      locale: options.locale,
+    }).pipe(
+      Effect.bind("rows", selectReservationRows),
+      Effect.bind("sources", readReservationSources),
+      Effect.let("entries", relateReservations),
+      Effect.bind("lookups", (input) =>
+        Effect.all(
+          { names: readPartyNames(input), access: readAccess(input) },
+          { concurrency: "inherit" }
+        )
+      ),
+      Effect.map(({ entries, lookups }) =>
+        toReservationHistory({ entries, ...lookups })
+      )
+    );
+
+  // A review account's reservations all live in its sandbox.
+  const load = (
+    account: ReservationHistoryAccount,
+    { locale = defaultLocale, ...options }: ReservationHistoryOptions = {}
+  ) =>
+    requireAccountActivity(links, account.accountId).pipe(
+      Effect.andThen(reviewAccounts.isReviewAccount(account.accountId)),
+      Effect.flatMap((review) =>
+        review
+          ? sandbox.history(account.accountId)
+          : loadRecorded(account, { ...options, locale })
+      ),
+      Effect.map((history) => withProductNames(history, locale)),
+      Effect.withSpan("CustomerReservationHistoryService.load")
+    );
+
+  return { load } satisfies ICustomerReservationHistoryService;
+});
+
 export class CustomerReservationHistoryService extends Context.Service<
   CustomerReservationHistoryService,
   ICustomerReservationHistoryService
 >()("@deskohub-workspace/account/CustomerReservationHistoryService") {
-  static Default = Layer.effect(
-    this,
-    Effect.gen(function* () {
-      const { db } = yield* WorkspaceDatabase;
-      const dotypos = yield* DotyposService;
-      const records = yield* ReservationRecords;
-      const links = yield* CustomerAccountLinkRepository;
-      const authorDirectory = yield* ReservationAuthorDirectory;
-      const reviewAccounts = yield* ReviewAccounts;
-      const sandbox = yield* ReviewSandbox;
-
-      const logUnavailableParty = (code: string) =>
-        Effect.logWarning("Reservation history party unavailable").pipe(
-          Effect.annotateLogs({ code })
-        );
-
-      /**
-       * The account's own customer's reservations, when it has one, and the
-       * ones the account booked for other customers.
-       */
-      const selectReservationRows = ({
-        account,
-      }: {
-        readonly account: ReservationHistoryAccount;
-      }) =>
-        db
-          .select({
-            id: workspaceReservations.id,
-            dotyposCustomerId: workspaceReservations.dotyposCustomerId,
-            authorAccountId: workspaceReservations.authorAccountId,
-            dotyposReservationId: workspaceReservations.dotyposReservationId,
-            reservationDetails: workspaceReservations.reservationDetails,
-            reservationState: workspaceReservations.reservationState,
-            fulfillmentState: workspaceReservations.fulfillmentState,
-          })
-          .from(workspaceReservations)
-          .where(
-            or(
-              account.dotyposCustomerId === undefined
-                ? undefined
-                : eq(
-                    workspaceReservations.dotyposCustomerId,
-                    account.dotyposCustomerId
-                  ),
-              eq(workspaceReservations.authorAccountId, account.accountId)
-            )
-          )
-          .orderBy(desc(workspaceReservations.createdAt))
-          .pipe(
-            Effect.map((rows) =>
-              rows.map(
-                (row): ReservationRow => ({
-                  ...row,
-                  reservationDetails: Option.getOrUndefined(
-                    StoredReservationDetails.project(row.reservationDetails)
-                  ),
-                })
-              )
-            )
-          );
-
-      const listRecorded = (rows: readonly ReservationRow[]) =>
-        records.listByIds(
-          rows.flatMap((row) =>
-            row.dotyposReservationId ? [row.dotyposReservationId] : []
-          )
-        );
-
-      const listOwn = ({
-        customerId,
-        rows,
-      }: {
-        readonly customerId: DotyposCustomerId;
-        readonly rows: readonly ReservationRow[];
-      }) =>
-        records.listForCustomer({
-          customerId,
-          recordedIds: rows.flatMap((row) =>
-            row.dotyposCustomerId === customerId && row.dotyposReservationId
-              ? [row.dotyposReservationId]
-              : []
-          ),
-        });
-
-      // Names only label a reservation, so a failed read leaves the party
-      // unnamed instead of failing the history.
-      const describeAuthors = (rows: readonly ReservationRow[]) =>
-        authorDirectory.describe(rows.map((row) => row.authorAccountId)).pipe(
-          Effect.tapError(() =>
-            logUnavailableParty("account.reservation-history.authors")
-          ),
-          Effect.orElseSucceed(
-            () => new Map<CustomerAccountId, ReservationAuthor>()
-          )
-        );
-
-      const readReservationSources = ({
-        account,
-        rows,
-      }: {
-        readonly account: ReservationHistoryAccount;
-        readonly rows: readonly ReservationRow[];
-      }): Effect.Effect<ReservationSources, CustomerReservationHistoryError> =>
-        Effect.all(
-          {
-            own: Option.match(
-              Option.fromUndefinedOr(account.dotyposCustomerId),
-              {
-                onNone: () => Effect.succeed([]),
-                onSome: (customerId) => listOwn({ customerId, rows }),
-              }
-            ),
-            bookedForOthers: listRecorded(
-              rows.filter((row) => isBookedForOtherCustomer(account, row))
-            ),
-            authors: describeAuthors(
-              rows.filter(
-                (row) =>
-                  !isBookedForOtherCustomer(account, row) &&
-                  row.authorAccountId !== account.accountId
-              )
-            ),
-          },
-          { concurrency: "inherit" }
-        );
-
-      const readPartyNames = ({
-        entries,
-        includePartyNames,
-      }: {
-        readonly entries: readonly HistoryEntry[];
-        readonly includePartyNames: boolean;
-      }) =>
-        includePartyNames
-          ? readPartyNamesOf(entries)
-          : Effect.succeed(new Map<DotyposCustomerId, string>());
-
-      const readPartyNamesOf = (entries: readonly HistoryEntry[]) =>
-        dotypos
-          .getCustomersByIds(
-            entries.flatMap(
-              ({ relation }) => getNamedCustomerId(relation) ?? []
-            )
-          )
-          .pipe(
-            Effect.map(
-              (customers) =>
-                new Map<DotyposCustomerId, string>(
-                  [...customers].flatMap(([id, customer]) => {
-                    const name = getCustomerDisplayName(customer);
-                    return name ? [[id, name] as const] : [];
-                  })
-                )
-            ),
-            Effect.tapError(() =>
-              logUnavailableParty("account.reservation-history.names")
-            ),
-            Effect.orElseSucceed(() => new Map<DotyposCustomerId, string>())
-          );
-
-      const loadRecorded = (
-        account: ReservationHistoryAccount,
-        options: ReservationHistoryOptions
-      ) =>
-        Effect.succeed({
-          account,
-          includePartyNames: options.includePartyNames ?? true,
-        }).pipe(
-          Effect.bind("rows", selectReservationRows),
-          Effect.bind("sources", readReservationSources),
-          Effect.let("entries", relateReservations),
-          Effect.bind("names", readPartyNames),
-          Effect.map(toReservationHistory)
-        );
-
-      // A review account's reservations all live in its sandbox.
-      const load = (
-        account: ReservationHistoryAccount,
-        options: ReservationHistoryOptions = {}
-      ) =>
-        requireAccountActivity(links, account.accountId).pipe(
-          Effect.andThen(reviewAccounts.isReviewAccount(account.accountId)),
-          Effect.flatMap((review) =>
-            review
-              ? sandbox.history(account.accountId)
-              : loadRecorded(account, options)
-          ),
-          Effect.withSpan("CustomerReservationHistoryService.load")
-        );
-
-      return { load } satisfies ICustomerReservationHistoryService;
-    })
-  );
+  static Default = Layer.effect(this, makeCustomerReservationHistory());
 
   /**
    * The history wired to read reservation details from `records`: live for
@@ -535,3 +653,20 @@ export class CustomerReservationHistoryService extends Context.Service<
 
   static Live = this.withRecords(ReservationRecords.Live);
 }
+
+/** An entry's website order, when it is one. */
+const toLiveOrder = ({
+  reservation,
+  row,
+  booked,
+}: HistoryEntry): readonly LiveReservationHistoryOrder[] =>
+  row
+    ? [
+        {
+          orderId: row.id,
+          record: reservation,
+          status: getReservationStatus(reservation, row),
+          accessInterval: booked.occupiedInterval,
+        },
+      ]
+    : [];
