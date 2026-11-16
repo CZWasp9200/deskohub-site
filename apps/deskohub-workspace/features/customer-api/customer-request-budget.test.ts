@@ -27,7 +27,7 @@ describe("customer request budget classes", () => {
       )
       .toSorted();
 
-    expect(contractEndpoints()).toHaveLength(32);
+    expect(contractEndpoints()).toHaveLength(34);
     expect(classified).toEqual(contractEndpoints());
   });
 
@@ -39,6 +39,9 @@ describe("customer request budget classes", () => {
       syncAnalyticsConsent: "workspace-only",
       getAnalyticsPreference: "workspace-only",
       saveAnalyticsPreference: "workspace-only",
+    });
+    expect(customerRequestBudgetClasses.reservations).toMatchObject({
+      getEstablishment: "workspace-only",
     });
     expect(customerRequestBudgetClasses.booking).toMatchObject({
       listLegalDocuments: "workspace-only",
@@ -129,6 +132,7 @@ describe("customer request budget classes", () => {
       listOfferings: "catalog-read",
       getAvailability: "catalog-read",
       getMeetingRoomStartTimes: "catalog-read",
+      getMeetingRoomUnavailableDates: "catalog-read",
       getQuote: "catalog-read",
     });
   });

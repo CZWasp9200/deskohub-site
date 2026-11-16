@@ -1,6 +1,7 @@
-import { Data } from "effect";
+import { Data, Match } from "effect";
 import type { DiscountId } from "./contracts";
 import type { DiscountCodeId, VoucherId } from "./persistence-contracts";
+import type { DiscountClaimInstruction } from "./provider";
 
 export type DiscountCalculationFailureReason =
   | "invalid_discountable_subtotal"
@@ -92,7 +93,35 @@ export class DiscountClaimError extends Data.TaggedError("DiscountClaimError")<{
   readonly message: string;
   readonly codeId?: DiscountCodeId | VoucherId;
   readonly cause?: unknown;
-}> {}
+}> {
+  /**
+   * A failure of `claim`, naming its code or voucher; an invitation claim, or
+   * none, names neither.
+   */
+  static forClaim = (
+    operation: DiscountClaimError["operation"],
+    reason: DiscountClaimFailureReason,
+    message: string,
+    claim?: DiscountClaimInstruction
+  ) =>
+    new DiscountClaimError({
+      operation,
+      reason,
+      message,
+      codeId: getClaimedPromotionId(claim),
+    });
+}
+
+const getClaimedPromotionId = (claim: DiscountClaimInstruction | undefined) => {
+  if (!claim) return undefined;
+  return Match.value(claim).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      discount_code: ({ codeId }) => codeId,
+      voucher: ({ voucherId }) => voucherId,
+      referral_invitation: () => undefined,
+    })
+  );
+};
 
 export type DiscountResolutionError =
   | DiscountCalculationError

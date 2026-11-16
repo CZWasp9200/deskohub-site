@@ -68,7 +68,12 @@
               {
                 "fontFamily": "Sculpin Variable",
                 "path": "./assets/fonts/Sculpin.ttf",
-                "fontDefinitions": [{ "weight": 400 }, { "weight": 600 }]
+                "fontDefinitions": [
+                  { "weight": 400 },
+                  { "weight": 500 },
+                  { "weight": 600 },
+                  { "weight": 700 }
+                ]
               }
             ]
           }

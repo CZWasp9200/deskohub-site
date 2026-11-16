@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Context, Effect, Layer } from "effect";
-import { createElement, type ReactElement, type ReactNode } from "react";
+import {
+  Children,
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 
 const adaEmail = testEmailAddress("ada");
@@ -134,25 +140,38 @@ describe("account route layout", () => {
         readonly locale: "en-US";
         readonly children: ReactNode;
         readonly modal: ReactNode;
-      }) => Promise<
-        ReactElement<{
-          readonly locale: "en-US";
-          readonly signedIn: boolean;
-          readonly children: ReactElement<{ readonly children: ReactNode }>;
-        }>
-      >;
+      }) => Promise<ReactElement<{ readonly children: ReactNode }>>;
       const output = await Content(content.props);
+      const rendered = Children.toArray(output.props.children).filter(
+        isValidElement
+      );
+      const { InstallBar } = await import(
+        "@/features/mobile-distribution/install-bar"
+      );
+      const { InstallLaunchRedirect } = await import(
+        "@/features/mobile-distribution/install-launch-redirect"
+      );
 
       expect(connection).toHaveBeenCalled();
       expect(areReferralsEnabled).toHaveBeenCalledTimes(1);
       expect(arePasskeysEnabled).toHaveBeenCalledTimes(1);
-      expect(output.type).toBe(AccountLayoutShell);
-      expect(output.props).toMatchObject({
+      expect(rendered.map((element) => element.type)).toEqual([
+        AccountLayoutShell,
+        InstallLaunchRedirect,
+        ...(expectedSignedIn ? [InstallBar] : []),
+      ]);
+      expect(rendered[0]?.props).toMatchObject({
         locale: "en-US",
         passkeysEnabled: true,
         referralsEnabled: true,
         signedIn: expectedSignedIn,
       });
+      if (expectedSignedIn) {
+        expect(rendered[2]?.props).toEqual({
+          locale: "en-US",
+          placement: "page",
+        });
+      }
     }
   );
 });

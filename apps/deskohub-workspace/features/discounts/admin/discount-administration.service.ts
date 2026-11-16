@@ -55,6 +55,7 @@ import type {
   VoucherClaimId,
   VoucherId,
 } from "../persistence-contracts";
+import { getAvailableVoucherCredit } from "../promotion-availability";
 import {
   getServiceDateWindowIssue,
   type ServiceDateWindow,
@@ -831,7 +832,9 @@ export class DiscountAdministration extends Context.Service<
                 )
                 .where(eq(voucherRedemptions.voucherId, input.id));
               const usedValue = usage?.value ?? 0;
-              if (usedValue > input.credit.value) {
+              if (
+                getAvailableVoucherCredit(input.credit, usedValue).value < 0
+              ) {
                 return yield* new DiscountAdminConflictError({
                   reason: "voucher-credit-below-usage",
                   message:

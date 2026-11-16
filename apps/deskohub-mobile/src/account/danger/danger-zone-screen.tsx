@@ -245,7 +245,7 @@ function DangerZoneContent({
         onChange={onConfirmedChange}
       />
       <Button
-        variant="destructive"
+        variant="danger"
         label={
           pending
             ? m.danger_retry_button({}, { locale })
