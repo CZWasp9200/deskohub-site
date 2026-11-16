@@ -535,7 +535,9 @@ export class ReservationRestorationService extends Context.Service<
        * replay checks confirm Dotypos holds: the restore reports it as
        * already confirmed instead of its own refusal.
        */
-      const findFinishedRestore = (reread: RereadReservation) =>
+      const findFinishedRestore = (
+        reread: RereadReservation
+      ): Effect.Effect<Option.Option<ReservationRestorationResult>> =>
         Option.match(
           Option.filter(
             Result.getSuccess(reread),
