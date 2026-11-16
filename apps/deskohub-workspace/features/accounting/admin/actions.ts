@@ -47,6 +47,16 @@ const invoicePaths = (invoiceId: string) => [
   administrationHref("/[locale]/admin/invoices/[invoiceId]", { invoiceId }),
 ];
 
+/** The reservation detail, whose cancellation shows the reservation's invoice. */
+const reservationPaths = (reservationId: string | null) =>
+  reservationId
+    ? [
+        administrationHref("/[locale]/admin/reservations/[reservationId]", {
+          reservationId,
+        }),
+      ]
+    : [];
+
 const createInvoiceAction = defineAdministrationAction(
   {
     operation: "invoice-administration.create",
@@ -124,7 +134,10 @@ const retryInvoiceAction = defineAdministrationAction(
     schema: invoiceIdInputSchema,
     fallback: m.accountingInvoiceRetryDeliveryError,
     capabilities: InvoiceAdministrationService.Live,
-    revalidates: ({ invoiceId }) => invoicePaths(invoiceId),
+    revalidates: (
+      { invoiceId },
+      { reservationId }: { readonly reservationId: string | null }
+    ) => [...invoicePaths(invoiceId), ...reservationPaths(reservationId)],
   },
   Effect.fn(function* (input) {
     const administration = yield* InvoiceAdministrationService;
@@ -204,16 +217,7 @@ const cancelInvoiceAction = defineAdministrationAction(
     revalidates: (
       { invoiceId },
       { reservationId }: InvoiceCancellationActionResult
-    ) => [
-      ...invoicePaths(invoiceId),
-      ...(reservationId
-        ? [
-            administrationHref("/[locale]/admin/reservations/[reservationId]", {
-              reservationId,
-            }),
-          ]
-        : []),
-    ],
+    ) => [...invoicePaths(invoiceId), ...reservationPaths(reservationId)],
   },
   Effect.fn(function* ({ invoiceId, ...confirmation }) {
     const administrator = yield* CurrentAdministrator;

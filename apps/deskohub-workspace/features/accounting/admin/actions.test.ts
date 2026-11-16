@@ -100,6 +100,7 @@ const {
   archiveAdministrationInvoice,
   cancelAdministrationInvoice,
   previewAdministrationInvoiceCancellation,
+  retryAdministrationInvoice,
 } = await import("./actions");
 
 afterAll(() => {
@@ -429,5 +430,39 @@ describe("archiveAdministrationInvoice", () => {
     expect(result.serverError).toBe(
       m.accountingInvoiceHideErrorNotCancelled({}, { locale })
     );
+  });
+});
+
+describe("retryAdministrationInvoice", () => {
+  const retryResult = (reservation: string | null) =>
+    Effect.succeed({
+      invoiceId,
+      changed: true,
+      needsAttention: false,
+      notices: null,
+      reservationId: reservation,
+    });
+
+  test("revalidates a reservation invoice's reservation, whose cancellation shows the notice it now owes", async () => {
+    invoices = { retry: () => retryResult(reservationId) };
+
+    const result = await retryAdministrationInvoice({ invoiceId });
+
+    expect(calls[0]?.args[0]).toBe(invoiceId);
+    expect(result.data).toMatchObject({ changed: true });
+    expect(revalidatedPaths).toEqual([
+      ...invoicePaths,
+      administrationHref("/[locale]/admin/reservations/[reservationId]", {
+        reservationId,
+      }),
+    ]);
+  });
+
+  test("revalidates only the invoice pages of an invoice without a reservation", async () => {
+    invoices = { retry: () => retryResult(null) };
+
+    await retryAdministrationInvoice({ invoiceId });
+
+    expect(revalidatedPaths).toEqual(invoicePaths);
   });
 });

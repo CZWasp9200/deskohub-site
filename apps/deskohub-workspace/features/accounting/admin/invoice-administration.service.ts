@@ -271,6 +271,12 @@ type InvoiceAdministrationRetryResult = {
   readonly needsAttention: boolean;
   /** A cancelled invoice's notices, which were retried instead of its email. */
   readonly notices: InvoiceNoticeSummary | null;
+  /**
+   * The reservation the invoice bills, whose cancellation shows the notice a
+   * delivered invoice email owes. For the Admin UI; the administration API
+   * contract does not carry it.
+   */
+  readonly reservationId: AdministrationWorkspaceReservationIdType | null;
 };
 
 type InvoiceAdministrationCancelInput = {
@@ -667,6 +673,9 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     const stored = yield* invoices.findById(id);
     if (!stored)
       return yield* new InvoiceAdministrationNotFoundError({ invoiceId });
+    const reservationId = stored.workspaceReservationId
+      ? AdministrationWorkspaceReservationId.make(stored.workspaceReservationId)
+      : null;
     if (stored.cancellation) {
       const delivery = yield* cancellation.retryNotices(stored.id);
       return {
@@ -674,6 +683,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
         changed: delivery.changed,
         needsAttention: delivery.notices.needsAttention,
         notices: delivery.notices,
+        reservationId,
       } satisfies InvoiceAdministrationRetryResult;
     }
     const result = yield* deliveries.deliverByInvoiceId({ invoiceId: id });
@@ -682,6 +692,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
       changed: result.status === "delivered" && result.changed,
       needsAttention: yield* needsAttention(stored.id),
       notices: null,
+      reservationId,
     } satisfies InvoiceAdministrationRetryResult;
   });
 

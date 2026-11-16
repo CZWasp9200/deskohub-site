@@ -353,9 +353,24 @@ describe("InvoiceAdministrationService", () => {
         changed: true,
         needsAttention: true,
         notices: null,
+        reservationId: null,
       });
       expect(deliverByInvoiceId).toHaveBeenCalledWith({
         invoiceId: invoice.id,
+      });
+    });
+
+    test("names the reservation a reservation invoice bills", async () => {
+      const { run } = retryWith(
+        {
+          ...invoice,
+          workspaceReservationId: "workspace-reservation" as never,
+        },
+        { status: "delivered", changed: true }
+      );
+
+      expect(await Effect.runPromise(run)).toMatchObject({
+        reservationId: "workspace-reservation",
       });
     });
 
@@ -999,6 +1014,7 @@ describe("InvoiceAdministrationService cancellation", () => {
         internal: "accepted",
         needsAttention: false,
       },
+      reservationId: null,
     });
   });
 

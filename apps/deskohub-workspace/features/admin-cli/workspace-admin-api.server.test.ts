@@ -1773,7 +1773,7 @@ describe("invoice cancellation and archive endpoints", () => {
     expect(errors[1]).toMatchObject({ code: "document_unavailable" });
   });
 
-  test("answers a cancelled invoice's resend with the notices it retried", async () => {
+  test("answers a cancelled invoice's resend with the notices it retried, without the Admin UI's reservation", async () => {
     const invoices = invoicesWith({
       retry: () =>
         Effect.succeed({
@@ -1781,6 +1781,9 @@ describe("invoice cancellation and archive endpoints", () => {
           changed: true,
           needsAttention: true,
           notices,
+          reservationId: AdministrationWorkspaceReservationId.make(
+            "01980000-0000-7000-8000-00000000abcd"
+          ),
         }),
     });
 
