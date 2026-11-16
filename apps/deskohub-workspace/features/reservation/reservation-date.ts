@@ -22,6 +22,23 @@ export const getWorkspaceDate = (instant: Temporal.Instant) =>
 export const getCurrentWorkspaceDate = (now = Temporal.Now.instant()) =>
   getWorkspaceDate(now);
 
+/**
+ * Whether an interval holds some moment between `now` and the end of the
+ * workspace date (Prague) `now` falls on: it starts by that date and hasn't
+ * ended. An interval ending at `now` has ended.
+ */
+export const isOpenOnCurrentWorkspaceDate = (
+  interval: {
+    readonly startsAt: Temporal.Instant;
+    readonly endsAt: Temporal.Instant;
+  },
+  now: Temporal.Instant
+) =>
+  Temporal.PlainDate.compare(
+    getWorkspaceDate(interval.startsAt),
+    getWorkspaceDate(now)
+  ) <= 0 && Temporal.Instant.compare(interval.endsAt, now) > 0;
+
 export const isTodayOrFutureWorkspaceDate = (date: string) =>
   date >= getCurrentWorkspaceDate().toString();
 

@@ -1,4 +1,4 @@
-import { Effect, Match, Option } from "effect";
+import { Clock, type DateTime, Effect, Match, Option } from "effect";
 import { type SignInMethod, trackSignInCompleted } from "../analytics/events";
 import type { AppLocale } from "../i18n/app-locale";
 import { webCallbackPath, withSignInMethod } from "./auth-callback";
@@ -13,9 +13,10 @@ import {
   saveReauthenticatingUser,
 } from "./web-reauthentication-store";
 import {
+  decodeNextSignInEmailAt,
+  type WebSignInErrorAnswer,
   WebSignInFailure,
   type WebSignInOperation,
-  webSignInFailureReason,
 } from "./web-sign-in-failure";
 
 /**
@@ -27,7 +28,7 @@ import {
 
 interface ClientResult<A> {
   readonly data: A | null;
-  readonly error: { readonly status?: number; readonly code?: string } | null;
+  readonly error: WebSignInErrorAnswer | null;
 }
 
 const call = <A>(
@@ -41,12 +42,7 @@ const call = <A>(
     Effect.flatMap(({ data, error }) =>
       error === null
         ? Effect.succeed(data)
-        : Effect.fail(
-            new WebSignInFailure({
-              operation,
-              reason: webSignInFailureReason(operation, error),
-            })
-          )
+        : Effect.fail(WebSignInFailure.fromAnswer(operation)(error))
     )
   );
 
@@ -54,33 +50,42 @@ const call = <A>(
 export interface SentSignInEmail {
   readonly email: string;
   readonly signInCode: boolean;
+  /** Epoch ms when this send succeeded (Effect Clock), the start of the UI resend cooldown. */
+  readonly sentAt: number;
+  /** When the server next accepts a sign-in email for this address; none when the server sent none or an invalid one (older server, codes off). */
+  readonly nextSignInEmailAt: Option.Option<DateTime.Utc>;
 }
 
 /**
  * Sends the sign-in email. The relative `/app/auth/callback` (and no other
  * callback) makes the server send the App Link with the bare token. The
  * server answers whether the email also carries a sign-in code; anything but
- * a clear yes means the link alone.
+ * a clear yes means the link alone. It also names when it next accepts an
+ * email for the address; an answer without a valid instant leaves only the
+ * page's own cooldown.
  */
 export const sendSignInEmail = (email: string, locale: AppLocale) =>
-  call<{ readonly status: boolean; readonly signInCode?: unknown }>(
-    "send-email",
-    (signal) =>
+  Effect.zipWith(
+    call<{
+      readonly status: boolean;
+      readonly signInCode?: unknown;
+      readonly nextSignInEmailAt?: unknown;
+    }>("send-email", (signal) =>
       authClient.signIn.magicLink({
         email,
         callbackURL: webCallbackPath,
         metadata: { locale },
         fetchOptions: { signal },
       })
-  ).pipe(
-    Effect.map(
-      (data): SentSignInEmail => ({
-        email,
-        signInCode: data?.signInCode === true,
-      })
     ),
-    Effect.withSpan("WebSignIn.sendSignInEmail")
-  );
+    Clock.currentTimeMillis,
+    (data, sentAt): SentSignInEmail => ({
+      email,
+      signInCode: data?.signInCode === true,
+      sentAt,
+      nextSignInEmailAt: decodeNextSignInEmailAt(data?.nextSignInEmailAt),
+    })
+  ).pipe(Effect.withSpan("WebSignIn.sendSignInEmail"));
 
 /**
  * Signs in with the email's code. The request names the app's locale, which

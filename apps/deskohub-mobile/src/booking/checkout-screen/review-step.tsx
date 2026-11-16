@@ -8,6 +8,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { apiOrigin } from "../../auth/auth-client";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import { theme } from "../../theme";
 import { ErrorState, LoadingState } from "../../ui/async-states";
 import { Button, TextField } from "../../ui/controls";
@@ -21,7 +22,6 @@ import {
 } from "../checkout/checkout-state";
 import { Checkbox } from "../ui/checkbox";
 import { HoldCountdown } from "../ui/hold-countdown";
-import { formatMoney } from "../ui/money";
 import { PriceSummary } from "../ui/price-summary";
 import { BookingOverviewView } from "./booking-overview-view";
 import { retryMessage, summaryLineLabel } from "./checkout-copy";

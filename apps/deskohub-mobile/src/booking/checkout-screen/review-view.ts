@@ -11,21 +11,8 @@ import type {
   HeldCheckout,
   ReviewState,
 } from "../checkout/checkout-state";
-import type {
-  SummaryLineKind,
-  SummaryLineView,
-  SummaryView,
-} from "../ui/price-summary";
-
-export const summaryLineKind = (key: string): SummaryLineKind => {
-  const [prefix, ...rest] = key.split(":");
-  const name = rest.join(":");
-  if (prefix === "product") return { _tag: "Product", product: name };
-  if (key === "addon:coffee") return { _tag: "Coffee" };
-  if (key === "addon:workstation") return { _tag: "Workstation" };
-  if (prefix === "monitor") return { _tag: "Monitor", option: name };
-  return { _tag: "Other", key };
-};
+import { summaryItemSubject } from "../ui/price-breakdown";
+import type { SummaryLineView, SummaryView } from "../ui/price-summary";
 
 /** The changed lines and sections a price review names. */
 export type ChangedKeys = Option.Option<
@@ -39,7 +26,7 @@ const lineView = (
   changed: (key: string) => boolean
 ): SummaryLineView => ({
   key: item.key,
-  kind: summaryLineKind(item.key),
+  kind: summaryItemSubject(item.key),
   amount: item.amount,
   originalAmount: Option.fromUndefinedOr(item.originalAmount),
   discounts: (item.discounts ?? []).map(({ discount, amount }) => ({

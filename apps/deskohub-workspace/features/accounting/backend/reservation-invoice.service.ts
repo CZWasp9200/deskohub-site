@@ -5,7 +5,6 @@ import {
 } from "@deskohub/dotypos";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Result } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
 import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
 import type { InvoiceBuyerAddress } from "@/features/accounting/billing-identity";
 import type { InvoiceBuyer } from "@/features/accounting/invoice";
@@ -24,8 +23,8 @@ import {
   getReservationInvoiceBuyer,
 } from "@/features/reservation/reservation-billing";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
+import { AccountingStorage } from "./accounting-storage";
 import {
   InvoiceRepository,
   type InvoiceRepositoryError,
@@ -58,8 +57,12 @@ interface PostOrderInvoiceAccess {
 }
 
 export interface IReservationInvoiceService {
-  readonly processByPaymentAttemptId: (input: {
-    readonly paymentAttemptId: PaymentAttemptId;
+  /**
+   * Issues and delivers the invoice a fulfilled reservation's active payment
+   * attempt froze; a reservation without an active attempt is skipped.
+   */
+  readonly issueAfterFulfillment: (input: {
+    readonly reservationId: WorkspaceReservationId;
   }) => Effect.Effect<void, ReservationInvoiceProcessingError>;
   readonly getPostOrderState: (
     input: PostOrderInvoiceAccess
@@ -88,7 +91,7 @@ export class ReservationInvoiceService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
+      const accountingSnapshots = yield* AccountingDocumentSnapshots;
       const dotypos = yield* DotyposService;
       const invoiceDeliveries = yield* InvoiceEmailDeliveryService;
       const invoices = yield* InvoiceRepository;
@@ -142,8 +145,7 @@ export class ReservationInvoiceService extends Context.Service<
         }
 
         const paymentAttemptId = reservation.activePaymentAttemptId;
-        const source =
-          yield* accountingSnapshots.findByPaymentAttemptId(paymentAttemptId);
+        const source = yield* accountingSnapshots.find(paymentAttemptId);
         if (!isDeliverableReservationSnapshot(source, reservation)) {
           return { state: "unavailable" as const };
         }
@@ -160,38 +162,50 @@ export class ReservationInvoiceService extends Context.Service<
         return { state: "create" as const, paymentAttemptId, source };
       });
 
-      return ReservationInvoiceService.of({
-        processByPaymentAttemptId: Effect.fn(
-          "ReservationInvoiceService.processByPaymentAttemptId"
-        )(function* ({ paymentAttemptId }) {
-          const source =
-            yield* accountingSnapshots.findByPaymentAttemptId(paymentAttemptId);
-          if (!source?.billing) return;
+      const issueForPaymentAttempt = Effect.fnUntraced(function* (
+        paymentAttemptId: PaymentAttemptId
+      ) {
+        const source = yield* accountingSnapshots.find(paymentAttemptId);
+        if (!source?.billing) return;
 
-          const billingDetails = getDotyposCustomerBillingDetails(
-            source.billing
+        const billingDetails = getDotyposCustomerBillingDetails(source.billing);
+        if (!billingDetails) return;
+
+        const buyer = getReservationInvoiceBuyer({
+          billing: source.billing,
+          customerName: source.buyer.legalName,
+        });
+        if (!buyer) return;
+
+        const existing =
+          yield* invoices.findByPaymentAttemptId(paymentAttemptId);
+        if (!existing) {
+          yield* dotypos.updateCustomerBillingDetails(
+            source.dotyposCustomerId,
+            billingDetails
           );
-          if (!billingDetails) return;
+        }
 
-          const buyer = getReservationInvoiceBuyer({
-            billing: source.billing,
-            customerName: source.buyer.legalName,
-          });
-          if (!buyer) return;
+        yield* invoices.issue({ paymentAttemptId, buyer });
+        yield* invoiceDeliveries.deliverByPaymentAttemptId({
+          paymentAttemptId,
+        });
+      });
 
-          const existing =
-            yield* invoices.findByPaymentAttemptId(paymentAttemptId);
-          if (!existing) {
-            yield* dotypos.updateCustomerBillingDetails(
-              source.dotyposCustomerId,
-              billingDetails
+      return ReservationInvoiceService.of({
+        issueAfterFulfillment: Effect.fn(
+          "ReservationInvoiceService.issueAfterFulfillment"
+        )(function* ({ reservationId }) {
+          const reservation = yield* reservations.findById(reservationId);
+          const paymentAttemptId = reservation?.activePaymentAttemptId;
+          if (!paymentAttemptId) {
+            yield* Effect.logWarning(
+              "Reservation invoice processing skipped: payment attempt missing",
+              { workspaceReservationId: reservationId }
             );
+            return;
           }
-
-          yield* invoices.issue({ paymentAttemptId, buyer });
-          yield* invoiceDeliveries.deliverByPaymentAttemptId({
-            paymentAttemptId,
-          });
+          yield* issueForPaymentAttempt(paymentAttemptId);
         }),
         getPostOrderState: Effect.fn(
           "ReservationInvoiceService.getPostOrderState"
@@ -275,7 +289,14 @@ export class ReservationInvoiceService extends Context.Service<
   );
 
   static Live = this.Default.pipe(
-    Layer.provide(getReservationInvoiceDependencies()),
+    Layer.provide(
+      Layer.mergeAll(
+        AccountingStorage.Live,
+        WorkspaceDotyposLayer,
+        WorkspaceReservationRepository.Live,
+        InvoiceEmailDeliveryService.Live
+      )
+    ),
     Layer.orDie
   );
 }
@@ -316,24 +337,3 @@ const isUnrequestedPersonalInvoice = (
   source.billing?.purpose === "personal" &&
   source.billing.invoice === "none" &&
   source.buyer.kind === "person";
-
-function getReservationInvoiceDependencies() {
-  const accountingStorage = Layer.merge(
-    WorkspaceDatabase.Default,
-    AccountingSnapshotKeyService.Default
-  );
-  const accountingSnapshots = AccountingDocumentSnapshotRepository.Default.pipe(
-    Layer.provide(accountingStorage)
-  );
-  const invoices = InvoiceRepository.Default.pipe(
-    Layer.provide(Layer.merge(accountingStorage, accountingSnapshots))
-  );
-
-  return Layer.mergeAll(
-    accountingSnapshots,
-    WorkspaceDotyposLayer,
-    invoices,
-    WorkspaceReservationRepository.Live,
-    InvoiceEmailDeliveryService.Live
-  );
-}

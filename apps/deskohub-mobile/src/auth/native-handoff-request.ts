@@ -1,3 +1,4 @@
+import { CustomerAnalyticsChoice } from "@deskohub/workspace-customer-api";
 import { Option, Schema } from "effect";
 import { type AppLocale, appLocales, isAppLocale } from "../i18n/app-locale";
 import { nativeReturnUri, webCallbackPath } from "./auth-callback";
@@ -41,7 +42,27 @@ export interface NativeHandoffRequest {
   readonly loginHint?: string;
   /** What a reauthentication is for, so the page can say so. */
   readonly purpose?: ReauthenticationPurpose;
+  /**
+   * The app's own analytics answer, which the page takes over the site's
+   * consent before its analytics can run. None when the app holds no
+   * answer, or was built before it sent one; never read as consent.
+   */
+  readonly analytics?: NativeHandoffAnalyticsAnswer;
 }
+
+/** The app's analytics answer, dated exactly as the app stored it. */
+export interface NativeHandoffAnalyticsAnswer {
+  readonly granted: boolean;
+  /** An ISO 8601 instant, kept byte-identical. */
+  readonly decidedAt: string;
+}
+
+/** A carried answer as both the page's reader and its storage accept it. */
+const analyticsAnswerSchema = Schema.Struct({
+  granted: Schema.Boolean,
+  decidedAt: CustomerAnalyticsChoice.fields.decidedAt,
+});
+const isAnalyticsAnswer = Schema.is(analyticsAnswerSchema);
 
 /** The web page that runs the email sign-in for the native app. */
 export const webSignInPath = "/app/sign-in";
@@ -59,7 +80,11 @@ const params = {
   locale: "locale",
   loginHint: "login_hint",
   purpose: "purpose",
+  analytics: "analytics",
+  analyticsDecidedAt: "analytics_decided_at",
 } as const;
+
+const analyticsValues = { granted: "granted", denied: "denied" } as const;
 
 // base64url SHA-256: exactly 43 characters.
 const challengePattern = /^[A-Za-z0-9_-]{43}$/;
@@ -84,12 +109,39 @@ export const nativeSignInUrl = (
   }
   if (request.purpose !== undefined)
     search.set(params.purpose, request.purpose);
+  if (request.analytics !== undefined) {
+    search.set(
+      params.analytics,
+      request.analytics.granted
+        ? analyticsValues.granted
+        : analyticsValues.denied
+    );
+    search.set(params.analyticsDecidedAt, request.analytics.decidedAt);
+  }
   return `${origin}${webSignInPath}?${search.toString()}`;
 };
 
 const only = (search: URLSearchParams, name: string): string | undefined => {
   const values = search.getAll(name);
   return values.length === 1 ? values[0] : undefined;
+};
+
+/**
+ * The carried analytics answer: both values present once and valid, else
+ * none, so a half or malformed answer never reads as one.
+ */
+const readAnalyticsAnswer = (
+  search: URLSearchParams
+): NativeHandoffAnalyticsAnswer | undefined => {
+  const value = only(search, params.analytics);
+  if (value !== analyticsValues.granted && value !== analyticsValues.denied) {
+    return undefined;
+  }
+  const answer = {
+    granted: value === analyticsValues.granted,
+    decidedAt: only(search, params.analyticsDecidedAt),
+  };
+  return isAnalyticsAnswer(answer) ? answer : undefined;
 };
 
 const isAllowedReturnUri = (value: string, siteOrigin: string): boolean =>
@@ -112,6 +164,9 @@ export const readNativeHandoffRequest = (
   // can't use leaves them out instead of refusing the sign-in.
   const loginHint = only(search, params.loginHint);
   const purpose = only(search, params.purpose);
+  // Neither does the analytics answer: without one the page keeps analytics
+  // off, which the sign-in doesn't need.
+  const analytics = readAnalyticsAnswer(search);
   if (
     codeChallenge === undefined ||
     !challengePattern.test(codeChallenge) ||
@@ -134,6 +189,7 @@ export const readNativeHandoffRequest = (
       ? { loginHint }
       : {}),
     ...(isReauthenticationPurpose(purpose) ? { purpose } : {}),
+    ...(analytics === undefined ? {} : { analytics }),
   });
 };
 
@@ -168,6 +224,8 @@ const storedRequestSchema = Schema.fromJsonString(
         Schema.String.check(Schema.makeFilter(isEmailAddress))
       ),
       purpose: Schema.optionalKey(Schema.Literals(reauthenticationPurposes)),
+      // Checked on its own below, so a bad answer drops only itself.
+      analytics: Schema.optionalKey(Schema.Unknown),
     }),
     expiresAt: Schema.Finite,
   })
@@ -180,7 +238,11 @@ export const serializeNativeHandoffRequest = (
 ): string =>
   JSON.stringify({ request, expiresAt: now + nativeHandoffRequestTtlMs });
 
-/** The stored request, unless it is absent, malformed or expired. */
+/**
+ * The stored request, unless it is absent, malformed or expired. A malformed
+ * analytics answer is dropped like a malformed one on the address, keeping
+ * the request, and with it the page's hand-off analytics gate.
+ */
 export const restoreNativeHandoffRequest = (
   raw: string | null,
   now: number
@@ -188,5 +250,7 @@ export const restoreNativeHandoffRequest = (
   Option.fromNullishOr(raw).pipe(
     Option.flatMap(decodeStoredRequest),
     Option.filter(({ expiresAt }) => now < expiresAt),
-    Option.map(({ request }) => request)
+    Option.map(({ request: { analytics, ...request } }) =>
+      isAnalyticsAnswer(analytics) ? { ...request, analytics } : request
+    )
   );
