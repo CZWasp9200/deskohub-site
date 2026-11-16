@@ -24,11 +24,11 @@ import {
 import {
   defineOperations,
   mutation,
-  NoInput,
   type OperationInput,
   type OperationOutput,
   query,
-} from "./campaign-operations";
+} from "./administration-operation-port";
+import { NoInput } from "./campaign-operations";
 import { DhwVersion, MinimumDhwVersion } from "./dhw-version";
 import {
   type OperationRequest,
