@@ -8,6 +8,7 @@ import {
   test,
 } from "bun:test";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import {
   act,
   Children,
@@ -19,9 +20,8 @@ import { AccessibilityInfo, Platform } from "react-native";
 import { analytics } from "../../analytics/analytics";
 import { AppLocaleProvider } from "../../i18n/locale-context";
 import { clientRoot } from "../../testing/client-root";
-import { theme } from "../../theme";
 import { Button, LiveMessage } from "../../ui/controls";
-import { LoadingIndicator } from "../../ui/loading-indicator";
+import { Notice } from "../../ui/notice";
 import { find, type HostProps, hostTree } from "../../ui/testing/element-tree";
 import { PasskeyCeremonies, type PasskeyCeremonyApi } from "./passkey-ceremony";
 import {
@@ -96,10 +96,12 @@ const draw = async <Props,>(
         if (typeof onPress !== "function") throw new Error("No button.");
         onPress();
       }),
-    /** The props of the loading indicator in the button, if it shows one. */
-    indicator: () => find(tree, LoadingIndicator)?.props,
     /** Whether the design system's button shows itself busy. */
     busy: () => find(tree, Button)?.props.busy === true,
+    /** The props of the design system's button. */
+    button: () => find(tree, Button)?.props,
+    /** The props of the control's notice, if it draws one. */
+    notice: () => find(tree, Notice)?.props,
     /** The control's live region, as its only `LiveMessage` draws it. */
     region: () => {
       expect(regions).toHaveLength(1);
@@ -145,6 +147,7 @@ describe("AddPasskeyAction", () => {
         ),
     };
     const action = await draw(AddPasskeyAction, {
+      kind: "first",
       onStart: () => steps.push("start"),
       onAdded: () => steps.push("added"),
       onSettled: () => steps.push("settled"),
@@ -166,6 +169,7 @@ describe("AddPasskeyAction", () => {
         ),
     };
     const action = await draw(AddPasskeyAction, {
+      kind: "first",
       onStart: () => steps.push("start"),
       onSettled: () => steps.push("settled"),
       onReauthenticationRequired: () => steps.push("reauthenticate"),
@@ -176,35 +180,35 @@ describe("AddPasskeyAction", () => {
     expect(steps).toEqual(["start", "reauthenticate", "settled"]);
   });
 
-  test.each([
-    ["success", added],
-    ["failure", notSupported],
-  ])("announces its %s politely on iOS", async (_case, addPasskey) => {
-    platform.OS = "ios";
-    ceremonies = { ...ceremonies, addPasskey };
-    const action = await draw(AddPasskeyAction, {
-      onReauthenticationRequired: () => undefined,
-    });
-
-    await action.press();
-
-    const message = action.region()?.children;
-    expect(typeof message === "string" && message.length > 0).toBe(true);
-    expect(action.region()?.role).toBe("status");
-    expect(announced).toEqual([{ message: String(message), queue: true }]);
-  });
-
-  test("leaves the announcement to the live region on Android", async () => {
-    platform.OS = "android";
+  test("a failure shows its cause in an error notice over a primary retry", async () => {
     ceremonies = { ...ceremonies, addPasskey: notSupported };
     const action = await draw(AddPasskeyAction, {
+      kind: "another",
+      onReauthenticationRequired: () => undefined,
+    });
+    expect(action.notice()?.message).toBeUndefined();
+    expect(action.button()?.variant).toBe("secondary");
+
+    await action.press();
+
+    const notice = action.notice();
+    expect(notice?.tone).toBe("error");
+    expect(String(notice?.title).length).toBeGreaterThan(0);
+    expect(String(notice?.message).length).toBeGreaterThan(0);
+    expect(action.button()?.variant).toBe("primary");
+    expect(action.button()?.icon).toBe(RotateCcw);
+  });
+
+  test("a created passkey leaves no notice; the screen confirms it", async () => {
+    ceremonies = { ...ceremonies, addPasskey: added };
+    const action = await draw(AddPasskeyAction, {
+      kind: "first",
       onReauthenticationRequired: () => undefined,
     });
 
     await action.press();
 
-    expect(action.region()?.accessibilityLiveRegion).toBe("polite");
-    expect(announced).toEqual([]);
+    expect(action.notice()?.message).toBeUndefined();
   });
 });
 
@@ -310,19 +314,17 @@ describe("the pending passkey buttons", () => {
     ceremonies = idle;
   });
 
-  test("adding a passkey shows an accent inline die while it runs", async () => {
+  test("adding a passkey shows its button busy while it runs", async () => {
     ceremonies = { ...ceremonies, addPasskey: () => Effect.never };
     const action = await draw(AddPasskeyAction, {
+      kind: "first",
       onReauthenticationRequired: () => undefined,
     });
-    expect(action.indicator()).toBeUndefined();
+    expect(action.busy()).toBe(false);
 
     await action.press();
 
-    expect(action.indicator()).toEqual({
-      size: "inline",
-      tone: { color: theme.colors.accent },
-    });
+    expect(action.busy()).toBe(true);
   });
 
   test("signing in with a passkey shows its button busy while it runs", async () => {

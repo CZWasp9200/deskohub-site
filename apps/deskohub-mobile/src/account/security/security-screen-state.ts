@@ -41,7 +41,7 @@ export type PasskeyDialog =
  * What the screen announces: a dialog's outcome after it closed, or that a
  * passkey is being added.
  */
-export type SecurityAnnouncement = "renamed" | "deleted" | "gone" | "adding";
+export type SecurityAnnouncement = "renamed" | "deleted" | "gone";
 
 export interface SecurityScreenState {
   readonly dialog: PasskeyDialog | undefined;
@@ -171,7 +171,8 @@ export const securityScreenReducer = (
       PasskeyAddStarted: () => ({
         ...state,
         adding: true,
-        announcement: "adding" as const,
+        // The button says it waits for the device; the last outcome goes.
+        announcement: undefined,
         reauthentication: undefined,
       }),
       AddReauthenticationRequired: () => ({
@@ -183,8 +184,6 @@ export const securityScreenReducer = (
       PasskeyAddSettled: () => ({
         ...state,
         adding: false,
-        announcement:
-          state.announcement === "adding" ? undefined : state.announcement,
       }),
       ReauthenticationEnded: ({ outcome }) =>
         state.reauthentication === undefined
