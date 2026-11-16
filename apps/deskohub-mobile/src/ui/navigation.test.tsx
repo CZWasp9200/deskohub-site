@@ -65,6 +65,15 @@ describe("stack headers", () => {
     expect(find(tree, AppBar)?.props.title).toBe("title");
   });
 
+  test("a navy header draws the app bar on navy, with light status-bar content", () => {
+    const tree = header({ options: { title: "title" }, tone: "navy" } as never);
+    expect(flatStyle(find(tree, "View")?.props.style)).toMatchObject({
+      backgroundColor: color.navy,
+    });
+    expect(find(tree, FocusedStatusBar)?.props.style).toBe("light");
+    expect(find(tree, AppBar)?.props.tone).toBe("navy");
+  });
+
   test("a string headerTitle wins over the title, and the route name is the last resort", () => {
     expect(
       find(

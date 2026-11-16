@@ -29,15 +29,24 @@ export function StackHeader({
   route,
   navigation,
   closes = false,
+  tone = "paper",
 }: NativeStackHeaderProps & {
   /** The screen ends a flow: its button closes it rather than going back. */
   readonly closes?: boolean;
+  /** A navy header over a screen whose top is navy (`AppBar`'s `tone`). */
+  readonly tone?: "paper" | "navy";
 }) {
   const insets = useSafeAreaInsets();
   const canGoBack = back !== undefined;
   return (
-    <View style={[styles.header, { paddingTop: insets.top }]}>
-      <FocusedStatusBar style="dark" />
+    <View
+      style={[
+        styles.header,
+        tone === "navy" && styles.navyHeader,
+        { paddingTop: insets.top },
+      ]}
+    >
+      <FocusedStatusBar style={tone === "navy" ? "light" : "dark"} />
       <AppBar
         title={getHeaderTitle(options, route.name)}
         onBack={
@@ -48,6 +57,7 @@ export function StackHeader({
         actions={options.headerRight?.({ tintColor: color.navy, canGoBack })}
         raised={options.headerShadowVisible === true}
         back={closes ? "close" : "back"}
+        tone={tone}
       />
     </View>
   );
@@ -61,6 +71,14 @@ const renderStackHeader = (props: NativeStackHeaderProps) => (
 export const renderClosingStackHeader = (props: NativeStackHeaderProps) => (
   <StackHeader {...props} closes />
 );
+
+/** A stack header on brand navy (`StackHeader`'s `tone`). */
+export const renderNavyStackHeader = (props: NativeStackHeaderProps) => (
+  <StackHeader {...props} tone="navy" />
+);
+
+/** The app's usual stack header on the paper canvas. */
+export const renderPaperStackHeader = renderStackHeader;
 
 const stackOptionsByLocale = mapSupportedLocales(
   () =>
@@ -83,4 +101,5 @@ export const tabScreenOptions = {
 
 const styles = StyleSheet.create({
   header: { backgroundColor: color.paper },
+  navyHeader: { backgroundColor: color.navy },
 });
