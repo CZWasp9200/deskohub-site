@@ -20,6 +20,7 @@ import {
   Schema,
 } from "effect";
 import { env } from "@/env";
+import { makeRecordingAdvisoryLock } from "@/db/postgres-advisory-lock.test-utils";
 import {
   type CustomerAccountSectionsFixture,
   makeCustomerAccountSections,
@@ -536,6 +537,13 @@ type CheckoutHarnessOptions<ReservationOverrides extends object> = {
   readonly requestedDiscountCode?: CanonicalPromotionCode;
   readonly changedKeys?: CheckoutSummaryChangedKeys;
   readonly reservationOverrides?: ReservationOverrides;
+  /**
+   * The order as read again under its lock section, when it changed after
+   * the payable check: another submission of it started a payment.
+   */
+  readonly lockedReservationOverrides?: Partial<
+    ReturnType<typeof makeReservation>
+  >;
   readonly requireCurrent?: ReturnType<typeof mock>;
   /** How long each default live payable-reservation guard takes. */
   readonly liveGuardDuration?: Duration.Input;
@@ -663,8 +671,11 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
       readonly paymentReturnTarget: PaymentReturnTarget | undefined;
     }): Effect.Effect<void, EffectDrizzleQueryError> => Effect.void
   );
+  const lockedReservationRecord = options.lockedReservationOverrides
+    ? { ...reservationRecord, ...options.lockedReservationOverrides }
+    : reservationRecord;
   const reservations = {
-    findById: mock(() => Effect.succeed(reservationRecord)),
+    findById: mock(() => Effect.succeed(lockedReservationRecord)),
     updateReservationDetails,
     recordPaymentReturnTarget,
   };
@@ -703,6 +714,7 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
   const accountAuthority = makeCustomerAccountSections(
     options.accountAuthority ?? { session: null }
   );
+  const advisoryLock = makeRecordingAdvisoryLock();
 
   const effect = Effect.gen(function* () {
     const service = yield* CheckoutService;
@@ -731,6 +743,7 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
         Layer.provide(
           Layer.mergeAll(
             accountAuthority.layer,
+            advisoryLock.layer,
             CheckoutPricingServiceMock(paymentPricing),
             Layer.mock(DotyposService, dotypos),
             Layer.mock(NexiService, nexi),
@@ -757,6 +770,7 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
   return {
     effect,
     accountEvents: accountAuthority.events,
+    lockedKeys: advisoryLock.entered,
     affirm,
     createPendingNexiAttempt,
     completeInternalPayment,
@@ -1612,6 +1626,64 @@ describe("CheckoutService", () => {
       statusUrl: "/en-US/reservation/status/reservation-starts-new-attempt",
     });
     expect(harness.createPendingNexiAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  test("records the evidence and starts the payment inside the order's lock section", async () => {
+    const orderId = "reservation-starts-under-order-lock";
+    const harness = await createCheckoutHarness({ orderId });
+
+    const result = await Effect.runPromise(harness.effect);
+
+    expect(result.status).toBe("redirect");
+    expect(harness.lockedKeys).toEqual([["reservation-order", orderId]]);
+    expect(harness.recordLegalEvidence).toHaveBeenCalledTimes(1);
+    expect(harness.createPendingNexiAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns the payment another submission started while this one waited for the order's lock, without new evidence or a second payment", async () => {
+    const orderId = "reservation-started-by-concurrent-submission";
+    const concurrentAttempt = makeAttempt({
+      id: "concurrent-attempt",
+      orderId,
+      state: "pending",
+      securityToken: "concurrent-security-token",
+      providerRedirectUrl: "https://payments.example/concurrent",
+    });
+    const harness = await createCheckoutHarness({
+      orderId,
+      activeAttempt: concurrentAttempt,
+      lockedReservationOverrides: {
+        activePaymentAttemptId: concurrentAttempt.id,
+        paymentState: "pending",
+      },
+    });
+
+    const result = await Effect.runPromise(harness.effect);
+
+    expect(result).toEqual({
+      status: "redirect",
+      orderId,
+      redirectUrl: "https://payments.example/concurrent",
+      statusUrl: `/en-US/reservation/status/${orderId}`,
+    });
+    expect(harness.recordLegalEvidence).not.toHaveBeenCalled();
+    expect(harness.updateReservationDetails).not.toHaveBeenCalled();
+    expect(harness.updateReservation).not.toHaveBeenCalled();
+    expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+    expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
+  });
+
+  test("stops when the order's hold was released while this submission waited for its lock", async () => {
+    const harness = await createCheckoutHarness({
+      orderId: "reservation-released-under-order-lock",
+      lockedReservationOverrides: { reservationState: "cancelled" },
+    });
+
+    const result = await Effect.runPromise(harness.effect);
+
+    expect(result).toEqual({ status: "in_progress" });
+    expect(harness.recordLegalEvidence).not.toHaveBeenCalled();
+    expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
   });
 
   test("starts a provider session for a hold without a recorded expiry", async () => {
