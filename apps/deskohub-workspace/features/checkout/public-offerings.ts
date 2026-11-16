@@ -61,6 +61,12 @@ type PublicOfferingAddOn = {
   }>;
 };
 
+/** A key fact about a space: how many it holds, or what it is equipped with. */
+type PublicOfferingFact = {
+  readonly kind: "capacity" | "equipment";
+  readonly text: string;
+};
+
 type PublicOfferingCopy = {
   readonly name: string;
   readonly description: string;
@@ -84,6 +90,8 @@ export type PublicCatalogOffering = PublicOfferingCopy &
         readonly kind: "meeting-room";
         readonly duration: MeetingRoomReservationDuration;
         readonly durationLabel: string;
+        /** The room's key facts, worded as the room's page lists them. */
+        readonly facts: ReadonlyArray<PublicOfferingFact>;
         /** Per booking of the duration. */
         readonly price: Money;
       }
@@ -324,6 +332,10 @@ const getMeetingRoomOffering = (
   name: getWorkspaceMeetingRoomProductTitle(locale),
   description: m.reservationTierMeetingRoomDescription({}, { locale }),
   usage: m.publicOfferingMeetingRoomUsage({}, { locale }),
+  facts: [
+    { kind: "capacity", text: m.meetingRoomFactCapacity({}, { locale }) },
+    { kind: "equipment", text: m.meetingRoomFactTv({}, { locale }) },
+  ],
   price: getWorkspaceMeetingRoomPriceForDuration(duration),
 });
 
