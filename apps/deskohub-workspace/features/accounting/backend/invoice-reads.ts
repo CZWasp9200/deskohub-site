@@ -1,7 +1,10 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { and, asc, desc, eq, isNull, type SQL } from "drizzle-orm";
 import { Effect, Option, Schema } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  workspaceStatementConcurrency,
+} from "@/db/database.service";
 import { accountingDocumentSnapshots, invoices } from "@/db/schema";
 import {
   type InvoiceDocument,
@@ -120,9 +123,13 @@ export const makeInvoiceReads = Effect.gen(function* () {
     const rows = yield* db.select({ id: invoices.id }).from(invoices);
     // ponytail: decrypting the small invoice ledger in-process keeps one
     // repository path; add SQL pagination when the ledger is measurably large.
-    const loaded = yield* Effect.all(
-      rows.map(({ id }) => findById(id)),
-      { concurrency: "inherit" }
+    const loaded = yield* Effect.flatMap(
+      workspaceStatementConcurrency,
+      (concurrency) =>
+        Effect.all(
+          rows.map(({ id }) => findById(id)),
+          { concurrency }
+        )
     );
     return loaded.filter((invoice) => invoice !== null);
   });
@@ -134,9 +141,13 @@ export const makeInvoiceReads = Effect.gen(function* () {
       .select({ id: invoices.id })
       .from(invoices)
       .where(isNull(invoices.workspaceReservationId));
-    const loaded = yield* Effect.all(
-      rows.map(({ id }) => findById(id)),
-      { concurrency: "inherit" }
+    const loaded = yield* Effect.flatMap(
+      workspaceStatementConcurrency,
+      (concurrency) =>
+        Effect.all(
+          rows.map(({ id }) => findById(id)),
+          { concurrency }
+        )
     );
     return loaded.flatMap((invoice) =>
       invoice && isManualInvoiceDocument(invoice.document)
@@ -174,11 +185,15 @@ export const makeInvoiceReads = Effect.gen(function* () {
         .from(invoices)
         .where(eq(invoices.dotyposCustomerId, dotyposCustomerId))
         .orderBy(desc(invoices.issuedAt), desc(invoices.invoiceNumber));
-      const loaded = yield* Effect.all(
-        rows.map(({ id }) =>
-          loadCustomerInvoice(dotyposCustomerId, invoiceIdSchema.make(id))
-        ),
-        { concurrency: "inherit" }
+      const loaded = yield* Effect.flatMap(
+        workspaceStatementConcurrency,
+        (concurrency) =>
+          Effect.all(
+            rows.map(({ id }) =>
+              loadCustomerInvoice(dotyposCustomerId, invoiceIdSchema.make(id))
+            ),
+            { concurrency }
+          )
       );
       return loaded.filter((invoice) => invoice !== null);
     }

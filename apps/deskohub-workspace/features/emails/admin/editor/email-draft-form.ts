@@ -4,7 +4,7 @@ import { useFormContext } from "react-hook-form";
 /**
  * The values of the host's draft form: the encoded `EmailDraft`. The host
  * creates the form as
- * `useForm<EmailDraftFormValues, unknown, EmailDraft>({ resolver: effectSchemaResolver(EmailDraft) })`,
+ * `useForm<EmailDraftFormValues, unknown, EmailDraft>({ resolver: effectSchemaResolver(EmailDraft, administrationInputParseOptions) })`,
  * so saving validates only the draft shape; publication problems never block
  * it.
  */

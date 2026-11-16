@@ -1,4 +1,5 @@
 import { Effect, Option } from "effect";
+import { workspaceStatementConcurrency } from "@/db/database.service";
 import {
   getPublicOfferingAdvertisedPrice,
   getPublicOfferingListings,
@@ -81,7 +82,9 @@ const loadOfferings = <A, E, R, OE, OR>(
       })
     ),
     Effect.bind("offerings", ({ listings }) =>
-      Effect.forEach(listings, advertise, { concurrency: "inherit" })
+      Effect.flatMap(workspaceStatementConcurrency, (concurrency) =>
+        Effect.forEach(listings, advertise, { concurrency })
+      )
     ),
     Effect.map(({ advertisedOn, offerings }) => ({ advertisedOn, offerings }))
   );

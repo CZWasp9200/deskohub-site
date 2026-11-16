@@ -2,7 +2,10 @@ import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
+import {
+  AdministrationInvoiceCreateInput,
+  administrationInputParseOptions,
+} from "@deskohub/workspace-admin-api";
 import { Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
@@ -189,7 +192,10 @@ describe.skipIf(!testDatabase)(
     test("stores a claim without the customer contact details it binds", async () => {
       const requests = await getRequests();
       const invoiceId = uniqueInvoiceId();
-      const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
+      const input = Schema.decodeUnknownSync(
+        AdministrationInvoiceCreateInput,
+        administrationInputParseOptions
+      )({
         invoiceId,
         customer: { kind: "new", details: customerDetails },
         locale: "en-US",

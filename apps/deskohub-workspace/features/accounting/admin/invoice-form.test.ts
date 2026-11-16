@@ -12,7 +12,10 @@ import {
   supportedLocales,
 } from "@deskohub/i18n/locale-registry";
 import { testEmailAddress } from "@deskohub/test-email";
-import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
+import {
+  AdministrationInvoiceCreateInput,
+  administrationInputParseOptions,
+} from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
 import { createElement } from "react";
 import type { InvoiceAdministrationCustomer } from "@/features/accounting/admin/invoice-administration.service";
@@ -165,7 +168,10 @@ test("omits blank optional business contact names", () => {
   expect(input.customer.details).not.toHaveProperty("lastName");
   expect(input.variableSymbol).toBe("2026000001");
   expect(() =>
-    Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)(input)
+    Schema.decodeUnknownSync(
+      AdministrationInvoiceCreateInput,
+      administrationInputParseOptions
+    )(input)
   ).not.toThrow();
 });
 

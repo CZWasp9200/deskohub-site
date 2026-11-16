@@ -1,7 +1,11 @@
 "use server";
 
-import { EmailDraft, EmailValueSnapshot } from "@deskohub/workspace-admin-api";
-import { Clock, Effect, Layer, Schema } from "effect";
+import {
+  administrationInputParseOptions,
+  EmailDraft,
+  EmailValueSnapshot,
+} from "@deskohub/workspace-admin-api";
+import { Clock, Effect, Layer, Schema, SchemaGetter } from "effect";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import { isCampaignImageSource } from "@/features/email-campaigns/body/campaign-body-rules";
 import { campaignImageCloudName } from "@/features/email-campaigns/body/campaign-image-account";
@@ -13,8 +17,30 @@ import {
 import { locales } from "@/features/i18n";
 import { emailsEditorActionFailureCopy } from "./editor-action-failure-copy";
 
+/**
+ * The draft refuses unknown keys and reports every issue, as an
+ * administration input does, while the preview input around it stays
+ * lenient. Parse options apply to a whole decode, so the draft is decoded on
+ * its own with them.
+ */
+const StrictEmailDraft = Schema.Unknown.pipe(
+  Schema.decodeTo(Schema.toType(EmailDraft), {
+    decode: SchemaGetter.transformEffect((draft, options) =>
+      Schema.decodeUnknownEffect(EmailDraft)(draft, {
+        ...options,
+        ...administrationInputParseOptions,
+      }).pipe(Effect.mapError(({ issue }) => issue))
+    ),
+    encode: SchemaGetter.transformEffect((draft, options) =>
+      Schema.encodeEffect(EmailDraft)(draft, options).pipe(
+        Effect.mapError(({ issue }) => issue)
+      )
+    ),
+  })
+);
+
 const EmailDraftPreviewInput = Schema.Struct({
-  draft: EmailDraft,
+  draft: StrictEmailDraft,
   locale: Schema.Literals(locales),
   /** Values the host prepared; every other value shows a synthetic sample. */
   values: Schema.optionalKey(Schema.Record(Schema.String, EmailValueSnapshot)),

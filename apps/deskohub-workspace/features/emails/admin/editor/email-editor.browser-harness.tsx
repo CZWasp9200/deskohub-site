@@ -1,6 +1,9 @@
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { supportedLocales } from "@deskohub/i18n/locale-registry";
-import { EmailDraft } from "@deskohub/workspace-admin-api";
+import {
+  administrationInputParseOptions,
+  EmailDraft,
+} from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -26,7 +29,10 @@ const mountPoint = document.getElementById("editor-root");
 if (!mountPoint) throw new Error("The editor harness root is missing.");
 const locale = mountPoint.dataset.locale as Locale;
 const initialDraft: EmailDraftFormValues = mountPoint.dataset.draft
-  ? Schema.decodeUnknownSync(EmailDraft)(JSON.parse(mountPoint.dataset.draft))
+  ? Schema.decodeUnknownSync(
+      EmailDraft,
+      administrationInputParseOptions
+    )(JSON.parse(mountPoint.dataset.draft))
   : fixtureDraft;
 
 /** Synthetic sample values the host supplies; the rest show by name. */
@@ -105,7 +111,7 @@ const editorProps: EmailEditorProps = {
 
 function EmailEditorHarness() {
   const form = useForm<EmailDraftFormValues, unknown, EmailDraft>({
-    resolver: effectSchemaResolver(EmailDraft),
+    resolver: effectSchemaResolver(EmailDraft, administrationInputParseOptions),
     defaultValues: initialDraft,
   });
   const [saved, setSaved] = useState<string>("");
