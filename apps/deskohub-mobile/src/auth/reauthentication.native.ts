@@ -4,6 +4,7 @@ import type { AppLocale } from "../i18n/app-locale";
 import { useAppLocale } from "../i18n/locale-context";
 import type { AuthUser } from "./auth-session-state";
 import { nativeAuthRuntime } from "./native-auth-runtime";
+import type { ReauthenticationPurpose } from "./native-handoff-request";
 import { reauthenticate } from "./native-sign-in";
 import {
   type NativeSignInFailure,
@@ -30,8 +31,10 @@ export interface Reauthentication {
   readonly reauthenticate: () => Promise<ReauthenticationOutcome>;
 }
 
-const runReauthentication = (locale: AppLocale) =>
-  reauthenticate.pipe(Effect.provideService(SignInLocale, locale));
+const runReauthentication = (
+  locale: AppLocale,
+  purpose: ReauthenticationPurpose | undefined
+) => reauthenticate(purpose).pipe(Effect.provideService(SignInLocale, locale));
 const unexpected = () => new SignInUnavailable({});
 
 /**
@@ -40,8 +43,11 @@ const unexpected = () => new SignInUnavailable({});
  * call `reauthenticate()` and retry the action on `"reauthenticated"`. Native
  * runs a new email sign-in in the auth session and refuses an account switch.
  * Show `state` with `nativeSignInFailureMessage` in a mounted live region.
+ * An action that names its purpose has the sign-in page say what it is for.
  */
-export const useReauthentication = (): Reauthentication => {
+export const useReauthentication = (
+  purpose?: ReauthenticationPurpose
+): Reauthentication => {
   const locale = useAppLocale();
   const { state, start } = useAuthTask(
     nativeAuthRuntime,
@@ -50,11 +56,11 @@ export const useReauthentication = (): Reauthentication => {
   );
   const run = useCallback(
     async (): Promise<ReauthenticationOutcome> =>
-      Option.match(await start(locale), {
+      Option.match(await start(locale, purpose), {
         onNone: () => "busy",
         onSome: (exit) => (Exit.isSuccess(exit) ? "reauthenticated" : "failed"),
       }),
-    [start, locale]
+    [start, locale, purpose]
   );
   return { state, reauthenticate: run };
 };

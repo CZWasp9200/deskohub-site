@@ -178,6 +178,8 @@
   "signin_continue_as_body": "Tài khoản của bạn đã đăng nhập trên trình duyệt này. Hãy tiếp tục để quay lại ứng dụng.",
   "signin_returning_to_app": "Đang quay lại ứng dụng.",
   "signin_reauthenticate_body": "Hãy đăng nhập lại để chúng tôi xác minh đó là bạn.",
+  "signin_reauthenticate_title": "Xác nhận đó là bạn",
+  "signin_reauthenticate_delete_account_body": "Hãy đăng nhập lại để xóa tài khoản của bạn.",
   "signin_send_code": "Gửi mã",
   "signin_sign_in": "Đăng nhập",
   "signin_sending_code": "Đang gửi mã…",
