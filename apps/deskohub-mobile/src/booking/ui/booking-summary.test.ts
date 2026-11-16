@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { m } from "../../i18n/messages";
 import { productLabel } from "../checkout-screen/checkout-copy";
 import { bookingSummaryOf } from "./booking-summary";
+import { formatShortPragueDate } from "./prague-date-format";
 import { monitorOptionName } from "./price-line-description";
 
 const locale = "en-US" as const;
@@ -65,5 +66,24 @@ describe("bookingSummaryOf", () => {
     expect(parts(hours.detail)).toHaveLength(2);
     expect(parts(wholeDay.detail)).toHaveLength(1);
     expect(hours.title).not.toBe(wholeDay.title);
+  });
+
+  test("an overnight Reserved Desk names its arrival and the next day", () => {
+    const desk = {
+      family: "cowork",
+      tier: "reserved-desk",
+      date: "2026-11-16",
+    } as const;
+    const overnightStay = { startTime: "12:00", endTime: "12:00" };
+    const overnight = bookingSummaryOf({ ...desk, stay: "overnight" }, locale, {
+      overnightStay,
+    }).title;
+
+    expect(overnight).not.toBe(bookingSummaryOf(desk, locale).title);
+    expect(overnight).toContain(formatShortPragueDate("2026-11-16", locale));
+    expect(overnight).toContain(formatShortPragueDate("2026-11-17", locale));
+    expect(bookingSummaryOf(desk, locale, { overnightStay }).title).toBe(
+      bookingSummaryOf(desk, locale).title
+    );
   });
 });

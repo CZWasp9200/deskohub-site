@@ -28,6 +28,7 @@ describe("bookingOverviewOf", () => {
     const selection = Option.getOrThrow(
       toCoworkSelection({
         tier: "reserved-desk",
+        stay: "day",
         date: Option.some("2026-11-20"),
         coffee: false,
         workstation: Option.none(),

@@ -7,15 +7,30 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { bookingOverviewOf } from "../checkout-screen/booking-overview";
 import { productLabel } from "../checkout-screen/checkout-copy";
-import { openSpaceClosingTime } from "../selection/cowork-selection";
+import {
+  type CoworkOvernightStay,
+  openSpaceClosingTime,
+} from "../selection/cowork-selection";
+import { addDays } from "../selection/prague-date";
 import type { BookingBarSummary } from "./booking-bar";
 import { formatPragueTime, formatShortPragueDate } from "./prague-date-format";
 import { priceBreakdown } from "./price-breakdown";
 import { describePriceLine, monitorOptionName } from "./price-line-description";
 
+/** What the catalog says about the booked product, where the screen has it. */
+export interface BookingSummaryProduct {
+  /** The catalog's name for the product. */
+  readonly name?: string;
+  /** A Reserved Desk's overnight stay times, for an overnight selection. */
+  readonly overnightStay?: CoworkOvernightStay;
+}
+
 /** What the booking bar says about a selection: when, and what. */
 export interface BookingSummaryText {
-  /** When: "Thu 26 Nov, until 17:00", "Mon 23 Nov – Wed 25 Nov". */
+  /**
+   * When: "Thu 26 Nov, until 17:00", "Mon 23 Nov – Wed 25 Nov",
+   * "Mon 17 Nov 12:00 → Tue 18 Nov 12:00".
+   */
   readonly title: string;
   /** What: the product and its extras, "Open Space · coffee". */
   readonly detail: string;
@@ -29,8 +44,10 @@ export interface BookingSummaryText {
 export const bookingSummaryOf = (
   selection: CustomerBookingSelection,
   locale: AppLocale,
-  /** The catalog's name for the product, where the screen has it. */
-  product: string = productLabel(selection, locale)
+  {
+    name: product = productLabel(selection, locale),
+    overnightStay,
+  }: BookingSummaryProduct = {}
 ): BookingSummaryText => {
   const detail = (...extras: ReadonlyArray<string | undefined>) =>
     [product, ...extras.filter((extra) => extra !== undefined)].join(" · ");
@@ -40,7 +57,27 @@ export const bookingSummaryOf = (
       const date = formatShortPragueDate(overview.date, locale);
       if (selection.tier === "reserved-desk") {
         return {
-          title: m.booking_summary_reserved_desk_day({ date }, { locale }),
+          title:
+            selection.stay === "overnight" && overnightStay !== undefined
+              ? m.booking_summary_reserved_desk_overnight(
+                  {
+                    arrivalDate: date,
+                    arrivalTime: formatPragueTime(
+                      overnightStay.startTime,
+                      locale
+                    ),
+                    departureDate: formatShortPragueDate(
+                      addDays(overview.date, 1),
+                      locale
+                    ),
+                    departureTime: formatPragueTime(
+                      overnightStay.endTime,
+                      locale
+                    ),
+                  },
+                  { locale }
+                )
+              : m.booking_summary_reserved_desk_day({ date }, { locale }),
           detail: detail(
             selection.monitorOption === undefined
               ? undefined
@@ -125,14 +162,13 @@ export const quotedBarSummary = (
     regularPrice,
   }: Pick<CustomerBookingQuote, "summary" | "regularPrice">,
   locale: AppLocale,
-  /** The catalog's name for the product, where the screen has it. */
-  productName?: string
+  product: BookingSummaryProduct = {}
 ): BookingBarSummary => ({
-  ...bookingSummaryOf(selection, locale, productName),
+  ...bookingSummaryOf(selection, locale, product),
   price: {
     kind: "quoted",
     breakdown: priceBreakdown(summary),
-    describeLine: describePriceLine(selection, locale, productName),
+    describeLine: describePriceLine(selection, locale, product.name),
     ...(regularPrice.value > summary.total.value && { was: regularPrice }),
   },
 });
