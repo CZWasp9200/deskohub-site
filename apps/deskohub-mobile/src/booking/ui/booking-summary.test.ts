@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { m } from "../../i18n/messages";
 import { productLabel } from "../checkout-screen/checkout-copy";
 import { bookingSummaryOf } from "./booking-summary";
-import { formatShortPragueDate } from "./prague-date-format";
+import { formatPragueTime, formatShortPragueDate } from "./prague-date-format";
 import { monitorOptionName } from "./price-line-description";
 
 const locale = "en-US" as const;
@@ -74,14 +74,21 @@ describe("bookingSummaryOf", () => {
       tier: "reserved-desk",
       date: "2026-11-16",
     } as const;
-    const overnightStay = { startTime: "12:00", endTime: "12:00" };
+    const overnightStay = { startTime: "13:00", endTime: "11:30" };
     const overnight = bookingSummaryOf({ ...desk, stay: "overnight" }, locale, {
       overnightStay,
     }).title;
 
     expect(overnight).not.toBe(bookingSummaryOf(desk, locale).title);
-    expect(overnight).toContain(formatShortPragueDate("2026-11-16", locale));
-    expect(overnight).toContain(formatShortPragueDate("2026-11-17", locale));
+    // Arrival date and start, then departure date and end, in that order.
+    const positions = [
+      formatShortPragueDate("2026-11-16", locale),
+      formatPragueTime("13:00", locale),
+      formatShortPragueDate("2026-11-17", locale),
+      formatPragueTime("11:30", locale),
+    ].map((part) => overnight.indexOf(part));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(bookingSummaryOf(desk, locale, { overnightStay }).title).toBe(
       bookingSummaryOf(desk, locale).title
     );
