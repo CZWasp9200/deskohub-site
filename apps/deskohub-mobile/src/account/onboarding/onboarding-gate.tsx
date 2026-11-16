@@ -16,7 +16,7 @@ import {
 } from "../profile/profile-save";
 import type { CompletionRequiredAccount } from "./onboarding-draft";
 import { onboardingView } from "./onboarding-model";
-import { closeOnboarding, onboardingFinishRoute } from "./onboarding-routes";
+import { closeOnboarding, finishOnlyState } from "./onboarding-routes";
 
 /**
  * An onboarding step for the account as GET /account reads it: the step's
@@ -55,10 +55,8 @@ function ShowFinish() {
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
   useFocusEffect(
     useCallback(() => {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: onboardingFinishRoute }],
-      });
+      const stack = navigation.getState();
+      if (stack !== undefined) navigation.reset(finishOnlyState(stack));
     }, [navigation])
   );
   return null;

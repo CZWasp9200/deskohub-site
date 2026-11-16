@@ -187,7 +187,8 @@ export function ProfileTextFields<F extends CompletionTextField>({
         {...(hint !== undefined && { hint: hint(locale) })}
         value={draft[field]}
         onChangeText={(value) => onChange(field, value)}
-        editable={editable}
+        // Greyed while a submit runs, as the boards show it (08 "Creating").
+        disabled={!editable}
         error={
           problem === undefined
             ? undefined

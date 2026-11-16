@@ -13,7 +13,6 @@ import {
   type CompletionRequiredAccount,
   useOnboardingDraft,
 } from "./onboarding-draft";
-import { finishOnboardingAt } from "./onboarding-routes";
 
 type OnboardingDraft = ReturnType<typeof useOnboardingDraft>;
 
@@ -218,15 +217,5 @@ describe("onboarding submit", () => {
     edit("billing", { firstName: "Jordan" });
 
     expect(step("billing").state._tag).toBe("Idle");
-  });
-});
-
-describe("onboarding finish", () => {
-  test("each action leaves for its tab's root", () => {
-    const visited: Array<unknown> = [];
-    const router = { dismissTo: (href: unknown) => void visited.push(href) };
-    finishOnboardingAt(router, "book");
-    finishOnboardingAt(router, "reservations");
-    expect(visited).toEqual(["/book", "/reservations"]);
   });
 });
