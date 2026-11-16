@@ -67,7 +67,7 @@ export type PromotionClaim = Exclude<
  * The reservation hold the claim would expire with ended before admission.
  * The caller reports it in its own terms.
  */
-export class PromotionClaimHoldEndedError extends Data.TaggedError(
+class PromotionClaimHoldEndedError extends Data.TaggedError(
   "PromotionClaimHoldEndedError"
 )<{
   readonly message: string;
