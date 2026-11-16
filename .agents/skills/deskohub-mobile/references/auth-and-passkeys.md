@@ -62,6 +62,9 @@ opens the web bundle's `/app/sign-in?native=1` in an in-app auth session:
   own (`NEW_TASK | MULTIPLE_TASK | NEW_DOCUMENT`), which the app can't close
   and the back gesture would reveal; the page therefore closes itself
   (`close-tab-on-handoff.ts`) once it has handed off and the app hides it.
+  A magic link opened from the mail app in that case never hands off, so
+  that tab stays (accepted limitation; follow-up
+  [#1303](https://github.com/totalolage/deskohub-site/issues/1303)).
 - The page focuses the email field on load, but Chrome raises the keyboard
   only on a tap, in the app's tab as in Chrome itself (checked on the
   emulator, 2026-11-16); neither the TWA nor the Custom Tab launch can
