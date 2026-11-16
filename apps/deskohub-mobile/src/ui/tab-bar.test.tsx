@@ -39,6 +39,7 @@ const items = {
 };
 
 const render = ({
+  items: shown = items as TabBarProps["items"],
   index = 2,
   events = [] as Array<{ type: string; target?: string }>,
   navigated = [] as string[],
@@ -60,7 +61,7 @@ const render = ({
     },
     navigateToTab: (key: string) => navigated.push(key),
     insets: { top: 0, right: 0, bottom: 24, left: 0 },
-    items,
+    items: shown,
   } as unknown as TabBarProps;
   return elementTree(TabBar, props, (node) => (
     <ToastProvider>{node}</ToastProvider>
@@ -115,6 +116,24 @@ describe("TabBar", () => {
     expect(
       find<Parameters<typeof Icon>[0]>(content(account), Icon)?.props.color
     ).toBe(color.ink2);
+  });
+
+  test("a tab's dot shows only when its item asks for it, hidden from assistive tech", () => {
+    const dots = (tree: ReactNode) =>
+      tabs(tree).map(
+        (tab) =>
+          findAll<{ "aria-hidden"?: boolean }>(content(tab), "View").filter(
+            (view) => view.props["aria-hidden"] === true
+          ).length
+      );
+    expect(dots(render())).toEqual([0, 0, 0]);
+    expect(
+      dots(
+        render({
+          items: { ...items, account: { icon: CircleUser, dot: true } },
+        })
+      )
+    ).toEqual([1, 0, 0]);
   });
 
   test("the raised tab is a large orange circle reaching above the bar", () => {

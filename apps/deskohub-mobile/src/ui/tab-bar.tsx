@@ -11,6 +11,8 @@ export interface TabBarItem {
   readonly icon: IconComponent;
   /** The main action: a large orange circle raised out of the bar. */
   readonly raised?: boolean;
+  /** A small orange dot on the icon: something there needs the customer. */
+  readonly dot?: boolean;
 }
 
 /** The bar's height above the bottom safe area. */
@@ -92,11 +94,16 @@ export function TabBar({
                     focused && styles.pillActive,
                   ]}
                 >
-                  <Icon
-                    icon={item.icon}
-                    size={26}
-                    color={focused ? color.action : color.ink2}
-                  />
+                  <View>
+                    <Icon
+                      icon={item.icon}
+                      size={26}
+                      color={focused ? color.action : color.ink2}
+                    />
+                    {item.dot === true && (
+                      <View aria-hidden style={styles.dot} />
+                    )}
+                  </View>
                 </View>
               )
             }
@@ -133,6 +140,18 @@ const styles = StyleSheet.create({
     width: 56,
   },
   pillPressed: { backgroundColor: color.pressed },
+  dot: {
+    backgroundColor: color.action,
+    borderColor: color.surface,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    // 8 across inside its white ring, at the icon's top end.
+    height: 12,
+    position: "absolute",
+    right: -5,
+    top: -3,
+    width: 12,
+  },
   pillActive: { backgroundColor: color.actionTint },
   circle: {
     alignItems: "center",
