@@ -4,7 +4,10 @@ import {
   CustomerAccountId,
   type CustomerAccountState,
   type CustomerAgentConnection,
+  type CustomerCompanyDetails,
   type CustomerEstablishment,
+  type CustomerInvoice,
+  CustomerInvoiceId,
   type CustomerMarketingPreferences,
   type CustomerOrderFulfillmentStatus,
   type CustomerOrderPaymentStatus,
@@ -37,11 +40,19 @@ export interface SampleOrder {
   readonly invoice?: Uint8Array;
 }
 
+/** An issued invoice and its PDF; a PDF the Workspace can't find is absent. */
+export interface SampleInvoice {
+  readonly invoice: CustomerInvoice;
+  readonly pdf?: Uint8Array;
+}
+
 export interface FakeWorkspaceData {
   readonly accountId: CustomerAccountId;
   readonly account: CustomerAccountState;
   readonly history: CustomerReservationHistory;
   readonly orders: ReadonlyMap<string, SampleOrder>;
+  /** The account's issued invoices, newest issue first. */
+  readonly invoices: ReadonlyArray<SampleInvoice>;
   readonly passkeys: ReadonlyArray<AccountPasskey>;
   readonly assistants: ReadonlyArray<CustomerAgentConnection>;
   readonly marketing: CustomerMarketingPreferences;
@@ -70,6 +81,37 @@ export const sampleProfile: CustomerProfile = {
 
 /** The code a completion-required sample customer was invited with. */
 export const sampleInvitationCode = ReferralCode.make("SAMPLE-FRIEND");
+
+/**
+ * Made-up companies the company lookup finds, by company ID: one with a VAT
+ * ID and one without. Any other ID is not found.
+ */
+export const sampleCompanies: ReadonlyMap<string, CustomerCompanyDetails> =
+  new Map([
+    [
+      "12345679",
+      {
+        companyName: "Ukázková firma s.r.o.",
+        companyId: "12345679",
+        vatId: "CZ12345679",
+        addressLine1: "Ukázková 1",
+        city: "Praha",
+        zip: "10000",
+        country: "CZ",
+      },
+    ],
+    [
+      "00000019",
+      {
+        companyName: "Vzorový spolek",
+        companyId: "00000019",
+        addressLine1: "Vzorová 2",
+        city: "Brno",
+        zip: "60200",
+        country: "CZ",
+      },
+    ],
+  ]);
 
 /** A made-up space the reservation screens can place and link to a map. */
 export const sampleEstablishment: CustomerEstablishment = {
@@ -583,6 +625,7 @@ const sampleReferrals: ReferralAccountOverview = {
     savings: [{ value: 15000, exponent: 2, currency: "CZK" }],
   },
   shareUrl: "https://workspace.deskohub.example/r/SAMPLE-ALEX",
+  discountPerInvitee: "5",
 };
 
 const sampleAccount = (
@@ -655,6 +698,45 @@ const asReviewSandbox = (
   ),
 });
 
+export const sampleInvoiceIds = {
+  desk: CustomerInvoiceId.make("sample-invoice-desk"),
+  meetingRoom: CustomerInvoiceId.make("sample-invoice-meeting-room"),
+  /** Listed, but its PDF can't be found: the download fails. */
+  office: CustomerInvoiceId.make("sample-invoice-office"),
+} as const;
+
+/** The issued invoices of the linked sample account, newest first. */
+export const sampleInvoices = (): ReadonlyArray<SampleInvoice> => [
+  {
+    invoice: {
+      id: sampleInvoiceIds.desk,
+      invoiceNumber: "2026-0412",
+      issuedOn: "2026-11-26",
+      total: { amount: "258.80", currency: "CZK" },
+      orderId: sampleOrderIds.fulfilled,
+    },
+    pdf: sampleInvoicePdf(),
+  },
+  {
+    invoice: {
+      id: sampleInvoiceIds.meetingRoom,
+      invoiceNumber: "2026-0377",
+      issuedOn: "2026-11-02",
+      total: { amount: "280", currency: "CZK" },
+      orderId: sampleOrderIds.past,
+    },
+    pdf: sampleInvoicePdf(),
+  },
+  {
+    invoice: {
+      id: sampleInvoiceIds.office,
+      invoiceNumber: "2026-0341",
+      issuedOn: "2026-10-15",
+      total: { amount: "7260", currency: "CZK" },
+    },
+  },
+];
+
 /** A complete synthetic Workspace for one account in the given state. */
 export const sampleWorkspaceData = (
   kind: SampleAccountKind,
@@ -665,6 +747,7 @@ export const sampleWorkspaceData = (
   ...(kind === "review-account"
     ? asReviewSandbox(sampleHistory(now), sampleOrders(now))
     : { history: sampleHistory(now), orders: sampleOrders(now) }),
+  invoices: kind === "linked" ? sampleInvoices() : [],
   passkeys: samplePasskeys(now),
   assistants: sampleAssistants(now),
   marketing: { status: "active", context: "sample-marketing-context-1" },

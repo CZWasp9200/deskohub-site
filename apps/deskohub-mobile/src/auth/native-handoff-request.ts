@@ -1,5 +1,6 @@
 import { CustomerAnalyticsChoice } from "@deskohub/workspace-customer-api";
 import { Option, Schema } from "effect";
+import type { StoredConsent } from "../consent/analytics-consent";
 import { type AppLocale, appLocales, isAppLocale } from "../i18n/app-locale";
 import { nativeReturnUri, webCallbackPath } from "./auth-callback";
 import { isEmailAddress } from "./email-address";
@@ -63,6 +64,23 @@ const analyticsAnswerSchema = Schema.Struct({
   decidedAt: CustomerAnalyticsChoice.fields.decidedAt,
 });
 const isAnalyticsAnswer = Schema.is(analyticsAnswerSchema);
+
+/**
+ * The answer the app carries to the page from its stored consent: whether
+ * the stored categories include analytics, dated exactly as stored. None
+ * while the answer loads, when there is none, or when its date isn't one the
+ * page accepts, so the page never reads a partial answer as consent.
+ */
+export const handoffAnalyticsAnswer = (
+  stored: StoredConsent | undefined
+): NativeHandoffAnalyticsAnswer | undefined => {
+  if (stored?.kind !== "decided") return undefined;
+  const answer = {
+    granted: stored.categories.includes("analytics"),
+    decidedAt: stored.decidedAt,
+  };
+  return isAnalyticsAnswer(answer) ? answer : undefined;
+};
 
 /** The web page that runs the email sign-in for the native app. */
 export const webSignInPath = "/app/sign-in";

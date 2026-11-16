@@ -121,6 +121,7 @@ export function ListRow({
   destructive = false,
   disabled = false,
   wrapValue = false,
+  accessibilityLabel,
 }: {
   readonly label: string;
   readonly description?: string;
@@ -136,6 +137,11 @@ export function ListRow({
   readonly destructive?: boolean;
   readonly disabled?: boolean;
   readonly wrapValue?: boolean;
+  /**
+   * What the row reads instead of its text, for an action row whose
+   * trailing icon says what it does, such as a download.
+   */
+  readonly accessibilityLabel?: string;
 }) {
   const { role, chevron } = listRowPresentation({
     pressable: onPress !== undefined,
@@ -189,9 +195,11 @@ export function ListRow({
     </>
   );
   // A custom trailing node, such as a badge, is read from the row's content.
-  const accessibleLabel = ownTrailing
-    ? undefined
-    : listRowAccessibleLabel({ label, value, description });
+  const accessibleLabel =
+    accessibilityLabel ??
+    (ownTrailing
+      ? undefined
+      : listRowAccessibleLabel({ label, value, description }));
   const rowStyle = [
     listRowLayout.row,
     description !== undefined && listRowLayout.withDescription,

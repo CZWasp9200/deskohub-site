@@ -16,6 +16,7 @@ import { ProviderPaymentFinalizationService } from "../payment/provider-payment-
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
 import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
 import { CheckoutStatusService } from "./checkout-status.service";
+import { observePaymentPagesAs } from "./payment-page-provider-status.test-utils";
 
 const testEmailAddressForLate = testEmailAddress("late");
 
@@ -77,6 +78,7 @@ const makeHarness = (options: {
     Effect.succeed("recovery_started" as const)
   );
   const layer = CheckoutStatusService.Default.pipe(
+    Layer.provide(observePaymentPagesAs("unknown").layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ProviderPaymentFinalizationService, {

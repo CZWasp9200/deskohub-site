@@ -707,9 +707,7 @@ describe("ReservationCheckoutForm", () => {
     expect(
       view.getByText(m.reservationAccountUnavailableTitle({}, en))
     ).toBeDefined();
-    expect(
-      view.queryByLabelText(new RegExp(`^${m.contactEmailLabel({}, en)}`))
-    ).toBeNull();
+    expect(getField(view, "email")).toBeNull();
     expect(getSubmitButton(view).disabled).toBe(true);
 
     await act(async () => {
@@ -736,9 +734,7 @@ describe("ReservationCheckoutForm", () => {
     expect(
       view.getByRole("button", { name: m.reservationSelectionChange({}, en) })
     ).toBeDefined();
-    expect(
-      view.queryByLabelText(new RegExp(`^${m.contactEmailLabel({}, en)}`))
-    ).toBeNull();
+    expect(getField(view, "email")).toBeNull();
     expect(
       view.queryByRole("button", {
         name: m.reservationAccountUnavailableRetry({}, en),

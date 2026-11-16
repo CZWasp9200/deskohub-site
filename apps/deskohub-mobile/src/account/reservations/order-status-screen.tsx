@@ -41,6 +41,10 @@ import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import { color, space } from "../../ui/tokens";
 import {
+  InvoiceShareFailure,
+  invoiceShareFailureOf,
+} from "../invoices/invoice-pdf-share";
+import {
   BookingSteps,
   BookingTicket,
   BookingTicketSkeleton,
@@ -53,11 +57,7 @@ import {
 import { ticketBadge, ticketSteps } from "./booking-ticket-text";
 import { type BookingEvent, calendarShareAtom } from "./calendar-event";
 import { establishmentAtom } from "./establishment";
-import {
-  InvoiceShareFailure,
-  invoiceShareAtom,
-  invoiceShareFailureOf,
-} from "./invoice-share";
+import { invoiceShareAtom } from "./invoice-share";
 import { offersAccessLink, offersInvoice } from "./order-status-kind";
 import { focusGained, focusLost, orderStatusAtoms } from "./order-status-state";
 import { orderTicketView, reservationOfOrderAtom } from "./order-ticket-view";

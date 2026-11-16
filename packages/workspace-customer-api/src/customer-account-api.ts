@@ -178,10 +178,19 @@ export const ReferralAccountSummary = Schema.Struct({
 }).annotate({ identifier: "ReferralAccountSummary" });
 export type ReferralAccountSummary = typeof ReferralAccountSummary.Type;
 
-/** The account referral summary with the customer's absolute share link. */
+/**
+ * The account referral summary with the customer's absolute share link and
+ * the programme's discount per eligible invitee.
+ */
 export const ReferralAccountOverview = Schema.Struct({
   summary: ReferralAccountSummary,
   shareUrl: Schema.String,
+  /**
+   * The referrer discount one eligible invitee earns, as an exact
+   * percentage like `summary.discount`. Optional, so a client keeps
+   * reading a Workspace from before it.
+   */
+  discountPerInvitee: Schema.optional(Schema.String),
 }).annotate({ identifier: "ReferralAccountOverview" });
 export type ReferralAccountOverview = typeof ReferralAccountOverview.Type;
 

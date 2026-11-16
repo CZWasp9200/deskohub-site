@@ -125,6 +125,20 @@ export const sampleOfferings = (
           "Místnost až pro osm lidí."
         ),
         usage: copy(locale, "Book by the hour.", "Rezervace po hodinách."),
+        facts: [
+          {
+            kind: "capacity",
+            text: copy(locale, "Up to 8 seats", "Až 8 míst"),
+          },
+          {
+            kind: "equipment",
+            text: copy(
+              locale,
+              "TV for presentations",
+              "Televize pro prezentace"
+            ),
+          },
+        ],
         price: czk(samplePrices.meetingRoom[duration]),
         advertisedPrice: {
           price: czk(samplePrices.meetingRoom[duration]),
@@ -272,6 +286,7 @@ export const sampleSummary = ({
       { key: "total", items: [{ key: "total:final", amount: total }], total },
     ],
     total,
+    vatStatus: "not-vat-payer",
   };
 };
 

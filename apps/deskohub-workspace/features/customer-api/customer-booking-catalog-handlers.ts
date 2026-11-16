@@ -47,6 +47,7 @@ import {
   answerBookingSelectionFailure,
   toBookingSelectionInput,
 } from "./customer-booking-selection";
+import { toCustomerCheckoutSummary } from "./customer-checkout-summary";
 
 /**
  * A public sale source couldn't answer, so the prices may miss a sale. The
@@ -210,7 +211,7 @@ const quoteSelection = Effect.fn("customerApi.quoteSelection")(function* (
     regularPrice: payment.undiscountedPrice,
     discount: getReservationQuoteDiscount(payment),
     quotedAt: now.toString(),
-    summary: advertised.summary,
+    summary: toCustomerCheckoutSummary(advertised.summary),
     advertisedPriceToken: advertised.advertisedPriceToken,
   } satisfies CustomerBookingQuote;
 });
@@ -298,6 +299,7 @@ const toCustomerOffering = (offering: PublicOffering): CustomerOffering => {
         duration: getMeetingRoomReservationDurationKey(meetingRoom.duration),
         durationLabel: meetingRoom.durationLabel,
         ...copy,
+        facts: meetingRoom.facts,
         price: meetingRoom.price,
         advertisedPrice,
       }),

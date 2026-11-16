@@ -12,6 +12,8 @@ import {
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 import { analytics } from "../analytics/analytics";
+import type { StoredConsent } from "../consent/analytics-consent";
+import { makeFakeDeviceConsent } from "../consent/testing/fake-device-consent";
 import {
   nativeReturnUri,
   parseAuthCallbackUrl,
@@ -62,7 +64,8 @@ type WebPage = (url: string) => Promise<AuthSessionResult>;
 const launchApp = (
   server: FakeAuthServer,
   store: MemorySecureStore,
-  webPage: WebPage = async () => AuthSessionResult.Closed()
+  webPage: WebPage = async () => AuthSessionResult.Closed(),
+  consent: StoredConsent = { kind: "undecided" }
 ) => {
   const sessionWriteLock = Semaphore.makeUnsafe(1);
   const options = {
@@ -89,7 +92,8 @@ const launchApp = (
       AuthCallbackCompletions.Default,
       browser,
       Layer.succeed(SignInLocale, "cs-CZ"),
-      Layer.succeed(SessionWriteLock, sessionWriteLock)
+      Layer.succeed(SessionWriteLock, sessionWriteLock),
+      makeFakeDeviceConsent({ stored: consent, accountId: "none" }).layer
     )
   );
   return { client, runtime, opened };
@@ -443,6 +447,64 @@ describe("native email sign-in through the auth session", () => {
     // The page, its email and a new account follow the app's language, not
     // the browser's.
     expect(signInUrl.searchParams.getAll("locale")).toEqual(["cs-CZ"]);
+  });
+
+  const openedSearch = async (consent: StoredConsent) => {
+    const server = makeFakeAuthServer(origin);
+    const app = launchApp(
+      server,
+      makeMemorySecureStore(),
+      webSignInAs(server, ada),
+      consent
+    );
+    await app.runtime.runPromise(signInWithEmail(Option.none()));
+    return new URL(app.opened[0] ?? "").searchParams;
+  };
+  const decidedAt = "2026-11-10T09:30:00.123Z";
+
+  test("carries a stored grant to the page, dated as stored", async () => {
+    const search = await openedSearch({
+      kind: "decided",
+      categories: ["necessary", "analytics"],
+      decidedAt,
+    });
+
+    expect(readNativeHandoffRequest(search, origin)).toEqual(
+      Option.some(
+        expect.objectContaining({ analytics: { granted: true, decidedAt } })
+      )
+    );
+  });
+
+  test("carries a stored refusal to the page", async () => {
+    const search = await openedSearch({
+      kind: "decided",
+      categories: ["necessary", "marketing"],
+      decidedAt,
+    });
+
+    expect(readNativeHandoffRequest(search, origin)).toEqual(
+      Option.some(
+        expect.objectContaining({ analytics: { granted: false, decidedAt } })
+      )
+    );
+  });
+
+  test("carries no answer while the app has no valid one", async () => {
+    for (const consent of [
+      { kind: "undecided" },
+      { kind: "decided", categories: ["necessary", "analytics"] },
+      {
+        kind: "decided",
+        categories: ["necessary", "analytics"],
+        decidedAt: "yesterday",
+      },
+    ] satisfies ReadonlyArray<StoredConsent>) {
+      const search = await openedSearch(consent);
+
+      expect(search.has("analytics")).toBe(false);
+      expect(search.has("analytics_decided_at")).toBe(false);
+    }
   });
 
   test("records the sign-in as started with the email's link method before the page opens", async () => {

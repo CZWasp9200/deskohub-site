@@ -45,6 +45,7 @@ import {
 } from "@/features/reservation/workspace-availability";
 import { moneyWithValue } from "@/shared/money/money";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
+import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
   instantStringSchema,
   localDateTimeSchema,
@@ -222,6 +223,26 @@ describe("listOfferings", () => {
     for (const offering of body.offerings) {
       expect(offering.advertisedPrice.price).toEqual(offering.price);
       expect(offering.advertisedPrice.discount.value).toBe(0);
+    }
+  });
+
+  test("gives each meeting-room length the room's capacity and equipment", async () => {
+    const api = makeCustomerApiTestServer({ bookingCatalog: pricedCatalog() });
+
+    const response = await api.handle(customerApiRequest(listOfferings));
+
+    const meetingRooms = (await response.json()).offerings.filter(
+      (offering: { family: string }) => offering.family === "meeting-room"
+    );
+    expect(meetingRooms).toHaveLength(3);
+    for (const offering of meetingRooms) {
+      expect(offering.facts.map((fact: { kind: string }) => fact.kind)).toEqual(
+        ["capacity", "equipment"]
+      );
+      for (const fact of offering.facts) {
+        expect(fact.text).toEqual(expect.any(String));
+        expect(fact.text).not.toBe("");
+      }
     }
   });
 
@@ -826,6 +847,9 @@ describe("getQuote", () => {
       Temporal.Instant
     );
     expect(body.summary.total).toEqual(body.total);
+    expect(body.summary.vatStatus).toBe(
+      workspaceSiteConstants.company.vatStatus
+    );
     expect(
       body.summary.sections.flatMap(({ items }: { items: { key: string }[] }) =>
         items.map(({ key }) => key)
