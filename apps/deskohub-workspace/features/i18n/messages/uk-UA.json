@@ -639,7 +639,7 @@
   "reservationLegalConsentAnd": "та",
   "reservationLegalConsentPrivacyLink": "Політика конфіденційності",
   "reservationPrivacyNote": "Ваші дані ми використаємо, щоб обробити бронювання, надіслати підтвердження й захистити від зловживань. Докладніше — у <privacyPolicy>Політиці конфіденційності</privacyPolicy>.",
-  "reservationMarketingConsent": "Я погоджуюся, щоб компанія Desktechub s.r.o. використовувала мою електронну адресу для періодичного надсилання новин, запрошень на заходи та пропозицій Deskohub Workspace. Згода добровільна, і я можу будь-коли її відкликати. Докладніше — у документі <marketingConsent>Згода на маркетингові повідомлення</marketingConsent>.",
+  "reservationMarketingConsent": "Надсилайте мені електронною поштою новини, події та пропозиції Deskohub Workspace. Відписатися можна будь-коли. Докладніше — у документі <marketingConsent>Згода на маркетингові повідомлення</marketingConsent>.",
   "reservationSuccessMessage": "Запит на бронювання надіслано. Невдовзі ми підтвердимо наступний крок.",
   "reservationErrorMessage": "Не вдалося розпочати оплату. Перевірте дані й спробуйте ще раз.",
   "reservationAdvertisedPriceLoading": "Оновлюємо ціну для вашого вибору…",

@@ -682,6 +682,7 @@ class CheckoutAttemptUnavailableError extends Data.TaggedError(
 const cancelSupersededHold = Effect.fn("preparePayState.cancelSupersededHold")(
   function* (input: {
     readonly reservationId: WorkspaceReservationId;
+    readonly claimedAt: Temporal.Instant;
     readonly dotyposReservationId: DotyposReservationId;
   }) {
     const holdRelease = yield* DotyposHoldRelease;
@@ -689,6 +690,7 @@ const cancelSupersededHold = Effect.fn("preparePayState.cancelSupersededHold")(
     return yield* holdRelease
       .release({
         reservationId,
+        claimedAt: input.claimedAt,
         dotyposReservationId,
         liveStatus: "require_new",
         failureCode: "checkout_supersession_cancel_failed",
@@ -894,6 +896,7 @@ const supersedeSessionReservation = Effect.fnUntraced(function* (input: {
 
   const cancelled = yield* cancelSupersededHold({
     reservationId: claimed.id,
+    claimedAt: claimed.updatedAt,
     dotyposReservationId,
   });
   if (!cancelled) {
@@ -927,7 +930,11 @@ const supersedeSessionReservation = Effect.fnUntraced(function* (input: {
     ),
     Effect.tapError(() =>
       reservations
-        .markCancelled({ id: claimed.id, cancelledAt })
+        .markCancelled({
+          id: claimed.id,
+          claimedAt: claimed.updatedAt,
+          cancelledAt,
+        })
         .pipe(Effect.ignore)
     )
   );

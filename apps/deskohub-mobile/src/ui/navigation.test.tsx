@@ -1,5 +1,4 @@
 import { describe, expect, mock, test } from "bun:test";
-import { brandFontFamilies } from "@deskohub/brand-tokens";
 import type { NativeStackHeaderProps } from "expo-router";
 import { createElement } from "react";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
@@ -120,27 +119,11 @@ describe("stack headers", () => {
   });
 });
 
-describe("tab bar", () => {
-  test("labels render in the brand face", () => {
-    expect(tabScreenOptions("en-US").tabBarLabelStyle).toHaveProperty(
-      "fontFamily",
-      brandFontFamilies.native
-    );
-  });
-
-  test("labels in another script render in the system font", () => {
-    expect(tabScreenOptions("uk-UA").tabBarLabelStyle).not.toHaveProperty(
-      "fontFamily"
-    );
-  });
-
-  test("a white bar on a hairline: the open tab in the action colour, the others muted", () => {
-    const options = tabScreenOptions("en-US");
-    expect(options.tabBarStyle).toEqual({
-      backgroundColor: color.surface,
-      borderTopColor: color.line,
+describe("tab scenes", () => {
+  test("sit on the paper canvas under their stacks' own headers", () => {
+    expect(tabScreenOptions).toEqual({
+      headerShown: false,
+      sceneStyle: { backgroundColor: color.paper },
     });
-    expect(options.tabBarActiveTintColor).toBe(color.action);
-    expect(options.tabBarInactiveTintColor).toBe(color.ink2);
   });
 });

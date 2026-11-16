@@ -6,7 +6,9 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Predicate } from "effect";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import type { LatePaymentRecovery } from "@/db/schema";
+import { WorkspaceLockSections } from "@/db/workspace-locks";
 import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
 import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
@@ -32,7 +34,10 @@ import {
   temporalInstantToDate,
 } from "@/shared/utils/temporal";
 import { ReservationFulfillment } from "../fulfillment/reservation-fulfillment.service";
-import { UnpaidHoldRelease } from "../holds/unpaid-hold-release.service";
+import {
+  HoldCancellationInProgress,
+  UnpaidHoldRelease,
+} from "../holds/unpaid-hold-release.service";
 import {
   isReusableHold,
   LatePaymentRecoveryRepository,
@@ -68,6 +73,12 @@ class LatePaymentRecoveryError extends Data.TaggedError(
 }> {}
 
 export interface ILatePaymentRecoveryService {
+  /**
+   * Recovers the reservation a verified late payment was for, or settles the
+   * payment for a refund or review. Runs under the order's lock section,
+   * which hold cleanup also holds, so the attempt's checks and the hold work
+   * see no concurrent release of the order's hold.
+   */
   readonly recover: (input: {
     readonly paymentAttemptId: PaymentAttemptId;
   }) => Effect.Effect<LatePaymentRecoveryOutcome, LatePaymentRecoveryError>;
@@ -227,6 +238,7 @@ export class LatePaymentRecoveryService extends Context.Service<
       const holdRelease = yield* UnpaidHoldRelease;
       const tableAssignments = yield* WorkspaceTableAssignmentService;
       const fulfillment = yield* ReservationFulfillment;
+      const advisoryLock = yield* WorkspaceDatabaseAdvisoryLock;
 
       const settleRefund = (input: {
         readonly paymentAttemptId: PaymentAttemptId;
@@ -297,7 +309,7 @@ export class LatePaymentRecoveryService extends Context.Service<
           reservationId: input.reservation.id,
           originalDotyposReservationId: input.originalDotyposReservationId,
         });
-        if (outcome === "in_progress") {
+        if (outcome instanceof HoldCancellationInProgress) {
           return yield* retryLater(
             input.paymentAttemptId,
             "Late-payment recovery is waiting for hold cancellation."
@@ -661,6 +673,46 @@ export class LatePaymentRecoveryService extends Context.Service<
         });
       });
 
+      // Claims the recovery and recovers it. The caller holds the order's
+      // section, so the attempt's checks below stay true for the hold work.
+      const recoverClaimed = Effect.fnUntraced(function* (input: {
+        readonly paymentAttemptId: PaymentAttemptId;
+      }) {
+        const claimed = yield* recoveries.claim({
+          paymentAttemptId: input.paymentAttemptId,
+          staleProcessingBefore:
+            Temporal.Now.instant().subtract(recoveryClaimTimeout),
+        });
+        if (!claimed) {
+          return yield* retryLater(
+            input.paymentAttemptId,
+            "Late-payment recovery is already processing."
+          );
+        }
+
+        const reservation = yield* reservations.findById(
+          claimed.workspaceReservationId
+        );
+        if (!reservation) {
+          return yield* Effect.die(
+            "Late-payment recovery reservation missing despite its foreign key."
+          );
+        }
+
+        const unrecoverableFailureCode = unrecoverablePaymentFailureCode({
+          claimed,
+          reservation,
+        });
+        if (unrecoverableFailureCode) {
+          return yield* refundRecovery(
+            { paymentAttemptId: claimed.paymentAttemptId, reservation },
+            unrecoverableFailureCode
+          );
+        }
+
+        return yield* recoverClaimedReservation({ claimed, reservation });
+      });
+
       const recover = Effect.fn("latePaymentRecovery.recover")(
         function* (input: { readonly paymentAttemptId: PaymentAttemptId }) {
           const current = yield* recoveries.findByPaymentAttemptId(
@@ -668,40 +720,14 @@ export class LatePaymentRecoveryService extends Context.Service<
           );
           const settled = yield* replaySettledRecovery(current);
           if (settled) return settled;
+          if (!current) return "ignored" as const;
 
-          const claimed = yield* recoveries.claim({
-            paymentAttemptId: input.paymentAttemptId,
-            staleProcessingBefore:
-              Temporal.Now.instant().subtract(recoveryClaimTimeout),
-          });
-          if (!claimed) {
-            return yield* retryLater(
-              input.paymentAttemptId,
-              "Late-payment recovery is already processing."
-            );
-          }
-
-          const reservation = yield* reservations.findById(
-            claimed.workspaceReservationId
+          return yield* recoverClaimed(input).pipe(
+            WorkspaceLockSections.reservationOrder(
+              current.workspaceReservationId
+            ),
+            Effect.provideService(WorkspaceDatabaseAdvisoryLock, advisoryLock)
           );
-          if (!reservation) {
-            return yield* Effect.die(
-              "Late-payment recovery reservation missing despite its foreign key."
-            );
-          }
-
-          const unrecoverableFailureCode = unrecoverablePaymentFailureCode({
-            claimed,
-            reservation,
-          });
-          if (unrecoverableFailureCode) {
-            return yield* refundRecovery(
-              { paymentAttemptId: claimed.paymentAttemptId, reservation },
-              unrecoverableFailureCode
-            );
-          }
-
-          return yield* recoverClaimedReservation({ claimed, reservation });
         }
       );
 

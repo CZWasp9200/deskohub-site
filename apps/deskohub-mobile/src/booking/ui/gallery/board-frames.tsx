@@ -18,6 +18,7 @@ import { useAppLocale } from "../../../i18n/locale-context";
 import { m } from "../../../i18n/messages";
 import { AppBar } from "../../../ui/app-bar";
 import { Card } from "../../../ui/card";
+import { CheckboxRow } from "../../../ui/checkbox";
 import { FocusedStatusBar } from "../../../ui/focused-status-bar";
 import { useSample } from "../../../ui/gallery/gallery-kit";
 import { Notice } from "../../../ui/notice";
@@ -38,6 +39,14 @@ import {
   CoworkTierCards,
   tierArtwork,
 } from "../../family/cowork-tier-cards";
+import { MeetingRoomBookingScreen } from "../../family/meeting-room-booking-screen";
+import { MeetingRoomHero } from "../../family/meeting-room-hero";
+import {
+  type MeetingRoomLength,
+  MeetingRoomLengths,
+} from "../../family/meeting-room-lengths";
+import { MeetingRoomNoneLeft } from "../../family/meeting-room-none-left";
+import { MeetingRoomStartTimes } from "../../family/meeting-room-start-times";
 import { RestartNotice } from "../../family/restart-notice";
 import type { DateChoice } from "../../selection/booking-selection";
 import type { PragueDate } from "../../selection/prague-date";
@@ -142,6 +151,7 @@ const openSpaceWithCode: PriceFixture = (() => {
       { key: "total", items: [{ key: "total:final", amount: total }], total },
     ],
     total,
+    vatStatus: "not-vat-payer",
   };
   return { selection: openSpaceWithCoffee.selection, summary };
 })();
@@ -647,11 +657,117 @@ function CoworkCzech({ onBack }: { readonly onBack: () => void }) {
 
 // ------------------------------------------------------------ board 28: meeting room
 
+/** Board 28's start times: 08:00–19:00, four taken; the rest behind the link. */
+const meetingRoomStarts = (() => {
+  const taken = new Set(["09:00", "10:00", "16:00", "18:00"]);
+  const daytime = Array.from({ length: 12 }, (_, offset) => {
+    const startTime = `${String(8 + offset).padStart(2, "0")}:00`;
+    return {
+      startTime,
+      taken: taken.has(startTime),
+      earlySetupAvailable: !taken.has(startTime),
+    };
+  });
+  const outside = ["07:00", "20:00", "21:00"].map((startTime) => ({
+    startTime,
+    taken: false,
+    earlySetupAvailable: true,
+  }));
+  return { daytime, outside };
+})();
+
+const meetingRoomDates: DateChoice = {
+  earliest: today,
+  latest: "2027-05-10",
+  unavailable: new Set(["2026-11-13"]),
+};
+
+function MeetingRoomLengthList({
+  selected,
+}: {
+  readonly selected: MeetingRoomLength["duration"];
+}) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <MeetingRoomLengths
+      label={sample("How long?")}
+      lengths={[
+        {
+          duration: "hour:1",
+          label: sample("1 hour"),
+          price: czk(280),
+          was: czk(350),
+        },
+        {
+          duration: "hour:4",
+          label: sample("4 hours"),
+          price: czk(784),
+          was: czk(980),
+        },
+        {
+          duration: "day:1",
+          label: sample("Whole day"),
+          price: czk(1456),
+          was: czk(1820),
+        },
+      ]}
+      selected={selected}
+      onSelect={ignore}
+      locale={locale}
+    />
+  );
+}
+
+/** Board 28 "Start": the illustration and the room's facts, then the date. */
+function MeetingRoomStart({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Meeting room")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample("Meeting room"),
+            price: {
+              kind: "from",
+              amount: czk(280),
+              unit: sample("per hour"),
+            },
+          }}
+          action={next(sample("Continue"), { disabled: true })}
+          reason={sample("Choose a date, then a length and a start time")}
+        />
+      }
+    >
+      <MeetingRoomHero
+        facts={[
+          { kind: "capacity", text: sample("Up to 10 people") },
+          { kind: "equipment", text: sample("TV and projector") },
+        ]}
+      />
+      <BookingSectionHeading title={sample("Date")} />
+      <Calendar locale={locale} dates={meetingRoomDates} today={today} />
+    </FlowScreen>
+  );
+}
+
+/**
+ * Board 28 "Length and start time" and "Early setup" (`early`, scrolled to
+ * the end), and 28b "Price opened" (`opened`).
+ */
 function MeetingRoom({
   onBack,
+  early = false,
   opened = false,
 }: {
   readonly onBack: () => void;
+  readonly early?: boolean;
   readonly opened?: boolean;
 }) {
   const locale = useAppLocale();
@@ -662,7 +778,7 @@ function MeetingRoom({
       step="choose"
       locale={locale}
       onBack={onBack}
-      at={opened ? "end" : "top"}
+      at={early || opened ? "end" : "top"}
       bar={
         <BookingBar
           locale={locale}
@@ -670,7 +786,9 @@ function MeetingRoom({
           summary={{
             title: sample("Wed 18 Nov, 14:00–15:00"),
             detail: sample(
-              opened ? "Meeting room · in from 13:45" : "Meeting room · 1 hour"
+              early || opened
+                ? "Meeting room · in from 13:45"
+                : "Meeting room · 1 hour"
             ),
             price: quoted(meetingRoomHour, locale, czk(350)),
           }}
@@ -683,16 +801,136 @@ function MeetingRoom({
         aside={sample("Wed 18 Nov")}
         first
       />
-      <Placeholder label="Lengths with prices (screen ticket)" height={176} />
+      <MeetingRoomLengthList selected="hour:1" />
       <BookingSectionHeading title={sample("Start time")} />
-      <Placeholder label="Start times (screen ticket)" height={208} />
-      {opened && (
-        <Placeholder
-          label="Come 15 minutes early (screen ticket)"
-          height={48}
-        />
+      <MeetingRoomStartTimes
+        label={sample("Start time")}
+        daytime={meetingRoomStarts.daytime}
+        outside={meetingRoomStarts.outside}
+        selected="14:00"
+        onSelect={ignore}
+        locale={locale}
+      />
+      {(early || opened) && (
+        <View style={styles.earlySetup}>
+          <CheckboxRow
+            label={sample("I want to come 15 minutes early")}
+            checked
+            onChange={ignore}
+          />
+        </View>
       )}
     </FlowScreen>
+  );
+}
+
+/** Board 28b "Whole day": no start times when they don't apply. */
+function MeetingRoomWholeDay({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Meeting room")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample("Wed 18 Nov, whole day"),
+            detail: sample("Meeting room"),
+            price: { kind: "from", amount: czk(1456), was: czk(1820) },
+          }}
+          action={next(sample("Continue"))}
+        />
+      }
+    >
+      <BookingSectionHeading
+        title={sample("How long?")}
+        aside={sample("Wed 18 Nov")}
+        first
+      />
+      <MeetingRoomLengthList selected="day:1" />
+    </FlowScreen>
+  );
+}
+
+/** Board 28b "Nothing left for that length": what is still free instead. */
+function MeetingRoomNoneLeftFrame({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Meeting room")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample("Thu 12 Nov"),
+            detail: sample("Meeting room · 4 hours"),
+            price: { kind: "from", amount: czk(784) },
+          }}
+          action={next(sample("Continue"), { disabled: true })}
+          reason={sample("Choose a start time to continue")}
+        />
+      }
+    >
+      <BookingSectionHeading
+        title={sample("How long?")}
+        aside={sample("Thu 12 Nov")}
+        first
+      />
+      <MeetingRoomLengthList selected="hour:4" />
+      <BookingSectionHeading title={sample("Start time")} />
+      <MeetingRoomNoneLeft
+        title={sample("Nothing free for 4 hours on Thu 12 Nov")}
+        body={sample(
+          "1 hour is still free that day. The next free day for 4 hours is Sat 14 Nov."
+        )}
+        actions={[
+          { label: sample("Switch to 1 hour"), onPress: ignore },
+          { label: sample("Go to Sat 14 Nov"), onPress: ignore },
+        ]}
+      />
+    </FlowScreen>
+  );
+}
+
+/**
+ * The real meeting-room screen over the sample Workspace, without signing
+ * in, so a capture reaches its live states. The gallery's route params
+ * reach it: a booked selection (`&date=…&duration=hour:1&startTime=14:00`)
+ * or `&restart=hold_expired`.
+ */
+function MeetingRoomLive({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const [initialValues] = useState(() =>
+    __DEV__
+      ? [
+          Atom.initialValue(
+            customerDataLayer,
+            (
+              require("../../../customer-api/testing/sample-data-layer") as typeof import("../../../customer-api/testing/sample-data-layer")
+            ).sampleCustomerDataLayer("linked")
+          ),
+        ]
+      : []
+  );
+  return (
+    <RegistryProvider initialValues={initialValues}>
+      <SafeAreaView edges={["top"]} style={styles.screen}>
+        <FocusedStatusBar style="dark" />
+        <AppBar
+          title={m.booking_family_meeting_room_title({}, { locale })}
+          onBack={onBack}
+        />
+        <MeetingRoomBookingScreen />
+      </SafeAreaView>
+    </RegistryProvider>
   );
 }
 
@@ -1127,14 +1365,44 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     Screen: CoworkCzech,
   },
   {
+    key: "meeting-room-live",
+    board: "28",
+    state: "The meeting-room screen over sample data",
+    Screen: MeetingRoomLive,
+  },
+  {
+    key: "meeting-room-start",
+    board: "28",
+    state: "Start",
+    Screen: MeetingRoomStart,
+  },
+  {
     key: "meeting-room-chosen",
     board: "28",
     state: "Length and start time",
     Screen: MeetingRoom,
   },
   {
-    key: "meeting-room-price-opened",
+    key: "meeting-room-early",
     board: "28",
+    state: "Early setup",
+    Screen: ({ onBack }) => <MeetingRoom onBack={onBack} early />,
+  },
+  {
+    key: "meeting-room-whole-day",
+    board: "28b",
+    state: "Whole day",
+    Screen: MeetingRoomWholeDay,
+  },
+  {
+    key: "meeting-room-none-left",
+    board: "28b",
+    state: "Nothing left for that length",
+    Screen: MeetingRoomNoneLeftFrame,
+  },
+  {
+    key: "meeting-room-price-opened",
+    board: "28b",
     state: "Price opened",
     Screen: ({ onBack }) => <MeetingRoom onBack={onBack} opened />,
   },
@@ -1209,6 +1477,9 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: color.paper },
+  // The row's own gutter would inset the box; the board puts it on the
+  // screen's.
+  earlySetup: { marginHorizontal: -space.lg, marginTop: space.xl },
   banner: {
     backgroundColor: color.paper,
     borderBottomColor: color.line,

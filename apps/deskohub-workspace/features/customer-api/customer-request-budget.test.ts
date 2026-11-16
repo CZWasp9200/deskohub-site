@@ -47,6 +47,9 @@ describe("customer request budget classes", () => {
       listLegalDocuments: "workspace-only",
       acceptCheckoutPriceChange: "workspace-only",
     });
+    expect(customerRequestBudgetClasses.companies).toMatchObject({
+      lookupCompany: "workspace-only",
+    });
   });
 
   test("give each Dotypos-backed endpoint the budget of its method: GET reads, every other method mutates", () => {

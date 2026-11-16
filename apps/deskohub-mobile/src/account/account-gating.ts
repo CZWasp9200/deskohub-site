@@ -7,24 +7,33 @@ import { Match } from "effect";
 import type { Href } from "expo-router";
 
 /**
- * The Account tab's sections, in the site's navigation order (reservations
- * has its own tab). `complete` takes the profile's place until the profile
+ * The Account tab's sections, in the approved order (reservations has its
+ * own tab): the account's own sections, then Rewards, Privacy and the
+ * Danger zone. `complete` takes the profile's place until the profile
  * exists.
  */
 export const accountSectionOrder = [
-  "referrals",
   "complete",
   "profile",
-  "language",
   "security",
   "assistants",
   "billing",
+  "payment-methods",
+  "invoices",
+  "language",
+  "referrals",
   "legal",
   "danger",
 ] as const;
 export type AccountSection = (typeof accountSectionOrder)[number];
 
-/** Where each section's row on the Account tab leads. */
+/** The sections whose row opens a screen of its own. */
+export type AccountScreenSection = Exclude<AccountSection, "payment-methods">;
+
+/**
+ * Where each section's row on the Account tab leads. Payment methods has no
+ * screen yet: its row only shows, behind its release.
+ */
 export const accountSectionHref = {
   referrals: "/account/referrals",
   complete: "/account/complete",
@@ -33,9 +42,10 @@ export const accountSectionHref = {
   security: "/account/security",
   assistants: "/account/assistants",
   billing: "/account/billing",
+  invoices: "/account/invoices",
   legal: "/account/legal",
   danger: "/account/danger",
-} as const satisfies Record<AccountSection, Href>;
+} as const satisfies Record<AccountScreenSection, Href>;
 
 /** Why the account can't show its profile and reservations, if it can't. */
 export type AccountNotice =
@@ -56,9 +66,20 @@ const noticeOf = (account: CustomerAccountState): AccountNotice | undefined =>
     })
   );
 
+/**
+ * Which of the Account tab's sections the app's releases show; the screen
+ * reads each release, so the model never sees a feature flag.
+ */
+export interface AccountRelease {
+  /** Saved payment methods (issue #412); off until that feature ships. */
+  readonly paymentMethods: boolean;
+}
+
+const noRelease: AccountRelease = { paymentMethods: false };
+
 const sectionAvailable: Record<
   AccountSection,
-  (account: CustomerAccountState) => boolean
+  (account: CustomerAccountState, release: AccountRelease) => boolean
 > = {
   referrals: (account) => account.kind === "linked" && account.referralsEnabled,
   complete: (account) => account.kind === "completion-required",
@@ -67,6 +88,10 @@ const sectionAvailable: Record<
   // only while deletion is pending.
   language: (account) => account.kind !== "deletion-pending",
   billing: (account) => account.kind === "linked",
+  "payment-methods": (account, release) =>
+    account.kind === "linked" && release.paymentMethods,
+  // The invoice list answers only for a linked account's own customer.
+  invoices: (account) => account.kind === "linked",
   // Sign-in methods and assistants need only the session; the API leaves
   // them out while the release withholds passkeys or deletion is pending.
   security: (account) => account.passkeys !== undefined,
@@ -83,12 +108,16 @@ export interface AccountIndexModel {
   readonly deletionPending: boolean;
 }
 
-/** What the Account tab's index shows for a GET /account result. */
+/**
+ * What the Account tab's index shows for a GET /account result, with the
+ * sections the app's releases show (none by default).
+ */
 export const accountIndexModel = (
-  account: CustomerAccountState
+  account: CustomerAccountState,
+  release: AccountRelease = noRelease
 ): AccountIndexModel => ({
   sections: accountSectionOrder.filter((section) =>
-    sectionAvailable[section](account)
+    sectionAvailable[section](account, release)
   ),
   notice: noticeOf(account),
   deletionPending: account.deletion === "pending",
@@ -118,6 +147,25 @@ export const reservationsAccess = (
         ({ kind: "unavailable", notice: "deletion-pending" }) as const,
     })
   );
+
+/**
+ * The card a tab root shows in place of its content: Book and Reservations
+ * ask for the profile first, and Book says it is blocked while the
+ * account's deletion runs. Other states keep the tab's own notice.
+ */
+export type TabGate = "profile" | "deletion";
+
+export const tabGate = (
+  tab: "book" | "reservations",
+  access: ReservationsAccess
+): TabGate | undefined => {
+  if (access.kind === "completion-required") return "profile";
+  return tab === "book" &&
+    access.kind === "unavailable" &&
+    access.notice === "deletion-pending"
+    ? "deletion"
+    : undefined;
+};
 
 /** A history row opens its status screen only when it names an order. */
 export const opensReservationStatus = (

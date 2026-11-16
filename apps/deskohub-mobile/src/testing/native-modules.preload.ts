@@ -80,6 +80,9 @@ mock.module("react-native", () => ({
   Linking: {
     addEventListener: () => ({ remove: () => undefined }),
   },
+  BackHandler: {
+    addEventListener: () => ({ remove: () => undefined }),
+  },
   // Animations stand still: values keep what they were set to and every
   // animation finishes at once when started.
   Animated: {
@@ -142,13 +145,16 @@ mock.module("react-native-svg", () => ({
   default: svgElement("Svg"),
   Svg: svgElement("Svg"),
   Circle: svgElement("Circle"),
+  Defs: svgElement("Defs"),
   Ellipse: svgElement("Ellipse"),
   G: svgElement("G"),
   Line: svgElement("Line"),
+  LinearGradient: svgElement("LinearGradient"),
   Path: svgElement("Path"),
   Polygon: svgElement("Polygon"),
   Polyline: svgElement("Polyline"),
   Rect: svgElement("Rect"),
+  Stop: svgElement("Stop"),
 }));
 
 // Lottie's player is a class with commands a component calls through a ref;
@@ -213,6 +219,8 @@ mock.module("expo-web-browser", () => ({
 // Tests provide their own consent; these keep its module graph loadable.
 mock.module("expo-localization", () => ({
   getLocales: () => [{ languageTag: "en-US" }],
+  // The device doesn't say its clock: times follow the locale.
+  getCalendars: () => [{ uses24hourClock: null }],
 }));
 
 const asyncStorageItems = new Map<string, string>();

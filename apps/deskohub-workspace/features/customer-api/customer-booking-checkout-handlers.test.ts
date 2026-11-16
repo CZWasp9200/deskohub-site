@@ -54,6 +54,7 @@ import {
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
+import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
   type CustomerApiCall,
   customerApiRequest,
@@ -208,7 +209,10 @@ const expectedReadyCheckout = {
   payStateToken: readyToken,
   expiresAt: expect.any(String),
   holdExpiresAt: syntheticHoldExpiresAt,
-  summary: expect.objectContaining({ sections: expect.any(Array) }),
+  summary: expect.objectContaining({
+    sections: expect.any(Array),
+    vatStatus: workspaceSiteConstants.company.vatStatus,
+  }),
   earlyPerformanceConsent: {
     required: expect.any(Boolean),
     requiredFrom: expect.any(String),

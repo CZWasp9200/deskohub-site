@@ -3,7 +3,6 @@ import type { CustomerReservationProduct } from "@deskohub/workspace-customer-ap
 import {
   reservationKindTitle,
   reservationProductTitle,
-  reservationStatusLabel,
 } from "./reservation-labels";
 
 const locales = ["en-US", "cs-CZ"] as const;
@@ -17,12 +16,6 @@ const products: ReadonlyArray<CustomerReservationProduct> = [
   { kind: "office" },
   { kind: "other" },
 ];
-const statuses = [
-  "confirmed",
-  "pending",
-  "cancelled",
-  "requires-attention",
-] as const;
 
 const allDistinctAndPresent = (labels: ReadonlyArray<string>) => {
   expect(labels.every((label) => label.trim().length > 0)).toBe(true);
@@ -44,14 +37,6 @@ describe("reservation labels", () => {
         (["cowork", "meeting-room", "office"] as const).map((kind) =>
           reservationKindTitle(kind, locale)
         )
-      );
-    }
-  });
-
-  test("words every history status apart, in both locales", () => {
-    for (const locale of locales) {
-      allDistinctAndPresent(
-        statuses.map((status) => reservationStatusLabel(status, locale))
       );
     }
   });

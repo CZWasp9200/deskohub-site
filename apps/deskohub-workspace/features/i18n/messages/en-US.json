@@ -631,7 +631,7 @@
   "reservationLegalConsentAnd": "and",
   "reservationLegalConsentPrivacyLink": "Privacy Policy",
   "reservationPrivacyNote": "We use your details to process your reservation, send confirmation, and prevent abuse. Learn more in our <privacyPolicy>Privacy Policy</privacyPolicy>.",
-  "reservationMarketingConsent": "I agree that Desktechub s.r.o. may use my email to send occasional Deskohub Workspace news, event invitations, and offers. This is optional, and I can withdraw my consent at any time. Read the <marketingConsent>Marketing Communications Consent</marketingConsent>.",
+  "reservationMarketingConsent": "Email me news, events and offers from Deskohub Workspace. Unsubscribe anytime. Read the <marketingConsent>Marketing Communications Consent</marketingConsent>.",
   "reservationSuccessMessage": "Your reservation request has been sent. We will confirm the next step soon.",
   "reservationErrorMessage": "Checkout could not be started. Please check your details and try again.",
   "reservationAdvertisedPriceLoading": "Updating the price for your selection...",

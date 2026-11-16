@@ -37,12 +37,16 @@ export type BookingBarPrice =
   | { readonly kind: "none" }
   /** A new quote is on its way: "Updating price…", announced. */
   | { readonly kind: "updating" }
-  /** The from-price before a date is chosen, such as "per day"; not expandable. */
+  /**
+   * A price before the selection is complete, not expandable: the
+   * from-price with its unit such as "per day", or a chosen option's price
+   * without one.
+   */
   | {
       readonly kind: "from";
       readonly amount: Money;
       readonly was?: Money;
-      readonly unit: string;
+      readonly unit?: string;
     }
   /** The quoted total, which opens to its itemized lines. */
   | {
@@ -282,7 +286,11 @@ const pricedColumn = (
 ): { amount: Money; was?: Money; unit?: string } | undefined => {
   switch (price.kind) {
     case "from":
-      return { amount: price.amount, was: price.was, unit: price.unit };
+      return {
+        amount: price.amount,
+        was: price.was,
+        ...(price.unit !== undefined && { unit: price.unit }),
+      };
     case "quoted":
       return { amount: price.breakdown.total, was: price.was };
     default:

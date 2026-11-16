@@ -51,6 +51,7 @@ const summary = (total: number) => ({
     },
   ],
   total: money(total),
+  vatStatus: "not-vat-payer" as const,
 });
 
 const checkout = (

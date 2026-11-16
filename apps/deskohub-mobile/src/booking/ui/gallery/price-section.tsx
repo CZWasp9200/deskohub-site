@@ -1,3 +1,4 @@
+import type { CustomerVatStatus } from "@deskohub/workspace-customer-api";
 import Lock from "lucide-react-native/icons/lock";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import type { ComponentProps, ReactNode } from "react";
@@ -267,10 +268,14 @@ export function PriceGallerySection() {
   const bars = barStates(locale, sample);
   const opened = openedStates(locale, sample);
   const pay = payStates(locale, sample);
-  const card = (taxNote?: string) => (
+  // The note shows only for a VAT payer; its sample wording is not approved copy.
+  const card = (vatStatus: CustomerVatStatus, taxNote?: string) => (
     <Card>
       <PriceLines
-        breakdown={priceBreakdown(openSpaceWithCoffee.summary)}
+        breakdown={priceBreakdown({
+          ...openSpaceWithCoffee.summary,
+          vatStatus,
+        })}
         describeLine={describePriceLine(openSpaceWithCoffee.selection, locale)}
         locale={locale}
         variant="card"
@@ -295,9 +300,11 @@ export function PriceGallerySection() {
         ))}
       </GallerySection>
       <GallerySection title="Price card">
-        <GalleryCase label="Without a tax note (today)">{card()}</GalleryCase>
+        <GalleryCase label="Without a tax note (today)">
+          {card("not-vat-payer")}
+        </GalleryCase>
         <GalleryCase label="With the tax note slot filled">
-          {card(sample("Prices include VAT"))}
+          {card("vat-payer", sample("Prices include VAT"))}
         </GalleryCase>
       </GallerySection>
       <GallerySection title="Full-screen frames">

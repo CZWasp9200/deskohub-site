@@ -21,6 +21,10 @@ import {
   isFreshSignIn,
   safeReturnPath,
 } from "./auth-session-state";
+import {
+  closeTabWhenAppTakesOver,
+  currentHandoffTabPage,
+} from "./close-tab-on-handoff";
 import { webSignInFailureMessage } from "./sign-in-failure-message";
 import { signInResendAvailableAt } from "./sign-in-resend-gate";
 import type { SignInScreenProps } from "./sign-in-screen.native";
@@ -174,6 +178,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     if (finished.kind === "app") {
       clearNativeHandoffRequest();
       globalThis.location.assign(finished.url);
+      closeTabWhenAppTakesOver(currentHandoffTabPage());
     } else {
       router.replace(returnPath);
     }

@@ -199,6 +199,7 @@ const accountReferrals = {
     referralSummary.code as ReferralCode,
     Effect.runSync(getWorkspaceRuntimeCallbackOrigin)
   ),
+  discountPerInvitee: "5",
 };
 
 type StoredSignupIntent = {

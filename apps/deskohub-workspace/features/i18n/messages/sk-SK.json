@@ -639,7 +639,7 @@
   "reservationLegalConsentAnd": "a",
   "reservationLegalConsentPrivacyLink": "Zásady ochrany osobných údajov",
   "reservationPrivacyNote": "Tvoje údaje použijeme na vybavenie rezervácie, zaslanie potvrdenia a ochranu pred zneužitím. Viac nájdeš v <privacyPolicy>zásadách ochrany osobných údajov</privacyPolicy>.",
-  "reservationMarketingConsent": "Súhlasím, aby Desktechub s.r.o. používala môj e-mail na občasné zasielanie noviniek, pozvánok na podujatia a ponúk Deskohub Workspace. Súhlas je dobrovoľný a môžem ho kedykoľvek odvolať. Podrobnosti nájdeš v dokumente <marketingConsent>Súhlas s marketingovou komunikáciou</marketingConsent>.",
+  "reservationMarketingConsent": "Posielajte mi e-mailom novinky, podujatia a ponuky Deskohub Workspace. Odhlásiť sa môžem kedykoľvek. Podrobnosti nájdeš v dokumente <marketingConsent>Súhlas s marketingovou komunikáciou</marketingConsent>.",
   "reservationSuccessMessage": "Rezervačný dopyt je odoslaný. Čoskoro potvrdíme ďalší krok.",
   "reservationErrorMessage": "Platbu sa nepodarilo spustiť. Skontroluj, prosím, údaje a skús to znova.",
   "reservationAdvertisedPriceLoading": "Aktualizujeme cenu pre tvoj výber...",

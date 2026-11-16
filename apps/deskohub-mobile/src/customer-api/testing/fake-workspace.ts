@@ -10,6 +10,9 @@ import {
   CustomerAuthApi as CustomerAuthHttpApi,
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
+  type CustomerCompaniesApi,
+  type CustomerCompanyDetails,
+  CustomerCompanyNotFound,
   CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
   CustomerInvoiceNotFound,
@@ -58,6 +61,7 @@ import { fakeBookingGroup } from "../../booking/testing/fake-booking-api";
 import {
   type FakeWorkspaceData,
   type SampleAccountKind,
+  sampleCompanies,
   sampleEstablishment,
   sampleWorkspaceData,
 } from "./sample-fixtures";
@@ -89,8 +93,37 @@ type EndpointName = HttpApiEndpoint.Name<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
   | HttpApiGroup.Endpoints<typeof CustomerInvoicesApi>
+  | HttpApiGroup.Endpoints<typeof CustomerCompaniesApi>
   | HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
 >;
+
+const requestOutcomes: ReadonlyArray<FakeRequestOutcome> = [
+  "session-required",
+  "rate-limited",
+  "service-unavailable",
+  "transport-failure",
+  "hang",
+  "unreadable-answer",
+  "session-not-fresh",
+];
+
+/**
+ * The failures sample data answers every request of an endpoint with, so a
+ * capture can show a loading or failed state: `endpoint=outcome` pairs,
+ * comma separated, such as `listInvoices=hang`. Unknown outcomes are left
+ * out.
+ */
+export const sampleRequestOutcomes = (
+  text: string | undefined
+): ReadonlyArray<readonly [EndpointName, FakeRequestOutcome]> =>
+  (text ?? "").split(",").flatMap((pair) => {
+    const [endpoint, outcome] = pair.split("=").map((part) => part.trim());
+    return endpoint !== undefined &&
+      endpoint !== "" &&
+      requestOutcomes.includes(outcome as FakeRequestOutcome)
+      ? [[endpoint as EndpointName, outcome as FakeRequestOutcome] as const]
+      : [];
+  });
 
 /**
  * An in-memory Workspace serving the real customer API and Better Auth
@@ -135,6 +168,8 @@ export class FakeWorkspace {
    * the answer is the account's decision once it settles.
    */
   analyticsSyncDelay: Promise<void> | undefined;
+  /** The companies the company lookup finds, by company ID. */
+  companies: ReadonlyMap<string, CustomerCompanyDetails> = sampleCompanies;
   private readonly outcomes = new Map<EndpointName, FakeRequestOutcome[]>();
 
   constructor(data: FakeWorkspaceData = sampleWorkspaceData("linked")) {
@@ -653,22 +688,60 @@ const serverLayer = (workspace: FakeWorkspace) => {
         )
   );
 
-  // The sample data issues no invoices yet: the list is empty and every
-  // invoice is not found, as the Workspace answers an account without any.
+  // The account's invoices; one without a stored PDF, or any other ID, is
+  // not found, as the Workspace answers another customer's invoice.
   const invoices = HttpApiBuilder.group(
     WorkspaceCustomerApi,
     "invoices",
     (handlers) =>
       handlers
         .handle("listInvoices", () =>
-          Effect.as(linkedAccount, { invoices: [] })
-        )
-        .handle("getInvoicePdf", () =>
           Effect.andThen(
             linkedAccount,
-            Effect.fail(new CustomerInvoiceNotFound())
+            Effect.sync(() => ({
+              invoices: workspace.data.invoices.map(({ invoice }) => invoice),
+            }))
           )
         )
+        .handle("getInvoicePdf", ({ params }) =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.suspend(() => {
+              const pdf = workspace.data.invoices.find(
+                ({ invoice }) => invoice.id === params.invoiceId
+              )?.pdf;
+              return pdf === undefined
+                ? Effect.fail(new CustomerInvoiceNotFound())
+                : Effect.succeed(pdf);
+            })
+          )
+        )
+  );
+
+  // Any ID the sample companies lack is not found; an account awaiting
+  // deletion is refused, as the Workspace refuses it.
+  const companies = HttpApiBuilder.group(
+    WorkspaceCustomerApi,
+    "companies",
+    (handlers) =>
+      handlers.handle("lookupCompany", ({ params }) =>
+        Effect.suspend(
+          (): Effect.Effect<
+            CustomerCompanyDetails,
+            CustomerAccountLinkRequired | CustomerCompanyNotFound
+          > => {
+            if (workspace.data.account.kind === "deletion-pending") {
+              return Effect.fail(
+                new CustomerAccountLinkRequired({ reason: "deletion-pending" })
+              );
+            }
+            const company = workspace.companies.get(params.companyId.trim());
+            return company === undefined
+              ? Effect.fail(new CustomerCompanyNotFound())
+              : Effect.succeed(company);
+          }
+        )
+      )
   );
 
   const booking = fakeBookingGroup(workspace);
@@ -823,7 +896,9 @@ const serverLayer = (workspace: FakeWorkspace) => {
 
   return Layer.mergeAll(
     HttpApiBuilder.layer(WorkspaceCustomerApi).pipe(
-      Layer.provide(Layer.mergeAll(account, reservations, invoices, booking)),
+      Layer.provide(
+        Layer.mergeAll(account, reservations, invoices, companies, booking)
+      ),
       Layer.provide(customerMiddleware)
     ),
     HttpApiBuilder.layer(CustomerAuthHttpApi).pipe(Layer.provide(auth))

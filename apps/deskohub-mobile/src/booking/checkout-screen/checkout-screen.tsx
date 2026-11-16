@@ -10,8 +10,8 @@ import {
 import * as WebBrowser from "expo-web-browser";
 import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
+import { initialsOf } from "../../account/account-root-model";
 import { legalDocumentUrl } from "../../account/legal/legal-documents";
-import { initialsOf } from "../../account/profile/profile-screen";
 import { apiOrigin } from "../../auth/auth-client";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";

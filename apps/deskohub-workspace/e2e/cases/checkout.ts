@@ -27,6 +27,7 @@ import type {
   OpenE2EBrowserSession,
 } from "../browser-session";
 import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../case-runner";
+import { retireRejectedAttempt } from "../checkout/lifecycle-fixtures";
 import {
   formatNexiBuildFailureCodes,
   parseNexiBuildFailures,
@@ -62,7 +63,6 @@ import {
   markPreviewFulfillmentDeliveredForE2E,
   replayNexiWebhook,
   requireProviderSessionRowAfterRedirect,
-  retireRejectedPaymentAttemptForE2E,
   validateDiscountApplications,
   validatePostgres,
 } from "../integrations/database";
@@ -490,10 +490,7 @@ const restartSandboxRejectedPayment = (
     log(
       `Nexi sandbox rejected the hosted payment (${rejected.rejection.diagnosticCode}; Nexi codes: ${nexiCodes}); restarting once with a fresh payment attempt`
     );
-    state.checkoutRow = yield* retireRejectedPaymentAttemptForE2E(
-      orderId,
-      paymentAttemptId
-    );
+    state.checkoutRow = yield* retireRejectedAttempt(orderId, paymentAttemptId);
 
     yield* leaveRejectedHostedPayment({
       config,

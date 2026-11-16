@@ -631,7 +631,7 @@
   "reservationLegalConsentAnd": "und",
   "reservationLegalConsentPrivacyLink": "Datenschutzerklärung",
   "reservationPrivacyNote": "Deine Daten verwenden wir, um die Reservierung abzuwickeln, dir die Bestätigung zu schicken und Missbrauch zu verhindern. Mehr dazu findest du in der <privacyPolicy>Datenschutzerklärung</privacyPolicy>.",
-  "reservationMarketingConsent": "Ich willige ein, dass Desktechub s.r.o. meine E-Mail-Adresse nutzt, um mir gelegentlich Neuigkeiten, Einladungen zu Veranstaltungen und Angebote von Deskohub Workspace zu senden. Die Einwilligung ist freiwillig, und ich kann sie jederzeit widerrufen. Details findest du im Dokument <marketingConsent>Einwilligung in Marketingkommunikation</marketingConsent>.",
+  "reservationMarketingConsent": "Schickt mir Neuigkeiten, Veranstaltungen und Angebote von Deskohub Workspace per E-Mail. Abmelden kann ich mich jederzeit. Details findest du im Dokument <marketingConsent>Einwilligung in Marketingkommunikation</marketingConsent>.",
   "reservationSuccessMessage": "Deine Reservierungsanfrage wurde gesendet. Den nächsten Schritt bestätigen wir dir bald.",
   "reservationErrorMessage": "Die Zahlung konnte nicht gestartet werden. Prüf bitte deine Angaben und versuch es noch einmal.",
   "reservationAdvertisedPriceLoading": "Wir aktualisieren den Preis für deine Auswahl …",

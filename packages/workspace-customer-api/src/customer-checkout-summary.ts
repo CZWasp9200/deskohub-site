@@ -50,8 +50,22 @@ export type CustomerCheckoutSummaryItem =
   typeof CustomerCheckoutSummaryItem.Type;
 
 /**
+ * Whether the company selling the booking is registered for VAT, which
+ * decides whether a total carries a tax note.
+ */
+export const CustomerVatStatus = Schema.Literals([
+  "not-vat-payer",
+  "vat-payer",
+]).annotate({
+  identifier: "CustomerVatStatus",
+  description:
+    "Whether the seller is registered for VAT: a VAT payer's totals carry a tax note.",
+});
+export type CustomerVatStatus = typeof CustomerVatStatus.Type;
+
+/**
  * The itemized price of a booking, as the booking pages show it: the order's
- * lines, then the total.
+ * lines, then the total, with the seller's VAT status.
  */
 export const CustomerCheckoutSummary = Schema.Struct({
   sections: Schema.Array(
@@ -62,5 +76,6 @@ export const CustomerCheckoutSummary = Schema.Struct({
     })
   ),
   total: Money,
+  vatStatus: CustomerVatStatus,
 }).annotate({ identifier: "CustomerCheckoutSummary" });
 export type CustomerCheckoutSummary = typeof CustomerCheckoutSummary.Type;
