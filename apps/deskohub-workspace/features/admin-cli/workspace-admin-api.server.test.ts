@@ -857,6 +857,26 @@ describe("Workspace Admin API", () => {
     ]);
   });
 
+  test("previews an invoice from an assistant with the assistant's provenance", async () => {
+    const provenances: unknown[] = [];
+    const invoices = Layer.succeed(InvoiceAdministrationService, {
+      ...({} as InvoiceAdministrationService["Service"]),
+      preview: (_, provenance) => {
+        provenances.push(provenance);
+        return Effect.succeed(new Uint8Array([37, 80, 68, 70]));
+      },
+    });
+
+    await callAdministrationApi(
+      (client) => client.previewInvoice({ payload: invoicePreviewPayload }),
+      { invoices, channel: assistantChannel }
+    );
+
+    expect(provenances).toEqual([
+      { source: "assistant", administrator: cliAdministrator },
+    ]);
+  });
+
   test.each([
     ["a CLI session", sessionChannel, "dhw-cli"],
     ["an assistant connection", assistantChannel, "assistant"],

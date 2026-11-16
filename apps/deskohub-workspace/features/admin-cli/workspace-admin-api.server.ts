@@ -406,9 +406,12 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "previewInvoice",
         Effect.fn(function* ({ payload }) {
-          const { actor } = yield* CurrentAdministrationCaller;
+          const { actor, channel } = yield* CurrentAdministrationCaller;
           return yield* invoices
-            .preview(payload, { source: "dhw-cli", administrator: actor })
+            .preview(payload, {
+              source: provenanceSourceOf(channel),
+              administrator: actor,
+            })
             .pipe(mapAdministrationApiFailure(mapInvoicePreviewFailure));
         })
       )
