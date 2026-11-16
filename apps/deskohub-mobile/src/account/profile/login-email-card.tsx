@@ -1,5 +1,6 @@
 import Check from "lucide-react-native/icons/check";
 import Mail from "lucide-react-native/icons/mail";
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
@@ -17,6 +18,9 @@ import { space } from "../../ui/tokens";
  */
 export function LoginEmailCard({ email }: { readonly email: string }) {
   const locale = useAppLocale();
+  // The address keeps clear of the badge; the note under it takes the
+  // full width.
+  const [badgeWidth, setBadgeWidth] = useState(0);
   return (
     <ListGroup>
       <View accessible style={[listRowLayout.row, styles.row]}>
@@ -24,12 +28,20 @@ export function LoginEmailCard({ email }: { readonly email: string }) {
           <Icon icon={Mail} size={20} />
         </View>
         <View style={[listRowLayout.text, styles.text]}>
-          <Text variant="bodyStrong">{emailWithBreak(email)}</Text>
+          <Text
+            variant="bodyStrong"
+            style={{ paddingRight: badgeWidth + space.xs }}
+          >
+            {emailWithBreak(email)}
+          </Text>
           <Text variant="bodySmall">
             {m.profile_email_fixed({}, { locale })}
           </Text>
         </View>
-        <View style={styles.badge}>
+        <View
+          style={styles.badge}
+          onLayout={(event) => setBadgeWidth(event.nativeEvent.layout.width)}
+        >
           <Badge
             tone="positive"
             icon={Check}
@@ -43,8 +55,6 @@ export function LoginEmailCard({ email }: { readonly email: string }) {
 
 const styles = StyleSheet.create({
   row: { alignItems: "flex-start" },
-  // The badge takes its own room at the top right, so a long address wraps
-  // under it rather than running beneath it.
   text: { paddingTop: space.xxs },
-  badge: { marginRight: -space.xs },
+  badge: { position: "absolute", right: space.md, top: space.md },
 });

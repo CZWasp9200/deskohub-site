@@ -6,6 +6,7 @@ import { Button } from "./controls";
 import { EmptyState } from "./empty-state";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { LoadingIndicator } from "./loading-indicator";
+import { idleLiveRegionLayout } from "./notice-presentation";
 import { Text } from "./text";
 import { space } from "./tokens";
 
@@ -58,7 +59,7 @@ export function ErrorState({
 /**
  * A quiet status line that says content already on screen is being
  * refreshed. It stays mounted as a status region and shows `label` only
- * while `refreshing`. It draws no indicator of its own: the screen's
+ * while `refreshing`, and takes no room while idle. It draws no indicator of its own: the screen's
  * `ScrollScreen` shows the one loading indicator at the top.
  */
 export function RefreshingIndicator({
@@ -78,7 +79,9 @@ export function RefreshingIndicator({
       accessibilityLiveRegion="polite"
       variant="caption"
       tone="muted"
-      style={styles.refreshing}
+      // Idle, it takes no room, so the first content still overlaps a tab
+      // root's masthead.
+      style={refreshing ? styles.refreshing : idleLiveRegionLayout}
     >
       {message ?? ""}
     </Text>
