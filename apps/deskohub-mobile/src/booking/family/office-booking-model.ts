@@ -145,7 +145,9 @@ export const officeBookingModel = ({
  * The office's from-price as the lines it adds up from: a day's access and
  * one seat for that day, as the catalog prices them, totalling the
  * advertised price of one day with one seat. None while a sale lowers the
- * advertised price, which the catalog gives no line of its own.
+ * advertised price, which the catalog gives no line of its own. It is no
+ * quote, so it never shows the tax note a VAT payer's quoted total carries:
+ * the catalog has no VAT status, and only a quote's summary gives one.
  */
 export const officeFromPrice = (
   offering: OfficeOffering
@@ -167,5 +169,6 @@ export const officeFromPrice = (
           },
         ],
         total: offering.advertisedPrice.price,
+        vatStatus: "not-vat-payer",
       })
     : Option.none();

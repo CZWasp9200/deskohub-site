@@ -245,6 +245,7 @@ describe("officeFromPrice", () => {
           },
         ],
         total: offering.advertisedPrice.price,
+        vatStatus: "not-vat-payer",
       })
     );
   });
