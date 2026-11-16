@@ -249,6 +249,39 @@ describe.skipIf(!testDatabase)(
       expect(delivered).toEqual([]);
     });
 
+    test("a database failure while reading the invoice fails persistence_failed before anything is written", async () => {
+      const actor = await kit.makeActor("service-outage");
+      const invoice = await kit.issueManualInvoice(actor);
+      const { delivered, run } = makeService();
+      const countersBefore = await kit.query(
+        "select * from corrective_document_number_counters"
+      );
+      // Only the decrypting statement reads the ciphertext: the row lock, the
+      // key lookup and the invoice's standing before it still succeed.
+      const renameCiphertext = (from: string, to: string) =>
+        kit.query(`alter table invoices rename column ${from} to ${to}`);
+      await renameCiphertext("encrypted_document", "encrypted_document_gone");
+
+      const cancelled = await run((service) =>
+        Effect.flip(
+          service.cancelStandalone({
+            invoiceId: invoice.id,
+            actor,
+            confirmedCustomerNotice: true,
+          })
+        )
+      ).finally(() =>
+        renameCiphertext("encrypted_document_gone", "encrypted_document")
+      );
+
+      expect(cancelled.code).toBe("persistence_failed");
+      expect(await readCancellationCount(invoice.id)).toBe(0);
+      expect(
+        await kit.query("select * from corrective_document_number_counters")
+      ).toEqual(countersBefore);
+      expect(delivered).toEqual([]);
+    });
+
     test("routes a reservation invoice by its reservation and cancels a legacy-cancelled reservation's invoice alone", async () => {
       const actor = await kit.makeActor("service-reservation");
       const { invoice, reservation } = await kit.issueReservationInvoice();

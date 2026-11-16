@@ -412,6 +412,18 @@ describe("censorLogValue", () => {
     expect(serialized).not.toContain("Failed query");
   });
 
+  test("leaves an already censored Drizzle query error as it is", () => {
+    const censored = censorLogValue({
+      cause: new EffectDrizzleQueryError({
+        query: "select /* deskohub:sensitive */ $1",
+        params: ["synthetic-query-secret"],
+        cause: new Error("driver failure"),
+      }),
+    });
+
+    expect(censorLogValue(censored)).toEqual(censored);
+  });
+
   test("retains recursively censored Effect SQL causes", () => {
     const privateValue = testEmailAddress("private");
     const driverCause = Object.assign(

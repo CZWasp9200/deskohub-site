@@ -306,12 +306,16 @@ const censorStackTrace = (stack: string, message: string): string => {
     : `${CENSORED_LOG_VALUE}\n${frames.join("\n")}`;
 };
 
+// A censored query error keeps the tag but no parameters, so censoring it
+// again treats it as the record it now is.
 const isEffectDrizzleQueryError = <T>(
   value: T
 ): value is T & EffectDrizzleQueryError =>
   Predicate.isObject(value) &&
   "_tag" in value &&
-  value._tag === "EffectDrizzleQueryError";
+  value._tag === "EffectDrizzleQueryError" &&
+  "params" in value &&
+  Array.isArray(value.params);
 
 type LogValueCensorship = WeakMap<object, unknown>;
 

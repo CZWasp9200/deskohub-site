@@ -3,8 +3,9 @@ import "@/shared/testing/workspace-test-env";
 import { afterAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
-import { Data, Effect } from "effect";
+import { Data, Effect, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { findSqlState } from "@/db/sql-constraint";
 import {
   type InvoiceId,
   invoiceIdSchema,
@@ -150,6 +151,48 @@ describe.skipIf(!testDatabase)(
         provenance: { source: "dhw-cli", actor: actor.administrator.email },
       });
       expect(loaded[1]).toBeNull();
+    });
+
+    test("reports a database failure while loading the corrective document as the query error, not an unavailable document", async () => {
+      const actor = await makeActor("cancellation-document-outage");
+      const invoice = await issueManualInvoice(actor);
+      await run(cancel({ invoiceId: invoice.id, actor }));
+      const load = (keys?: Parameters<typeof run>[1]) =>
+        run(
+          Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+            Effect.flip(cancellations.loadCorrectiveDocument(invoice.id))
+          ),
+          keys
+        );
+
+      // A wrong key is the document's failure.
+      expect(
+        await load({
+          getActive: Effect.die("unused"),
+          getById: (keyId) =>
+            Effect.succeed({ id: keyId, secret: "synthetic wrong secret!" }),
+        })
+      ).toMatchObject({
+        _tag: "InvoiceCancellationError",
+        code: "document_unavailable",
+        invoiceId: invoice.id,
+      });
+
+      // Only the decrypting statement reads the ciphertext: the key lookup
+      // before it still succeeds.
+      const renameCiphertext = (from: string, to: string) =>
+        query(
+          `alter table corrective_documents rename column ${from} to ${to}`
+        );
+      await renameCiphertext("encrypted_document", "encrypted_document_gone");
+      const failed = await load().finally(() =>
+        renameCiphertext("encrypted_document_gone", "encrypted_document")
+      );
+
+      expect(failed).toMatchObject({ _tag: "EffectDrizzleQueryError" });
+      expect(
+        failed._tag === "EffectDrizzleQueryError" && findSqlState(failed)
+      ).toEqual(Option.some("42703"));
     });
 
     test("allocates one number when concurrent requests cancel the same invoice", async () => {

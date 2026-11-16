@@ -97,10 +97,17 @@ export interface IInvoiceCancellationRepository {
     ReadonlyMap<InvoiceId, InvoiceCancellationRecord>,
     EffectDrizzleQueryError
   >;
-  /** Decrypts the corrective document; `null` for a live invoice. */
+  /**
+   * Decrypts the corrective document; `null` for a live invoice. A document
+   * that can't be read fails `document_unavailable`; a failing database
+   * fails as itself.
+   */
   readonly loadCorrectiveDocument: (
     invoiceId: InvoiceId
-  ) => Effect.Effect<CorrectiveDocument | null, InvoiceCancellationError>;
+  ) => Effect.Effect<
+    CorrectiveDocument | null,
+    InvoiceCancellationError | EffectDrizzleQueryError
+  >;
   /**
    * Claims the audience's notice of a cancelled invoice: a first claim when
    * none exists, or another attempt after a failure or an expired lease.
@@ -280,15 +287,19 @@ export class InvoiceCancellationRepository extends Context.Service<
             } satisfies InvoiceCancellationRecording;
           }
 
+          // A failing database leaves as its own error, like every other
+          // statement here.
           const invoice = yield* reads
             .findById(invoiceId)
             .pipe(
-              Effect.mapError((cause) =>
-                cancellationError(
-                  invoiceId,
-                  "document_unavailable",
-                  "The invoice document could not be read.",
-                  cause
+              Effect.catchTag("AccountingRecordUnavailable", (cause) =>
+                Effect.fail(
+                  cancellationError(
+                    invoiceId,
+                    "document_unavailable",
+                    "The invoice document could not be read.",
+                    cause
+                  )
                 )
               )
             );
@@ -449,12 +460,14 @@ export class InvoiceCancellationRepository extends Context.Service<
             where: eq(correctiveDocuments.cancelledInvoiceId, invoiceId),
           })
           .pipe(
-            Effect.mapError((cause) =>
-              cancellationError(
-                invoiceId,
-                "document_unavailable",
-                "The corrective document could not be read.",
-                cause
+            Effect.catchTag("AccountingRecordUnavailable", (cause) =>
+              Effect.fail(
+                cancellationError(
+                  invoiceId,
+                  "document_unavailable",
+                  "The corrective document could not be read.",
+                  cause
+                )
               )
             )
           );
