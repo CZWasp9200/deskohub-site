@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
 import { Duration, Effect, Layer, Option } from "effect";
-import { TestClock } from "effect/testing";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
+import { TestClock } from "effect/testing";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { makeCustomerDataRegistry } from "../../customer-api/testing/customer-data-test-registry";
 import {

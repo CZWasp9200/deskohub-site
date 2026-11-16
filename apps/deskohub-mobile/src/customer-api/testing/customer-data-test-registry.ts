@@ -1,3 +1,4 @@
+import { scheduleTask } from "@effect/atom-react";
 import { Effect, Layer } from "effect";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { AccountReadBudget } from "../account-read-budget";
@@ -20,11 +21,15 @@ import type { SampleAccountKind } from "./sample-fixtures";
 
 type AccountExitFenceApi = ReturnType<typeof makeAccountExitFence>;
 
-/** A registry whose data runtime runs on `layer`, as one account's would. */
+/**
+ * A registry whose data runtime runs on `layer`, as one account's would. It
+ * schedules on React's scheduler, as the app's `RegistryProvider` does.
+ */
 export const makeCustomerDataRegistry = (
   layer: Layer.Layer<CustomerDataServices>
 ) =>
   AtomRegistry.make({
+    scheduleTask,
     initialValues: [Atom.initialValue(customerDataLayer, layer)],
   });
 
