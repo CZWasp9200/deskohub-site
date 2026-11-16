@@ -26,6 +26,8 @@ import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-
 import { createScratchPostgresDatabase } from "./postgres-scratch-database.test-utils";
 import { fixtureReservationAuthorId } from "./workspace-fixtures.test-utils";
 
+const testStatementTimeoutMillis = 30_000;
+
 export interface WorkspacePostgresTestDatabase {
   /** Over `databasePool`, as production's client is over its native pool. */
   readonly db: RootDatabaseClient;
@@ -42,9 +44,14 @@ let connection: Promise<WorkspacePostgresTestDatabase | null> | undefined;
 const connectWorkspacePostgres = async (
   databaseUrl: string
 ): Promise<WorkspacePostgresTestDatabase> => {
+  // The tests' own raw setup and assertions, such as one statement inserting
+  // tens of thousands of rows, get test-environment bounds; the Workspace
+  // client below keeps production's.
   const pool = makeDatabasePool({
     connectionString: databaseUrl,
     ...databasePoolTimeouts,
+    query_timeout: testStatementTimeoutMillis,
+    statement_timeout: testStatementTimeoutMillis,
   });
 
   const failClosed = async (step: string, cause: unknown): Promise<never> => {
