@@ -41,10 +41,10 @@ export const signedPayStateEnvelopeSchema = Schema.Struct({
    */
   binding: Schema.optional(Schema.Literal("order")),
   /**
-   * The order's payment attempt an order-bound state retries; present exactly
-   * when `binding` is `order`. The state pays only while that attempt is
-   * still the order's active one, so it can't start a second retry after a
-   * later attempt.
+   * The attempt whose ended payment an order-bound state retries; present
+   * exactly when `binding` is `order`. The state pays only while the order
+   * awaits that retry (no attempt active), so it can't start a second payment
+   * after the retry's own.
    */
   retriedAttemptId: Schema.optional(paymentAttemptIdSchema),
   acceptedTotal: nonNegativeMoneyCodec,
@@ -185,17 +185,16 @@ export const getPayStateBinding = (
 };
 
 /**
- * Whether the order's active attempt is still the one the state may follow:
- * always for a session state, and for an order-bound state only while its
- * retried attempt is the active one. Otherwise a later attempt already
- * started from this order, and paying again needs a new retry.
+ * Whether the state may still start the order's payment: always for a
+ * session state, and for an order-bound state only while the order awaits
+ * its retry. Preparing the retry clears the retried attempt from the order,
+ * so no attempt is active; once the retry's payment starts one, paying again
+ * needs a new retry.
  */
 export const isPayStateAttemptCurrent = (
   binding: PayStateBinding,
   order: { readonly activePaymentAttemptId: string | null }
-) =>
-  binding.kind === "session" ||
-  order.activePaymentAttemptId === binding.retriedAttemptId;
+) => binding.kind === "session" || order.activePaymentAttemptId === null;
 
 /** A Pay state issued to retry the payment of one existing order. */
 export const isOrderBoundPayState = (state: PayStateBindingFields) =>

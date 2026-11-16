@@ -506,6 +506,31 @@ describe.skipIf(!testDatabase)(
         ).toBeNull();
       });
 
+      test("records the cause when a claim starts the cancellation, and keeps it when a later claim retries it", async () => {
+        const fresh = await expiredHold();
+        const operatorFailed = await expiredHold(
+          { reservation: "cancellation_failed" },
+          { cancellationCause: "operator" }
+        );
+        const unknownFailed = await expiredHold({
+          reservation: "cancellation_failed",
+        });
+
+        const claims = await Promise.all(
+          [fresh, operatorFailed, unknownFailed].map((id) =>
+            run((repository) =>
+              repository.claimCancellation({ id, cause: "payment_retry" })
+            )
+          )
+        );
+
+        expect(claims.map((claim) => claim?.cancellationCause)).toEqual([
+          "payment_retry",
+          "operator",
+          null,
+        ]);
+      });
+
       test("records an outcome only under the current claim's stamp", async () => {
         const cancelled = await expiredHold();
         const failed = await expiredHold();

@@ -508,7 +508,7 @@ const holdForAttempt = Effect.fn("ReservationHolds.holdForAttempt")(function* (
   return yield* holdReservationDraft(preparedDraft);
 });
 
-const getReservationHoldExpiresAt = (now: Temporal.Instant) =>
+export const getReservationHoldExpiresAt = (now: Temporal.Instant) =>
   now.add({ milliseconds: payStateDefaultTtlMilliseconds });
 
 const decodeDotyposCustomerId = Schema.decodeUnknownEffect(
@@ -556,7 +556,7 @@ const mustRotateCheckoutSession = (reservation: WorkspaceReservation) =>
     (paymentState) => paymentState === reservation.paymentState
   );
 
-const enqueueReservationHoldCleanup = Effect.fn(
+export const enqueueReservationHoldCleanup = Effect.fn(
   "preparePayState.enqueueReservationHoldCleanup"
 )(function* (input: {
   readonly orderId: WorkspaceReservationId;

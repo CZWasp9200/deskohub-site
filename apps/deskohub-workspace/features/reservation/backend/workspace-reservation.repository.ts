@@ -2,13 +2,25 @@ import type {
   DotyposCustomerId,
   DotyposReservationId,
 } from "@deskohub/dotypos";
-import { and, asc, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  lte,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import { retryDatabaseRead } from "@/db/retry-database-read";
 import {
+  latePaymentRecoveries,
   paymentAttempts,
   type ReservationCancellationCause,
   reservationAccessGrants,
@@ -54,6 +66,34 @@ const withReservationKindFields = (reservation: WorkspaceReservationRow) => {
 };
 
 export type WorkspaceReservation = ReturnType<typeof withReservationKindFields>;
+
+/**
+ * The causes of a cancellation a payment retry may book again: only the
+ * order's own unpaid hold, released because it expired or for the retry.
+ * An operator's cancellation, a superseded checkout or one of unknown origin
+ * never is.
+ */
+export const retryReacquirableCancellationCauses = [
+  "hold_expired",
+  "payment_retry",
+] as const satisfies readonly ReservationCancellationCause[];
+
+/**
+ * The order's active attempt is still `retriedAttemptId`, its payment ended
+ * without settling, and no late payment is being recovered for it.
+ */
+const retriedAttemptEnded = (retriedAttemptId: PaymentAttemptId) =>
+  and(
+    eq(workspaceReservations.activePaymentAttemptId, retriedAttemptId),
+    inArray(workspaceReservations.paymentState, [
+      "failed",
+      "cancelled",
+      "expired",
+    ]),
+    notExists(
+      sql`(select 1 from ${latePaymentRecoveries} where ${latePaymentRecoveries.workspaceReservationId} = ${workspaceReservations.id})`
+    )
+  );
 
 /** The cancellation causes an unpaid-hold release records. */
 export type UnpaidHoldReleaseCause = Extract<
@@ -268,6 +308,38 @@ export interface IWorkspaceReservationRepository {
     readonly id: WorkspaceReservationId;
     readonly staleBefore: Temporal.Instant;
     readonly expectedHold?: ExpectedReservationHold;
+  }) => Effect.Effect<
+    WorkspaceReservation | null,
+    EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+  >;
+  /**
+   * Prepares an order's payment retry on the hold it still carries: clears
+   * its active attempt when that is still the retried one, whose payment
+   * ended (failed, cancelled or expired), the hold is unexpired and held, and
+   * no late payment is being recovered for it. From then on a late payment on
+   * the retried attempt settles as a refund and never touches this hold.
+   * Null when the order no longer matches.
+   */
+  readonly releaseRetriedAttempt: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly retriedAttemptId: PaymentAttemptId;
+    readonly heldUntilAfter: Temporal.Instant;
+  }) => Effect.Effect<
+    WorkspaceReservation | null,
+    EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+  >;
+  /**
+   * Puts a new Dotypos hold on an order whose own unpaid hold was released
+   * for expiry or for this retry, clearing the retried attempt as
+   * `releaseRetriedAttempt` does and every trace of the cancellation. Null
+   * when the order is no longer that cancelled, unpaid order of the retried
+   * attempt, or a late payment is being recovered for it.
+   */
+  readonly attachRetryHold: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly retriedAttemptId: PaymentAttemptId;
+    readonly dotyposReservationId: DotyposReservationId;
+    readonly reservationHoldExpiresAt: Temporal.Instant;
   }) => Effect.Effect<
     WorkspaceReservation | null,
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
@@ -1060,6 +1132,58 @@ export class WorkspaceReservationRepository extends Context.Service<
             .returning();
           return yield* decodeOptionalWorkspaceReservation(claimed);
         }),
+        releaseRetriedAttempt: Effect.fn(
+          "workspaceReservations.releaseRetriedAttempt"
+        )(function* (input) {
+          const [released] = yield* db
+            .update(workspaceReservations)
+            .set({
+              activePaymentAttemptId: null,
+              updatedAt: Temporal.Now.instant(),
+            })
+            .where(
+              and(
+                eq(workspaceReservations.id, input.id),
+                eq(workspaceReservations.reservationState, "held"),
+                gt(
+                  workspaceReservations.reservationHoldExpiresAt,
+                  input.heldUntilAfter
+                ),
+                retriedAttemptEnded(input.retriedAttemptId)
+              )
+            )
+            .returning();
+          return yield* decodeOptionalWorkspaceReservation(released);
+        }),
+        attachRetryHold: Effect.fn("workspaceReservations.attachRetryHold")(
+          function* (input) {
+            const [attached] = yield* db
+              .update(workspaceReservations)
+              .set({
+                reservationState: "held",
+                dotyposReservationId: input.dotyposReservationId,
+                reservationHoldExpiresAt: input.reservationHoldExpiresAt,
+                reservationHoldExpiredAt: null,
+                reservationCancelledAt: null,
+                cancellationCause: null,
+                failureCode: null,
+                activePaymentAttemptId: null,
+                updatedAt: Temporal.Now.instant(),
+              })
+              .where(
+                and(
+                  eq(workspaceReservations.id, input.id),
+                  eq(workspaceReservations.reservationState, "cancelled"),
+                  inArray(workspaceReservations.cancellationCause, [
+                    ...retryReacquirableCancellationCauses,
+                  ]),
+                  retriedAttemptEnded(input.retriedAttemptId)
+                )
+              )
+              .returning();
+            return yield* decodeOptionalWorkspaceReservation(attached);
+          }
+        ),
         claimSupersessionCancellation: Effect.fn(
           "workspaceReservations.claimSupersessionCancellation"
         )(function* (id) {

@@ -43,7 +43,8 @@ const reservation = (overrides: Partial<WorkspaceReservationRow> = {}) =>
     dotyposReservationId: "dotypos-reservation-id",
     reservationHoldExpiresAt: Temporal.Instant.from("2030-07-22T12:00:00Z"),
     // The failed attempt an order-bound state retries.
-    activePaymentAttemptId: "retried-attempt-id",
+    // Preparing the retry cleared the retried attempt from the order.
+    activePaymentAttemptId: null,
     paymentState: "failed",
     ...overrides,
   }) as WorkspaceReservationRow;
@@ -262,8 +263,12 @@ describe("PayableReservationService", () => {
         reason: "retried_attempt_replaced",
       },
       {
-        name: "an order whose retried attempt was never active",
-        run: { retriedAttemptId: "other-attempt-id" },
+        name: "an order whose retry was never prepared",
+        run: {
+          candidate: reservation({
+            activePaymentAttemptId: "retried-attempt-id",
+          }),
+        },
         reason: "retried_attempt_replaced",
       },
       {

@@ -64,7 +64,7 @@ export const reservationStates = [
  *   customer's edit, or an agent's rotated session) replaced it.
  * Null for cancellations recorded before causes were (their origin is unknown).
  */
-export const reservationCancellationCauses = [
+const reservationCancellationCauses = [
   "hold_expired",
   "late_payment",
   "payment_retry",
