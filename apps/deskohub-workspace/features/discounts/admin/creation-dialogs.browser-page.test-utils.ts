@@ -61,9 +61,9 @@ export const buildDiscountDialogsBrowserPage =
   async (): Promise<DiscountDialogsBrowserPage> => {
     const directory = await mkdtemp(join(tmpdir(), "discount-dialogs-"));
     const build = await Bun.build({
+      // A classic script can't hold `import.meta`, which Effect 4.1's
+      // ConfigProvider reads.
       define: {
-        // A classic script can't hold `import.meta`, which Effect 4.1's
-        // ConfigProvider reads.
         "import.meta": "{}",
         "process.env.NODE_ENV": JSON.stringify("production"),
       },
