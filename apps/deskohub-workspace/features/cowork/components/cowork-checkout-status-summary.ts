@@ -6,7 +6,7 @@ import {
   getWorkspaceProductTierTitle,
 } from "@/features/checkout/product-catalog.i18n";
 import { type Locale, m } from "@/features/i18n";
-import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
+import { formatCoworkReservationDisplayDate } from "@/features/reservation/cowork-reservation-display-date";
 import { formatMoney } from "@/shared/money/money";
 
 export const getCoworkCheckoutStatusSummary = (
@@ -21,7 +21,16 @@ export const getCoworkCheckoutStatusSummary = (
     },
     {
       label: String(m.checkoutStatusSummaryDateLabel({}, { locale })),
-      value: formatReservationDisplayDate(summary.reservedFrom, locale),
+      value: formatCoworkReservationDisplayDate(
+        {
+          tier: summary.entryTier,
+          interval: {
+            startsAt: summary.reservedFrom,
+            endsAt: summary.reservedUntil,
+          },
+        },
+        locale
+      ),
     },
     ...(summary.coffee
       ? [
