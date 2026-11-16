@@ -34,6 +34,7 @@ import {
 } from "./pay-state";
 import { PayableCheckout } from "./payable-checkout.service";
 import type { PriceVerdict } from "./price-verdict";
+import { hasPaymentInProgress } from "./reusable-payment-attempt";
 
 /**
  * Why a referral code could not be accepted. The customer sees one generic
@@ -248,7 +249,7 @@ export class CheckoutReferralService extends Context.Service<
           const checkout = yield* payableCheckout.reconfirm(opened);
           // Like an ordinary code, a referral never replaces the summary of a
           // payment already in progress; payment admission rechecks it too.
-          if (checkout.reservation.activePaymentAttemptId) {
+          if (hasPaymentInProgress(checkout.reservation)) {
             return paymentInProgress;
           }
           const { dotyposCustomerId } = checkout.reservation;
@@ -278,7 +279,7 @@ export class CheckoutReferralService extends Context.Service<
           // A payment that started while the referral was priced keeps the
           // summary it was admitted with.
           const repriced = yield* payableCheckout.reconfirm(opened);
-          if (repriced.reservation.activePaymentAttemptId) {
+          if (hasPaymentInProgress(repriced.reservation)) {
             return paymentInProgress;
           }
           const freshPayState = yield* PayState.reissue(checkout.state, {

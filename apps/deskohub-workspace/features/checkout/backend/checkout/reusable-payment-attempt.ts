@@ -118,3 +118,12 @@ export const decidePaymentPageReopening = (
   }
   return "window_elapsed";
 };
+
+/**
+ * Whether the order's payment has started and not ended, or has settled: its
+ * price, codes and referral can no longer change. An order whose last attempt
+ * failed, was cancelled or expired may still be repriced before a retry.
+ */
+export const hasPaymentInProgress = (order: {
+  readonly paymentState: string;
+}) => order.paymentState === "pending" || order.paymentState === "paid";

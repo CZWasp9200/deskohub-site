@@ -9,30 +9,18 @@ import { Context, Data, Effect, Layer, Predicate } from "effect";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import type { LatePaymentRecovery } from "@/db/schema";
 import { WorkspaceLockSections } from "@/db/workspace-locks";
-import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
 import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
-import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
-import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
-import type { CoworkReservationDetails } from "@/features/reservation/cowork-reservation";
-import { getMeetingRoomEarlySetupField } from "@/features/reservation/meeting-room-early-setup";
-import type { MeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
-import type { OfficeReservationDetails } from "@/features/reservation/office-reservation";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   hasReservationIntervalEnded,
   type ReservationInterval,
 } from "@/features/reservation/reservation-interval";
-import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import {
-  plainDateStringSchema,
-  temporalInstantToDate,
-} from "@/shared/utils/temporal";
 import { ReservationFulfillment } from "../fulfillment/reservation-fulfillment.service";
 import {
   HoldCancellationInProgress,
@@ -44,12 +32,13 @@ import {
 } from "../repositories/late-payment-recovery.repository";
 import { administrationForcedPaymentCancellationFailureCode } from "../repositories/payment-lifecycle.repository";
 import {
-  createWorkspaceDotyposReservation,
-  noteNamesPaymentOrder,
-} from "../reservation/dotypos-reservation.adapter";
+  findOrderDotyposReservations,
+  type RecreatedReservation,
+  rebuildAcceptedReservation,
+  resumeOrCreateOrderDotyposReservation,
+} from "../reservation/order-dotypos-reservation";
 import {
   getWorkspaceReservationInterval,
-  type WorkspaceTableAssignmentReservation,
   WorkspaceTableAssignmentService,
 } from "../reservation/workspace-table-assignment.service";
 
@@ -83,107 +72,6 @@ export interface ILatePaymentRecoveryService {
     readonly paymentAttemptId: PaymentAttemptId;
   }) => Effect.Effect<LatePaymentRecoveryOutcome, LatePaymentRecoveryError>;
 }
-
-type RecreatedReservation = {
-  readonly checkoutDetails: CheckoutDetails;
-  readonly reservation: WorkspaceTableAssignmentReservation;
-};
-
-type CoworkSnapshot = Extract<
-  AccountingDocumentSnapshot,
-  { readonly reservation: { readonly kind: "cowork" } }
->;
-type MeetingRoomSnapshot = Extract<
-  AccountingDocumentSnapshot,
-  { readonly reservation: { readonly kind: "meeting-room" } }
->;
-type OfficeSnapshot = Extract<
-  AccountingDocumentSnapshot,
-  { readonly reservation: { readonly kind: "office" } }
->;
-
-const isCoworkSnapshot = (
-  snapshot: AccountingDocumentSnapshot
-): snapshot is CoworkSnapshot => snapshot.reservation.kind === "cowork";
-const isMeetingRoomSnapshot = (
-  snapshot: AccountingDocumentSnapshot
-): snapshot is MeetingRoomSnapshot =>
-  snapshot.reservation.kind === "meeting-room";
-const isOfficeSnapshot = (
-  snapshot: AccountingDocumentSnapshot
-): snapshot is OfficeSnapshot => snapshot.reservation.kind === "office";
-
-const reconstructReservation = (
-  row: WorkspaceReservation,
-  snapshot: AccountingDocumentSnapshot
-): RecreatedReservation | null => {
-  if (row.reservationDetails.kind !== snapshot.reservation.kind) return null;
-
-  if (isCoworkSnapshot(snapshot)) {
-    if (row.reservationDetails.kind !== "cowork") return null;
-    const reservation: CoworkReservationDetails = {
-      ...row.reservationDetails,
-      date: snapshot.reservation.date,
-    };
-    return {
-      reservation,
-      checkoutDetails: {
-        locale: snapshot.locale,
-        legal: {},
-        reservation,
-        payment: {
-          ...snapshot.quote.payment,
-          summary: getCoworkCheckoutSummary(reservation, snapshot.quote),
-        },
-      },
-    };
-  }
-  if (isMeetingRoomSnapshot(snapshot)) {
-    if (row.reservationDetails.kind !== "meeting-room") return null;
-    const item = snapshot.quote.items[0];
-    const reservation: MeetingRoomReservationDetails = {
-      kind: "meeting-room",
-      duration: item.duration,
-      reservationDate: plainDateStringSchema.make(
-        Temporal.Instant.from(snapshot.reservation.startsAt)
-          .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
-          .toPlainDate()
-          .toString()
-      ),
-      startsAt: snapshot.reservation.startsAt,
-      endsAt: snapshot.reservation.endsAt,
-      ...getMeetingRoomEarlySetupField(row.reservationDetails),
-    };
-    return {
-      reservation,
-      checkoutDetails: {
-        locale: snapshot.locale,
-        legal: {},
-        reservation,
-        payment: {
-          ...snapshot.quote.payment,
-          items: snapshot.quote.items,
-        },
-      },
-    };
-  }
-  if (isOfficeSnapshot(snapshot)) {
-    const reservation: OfficeReservationDetails = snapshot.reservation;
-    return {
-      reservation,
-      checkoutDetails: {
-        locale: snapshot.locale,
-        legal: {},
-        reservation,
-        payment: {
-          ...snapshot.quote.payment,
-          items: snapshot.quote.items,
-        },
-      },
-    };
-  }
-  return null;
-};
 
 /** Why an original hold Dotypos neither holds NEW nor cancelled needs review. */
 const unreleasableOriginalHoldFailureCode = (
@@ -345,27 +233,20 @@ export class LatePaymentRecoveryService extends Context.Service<
       }) {
         const snapshot = yield* snapshots.find(input.paymentAttemptId);
         return snapshot
-          ? reconstructReservation(input.reservation, snapshot)
+          ? rebuildAcceptedReservation(input.reservation, snapshot)
           : null;
       });
 
       // Replacements an earlier run of this recovery created in Dotypos name
       // the payment order in their note.
-      const findRecoveryReplacements = Effect.fnUntraced(function* (input: {
+      const findRecoveryReplacements = (input: {
         readonly reservation: WorkspaceReservation;
         readonly interval: Pick<ReservationInterval, "startsAt" | "endsAt">;
-      }) {
-        return (yield* dotypos.listActiveReservationsOverlapping({
-          startDate: temporalInstantToDate(
-            Temporal.Instant.from(input.interval.startsAt)
-          ),
-          endDate: temporalInstantToDate(
-            Temporal.Instant.from(input.interval.endsAt)
-          ),
-        })).filter((candidate) =>
-          noteNamesPaymentOrder(candidate.note, input.reservation.id)
-        );
-      });
+      }) =>
+        findOrderDotyposReservations({
+          orderId: input.reservation.id,
+          interval: input.interval,
+        }).pipe(Effect.provideService(DotyposService, dotypos));
 
       const refundNewerReservation = Effect.fnUntraced(function* (input: {
         readonly paymentAttemptId: PaymentAttemptId;
@@ -387,43 +268,28 @@ export class LatePaymentRecoveryService extends Context.Service<
         readonly recreated: RecreatedReservation;
         readonly replacements: readonly DotyposReservation[];
       }) {
-        const resumed = input.replacements[0];
-        if (resumed?.id) {
-          return {
-            replacementId: resumed.id,
-            replacementState:
-              resumed.status === "CONFIRMED"
-                ? ("confirmed" as const)
-                : ("held" as const),
-          };
-        }
-        const { reservation, recreated } = input;
-        const created = yield* availability
-          .ensureAvailable(recreated.reservation)
-          .pipe(
-            Effect.andThen(
-              createWorkspaceDotyposReservation({
-                paymentOrderId: reservation.id,
-                dotyposCustomerId: reservation.dotyposCustomerId,
-                checkoutDetails: recreated.checkoutDetails,
-                reservation: recreated.reservation,
-                status: "CONFIRMED",
-              })
-            ),
-            Effect.provideService(DotyposService, dotypos),
-            Effect.provideService(
-              WorkspaceTableAssignmentService,
-              tableAssignments
-            ),
-            Effect.map((replacement) => replacement.id),
-            Effect.catchTags({
-              WorkspaceTableUnavailableError: () => Effect.succeed(null),
-              TableAssignmentUnavailableError: () => Effect.succeed(null),
-            })
-          );
-        return created === null
+        const settled = yield* resumeOrCreateOrderDotyposReservation({
+          order: input.reservation,
+          recreated: input.recreated,
+          found: input.replacements,
+          status: "CONFIRMED",
+        }).pipe(
+          Effect.provideService(DotyposService, dotypos),
+          Effect.provideService(WorkspaceAvailabilityService, availability),
+          Effect.provideService(
+            WorkspaceTableAssignmentService,
+            tableAssignments
+          )
+        );
+        return settled === null
           ? null
-          : { replacementId: created, replacementState: "confirmed" as const };
+          : {
+              replacementId: settled.id,
+              replacementState:
+                settled.status === "CONFIRMED"
+                  ? ("confirmed" as const)
+                  : ("held" as const),
+            };
       });
 
       // Settles the recovery with the replacement, cancelling it again when a

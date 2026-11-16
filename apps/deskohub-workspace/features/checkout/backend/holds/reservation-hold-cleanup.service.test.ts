@@ -293,6 +293,7 @@ describe("ReservationHoldCleanupService", () => {
     expect(claimCancellation).toHaveBeenCalledWith({
       id: orderId,
       expectedHold: dueHold,
+      cause: "hold_expired",
     });
     expect(cancelReservation).toHaveBeenCalledWith("dotypos-reservation-id");
     expect(markCancelled).toHaveBeenCalledWith({

@@ -142,6 +142,7 @@ export {
   fulfillmentStates,
   type PaymentState,
   paymentStates,
+  type ReservationCancellationCause,
   type ReservationState,
   reservationStates,
   type WorkspaceReservationRow,
