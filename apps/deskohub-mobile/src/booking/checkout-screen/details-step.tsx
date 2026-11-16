@@ -31,7 +31,7 @@ import { ListGroup, ListRow } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { SelectField } from "../../ui/select-field";
 import { Text } from "../../ui/text";
-import { color, radius, shadow, space } from "../../ui/tokens";
+import { color, radius, shadow, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
 import type {
   CheckoutDetails,
@@ -468,7 +468,7 @@ function SomeoneElseFields({
       }
     );
   return (
-    <View style={styles.fields}>
+    <View style={[styles.fields, styles.someoneElse]}>
       <Field
         {...field("name")}
         label={m.booking_details_their_name({}, { locale })}
@@ -575,10 +575,11 @@ function InvoiceSection({
         label={m.booking_details_invoice_heading({}, { locale })}
         choices={choices}
         selected={draft.billing}
+        // While the hold is made the cards stay as they were, readable,
+        // and ignore presses (board 31: nothing turns muddy).
         onSelect={(billing) =>
-          change({ ...draft, billing }, { _tag: "Billing" })
+          busy || change({ ...draft, billing }, { _tag: "Billing" })
         }
-        disabled={busy}
       />
       {draft.billing === "personal-invoice" && asksPersonalAddress(saved) && (
         <>
@@ -714,9 +715,8 @@ function AddressFields({
               ? undefined
               : countryName(address.country, locale)
           }
-          onPress={() => setPicking(true)}
+          onPress={() => busy || setPicking(true)}
           error={country.error}
-          disabled={busy}
         />
       </View>
       <CountrySheet
@@ -804,16 +804,21 @@ function MarketingSection({
           checked={checked}
           onChange={onChange}
         />
-        <View style={styles.documentLink}>
-          <Button
-            variant="text"
-            size="small"
-            width="content"
-            icon={ExternalLink}
-            label={m.legal_document_marketing({}, { locale })}
-            onPress={onOpenDocument}
-          />
-        </View>
+        {/* Under the sentence, on its text's edge, read as a link. */}
+        <Pressable
+          role="link"
+          onPress={onOpenDocument}
+          hitSlop={space.sm}
+          style={({ pressed }) => [
+            styles.documentLink,
+            pressed && styles.documentLinkPressed,
+          ]}
+        >
+          <Text variant="label" tone="action" style={styles.documentLinkText}>
+            {m.legal_document_marketing({}, { locale })}
+          </Text>
+          <Icon icon={ExternalLink} size={16} color={color.action} />
+        </Pressable>
       </View>
     </>
   );
@@ -1010,7 +1015,16 @@ const styles = StyleSheet.create({
     paddingBottom: space.sm,
     paddingHorizontal: space.md,
   },
-  documentLink: { paddingLeft: 38 },
+  documentLink: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.xs,
+    minHeight: touchTarget,
+    paddingLeft: 38,
+  },
+  documentLinkPressed: { opacity: 0.6 },
+  documentLinkText: { flexShrink: 1 },
   selfFields: { gap: space.lg, paddingTop: space.md },
+  someoneElse: { paddingTop: space.xl },
   retry: { gap: space.md, paddingTop: space.xl },
 });
