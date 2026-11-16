@@ -50,8 +50,8 @@ export async function DiscountCustomerAdminDetail({
   const decodedCustomerId = requireDotyposCustomerRouteId(customerId);
   const [liveData, activity, reservationActivity] = await Promise.all([
     loadOptionalDiscountAdminCustomerPageData(decodedCustomerId, searchParams),
-    loadAdministrationCustomerActivity(customerId),
-    loadAdministrationCustomerReservationActivity(customerId),
+    loadAdministrationCustomerActivity(decodedCustomerId),
+    loadAdministrationCustomerReservationActivity(decodedCustomerId),
   ]);
   const { notice, profile } = liveData;
 

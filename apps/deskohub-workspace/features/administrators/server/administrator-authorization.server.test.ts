@@ -264,6 +264,9 @@ describe("administration entry points without the administrator grant", () => {
         administration.loadAdministrationCustomerReservationActivity(
           "customer-id"
         ),
+      () => administration.loadAdministrationCustomer("customer-id"),
+      () =>
+        administration.loadAdministrationCustomerBreadcrumbLabel("customer-id"),
       () => administration.loadAdministrationOrdersPage(searchParams).result,
       () => administration.loadAdministrationOrder("order-id"),
       () =>
