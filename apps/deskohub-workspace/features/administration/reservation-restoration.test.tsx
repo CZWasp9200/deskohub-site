@@ -477,6 +477,9 @@ describe("ReservationRestoration", () => {
       m.administrationReservationRestorationFailed({}, { locale: "en-US" })
     );
 
+    // Each server refusal reloads the preview; an interrupted request doesn't.
+    expect(workspaceRouterRefresh).toHaveBeenCalledTimes(2);
+
     act(() => {
       actionOptions?.onTransportError();
     });
@@ -489,7 +492,71 @@ describe("ReservationRestoration", () => {
     });
     expect(view.getByRole("dialog")).toBeDefined();
     expect(statusMessages(view)).toEqual([]);
-    expect(workspaceRouterRefresh).not.toHaveBeenCalled();
+    expect(workspaceRouterRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  const rerenderRestoration = async (
+    view: ReturnType<typeof render>,
+    restoration: ReservationRestorationPreview | null
+  ) => {
+    const { ReservationRestoration } = await import(
+      "./reservation-restoration"
+    );
+    view.rerender(
+      <RouteLocaleProvider locale="en-US">
+        <ReservationRestoration
+          reservationId={fixtureReservationId}
+          restoration={restoration}
+          restoreReservation={restoreReservation}
+        />
+      </RouteLocaleProvider>
+    );
+  };
+
+  test("asks for the acknowledgement once a refused restore reveals a refund", async () => {
+    const view = await renderRestoration();
+    const dialog = await openDialog(view);
+    expect(acknowledgementCheckbox(dialog)).toBeNull();
+    await submitDialog(dialog);
+    act(() => {
+      actionOptions?.onError({
+        error: { serverError: "Synthetic refund refusal from the server." },
+      });
+    });
+    expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
+
+    await rerenderRestoration(view, {
+      ...restorableReservation,
+      refundedPayment: { amount: refundedAmount, coverage: "full" },
+    });
+    const refreshed = within(view.getByRole("dialog"));
+    const checkbox = acknowledgementCheckbox(refreshed);
+    if (!checkbox) throw new Error("The acknowledgement checkbox is missing.");
+    fireEvent.click(checkbox);
+    await submitDialog(refreshed);
+
+    expect(execute.mock.calls.at(-1)?.[0]).toEqual({
+      reservationId: fixtureReservationId,
+      acknowledgeRefundedPayment: true,
+      sendRestorationEmail: true,
+    });
+  });
+
+  test("keeps a refusal in view when the refreshed reservation can no longer be restored", async () => {
+    const view = await renderRestoration();
+    await submitDialog(await openDialog(view));
+    act(() => {
+      actionOptions?.onError({
+        error: { serverError: "Synthetic refusal from the server." },
+      });
+    });
+
+    await rerenderRestoration(view, null);
+
+    expect(view.queryByRole("dialog")).toBeNull();
+    expect(view.getByRole("alert").textContent).toBe(
+      "Synthetic refusal from the server."
+    );
   });
 
   test("uses the route locale for the dialog, validation and outcome", async () => {

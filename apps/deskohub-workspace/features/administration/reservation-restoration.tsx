@@ -2,7 +2,7 @@
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import type {
-  AdministrationMoney,
+  AdministrationReservationRestorationResultType,
   AdministrationWorkspaceReservationIdType,
 } from "@deskohub/workspace-admin-api";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -36,40 +36,22 @@ import {
 } from "@/shared/components/ui/form";
 import { formatMoney } from "@/shared/money/money";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
+import type { AdministrationReservationDetail } from "./administration.service";
+import type { ReservationRestorationInput } from "./contracts";
 import { m } from "./i18n";
 import { AdministrationAlert } from "./notice";
 
-/** Money already returned to the customer, which restoring doesn't charge again. */
-export type RefundedReservationPayment = {
-  /** The total refunded. */
-  readonly amount: AdministrationMoney;
-  readonly coverage: "full" | "partial";
-};
-
 /** What restoring the reservation would do, from the reservation detail. */
-export type ReservationRestorationPreview = {
-  /** A cancellation email was sent, so a restoration email can be offered. */
-  readonly cancellationEmailRecorded: boolean;
-  /** The reservation hasn't ended, so the customer gets a new access code. */
-  readonly issuesNewAccess: boolean;
-  /** A payment marked as needing a refund no longer will be. */
-  readonly clearsRefundRequirement: boolean;
-  readonly refundedPayment: RefundedReservationPayment | null;
-};
+export type ReservationRestorationPreview = NonNullable<
+  AdministrationReservationDetail["restoration"]
+>;
 
 /** What the operator asks for when restoring a reservation. */
-export type ReservationRestorationRequest = {
-  readonly reservationId: AdministrationWorkspaceReservationIdType;
-  readonly acknowledgeRefundedPayment: boolean;
-  readonly sendRestorationEmail: boolean;
-};
+export type ReservationRestorationRequest = ReservationRestorationInput;
 
 /** How a restoration ended, as the restore action reports it. */
-export type ReservationRestorationResult = {
-  readonly outcome: "restored" | "already_confirmed";
-  readonly email: "not_requested" | "sent" | "failed" | "not_available";
-  readonly access: "issued" | "failed" | "not_needed";
-};
+export type ReservationRestorationResult =
+  AdministrationReservationRestorationResultType;
 
 /** The operator action that restores a cancelled reservation. */
 export type ReservationRestorationAction = SingleInputActionFn<
@@ -208,18 +190,22 @@ export function ReservationRestoration({
       setNotices(getReservationRestorationNotices(data, locale));
       router.refresh();
     },
-    onError: ({ error: actionError }) =>
+    // A refusal can come from facts the preview predates, such as a refund
+    // the restore's own refund check just recorded, so reload the preview.
+    onError: ({ error: actionError }) => {
       setError(
         actionError.serverError ??
           m.administrationReservationRestorationFailed({}, { locale })
-      ),
+      );
+      router.refresh();
+    },
     onTransportError: () =>
       setError(
         m.administrationReservationRestorationInterrupted({}, { locale })
       ),
   });
 
-  if (!restoration && notices.length === 0) return null;
+  if (!restoration && notices.length === 0 && error === null) return null;
 
   return (
     <div>
@@ -248,6 +234,11 @@ export function ReservationRestoration({
           open={open}
           restoration={restoration}
         />
+      )}
+      {!restoration && error && (
+        <div role="alert">
+          <AdministrationAlert status="error">{error}</AdministrationAlert>
+        </div>
       )}
       <div className="mt-2 space-y-2 empty:mt-0" role="status">
         {notices.map((notice) => (
