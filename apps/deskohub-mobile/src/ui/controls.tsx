@@ -382,6 +382,7 @@ export function TextField({
   disabled = false,
   leadingIcon,
   trailingIcon,
+  accessory,
   autoCapitalize = "none",
   editable,
   onBlur,
@@ -400,6 +401,12 @@ export function TextField({
   readonly leadingIcon?: IconComponent;
   /** An icon at the end of the frame; a read-only field shows a lock. */
   readonly trailingIcon?: IconComponent;
+  /**
+   * A control beside the field, such as a code's Apply button. The label
+   * sits above both and the messages under both; the control drops under
+   * the field when the row is too narrow for the two.
+   */
+  readonly accessory?: ReactNode;
   /** Lets a form focus the field, such as its first invalid one. */
   readonly ref?: Ref<TextInputInstance>;
 } & Pick<
@@ -436,33 +443,38 @@ export function TextField({
   return (
     <View style={fieldColumnStyle}>
       <FieldLabel label={label} optional={optional} />
-      <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
-        {leadingIcon && <Icon icon={leadingIcon} size={20} color={iconColor} />}
-        <TextInput
-          aria-label={optional === undefined ? label : `${label} ${optional}`}
-          aria-disabled={disabled}
-          // Native platforms read the hint; the web reads `aria-describedby`
-          // and `aria-invalid`, which react-native-web maps and RN ignores.
-          accessibilityHint={description.hint}
-          aria-describedby={description.describedBy}
-          aria-invalid={description.invalid}
-          autoCapitalize={autoCapitalize}
-          autoCorrect={false}
-          style={[styles.input, { color: fieldInkColor(state) }]}
-          placeholderTextColor={color.ink3}
-          {...input}
-          editable={typeable}
-          onFocus={() => setFocused(true)}
-          onBlur={(event) => {
-            setFocused(false);
-            onBlur?.(event);
-          }}
-          onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}
-        />
-        {trailing && (
-          <Icon icon={trailing} size={readOnly ? 18 : 20} color={iconColor} />
-        )}
-      </View>
+      {fieldRow(
+        <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
+          {leadingIcon && (
+            <Icon icon={leadingIcon} size={20} color={iconColor} />
+          )}
+          <TextInput
+            aria-label={optional === undefined ? label : `${label} ${optional}`}
+            aria-disabled={disabled}
+            // Native platforms read the hint; the web reads `aria-describedby`
+            // and `aria-invalid`, which react-native-web maps and RN ignores.
+            accessibilityHint={description.hint}
+            aria-describedby={description.describedBy}
+            aria-invalid={description.invalid}
+            autoCapitalize={autoCapitalize}
+            autoCorrect={false}
+            style={[styles.input, { color: fieldInkColor(state) }]}
+            placeholderTextColor={color.ink3}
+            {...input}
+            editable={typeable}
+            onFocus={() => setFocused(true)}
+            onBlur={(event) => {
+              setFocused(false);
+              onBlur?.(event);
+            }}
+            onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}
+          />
+          {trailing && (
+            <Icon icon={trailing} size={readOnly ? 18 : 20} color={iconColor} />
+          )}
+        </View>,
+        accessory
+      )}
       <FieldMessages {...messages} />
     </View>
   );
@@ -498,7 +510,26 @@ export function LiveMessage({
   );
 }
 
+/** The field's frame alone, or beside its `accessory`. */
+const fieldRow = (frame: ReactNode, accessory: ReactNode) =>
+  accessory === undefined ? (
+    frame
+  ) : (
+    <View style={styles.accessoryRow}>
+      <View style={styles.accessoryField}>{frame}</View>
+      {accessory}
+    </View>
+  );
+
 const styles = StyleSheet.create({
+  accessoryRow: {
+    alignItems: "center",
+    columnGap: space.sm,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    rowGap: space.sm,
+  },
+  accessoryField: { flexBasis: 160, flexGrow: 1, minWidth: 0 },
   screen: { backgroundColor: color.paper, flex: 1 },
   content: {
     alignSelf: "center",

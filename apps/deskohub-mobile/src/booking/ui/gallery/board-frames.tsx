@@ -6,7 +6,6 @@ import { RegistryProvider } from "@effect/atom-react";
 import { Option } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import Coffee from "lucide-react-native/icons/coffee";
-import Lock from "lucide-react-native/icons/lock";
 import Monitor from "lucide-react-native/icons/monitor";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { type ComponentRef, type ReactNode, useRef, useState } from "react";
@@ -63,11 +62,7 @@ import {
 } from "../booking-bar";
 import { BookingSectionHeading } from "../booking-section-heading";
 import { type BookingStep, BookingSteps } from "../booking-steps";
-import {
-  HoldEndedDialog,
-  type HoldStatus,
-  HoldStatusChip,
-} from "../hold-timer";
+import { type HoldStatus, HoldStatusChip } from "../hold-timer";
 import { MonthCalendar } from "../month-calendar";
 import type { CalendarRange } from "../month-calendar-model";
 import { priceBreakdown } from "../price-breakdown";
@@ -81,6 +76,7 @@ import {
   reservedDeskWithWorkstation,
 } from "../testing/price-fixtures";
 import { bookTabFrames } from "./book-tab-frames";
+import { reviewFrames } from "./review-frames";
 
 /**
  * The booking boards' proposed frames (boards 26–35) rebuilt from the shared
@@ -116,10 +112,6 @@ const chosenDay: PragueDate = "2026-11-26";
 const fullDay: PragueDate = "2026-11-20";
 
 const hold = {
-  review: { secondsLeft: 597, phase: "held" },
-  codeApplied: { secondsLeft: 545, phase: "held" },
-  lastMinute: { secondsLeft: 58, phase: "ending" },
-  ended: { secondsLeft: 0, phase: "ended" },
   paying: { secondsLeft: 509, phase: "held" },
 } as const satisfies Record<string, HoldStatus>;
 
@@ -1182,134 +1174,6 @@ function PriceCard({
   );
 }
 
-const payLabel = (amount: string) => `Order and pay ${amount}`;
-
-function ReviewTop({
-  onBack,
-  ended = false,
-}: {
-  readonly onBack: () => void;
-  readonly ended?: boolean;
-}) {
-  const locale = useAppLocale();
-  const sample = useSample();
-  return (
-    <FlowScreen
-      title={sample("Review and pay")}
-      step="pay"
-      locale={locale}
-      onBack={onBack}
-      hold={ended ? hold.ended : hold.review}
-      bar={
-        ended ? (
-          <BookingBar
-            locale={locale}
-            action={next(sample(payLabel("CZK 282")), { icon: Lock })}
-          />
-        ) : (
-          <BookingBar
-            locale={locale}
-            action={next(sample(payLabel("CZK 282")), { disabled: true })}
-            reason={sample("Tick the agreement to pay")}
-          />
-        )
-      }
-      overlay={
-        ended && (
-          <HoldEndedDialog
-            visible
-            onCheckDate={ignore}
-            onLeave={ignore}
-            locale={locale}
-          />
-        )
-      }
-    >
-      <BookingSectionHeading
-        title={sample("Your booking")}
-        aside={sample("Change")}
-        first
-      />
-      <Placeholder label="Booking summary (screen ticket)" height={196} />
-      <BookingSectionHeading title={sample("Price")} />
-      <PriceCard fixture={openSpaceWithCoffee} locale={locale} />
-      <Placeholder label="Discount code row (screen ticket)" height={48} />
-      <Placeholder label="Agreement (screen ticket)" height={120} />
-    </FlowScreen>
-  );
-}
-
-function ReviewCodeApplied({ onBack }: { readonly onBack: () => void }) {
-  const locale = useAppLocale();
-  const sample = useSample();
-  return (
-    <FlowScreen
-      title={sample("Review and pay")}
-      step="pay"
-      locale={locale}
-      onBack={onBack}
-      hold={hold.codeApplied}
-      raised
-      bar={
-        <BookingBar
-          locale={locale}
-          action={next(sample(payLabel("CZK 258.80")), { disabled: true })}
-          reason={sample("Tick the agreement to pay")}
-        />
-      }
-    >
-      <BookingSectionHeading title={sample("Price")} first />
-      <PriceCard fixture={openSpaceWithCode} was={czk(282)} locale={locale} />
-      <Placeholder
-        label="Code applied, with Remove (screen ticket)"
-        height={64}
-      />
-      <Placeholder label="Agreement (screen ticket)" height={120} />
-    </FlowScreen>
-  );
-}
-
-function ReviewLastMinute({ onBack }: { readonly onBack: () => void }) {
-  const locale = useAppLocale();
-  const sample = useSample();
-  return (
-    <FlowScreen
-      title={sample("Review and pay")}
-      step="pay"
-      locale={locale}
-      onBack={onBack}
-      hold={hold.lastMinute}
-      at="end"
-      banner={
-        <Notice
-          tone="warning"
-          title={sample("Less than a minute left to pay")}
-          message={sample(
-            "If time runs out we release the spot, but keep your choices."
-          )}
-        />
-      }
-      bar={
-        <BookingBar
-          locale={locale}
-          action={next(sample(payLabel("CZK 282")), { icon: Lock })}
-        />
-      }
-    >
-      <BookingSectionHeading
-        title={sample("Your booking")}
-        aside={sample("Change")}
-        first
-      />
-      <Placeholder label="Booking summary (screen ticket)" height={196} />
-      <BookingSectionHeading title={sample("Price")} />
-      <PriceCard fixture={openSpaceWithCoffee} locale={locale} />
-      <Placeholder label="Discount code row (screen ticket)" height={48} />
-      <Placeholder label="Agreement, ticked (screen ticket)" height={120} />
-    </FlowScreen>
-  );
-}
-
 function PayBusy({ onBack }: { readonly onBack: () => void }) {
   const locale = useAppLocale();
   const sample = useSample();
@@ -1498,25 +1362,7 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     state: "Holding your spot",
     Screen: ({ onBack }) => <Details onBack={onBack} state="holding" />,
   },
-  { key: "review", board: "32", state: "Review", Screen: ReviewTop },
-  {
-    key: "review-code-applied",
-    board: "32",
-    state: "Code applied",
-    Screen: ReviewCodeApplied,
-  },
-  {
-    key: "review-last-minute",
-    board: "33",
-    state: "Last minute",
-    Screen: ReviewLastMinute,
-  },
-  {
-    key: "review-hold-ended",
-    board: "33",
-    state: "Hold ended",
-    Screen: ({ onBack }) => <ReviewTop onBack={onBack} ended />,
-  },
+  ...reviewFrames,
   {
     key: "pay-busy",
     board: "35",
