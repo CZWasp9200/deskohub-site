@@ -111,6 +111,30 @@ describe("previewEmailDraft", () => {
     expect(result?.validationErrors?.fieldErrors?.draft).toHaveLength(1);
   });
 
+  test("ignores an unknown key beside the draft", async () => {
+    const result = await previewEmailDraft({
+      draft,
+      locale: "en-US",
+      unexpected: true,
+    } as Parameters<typeof previewEmailDraft>[0]);
+
+    expect(result?.validationErrors).toBeUndefined();
+    expect(result?.data?.subject).toBe("Hello [displayName]");
+  });
+
+  test("ignores an unknown key in a prepared value", async () => {
+    const result = await previewEmailDraft({
+      draft,
+      locale: "en-US",
+      values: {
+        first_name: { _tag: "Resolved", value: "Jana", unexpected: true },
+      },
+    } as Parameters<typeof previewEmailDraft>[0]);
+
+    expect(result?.validationErrors).toBeUndefined();
+    expect(result?.data?.subject).toBe("Hello Jana");
+  });
+
   test.each(["signed-out", "not-administrator"] as const)(
     "refuses a %s caller without rendering",
     async (caller) => {
