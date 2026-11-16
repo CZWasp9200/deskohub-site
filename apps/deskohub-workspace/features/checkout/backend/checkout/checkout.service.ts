@@ -34,6 +34,7 @@ import { isEarlyPerformanceRequestRequired } from "@/features/legal/early-perfor
 import { getPaymentSubmitLegalEvidence } from "@/features/legal/payment-submit-evidence";
 import {
   reservationLogFields,
+  type WorkspaceReservation,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCoworkReservationIntervalInput } from "@/features/reservation/cowork-reservation";
@@ -81,11 +82,7 @@ import {
   type SignedPayState,
   toFreshPayState,
 } from "./pay-state";
-import {
-  type OpenCheckout,
-  PayableCheckout,
-  type PayableReservation,
-} from "./payable-checkout.service";
+import { type OpenCheckout, PayableCheckout } from "./payable-checkout.service";
 import type { PriceVerdict } from "./price-verdict";
 import { getReservationStatusPath } from "./reservation-status-url";
 import {
@@ -732,7 +729,11 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
       });
 
       type ReservationProgressInput = {
-        readonly reservation: PayableReservation;
+        /**
+         * The order as opened, or as read again under the account lock; the
+         * progress checks read only its payment state and active attempt.
+         */
+        readonly reservation: WorkspaceReservation;
         readonly state: SignedPayState;
         readonly locale: Locale;
         readonly returnTarget: PaymentReturnTarget | undefined;
