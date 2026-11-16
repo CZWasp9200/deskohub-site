@@ -10,6 +10,7 @@ import {
   Exit,
   Fiber,
   Layer,
+  Option,
 } from "effect";
 import { SqlClient, type SqlConnection } from "effect/sql";
 import type { Pool } from "pg";
@@ -194,7 +195,12 @@ export const holdDatabaseConnection = async (database: {
     client.withTransaction(
       Effect.gen(function* () {
         const context = yield* Effect.context<never>();
-        const [connection] = yield* client.transactionService;
+        // Effect SQL provides its level to the transaction body.
+        const level = yield* Effect.serviceOption(client.transactionService);
+        if (Option.isNone(level)) {
+          return yield* Effect.die(new Error("No transaction level"));
+        }
+        const [connection] = level.value;
         yield* Deferred.succeed(opened, { connection, context });
         if ((yield* Deferred.await(ending)) === "rollback") {
           return yield* Effect.fail(new HeldRollback());
