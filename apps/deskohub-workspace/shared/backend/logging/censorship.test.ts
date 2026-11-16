@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import { runInNewContext } from "node:vm";
 import { DotyposUnavailable } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
@@ -32,6 +32,7 @@ import {
   createCensoredOtelLogger,
   createCensoredOtelSpanExporter,
   isSensitiveLogKey,
+  WorkspaceLoggerLive,
 } from "./censorship";
 
 class CustomValue {
@@ -1563,5 +1564,33 @@ describe("censorLogValue stack traces", () => {
     expect(
       stackOf("private", "Error: private\n    at anonymous (native)")
     ).toBe(CENSORED_LOG_VALUE);
+  });
+});
+
+describe("WorkspaceLoggerLive", () => {
+  test("names the level as the log lines always have", async () => {
+    const lines: string[] = [];
+    const capture = (line: unknown) => {
+      lines.push(String(line));
+    };
+    const error = spyOn(console, "error").mockImplementation(capture);
+    const warn = spyOn(console, "warn").mockImplementation(capture);
+    try {
+      await Effect.runPromise(
+        Effect.logError("failed").pipe(
+          Effect.andThen(Effect.logWarning("slow")),
+          Effect.provide(WorkspaceLoggerLive)
+        )
+      );
+    } finally {
+      error.mockRestore();
+      warn.mockRestore();
+    }
+
+    expect(lines).toEqual([
+      expect.stringContaining(" level=Error "),
+      expect.stringContaining(" level=Warn "),
+    ]);
+    expect(lines.join("\n")).not.toMatch(/level=(ERROR|WARN)\b/);
   });
 });
