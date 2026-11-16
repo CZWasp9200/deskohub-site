@@ -6,7 +6,10 @@ import {
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Result } from "effect";
 import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
-import type { InvoiceBuyerAddress } from "@/features/accounting/billing-identity";
+import {
+  type InvoiceBuyerAddress,
+  toDotyposCustomerBillingDetails,
+} from "@/features/accounting/billing-identity";
 import type { InvoiceBuyer } from "@/features/accounting/invoice";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { Locale } from "@/features/i18n";
@@ -18,10 +21,7 @@ import {
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReservationAccessToken } from "@/features/reservation/reservation-access-token";
-import {
-  getDotyposCustomerBillingDetails,
-  getReservationInvoiceBuyer,
-} from "@/features/reservation/reservation-billing";
+import { getReservationInvoiceBuyer } from "@/features/reservation/reservation-billing";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { AccountingStorage } from "./accounting-storage";
@@ -110,19 +110,9 @@ export class ReservationInvoiceService extends Context.Service<
             message: "The issued invoice buyer does not match the reservation.",
           });
         }
-        const committedBillingDetails = getDotyposCustomerBillingDetails({
-          purpose: "personal",
-          invoice: "requested",
-          address: input.buyer.address,
-        });
-        if (!committedBillingDetails) {
-          return yield* new PostOrderInvoiceUnavailableError({
-            message: "The issued invoice billing details are unavailable.",
-          });
-        }
         yield* dotypos.updateCustomerBillingDetails(
           input.dotyposCustomerId,
-          committedBillingDetails
+          toDotyposCustomerBillingDetails(input.buyer)
         );
       });
 
@@ -168,9 +158,6 @@ export class ReservationInvoiceService extends Context.Service<
         const source = yield* accountingSnapshots.find(paymentAttemptId);
         if (!source?.billing) return;
 
-        const billingDetails = getDotyposCustomerBillingDetails(source.billing);
-        if (!billingDetails) return;
-
         const buyer = getReservationInvoiceBuyer({
           billing: source.billing,
           customerName: source.buyer.legalName,
@@ -182,7 +169,7 @@ export class ReservationInvoiceService extends Context.Service<
         if (!existing) {
           yield* dotypos.updateCustomerBillingDetails(
             source.dotyposCustomerId,
-            billingDetails
+            toDotyposCustomerBillingDetails(buyer)
           );
         }
 
@@ -225,25 +212,14 @@ export class ReservationInvoiceService extends Context.Service<
             });
           }
 
-          const billing = {
-            purpose: "personal" as const,
-            invoice: "requested" as const,
+          const buyer: InvoiceBuyer = {
+            kind: "person",
+            legalName: context.source.buyer.legalName,
             address: input.address,
           };
-          const billingDetails = getDotyposCustomerBillingDetails(billing);
-          const buyer = getReservationInvoiceBuyer({
-            billing,
-            customerName: context.source.buyer.legalName,
-          });
-          if (!billingDetails || !buyer) {
-            return yield* new PostOrderInvoiceUnavailableError({
-              message: "Complete billing details are required.",
-            });
-          }
-
           yield* dotypos.updateCustomerBillingDetails(
             context.source.dotyposCustomerId,
-            billingDetails
+            toDotyposCustomerBillingDetails(buyer)
           );
           const issuance = yield* invoices.issue({
             paymentAttemptId: context.paymentAttemptId,

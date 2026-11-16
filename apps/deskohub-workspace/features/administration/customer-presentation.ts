@@ -12,6 +12,14 @@ export const getAdministrationCustomerName = (
     ? customer.displayName
     : m.administrationCustomerUnnamed({}, { locale });
 
+/** A customer's email and phone on one line, or a note that Dotypos holds neither. */
+export const formatAdministrationCustomerContact = (
+  customer: { readonly email: string | null; readonly phone: string | null },
+  locale: Locale
+) =>
+  [customer.email, customer.phone].filter(Boolean).join(" · ") ||
+  m.administrationCustomerNoContactDetails({}, { locale });
+
 /** Names a customer's current marketing consent state in the operator's language. */
 export const getAdministrationCustomerMarketingConsentLabel = (
   state: MarketingConsentStatus,

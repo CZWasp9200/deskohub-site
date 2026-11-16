@@ -12,6 +12,9 @@ import {
   reservationCancellationStandardSchema,
   reservationLookupStandardSchema,
 } from "./contracts";
+import { AdministrationCustomerDirectory } from "./customer-directory.service";
+import { describeAdministrationCustomer } from "./customer-identity";
+import { customerSearchQuerySchema } from "./customer-search-query";
 import { m } from "./i18n";
 import {
   ReservationAccessAdministration,
@@ -56,6 +59,34 @@ export const getAdministrationReservation: typeof getAdministrationReservationAc
   async (...args: Parameters<typeof getAdministrationReservationAction>) => {
     "use server";
     return await getAdministrationReservationAction(...args);
+  };
+
+const searchAdministrationCustomersAction = defineAdministrationAction(
+  {
+    operation: "administration.search-customers",
+    failureCopy,
+    schema: customerSearchQuerySchema,
+    logInput: false,
+    capabilities: AdministrationCustomerDirectory.Live,
+    publicFailure: (_, locale) =>
+      m.administrationCustomerSearchUnavailable({}, { locale }),
+  },
+  Effect.fn(function* (input) {
+    const directory = yield* AdministrationCustomerDirectory;
+    const { kind, customers } = yield* directory.search(input.query);
+    return {
+      kind,
+      customers: customers.map((customer) =>
+        describeAdministrationCustomer(customer, "company-person-email-phone")
+      ),
+    };
+  })
+);
+
+export const searchAdministrationCustomers: typeof searchAdministrationCustomersAction =
+  async (...args: Parameters<typeof searchAdministrationCustomersAction>) => {
+    "use server";
+    return await searchAdministrationCustomersAction(...args);
   };
 
 const reservationPath = ({ reservationId }: { reservationId: string }) => [

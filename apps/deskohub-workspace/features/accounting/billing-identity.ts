@@ -1,3 +1,4 @@
+import type { DotyposCustomerBillingDetails } from "@deskohub/dotypos";
 import { getCodes } from "country-list";
 import { Schema } from "effect";
 import validator from "validator";
@@ -69,7 +70,6 @@ export const businessInvoiceBuyerSchema = Schema.Struct({
   vatId: Schema.optional(vatRegistrationIdSchema),
   address: invoiceBuyerAddressSchema,
 });
-export type BusinessInvoiceBuyer = typeof businessInvoiceBuyerSchema.Type;
 
 export const invoiceBuyerSchema = Schema.Union([
   personalInvoiceBuyerSchema,
@@ -79,3 +79,21 @@ export const invoiceBuyerSchema = Schema.Union([
   description: "Complete immutable billing identity of an issued invoice.",
 });
 export type InvoiceBuyer = typeof invoiceBuyerSchema.Type;
+
+/**
+ * The Dotypos customer billing fields for `buyer`. Every field is set because
+ * the billing update clears what it is not given: "" clears a person's
+ * company fields and an absent second address line or VAT id.
+ */
+export const toDotyposCustomerBillingDetails = (
+  buyer: InvoiceBuyer
+): DotyposCustomerBillingDetails => ({
+  addressLine1: buyer.address.line1,
+  addressLine2: buyer.address.line2 ?? "",
+  city: buyer.address.city,
+  zip: buyer.address.postalCode,
+  country: buyer.address.country,
+  companyName: buyer.kind === "business" ? buyer.legalName : "",
+  companyId: buyer.kind === "business" ? buyer.companyId : "",
+  vatId: buyer.kind === "business" ? (buyer.vatId ?? "") : "",
+});

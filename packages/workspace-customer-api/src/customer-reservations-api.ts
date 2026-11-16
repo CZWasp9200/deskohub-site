@@ -5,8 +5,10 @@ import {
   HttpApiSchema,
 } from "effect/unstable/httpapi";
 import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
+import { CustomerCheckoutReturnTarget } from "./customer-booking-checkout-api";
 import { CustomerBookingSelection } from "./customer-booking-selection";
 import { CustomerLocale } from "./customer-locale";
+import { customerInputParseOptions } from "./customer-profile";
 import { CustomerServiceUnavailable } from "./customer-session";
 import { responseHeaders } from "./openapi-response-headers";
 
@@ -41,6 +43,34 @@ export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<Custo
 export class CustomerInvoiceNotIssued extends Schema.TaggedErrorClass<CustomerInvoiceNotIssued>()(
   "CustomerInvoiceNotIssued",
   {}
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+/**
+ * Why the order has no payment page to open again: it is `paid`, a
+ * `late_payment` of it is being checked, its hold was `released`, it has
+ * `no_active_attempt` whose page is still open (it ended or never opened
+ * one), or the page's `window_elapsed`. The order's status shows what to do
+ * next.
+ */
+export const CustomerPaymentPageClosedReason = Schema.Literals([
+  "paid",
+  "late_payment",
+  "released",
+  "no_active_attempt",
+  "window_elapsed",
+]).annotate({ identifier: "CustomerPaymentPageClosedReason" });
+export type CustomerPaymentPageClosedReason =
+  typeof CustomerPaymentPageClosedReason.Type;
+
+/**
+ * The order's payment page can't be opened again, for `reason`. Asking again
+ * can succeed only once a new payment opens a page.
+ */
+export class CustomerPaymentPageClosed extends Schema.TaggedErrorClass<CustomerPaymentPageClosed>()(
+  "CustomerPaymentPageClosed",
+  { reason: CustomerPaymentPageClosedReason }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
@@ -311,9 +341,34 @@ export type CustomerEstablishment = typeof CustomerEstablishment.Type;
 const OrderParams = { orderId: CustomerReservationOrderId } as const;
 
 /**
+ * Where the reopened page's payment returns the customer. Like a checkout
+ * submission, the last request that hands out the order's payment page
+ * decides.
+ */
+export const ReopenCustomerPaymentPage = Schema.Struct({
+  /** Absent: the payment returns to the Workspace site's status page. */
+  returnTarget: Schema.optionalKey(CustomerCheckoutReturnTarget),
+}).annotate({
+  identifier: "ReopenCustomerPaymentPage",
+  parseOptions: customerInputParseOptions,
+});
+
+/**
+ * The payment provider's page of the order's unpaid payment, opened again
+ * for a customer who left it. It is the page the payment already opened:
+ * opening it starts no new payment.
+ */
+export const CustomerPaymentPage = Schema.Struct({
+  url: Schema.NonEmptyString.annotate({
+    description: "The payment provider's page to open in a browser.",
+  }),
+}).annotate({ identifier: "CustomerPaymentPage" });
+export type CustomerPaymentPage = typeof CustomerPaymentPage.Type;
+
+/**
  * The signed-in customer's reservations: the history, where the space is,
- * and the status, door code and invoice of an order the account booked or
- * whose customer it is.
+ * the status, door code and invoice of an order the account booked or whose
+ * customer it is, and the payment page of one it hasn't paid yet.
  * The status and door code reads refresh the order, as the website's pages
  * do, and the door code and invoice only the order's customer sees.
  */
@@ -340,6 +395,18 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
       success: CustomerOrderState,
       error: [
         CustomerReservationNotFound.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    })
+  )
+  .add(
+    HttpApiEndpoint.post("reopenPaymentPage", "/:orderId/payment-page", {
+      params: OrderParams,
+      payload: ReopenCustomerPaymentPage,
+      success: CustomerPaymentPage,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerPaymentPageClosed.schema,
         CustomerServiceUnavailable.schema,
       ],
     })
