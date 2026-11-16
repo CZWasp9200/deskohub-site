@@ -37,7 +37,8 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     rowGap: space.lg,
   },
-  stacked: { flexDirection: "column" },
+  // Wrapping would size each field to its content; stacked, they fill the width.
+  stacked: { flexDirection: "column", flexWrap: "nowrap" },
   wide: { flexBasis: 160, flexGrow: 1.4 },
   narrow: { flexBasis: 110, flexGrow: 1 },
 });
