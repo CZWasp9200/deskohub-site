@@ -36,7 +36,12 @@ browser SDK; this page covers what differs in the app. Paths are relative to
 `consent/` uses the site's categories (necessary, analytics, marketing,
 preferences). Native keeps one AsyncStorage record (`categories`, `decidedAt`,
 `locale`); the web bundle reads and writes the site's `cc_cookie` on the
-shared origin and rereads it when the page regains focus. No choice yet shows
+shared origin and rereads it when the page regains focus. It saves under the
+site's banner revision, `consentBannerRevision` from
+`@deskohub/workspace-customer-api/consent-banner`, and reads a copy saved
+under another revision as no choice, as the site does; the Workspace's
+`consent-banner-revision.test.ts` pins that copy to `getConsentBannerRevision()`,
+so update it there when the privacy notice or cookie policy changes. No choice yet shows
 the prompt; a malformed or unreadable record, or one without a valid
 `decidedAt`, counts as no consent. `decidedAt` is kept exactly as stored,
 because an account decision stored with the account's instant must be sent
@@ -82,6 +87,24 @@ The privacy reference's ledger section covers the server side.
 - The web bundle doesn't sync, hold or gate the prompt: its consent is the
   site's cookie, which the site mirrors at sign-in and on each signed-in page
   and withdraws there.
+
+### Page the native app opened (web only)
+
+While the native sign-in request is live in the web bundle (the page the app
+opened, or the tab its sign-in email opens), analytics and the prompt follow
+`consent/app-analytics-gate.web.ts`, read once per page load:
+
+- The prompt never shows.
+- With the app's carried answer, the gate reports `loading` until it is
+  merged into `cc_cookie` (`carriedAnalyticsDecision`, then
+  `applyAppDecision`, change `app`). Where the browser holds no choice, the
+  page takes the app's answer in either direction. Otherwise it applies the
+  account sync's rule (`decisionToTake`): a withdrawal over a grant, never a
+  grant over a refusal. It keeps the other categories and dates the cookie at
+  the app's instant, unchanged.
+- Without an answer, analytics stays off on the page (`undecided`, or
+  `denied` over a stored refusal so stale SDK state clears) and nothing is
+  written: no answer is consent, and the site's grant isn't the app's.
 
 ### Analytics preference
 
