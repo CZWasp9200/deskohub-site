@@ -31,6 +31,7 @@ import {
 } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceLocks } from "@/db/workspace-locks";
+import { toDotyposCustomerBillingDetails } from "@/features/accounting/billing-identity";
 import {
   type InvoiceBuyer,
   invoiceBuyerSchema,
@@ -240,6 +241,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     return {
       invoiceId,
       provenance,
+      buyer,
       forCustomer: (dotyposCustomerId: DotyposCustomerId) => ({
         invoiceId,
         dotyposCustomerId,
@@ -400,7 +402,11 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
             : DotyposCustomerIdSchema.make(existing.dotyposCustomerId)
         );
       }
-      const customerResolution = resolveCustomer(dotypos, input.customer);
+      const customerResolution = resolveCustomer(
+        dotypos,
+        input.customer,
+        prepared.buyer
+      );
       return yield* (
         input.customer.kind === "new"
           ? // ponytail: one global new-customer lock avoids putting email
@@ -525,9 +531,10 @@ const resolveCustomer = Effect.fn(
   "InvoiceAdministrationService.resolveCustomer"
 )(function* (
   dotypos: Context.Service.Shape<typeof DotyposService>,
-  input: AdministrationInvoiceCreateInputType["customer"]
+  input: AdministrationInvoiceCreateInputType["customer"],
+  buyer: InvoiceBuyer
 ) {
-  const details = toDotyposDetails(input.details);
+  const details = toDotyposDetails(input.details, buyer);
   if (input.kind === "existing") {
     const customerId = yield* Schema.decodeUnknownEffect(
       DotyposCustomerIdSchema
@@ -577,7 +584,8 @@ const resolveCustomer = Effect.fn(
 });
 
 const toDotyposDetails = (
-  details: AdministrationInvoiceCustomerDetailsType
+  details: AdministrationInvoiceCustomerDetailsType,
+  buyer: InvoiceBuyer
 ): DotyposCustomerDetails => ({
   firstName: details.firstName ?? "",
   lastName: details.lastName ?? "",
@@ -589,14 +597,7 @@ const toDotyposDetails = (
   phone: Option.getOrUndefined(
     parsePhoneNumber(details.phone ?? "", defaultPhoneRegion(baseLocale))
   ),
-  addressLine1: details.address.line1,
-  addressLine2: details.address.line2 ?? "",
-  city: details.address.city,
-  zip: details.address.postalCode,
-  country: details.address.country,
-  companyName: details.kind === "business" ? details.companyName : "",
-  companyId: details.kind === "business" ? details.companyId : "",
-  vatId: details.kind === "business" ? (details.vatId ?? "") : "",
+  ...toDotyposCustomerBillingDetails(buyer),
 });
 
 const toBuyer = Effect.fn("InvoiceAdministrationService.toBuyer")(
