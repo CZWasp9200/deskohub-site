@@ -21,6 +21,7 @@ import {
   getWorkspaceOfficeProductTitle,
   getWorkspaceProductMonitorTitle,
   getWorkspaceProductTierTitle,
+  workspaceProductTierCardMessages,
   workspaceProductTierMessages,
 } from "@/features/checkout/product-catalog.i18n";
 import {
@@ -73,6 +74,8 @@ export type PublicCatalogOffering = PublicOfferingCopy &
     | {
         readonly kind: "cowork";
         readonly tier: WorkspaceCoworkCurrentTier;
+        /** The tier in one line, as the booking page's offer card says it. */
+        readonly summary: string;
         /** Per Prague calendar day. */
         readonly price: Money;
         readonly addOns: ReadonlyArray<PublicOfferingAddOn>;
@@ -267,6 +270,7 @@ const getCoworkOffering = (
     tier,
     name: getWorkspaceProductTierTitle(tier, locale),
     description: workspaceProductTierMessages[tier].description({}, { locale }),
+    summary: workspaceProductTierCardMessages[tier].description({}, { locale }),
     usage: {
       "open-space": () =>
         m.publicOfferingOpenSpaceUsage(

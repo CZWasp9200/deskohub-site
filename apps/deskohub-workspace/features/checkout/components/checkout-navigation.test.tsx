@@ -22,6 +22,12 @@ type CapturedLink = {
 
 const capturedLinks: CapturedLink[] = [];
 
+// The status page's payment page action is a server reference in Next; here
+// its server modules would load in the browser test environment.
+mock.module("@/features/checkout/actions/reopen-payment-page", () => ({
+  reopenPaymentPage: mock(),
+}));
+
 mock.module("next/link", () => ({
   default: ({
     children,
