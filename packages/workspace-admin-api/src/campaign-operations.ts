@@ -169,10 +169,6 @@ export type LedgerOperationName<Ops extends Operations> = {
   readonly [Name in keyof Ops]: Ops[Name]["ledger"] extends true ? Name : never;
 }[keyof Ops];
 
-const strictParseOptions = {
-  parseOptions: { errors: "all", onExcessProperty: "error" },
-} as const;
-
 /** Where in the input a problem is, and what is wrong there. */
 export const OperationInputIssue = Schema.Struct({
   path: Schema.Array(Schema.Union([Schema.String, Schema.Finite])),
@@ -192,7 +188,7 @@ const operationErrorFields = {
 };
 
 /** The input can't be accepted as given. */
-export class OperationInputInvalid extends Schema.TaggedErrorClass<OperationInputInvalid>()(
+export class OperationInputInvalid extends Schema.TaggedError<OperationInputInvalid>()(
   "OperationInputInvalid",
   {
     ...operationErrorFields,
@@ -201,18 +197,18 @@ export class OperationInputInvalid extends Schema.TaggedErrorClass<OperationInpu
 ) {}
 
 /** The current state refuses the operation. */
-export class OperationConflict extends Schema.TaggedErrorClass<OperationConflict>()(
+export class OperationConflict extends Schema.TaggedError<OperationConflict>()(
   "OperationConflict",
   operationErrorFields
 ) {}
 
-export class OperationNotFound extends Schema.TaggedErrorClass<OperationNotFound>()(
+export class OperationNotFound extends Schema.TaggedError<OperationNotFound>()(
   "OperationNotFound",
   operationErrorFields
 ) {}
 
 /** A dependency is unavailable; retrying later can succeed. */
-export class OperationUnavailable extends Schema.TaggedErrorClass<OperationUnavailable>()(
+export class OperationUnavailable extends Schema.TaggedError<OperationUnavailable>()(
   "OperationUnavailable",
   operationErrorFields
 ) {}
@@ -221,13 +217,13 @@ export class OperationUnavailable extends Schema.TaggedErrorClass<OperationUnava
  * The caller isn't an administrator any more: the port re-reads the grant
  * on every operation, after the adapter authenticated the caller.
  */
-export class OperationUnauthorized extends Schema.TaggedErrorClass<OperationUnauthorized>()(
+export class OperationUnauthorized extends Schema.TaggedError<OperationUnauthorized>()(
   "OperationUnauthorized",
   operationErrorFields
 ) {}
 
 /** A request with the same ID is still being applied. */
-export class OperationInProgress extends Schema.TaggedErrorClass<OperationInProgress>()(
+export class OperationInProgress extends Schema.TaggedError<OperationInProgress>()(
   "OperationInProgress",
   { ...operationErrorFields, requestId: CliMutationRequestId }
 ) {}
@@ -242,12 +238,12 @@ export type CampaignOperationError =
 
 export const CampaignRef = Schema.Struct({
   campaignId: AdministrationCampaignId,
-}).annotate(strictParseOptions);
+});
 export type CampaignRef = typeof CampaignRef.Type;
 
 export const CampaignAudienceRef = Schema.Struct({
   audienceId: AdministrationCampaignAudienceId,
-}).annotate(strictParseOptions);
+});
 export type CampaignAudienceRef = typeof CampaignAudienceRef.Type;
 
 /** An empty input; an empty struct would accept any object. */
@@ -257,44 +253,44 @@ export const NoInput = Schema.Record(Schema.String, Schema.Never);
 export const CampaignPatchInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignUpdateInput.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignPatchInput = typeof CampaignPatchInput.Type;
 
 export const CampaignDuplicateInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignDuplicateRequest.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignDuplicateInput = typeof CampaignDuplicateInput.Type;
 
 export const CampaignAudiencePatchInput = Schema.Struct({
   audienceId: AdministrationCampaignAudienceId,
   ...AdministrationCampaignAudienceUpdate.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignAudiencePatchInput = typeof CampaignAudiencePatchInput.Type;
 
 export const CampaignTemplatePreviewInput = Schema.Struct({
   templateKey: AdministrationCampaignTemplateKey,
   preview: AdministrationCampaignTemplatePreviewInput,
-}).annotate(strictParseOptions);
+});
 export type CampaignTemplatePreviewInput =
   typeof CampaignTemplatePreviewInput.Type;
 
 export const CampaignTestSendInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignTestSendInput.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignTestSendInput = typeof CampaignTestSendInput.Type;
 
 export const CampaignSendInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignSendInput.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignSendInput = typeof CampaignSendInput.Type;
 
 export const CampaignRetryInput = Schema.Struct({
   campaignId: AdministrationCampaignId,
   ...AdministrationCampaignRetryInput.fields,
-}).annotate(strictParseOptions);
+});
 export type CampaignRetryInput = typeof CampaignRetryInput.Type;
 
 /** The operations on campaigns, their audiences and templates. */

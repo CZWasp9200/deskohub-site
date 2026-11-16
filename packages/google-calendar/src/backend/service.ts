@@ -130,7 +130,7 @@ export class GoogleCalendarService extends Context.Service<
             ),
             Effect.bind("result", ({ events }) =>
               Effect.all(events.map(toGoogleCalendarEvent), {
-                concurrency: "inherit",
+                concurrency: "unbounded",
               })
             ),
             Effect.tap(({ result }) =>

@@ -29,7 +29,7 @@ export const generateSvgPngBuffer = Effect.fn("osm.generateSvgPngBuffer")(
       Effect.bindTo("base"),
       Effect.bind("textOverlays", () =>
         Effect.all((options.textOverlays ?? []).map(renderTextOverlay), {
-          concurrency: "inherit",
+          concurrency: "unbounded",
         })
       ),
       Effect.bind("composite", ({ base, textOverlays }) =>

@@ -137,6 +137,31 @@ describe("EmailRecipientDomainService", () => {
     ).toBe("unknown");
   });
 
+  test("looks up the domain's IPv4 and IPv6 addresses at once", async () => {
+    // Each address lookup takes 3 s: together they fit the 4 s check only
+    // when they run side by side.
+    const dns = Layer.succeed(MailDomainDns, {
+      resolve: (_domain, type) =>
+        type === "MX"
+          ? Effect.fail(new DnsLookupError({ code: "ENODATA" }))
+          : Effect.sleep("3 seconds").pipe(Effect.as(["192.0.2.1"])),
+    });
+    const status = await Effect.gen(function* () {
+      const fiber = yield* EmailRecipientDomainService.use((service) =>
+        service.check(recipientAt("example.test", "ada"))
+      ).pipe(
+        Effect.provide(
+          EmailRecipientDomainService.Default.pipe(Layer.provide(dns))
+        ),
+        Effect.forkChild
+      );
+      yield* TestClock.adjust("3 seconds");
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.provide(TestClock.layer()), Effect.runPromise);
+
+    expect(status).toBe("accepts_mail");
+  });
+
   test("fails open when the lookup does not finish in time", async () => {
     const result = await Effect.gen(function* () {
       const fiber = yield* checkDomain(recipientAt("example.test", "ada"), {

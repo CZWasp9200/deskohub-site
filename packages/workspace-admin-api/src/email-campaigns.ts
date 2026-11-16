@@ -20,10 +20,6 @@ import {
   CliServiceUnavailable,
 } from "./workspace-admin-api";
 
-const strictParseOptions = {
-  parseOptions: { errors: "all", onExcessProperty: "error" },
-} as const;
-
 export const AdministrationCampaignSendId = Schema.NonEmptyString.pipe(
   Schema.brand("CampaignSendId")
 ).annotate({
@@ -108,7 +104,7 @@ export type AdministrationCampaignAudience =
 export const AdministrationCampaignAudienceInput = Schema.Struct({
   title: AdministrationCampaignAudienceTitle,
   filter: AudienceFilter,
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignAudienceInput =
   typeof AdministrationCampaignAudienceInput.Type;
 
@@ -116,7 +112,7 @@ export type AdministrationCampaignAudienceInput =
 export const AdministrationCampaignAudienceCreateRequest = Schema.Struct({
   requestId: CliMutationRequestId,
   audience: AdministrationCampaignAudienceInput,
-}).annotate(strictParseOptions);
+});
 export const AdministrationCampaignAudiences = Schema.Array(
   AdministrationCampaignAudience
 );
@@ -133,7 +129,7 @@ export type AdministrationCampaignAudienceCreateRequest =
 export const AdministrationCampaignAudienceUpdate = Schema.Struct({
   title: Schema.optionalKey(AdministrationCampaignAudienceTitle),
   filter: Schema.optionalKey(AudienceFilter),
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignAudienceUpdate =
   typeof AdministrationCampaignAudienceUpdate.Type;
 
@@ -170,7 +166,7 @@ const localeTexts = {
 export const AdministrationCampaignLocaleContent = Schema.Struct({
   ...localeTexts,
   bodyMarkdown: Schema.String,
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignLocaleContent =
   typeof AdministrationCampaignLocaleContent.Type;
 
@@ -182,7 +178,7 @@ export type AdministrationCampaignLocaleContent =
 export const AdministrationCampaignEditorLocaleContent = Schema.Struct({
   ...localeTexts,
   bodyDocument: AdministrationCampaignBodyDocument,
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignEditorLocaleContent =
   typeof AdministrationCampaignEditorLocaleContent.Type;
 
@@ -254,7 +250,7 @@ export const AdministrationCampaignCreateInput = Schema.Struct({
   delivery: Schema.optionalKey(AdministrationCampaignDelivery),
   audienceId: Schema.NullOr(AdministrationCampaignAudienceId),
   content: AdministrationCampaignContentInput,
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignCreateInput =
   typeof AdministrationCampaignCreateInput.Type;
 
@@ -272,14 +268,14 @@ export type AdministrationCampaignDeleted =
 export const AdministrationCampaignCreateRequest = Schema.Struct({
   requestId: CliMutationRequestId,
   campaign: AdministrationCampaignCreateInput,
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignCreateRequest =
   typeof AdministrationCampaignCreateRequest.Type;
 
 /** The request ID makes a retried duplication replay the first one's draft. */
 export const AdministrationCampaignDuplicateRequest = Schema.Struct({
   requestId: CliMutationRequestId,
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignDuplicateRequest =
   typeof AdministrationCampaignDuplicateRequest.Type;
 
@@ -297,16 +293,14 @@ export const AdministrationCampaignLocaleContentChange = Schema.Struct({
   operationalReason: Schema.optionalKey(
     Schema.NullOr(AdministrationCampaignOperationalReason)
   ),
-})
-  .check(
-    Schema.makeFilter(
-      (change) =>
-        change.bodyMarkdown === undefined ||
-        change.bodyDocument === undefined ||
-        "Give the body as bodyMarkdown or bodyDocument, not both."
-    )
+}).check(
+  Schema.makeFilter(
+    (change) =>
+      change.bodyMarkdown === undefined ||
+      change.bodyDocument === undefined ||
+      "Give the body as bodyMarkdown or bodyDocument, not both."
   )
-  .annotate(strictParseOptions);
+);
 export type AdministrationCampaignLocaleContentChange =
   typeof AdministrationCampaignLocaleContentChange.Type;
 
@@ -329,7 +323,7 @@ export const AdministrationCampaignUpdateInput = Schema.Struct({
       )
     )
   ),
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignUpdateInput =
   typeof AdministrationCampaignUpdateInput.Type;
 
@@ -344,16 +338,16 @@ export const AdministrationCampaignTemplatePreviewInput = Schema.Union([
     purpose: AdministrationCampaignPurpose,
     locale: AdministrationCampaignLocale,
     content: AdministrationCampaignLocaleContentInput,
-  }).annotate(strictParseOptions),
+  }),
   Schema.TaggedStruct("UnfinishedContent", {
     purpose: AdministrationCampaignPurpose,
     locale: AdministrationCampaignLocale,
     content: AdministrationCampaignLocaleContentInput,
-  }).annotate(strictParseOptions),
+  }),
   Schema.TaggedStruct("Campaign", {
     campaignId: AdministrationCampaignId,
     locale: AdministrationCampaignLocale,
-  }).annotate(strictParseOptions),
+  }),
 ]);
 export type AdministrationCampaignTemplatePreviewInput =
   typeof AdministrationCampaignTemplatePreviewInput.Type;
@@ -416,7 +410,7 @@ export type AdministrationCampaignSettings =
 /** Extra test recipients; the admin inbox is always included. */
 export const AdministrationCampaignTestSendInput = Schema.Struct({
   recipients: Schema.Array(Schema.Trim.check(Schema.isNonEmpty())),
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignTestSendInput =
   typeof AdministrationCampaignTestSendInput.Type;
 
@@ -434,7 +428,7 @@ export type AdministrationCampaignTestSendResult =
 /** The code from the latest test email confirms the real send. */
 export const AdministrationCampaignSendInput = Schema.Struct({
   confirmationCode: Schema.Trim.check(Schema.isNonEmpty()),
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignSendInput =
   typeof AdministrationCampaignSendInput.Type;
 
@@ -453,7 +447,7 @@ export type AdministrationCampaignSendResult =
  */
 export const AdministrationCampaignRetryInput = Schema.Struct({
   includeUnconfirmed: Schema.Boolean,
-}).annotate(strictParseOptions);
+});
 export type AdministrationCampaignRetryInput =
   typeof AdministrationCampaignRetryInput.Type;
 

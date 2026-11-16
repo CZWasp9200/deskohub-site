@@ -247,7 +247,7 @@ describe("operation endpoints", () => {
   });
 
   test("each endpoint's request and success types are the operation's", () => {
-    type Endpoint<Name extends string> = HttpApiEndpoint.WithName<
+    type Endpoint<Name extends string> = HttpApiEndpoint.WithIdentifier<
       HttpApiGroup.Endpoints<typeof Notes>,
       Name
     >;

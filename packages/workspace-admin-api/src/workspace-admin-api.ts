@@ -2,12 +2,14 @@ import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import { Temporal } from "@js-temporal/polyfill";
 import { Context, Effect, Option, Schema } from "effect";
 import {
+  HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiMiddleware,
   HttpApiSchema,
   HttpApiSecurity,
 } from "effect/http-api";
+import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
   AdministrationOperationBehavior,
   AdministrationOperationVariants,
@@ -115,7 +117,6 @@ export const AdministrationStandaloneAccessCodeCleanupTarget = Schema.Struct({
   identifier: "AdministrationStandaloneAccessCodeCleanupTarget",
   description:
     "The single ambiguous standalone access-code creation attempt the operator must inspect in the lock provider, identified by attempt id and stored access-code name; a later confirmation names this exact attempt.",
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationStandaloneAccessCodeCleanupTarget =
   typeof AdministrationStandaloneAccessCodeCleanupTarget.Type;
@@ -285,21 +286,21 @@ export const GrantedCliSession = Schema.Struct({
 }).pipe(HttpApiSchema.status("Created"));
 export type GrantedCliSession = typeof GrantedCliSession.Type;
 
-export class CliGrantRejected extends Schema.TaggedErrorClass<CliGrantRejected>()(
+export class CliGrantRejected extends Schema.TaggedError<CliGrantRejected>()(
   "CliGrantRejected",
   { message: Schema.String }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Unauthorized"));
 }
 
-export class CliAuthenticationRateLimited extends Schema.TaggedErrorClass<CliAuthenticationRateLimited>()(
+export class CliAuthenticationRateLimited extends Schema.TaggedError<CliAuthenticationRateLimited>()(
   "CliAuthenticationRateLimited",
   { message: Schema.String }
 ) {
   static schema = this.pipe(HttpApiSchema.status("TooManyRequests"));
 }
 
-export class CliSessionUnauthorized extends Schema.TaggedErrorClass<CliSessionUnauthorized>()(
+export class CliSessionUnauthorized extends Schema.TaggedError<CliSessionUnauthorized>()(
   "CliSessionUnauthorized",
   { message: Schema.String }
 ) {
@@ -312,14 +313,14 @@ export class CliSessionUnauthorized extends Schema.TaggedErrorClass<CliSessionUn
  */
 const cliErrorCode = Schema.optionalKey(Schema.String);
 
-export class CliServiceUnavailable extends Schema.TaggedErrorClass<CliServiceUnavailable>()(
+export class CliServiceUnavailable extends Schema.TaggedError<CliServiceUnavailable>()(
   "CliServiceUnavailable",
   { message: Schema.String, code: cliErrorCode }
 ) {
   static schema = this.pipe(HttpApiSchema.status("ServiceUnavailable"));
 }
 
-export class CliResourceNotFound extends Schema.TaggedErrorClass<CliResourceNotFound>()(
+export class CliResourceNotFound extends Schema.TaggedError<CliResourceNotFound>()(
   "CliResourceNotFound",
   { message: Schema.String, code: cliErrorCode }
 ) {
@@ -327,21 +328,21 @@ export class CliResourceNotFound extends Schema.TaggedErrorClass<CliResourceNotF
 }
 
 /** Request content the server can't accept, such as an unparsable body. */
-export class CliInputInvalid extends Schema.TaggedErrorClass<CliInputInvalid>()(
+export class CliInputInvalid extends Schema.TaggedError<CliInputInvalid>()(
   "CliInputInvalid",
   { message: Schema.String, code: cliErrorCode }
 ) {
   static schema = this.pipe(HttpApiSchema.status("BadRequest"));
 }
 
-export class CliMutationRejected extends Schema.TaggedErrorClass<CliMutationRejected>()(
+export class CliMutationRejected extends Schema.TaggedError<CliMutationRejected>()(
   "CliMutationRejected",
   { message: Schema.String, code: cliErrorCode }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliMutationInProgress extends Schema.TaggedErrorClass<CliMutationInProgress>()(
+export class CliMutationInProgress extends Schema.TaggedError<CliMutationInProgress>()(
   "CliMutationInProgress",
   {
     message: Schema.String,
@@ -351,14 +352,14 @@ export class CliMutationInProgress extends Schema.TaggedErrorClass<CliMutationIn
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliMutationUncertain extends Schema.TaggedErrorClass<CliMutationUncertain>()(
+export class CliMutationUncertain extends Schema.TaggedError<CliMutationUncertain>()(
   "CliMutationUncertain",
   { message: Schema.String }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliStandaloneAccessCodeCleanupRequired extends Schema.TaggedErrorClass<CliStandaloneAccessCodeCleanupRequired>()(
+export class CliStandaloneAccessCodeCleanupRequired extends Schema.TaggedError<CliStandaloneAccessCodeCleanupRequired>()(
   "CliStandaloneAccessCodeCleanupRequired",
   {
     message: Schema.String,
@@ -368,7 +369,7 @@ export class CliStandaloneAccessCodeCleanupRequired extends Schema.TaggedErrorCl
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
-export class CliStandaloneAccessCodeReconciled extends Schema.TaggedErrorClass<CliStandaloneAccessCodeReconciled>()(
+export class CliStandaloneAccessCodeReconciled extends Schema.TaggedError<CliStandaloneAccessCodeReconciled>()(
   "CliStandaloneAccessCodeReconciled",
   { message: Schema.String }
 ) {
@@ -481,10 +482,10 @@ export class AdministrationActionRecord extends HttpApiMiddleware.Service<
  */
 export const requiresDhw =
   (minimum: DhwVersion, refusal?: (typeof OutdatedDhwRefusal)["Service"]) =>
-  <Endpoint extends HttpApiEndpoint.Any>(
+  <Endpoint extends HttpApiEndpoint.Constraint>(
     endpoint: Endpoint
   ): HttpApiEndpoint.AddMiddleware<Endpoint, CliClientCompatibility> => {
-    const required = (endpoint as unknown as HttpApiEndpoint.AnyWithProps)
+    const required = (endpoint as unknown as HttpApiEndpoint.Top)
       .annotate(MinimumDhwVersion, Option.some(minimum))
       .middleware(CliClientCompatibility);
     return (
@@ -526,11 +527,11 @@ export type AdministrationOperationGroup<
  * minimum `dhw`.
  */
 const assertAdministrationOperationEndpoint = (
-  declared: HttpApiGroup.AnyWithProps,
-  endpoint: HttpApiEndpoint.AnyWithProps,
+  declared: HttpApiGroup.Top,
+  endpoint: HttpApiEndpoint.Top,
   checksFirst: boolean
 ) => {
-  const reference = `${declared.identifier}.${endpoint.name}`;
+  const reference = `${declared.identifier}.${endpoint.identifier}`;
   const checksOwn = (endpoint.middlewares as ReadonlySet<unknown>).has(
     CliClientCompatibility
   );
@@ -562,7 +563,7 @@ const assertAdministrationOperationEndpoint = (
  * own in a group that checks every endpoint's first.
  */
 export const administrationOperationGroup = <
-  Group extends HttpApiGroup.Any,
+  Group extends HttpApiGroup.Constraint,
   const Options extends AdministrationOperationGroupOptions = Record<
     never,
     never
@@ -571,7 +572,7 @@ export const administrationOperationGroup = <
   group: Group,
   options?: Options
 ): AdministrationOperationGroup<Group, Options> => {
-  const declared = group as unknown as HttpApiGroup.AnyWithProps;
+  const declared = group as unknown as HttpApiGroup.Top;
   const checksFirst = options?.checkDhwVersionBeforeAuthentication ?? false;
   for (const endpoint of Object.values(declared.endpoints)) {
     assertAdministrationOperationEndpoint(declared, endpoint, checksFirst);
@@ -587,7 +588,7 @@ export const administrationOperationGroup = <
   return middleware
     .reduce(
       (served, service) =>
-        served.middleware(service) as unknown as HttpApiGroup.AnyWithProps,
+        served.middleware(service) as unknown as HttpApiGroup.Top,
       declared
     )
     .prefix("/api/v1/cli") as never;
@@ -853,8 +854,6 @@ export const AdministrationInvoiceCreateInput = Schema.Struct({
       price: Schema.Trim.check(Schema.isPattern(/^[+-]?\d+(?:\.\d+)?$/)),
     })
   ).check(Schema.isMinLength(1)),
-}).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationInvoiceCreateInput =
   typeof AdministrationInvoiceCreateInput.Type;
@@ -868,8 +867,6 @@ export const AdministrationInvoiceCreateFileInput = Schema.Struct({
   currency: AdministrationInvoiceCreateInput.fields.currency,
   variableSymbol: AdministrationInvoiceCreateInput.fields.variableSymbol,
   lines: AdministrationInvoiceCreateInput.fields.lines,
-}).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationInvoiceCreateFileInput =
   typeof AdministrationInvoiceCreateFileInput.Type;
@@ -1577,7 +1574,6 @@ export const AdministrationStandaloneAccessCodeCreateInput = Schema.Struct({
     identifier: "AdministrationStandaloneAccessCodeCreateInput",
     description:
       "Strict standalone access-code creation request; site-local times are interpreted in the Workspace site time zone.",
-    parseOptions: { errors: "all", onExcessProperty: "error" },
   });
 export type AdministrationStandaloneAccessCodeCreateInput =
   typeof AdministrationStandaloneAccessCodeCreateInput.Type;
@@ -1594,7 +1590,6 @@ export const AdministrationStandaloneAccessCodeCreateRequest = Schema.Struct({
   identifier: "AdministrationStandaloneAccessCodeCreateRequest",
   description:
     "CLI standalone access-code creation request; the client-generated attempt identifier is also the CLI mutation-ledger request identifier. The provider-credential-removed confirmation names the exact earlier attempt the operator verified as removed or absent.",
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationStandaloneAccessCodeCreateRequest =
   typeof AdministrationStandaloneAccessCodeCreateRequest.Type;
@@ -1617,7 +1612,6 @@ export const AdministrationStandaloneAccessCodeCreationOutcome = Schema.Union([
   identifier: "AdministrationStandaloneAccessCodeCreationOutcome",
   description:
     "Standalone access-code creation outcome; the created variant discloses the one-time PIN, the already-created replay variant structurally cannot.",
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationStandaloneAccessCodeCreationOutcome =
   typeof AdministrationStandaloneAccessCodeCreationOutcome.Type;
@@ -1674,8 +1668,6 @@ export const AdministrationReservationCancellationInput = Schema.Struct({
   force: Schema.optionalKey(Schema.Boolean),
   providerCredentialRemoved: Schema.Boolean,
   sendCancellationEmail: Schema.Boolean,
-}).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 export type AdministrationReservationCancellationInput =
   typeof AdministrationReservationCancellationInput.Type;
@@ -1693,8 +1685,6 @@ export const AdministrationReservationProductDetailsBackfillInput =
     dryRun: Schema.Boolean,
     /** The previous batch's `nextCursor`, or null for the first batch. */
     after: Schema.NullOr(AdministrationWorkspaceReservationId),
-  }).annotate({
-    parseOptions: { errors: "all", onExcessProperty: "error" },
   });
 export type AdministrationReservationProductDetailsBackfillInput =
   typeof AdministrationReservationProductDetailsBackfillInput.Type;
@@ -2356,9 +2346,7 @@ export const AdministrationDiscountMutation = Schema.Union([
     customerId: AdministrationDotyposCustomerId,
     discountGroupId: Schema.NullOr(AdministrationDotyposDiscountGroupId),
   }),
-]).annotate({
-  parseOptions: { errors: "all", onExcessProperty: "error" },
-});
+]);
 export type AdministrationDiscountMutation =
   typeof AdministrationDiscountMutation.Type;
 
@@ -2639,13 +2627,15 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
           CliServiceUnavailable.schema,
         ],
       }
-    ).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({
-        idempotent: false,
-        preview: readPreview("administration.getReservation"),
-      })
     )
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: false,
+          preview: readPreview("administration.getReservation"),
+        })
+      )
   )
   .add(
     HttpApiEndpoint.post(
@@ -2656,10 +2646,12 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         success: AdministrationReservationProductDetailsBackfillBatch,
         error: CliServiceUnavailable.schema,
       }
-    ).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({ idempotent: true, preview: dryRunPreview })
     )
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({ idempotent: true, preview: dryRunPreview })
+      )
   )
   .add(
     HttpApiEndpoint.post(
@@ -2670,8 +2662,6 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         payload: Schema.Struct({
           requestId: CliMutationRequestId,
           mutation: AdministrationReservationAccessMutation,
-        }).annotate({
-          parseOptions: { errors: "all", onExcessProperty: "error" },
         }),
         success: AdministrationReservationAccessGrant,
         error: [
@@ -2681,10 +2671,12 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
           CliServiceUnavailable.schema,
         ],
       }
-    ).annotate(
-      AdministrationOperationVariants,
-      reservationAccessMutationOperations
     )
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationVariants,
+        reservationAccessMutationOperations
+      )
   )
   .add(
     HttpApiEndpoint.get("findReservation", "/reservations/find", {
@@ -2830,7 +2822,9 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
       payload: AdministrationInvoiceCreateInput,
       success: AdministrationInvoicePdf,
       error: [CliMutationRejected.schema, CliServiceUnavailable.schema],
-    }).annotate(AdministrationOperationBehavior, readOperation)
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(AdministrationOperationBehavior, readOperation)
   )
   .add(
     HttpApiEndpoint.post("createInvoice", "/invoices", {
@@ -2841,13 +2835,15 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         CliMutationRejected.schema,
         CliServiceUnavailable.schema,
       ],
-    }).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({
-        idempotent: true,
-        preview: readPreview("administration.previewInvoice"),
-      })
-    )
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: true,
+          preview: readPreview("administration.previewInvoice"),
+        })
+      )
   )
   .add(
     HttpApiEndpoint.post("createStandaloneAccessCode", "/access-codes", {
@@ -2861,10 +2857,13 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         CliStandaloneAccessCodeCleanupRequired.schema,
         CliStandaloneAccessCodeReconciled.schema,
       ],
-    }).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({ idempotent: true })
-    )
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(HttpApi.SuccessParseOptions, administrationInputParseOptions)
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({ idempotent: true })
+      )
   )
   .add(
     HttpApiEndpoint.post("resendInvoice", "/invoices/:invoiceId/resend", {
@@ -2893,8 +2892,6 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
       payload: Schema.Struct({
         requestId: CliMutationRequestId,
         mutation: AdministrationDiscountMutation,
-      }).annotate({
-        parseOptions: { errors: "all", onExcessProperty: "error" },
       }),
       success: AdministrationDiscountMutationResult,
       error: [
@@ -2902,7 +2899,9 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         CliMutationRejected.schema,
         CliResourceNotFound.schema,
       ],
-    }).annotate(AdministrationOperationVariants, discountMutationOperations)
+    })
+      .annotate(HttpApi.PayloadParseOptions, administrationInputParseOptions)
+      .annotate(AdministrationOperationVariants, discountMutationOperations)
   )
   .add(
     HttpApiEndpoint.patch("renameSession", "/sessions/:sessionId", {

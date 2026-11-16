@@ -1,4 +1,6 @@
-import { Crypto, Effect, Encoding } from "effect";
+import { Effect } from "effect";
+import { Digest, SecureRandom } from "effect/crypto";
+import { Base64Url } from "effect/encoding";
 import {
   CliAuthenticationChallenge,
   CliAuthenticationVerifier,
@@ -9,16 +11,16 @@ const encoder = new TextEncoder();
 export const makeCliAuthenticationSecret = Effect.fn(
   "CliAuthenticationCrypto.makeSecret"
 )(function* () {
-  const crypto = yield* Crypto.Crypto;
-  return Encoding.encodeBase64Url(yield* crypto.randomBytes(32));
+  const random = yield* SecureRandom.SecureRandom;
+  return Base64Url.encode(yield* random.randomBytes(32));
 });
 
 export const digestCliAuthenticationSecret = Effect.fn(
   "CliAuthenticationCrypto.digestSecret"
 )(function* (secret: string) {
-  const crypto = yield* Crypto.Crypto;
-  return Encoding.encodeBase64Url(
-    yield* crypto.digest("SHA-256", encoder.encode(secret))
+  const digest = yield* Digest.Digest;
+  return Base64Url.encode(
+    yield* digest.digest(Digest.sha256, encoder.encode(secret))
   );
 });
 

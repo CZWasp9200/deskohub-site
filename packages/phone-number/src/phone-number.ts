@@ -87,13 +87,14 @@ export const isPhoneNumber = (text: string, defaultRegion: string): boolean =>
 export const phoneNumberSchema = (defaultRegion: string) =>
   Schema.String.pipe(
     Schema.decodeTo(E164PhoneNumberSchema, {
-      decode: SchemaGetter.transformOrFail((text: string) =>
+      decode: SchemaGetter.transformEffect((text: string) =>
         Option.match(parsePhoneNumber(text, defaultRegion), {
           onNone: () =>
             Effect.fail(
-              new SchemaIssue.InvalidValue(Option.some(text), {
-                message: "Invalid phone number",
-              })
+              new SchemaIssue.InvalidValue(
+                { message: "Invalid phone number" },
+                text
+              )
             ),
           onSome: Effect.succeed,
         })

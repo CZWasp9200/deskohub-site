@@ -18,7 +18,7 @@ import { CustomerAccountId } from "./customer-session";
  */
 
 /** Why Better Auth refused a request. `code` is Better Auth's fixed code. */
-export class CustomerAuthRejected extends Schema.TaggedErrorClass<CustomerAuthRejected>()(
+export class CustomerAuthRejected extends Schema.TaggedError<CustomerAuthRejected>()(
   "CustomerAuthRejected",
   {
     reason: Schema.Literals([

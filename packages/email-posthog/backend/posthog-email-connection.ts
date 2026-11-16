@@ -44,7 +44,7 @@ const postHogEmailRequestTimeouts = {
 
 /** The per-attempt timeout of the deployment `VERCEL_ENV` names. */
 export const deploymentPostHogEmailRequestTimeout = Effect.gen(function* () {
-  const environment = yield* Config.option(Config.string("VERCEL_ENV"));
+  const environment = yield* Config.option(Config.String("VERCEL_ENV"));
   return Option.contains(environment, "production")
     ? postHogEmailRequestTimeouts.production
     : postHogEmailRequestTimeouts.nonProduction;

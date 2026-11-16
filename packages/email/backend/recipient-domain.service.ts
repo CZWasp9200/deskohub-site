@@ -136,7 +136,7 @@ const checkDomainAddress = Effect.fn(
 )(function* (dns: IMailDomainDns, domain: string) {
   const statuses = (yield* Effect.all(
     [lookupRecords(dns, domain, "A"), lookupRecords(dns, domain, "AAAA")],
-    { concurrency: "inherit" }
+    { concurrency: "unbounded" }
   )).map(toAddressStatus);
 
   if (statuses.includes("accepts_mail")) return "accepts_mail" as const;
