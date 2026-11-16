@@ -22,8 +22,11 @@ const { ProviderPaymentFinalizationService } = await import(
 const { PaymentAttemptRepository } = await import(
   "../repositories/payment-attempt.repository"
 );
-const { PaymentLifecycleRepository, PaymentLifecycleStateError } = await import(
+const { PaymentLifecycleRepository } = await import(
   "../repositories/payment-lifecycle.repository"
+);
+const { PaymentLifecycleStateError } = await import(
+  "../repositories/payment-lifecycle-state"
 );
 const { PaidFulfillmentQueueService, PaidFulfillmentQueueError } = await import(
   "../fulfillment/paid-fulfillment-queue.service"

@@ -9,6 +9,12 @@ import type {
   NexiWebhookEventId,
 } from "@deskohub/nexi";
 import type { Effect } from "effect";
+import type {
+  FulfillmentState,
+  PaymentAttemptState,
+  PaymentState,
+  ReservationState,
+} from "@/db/schema";
 import type { Locale } from "@/features/i18n";
 import type {
   CheckoutAttemptKey,
@@ -38,9 +44,9 @@ export type CheckoutRow = {
   correlation_id: NexiCorrelationId;
   dotypos_customer_id: DotyposCustomerId | null;
   dotypos_reservation_id: DotyposReservationId | null;
-  reservation_state: string;
-  payment_state: string;
-  fulfillment_state: string;
+  reservation_state: ReservationState;
+  payment_state: PaymentState;
+  fulfillment_state: FulfillmentState;
   active_payment_attempt_id: PaymentAttemptId | null;
   reservation_details: unknown;
   locale: string;
@@ -58,7 +64,7 @@ export type CheckoutRow = {
   provider: string | null;
   provider_order_id: NexiOrderId | null;
   security_token: string | null;
-  payment_attempt_state: string | null;
+  payment_attempt_state: PaymentAttemptState | null;
   amount_value: number | null;
   amount_exponent: number | null;
   currency: string | null;

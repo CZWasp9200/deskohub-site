@@ -17,8 +17,11 @@ const { ReservationHoldCleanupService } = await import(
 const { UnpaidHoldRelease } = await import("./unpaid-hold-release.service");
 const { ProviderPaymentDeferral, ProviderPaymentFinalizationService } =
   await import("../payment/provider-payment-finalization.service");
-const { PaymentLifecycleRepository, PaymentLifecycleStateError } = await import(
+const { PaymentLifecycleRepository } = await import(
   "../repositories/payment-lifecycle.repository"
+);
+const { PaymentLifecycleStateError } = await import(
+  "../repositories/payment-lifecycle-state"
 );
 const { WorkspaceReservationRepository, WorkspaceReservationStateError } =
   await import(
