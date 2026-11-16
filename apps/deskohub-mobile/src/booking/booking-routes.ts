@@ -1,6 +1,7 @@
 import type {
   CustomerBookedSelection,
   CustomerBookingSelection,
+  CustomerReservationProduct,
 } from "@deskohub/workspace-customer-api";
 import type { CheckoutRestartReason } from "./checkout/booking-problem";
 
@@ -40,3 +41,11 @@ export const bookAgainHref = (booked: CustomerBookedSelection | undefined) =>
   booked === undefined
     ? ("/book" as const)
     : bookFamilyHref(booked.selection.family);
+
+/**
+ * Booking the same kind of space as a reservation, for Book again where
+ * only its kind is known; a kind the app doesn't book leads to Book.
+ */
+export const bookKindHref = (
+  kind: CustomerReservationProduct["kind"] | undefined
+) => (kind === undefined || kind === "other" ? "/book" : bookFamilyHref(kind));

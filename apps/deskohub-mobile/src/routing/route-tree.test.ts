@@ -109,6 +109,22 @@ describe("app route tree", () => {
     ]);
   });
 
+  test("a reservation's access PIN opens above the tabs, under the same URL", () => {
+    const paths = screens().map((segments) => segments.join("/"));
+    expect(paths).toContain("(account)/reservations/[orderId]/access");
+    expect(
+      paths.filter((path) => path.startsWith("(account)/(tabs)/reservations/"))
+    ).toEqual(
+      expect.arrayContaining([
+        "(account)/(tabs)/reservations/index",
+        "(account)/(tabs)/reservations/[orderId]/index",
+      ])
+    );
+    expect(
+      paths.filter((path) => path.startsWith("(account)/(tabs)/reservations/"))
+    ).not.toContain("(account)/(tabs)/reservations/[orderId]/access");
+  });
+
   test("the start-tab redirect sits in the signed-in group, where the account's data is", () => {
     expect(screens().map((segments) => segments.join("/"))).toContain(
       "(account)/index"

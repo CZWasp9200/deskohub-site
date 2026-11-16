@@ -310,6 +310,50 @@ export const sampleDeskReservation = (
   };
 };
 
+/**
+ * A reserved desk for the whole of today with a nine-digit PIN, the longest
+ * the lock issues: the access screen's full-day window and longest PIN.
+ */
+export const sampleWholeDayDesk = (
+  now: Date
+): {
+  readonly reservation: CustomerReservationSummary;
+  readonly order: SampleOrder;
+} => {
+  const startsAt = pragueDayStart(now, 0).toISOString();
+  const endsAt = pragueDayStart(now, 1).toISOString();
+  const orderId = CustomerReservationOrderId.make("sample-order-whole-day");
+  return {
+    reservation: {
+      id: "sample-reservation-whole-day",
+      orderId,
+      product: { kind: "cowork", tier: "reserved-desk" },
+      startsAt,
+      endsAt,
+      seats: 1,
+      status: "confirmed",
+      accessStartsAt: startsAt,
+      accessEndsAt: endsAt,
+    },
+    order: {
+      state: {
+        orderId,
+        kind: "cowork",
+        status: "fulfilled",
+        paymentStatus: "paid",
+        fulfillmentStatus: "fulfilled",
+        startsAt,
+        endsAt,
+      },
+      access: {
+        code: "380427615",
+        accessStartsAt: startsAt,
+        accessEndsAt: endsAt,
+      },
+    },
+  };
+};
+
 const sampleHistory = (now: Date): CustomerReservationHistory => ({
   current: [
     {
