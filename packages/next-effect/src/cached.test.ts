@@ -74,6 +74,8 @@ describe("cached", () => {
         wallClockReads += 1;
         return clock.currentTimeMillisUnsafe();
       }),
+      monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+      monotonicTimeNanos: clock.monotonicTimeNanos,
       currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
       currentTimeNanos: clock.currentTimeNanos,
       sleep: (duration) => clock.sleep(duration),
