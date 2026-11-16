@@ -7,11 +7,8 @@ import {
 } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Match, Predicate } from "effect";
 import type { LatePaymentRecovery } from "@/db/schema";
-import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
 import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
-import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
-import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
 import { ensureCoworkPayStateAvailable } from "@/features/reservation/actions/prepare-cowork-pay-state";
 import { ensureMeetingRoomPayStateAvailable } from "@/features/reservation/actions/prepare-meeting-room-pay-state";
 import { ensureOfficePayStateAvailable } from "@/features/reservation/actions/prepare-office-pay-state";
@@ -20,20 +17,12 @@ import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
-import type { CoworkReservationDetails } from "@/features/reservation/cowork-reservation";
-import { getMeetingRoomEarlySetupField } from "@/features/reservation/meeting-room-early-setup";
-import type { MeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
-import type { OfficeReservationDetails } from "@/features/reservation/office-reservation";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   hasReservationIntervalEnded,
   type ReservationInterval,
 } from "@/features/reservation/reservation-interval";
-import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import {
-  plainDateStringSchema,
-  temporalInstantToDate,
-} from "@/shared/utils/temporal";
+import { temporalInstantToDate } from "@/shared/utils/temporal";
 import { ReservationFulfillment } from "../fulfillment/reservation-fulfillment.service";
 import { UnpaidHoldRelease } from "../holds/unpaid-hold-release.service";
 import {
@@ -45,6 +34,10 @@ import {
   createWorkspaceDotyposReservation,
   noteNamesPaymentOrder,
 } from "../reservation/dotypos-reservation.adapter";
+import {
+  type ReconstructedReservation,
+  reconstructReservation,
+} from "../reservation/reservation-reconstruction";
 import {
   getWorkspaceReservationInterval,
   type WorkspaceTableAssignmentReservation,
@@ -75,107 +68,6 @@ export interface ILatePaymentRecoveryService {
     readonly paymentAttemptId: PaymentAttemptId;
   }) => Effect.Effect<LatePaymentRecoveryOutcome, LatePaymentRecoveryError>;
 }
-
-type RecreatedReservation = {
-  readonly checkoutDetails: CheckoutDetails;
-  readonly reservation: WorkspaceTableAssignmentReservation;
-};
-
-type CoworkSnapshot = Extract<
-  AccountingDocumentSnapshot,
-  { readonly reservation: { readonly kind: "cowork" } }
->;
-type MeetingRoomSnapshot = Extract<
-  AccountingDocumentSnapshot,
-  { readonly reservation: { readonly kind: "meeting-room" } }
->;
-type OfficeSnapshot = Extract<
-  AccountingDocumentSnapshot,
-  { readonly reservation: { readonly kind: "office" } }
->;
-
-const isCoworkSnapshot = (
-  snapshot: AccountingDocumentSnapshot
-): snapshot is CoworkSnapshot => snapshot.reservation.kind === "cowork";
-const isMeetingRoomSnapshot = (
-  snapshot: AccountingDocumentSnapshot
-): snapshot is MeetingRoomSnapshot =>
-  snapshot.reservation.kind === "meeting-room";
-const isOfficeSnapshot = (
-  snapshot: AccountingDocumentSnapshot
-): snapshot is OfficeSnapshot => snapshot.reservation.kind === "office";
-
-const reconstructReservation = (
-  row: WorkspaceReservation,
-  snapshot: AccountingDocumentSnapshot
-): RecreatedReservation | null => {
-  if (row.reservationDetails.kind !== snapshot.reservation.kind) return null;
-
-  if (isCoworkSnapshot(snapshot)) {
-    if (row.reservationDetails.kind !== "cowork") return null;
-    const reservation: CoworkReservationDetails = {
-      ...row.reservationDetails,
-      date: snapshot.reservation.date,
-    };
-    return {
-      reservation,
-      checkoutDetails: {
-        locale: snapshot.locale,
-        legal: {},
-        reservation,
-        payment: {
-          ...snapshot.quote.payment,
-          summary: getCoworkCheckoutSummary(reservation, snapshot.quote),
-        },
-      },
-    };
-  }
-  if (isMeetingRoomSnapshot(snapshot)) {
-    if (row.reservationDetails.kind !== "meeting-room") return null;
-    const item = snapshot.quote.items[0];
-    const reservation: MeetingRoomReservationDetails = {
-      kind: "meeting-room",
-      duration: item.duration,
-      reservationDate: plainDateStringSchema.make(
-        Temporal.Instant.from(snapshot.reservation.startsAt)
-          .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
-          .toPlainDate()
-          .toString()
-      ),
-      startsAt: snapshot.reservation.startsAt,
-      endsAt: snapshot.reservation.endsAt,
-      ...getMeetingRoomEarlySetupField(row.reservationDetails),
-    };
-    return {
-      reservation,
-      checkoutDetails: {
-        locale: snapshot.locale,
-        legal: {},
-        reservation,
-        payment: {
-          ...snapshot.quote.payment,
-          items: snapshot.quote.items,
-        },
-      },
-    };
-  }
-  if (isOfficeSnapshot(snapshot)) {
-    const reservation: OfficeReservationDetails = snapshot.reservation;
-    return {
-      reservation,
-      checkoutDetails: {
-        locale: snapshot.locale,
-        legal: {},
-        reservation,
-        payment: {
-          ...snapshot.quote.payment,
-          items: snapshot.quote.items,
-        },
-      },
-    };
-  }
-  return null;
-};
 
 const ensureAvailable = (
   availability: typeof WorkspaceAvailabilityService.Service,
@@ -398,7 +290,7 @@ export class LatePaymentRecoveryService extends Context.Service<
       // when a new one can no longer be provided.
       const resumeOrCreateReplacement = Effect.fnUntraced(function* (input: {
         readonly reservation: WorkspaceReservation;
-        readonly recreated: RecreatedReservation;
+        readonly recreated: ReconstructedReservation;
         readonly replacements: readonly DotyposReservation[];
       }) {
         const resumed = input.replacements[0];

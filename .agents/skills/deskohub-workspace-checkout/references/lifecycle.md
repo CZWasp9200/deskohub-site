@@ -16,6 +16,7 @@ Business policy for holds, payment, recovery, refunds, and fulfillment is in the
 - [Hold cleanup](#hold-cleanup)
 - [Late payment recovery](#late-payment-recovery)
 - [Refunds](#refunds)
+- [Administrator restore](#administrator-restore)
 - [Fulfillment](#fulfillment)
 
 ## Where things live
@@ -86,7 +87,7 @@ State types and check constraints are in `db/schema`. Repositories guard every t
 - `held -> hold_expired -> cancelling -> cancelled` for expired unpaid holds; `held -> cancelling -> cancelled` for an unsuccessful terminal payment.
 - `cancelling -> cancellation_failed -> cancelling`.
 - `confirmed -> cancelling -> cancelled` only through operator cancellation. It keeps paid and fulfillment facts, marks paid Nexi attempts `refund_state = 'required'`, refuses while fulfillment is `processing` or `awaiting_delivery`, and requires confirmed provider removal before retiring a live or ambiguous PIN.
-- Nothing leaves `cancelled`. Cleanup finalizes a cancellation only while the row is still `cancelling`, unpaid, and unconfirmed.
+- `cancelled -> confirmed` only through [administrator restore](#administrator-restore) of a paid, confirmed reservation whose operator cancellation finished cleanly. Nothing else leaves `cancelled`. Cleanup finalizes a cancellation only while the row is still `cancelling`, unpaid, and unconfirmed.
 - Never create a second Dotypos reservation for one `checkout_attempt_key`, or a replacement in the same session before the prior local and Dotypos reservations are cancelled.
 - Administration may overlay a live Dotypos `CANCELLED` status as an operator attention state when the local row is stale. Keep it read-only: it never persists a transition, authorizes access, triggers recovery, or claims Deskohub cancelled the booking.
 
@@ -245,6 +246,46 @@ The budget arithmetic is documented in the route and service. Keep these rules w
 - Claim each attempt just before its lookup, and start a lookup only while one exhausting every retry (`getNexiRequestWorstCaseDuration`) still fits the budget; recheck after the claim. `releaseRefundCheck` restores the previous `refund_checked_at` only while the stamp is still this claim's.
 - At the budget, interrupt all workers and release their claims with a bounded wait. Effect SQL runs connection acquisition, BEGIN, and COMMIT or ROLLBACK uninterruptibly, so `refundBatchOverrunWorstCase` derives the possible overrun from `databasePoolTimeouts`. The budget is `maxDuration` minus that overrun minus headroom.
 - Lock the batch in its own `select … for update skip locked` and stamp it by ID in the same transaction. An `update … where id in (select … limit n for update skip locked)` can claim more than `n` rows, because Postgres re-runs the subquery per updated row and each run skips the rows already updated.
+
+## Administrator restore
+
+`ReservationRestorationService.restore` (in `features/administration`, reached as `ReservationAdministrationService.restore`) confirms an operator-cancelled reservation again. It adds no reservation state: the row goes straight from `cancelled` back to `confirmed`, keeping its confirmation, payment and fulfillment facts.
+
+Policy:
+
+- Only `canRestoreReservation` rows: `cancelled`, paid, confirmed, with a finished cancellation (`reservation_cancelled_at`), no hold expiry, no failure code, a Dotypos ID, and no other active reservation in the checkout session. Unpaid, expired and superseded holds stay cancelled.
+- A `required` refund Nexi never recorded is no longer owed, so the restore moves it to `not_required`. A refund Nexi recorded stays as it is, and the operator must acknowledge it (`refund_acknowledgement_required` carries the amount and full or partial coverage).
+- Dotypos must still hold the cancelled booking Workspace created: the expected booking comes from `getRestorationBooking`, and `restoreCancelledReservation` refuses anything else. A `NEW` or missing record, or a changed booking, is `changed_in_dotypos`. The expected booking is the creation-time booking: the customer from Workspace, the table from the record (Workspace stores none), and the bounds and seats rebuilt from the row, its stored details and the paid attempt's accounting snapshot. Without a snapshot, it compares what the row and stored details determine, takes the rest from the record, and logs a warning.
+- A reservation that hasn't ended needs its table free (`getAssignedTableAvailability`) and access that can be reissued (`getRestoredReservationAccess`): only an `expired` grant, or none, reissues; any grant that may still hold a credential is `access_uncertain`. An ended reservation skips both and gets no access.
+- The customer email goes only when the operator asks and the cancellation email was recorded as sent (`cancellation_email_sent_at`); otherwise the result is `not_available`.
+
+Ordering. Never call a provider inside a transaction:
+
+1. Plain preflight reads: the row, the session's current reservation, the live Dotypos record (`getReservationWithoutCustomer`, never a cached record), the booking and held span, the access grant and plan.
+2. `reconcileReservationRefunds` asks Nexi about every attempt still awaiting a refund, then the refund acknowledgement check.
+3. Table availability, then `restoreCancelledReservation` (`Restored` or `AlreadyConfirmed`).
+4. One `WorkspaceDatabase.transaction`: `prepareRestoredAccess` (grant row first), `markAdministrationRestored` (the CAS re-asserts every restore predicate and the cancellation instant the restore read, clears `cancellation_email_sent_at`, and moves `required` refunds to `not_required`), the refund acknowledgement check again on the attempts read after the flip, and `retractCancellationEvent`. Lock order: grant, reservation, payment attempts, customer events (skipped, never awaited).
+5. After commit: `issueRestoredAccess` when the plan was `issue` (a failure reports `failed`; the administration access retry accepts the `pending` or `failed` grant), then the restoration email.
+
+Recovery:
+
+- A confirmed row whose cancellation was recorded (`hasRecordedCancellation`) with Dotypos still `CONFIRMED` on the same booking is a finished restore: a retry reports `already_confirmed` and sends and issues nothing.
+- A crash after the Dotypos write leaves the row cancelled and Dotypos `CONFIRMED`; a retry passes the same checks, gets `AlreadyConfirmed`, and completes.
+- Whenever the finalize transaction rolls back (`access_uncertain`, a refund recorded since the check, a lost CAS, `WorkspaceReservationSessionTakenError`, or a failed write), the restore rereads the row. A `confirmed` row that passes the finished-restore check above was finished by a concurrent restore: it reports `already_confirmed` and sends and issues nothing. This covers a losing restore that planned access before the winner's grant committed and saw it as `access_uncertain`. Otherwise the original refusal stands, and a lost CAS is refused as the row now stands.
+- When another reservation took the checkout session after this restore's Dotypos write (`Restored`, then `WorkspaceReservationSessionTakenError` from the partial unique active-session index), the restore cancels the Dotypos reservation again only while the reread row is still `cancelled` with the `reservation_cancelled_at` the preflight read and `findCurrentByCheckoutSessionKey` returns another row; `cancelReservation` is unconditional by id, so a later restore's booking must not be cancelled. Then it refuses `superseded`, and a failed cancel is logged for an operator. When the reread shows anything else, or fails, it skips the cancel, logs the mismatch and refuses `superseded`. A restore that found Dotypos already `CONFIRMED` (`AlreadyConfirmed`) made no write, so it never cancels; it logs the mismatch and refuses `superseded`. A preflight `superseded` refusal never writes to Dotypos.
+- Reasons map to codes: `not_found`; `not_restorable` (operator must change something); `restoration_failed` (`refund_check_failed`, `dotypos_failed`, `details_unavailable`, `record_failed`: retry).
+
+Known limitations:
+
+- The compensation fence narrows the race but doesn't close it: a successor cancelled and a concurrent restore finalized between the reread and the cancel still loses its Dotypos booking. Closing it needs a lock in `db/workspace-locks.ts` held across the reread and the cancel, which the restore doesn't take.
+- Any other refusal after the Dotypos write leaves Dotypos `CONFIRMED` while Workspace keeps the row cancelled. The restore doesn't compensate it; it logs an error with the reservation ID, the refusal reason and "Dotypos confirmed, Workspace cancelled". Recovery by reason:
+  - A refund recorded since the check (`refund_acknowledgement_required`): retry with the acknowledgement. Dotypos answers `AlreadyConfirmed` and the restore completes.
+  - `access_uncertain`: an operator reconciles the grant, then retries.
+  - A CAS lost to a newer cancellation: an operator decides; they may cancel the reservation in Dotypos directly.
+  - `restoration_failed` reasons (`record_failed`, `details_unavailable`): retry.
+- Restore, cancel and restore again while the grant is still `pending` is `access_uncertain` until an operator reconciles the grant.
+- A refund Nexi records after the finalize read its attempts is a refund after the restore; the refund batch records it as usual.
+- The restoration email is best effort: a crash after commit loses it, and a replay never sends it. A cancellation that wins between the restore's commit and the email send can still get the restoration email.
 
 ## Fulfillment
 
