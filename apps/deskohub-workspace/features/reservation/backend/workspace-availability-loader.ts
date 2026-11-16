@@ -2,8 +2,10 @@ import { Effect, Exit, Layer } from "effect";
 import { openPayState } from "@/features/checkout/backend/checkout/pay-state";
 import { recoverReplacementPayState } from "@/features/checkout/backend/checkout/replacement-pay-state";
 import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
+import { meetingRoomReservationKind } from "@/features/reservation/reservation-kind";
 import type {
   MeetingRoomStartTimesQuery,
+  MeetingRoomUnavailableDatesQuery,
   PreloadedWorkspaceAvailability,
   WorkspaceAvailabilityQuery,
 } from "@/features/reservation/workspace-availability";
@@ -96,6 +98,30 @@ export const loadMeetingRoomStartTimes = Effect.fn(
   }).pipe(recoverReplacementOccupancyExclusion);
   const service = yield* WorkspaceAvailabilityService;
   return yield* service.getMeetingRoomStartTimes({ query, occupancyExclusion });
+});
+
+/**
+ * Advisory meeting-room calendar for a date range, excluding a verified
+ * replacement like `loadAvailability`.
+ */
+export const loadMeetingRoomUnavailableDates = Effect.fn(
+  "workspaceAvailability.loadMeetingRoomUnavailableDates"
+)(function* ({
+  query,
+  replacementToken,
+}: {
+  readonly query: MeetingRoomUnavailableDatesQuery;
+  readonly replacementToken?: string;
+}) {
+  const occupancyExclusion = yield* verifyReplacementOccupancyExclusion({
+    kind: meetingRoomReservationKind,
+    replacementToken,
+  }).pipe(recoverReplacementOccupancyExclusion);
+  const service = yield* WorkspaceAvailabilityService;
+  return yield* service.getMeetingRoomUnavailableDates({
+    query,
+    occupancyExclusion,
+  });
 });
 
 type AvailabilityPreload = {

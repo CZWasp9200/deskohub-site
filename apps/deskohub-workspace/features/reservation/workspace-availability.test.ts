@@ -419,6 +419,13 @@ describe("meeting-room start times", () => {
           earlySetupAvailable: false,
         },
       ],
+      unavailableStartTimes: [
+        {
+          startDateTime: "2099-06-10T10:00",
+          startsAt: "2099-06-10T08:00:00Z",
+          endsAt: "2099-06-10T09:00:00Z",
+        },
+      ],
     };
 
     expect(parseMeetingRoomStartTimesResponse(response)).toEqual(response);

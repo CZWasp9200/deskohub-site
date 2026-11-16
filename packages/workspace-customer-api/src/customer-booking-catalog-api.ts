@@ -180,11 +180,14 @@ export const CustomerAvailability = Schema.Struct({
 }).annotate({ identifier: "CustomerAvailability" });
 export type CustomerAvailability = typeof CustomerAvailability.Type;
 
-/** Every free meeting-room start on one Prague date for one duration. */
+/**
+ * Every meeting-room start the booking form offers on one Prague date for
+ * one duration: the free ones and the taken ones.
+ */
 export const CustomerMeetingRoomStartTimes = Schema.Struct({
   date: CustomerPlainDate,
   duration: CustomerMeetingRoomDuration,
-  /** In chronological order, each with the interval it books. */
+  /** Free starts in chronological order, each with the interval it books. */
   startTimes: Schema.Array(
     Schema.Struct({
       /** Prague local date-time. */
@@ -195,9 +198,41 @@ export const CustomerMeetingRoomStartTimes = Schema.Struct({
       earlySetupAvailable: Schema.Boolean,
     })
   ),
+  /**
+   * Taken starts in chronological order, each with the interval it would
+   * book. Starts already past are in neither list.
+   */
+  unavailableStartTimes: Schema.Array(
+    Schema.Struct({
+      /** Prague local date-time. */
+      startDateTime: Schema.String,
+      startsAt: isoInstant,
+      endsAt: isoInstant,
+    })
+  ),
 }).annotate({ identifier: "CustomerMeetingRoomStartTimes" });
 export type CustomerMeetingRoomStartTimes =
   typeof CustomerMeetingRoomStartTimes.Type;
+
+/**
+ * The meeting-room calendar for a date range: the dates without a free start
+ * of any length, and for each duration the dates without a free start of it.
+ */
+export const CustomerMeetingRoomUnavailableDates = Schema.Struct({
+  from: CustomerPlainDate,
+  to: CustomerPlainDate,
+  /** Dates no duration has a free start on. */
+  unavailableDates: Schema.Array(CustomerPlainDate),
+  /** One entry per duration the booking form offers. */
+  durations: Schema.Array(
+    Schema.Struct({
+      duration: CustomerMeetingRoomDuration,
+      unavailableDates: Schema.Array(CustomerPlainDate),
+    })
+  ),
+}).annotate({ identifier: "CustomerMeetingRoomUnavailableDates" });
+export type CustomerMeetingRoomUnavailableDates =
+  typeof CustomerMeetingRoomUnavailableDates.Type;
 
 // Quote
 
@@ -268,6 +303,23 @@ export const customerBookingCatalogEndpoints = [
       }),
       headers: AvailabilityReplacementHeaders,
       success: CustomerMeetingRoomStartTimes,
+      error: [
+        CustomerBookingSelectionInvalid.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    }
+  ),
+  HttpApiEndpoint.get(
+    "getMeetingRoomUnavailableDates",
+    "/availability/meeting-room-dates",
+    {
+      /** Omitted dates default to the current booking range. */
+      query: Schema.Struct({
+        from: Schema.optionalKey(CustomerPlainDate),
+        to: Schema.optionalKey(CustomerPlainDate),
+      }),
+      headers: AvailabilityReplacementHeaders,
+      success: CustomerMeetingRoomUnavailableDates,
       error: [
         CustomerBookingSelectionInvalid.schema,
         CustomerServiceUnavailable.schema,

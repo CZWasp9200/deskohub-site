@@ -2220,6 +2220,108 @@
         }
       }
     },
+    "/api/customer/booking/availability/meeting-room-dates": {
+      "get": {
+        "tags": ["booking"],
+        "operationId": "booking.getMeetingRoomUnavailableDates",
+        "parameters": [
+          {
+            "name": "x-deskohub-workspace-replacement",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerPlainDate"
+            },
+            "required": false
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerPlainDate"
+            },
+            "required": false
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerMeetingRoomUnavailableDates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerMeetingRoomUnavailableDates"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "CustomerBookingSelectionInvalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerBookingSelectionInvalid"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/customer/booking/quote": {
       "get": {
         "tags": ["booking"],
@@ -5916,9 +6018,68 @@
               ],
               "additionalProperties": false
             }
+          },
+          "unavailableStartTimes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startDateTime": {
+                  "type": "string"
+                },
+                "startsAt": {
+                  "type": "string",
+                  "description": "ISO 8601 instant."
+                },
+                "endsAt": {
+                  "type": "string",
+                  "description": "ISO 8601 instant."
+                }
+              },
+              "required": ["startDateTime", "startsAt", "endsAt"],
+              "additionalProperties": false
+            }
           }
         },
-        "required": ["date", "duration", "startTimes"],
+        "required": ["date", "duration", "startTimes", "unavailableStartTimes"],
+        "additionalProperties": false
+      },
+      "CustomerMeetingRoomUnavailableDates": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/CustomerPlainDate"
+          },
+          "to": {
+            "$ref": "#/components/schemas/CustomerPlainDate"
+          },
+          "unavailableDates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerPlainDate"
+            }
+          },
+          "durations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "duration": {
+                  "$ref": "#/components/schemas/CustomerMeetingRoomDuration"
+                },
+                "unavailableDates": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomerPlainDate"
+                  }
+                }
+              },
+              "required": ["duration", "unavailableDates"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["from", "to", "unavailableDates", "durations"],
         "additionalProperties": false
       },
       "CustomerCheckoutSummaryDiscount": {
