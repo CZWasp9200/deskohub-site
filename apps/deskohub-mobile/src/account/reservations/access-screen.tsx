@@ -28,7 +28,10 @@ import { EmptyState } from "../../ui/empty-state";
 import { Icon } from "../../ui/icon";
 import { ListGroup, ListRow } from "../../ui/list";
 import { useLiveRegionAnnouncement } from "../../ui/live-announcement";
-import { renderPaperStackHeader } from "../../ui/navigation";
+import {
+  renderNavyStackHeader,
+  renderPaperStackHeader,
+} from "../../ui/navigation";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Skeleton } from "../../ui/skeleton";
@@ -44,6 +47,7 @@ import {
   AccessScreenState,
   accessCountdownAtom,
   accessErrorMessage,
+  accessHeaderTone,
   accessScreenStateOf,
   accessWindowKey,
   copyAddressAtom,
@@ -96,10 +100,22 @@ export function ReservationAccessScreen({
   const row = useAtomValue(reservationOfOrderAtom(orderId));
   const state = accessScreenStateOf(read);
   const refreshing = !AsyncResult.isInitial(read) && read.waiting;
+  // Always mounted, so the header follows the state both ways: a No PIN
+  // that a refresh turns into a PIN gets the navy header back.
+  const header = (
+    <Stack.Screen
+      options={{
+        header:
+          accessHeaderTone(state) === "navy"
+            ? renderNavyStackHeader
+            : renderPaperStackHeader,
+      }}
+    />
+  );
   if (AccessScreenState.$is("NoPin")(state)) {
     return (
       <>
-        <Stack.Screen options={{ header: renderPaperStackHeader }} />
+        {header}
         <ScrollScreen refreshing={refreshing} onRefresh={refresh}>
           <NoPin orderId={orderId} />
         </ScrollScreen>
@@ -110,34 +126,37 @@ export function ReservationAccessScreen({
     Option.map(row, (found) => reservationProductTitle(found.product, locale))
   );
   return (
-    <AsyncView
-      result={read}
-      onRetry={refresh}
-      errorMessage={(error) => accessErrorMessage(error, locale)}
-      loading={
-        <ScrollScreen
-          overlap={false}
-          masthead={
-            <PinHero name={name}>
-              <PinDigits groups={placeholderGroups} placeholder />
-            </PinHero>
-          }
-        >
-          <LoadingWindow />
-        </ScrollScreen>
-      }
-    >
-      {(access) => (
-        <AccessDetails
-          orderId={orderId}
-          access={access}
-          name={name}
-          row={row}
-          refreshing={refreshing}
-          onRefresh={refresh}
-        />
-      )}
-    </AsyncView>
+    <>
+      {header}
+      <AsyncView
+        result={read}
+        onRetry={refresh}
+        errorMessage={(error) => accessErrorMessage(error, locale)}
+        loading={
+          <ScrollScreen
+            overlap={false}
+            masthead={
+              <PinHero name={name}>
+                <PinDigits groups={placeholderGroups} placeholder />
+              </PinHero>
+            }
+          >
+            <LoadingWindow />
+          </ScrollScreen>
+        }
+      >
+        {(access) => (
+          <AccessDetails
+            orderId={orderId}
+            access={access}
+            name={name}
+            row={row}
+            refreshing={refreshing}
+            onRefresh={refresh}
+          />
+        )}
+      </AsyncView>
+    </>
   );
 }
 

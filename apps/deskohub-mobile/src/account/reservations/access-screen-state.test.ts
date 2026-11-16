@@ -31,6 +31,7 @@ import {
   AccessScreenState,
   accessCountdownAtom,
   accessErrorMessage,
+  accessHeaderTone,
   accessScreenStateOf,
   accessWindowKey,
   copyAccessCodeAtom,
@@ -434,6 +435,39 @@ describe("accessScreenStateOf", () => {
       workspace.fail("getReservationAccess", "rate-limited")
     );
     expect(accessScreenStateOf(shownAccess(result))._tag).toBe("Pin");
+  });
+});
+
+describe("accessHeaderTone", () => {
+  test("a No PIN that a refresh turns into a PIN goes back to the navy header", async () => {
+    const { registry, workspace } = makeFakeCustomerData("linked");
+    withAccess(workspace, undefined);
+    const atom = reservationAccessAtom(orderId);
+    const unmount = registry.mount(atom);
+    await settle(registry, atom);
+    const before = accessScreenStateOf(shownAccess(registry.get(atom)));
+
+    withAccess(workspace, {
+      code: pin,
+      accessStartsAt: atMillis(0),
+      accessEndsAt: atMillis(60_000),
+    });
+    registry.refresh(atom);
+    await Effect.runPromise(
+      Effect.result(
+        AtomRegistry.getResult(atom, { suspendOnWaiting: true })(registry)
+      )
+    );
+    const after = accessScreenStateOf(shownAccess(registry.get(atom)));
+    unmount();
+
+    expect([before._tag, accessHeaderTone(before)]).toEqual(["NoPin", "paper"]);
+    expect([after._tag, accessHeaderTone(after)]).toEqual(["Pin", "navy"]);
+  });
+
+  test("loading and a failure keep the navy header", () => {
+    expect(accessHeaderTone(AccessScreenState.Loading())).toBe("navy");
+    expect(accessHeaderTone(AccessScreenState.Failed())).toBe("navy");
   });
 });
 

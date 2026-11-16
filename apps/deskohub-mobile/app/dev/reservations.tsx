@@ -7,6 +7,7 @@ import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ReservationAccessScreen } from "../../src/account/reservations/access-screen";
 import {
+  accessHeaderTone,
   accessScreenStateOf,
   reservationAccessAtom,
   shownAccess,
@@ -149,8 +150,9 @@ function SampleAccessView({ orderId }: { readonly orderId: string }) {
   const locale = useAppLocale();
   const id = CustomerReservationOrderId.make(orderId);
   const navy =
-    accessScreenStateOf(shownAccess(useAtomValue(reservationAccessAtom(id))))
-      ._tag !== "NoPin";
+    accessHeaderTone(
+      accessScreenStateOf(shownAccess(useAtomValue(reservationAccessAtom(id))))
+    ) === "navy";
   return (
     <SafeAreaView
       edges={["top"]}

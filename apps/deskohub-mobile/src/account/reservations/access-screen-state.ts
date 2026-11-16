@@ -149,6 +149,13 @@ export const accessScreenStateOf = (
   });
 };
 
+/**
+ * The header over the screen's state: navy over the PIN's navy band (and
+ * while it loads), the paper canvas's over No PIN, which has no band.
+ */
+export const accessHeaderTone = (state: AccessScreenState): "navy" | "paper" =>
+  AccessScreenState.$is("NoPin")(state) ? "paper" : "navy";
+
 const withdrawsAccess = (error: CustomerViewError) =>
   error._tag === "NotFound" || error._tag === "AccessCodeUnavailable";
 
