@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { Cause, Duration, Effect, Exit, Predicate } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   WorkspaceDatabase,
@@ -220,6 +221,16 @@ describe.skipIf(!suiteDatabase)(
         expect(await freeElsewhereNow(probe)).toBe(true);
       });
 
+      test("reservationOrder section", async () => {
+        const orderId = `order-${id}` as WorkspaceReservationId;
+        const probe = pairProbe("reservation-order", orderId);
+        const exit = await run(
+          WorkspaceLockSections.reservationOrder(orderId)(freeElsewhere(probe))
+        );
+        expect(exit).toStrictEqual(Exit.succeed(false));
+        expect(await freeElsewhereNow(probe)).toBe(true);
+      });
+
       test("customerAccount section", async () => {
         const account = accountId();
         const probe = accountProbe(account);
@@ -422,6 +433,23 @@ describe.skipIf(!suiteDatabase)(
       );
       expect(exit).toStrictEqual(Exit.succeed(["7s", false]));
       expect(recorded.flatMap(({ values }) => values)).toContain("5000ms");
+    });
+
+    test("the reservationOrder section admits a payment settlement's referral locks without a bounded wait", async () => {
+      const orderId = `order-${crypto.randomUUID()}` as WorkspaceReservationId;
+      const customer = `customer-${crypto.randomUUID()}` as DotyposCustomerId;
+      const exit = await run(
+        WorkspaceLockSections.reservationOrder(orderId)(
+          transaction(
+            Effect.gen(function* () {
+              yield* WorkspaceLocks.referralGraph();
+              yield* WorkspaceLocks.referralFirstBooking(customer);
+              return yield* freeElsewhere(graphProbe);
+            })
+          )
+        )
+      );
+      expect(exit).toStrictEqual(Exit.succeed(false));
     });
 
     test("an out-of-order bounded wait under a transaction-held higher rank dies", async () => {

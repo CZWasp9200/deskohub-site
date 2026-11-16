@@ -25,7 +25,8 @@ export function ConfirmDialog({
 }: {
   readonly visible: boolean;
   readonly title: string;
-  readonly body: string;
+  /** What happens if they confirm, when the title alone doesn't say. */
+  readonly body?: string;
   readonly confirmLabel: string;
   readonly cancelLabel: string;
   readonly onConfirm: () => void;
