@@ -6,7 +6,10 @@ import {
   temporalInstantToLocalDateTimeString,
   workspaceSiteConstants,
 } from "@/shared/utils";
-import { formatPlainDate } from "@/shared/utils/date-time-format";
+import {
+  formatInstantDateTimeRange,
+  formatPlainDate,
+} from "@/shared/utils/date-time-format";
 import type {
   AdministrationPaymentAttempt,
   AdministrationReservationSummary,
@@ -18,18 +21,20 @@ import { getAdministrationPaymentStateLabel } from "./payment-presentation";
 // day period could also differ between server and browser: depending on its
 // ICU version, Node separates "PM" with a narrow no-break space that Chromium
 // writes as a plain space, which fails hydration in the client tables.
+const administrationHourCycle = "h23";
+
 export const formatAdministrationDateTime = (value: string, locale: Locale) =>
   new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
-    hourCycle: "h23",
+    hourCycle: administrationHourCycle,
     timeZone: workspaceSiteConstants.location.timeZone,
   }).format(temporalInstantToDate(Temporal.Instant.from(value)));
 
 const formatAdministrationTime = (value: string, locale: Locale) =>
   new Intl.DateTimeFormat(locale, {
     timeStyle: "short",
-    hourCycle: "h23",
+    hourCycle: administrationHourCycle,
     timeZone: workspaceSiteConstants.location.timeZone,
   }).format(temporalInstantToDate(Temporal.Instant.from(value)));
 
@@ -75,9 +80,13 @@ export const formatAdministrationReservationDate = (
       },
     }) === "overnight"
   ) {
-    // Both ends join with plain spaces: `formatRange` separates them with thin
-    // spaces that Chromium rewrites, which fails hydration in the client tables.
-    return `${formatAdministrationDateTime(startsAt, locale)} – ${formatAdministrationDateTime(endsAt, locale)}`;
+    return formatInstantDateTimeRange({
+      start: Temporal.Instant.from(startsAt),
+      end: Temporal.Instant.from(endsAt),
+      locale,
+      hourCycle: administrationHourCycle,
+      timeZone: workspaceSiteConstants.location.timeZone,
+    });
   }
   if (reservation.type === "cowork" && reservation.date) {
     return formatAdministrationPlainDate(reservation.date, locale);
