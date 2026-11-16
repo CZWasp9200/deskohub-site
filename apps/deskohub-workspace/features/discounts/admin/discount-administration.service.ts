@@ -31,7 +31,6 @@ import {
   isDatabaseQueryError,
 } from "@/db/sql-constraint";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
-import type { AdministrationCustomerName } from "@/features/administration/customer-name";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DiscountGroupListing } from "@/features/discounts/discount-groups";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
@@ -406,12 +405,6 @@ export interface IDiscountAdministration {
   }) => Effect.Effect<
     AdminCustomerDiscountSections,
     EffectDrizzleQueryError | SqlError | DotyposReadFailure
-  >;
-  readonly loadCustomerBreadcrumbLabel: (input: {
-    readonly customerId: DotyposCustomerId;
-  }) => Effect.Effect<
-    AdministrationCustomerName,
-    DotyposReadFailure | DiscountAdminNotFoundError
   >;
   readonly loadCustomerCodeCreation: (input: {
     readonly customerId: DotyposCustomerId;

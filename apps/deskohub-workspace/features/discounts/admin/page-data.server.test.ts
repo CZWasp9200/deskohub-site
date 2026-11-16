@@ -90,11 +90,6 @@ describe("discount administration record pages", () => {
         pages.loadDiscountAdminVoucherPageData(voucherId, searchParams()),
     },
     {
-      read: "loadCustomerProfile",
-      load: () =>
-        pages.loadDiscountAdminCustomerPageData(customerId, searchParams()),
-    },
-    {
       read: "loadCustomerCodeCreation",
       load: () =>
         pages.loadDiscountAdminCustomerCodeCreationPageData(customerId),
@@ -153,14 +148,6 @@ describe("discount administration pages that never 404", () => {
       sections: null,
       notice: { message: "Saved", status: "success" },
     });
-  });
-
-  test("leaves the customer breadcrumb unlabelled when the name is unavailable", async () => {
-    administration = { loadCustomerBreadcrumbLabel: missingRecord };
-
-    expect(
-      await pages.loadDiscountAdminCustomerBreadcrumbLabel(customerId, "en-US")
-    ).toBeUndefined();
   });
 
   test("reads only the notice for the shell", async () => {

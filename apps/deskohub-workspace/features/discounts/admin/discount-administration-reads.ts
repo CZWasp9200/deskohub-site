@@ -373,17 +373,6 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
     )
   );
 
-  const loadCustomerBreadcrumbLabel = Effect.fn(
-    "DiscountAdministration.loadCustomerBreadcrumbLabel"
-  )((input: { readonly customerId: DotyposCustomerId }) =>
-    loadActiveCustomer(input.customerId).pipe(
-      Effect.map((customer) => {
-        const { displayName, hasName } = toAdminDotyposCustomer(customer);
-        return { displayName, hasName };
-      })
-    )
-  );
-
   const loadCustomerCodeCreation = Effect.fn(
     "DiscountAdministration.loadCustomerCodeCreation"
   )((input: { readonly customerId: DotyposCustomerId }) =>
@@ -419,7 +408,6 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
     ),
     loadCodeDetail,
     loadCodesPage,
-    loadCustomerBreadcrumbLabel,
     loadCustomerCodeCreation,
     loadCustomerDiscountSections,
     loadCustomerProfile,
