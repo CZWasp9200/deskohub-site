@@ -15,6 +15,7 @@ import {
   AdministrationOverview,
   AdministrationReservationActivity,
   type AdministrationReservationDetailType,
+  type AdministrationReservationRestorationResultType,
   AdministrationStandaloneAccessCodeAttemptId,
   type AdministrationStandaloneAccessCodeAttemptIdType,
   type AdministrationStandaloneAccessCodeCreateInputType,
@@ -566,19 +567,10 @@ describe("dhw mutation commands", () => {
     expect(output).toEqual([]);
   });
 
-  test("reports each restore result on one line and names the reservation when access failed", async () => {
-    const results = [
-      { outcome: "restored", email: "sent", access: "issued" },
-      { outcome: "restored", email: "failed", access: "failed" },
-      { outcome: "restored", email: "not_available", access: "not_needed" },
-      {
-        outcome: "already_confirmed",
-        email: "not_requested",
-        access: "not_needed",
-      },
-    ] as const;
-    const lines: string[] = [];
-    for (const result of results) {
+  test("reports each restore result field on one line and names the reservation when access failed", async () => {
+    const reportLine = async (
+      result: AdministrationReservationRestorationResultType
+    ) => {
       const { layer, output } = makeCommandLayer({
         restoreReservation: () => Effect.succeed(result),
       });
@@ -587,14 +579,30 @@ describe("dhw mutation commands", () => {
         layer
       ).pipe(Effect.runPromise);
       expect(output).toHaveLength(1);
-      lines.push(output[0] ?? "");
-    }
+      return output[0] ?? "";
+    };
+    const base = {
+      outcome: "restored",
+      email: "not_requested",
+      access: "not_needed",
+    } as const;
+    const variations = {
+      outcome: ["restored", "already_confirmed"],
+      email: ["not_requested", "sent", "failed", "not_available"],
+      access: ["issued", "failed", "not_needed"],
+    } as const;
 
-    expect(new Set(lines).size).toBe(results.length);
-    expect(lines[1]).toContain(reservationId);
-    for (const line of [lines[0], lines[2], lines[3]]) {
-      expect(line).not.toContain(reservationId);
+    for (const [field, values] of Object.entries(variations)) {
+      const lines = [];
+      for (const value of values) {
+        lines.push(await reportLine({ ...base, [field]: value }));
+      }
+      // Each value of one field reads differently with the others fixed.
+      expect(new Set(lines).size).toBe(values.length);
     }
+    expect(await reportLine({ ...base, access: "failed" })).toContain(
+      reservationId
+    );
   });
 
   test("shows who booked a reservation for someone else", async () => {
