@@ -602,9 +602,10 @@ const recordAdministrationCancellationClaim = Effect.fnUntraced(function* (
     .update(workspaceReservations)
     .set({
       reservationState: "cancelling",
-      // An administrator's cancellation is never the customer's to retry,
-      // whatever claimed the reservation before.
-      cancellationCause: "operator",
+      // An administrator's cancellation is never the customer's to retry. A
+      // cancellation another claim started, now resumed by an administrator,
+      // keeps the cause that claim recorded (null when unknown).
+      cancellationCause: sql`case when ${workspaceReservations.reservationState} in ('held', 'hold_expired', 'confirmed') then 'operator' else ${workspaceReservations.cancellationCause} end`,
       ...(input.pendingPaymentCancellation && {
         paymentState: "cancelled" as const,
         failureCode: input.pendingPaymentCancellation.failureCode,

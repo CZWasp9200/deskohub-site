@@ -12,8 +12,6 @@ import {
 import { parsePhoneNumber } from "@deskohub/phone-number";
 import { Context, Data, Effect, Layer, Match, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
-import { WorkspaceLockSections } from "@/db/workspace-locks";
 import { CustomerAccountSections } from "@/features/account";
 import {
   type AccountingDocumentSnapshot,
@@ -257,7 +255,6 @@ export class CheckoutService extends Context.Service<
     Layer.provide(PaymentLifecycleRepository.Live),
     Layer.provide(PaymentAttemptRepository.Default),
     Layer.provide(WorkspaceReservationRepository.Default),
-    Layer.provide(WorkspaceDatabaseAdvisoryLock.Default),
     Layer.provide(WorkspaceDatabase.Default),
     Layer.provide(WorkspaceDotyposLayer),
     Layer.provide(WorkspaceNexiLayer),
@@ -438,7 +435,6 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
       const pricing = yield* CheckoutPricingService;
       const payableReservations = yield* PayableReservationService;
       const accountSections = yield* CustomerAccountSections;
-      const advisoryLock = yield* WorkspaceDatabaseAdvisoryLock;
       const provideSealedStateKeys = Effect.provideService(
         SealedStateKeys,
         yield* SealedStateKeys
@@ -1130,19 +1126,21 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
               });
             }
 
-            // The full state-creating section runs inside the order's lock
-            // section and, within it, the account advisory lock: authority
-            // is re-checked under the account lock and both are held until
-            // the section completes, so deletion cannot interleave with the
-            // reservation update, legal evidence, or payment start, and two
-            // submissions of one order start one payment. Idempotent
-            // recovery paths above stay reachable without the locks.
+            // The full state-creating section runs inside the account
+            // advisory lock: authority is re-checked under the lock and the
+            // same lock is held until the section completes, so deletion
+            // cannot interleave with the reservation update, legal evidence,
+            // or payment start, and the account's submissions of one order
+            // record its evidence and start its payment once. Attempt
+            // admission locks the order's row, so no submission starts a
+            // second attempt. Idempotent recovery paths above stay reachable
+            // without the lock.
             return yield* accountSections
               .withOptionalAccount(
                 Effect.fn(function* () {
                   // Another submission of this order may have started its
                   // payment, or the hold may have changed, since the check
-                  // above: decide again under the order's lock, before any
+                  // above: decide again under the account lock, before any
                   // evidence or provider work.
                   const lockedReservation = yield* reservations.findById(
                     reservation.id
@@ -1333,11 +1331,6 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                 })
               )
               .pipe(
-                WorkspaceLockSections.reservationOrder(reservation.id),
-                Effect.provideService(
-                  WorkspaceDatabaseAdvisoryLock,
-                  advisoryLock
-                ),
                 Effect.catchTag(
                   "CustomerAccountAccessError",
                   () =>

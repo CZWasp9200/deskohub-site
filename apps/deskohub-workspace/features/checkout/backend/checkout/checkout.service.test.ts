@@ -19,7 +19,6 @@ import {
   References,
   Schema,
 } from "effect";
-import { makeRecordingAdvisoryLock } from "@/db/postgres-advisory-lock.test-utils";
 import { env } from "@/env";
 import {
   type CustomerAccountSectionsFixture,
@@ -694,8 +693,17 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
   const lockedReservationRecord = options.lockedReservationOverrides
     ? { ...reservationRecord, ...options.lockedReservationOverrides }
     : reservationRecord;
+  // Whether each read of the order happened while the account lock was held.
+  const rereadUnderAccountLock: boolean[] = [];
   const reservations = {
-    findById: mock(() => Effect.succeed(lockedReservationRecord)),
+    findById: mock(() =>
+      Effect.sync(() => {
+        rereadUnderAccountLock.push(
+          options.accountAuthority?.lockProbe?.held === true
+        );
+        return lockedReservationRecord;
+      })
+    ),
     updateReservationDetails,
     recordPaymentReturnTarget,
   };
@@ -734,7 +742,6 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
   const accountAuthority = makeCustomerAccountSections(
     options.accountAuthority ?? { session: null }
   );
-  const advisoryLock = makeRecordingAdvisoryLock();
 
   const effect = Effect.gen(function* () {
     const service = yield* CheckoutService;
@@ -763,7 +770,6 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
         Layer.provide(
           Layer.mergeAll(
             accountAuthority.layer,
-            advisoryLock.layer,
             CheckoutPricingServiceMock(paymentPricing),
             Layer.mock(DotyposService, dotypos),
             Layer.mock(NexiService, nexi),
@@ -790,7 +796,7 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
   return {
     effect,
     accountEvents: accountAuthority.events,
-    lockedKeys: advisoryLock.entered,
+    rereadUnderAccountLock,
     affirm,
     createPendingNexiAttempt,
     completeInternalPayment,
@@ -1648,19 +1654,23 @@ describe("CheckoutService", () => {
     expect(harness.createPendingNexiAttempt).toHaveBeenCalledTimes(1);
   });
 
-  test("records the evidence and starts the payment inside the order's lock section", async () => {
-    const orderId = "reservation-starts-under-order-lock";
-    const harness = await createCheckoutHarness({ orderId });
+  test("decides again under the account lock before it records the evidence and starts the payment", async () => {
+    const lockProbe = { held: false };
+    const harness = await createCheckoutHarness({
+      orderId: "reservation-starts-under-account-lock",
+      accountAuthority: { session: {}, lockProbe },
+    });
 
     const result = await Effect.runPromise(harness.effect);
 
     expect(result.status).toBe("redirect");
-    expect(harness.lockedKeys).toEqual([["reservation-order", orderId]]);
+    expect(harness.rereadUnderAccountLock).toEqual([true]);
+    expect(harness.accountEvents).toContain("account-lock-acquired");
     expect(harness.recordLegalEvidence).toHaveBeenCalledTimes(1);
     expect(harness.createPendingNexiAttempt).toHaveBeenCalledTimes(1);
   });
 
-  test("returns the payment another submission started while this one waited for the order's lock, without new evidence or a second payment", async () => {
+  test("returns the payment another submission started while this one waited for the account lock, without new evidence or a second payment", async () => {
     const orderId = "reservation-started-by-concurrent-submission";
     const concurrentAttempt = makeAttempt({
       id: "concurrent-attempt",
@@ -1693,7 +1703,7 @@ describe("CheckoutService", () => {
     expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
   });
 
-  test("stops when the order's hold was released while this submission waited for its lock", async () => {
+  test("stops when the order's hold was released while this submission waited for the account lock", async () => {
     const harness = await createCheckoutHarness({
       orderId: "reservation-released-under-order-lock",
       lockedReservationOverrides: { reservationState: "cancelled" },

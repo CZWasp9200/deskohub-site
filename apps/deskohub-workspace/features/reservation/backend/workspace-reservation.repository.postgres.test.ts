@@ -619,6 +619,28 @@ describe.skipIf(!testDatabase)(
           })
         );
 
+      test("records an administrator's cause on a new cancellation and keeps the cause of one it resumes", async () => {
+        const booked = await insertReservation(confirmedPaid);
+        const expiryFailed = await insertReservation(
+          { reservation: "cancellation_failed" },
+          { cancellationCause: "hold_expired" }
+        );
+        const unknownFailed = await insertReservation({
+          reservation: "cancellation_failed",
+        });
+
+        for (const id of [booked, expiryFailed, unknownFailed]) {
+          await claimCancellation(id);
+        }
+
+        const causes = await Promise.all(
+          [booked, expiryFailed, unknownFailed].map(
+            async (id) => (await readReservation(id))?.cancellationCause
+          )
+        );
+        expect(causes).toEqual(["operator", "hold_expired", null]);
+      });
+
       test("claims a confirmed paid booking for cancellation", async () => {
         const id = await insertReservation(confirmedPaid);
 
