@@ -22,15 +22,7 @@ import { WORKSPACE_SITE_TIME_ZONE } from "@deskohub/workspace-admin-api/site-tim
 import { NodeCrypto } from "@effect/platform-node";
 import { and, desc, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import {
-  Context,
-  Data,
-  Effect,
-  Layer,
-  Option,
-  type PlatformError,
-  Schema,
-} from "effect";
+import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import { Digest, SecureRandom } from "effect/crypto";
 import type { SqlError } from "effect/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -77,23 +69,17 @@ interface ICliAuthentication {
       readonly approvalPath: string;
       readonly expiresAt: string;
     },
-    EffectDrizzleQueryError | PlatformError.PlatformError
+    EffectDrizzleQueryError
   >;
   readonly status: (
     code: CliAuthenticationCodeType
-  ) => Effect.Effect<
-    CliAuthenticationStatusType,
-    EffectDrizzleQueryError | PlatformError.PlatformError
-  >;
+  ) => Effect.Effect<CliAuthenticationStatusType, EffectDrizzleQueryError>;
   readonly exchange: (input: ExchangeCliGrantType) => Effect.Effect<
     {
       readonly accessToken: CliAccessTokenType;
       readonly session: CliSessionType;
     },
-    | EffectDrizzleQueryError
-    | PlatformError.PlatformError
-    | SqlError
-    | CliGrantRejected
+    EffectDrizzleQueryError | SqlError | CliGrantRejected
   >;
   /**
    * Accepts a bearer only while its session is unrevoked and unexpired and
@@ -104,9 +90,7 @@ interface ICliAuthentication {
     authorization: string
   ) => Effect.Effect<
     CliSessionType,
-    | EffectDrizzleQueryError
-    | PlatformError.PlatformError
-    | CliSessionUnauthorized
+    EffectDrizzleQueryError | CliSessionUnauthorized
   >;
   /** The administrator account that approved an authenticated session. */
   readonly sessionAdministrator: (
@@ -117,20 +101,14 @@ interface ICliAuthentication {
   >;
   readonly inspectApproval: (
     code: CliAuthenticationCodeType
-  ) => Effect.Effect<
-    CliApprovalRequest | null,
-    EffectDrizzleQueryError | PlatformError.PlatformError
-  >;
+  ) => Effect.Effect<CliApprovalRequest | null, EffectDrizzleQueryError>;
   readonly approve: (input: {
     readonly code: CliAuthenticationCodeType;
     readonly approvedBy: AdministratorAccountActor;
     readonly sessionLifetime: CliSessionLifetime;
   }) => Effect.Effect<
     CliApprovalRequest,
-    | EffectDrizzleQueryError
-    | PlatformError.PlatformError
-    | SqlError
-    | CliApprovalUnavailableError
+    EffectDrizzleQueryError | SqlError | CliApprovalUnavailableError
   >;
   readonly listSessions: (
     owner: CustomerAccountId
