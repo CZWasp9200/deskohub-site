@@ -43,7 +43,7 @@ import { CheckoutService } from "@/features/checkout/backend/checkout";
 import { CheckoutPaymentPageService } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { CheckoutStatusService } from "@/features/checkout/backend/checkout/checkout-status.service";
-import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
+import { PayableCheckout } from "@/features/checkout/backend/checkout/payable-checkout.service";
 import {
   featureFlagsByRequestCohort,
   releaseGateForRunOverFlags,
@@ -352,7 +352,7 @@ const unusedBookingCatalog: CustomerBookingCatalogLayerSet = {
   inventory: Layer.mock(AdvisoryAvailabilityInventory, {}),
   availability: Layer.mergeAll(
     Layer.mock(WorkspaceAvailabilityService, {}),
-    Layer.mock(ReservationSupersessionService, {}),
+    Layer.mock(PayableCheckout, {}),
     TestSealedStateKeys
   ),
   sealedStateKeys: TestSealedStateKeys,

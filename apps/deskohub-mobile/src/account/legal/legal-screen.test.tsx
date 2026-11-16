@@ -58,6 +58,7 @@ mock.module("../../auth/auth-client", () => ({
 }));
 
 const { LegalScreen } = await import("./legal-screen");
+const { ToastProvider } = await import("../../ui/toast");
 
 const label = m.legal_analytics_switch_label({}, { locale: "en-US" });
 const unavailable = m.legal_analytics_unavailable({}, { locale: "en-US" });
@@ -105,7 +106,9 @@ const legalScreen = async (kind: SampleAccountKind) => {
     return renderToStaticMarkup(
       <AppLocaleProvider locale="en-US">
         <RegistryContext value={registry}>
-          <LegalScreen />
+          <ToastProvider>
+            <LegalScreen />
+          </ToastProvider>
         </RegistryContext>
       </AppLocaleProvider>
     );
@@ -115,10 +118,11 @@ const legalScreen = async (kind: SampleAccountKind) => {
   }
 };
 
+// A switch row is one pressable switch that reads its own text.
 const analyticsSwitches = (markup: string) =>
-  [...markup.matchAll(/<Switch[^>]*aria-label="([^"]*)"[^>]*>/g)]
-    .map((match) => match[1])
-    .filter((name) => name === label).length;
+  [...markup.matchAll(/<Pressable role="switch"[^>]*>(.*?)<\/Pressable>/gs)]
+    .map((match) => match[1] ?? "")
+    .filter((content) => content.includes(label)).length;
 
 // The analytics preference belongs to the signed-in account, not to its
 // Dotypos profile: the site shows it to every signed-in account, so the app

@@ -64,12 +64,10 @@ import {
   type CheckoutReferralResult,
   CheckoutReferralService,
 } from "./checkout-referral.service";
+import { CheckoutUnavailableError } from "./checkout-unavailable";
 import type { SignedPayState } from "./pay-state";
-import {
-  type PayableReservation,
-  PayableReservationService,
-  PayableReservationUnavailableError,
-} from "./payable-reservation.service";
+import type { PayableReservation } from "./payable-checkout.service";
+import { PayableCheckoutMock } from "./payable-checkout.service.mock";
 
 mock.module("server-only", () => ({}));
 
@@ -373,8 +371,8 @@ const makeServiceLayer = (input: {
   readonly codeKind?: "referral" | "discount";
   /** The code-kind lookup fails, as when the referral registry is down. */
   readonly codeKindFailure?: DatabaseQueryError;
-  readonly payableReservationFailure?: PayableReservationUnavailableError;
-  /** The payment attempt every live payable-reservation read reports. */
+  readonly checkoutUnavailable?: CheckoutUnavailableError;
+  /** The payment attempt every payable-checkout confirmation reports. */
   readonly activePaymentAttemptId?: string;
   /** The payment attempt reads after the first report, once pricing ran. */
   readonly activePaymentAttemptIdAfterPricing?: string;
@@ -402,28 +400,26 @@ const makeServiceLayer = (input: {
         })
       )
     ),
-    Layer.mock(PayableReservationService, {
-      requireCurrent: () =>
-        Effect.suspend(() => {
-          payableReservationReadCount += 1;
-          input.onPayableReservationRead?.();
-          if (input.payableReservationFailure !== undefined) {
-            return Effect.fail(input.payableReservationFailure);
-          }
-          const activePaymentAttemptId =
-            payableReservationReadCount > 1
-              ? (input.activePaymentAttemptIdAfterPricing ??
-                input.activePaymentAttemptId)
-              : input.activePaymentAttemptId;
-          return Effect.succeed({
-            dotyposCustomerId:
-              input.payableReservationCustomerId ?? dotyposCustomerId,
-            activePaymentAttemptId: activePaymentAttemptId ?? null,
-            reservationHoldExpiresAt:
-              Temporal.Instant.from(storedHoldExpiresAt),
-          } as PayableReservation);
-        }),
-    })
+    PayableCheckoutMock(() =>
+      Effect.suspend(() => {
+        payableReservationReadCount += 1;
+        input.onPayableReservationRead?.();
+        if (input.checkoutUnavailable !== undefined) {
+          return Effect.fail(input.checkoutUnavailable);
+        }
+        const activePaymentAttemptId =
+          payableReservationReadCount > 1
+            ? (input.activePaymentAttemptIdAfterPricing ??
+              input.activePaymentAttemptId)
+            : input.activePaymentAttemptId;
+        return Effect.succeed({
+          dotyposCustomerId:
+            input.payableReservationCustomerId ?? dotyposCustomerId,
+          activePaymentAttemptId: activePaymentAttemptId ?? null,
+          reservationHoldExpiresAt: Temporal.Instant.from(storedHoldExpiresAt),
+        } as PayableReservation);
+      })
+    ).pipe(Layer.provide(TestSealedStateKeys))
   );
   return CheckoutReferralService.Default.pipe(
     Layer.provide(Layer.merge(dependencies, TestSealedStateKeys))
@@ -1107,33 +1103,6 @@ describe("CheckoutReferralService", () => {
     expect(result).toEqual({ status: "unavailable", reason: "provider" });
   });
 
-  test("reports a stored customer identity it can't read as a provider failure", async () => {
-    const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
-    let evaluationCount = 0;
-    const layer = makeServiceLayer({
-      affirmation: {
-        quote,
-        commitment: makeCommitment(coworkProduct, []),
-      },
-      payableReservationCustomerId: "" as typeof dotyposCustomerId,
-      evaluateCheckoutReferral: () =>
-        Effect.sync(() => {
-          evaluationCount += 1;
-          return eligible;
-        }),
-    });
-
-    const result = await Effect.runPromise(
-      runAcceptCode(
-        layer,
-        tokenFor({ reservation, quote, bookedAt: payStateBookedAt })
-      )
-    );
-
-    expect(result).toEqual({ status: "unavailable", reason: "provider" });
-    expect(evaluationCount).toBe(0);
-  });
-
   test.each(["expired", "not_current", "dotypos_not_pending"] as const)(
     "reports a reservation that is no longer payable (%s) as a checkout failure with its reason",
     async (checkoutReason) => {
@@ -1143,11 +1112,12 @@ describe("CheckoutReferralService", () => {
           quote,
           commitment: makeCommitment(coworkProduct, []),
         },
-        payableReservationFailure: new PayableReservationUnavailableError({
+        checkoutUnavailable: new CheckoutUnavailableError({
           orderId: workspaceReservationIdSchema.make(
             "checkout-referral-service-test-reservation"
           ),
           reason: checkoutReason,
+          restartKind: "cowork",
         }),
         evaluateCheckoutReferral: () => Effect.succeed(eligible),
       });

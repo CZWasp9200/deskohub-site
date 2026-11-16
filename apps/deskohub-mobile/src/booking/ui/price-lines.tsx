@@ -182,21 +182,25 @@ const barStyles = StyleSheet.create({
 });
 
 // `.bk-price` / `.bk-li`: the review card's rows.
+// A row too narrow for its name and amount, as at large font sizes, puts
+// the amount under the name on the right instead of breaking words.
 const cardStyles = StyleSheet.create({
   list: { gap: 10 },
   row: {
     alignItems: "baseline",
+    columnGap: space.md,
     flexDirection: "row",
-    gap: space.md,
+    flexWrap: "wrap",
     justifyContent: "space-between",
   },
-  name: { flexShrink: 1, minWidth: 0 },
+  name: { flexShrink: 0, maxWidth: "100%" },
   label: { ...typeScale.lead, color: color.navy },
   detail: { ...typeScale.hint, color: color.ink2 },
   amount: {
     ...typeScale.lead,
     color: color.navy,
     flexShrink: 0,
+    marginLeft: "auto",
     textAlign: "right",
   },
   reductionAmount: { ...typeScale.subhead, lineHeight: 22 },
@@ -208,13 +212,14 @@ const totalStyles = StyleSheet.create({
     alignItems: "center",
     borderTopColor: color.divider,
     borderTopWidth: 1,
+    columnGap: space.md,
     flexDirection: "row",
-    gap: space.md,
+    flexWrap: "wrap",
     justifyContent: "space-between",
     paddingTop: space.md,
   },
   label: { ...typeScale.headline, color: color.navy },
-  amounts: { alignItems: "flex-end", flexShrink: 0 },
+  amounts: { alignItems: "flex-end", flexShrink: 0, marginLeft: "auto" },
   was: {
     ...typeScale.hint,
     color: color.ink2,

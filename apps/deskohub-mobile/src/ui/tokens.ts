@@ -214,3 +214,6 @@ export const typeScale = {
 } as const;
 
 export type TypeVariant = keyof typeof typeScale;
+
+/** How far the tab bar's raised Book circle rises above the bar, over content. */
+export const tabBarRaisedOverhang = 26;

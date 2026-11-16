@@ -2,7 +2,6 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Effect, Match } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { router } from "expo-router";
-import { openBrowserAsync } from "expo-web-browser";
 import Check from "lucide-react-native/icons/check";
 import KeyRound from "lucide-react-native/icons/key-round";
 import LogOut from "lucide-react-native/icons/log-out";
@@ -23,6 +22,7 @@ import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-m
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { openSitePage } from "../../routing/open-site-page";
 import { contactPageUrl } from "../../routing/site-page";
 import { ActionFooter } from "../../ui/action-footer";
 import { Badge } from "../../ui/badge";
@@ -62,7 +62,7 @@ const leaveDeletedAccountScreens = deletedAccountExit.leave({
 
 // Where no browser is available there is nothing else to open.
 const openContactPage = () =>
-  void openBrowserAsync(contactPageUrl(apiOrigin)).catch(() => undefined);
+  void openSitePage(contactPageUrl(apiOrigin)).catch(() => undefined);
 
 /** The sentence for an outcome the screen shows above its content. */
 const screenNotice = (

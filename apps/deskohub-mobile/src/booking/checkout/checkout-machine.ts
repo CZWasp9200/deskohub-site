@@ -183,7 +183,7 @@ const onCreating = (creating: CreatingState, event: CheckoutEvent) =>
   Event.$match(event, {
     CheckoutCreated: ({ operationId, start }) =>
       answers(creating.command, operationId)
-        ? created(creating.flow, start)
+        ? created(creating.flow, creating.details, start)
         : stay(creating),
     CommandFailed: ({ operationId, problem }) =>
       answers(creating.command, operationId)
@@ -207,18 +207,23 @@ const onCreating = (creating: CreatingState, event: CheckoutEvent) =>
     PaymentEnded: () => stay(creating),
   });
 
-const created = (flow: CheckoutFlow, start: CustomerCheckoutStart) =>
+const created = (
+  flow: CheckoutFlow,
+  details: CheckoutDetails,
+  start: CustomerCheckoutStart
+) =>
   Match.value(start).pipe(
     Match.discriminatorsExhaustive("status")({
       payment_disabled: () =>
         to(CheckoutState.Blocked({ reason: "payment-disabled" })),
-      ready: (checkout) => enterReview(flow, checkout),
-      price_review: (checkout) => enterReview(flow, checkout),
+      ready: (checkout) => enterReview(flow, details, checkout),
+      price_review: (checkout) => enterReview(flow, details, checkout),
     })
   );
 
 const enterReview = (
   flow: CheckoutFlow,
+  details: CheckoutDetails,
   checkout: CustomerCheckout
 ): CheckoutStep => {
   const [operationId, next] = takeOperation(flow);
@@ -226,7 +231,9 @@ const enterReview = (
   return to(
     CheckoutState.Review({
       flow: withReferralUpdate(next, update),
+      details,
       checkout: heldCheckout(checkout),
+      priceBefore: Option.none(),
       code: { input: "", status: CodeStatus.Idle() },
       legal: LegalDocuments.Loading({ operationId }),
       consent: Option.none(),
@@ -613,6 +620,18 @@ const codeCleared = (review: ReviewState, checkout: CustomerCheckout) =>
   );
 
 /**
+ * The total the customer saw before an answer that asks them to accept a
+ * new price: the one shown when the review began, kept across answers
+ * while it waits.
+ */
+const priceBeforeOf = (review: ReviewState, checkout: CustomerCheckout) => {
+  if (checkout.priceReview === undefined) return Option.none();
+  return Option.isSome(review.checkout.priceReview)
+    ? review.priceBefore
+    : Option.some(review.checkout.summary.total);
+};
+
+/**
  * Takes a checkout answer as the whole truth about the held order: token,
  * summary, hold end, applied code, price review and early-performance
  * requirement.
@@ -627,6 +646,7 @@ const replaceCheckout = (
       ...review,
       flow: withReferralUpdate(review.flow, update),
       checkout: heldCheckout(checkout),
+      priceBefore: priceBeforeOf(review, checkout),
       // The checkbox asks to start early only while that's required, so a
       // tick given before doesn't cover it.
       consent:

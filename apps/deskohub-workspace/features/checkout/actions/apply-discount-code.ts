@@ -6,7 +6,7 @@ import { env } from "@/env";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import {
   CheckoutReferralService,
-  PayableReservationService,
+  PayableCheckout,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import {
@@ -60,7 +60,7 @@ const applyDiscountCodeOnSite = Effect.fn("checkout.applyDiscountCodeOnSite")(
             Layer.provideMerge(
               Layer.mergeAll(
                 CheckoutPricingService.Live,
-                PayableReservationService.Live,
+                PayableCheckout.Live,
                 WorkspaceReservationRepository.Live,
                 ReferralService.Live,
                 CheckoutReferralService.Live,
