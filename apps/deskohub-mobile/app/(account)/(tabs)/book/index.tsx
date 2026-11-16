@@ -1,5 +1,5 @@
-import { BookingFamilyChooserScreen } from "../../../../src/booking/family/booking-family-chooser-screen";
+import { SpaceChooserScreen } from "../../../../src/booking/family/space-chooser-screen";
 
 export default function BookRoute() {
-  return <BookingFamilyChooserScreen />;
+  return <SpaceChooserScreen />;
 }

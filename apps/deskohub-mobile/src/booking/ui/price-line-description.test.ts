@@ -5,6 +5,7 @@ import { m } from "../../i18n/messages";
 import { productLabel } from "../checkout-screen/checkout-copy";
 import { type PriceLine, priceBreakdown } from "./price-breakdown";
 import {
+  describeOfficePriceLine,
   describePriceLine,
   type PriceLineDescription,
 } from "./price-line-description";
@@ -124,6 +125,18 @@ describe("describePriceLine", () => {
         { label: "Office discount" },
       ],
     ]);
+  });
+
+  test("names an office's lines before a selection the way it names them once quoted", () => {
+    const quoted = describePriceLine(
+      officeSixSeatsDiscounted.selection,
+      locale,
+      "Private office"
+    );
+    const unselected = describeOfficePriceLine(locale, "Private office");
+    for (const line of priceBreakdown(officeSixSeatsDiscounted.summary).lines) {
+      expect(unselected(line)).toEqual(quoted(line));
+    }
   });
 
   test("names every line in every locale", () => {

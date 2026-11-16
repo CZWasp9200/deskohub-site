@@ -72,6 +72,17 @@ describe("error state", () => {
     expect(retry(false)?.busy).toBe(false);
     expect(retry(false)?.onPress).toBe(props.onRetry);
   });
+
+  test("with a title, shows the message under it", () => {
+    const empty = find(
+      elementTree(ErrorState, { ...props, title: "title" }),
+      EmptyState
+    )?.props;
+    expect(empty?.body).toBe(props.message);
+    expect(find(elementTree(ErrorState, props), EmptyState)?.props.body).toBe(
+      undefined
+    );
+  });
 });
 
 describe("live regions", () => {
