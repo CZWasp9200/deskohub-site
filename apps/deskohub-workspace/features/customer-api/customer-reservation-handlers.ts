@@ -300,6 +300,7 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
         paymentStatus,
         fulfillmentStatus,
         reviewSandbox,
+        paymentPageReopenable,
         summary,
         bookedSelection,
       }) =>
@@ -310,6 +311,7 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
           paymentStatus,
           fulfillmentStatus,
           ...(reviewSandbox && { reviewSandbox }),
+          ...(paymentPageReopenable && { paymentPageReopenable }),
           ...(summary && {
             startsAt: summary.reservedFrom.toString(),
             endsAt: summary.reservedUntil.toString(),
