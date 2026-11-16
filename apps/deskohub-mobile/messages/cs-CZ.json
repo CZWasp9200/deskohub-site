@@ -178,6 +178,8 @@
   "signin_continue_as_body": "V tomto prohlížeči už je tvůj účet přihlášený. Pokračuj a vrať se do aplikace.",
   "signin_returning_to_app": "Vracíme tě do aplikace.",
   "signin_reauthenticate_body": "Přihlas se znovu, abychom ověřili, že jsi to ty.",
+  "signin_reauthenticate_title": "Potvrď, že jsi to ty",
+  "signin_reauthenticate_delete_account_body": "Pro smazání účtu se přihlas znovu.",
   "signin_send_code": "Poslat kód",
   "signin_sign_in": "Přihlásit se",
   "signin_sending_code": "Posíláme kód…",

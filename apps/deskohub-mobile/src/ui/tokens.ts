@@ -72,6 +72,8 @@ export const color = {
   handle: "#C9CCDA",
   /** The dashed outline of an empty state. */
   dashed: "#D3CDC0",
+  /** The one-tone line drawings on paper, such as the sign-in shield. */
+  illustration: "#B5B0A6",
   white: "#FFFFFF",
 } as const;
 

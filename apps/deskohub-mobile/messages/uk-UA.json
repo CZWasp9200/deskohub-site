@@ -178,6 +178,8 @@
   "signin_continue_as_body": "У цьому браузері ви вже ввійшли. Продовжте, щоб повернутися до застосунку.",
   "signin_returning_to_app": "Повертаємося до застосунку.",
   "signin_reauthenticate_body": "Увійдіть ще раз, щоб ми переконалися, що це ви.",
+  "signin_reauthenticate_title": "Підтвердьте, що це ви",
+  "signin_reauthenticate_delete_account_body": "Увійдіть ще раз, щоб видалити свій обліковий запис.",
   "signin_send_code": "Надіслати код",
   "signin_sign_in": "Увійти",
   "signin_sending_code": "Надсилаємо код…",
