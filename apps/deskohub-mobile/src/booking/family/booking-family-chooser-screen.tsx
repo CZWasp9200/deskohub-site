@@ -2,10 +2,10 @@ import type { CustomerBookingOfferings } from "@deskohub/workspace-customer-api"
 import { useRouter } from "expo-router";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import { ListGroup, ListRow, SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { bookFamilyHref } from "../booking-routes";
-import { formatMoney } from "../ui/money";
 import { bookingFamilyChoices } from "./booking-family-chooser";
 import { familyDescription, familyTitle } from "./booking-family-copy";
 import { BookingGate } from "./booking-gate";
