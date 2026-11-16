@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Option } from "effect";
 import type { AtomRegistry } from "effect/unstable/reactivity";
 import { makeFakeCustomerData } from "../../customer-api/testing/customer-data-test-registry";
+import { bookingPreselectionKey } from "../booking-preselection";
 import {
   bookingAvailabilityAtom,
   bookingOfferingsAtom,
@@ -17,11 +18,7 @@ import {
 import { pragueToday } from "../selection/prague-date";
 import { fakeBooking } from "../testing/fake-booking-api";
 import { checkoutRequestOf } from "./booking-family-view";
-import {
-  coworkBookingModel,
-  coworkPreselectionKey,
-  openingCoworkDraft,
-} from "./cowork-booking-model";
+import { coworkBookingModel, openingCoworkDraft } from "./cowork-booking-model";
 import { settledValue } from "./testing/settled-value";
 
 const now = new Date();
@@ -246,7 +243,7 @@ describe("openingCoworkDraft", () => {
     expect(
       openingCoworkDraft({
         kept: Option.some({
-          seed: coworkPreselectionKey(Option.some(booked)),
+          seed: bookingPreselectionKey(Option.some(booked)),
           draft: earlier,
         }),
         preselection: Option.some(booked),

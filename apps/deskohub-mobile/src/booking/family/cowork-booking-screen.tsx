@@ -23,6 +23,7 @@ import { formatMoney } from "../../i18n/money-format";
 import { Notice } from "../../ui/notice";
 import { Skeleton, SkeletonGroup } from "../../ui/skeleton";
 import { color, radius, space } from "../../ui/tokens";
+import { bookingPreselectionKey } from "../booking-preselection";
 import { bookCheckoutHref } from "../booking-routes";
 import { checkoutRequestAtom } from "../checkout/checkout-flow";
 import {
@@ -73,7 +74,6 @@ import { BookingGate } from "./booking-gate";
 import { BookingReadFailure, BookingReadView } from "./booking-read-view";
 import {
   coworkBookingModel,
-  coworkPreselectionKey,
   type KeptCoworkDraft,
   openingCoworkDraft,
 } from "./cowork-booking-model";
@@ -193,7 +193,7 @@ function CoworkSelection({
   const now = useAtomValue(bookingClockAtom);
   const today = pragueToday(now);
 
-  const seed = coworkPreselectionKey(preselection);
+  const seed = bookingPreselectionKey(preselection);
   const [kept, setStored] = useAtom(coworkDraftAtom);
   const draft = openingCoworkDraft({ kept, preselection, offerings, today });
   const setDraft = (next: CoworkDraft) =>

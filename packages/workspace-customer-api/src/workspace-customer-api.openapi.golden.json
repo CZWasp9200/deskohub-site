@@ -5769,6 +5769,9 @@
               "usage": {
                 "type": "string"
               },
+              "summary": {
+                "type": "string"
+              },
               "price": {
                 "$ref": "#/components/schemas/Money"
               },

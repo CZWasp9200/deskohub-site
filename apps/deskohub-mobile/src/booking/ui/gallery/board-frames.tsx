@@ -2,7 +2,9 @@ import type {
   CustomerCheckoutSummary,
   Money,
 } from "@deskohub/workspace-customer-api";
+import { RegistryProvider } from "@effect/atom-react";
 import { Option } from "effect";
+import { Atom } from "effect/unstable/reactivity";
 import Coffee from "lucide-react-native/icons/coffee";
 import Lock from "lucide-react-native/icons/lock";
 import Monitor from "lucide-react-native/icons/monitor";
@@ -10,6 +12,7 @@ import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { type ComponentRef, type ReactNode, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { customerDataLayer } from "../../../customer-api/customer-data-runtime";
 import type { AppLocale } from "../../../i18n/app-locale";
 import { useAppLocale } from "../../../i18n/locale-context";
 import { m } from "../../../i18n/messages";
@@ -26,7 +29,10 @@ import {
   initialDetailsDraft,
 } from "../../checkout-screen/details-form";
 import { DetailsStep } from "../../checkout-screen/details-step";
-import { CoworkSkeleton } from "../../family/cowork-booking-screen";
+import {
+  CoworkBookingScreen,
+  CoworkSkeleton,
+} from "../../family/cowork-booking-screen";
 import {
   type CoworkTierCard,
   CoworkTierCards,
@@ -536,6 +542,42 @@ function CoworkPriceError({ onBack }: { readonly onBack: () => void }) {
   );
 }
 
+/**
+ * The real cowork screen over the sample Workspace, without signing in, so a
+ * capture reaches its live states. The gallery's route params reach it: a
+ * booked selection (`&tier=reserved-desk&date=…`) or `&restart=hold_expired`.
+ */
+function CoworkLive({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  // Metro drops the branch from release bundles, so the fake Workspace and
+  // its fixtures never ship there (see `customer-data-provider.tsx`); read
+  // at render, as Bun's tests don't define `__DEV__`.
+  const [initialValues] = useState(() =>
+    __DEV__
+      ? [
+          Atom.initialValue(
+            customerDataLayer,
+            (
+              require("../../../customer-api/testing/sample-data-layer") as typeof import("../../../customer-api/testing/sample-data-layer")
+            ).sampleCustomerDataLayer("linked")
+          ),
+        ]
+      : []
+  );
+  return (
+    <RegistryProvider initialValues={initialValues}>
+      <SafeAreaView edges={["top"]} style={styles.screen}>
+        <FocusedStatusBar style="dark" />
+        <AppBar
+          title={m.booking_family_cowork_title({}, { locale })}
+          onBack={onBack}
+        />
+        <CoworkBookingScreen />
+      </SafeAreaView>
+    </RegistryProvider>
+  );
+}
+
 /** Board 27: back after the hold ran out, the choices kept. */
 function CoworkRestart({ onBack }: { readonly onBack: () => void }) {
   const locale = useAppLocale();
@@ -1029,6 +1071,12 @@ function PayBusy({ onBack }: { readonly onBack: () => void }) {
 
 /** Every proposed frame this ticket's pieces appear in, in board order. */
 export const boardFrames: ReadonlyArray<BoardFrame> = [
+  {
+    key: "cowork-live",
+    board: "26",
+    state: "The cowork screen over sample data",
+    Screen: CoworkLive,
+  },
   { key: "cowork-start", board: "26", state: "Start", Screen: CoworkStart },
   {
     key: "cowork-chosen",
