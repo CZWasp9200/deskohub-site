@@ -284,6 +284,11 @@ function ReviewForAccount({
         bookerName={bookerName}
         send={ended ? ignoreIntent : flow.send}
         onChangeBooking={() => backToSelection()}
+        onOpenDocument={(document) =>
+          void WebBrowser.openBrowserAsync(
+            new URL(document.path, apiOrigin).href
+          )
+        }
         locale={locale}
       />
       <HoldEndedDialog

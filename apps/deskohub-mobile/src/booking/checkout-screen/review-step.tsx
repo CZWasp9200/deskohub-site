@@ -3,7 +3,6 @@ import type {
   CustomerLegalDocument,
 } from "@deskohub/workspace-customer-api";
 import { DateTime, Option } from "effect";
-import * as WebBrowser from "expo-web-browser";
 import CircleCheck from "lucide-react-native/icons/circle-check";
 import Lock from "lucide-react-native/icons/lock";
 import Tag from "lucide-react-native/icons/tag";
@@ -18,7 +17,6 @@ import {
 } from "react-native";
 import { DateTile } from "../../account/reservations/booking-ticket";
 import { dateTileParts } from "../../account/reservations/booking-time";
-import { apiOrigin } from "../../auth/auth-client";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
@@ -78,6 +76,7 @@ export function ReviewStep({
   bookerName,
   send,
   onChangeBooking,
+  onOpenDocument,
   locale,
 }: Locale & {
   readonly review: ReviewState;
@@ -89,6 +88,7 @@ export function ReviewStep({
   readonly send: Send;
   /** Back to the selection, with the choices kept. */
   readonly onChangeBooking: () => void;
+  readonly onOpenDocument: (document: CustomerLegalDocument) => void;
 }) {
   const view = reviewView(review, quotedTotal, bookerName);
   const hold = useHoldCountdown(view.holdExpiresAt);
@@ -162,7 +162,12 @@ export function ReviewStep({
         <View style={styles.code}>
           <CodeRow code={view.code} send={send} locale={locale} />
         </View>
-        <LegalConsent consent={view.consent} send={send} locale={locale} />
+        <LegalConsent
+          consent={view.consent}
+          send={send}
+          onOpenDocument={onOpenDocument}
+          locale={locale}
+        />
         <ReviewNoticeView
           notice={review.notice}
           idle={!view.busy}
@@ -504,17 +509,18 @@ const codeProblemText = (problem: CodeProblem, locale: AppLocale): string => {
   }
 };
 
-const openDocument = (document: CustomerLegalDocument) => {
-  void WebBrowser.openBrowserAsync(new URL(document.path, apiOrigin).href);
-};
-
 // The agreement and its documents belong to the payment ticket (#1253);
 // kept as they were.
 function LegalConsent({
   consent,
   send,
+  onOpenDocument,
   locale,
-}: Locale & { readonly consent: ConsentView; readonly send: Send }) {
+}: Locale & {
+  readonly consent: ConsentView;
+  readonly send: Send;
+  readonly onOpenDocument: (document: CustomerLegalDocument) => void;
+}) {
   const { legal } = consent;
   switch (legal._tag) {
     case "Loading":
@@ -553,7 +559,7 @@ function LegalConsent({
               <Pressable
                 key={document.key}
                 role="link"
-                onPress={() => openDocument(document)}
+                onPress={() => onOpenDocument(document)}
                 style={styles.link}
               >
                 <Text style={styles.linkText}>
