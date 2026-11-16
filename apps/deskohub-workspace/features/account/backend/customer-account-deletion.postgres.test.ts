@@ -14,6 +14,7 @@ import { customerAccounts } from "@/db/schema";
 import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-document-snapshot";
 import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { InvoiceCancellationRepository } from "@/features/accounting/backend/invoice-cancellation.repository";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import { manualInvoiceInputSchema } from "@/features/accounting/manual-invoice";
 import { ReviewAccounts } from "@/features/review-accounts";
@@ -482,7 +483,8 @@ describe.skipIf(!invoiceDatabase)(
         ReviewAccounts.Default,
         InvoiceRepository.Default.pipe(
           Layer.provide(AccountingDocumentSnapshotRepository.Default)
-        )
+        ),
+        InvoiceCancellationRepository.Default
       ).pipe(Layer.provideMerge(storage));
       return Layer.mergeAll(
         repositories,
