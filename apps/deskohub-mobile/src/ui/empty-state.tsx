@@ -53,7 +53,10 @@ export function EmptyState({
   readonly children?: ReactNode;
 }) {
   const disc = discColors[tone];
-  useLiveRegionAnnouncement(live && title, live ?? "polite");
+  // A live title is read with the line under it, such as a failure's cause.
+  const announced =
+    title !== "" && body !== undefined ? `${title}. ${body}` : title;
+  useLiveRegionAnnouncement(live && announced, live ?? "polite");
   return (
     <View style={[styles.empty, dashed && styles.dashed]}>
       <View style={[styles.disc, { backgroundColor: disc.background }]}>
@@ -65,6 +68,9 @@ export function EmptyState({
         aria-live={live}
         // Text doesn't map `aria-live` to Android's live region; View does.
         accessibilityLiveRegion={live}
+        accessibilityLabel={
+          live !== undefined && announced !== title ? announced : undefined
+        }
         style={styles.centred}
       >
         {title}

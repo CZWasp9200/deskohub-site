@@ -182,6 +182,10 @@ interface PricedLine {
   readonly crowns: number;
   readonly dayCount?: number;
   readonly seats?: number;
+  /** An office line's access part, before discounts. */
+  readonly accessCrowns?: number;
+  /** One office seat for the days booked, before discounts. */
+  readonly seatCrowns?: number;
 }
 
 /** Inclusive Prague days between two plain dates. */
@@ -236,6 +240,8 @@ export const pricedLines = (
         dayCount * (samplePrices.officeDay + seats * samplePrices.officeSeat),
       dayCount,
       seats,
+      accessCrowns: dayCount * samplePrices.officeDay,
+      seatCrowns: dayCount * samplePrices.officeSeat,
     },
   ];
 };
@@ -275,6 +281,12 @@ export const sampleSummary = ({
         : {}),
       ...(line.dayCount === undefined ? {} : { dayCount: line.dayCount }),
       ...(line.seats === undefined ? {} : { seats: line.seats }),
+      ...(line.accessCrowns === undefined
+        ? {}
+        : { accessAmount: czk(line.accessCrowns) }),
+      ...(line.seatCrowns === undefined
+        ? {}
+        : { seatAmount: czk(line.seatCrowns) }),
     };
   });
   const total = czk(

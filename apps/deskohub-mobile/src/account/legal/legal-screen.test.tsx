@@ -1,4 +1,4 @@
-import { describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, describe, expect, mock, spyOn, test } from "bun:test";
 import { RegistryContext } from "@effect/atom-react";
 import { Layer } from "effect";
 import { createElement, type ReactNode } from "react";
@@ -24,7 +24,8 @@ import { marketingPreferencesAtom } from "./marketing-preferences";
 mock.module("expo-router", () => expoRouterStandIn());
 // A static render can't take the pressed-state functions a Pressable's style
 // and children may be; they render unpressed.
-const reactNative = await import("react-native");
+// A copy: the module's own namespace turns into the mock once it is mocked.
+const reactNative = { ...(await import("react-native")) };
 mock.module("react-native", () => ({
   ...reactNative,
   Pressable: ({
@@ -46,6 +47,11 @@ mock.module("react-native", () => ({
       typeof children === "function" ? children({ pressed: false }) : children
     ),
 }));
+// Module mocks outlive this file: hand later files the preload's
+// react-native back, whose Pressable takes its pressed-state functions.
+afterAll(() => {
+  mock.module("react-native", () => reactNative);
+});
 // The document links only need the origin, not the native auth client.
 mock.module("../../auth/auth-client", () => ({
   apiOrigin: "https://workspace.test",
