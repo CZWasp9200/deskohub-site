@@ -114,11 +114,11 @@ describe("loadPayStateHoldExpiry", () => {
     const withoutDeadline = await load(storedReservation(null));
 
     expect(missing).toMatchObject({
-      _tag: "PayableReservationUnavailableError",
+      _tag: "CheckoutUnavailableError",
       reason: "missing_reservation",
     });
     expect(withoutDeadline).toMatchObject({
-      _tag: "PayableReservationUnavailableError",
+      _tag: "CheckoutUnavailableError",
       reason: "not_held",
     });
   });

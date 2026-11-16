@@ -215,17 +215,12 @@ export const loadRestoredReservation = Effect.fn(
   if (!token) return undefined;
 
   const payState = Option.getOrUndefined(
-    yield* PayState.open(token).pipe(
+    yield* PayState.open(token, { locale, reservationKind: kind }).pipe(
       Effect.provide(SealedStateKeys.Default),
       Effect.option
     )
   );
-  if (
-    !payState ||
-    !PayState.continuesOn(payState, { locale, reservationKind: kind })
-  ) {
-    return undefined;
-  }
+  if (!payState) return undefined;
 
   return {
     checkoutSessionId: payState.checkoutSessionId,

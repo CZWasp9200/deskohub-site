@@ -31,9 +31,14 @@ import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-uti
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
 import {
+  CheckoutUnavailableError,
+  type CheckoutUnavailableReason,
+} from "./checkout-unavailable";
+import {
   buildSignedPayState,
   PayState,
   PayStateTokenError,
+  type SignedPayState,
   sealPayState,
 } from "./pay-state";
 import {
@@ -41,10 +46,7 @@ import {
   clearDiscountCodeFromPayState,
   getDiscountCodeChangeDeadline,
 } from "./pay-state-discount-code";
-import {
-  PayableReservationService,
-  PayableReservationUnavailableError,
-} from "./payable-reservation.service";
+import { PayableCheckoutMock } from "./payable-checkout.service.mock";
 import { withoutPayStateHoldExpiry } from "./signed-pay-state.test-utils";
 
 mock.module("server-only", () => ({}));
@@ -161,29 +163,30 @@ type ClearInput = {
   readonly payStateToken: string;
   /** Replaces the pricing stub, for example with real pricing. */
   readonly pricing?: Layer.Layer<CheckoutPricingService>;
-  /** How long each live payable-reservation guard takes. */
-  readonly requireCurrentDuration?: Duration.Input;
+  /** How long each live payable-checkout guard takes. */
+  readonly confirmDuration?: Duration.Input;
   readonly locale?: Locale;
   /** Replaces the pricing stub's `clearDiscountCode`. */
   readonly clearDiscountCode?: ReturnType<typeof mock>;
   readonly activePaymentAttemptId?: string;
   readonly activePaymentAttemptIdAfterPricing?: string;
   /** The live guard read that finds the reservation unpayable, and why. */
-  readonly payableReservationUnavailable?: {
+  readonly checkoutUnavailable?: {
     readonly at: 1 | 2;
-    readonly reason: PayableReservationUnavailableError["reason"];
+    readonly reason: CheckoutUnavailableReason;
   };
 };
 
 const prepareClear = (input: ClearInput) => {
   let guardReads = 0;
-  const readGuard = () => {
+  const readGuard = (state: SignedPayState) => {
     guardReads += 1;
-    if (input.payableReservationUnavailable?.at === guardReads) {
+    if (input.checkoutUnavailable?.at === guardReads) {
       return Effect.fail(
-        new PayableReservationUnavailableError({
-          orderId: "reservation-id",
-          reason: input.payableReservationUnavailable.reason,
+        new CheckoutUnavailableError({
+          orderId: state.orderId,
+          reason: input.checkoutUnavailable.reason,
+          restartKind: state.reservation.kind,
         })
       );
     }
@@ -199,9 +202,9 @@ const prepareClear = (input: ClearInput) => {
           : (input.activePaymentAttemptId ?? null),
     } as never);
   };
-  const requireCurrent = mock(() =>
-    Effect.sleep(input.requireCurrentDuration ?? 0).pipe(
-      Effect.andThen(readGuard)
+  const confirm = mock((state: SignedPayState) =>
+    Effect.sleep(input.confirmDuration ?? 0).pipe(
+      Effect.andThen(() => readGuard(state))
     )
   );
   const clearDiscountCode =
@@ -223,13 +226,13 @@ const prepareClear = (input: ClearInput) => {
     Effect.provide(
       Layer.mergeAll(
         input.pricing ?? CheckoutPricingServiceMock({ clearDiscountCode }),
-        Layer.succeed(PayableReservationService, { requireCurrent }),
+        PayableCheckoutMock(confirm).pipe(Layer.provide(TestSealedStateKeys)),
         Layer.mock(WorkspaceReservationRepository, { findById }),
         TestSealedStateKeys
       )
     )
   );
-  return { effect, requireCurrent, clearDiscountCode, findById };
+  return { effect, confirm, clearDiscountCode, findById };
 };
 
 const runClear = async (input: ClearInput) => {
@@ -284,7 +287,7 @@ describe("clearDiscountCodeFromPayState", () => {
           listEvents,
           input: {
             payStateToken: await makeAppliedCodeToken(),
-            requireCurrentDuration: liveGuardDuration,
+            confirmDuration: liveGuardDuration,
             pricing: CheckoutPricingService.Default.pipe(
               Layer.provide(
                 calendarSaleDiscountServiceLayer({
@@ -403,16 +406,16 @@ describe("clearDiscountCodeFromPayState", () => {
         changedKeys: clearedKeys,
       });
 
-      const { result, requireCurrent, clearDiscountCode } = await clearSucceeds(
-        { payStateToken }
-      );
+      const { result, confirm, clearDiscountCode } = await clearSucceeds({
+        payStateToken,
+      });
 
       expect(result).toStrictEqual({
         status: "unavailable",
         reason: "price_review_pending",
         freshPayUrl: undefined,
       });
-      expect(requireCurrent).not.toHaveBeenCalled();
+      expect(confirm).not.toHaveBeenCalled();
       expect(clearDiscountCode).not.toHaveBeenCalled();
     });
 
@@ -462,7 +465,7 @@ describe("clearDiscountCodeFromPayState", () => {
 
         const { result, clearDiscountCode } = await clearSucceeds({
           payStateToken,
-          payableReservationUnavailable: { at, reason: "expired" },
+          checkoutUnavailable: { at, reason: "expired" },
         });
 
         expect(result).toStrictEqual({
@@ -495,9 +498,10 @@ describe("clearDiscountCodeFromPayState", () => {
     test("discards the new price when a payment starts during repricing", async () => {
       const payStateToken = await makeAppliedCodeToken();
 
-      const { result, requireCurrent, clearDiscountCode } = await clearSucceeds(
-        { payStateToken, activePaymentAttemptIdAfterPricing: "attempt-id" }
-      );
+      const { result, confirm, clearDiscountCode } = await clearSucceeds({
+        payStateToken,
+        activePaymentAttemptIdAfterPricing: "attempt-id",
+      });
 
       expect(result).toMatchObject({
         status: "unavailable",
@@ -505,13 +509,13 @@ describe("clearDiscountCodeFromPayState", () => {
         checkoutReason: "payment_in_progress",
       });
       expect(clearDiscountCode).toHaveBeenCalledTimes(1);
-      expect(requireCurrent).toHaveBeenCalledTimes(2);
+      expect(confirm).toHaveBeenCalledTimes(2);
     });
 
     test("fails a pay state signed for another language without reading the reservation", async () => {
       const payStateToken = await makeAppliedCodeToken({ locale: "cs-CZ" });
 
-      const { exit, requireCurrent } = await runClear({ payStateToken });
+      const { exit, confirm } = await runClear({ payStateToken });
 
       expect(exit).toMatchObject({
         _tag: "Failure",
@@ -526,7 +530,7 @@ describe("clearDiscountCodeFromPayState", () => {
           )
         ).toBe(true);
       }
-      expect(requireCurrent).not.toHaveBeenCalled();
+      expect(confirm).not.toHaveBeenCalled();
     });
   });
 
@@ -577,14 +581,14 @@ describe("clearDiscountCodeFromPayState", () => {
       });
       const signed = await open(payStateToken);
 
-      const { result, requireCurrent, clearDiscountCode } = await clearSucceeds(
-        { payStateToken }
-      );
+      const { result, confirm, clearDiscountCode } = await clearSucceeds({
+        payStateToken,
+      });
       const fresh = await openFresh(result);
 
       expect(result.status).toBe("cleared");
       expect(clearDiscountCode).not.toHaveBeenCalled();
-      expect(requireCurrent).toHaveBeenCalledTimes(1);
+      expect(confirm).toHaveBeenCalledTimes(1);
       expect(fresh.requestedDiscountCode).toBeUndefined();
       expect(fresh.changedKeys).toBeUndefined();
       expect(fresh).toMatchObject({
@@ -602,16 +606,16 @@ describe("clearDiscountCodeFromPayState", () => {
         changedKeys: clearedKeys,
       });
 
-      const { result, requireCurrent, clearDiscountCode } = await clearSucceeds(
-        { payStateToken }
-      );
+      const { result, confirm, clearDiscountCode } = await clearSucceeds({
+        payStateToken,
+      });
 
       expect(result).toStrictEqual({
         status: "unavailable",
         reason: "price_review_pending",
         freshPayUrl: undefined,
       });
-      expect(requireCurrent).not.toHaveBeenCalled();
+      expect(confirm).not.toHaveBeenCalled();
       expect(clearDiscountCode).not.toHaveBeenCalled();
     });
 
@@ -640,7 +644,7 @@ describe("clearDiscountCodeFromPayState", () => {
 
       const { result } = await clearSucceeds({
         payStateToken,
-        payableReservationUnavailable: { at: 1, reason: "expired" },
+        checkoutUnavailable: { at: 1, reason: "expired" },
       });
 
       expect(result).toMatchObject({
@@ -660,7 +664,7 @@ describe("clearDiscountCodeFromPayState", () => {
       async (_case, payState) => {
         const payStateToken = await makePayStateToken(payState);
 
-        const { result, requireCurrent, clearDiscountCode, findById } =
+        const { result, confirm, clearDiscountCode, findById } =
           await clearSucceeds({ payStateToken });
 
         expect(result).toMatchObject({
@@ -668,7 +672,7 @@ describe("clearDiscountCodeFromPayState", () => {
           freshPayStateToken: payStateToken,
         });
         expect(result.freshPayUrl).toContain(encodeURIComponent(payStateToken));
-        expect(requireCurrent).not.toHaveBeenCalled();
+        expect(confirm).not.toHaveBeenCalled();
         expect(clearDiscountCode).not.toHaveBeenCalled();
         expect(findById).not.toHaveBeenCalled();
       }

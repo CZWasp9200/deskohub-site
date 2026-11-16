@@ -124,7 +124,7 @@ describe("acceptPayStatePriceChange", () => {
 
     expect(findReservation).toHaveBeenCalledTimes(1);
     expect(failure).toMatchObject({
-      _tag: "PayableReservationUnavailableError",
+      _tag: "CheckoutUnavailableError",
       reason: "missing_reservation",
     });
   });

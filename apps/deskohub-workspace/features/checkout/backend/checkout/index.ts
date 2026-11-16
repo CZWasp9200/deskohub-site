@@ -27,6 +27,7 @@ export {
 } from "./checkout-status.service";
 export { loadCheckoutStatusPage } from "./checkout-status-page.server";
 export { checkoutSubmitDeadline } from "./checkout-submit-deadline";
+export { CheckoutUnavailableError } from "./checkout-unavailable";
 export {
   PayState,
   PayStateIssueError,
@@ -42,10 +43,9 @@ export { getPayStateCheckoutView } from "./pay-state-checkout-view";
 export {
   openPayStateWithHoldExpiry,
   toPayStateHoldExpiresAt,
-  withPayStateHoldExpiry,
 } from "./pay-state-hold";
 export { acceptPayStatePriceChange } from "./pay-state-price-acceptance";
-export { PayableReservationService } from "./payable-reservation.service";
+export { PayableCheckout } from "./payable-checkout.service";
 export { getPaymentReturnDestination } from "./payment-return-destination";
 export {
   getPriceVerdictChangedKeys,
