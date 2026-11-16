@@ -8,6 +8,7 @@ import {
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
+import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 import { buildReservationQuote } from "@/features/checkout/reservation-quote";
 import {
   canonicalPromotionCodeSchema,
@@ -21,7 +22,12 @@ import {
   syntheticSealedStateKeyRing,
 } from "@/shared/testing/sealed-state-keys.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
-import type { PayStateWithHoldExpiry, SignedPayState } from "./pay-state";
+import type {
+  BuildSignedPayStateInput,
+  PayStateReissue,
+  PayStateWithHoldExpiry,
+  SignedPayState,
+} from "./pay-state";
 import { withoutPayStateHoldExpiry } from "./signed-pay-state.test-utils";
 
 const testEmailAddressForAda = testEmailAddress("ada");
@@ -35,14 +41,16 @@ const payStateHoldExpiresAt = instantStringSchema.make(
 
 const {
   buildSignedPayState,
-  getPayStateRestartKind,
-  getSignedPayStateSubmittedCodeApplication,
-  openPayState,
+  PayState,
   payStateTokenQueryParam,
   sealPayState,
   signedPayStateSchema,
 } = await import("./pay-state");
-const { buildCheckoutPayContinuationPath } = await import("./checkout-pay-url");
+const {
+  buildCheckoutPayPath,
+  discountCodeErrorIdQueryParam,
+  discountCodeErrorQueryParam,
+} = await import("./checkout-pay-url");
 const { getPayStateBinding, isOrderBoundPayState } = await import(
   "./pay-state-contract"
 );
@@ -171,7 +179,7 @@ describe("Pay URL state", () => {
     const state = buildState();
     const token = seal(state);
 
-    expect(run(openPayState(token), { keys: fixedKey, at: fixedNow })).toEqual(
+    expect(run(PayState.open(token), { keys: fixedKey, at: fixedNow })).toEqual(
       state
     );
     expect(state.orderId).toBe("pay-state-test-order-id");
@@ -183,7 +191,7 @@ describe("Pay URL state", () => {
   test("signs the reservation hold deadline it is built with", () => {
     const state = buildState();
 
-    const opened = run(openPayState(seal(state)), { at: fixedNow });
+    const opened = run(PayState.open(seal(state)), { at: fixedNow });
 
     expect(state.holdExpiresAt).toBe(payStateHoldExpiresAt);
     expect(opened.holdExpiresAt).toBe(payStateHoldExpiresAt);
@@ -193,7 +201,7 @@ describe("Pay URL state", () => {
     const state = buildState();
 
     const opened = run(
-      openPayState(
+      PayState.open(
         run(sealPayState(withoutPayStateHoldExpiry(state)), { keys: fixedKey })
       ),
       { at: fixedNow }
@@ -210,7 +218,7 @@ describe("Pay URL state", () => {
     };
 
     const opened = run(
-      openPayState(
+      PayState.open(
         seal({
           ...buildMeetingRoomState(),
           submittedCode: canonicalCode,
@@ -246,10 +254,10 @@ describe("Pay URL state", () => {
     const token = seal(buildMeetingRoomState());
     const afterExpiry = new Date("2026-06-01T10:11:00.000Z");
 
-    expect(() => run(openPayState(token), { at: afterExpiry })).toThrow(
+    expect(() => run(PayState.open(token), { at: afterExpiry })).toThrow(
       "expired"
     );
-    expect(run(getPayStateRestartKind(token), { at: afterExpiry })).toBe(
+    expect(run(PayState.restartKind(token), { at: afterExpiry })).toBe(
       "meeting-room"
     );
   });
@@ -260,7 +268,7 @@ describe("Pay URL state", () => {
     )("CAMPAIGN10");
     const state = buildState({ requestedDiscountCode: requestedCode });
     const token = seal(state);
-    const opened = run(openPayState(token), { keys: fixedKey, at: fixedNow });
+    const opened = run(PayState.open(token), { keys: fixedKey, at: fixedNow });
 
     expect(opened).toEqual(state);
     expect(opened.requestedDiscountCode).toBe(requestedCode);
@@ -273,11 +281,11 @@ describe("Pay URL state", () => {
     const token = tamperCiphertext(seal());
 
     expect(() =>
-      run(openPayState(token), { keys: fixedKey, at: fixedNow })
+      run(PayState.open(token), { keys: fixedKey, at: fixedNow })
     ).toThrow("Invalid Pay state token");
-    expect(() =>
-      run(getPayStateRestartKind(token), { keys: fixedKey })
-    ).toThrow("Invalid Pay state token");
+    expect(() => run(PayState.restartKind(token), { keys: fixedKey })).toThrow(
+      "Invalid Pay state token"
+    );
   });
 
   test("rejects wrong and unknown key ids", () => {
@@ -288,10 +296,10 @@ describe("Pay URL state", () => {
     }));
 
     expect(() =>
-      run(openPayState(token), { keys: wrongKey, at: fixedNow })
+      run(PayState.open(token), { keys: wrongKey, at: fixedNow })
     ).toThrow("Invalid Pay state token");
     expect(() =>
-      run(openPayState(unknownKidToken), { keys: fixedKey, at: fixedNow })
+      run(PayState.open(unknownKidToken), { keys: fixedKey, at: fixedNow })
     ).toThrow("unknown key id");
   });
 
@@ -310,7 +318,7 @@ describe("Pay URL state", () => {
     );
 
     expect(
-      run(openPayState(oldToken), {
+      run(PayState.open(oldToken), {
         keys: `${rotatedKey},${fixedKey}`,
         at: fixedNow,
       })
@@ -318,7 +326,7 @@ describe("Pay URL state", () => {
     expect(newState.kid).toBe(rotatedKid);
     expect(
       run(
-        openPayState(
+        PayState.open(
           run(sealPayState(newState), { keys: `${rotatedKey},${fixedKey}` })
         ),
         { keys: `${rotatedKey},${fixedKey}`, at: fixedNow }
@@ -455,9 +463,9 @@ describe("Pay URL state", () => {
       },
     };
 
-    expect(
-      getSignedPayStateSubmittedCodeApplication(stateWithLaterDiscount)
-    ).toEqual(codeApplication);
+    expect(PayState.submittedCodeApplication(stateWithLaterDiscount)).toEqual(
+      codeApplication
+    );
   });
 
   test("builds a clean payable continuation after price review", () => {
@@ -467,14 +475,14 @@ describe("Pay URL state", () => {
         itemKeys: ["product:cowork:profi"],
       },
     });
-    const path = run(buildCheckoutPayContinuationPath(reviewState), {
-      keys: fixedKey,
-      at: fixedNow,
-    });
+    const { payUrl: path } = run(
+      PayState.reissue(reviewState, { kind: "reviewed" }),
+      { keys: fixedKey, at: fixedNow }
+    );
     const token = new URL(path, "https://deskohub.test").searchParams.get(
       payStateTokenQueryParam
     );
-    const continued = run(openPayState(token ?? ""), {
+    const continued = run(PayState.open(token ?? ""), {
       keys: fixedKey,
       at: fixedNow,
     });
@@ -493,11 +501,12 @@ describe("Pay URL state", () => {
     });
     const later = new Date(fixedNow.getTime() + 3 * 60 * 1000);
 
-    const path = run(buildCheckoutPayContinuationPath(reviewState), {
-      at: later,
-    });
+    const { payUrl: path } = run(
+      PayState.reissue(reviewState, { kind: "reviewed" }),
+      { at: later }
+    );
     const continued = run(
-      openPayState(
+      PayState.open(
         new URL(path, "https://deskohub.test").searchParams.get(
           payStateTokenQueryParam
         ) ?? ""
@@ -507,6 +516,466 @@ describe("Pay URL state", () => {
 
     expect(continued.exp).toBeGreaterThan(reviewState.exp);
     expect(continued.holdExpiresAt).toBe(payStateHoldExpiresAt);
+  });
+});
+
+const referralCode = Schema.decodeUnknownSync(canonicalPromotionCodeSchema)(
+  "FRIEND42"
+);
+const enteredCode = Schema.decodeUnknownSync(canonicalPromotionCodeSchema)(
+  "WINTER20"
+);
+const reviewKeys: CheckoutSummaryChangedKeys = {
+  sectionKeys: ["order", "total"],
+  itemKeys: ["product:cowork:profi"],
+};
+const repricedKeys: CheckoutSummaryChangedKeys = {
+  sectionKeys: ["total"],
+  itemKeys: [],
+};
+const baseQuote = buildCoworkReservationQuote(baseReservation);
+/** The base quote showing the submitted code's discount. */
+const discountedQuote = {
+  ...baseQuote,
+  payment: {
+    ...baseQuote.payment,
+    discounts: [
+      {
+        discount: {
+          id: submittedCodeDiscountId,
+          label: "Submitted code",
+          adjustment: { kind: "percentage" as const, basisPoints: 1000 },
+        },
+        subtotalBefore: baseQuote.payment.undiscountedPrice,
+        amount: { ...baseQuote.payment.undiscountedPrice, value: 1000 },
+        subtotalAfter: {
+          ...baseQuote.payment.undiscountedPrice,
+          value: baseQuote.payment.undiscountedPrice.value - 1000,
+        },
+      },
+    ],
+  },
+};
+
+/** A state carrying every optional field a continuation may keep. */
+const buildCarryingState = (overrides: Partial<PayStateWithHoldExpiry> = {}) =>
+  buildState({
+    quote: discountedQuote,
+    submittedCode: canonicalCode,
+    submittedCodeDiscountId,
+    requestedDiscountCode: canonicalCode,
+    referralCode,
+    ...overrides,
+  } as Partial<PayStateWithHoldExpiry>);
+
+/** What a Pay state signs for its order, without its claims. */
+const signedOrderFields = [
+  "locale",
+  "orderId",
+  "bookedAt",
+  "holdExpiresAt",
+  "checkoutSessionId",
+  "submittedCode",
+  "submittedCodeDiscountId",
+  "requestedDiscountCode",
+  "referralCode",
+  "changedKeys",
+  "reservation",
+  "quote",
+] as const;
+const signedOrder = (state: SignedPayState) =>
+  Object.fromEntries(
+    signedOrderFields.flatMap((field) =>
+      state[field] === undefined ? [] : [[field, state[field]]]
+    )
+  );
+
+const reissue = (state: PayStateWithHoldExpiry, outcome: PayStateReissue) => {
+  const issued = run(PayState.reissue(state, outcome));
+  const url = new URL(issued.payUrl, "https://deskohub.test");
+  return {
+    issued,
+    url,
+    continued: signedOrder(run(PayState.open(issued.payStateToken))),
+  };
+};
+
+describe("PayState.reissue", () => {
+  test("re-signs a pending price review, requesting the submitted code", () => {
+    const state = buildCarryingState({
+      requestedDiscountCode: undefined,
+      changedKeys: reviewKeys,
+    });
+    const { url, continued } = reissue(state, { kind: "review_pending" });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      requestedDiscountCode: canonicalCode,
+    });
+    expect(url.searchParams.has("orderId")).toBe(false);
+  });
+
+  test("keeps an already requested code when it re-signs a pending review", () => {
+    const state = buildCarryingState({
+      requestedDiscountCode: enteredCode,
+      changedKeys: reviewKeys,
+    });
+
+    expect(reissue(state, { kind: "review_pending" }).continued).toEqual(
+      signedOrder(state)
+    );
+  });
+
+  test("drops only the changed keys once the customer reviewed them", () => {
+    const state = buildCarryingState({
+      requestedDiscountCode: undefined,
+      changedKeys: reviewKeys,
+    });
+    const { url, continued } = reissue(state, { kind: "reviewed" });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      changedKeys: undefined,
+    });
+    expect(url.pathname).toBe("/en-US/checkout/pay");
+    expect([...url.searchParams.keys()]).toEqual([payStateTokenQueryParam]);
+  });
+
+  test("re-prices with the verdict's changed keys, keeping a still-applied code", () => {
+    const state = buildCarryingState();
+    const { url, continued } = reissue(state, {
+      kind: "repriced",
+      verdict: {
+        status: "pricing_changed",
+        priced: { reservation: state.reservation, quote: discountedQuote },
+        changedKeys: repricedKeys,
+      },
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      changedKeys: repricedKeys,
+    });
+    expect(url.searchParams.has("orderId")).toBe(false);
+  });
+
+  test("re-prices without a submitted code the new quote no longer applies", () => {
+    const state = buildCarryingState({ requestedDiscountCode: undefined });
+    const { continued } = reissue(state, {
+      kind: "repriced",
+      verdict: {
+        status: "pricing_changed",
+        priced: { reservation: state.reservation, quote: baseQuote },
+        changedKeys: repricedKeys,
+      },
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      quote: baseQuote,
+      submittedCode: undefined,
+      submittedCodeDiscountId: undefined,
+      requestedDiscountCode: canonicalCode,
+      changedKeys: repricedKeys,
+    });
+  });
+
+  test("applies an entered code as submitted and requested, without changed keys", () => {
+    const state = buildState({ referralCode });
+    const { url, continued } = reissue(state, {
+      kind: "code_entered",
+      code: enteredCode,
+      verdict: {
+        status: "affirmed",
+        priced: {
+          reservation: state.reservation,
+          quote: discountedQuote,
+          submittedCodeDiscountId,
+        },
+      },
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      quote: discountedQuote,
+      submittedCode: enteredCode,
+      submittedCodeDiscountId,
+      requestedDiscountCode: enteredCode,
+    });
+    expect(url.searchParams.get("orderId")).toBe(state.orderId);
+  });
+
+  test("asks to review a price an entered code changed, keeping the code only as requested", () => {
+    const state = buildState({ referralCode });
+    const { url, continued } = reissue(state, {
+      kind: "code_entered",
+      code: enteredCode,
+      verdict: {
+        status: "pricing_changed",
+        priced: { reservation: state.reservation, quote: discountedQuote },
+        changedKeys: repricedKeys,
+      },
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      quote: discountedQuote,
+      requestedDiscountCode: enteredCode,
+      changedKeys: repricedKeys,
+    });
+    expect(url.searchParams.get("orderId")).toBe(state.orderId);
+  });
+
+  test("keeps a rejected code in the box with the rejection beside it", () => {
+    const state = buildState({
+      referralCode,
+      requestedDiscountCode: canonicalCode,
+    });
+    const { url, continued } = reissue(state, {
+      kind: "code_rejected",
+      code: enteredCode,
+      rejection: "referral-ineligible",
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      requestedDiscountCode: enteredCode,
+    });
+    expect(url.searchParams.get("orderId")).toBe(state.orderId);
+    expect(url.searchParams.get(discountCodeErrorQueryParam)).toBe(
+      "referral-ineligible"
+    );
+    expect(url.searchParams.get(discountCodeErrorIdQueryParam)).toBeTruthy();
+  });
+
+  test("applies a referral without carrying the requested code forward", () => {
+    const state = buildCarryingState({ referralCode: undefined });
+    const { url, continued } = reissue(state, {
+      kind: "referral_applied",
+      referralCode,
+      verdict: {
+        status: "affirmed",
+        priced: { reservation: state.reservation, quote: discountedQuote },
+      },
+    });
+
+    // Open developer question: the referral outcome does not carry
+    // `requestedDiscountCode` forward, unlike every other outcome.
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      referralCode,
+      requestedDiscountCode: undefined,
+    });
+    expect(url.searchParams.get("orderId")).toBe(state.orderId);
+  });
+
+  test("asks to review a referral's price change under the referral's own verdict", () => {
+    const state = buildCarryingState({ referralCode: undefined });
+    const { continued } = reissue(state, {
+      kind: "referral_applied",
+      referralCode: undefined,
+      verdict: {
+        status: "pricing_changed",
+        priced: { reservation: state.reservation, quote: baseQuote },
+        changedKeys: repricedKeys,
+      },
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      quote: baseQuote,
+      submittedCode: undefined,
+      submittedCodeDiscountId: undefined,
+      requestedDiscountCode: undefined,
+      changedKeys: repricedKeys,
+    });
+  });
+
+  test("re-prices without the removed code, asking to review the changed price", () => {
+    const state = buildCarryingState();
+    const { url, continued } = reissue(state, {
+      kind: "code_cleared",
+      verdict: {
+        status: "pricing_changed",
+        priced: { reservation: state.reservation, quote: baseQuote },
+        changedKeys: repricedKeys,
+      },
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      quote: baseQuote,
+      submittedCode: undefined,
+      submittedCodeDiscountId: undefined,
+      requestedDiscountCode: undefined,
+      changedKeys: repricedKeys,
+    });
+    expect(url.searchParams.get("orderId")).toBe(state.orderId);
+  });
+
+  test("removes a code worth nothing without asking for a review", () => {
+    const state = buildCarryingState({ changedKeys: reviewKeys });
+    const { continued } = reissue(state, {
+      kind: "code_cleared",
+      verdict: {
+        status: "affirmed",
+        priced: { reservation: state.reservation, quote: discountedQuote },
+      },
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      submittedCode: undefined,
+      submittedCodeDiscountId: undefined,
+      requestedDiscountCode: undefined,
+      changedKeys: undefined,
+    });
+  });
+
+  test("drops a requested code without repricing", () => {
+    const state = buildState({
+      referralCode,
+      requestedDiscountCode: enteredCode,
+    });
+    const { url, continued } = reissue(state, {
+      kind: "requested_code_cleared",
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      requestedDiscountCode: undefined,
+    });
+    expect(url.searchParams.get("orderId")).toBe(state.orderId);
+  });
+
+  test("carries the hold deadline it is given into every outcome", () => {
+    const storedDeadline = instantStringSchema.make("2026-06-01T10:05:00.000Z");
+    const state = buildCarryingState({
+      holdExpiresAt: storedDeadline,
+      changedKeys: reviewKeys,
+    });
+    const priced = { reservation: state.reservation, quote: baseQuote };
+    const outcomes: ReadonlyArray<PayStateReissue> = [
+      { kind: "review_pending" },
+      { kind: "reviewed" },
+      {
+        kind: "repriced",
+        verdict: { status: "pricing_changed", priced, changedKeys: reviewKeys },
+      },
+      {
+        kind: "code_entered",
+        code: enteredCode,
+        verdict: { status: "pricing_changed", priced, changedKeys: reviewKeys },
+      },
+      { kind: "code_rejected", code: enteredCode, rejection: "unavailable" },
+      {
+        kind: "referral_applied",
+        referralCode,
+        verdict: { status: "affirmed", priced },
+      },
+      { kind: "code_cleared", verdict: { status: "affirmed", priced } },
+      { kind: "requested_code_cleared" },
+    ];
+
+    for (const outcome of outcomes) {
+      expect(reissue(state, outcome).continued.holdExpiresAt).toBe(
+        storedDeadline
+      );
+    }
+  });
+
+  test("reports a sealing failure as a server failure, never a rejected caller token", () => {
+    const state = buildState();
+    const error = run(
+      Effect.flip(
+        PayState.reissue(
+          { ...state, quote: { ...state.quote, fingerprint: 42 } } as never,
+          { kind: "reviewed" }
+        )
+      )
+    );
+
+    expect(error).toMatchObject({
+      _tag: "PayStateIssueError",
+      cause: { _tag: "PayStateTokenError" },
+    });
+  });
+});
+
+describe("PayState.issue", () => {
+  const fresh = {
+    locale: "en-US",
+    reservation: baseReservation,
+    quote: baseQuote,
+    orderId: "pay-state-test-order-id",
+    bookedAt: payStateBookedAt,
+    holdExpiresAt: payStateHoldExpiresAt,
+    checkoutSessionId: "pay-state-test-checkout-session-id",
+  } satisfies BuildSignedPayStateInput;
+
+  test("returns the sealed token beside the order's Pay URL, with the token's expiry", () => {
+    const issued = run(PayState.issue(fresh));
+    const opened = run(PayState.open(issued.payStateToken));
+
+    expect(issued.payUrl).toBe(
+      buildCheckoutPayPath("en-US", issued.payStateToken, {
+        orderId: fresh.orderId,
+      })
+    );
+    expect(issued.expiresAt).toBe(new Date(opened.exp * 1000).toISOString());
+    expect(signedOrder(opened)).toEqual(fresh);
+  });
+
+  test("issues a stable link as of its anchor, byte-identical when repeated", () => {
+    const stableAt = Temporal.Instant.from("2026-06-01T09:58:00Z");
+    const first = run(PayState.issue(fresh, { stableAt }));
+    const second = run(PayState.issue(fresh, { stableAt }));
+    const random = run(PayState.issue(fresh));
+
+    expect(second).toEqual(first);
+    expect(random.payStateToken).not.toBe(first.payStateToken);
+    expect(first.expiresAt).toBe("2026-06-01T10:08:00.000Z");
+  });
+
+  test("reports a sealing failure as a Pay state token failure", () => {
+    const error = run(
+      Effect.flip(
+        PayState.issue({
+          ...fresh,
+          quote: { ...fresh.quote, fingerprint: 42 },
+        } as never)
+      )
+    );
+
+    expect(error).toMatchObject({ _tag: "PayStateTokenError" });
+  });
+});
+
+describe("PayState.open on a page", () => {
+  const token = () => seal(buildState());
+
+  test("opens a state issued for the page's locale and reservation kind", () => {
+    expect(
+      run(
+        PayState.open(token(), { locale: "en-US", reservationKind: "cowork" })
+      ).orderId
+    ).toBe("pay-state-test-order-id");
+    expect(run(PayState.open(token(), { locale: "en-US" })).orderId).toBe(
+      "pay-state-test-order-id"
+    );
+  });
+
+  test("refuses a state issued for another locale or reservation kind", () => {
+    for (const page of [
+      { locale: "cs-CZ" },
+      { locale: "en-US", reservationKind: "office" as const },
+    ]) {
+      const error = run(Effect.flip(PayState.open(token(), page)));
+      expect(error).toMatchObject({
+        _tag: "PayStateTokenError",
+        code: "invalid-token",
+      });
+    }
   });
 });
 
@@ -532,8 +1001,8 @@ describe("legacy signed Pay state with a retired customer message", () => {
 
     return {
       legacyState,
-      opened: run(openPayState(token), { keys: fixedKey, at: fixedNow }),
-      restartKind: run(getPayStateRestartKind(token), { keys: fixedKey }),
+      opened: run(PayState.open(token), { keys: fixedKey, at: fixedNow }),
+      restartKind: run(PayState.restartKind(token), { keys: fixedKey }),
     };
   };
 
@@ -564,7 +1033,7 @@ describe("reservation phone in signed Pay state", () => {
     const state = buildState();
 
     expect(
-      run(openPayState(seal(state)), { keys: fixedKey, at: fixedNow })
+      run(PayState.open(seal(state)), { keys: fixedKey, at: fixedNow })
         .reservation.phone
     ).toBe("+420 777 777 777");
   });
@@ -581,7 +1050,7 @@ describe("reservation phone in signed Pay state", () => {
         reservation: { ...state.reservation, phone },
       })
     );
-    return run(openPayState(token), { keys: fixedKey, at: fixedNow });
+    return run(PayState.open(token), { keys: fixedKey, at: fixedNow });
   };
 
   test("opens a token whose reservation phone is valid entered text", () => {
@@ -622,7 +1091,7 @@ describe("reservation phone in signed Pay state", () => {
     );
 
     expect(
-      run(openPayState(seal(state)), { keys: fixedKey, at: fixedNow })
+      run(PayState.open(seal(state)), { keys: fixedKey, at: fixedNow })
         .reservation.phone
     ).toBe("0151 23456789");
   });
@@ -640,6 +1109,7 @@ describe("Pay state binding", () => {
         quote: buildCoworkReservationQuote(baseReservation),
         orderId: "pay-state-test-order-id",
         bookedAt: payStateBookedAt,
+        holdExpiresAt: payStateHoldExpiresAt,
         binding: "order",
         retriedAttemptId,
       })
@@ -647,7 +1117,7 @@ describe("Pay state binding", () => {
 
   test("an order-bound state round-trips without a checkout session", () => {
     const state = buildOrderBoundState();
-    const opened = run(openPayState(seal(state)));
+    const opened = run(PayState.open(seal(state)));
 
     expect(opened).toEqual(state);
     expect(opened.checkoutSessionId).toBeUndefined();
@@ -713,12 +1183,8 @@ describe("Pay state binding", () => {
       ...buildOrderBoundState(),
       changedKeys: { sectionKeys: ["total"], itemKeys: [] },
     };
-    const continuationPath = run(buildCheckoutPayContinuationPath(reviewed));
-    const token = new URL(
-      continuationPath,
-      "https://workspace.test"
-    ).searchParams.get(payStateTokenQueryParam);
-    const continued = run(openPayState(token ?? ""));
+    const issued = run(PayState.reissue(reviewed, { kind: "reviewed" }));
+    const continued = run(PayState.open(issued.payStateToken));
 
     expect(continued.changedKeys).toBeUndefined();
     expect(isOrderBoundPayState(continued)).toBe(true);

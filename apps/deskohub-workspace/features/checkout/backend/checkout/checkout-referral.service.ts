@@ -1,7 +1,6 @@
 import { Context, Effect, Layer, Match, Schema } from "effect";
 import {
   type CheckoutSummary,
-  type CheckoutSummaryChangedKeys,
   getCheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
 import {
@@ -23,26 +22,20 @@ import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { moneyEquals } from "@/shared/money/money";
 import {
-  type FreshPayState,
-  issueFreshPayState,
-  type NoFreshPayState,
-  toFreshPayState,
-} from "./checkout-pay-url";
-import {
   CheckoutPricingService,
   type ICheckoutPricingService,
   type PaymentPriceAffirmation,
 } from "./checkout-pricing.service";
 import { isExpectedReferralQuoteAddition } from "./checkout-referral-price-change";
 import {
-  getSignedPayStateBookedAt,
-  getSignedPayStateCheckoutSummary,
-  getSignedPayStateSubmittedCode,
-  openPayState,
+  type FreshPayState,
+  type NoFreshPayState,
+  PayState,
   type SignedPayState,
-} from "./pay-state.server";
+  toFreshPayState,
+} from "./pay-state";
 import { getPayStateBindingInput } from "./pay-state-contract";
-import { getPayStateHoldExpiresAt } from "./pay-state-hold";
+import { withPayStateHoldExpiry } from "./pay-state-hold";
 import {
   PayableReservationService,
   type PayableReservationUnavailableError,
@@ -165,29 +158,27 @@ const affirmReferralPricing = (input: {
 }) =>
   input.pricing.affirmForPayment({
     ...input.opened,
-    bookedAt: getSignedPayStateBookedAt(input.opened),
+    bookedAt: PayState.bookedAt(input.opened),
     dotyposCustomerId: input.dotyposCustomerId,
     locale: input.locale,
     ...input.referralInput,
   });
 
 /**
- * Whether the referral re-pricing changed the order beyond the expected
- * referral addition, with the summary keys the customer must review. A
- * signed total that disagrees with its own summary is always a change; the
- * payment verdict's change is not one when it is only the expected addition.
+ * The referral's own verdict on the re-priced order: it changed when it moved
+ * beyond the expected referral addition, with the summary keys the customer
+ * must review. A signed total that disagrees with its own summary is always a
+ * change; the payment verdict's change is not one when it is only the
+ * expected addition.
  */
-const getReferralRepricing = (input: {
+const getReferralPriceVerdict = (input: {
   readonly opened: SignedPayState;
   readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
   readonly dotyposCustomerId: DotyposCustomerId;
-}): {
-  readonly changed: boolean;
-  readonly changedKeys?: CheckoutSummaryChangedKeys;
-} => {
+}): PriceVerdict<PaymentPriceAffirmation> => {
   const { opened, verdict } = input;
   const prepared = verdict.priced;
-  const oldSummary: CheckoutSummary = getSignedPayStateCheckoutSummary(opened);
+  const oldSummary: CheckoutSummary = PayState.summary(opened);
   const signedTotalWasConsistent = moneyEquals(
     oldSummary.total,
     opened.acceptedTotal
@@ -208,21 +199,22 @@ const getReferralRepricing = (input: {
     );
   return changed
     ? {
-        changed,
+        status: "pricing_changed",
+        priced: prepared,
         changedKeys: getCheckoutSummaryChangedKeys(
           oldSummary,
           prepared.summary
         ),
       }
-    : { changed };
+    : { status: "affirmed", priced: prepared };
 };
 
 const toReferralAcceptanceResult = (input: {
-  readonly changed: boolean;
+  readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
   readonly evaluation: CheckoutReferralEvaluation;
   readonly freshPayState: FreshPayState;
 }): CheckoutReferralResult => {
-  if (input.changed) {
+  if (input.verdict.status === "pricing_changed") {
     return { status: "pricing_changed", ...input.freshPayState };
   }
   return {
@@ -248,10 +240,11 @@ export class CheckoutReferralService extends Context.Service<
         "CheckoutReferralService.acceptCode"
       )(
         function* (input) {
-          const opened = yield* openPayState(input.payStateToken);
           // Callers open the token for its locale first, so a mismatch here
-          // is unexpected.
-          if (opened.locale !== input.locale) return providerUnavailable;
+          // is unexpected and reads as unavailable, like any other failure.
+          const opened = yield* PayState.open(input.payStateToken, {
+            locale: input.locale,
+          });
 
           const codeKind = yield* referrals.lookupCodeKind({
             code: input.code,
@@ -285,19 +278,18 @@ export class CheckoutReferralService extends Context.Service<
             evaluation: evaluation.success,
             opened,
           });
-          const verdict = yield* affirmReferralPricing({
+          const paymentVerdict = yield* affirmReferralPricing({
             pricing,
             opened,
             dotyposCustomerId,
             locale: input.locale,
             referralInput,
           });
-          const { changed, changedKeys } = getReferralRepricing({
+          const verdict = getReferralPriceVerdict({
             opened,
-            verdict,
+            verdict: paymentVerdict,
             dotyposCustomerId,
           });
-          const prepared = verdict.priced;
           // A payment that started while the referral was priced keeps the
           // summary it was admitted with.
           const repricedReservation =
@@ -305,29 +297,17 @@ export class CheckoutReferralService extends Context.Service<
           if (hasPaymentInProgress(repricedReservation)) {
             return paymentInProgress;
           }
-          const freshPayPathInput = {
-            ...prepared,
-            locale: input.locale,
-            orderId: opened.orderId,
-            bookedAt: opened.bookedAt,
-            holdExpiresAt: getPayStateHoldExpiresAt(opened, currentReservation),
-            ...getPayStateBindingInput(opened),
-            ...referralInput,
-            ...getSignedPayStateSubmittedCode(
-              opened,
-              prepared.quote.payment.discounts
-            ),
-          };
-          const freshPayState = yield* issueFreshPayState(
-            changedKeys === undefined
-              ? freshPayPathInput
-              : { ...freshPayPathInput, changedKeys },
-            undefined,
-            { orderId: opened.orderId }
+          const freshPayState = yield* PayState.reissue(
+            withPayStateHoldExpiry(opened, currentReservation),
+            {
+              kind: "referral_applied",
+              referralCode: referralInput.referralCode,
+              verdict,
+            }
           ).pipe(Effect.map(toFreshPayState));
 
           return toReferralAcceptanceResult({
-            changed,
+            verdict,
             evaluation: evaluation.success,
             freshPayState,
           });

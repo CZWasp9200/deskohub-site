@@ -1,10 +1,7 @@
 import "server-only";
 
 import { Effect, Option, Schema } from "effect";
-import {
-  openPayState,
-  payStateContinuesOn,
-} from "@/features/checkout/backend/checkout/pay-state.server";
+import { PayState } from "@/features/checkout/backend/checkout/pay-state";
 import type { LocaleBoundContinuation } from "@/features/checkout/locale-bound-continuation";
 import { openReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
@@ -23,14 +20,14 @@ export const continuesInIssuedLocale = Effect.fn(
   "LocaleBoundContinuation.verify"
 )(function* (continuation: LocaleBoundContinuation) {
   if (continuation.kind === "pay-state") {
-    const state = yield* openPayState(continuation.token).pipe(
+    const state = yield* PayState.open(continuation.token).pipe(
       Effect.provide(SealedStateKeys.Default),
       Effect.option
     );
     return Option.match(state, {
       onNone: () => false,
       onSome: (opened) =>
-        payStateContinuesOn(opened, {
+        PayState.continuesOn(opened, {
           locale: continuation.locale,
           reservationKind: continuation.reservationKind,
         }),

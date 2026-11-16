@@ -72,7 +72,7 @@ import {
 import { getCheckoutSubmitDeadline } from "./checkout-submit-deadline";
 import {
   buildSignedPayState,
-  openPayState,
+  PayState,
   payStateTokenQueryParam,
   sealPayState,
 } from "./pay-state";
@@ -313,7 +313,7 @@ const expectFreshPayStateFromOneSeal = (result: {
   ).searchParams.get(payStateTokenQueryParam);
   expect(result.freshPayStateToken).toBe(urlToken ?? "missing token");
   const freshState = Effect.runSync(
-    openPayState(result.freshPayStateToken).pipe(
+    PayState.open(result.freshPayStateToken).pipe(
       Effect.provide(TestSealedStateKeys)
     )
   );
@@ -2159,7 +2159,7 @@ describe("CheckoutService", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const freshState = Effect.runSync(
-      openPayState(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(freshState.reservation.kind).toBe("meeting-room");
     expect(freshState.checkoutSessionId).toBe(checkoutSessionId);
@@ -2793,7 +2793,7 @@ describe("CheckoutService", () => {
 
     expect(
       Effect.runSync(
-        openPayState(acceptedToken).pipe(Effect.provide(TestSealedStateKeys))
+        PayState.open(acceptedToken).pipe(Effect.provide(TestSealedStateKeys))
       ).quote.payment.discounts[0]?.discount.label
     ).toBe("Letni sleva 50 %");
     expect(result.status).toBe("pricing_changed");
@@ -2809,7 +2809,7 @@ describe("CheckoutService", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const freshState = Effect.runSync(
-      openPayState(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(freshState.quote.payment.discounts[0]?.discount.label).toBe(
       "Edited English summer label"
@@ -2851,7 +2851,7 @@ describe("CheckoutService", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const freshState = Effect.runSync(
-      openPayState(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(freshState.requestedDiscountCode).toBe(requestedCode);
     expect(freshState.submittedCode).toBeUndefined();
@@ -2881,7 +2881,7 @@ describe("CheckoutService", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const freshState = Effect.runSync(
-      openPayState(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(freshState.requestedDiscountCode).toBe(requestedCode);
     expect(freshState.submittedCode).toBeUndefined();
@@ -2919,7 +2919,9 @@ describe("CheckoutService", () => {
     ).searchParams.get(payStateTokenQueryParam);
     expect(
       Effect.runSync(
-        openPayState(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
+        PayState.open(freshToken ?? "").pipe(
+          Effect.provide(TestSealedStateKeys)
+        )
       ).submittedCode
     ).toBeUndefined();
     expect(affirm).toHaveBeenCalledWith(
@@ -3145,7 +3147,7 @@ describe("CheckoutService", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const freshState = Effect.runSync(
-      openPayState(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(freshState.requestedDiscountCode).toBe(requestedCode);
   });
@@ -3202,7 +3204,7 @@ describe("CheckoutService", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const freshState = Effect.runSync(
-      openPayState(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(freshToken ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(freshState.requestedDiscountCode).toBe(requestedCode);
   });
@@ -3329,7 +3331,7 @@ describe("CheckoutService", () => {
         throw new Error("Expected pricing_changed result");
       }
       return Effect.runSync(
-        openPayState(result.freshPayStateToken).pipe(
+        PayState.open(result.freshPayStateToken).pipe(
           Effect.provide(TestSealedStateKeys)
         )
       );
@@ -3337,7 +3339,7 @@ describe("CheckoutService", () => {
 
     const signedExp = (payStateToken: string) =>
       Effect.runSync(
-        openPayState(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
+        PayState.open(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
       ).exp;
 
     test("keeps the signed deadline while a pending review moves the token's expiry", async () => {

@@ -22,10 +22,6 @@ export default function ReservationsLayout() {
         name="[orderId]/index"
         options={{ title: m.reservations_status_title({}, { locale }) }}
       />
-      <Stack.Screen
-        name="[orderId]/access"
-        options={{ title: m.reservations_access_title({}, { locale }) }}
-      />
     </Stack>
   );
 }

@@ -1,10 +1,17 @@
 import { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
-import { RegistryProvider } from "@effect/atom-react";
+import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/unstable/reactivity";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { type ReactNode, useState } from "react";
 import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ReservationAccessScreen } from "../../src/account/reservations/access-screen";
+import {
+  accessHeaderTone,
+  accessScreenStateOf,
+  reservationAccessAtom,
+  shownAccess,
+} from "../../src/account/reservations/access-screen-state";
 import { OrderStatusScreen } from "../../src/account/reservations/order-status-screen";
 import { ReservationsListScreen } from "../../src/account/reservations/reservations-list-screen";
 import { statusVisitOf } from "../../src/account/reservations/status-refresh-rules";
@@ -34,26 +41,25 @@ const sampleData = __DEV__
  * state. `?history=<variant>` picks the list (`sample-history.ts`);
  * `?order=<id>` opens that order's booking view instead, with
  * `&after=payment` as the return from payment
- * (`deskohub://dev/reservations?order=sample-desk-pending&after=payment`).
+ * (`deskohub://dev/reservations?order=sample-desk-pending&after=payment`),
+ * and `?access=<id>` its access PIN
+ * (`deskohub://dev/reservations?access=sample-desk-fulfilled&history=upcoming`).
  */
 export default function ReservationsSampleRoute() {
   const params = useLocalSearchParams<{
     history?: string;
     order?: string;
     after?: string;
+    access?: string;
   }>();
   if (!__DEV__ || sampleData === undefined) return <Redirect href="/" />;
   // A fresh registry for each state, as a new account would get.
   return (
     <SampleRegistry
-      key={`${params.history ?? ""}/${params.order ?? ""}/${params.after ?? ""}`}
+      key={`${params.history ?? ""}/${params.order ?? ""}/${params.after ?? ""}/${params.access ?? ""}`}
       history={params.history}
     >
-      {params.order === undefined ? (
-        <ReservationsListScreen />
-      ) : (
-        <SampleBookingView orderId={params.order} after={params.after} />
-      )}
+      <SampleScreen params={params} />
     </SampleRegistry>
   );
 }
@@ -80,6 +86,25 @@ function SampleRegistry({
       {children}
     </RegistryProvider>
   );
+}
+
+/** The access PIN, the booking view, or the list, as the params pick. */
+function SampleScreen({
+  params,
+}: {
+  readonly params: {
+    readonly order?: string;
+    readonly after?: string;
+    readonly access?: string;
+  };
+}) {
+  if (params.access !== undefined) {
+    return <SampleAccessView orderId={params.access} />;
+  }
+  if (params.order !== undefined) {
+    return <SampleBookingView orderId={params.order} after={params.after} />;
+  }
+  return <ReservationsListScreen />;
 }
 
 /** The booking view under the app bar its stack would give it. */
@@ -112,6 +137,35 @@ function SampleBookingView({
           orderId={CustomerReservationOrderId.make(orderId)}
           visit={visit}
         />
+      </View>
+    </SafeAreaView>
+  );
+}
+
+/**
+ * The access PIN under the header its stack would give it: navy over the
+ * PIN, the paper canvas's when there is no PIN.
+ */
+function SampleAccessView({ orderId }: { readonly orderId: string }) {
+  const locale = useAppLocale();
+  const id = CustomerReservationOrderId.make(orderId);
+  const navy =
+    accessHeaderTone(
+      accessScreenStateOf(shownAccess(useAtomValue(reservationAccessAtom(id))))
+    ) === "navy";
+  return (
+    <SafeAreaView
+      edges={["top"]}
+      style={{ flex: 1, backgroundColor: navy ? color.navy : color.paper }}
+    >
+      <FocusedStatusBar style={navy ? "light" : "dark"} />
+      <AppBar
+        title={m.reservations_access_title({}, { locale })}
+        onBack={() => undefined}
+        tone={navy ? "navy" : "paper"}
+      />
+      <View style={{ flex: 1 }}>
+        <ReservationAccessScreen orderId={id} />
       </View>
     </SafeAreaView>
   );

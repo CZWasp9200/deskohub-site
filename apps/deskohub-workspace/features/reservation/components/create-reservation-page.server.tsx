@@ -8,8 +8,7 @@ import type {
   PreloadedAdvertisedPrice,
 } from "@/features/checkout/advertised-price";
 import {
-  openPayState,
-  payStateContinuesOn,
+  PayState,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
@@ -216,14 +215,14 @@ export const loadRestoredReservation = Effect.fn(
   if (!token) return undefined;
 
   const payState = Option.getOrUndefined(
-    yield* openPayState(token).pipe(
+    yield* PayState.open(token).pipe(
       Effect.provide(SealedStateKeys.Default),
       Effect.option
     )
   );
   if (
     !payState ||
-    !payStateContinuesOn(payState, { locale, reservationKind: kind })
+    !PayState.continuesOn(payState, { locale, reservationKind: kind })
   ) {
     return undefined;
   }

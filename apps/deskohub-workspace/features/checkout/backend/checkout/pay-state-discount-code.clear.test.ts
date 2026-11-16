@@ -32,7 +32,7 @@ import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-ut
 import { instantStringSchema } from "@/shared/utils/temporal";
 import {
   buildSignedPayState,
-  openPayState,
+  PayState,
   PayStateTokenError,
   sealPayState,
 } from "./pay-state";
@@ -257,7 +257,7 @@ const clearSucceeds = async (input: ClearInput) => {
 
 const open = (token: string) =>
   Effect.runPromise(
-    openPayState(token).pipe(Effect.provide(TestSealedStateKeys))
+    PayState.open(token).pipe(Effect.provide(TestSealedStateKeys))
   );
 
 const openFresh = (result: ClearDiscountCodeResult) => {
