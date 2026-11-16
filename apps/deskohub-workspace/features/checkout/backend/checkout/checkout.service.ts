@@ -98,6 +98,10 @@ import {
 } from "./payable-reservation.service";
 import { getPriceVerdictChangedKeys, type PriceVerdict } from "./price-verdict";
 import { getReservationStatusPath } from "./reservation-status-url";
+import {
+  getReusableProviderRedirectUrl,
+  isReusableAttemptState,
+} from "./reusable-payment-attempt";
 import { appendVercelPreviewProtectionBypass } from "./vercel-preview-protection-bypass";
 
 const decodeDotyposCustomerId = Schema.decodeUnknownEffect(
@@ -381,9 +385,6 @@ const mapCheckoutFailure = <E>(cause: E | CheckoutError): CheckoutError =>
           "Payment checkout could not be started. Please review your details and try again.",
         cause,
       });
-
-const isReusableAttemptState = (state: string) =>
-  state === "created" || state === "pending";
 
 const getCheckoutRedirectResult = (input: {
   readonly orderId: WorkspaceReservationId;
@@ -875,9 +876,9 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           return undefined;
         }
 
+        const providerRedirectUrl = getReusableProviderRedirectUrl(attempt);
         if (
-          attempt.securityToken &&
-          attempt.providerRedirectUrl &&
+          providerRedirectUrl &&
           moneyEquals(attempt.amount, state.acceptedTotal)
         ) {
           yield* Effect.logInfo(
@@ -890,7 +891,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           });
           return getHostedPaymentCheckoutResult({
             locale,
-            providerRedirectUrl: attempt.providerRedirectUrl,
+            providerRedirectUrl,
             workspaceReservationId: reservation.id,
           });
         }

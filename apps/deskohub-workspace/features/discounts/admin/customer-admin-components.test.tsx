@@ -8,7 +8,6 @@ import {
   mock,
   test,
 } from "bun:test";
-import { loadFixtureReservations } from "@/features/administration/fixtures";
 import { m } from "@/features/administration/i18n";
 import { workspaceUseAction } from "@/shared/testing/workspace-component-module-mocks";
 import {
@@ -57,9 +56,14 @@ mock.module("./actions", () => ({
   deleteDiscountAdminForm: mock(),
   deleteDiscountCodeAdminForm: mock(),
   mutateDiscountAdmin: mock(),
-  searchDiscountAdminCustomers: mock(),
   updateDiscountAdminForm: mock(),
   updateDiscountCodeAdminForm: mock(),
+}));
+mock.module("@/features/administration/actions", () => ({
+  cancelAdministrationReservation: mock(),
+  getAdministrationReservation: mock(),
+  mutateReservationAccess: mock(),
+  searchAdministrationCustomers: mock(),
 }));
 
 const execute = mock();
@@ -172,7 +176,7 @@ describe("customer administration pages", () => {
       ).toBeDefined();
       expect(
         view.getByRole("searchbox", {
-          name: m.discountsCustomerSearchLabel({}, { locale }),
+          name: m.administrationCustomerSearchLabel({}, { locale }),
         })
       ).toBeDefined();
     });
@@ -379,118 +383,52 @@ describe("customer administration pages", () => {
     });
   });
 
-  describe("customer detail", () => {
-    const reservations = loadFixtureReservations({
-      customerId: "customer-alex",
-    }).items.map((reservation) => ({ ...reservation, customer: null }));
-
-    const renderCustomerPage = async (
-      profile: AdminCustomerProfile,
-      overrides: {
-        readonly reservations?: typeof reservations;
-        readonly reservationHistoryTruncated?: boolean;
-        readonly transactionHistoryTruncated?: boolean;
-      } = {}
-    ) => {
-      const { CustomerAdministrationDetailPage } = await import(
+  describe("customer discount slots", () => {
+    const renderSlots = async (profile: AdminCustomerProfile) => {
+      const { renderCustomerDiscountSlots } = await import(
         "./customer-admin-components"
       );
+      const slots = renderCustomerDiscountSlots({ locale, profile });
       return render(
-        <CustomerAdministrationDetailPage
-          activity={{
-            reservations: overrides.reservations ?? [],
-            reservationHistoryTruncated:
-              overrides.reservationHistoryTruncated ?? false,
-            transactions: [],
-            transactionHistoryTruncated:
-              overrides.transactionHistoryTruncated ?? false,
-            stats: {
-              reservationCount: 0,
-              favoriteProduct: null,
-              favoriteReservationProduct: null,
-              revenue: [],
-              discountSavings: [],
-            },
-            marketingConsent: null,
-          }}
-          locale={locale}
-          notice={{ message: "Saved.", status: "success" }}
-          profile={profile}
-          reservationActivity={{
-            from: "2025-08-25",
-            to: "2026-08-24",
-            dates: [],
-          }}
-        />
+        <div>
+          <dl>
+            <dt>{slots.availableCodes.label}</dt>
+            <dd>{slots.availableCodes.value}</dd>
+            <dt>{slots.currentGroup.label}</dt>
+            <dd>{slots.currentGroup.value}</dd>
+          </dl>
+          {slots.promotions}
+          {slots.groupForm}
+        </div>
       );
     };
 
-    test("shows a customer without codes, contacts, or history", async () => {
-      const view = await renderCustomerPage(
-        adminCustomerProfile({
-          customer: adminCustomer({ email: null, phone: null }),
-        })
-      );
+    test("shows a customer without codes, claims, or a discount group", async () => {
+      const view = await renderSlots(adminCustomerProfile());
+
       expect(
         view.getByText(m.discountsCustomerCodesEmpty({}, { locale }))
       ).toBeDefined();
       expect(
         view.getByText(m.discountsCustomerGroupNone({}, { locale }))
       ).toBeDefined();
-      expect(view.getAllByText("—").length).toBeGreaterThanOrEqual(2);
-      expect(
-        view.queryByText(
-          m.discountsCustomerTransactionsTruncated({}, { locale })
-        )
-      ).toBeNull();
-      expect(
-        view.queryByRole("link", {
-          name: m.discountsCustomerViewAllReservations({}, { locale }),
-        })
-      ).toBeNull();
-      expect(
-        view.getByText(
-          m.discountsCustomerCurrentReservationsEmpty({}, { locale })
-        )
-      ).toBeDefined();
       expect(
         view.getByText(m.discountsCustomerClaimsEmpty({}, { locale }))
       ).toBeDefined();
+      expect(
+        view.getByRole("heading", {
+          name: m.discountsCustomerDiscountGroupTitle({}, { locale }),
+        })
+      ).toBeDefined();
     });
 
-    test("links truncated reservations, lists undated ones, and shows the customer's claims", async () => {
-      const [dated] = reservations;
-      if (!dated) throw new Error("The fixture has no reservations.");
+    test("shows the customer's codes and claims", async () => {
       const profile = adminCustomerProfile({
         codes: [adminCustomerCode()],
         claims: [adminCodeClaim()],
       });
-      const view = await renderCustomerPage(profile, {
-        reservations: [dated, { ...dated, id: "undated", endsAt: null }],
-        reservationHistoryTruncated: true,
-        transactionHistoryTruncated: true,
-      });
+      const view = await renderSlots(profile);
 
-      expect(
-        view
-          .getByRole("link", {
-            name: m.discountsCustomerViewAllReservations({}, { locale }),
-          })
-          .getAttribute("href")
-      ).toBe(
-        `/${locale}/admin/reservations?customerId=${encodeURIComponent(profile.customer.id)}`
-      );
-      expect(
-        view.getByText(
-          m.discountsCustomerUnavailableDateReservations(
-            { count: "1" },
-            { locale }
-          )
-        )
-      ).toBeDefined();
-      expect(
-        view.getByText(m.discountsCustomerTransactionsTruncated({}, { locale }))
-      ).toBeDefined();
       expect(
         view.getByRole("table", {
           name: m.discountsCustomerCodesTableLabel({}, { locale }),

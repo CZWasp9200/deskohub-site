@@ -138,10 +138,11 @@ export const checkoutRequestOf = ({
     : Option.flatMap(selection, (current) =>
         Option.map(
           Option.filter(quote, ({ family }) => family === current.family),
-          ({ advertisedPriceToken }) => ({
+          ({ advertisedPriceToken, summary, regularPrice }) => ({
             locale,
             selection: current,
             advertisedPriceToken,
+            quote: { summary, regularPrice },
             ...(earlySetup === undefined ? {} : { earlySetup }),
           })
         )

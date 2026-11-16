@@ -51,6 +51,7 @@ describe("checkoutRequestOf", () => {
         locale: "cs-CZ",
         selection,
         advertisedPriceToken: "quote-token",
+        quote: { summary: quote.summary, regularPrice: quote.regularPrice },
       })
     );
   });

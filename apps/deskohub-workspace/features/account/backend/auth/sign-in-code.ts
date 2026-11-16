@@ -1,5 +1,5 @@
 import type { AuthContext, DBAdapter } from "better-auth";
-import { Clock, Data, Effect, Option } from "effect";
+import { Clock, Data, DateTime, Effect, Option } from "effect";
 import { WorkspaceLockSections } from "@/db/workspace-locks";
 import {
   betterAuthMagicLinkOptions,
@@ -24,7 +24,7 @@ import {
 /** The verification-table operations this module needs on its own rows. */
 type VerificationRows = Pick<
   DBAdapter,
-  "count" | "create" | "delete" | "deleteMany" | "findOne" | "updateMany"
+  "create" | "delete" | "deleteMany" | "findMany" | "findOne" | "updateMany"
 >;
 
 type StoredVerifications = Pick<
@@ -397,20 +397,38 @@ const recordSend = ({ verifications, identifier, now }: SignInEmailSend) =>
     })
   );
 
-const countRecentSends = ({
-  verifications,
-  identifier,
-  now,
-}: SignInEmailSend) =>
+type SendRecord = { readonly id: string; readonly expiresAt: Date };
+
+/**
+ * The address's newest unexpired send records, newest expiry first. One more
+ * than the limit is enough to tell whether it is exceeded.
+ */
+const listRecentSends = ({ verifications, identifier, now }: SignInEmailSend) =>
   store(() =>
-    verifications.count({
+    verifications.findMany<SendRecord>({
       model: "verification",
       where: [
         { field: "identifier", value: identifier },
         { field: "expiresAt", operator: "gt", value: new Date(now) },
       ],
+      sortBy: { field: "expiresAt", direction: "desc" },
+      limit: signInEmailLimit.max + 1,
     })
   );
+
+/**
+ * When the address next takes a sign-in email: now while fewer than
+ * `signInEmailLimit.max` records remain, else when the
+ * `signInEmailLimit.max`-th newest expires and leaves fewer than that (the
+ * oldest one, unless concurrent sends left extra rows).
+ */
+const nextSignInEmailAt = ({
+  now,
+  kept,
+}: {
+  readonly now: number;
+  readonly kept: ReadonlyArray<SendRecord>;
+}) => DateTime.makeUnsafe(kept.at(signInEmailLimit.max - 1)?.expiresAt ?? now);
 
 /** A rejected send gives its row back, so it doesn't extend the window. */
 const withdrawRejectedSend = ({
@@ -431,10 +449,12 @@ const withdrawRejectedSend = ({
 
 /**
  * Records a sign-in email for the address unless it already received
- * `signInEmailLimit.max` within the rolling window. Each send is one
- * verification row keyed by a digest of the address, expiring with the
- * window, so the auth cleanup cron removes it. The row is written before
- * counting: concurrent sends can only under-admit, never exceed the limit.
+ * `signInEmailLimit.max` within the rolling window, and answers when the
+ * address takes its next one. Each send is one verification row keyed by a
+ * digest of the address, expiring with the window, so the auth cleanup cron
+ * removes it. The row is written before counting: concurrent sends can only
+ * under-admit, never exceed the limit. The next instant is a snapshot that
+ * other sends can move.
  */
 export const reserveSignInEmail = (request: {
   readonly verifications: VerificationRows;
@@ -444,9 +464,15 @@ export const reserveSignInEmail = (request: {
     Effect.bind("identifier", sendRecordIdentifier),
     Effect.bind("now", () => Clock.currentTimeMillis),
     Effect.bind("record", recordSend),
-    Effect.bind("sends", countRecentSends),
-    Effect.let("admitted", ({ sends }) => sends <= signInEmailLimit.max),
+    Effect.bind("sends", listRecentSends),
+    Effect.let("admitted", ({ sends }) => sends.length <= signInEmailLimit.max),
     Effect.tap(withdrawRejectedSend),
-    Effect.map(({ admitted }) => admitted),
+    Effect.let("kept", ({ sends, record, admitted }) =>
+      admitted ? sends : sends.filter(({ id }) => id !== record.id)
+    ),
+    Effect.map(({ admitted, now, kept }) => ({
+      admitted,
+      nextSignInEmailAt: nextSignInEmailAt({ now, kept }),
+    })),
     Effect.withSpan("SignInCode.reserveEmail")
   );

@@ -5,14 +5,15 @@ import type { Locale } from "@/features/i18n";
 import {
   getReferralInvitationLabel,
   recognizeReferralBenefit,
-} from "@/features/referrals/referral-benefits";
+} from "./referral-benefits";
 
 // Compares the benefit a payment attempt accepted with what its referral
-// invitation claim may still grant, so claim admission refuses a benefit that
-// changed meanwhile. Code and voucher benefits compare in
-// `@/features/discounts/promotion-claim-benefits`.
+// invitation claim may still grant, so `ReferralInvitationLedger.admit`
+// refuses a benefit that changed meanwhile. Code and voucher benefits compare
+// in `@/features/discounts/promotion-claim-benefits`.
 
-type ReferralInvitationClaim = Extract<
+/** A referral invitation claim, as a payment commitment carries it. */
+export type ReferralInvitationClaim = Extract<
   DiscountClaimInstruction,
   { readonly kind: "referral_invitation" }
 >;

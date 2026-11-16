@@ -1,11 +1,21 @@
-import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { Redirect, useIsFocused, useNavigation, useRouter } from "expo-router";
-import { useState } from "react";
+import {
+  Redirect,
+  Stack,
+  useIsFocused,
+  useNavigation,
+  useRouter,
+} from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
+import { legalDocumentUrl } from "../../account/legal/legal-documents";
+import { initialsOf } from "../../account/profile/profile-screen";
+import { apiOrigin } from "../../auth/auth-client";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
-import type { AppLocale } from "../../i18n/app-locale";
+import { type AppLocale, isAppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { theme } from "../../theme";
@@ -13,6 +23,7 @@ import { LoadingState } from "../../ui/async-states";
 import { Button } from "../../ui/controls";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
+import { bookProfileHref } from "../booking-routes";
 import type { CheckoutRetryKind } from "../checkout/booking-problem";
 import {
   type CheckoutController,
@@ -25,12 +36,18 @@ import {
   type CheckoutState,
   type DetailsState,
 } from "../checkout/checkout-state";
+import { quotedBarSummary } from "../ui/booking-summary";
 import { retryMessage } from "./checkout-copy";
 import { checkoutDestination, leaveCheckout } from "./checkout-navigation";
 import {
-  type DetailsDraft,
+  detailsDraftAtom,
+  keepsDetailsDraft,
+  useDetailsDraft,
+} from "./details-draft";
+import {
+  type DetailsProfile,
   detailsAccess,
-  emptyDetailsDraft,
+  initialDetailsDraft,
 } from "./details-form";
 import { DetailsStep } from "./details-step";
 import { ReviewStep } from "./review-step";
@@ -63,20 +80,50 @@ function CheckoutFlowScreen({
   });
   const family = request.selection.family;
   useCheckoutNavigation(flow.view, family);
-  // Lifted so the form survives Details -> Creating -> Details.
-  const [draft, setDraft] = useState<DetailsDraft>(emptyDetailsDraft);
+  // The details outlive this screen (back, a restarted hold) until the
+  // booking is submitted.
+  const setDraft = useAtomSet(detailsDraftAtom);
+  const state = flow.view._tag === "Running" ? flow.view.state : undefined;
+  const submitted = state !== undefined && !keepsDetailsDraft(state);
+  useEffect(() => {
+    if (submitted) setDraft(Option.none());
+  }, [submitted, setDraft]);
+  const onDetails = state?._tag === "Details" || state?._tag === "Creating";
+  // Set on every state: options a screen sets outlive the element.
+  const title = (
+    <Stack.Screen
+      options={{
+        title: onDetails
+          ? m.booking_details_title({}, { locale })
+          : m.booking_stack_checkout_title({}, { locale }),
+      }}
+    />
+  );
+  if (state?._tag === "Details" || state?._tag === "Creating") {
+    return (
+      <>
+        {title}
+        <DetailsForAccount
+          notice={state._tag === "Details" ? state.notice : Option.none()}
+          busy={state._tag === "Creating"}
+          flow={flow}
+          request={request}
+          locale={locale}
+        />
+      </>
+    );
+  }
   return (
     <ScrollScreen>
-      {flow.view._tag === "Starting" ? (
+      {title}
+      {state === undefined ? (
         <LoadingState label={m.booking_checkout_starting({}, { locale })} />
       ) : (
         <CheckoutStateView
-          state={flow.view.state}
-          now={flow.view.now}
+          state={state}
+          now={flow.view._tag === "Running" ? flow.view.now : 0}
           flow={flow}
           request={request}
-          draft={draft}
-          onDraftChange={setDraft}
           locale={locale}
         />
       )}
@@ -89,32 +136,20 @@ function CheckoutStateView({
   now,
   flow,
   request,
-  draft,
-  onDraftChange,
   locale,
 }: {
   readonly state: CheckoutState;
   readonly now: number;
   readonly flow: CheckoutController;
   readonly request: CheckoutRequest;
-  readonly draft: DetailsDraft;
-  readonly onDraftChange: (draft: DetailsDraft) => void;
   readonly locale: AppLocale;
 }) {
   const retry = () => flow.send(CheckoutEvent.Retry());
   switch (state._tag) {
     case "Details":
     case "Creating":
-      return (
-        <DetailsForAccount
-          notice={state._tag === "Details" ? state.notice : Option.none()}
-          busy={state._tag === "Creating"}
-          flow={flow}
-          draft={draft}
-          onDraftChange={onDraftChange}
-          locale={locale}
-        />
-      );
+      // Shown by `DetailsForAccount` in its own layout.
+      return null;
     case "Review":
       return (
         <ReviewStep
@@ -171,15 +206,13 @@ function DetailsForAccount({
   notice,
   busy,
   flow,
-  draft,
-  onDraftChange,
+  request,
   locale,
 }: {
   readonly notice: DetailsState["notice"];
   readonly busy: boolean;
   readonly flow: CheckoutController;
-  readonly draft: DetailsDraft;
-  readonly onDraftChange: (draft: DetailsDraft) => void;
+  readonly request: CheckoutRequest;
   readonly locale: AppLocale;
 }) {
   const account = useAtomValue(accountAtom);
@@ -190,23 +223,81 @@ function DetailsForAccount({
         const access = detailsAccess(current);
         if (access._tag === "Unavailable") {
           return (
-            <AccountUnavailableNotice reason={access.reason} locale={locale} />
+            <ScrollScreen>
+              <AccountUnavailableNotice
+                reason={access.reason}
+                locale={locale}
+              />
+            </ScrollScreen>
           );
         }
         return (
-          <DetailsStep
-            self={access.self}
-            draft={draft}
-            onDraftChange={onDraftChange}
+          <DetailsWithProfile
+            profile={access}
+            initials={
+              current.kind === "linked" && Option.isSome(access.self.name)
+                ? Option.some(initialsOf(current.profile))
+                : Option.none()
+            }
+            linked={current.kind === "linked"}
             notice={notice}
             busy={busy}
-            onContinue={flow.continueWith}
-            onRetry={() => flow.send(CheckoutEvent.Retry())}
+            flow={flow}
+            request={request}
             locale={locale}
           />
         );
       }}
     </AsyncView>
+  );
+}
+
+function DetailsWithProfile({
+  profile,
+  initials,
+  linked,
+  notice,
+  busy,
+  flow,
+  request,
+  locale,
+}: {
+  readonly profile: DetailsProfile;
+  readonly initials: Option.Option<string>;
+  readonly linked: boolean;
+  readonly notice: DetailsState["notice"];
+  readonly busy: boolean;
+  readonly flow: CheckoutController;
+  readonly request: CheckoutRequest;
+  readonly locale: AppLocale;
+}) {
+  const router = useRouter();
+  const [draft, setDraft] = useDetailsDraft(() =>
+    initialDetailsDraft(profile.saved)
+  );
+  const consentLocale = isAppLocale(request.locale) ? request.locale : locale;
+  return (
+    <DetailsStep
+      profile={profile}
+      initials={initials}
+      onEditProfile={
+        linked ? Option.some(() => router.push(bookProfileHref)) : Option.none()
+      }
+      draft={draft}
+      onDraftChange={setDraft}
+      notice={notice}
+      busy={busy}
+      summary={quotedBarSummary(request.selection, request.quote, locale)}
+      consentLocale={consentLocale}
+      onOpenMarketingDocument={() =>
+        void WebBrowser.openBrowserAsync(
+          legalDocumentUrl("marketing", apiOrigin, consentLocale)
+        )
+      }
+      onContinue={flow.continueWith}
+      onRetry={() => flow.send(CheckoutEvent.Retry())}
+      locale={locale}
+    />
   );
 }
 
