@@ -1,11 +1,12 @@
 import { equal, ok } from "node:assert/strict";
-import { expect, type Page } from "@playwright/test";
+import { type APIResponse, expect, type Page } from "@playwright/test";
 import { Effect } from "effect";
 import { m as adminMessages } from "@/features/administration/i18n";
 import { m as customerMessages } from "@/features/i18n";
 import { extractPdfText } from "@/shared/testing/pdf-text.test-utils";
 import { resolveWorkspaceE2ESessionSigningSecret } from "../account/seeded-session";
 import { getDatasourceConfig } from "../config";
+import { isNotFoundPage } from "../not-found-page";
 import { runtimeTest as test } from "../playwright-checkout/runtime-fixtures";
 import { addRedaction } from "../redaction";
 import {
@@ -172,22 +173,30 @@ test("lets an administrator cancel a manual invoice with a credit note the custo
           id: "hide-cancelled-invoice",
           timeoutMs: workspaceE2ETimeouts.providerTransition,
         });
+        // The private headers are the proxy's, covered in `proxy.test.ts`.
         yield* step({
           execute: session.use(
             "find the hidden invoice's admin pages gone",
             async (page) => {
-              for (const path of [
+              await withResponse(
+                page,
+                origin,
                 invoiceDetailPath(issued.id),
-                adminCreditNotePath(issued.id),
-              ]) {
-                await withResponse(page, origin, path, async (response) => {
-                  equal(response.status(), 404);
-                  equal(
-                    response.headers()["cache-control"],
-                    "private, no-store"
+                async (response) => {
+                  ok(
+                    await isAdministrationNotFound(response),
+                    "the hidden invoice's detail page must answer not found"
                   );
-                });
-              }
+                }
+              );
+              await withResponse(
+                page,
+                origin,
+                adminCreditNotePath(issued.id),
+                async (response) => {
+                  equal(response.status(), 404);
+                }
+              );
             }
           ),
           id: "refuse-hidden-invoice-pages",
@@ -234,6 +243,15 @@ const cancelInvoiceFromDetail = async (page: Page) => {
   ok(number, "the cancellation panel names its credit note");
   return number;
 };
+
+/**
+ * Whether an administration page answered not found. The detail page reads
+ * its invoice inside a Suspense boundary, so once the shell has flushed it
+ * keeps the 200 and streams the not-found boundary instead of a 404.
+ */
+const isAdministrationNotFound = async (response: APIResponse) =>
+  response.status() === 404 ||
+  (response.status() === 200 && isNotFoundPage(await response.text()));
 
 /** The invoice's row in the admin list, found by its number's link. */
 const listRow = (page: Page, invoiceNumber: string) =>
