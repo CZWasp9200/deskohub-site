@@ -12,7 +12,6 @@ import {
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
 import { sampleOrderIds } from "../../customer-api/testing/sample-fixtures";
 import { AppLocaleProvider } from "../../i18n/locale-context";
-import { m } from "../../i18n/messages";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
 import { elementTree, find } from "../../ui/testing/element-tree";
 import type { StatusVisit } from "./status-refresh-rules";
@@ -110,15 +109,9 @@ describe("the booking view before its first read answers", () => {
       );
     });
 
-    test(`shows no actions yet (${visit})`, () => {
-      const markup = firstPaint(visit);
-      for (const action of [
-        m.reservations_check_again({}, { locale: "en-US" }),
-        m.reservations_show_pin({}, { locale: "en-US" }),
-        m.reservations_book_again({}, { locale: "en-US" }),
-      ]) {
-        expect(markup).not.toContain(action);
-      }
+    // Every action is a Pressable host, so none may be in the markup.
+    test(`offers no action yet (${visit})`, () => {
+      expect(firstPaint(visit)).not.toMatch(/<Pressable\b/);
     });
   }
 });
