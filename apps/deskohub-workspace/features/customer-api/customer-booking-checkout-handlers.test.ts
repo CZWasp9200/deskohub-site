@@ -19,8 +19,8 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import {
   CheckoutError,
   CheckoutService,
-  openPayState,
   openPayStateWithHoldExpiry,
+  PayState,
   PayStateAuthorNotFoundError,
   PayStateIssueError,
   PayStateTokenError,
@@ -97,7 +97,7 @@ const storedReservations = Layer.mock(WorkspaceReservationRepository, {
 });
 
 const openTestPayState = (token: string) =>
-  openPayState(token).pipe(Effect.provide(TestSealedStateKeys));
+  PayState.open(token).pipe(Effect.provide(TestSealedStateKeys));
 
 /**
  * Checkout operations over the test key ring: tokens open, and the session's

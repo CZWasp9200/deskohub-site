@@ -15,11 +15,7 @@ import {
   type Instant,
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
-import { getPayStateExpiresAt } from "./checkout-pay-url";
-import {
-  getSignedPayStateCheckoutSummary,
-  type PayStateWithHoldExpiry,
-} from "./pay-state";
+import { PayState, type PayStateWithHoldExpiry } from "./pay-state";
 
 /**
  * What a client shows for one signed Pay state: the order, its summary, a
@@ -52,9 +48,9 @@ export const getPayStateCheckoutView = (
   now: Temporal.Instant
 ): PayStateCheckoutView => ({
   orderId: state.orderId,
-  expiresAt: getPayStateExpiresAt(state),
+  expiresAt: PayState.expiresAt(state),
   holdExpiresAt: state.holdExpiresAt,
-  summary: getSignedPayStateCheckoutSummary(state),
+  summary: PayState.summary(state),
   ...(state.submittedCode !== undefined && {
     appliedDiscountCode: {
       code: state.submittedCode,

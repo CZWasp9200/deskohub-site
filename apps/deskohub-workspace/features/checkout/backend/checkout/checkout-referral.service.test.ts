@@ -52,7 +52,6 @@ import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/o
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { type Instant, instantStringSchema } from "@/shared/utils/temporal";
-import { getPayStateExpiresAt } from "./checkout-pay-url";
 import {
   CheckoutPricingService,
   type PaymentPriceAffirmationInput,
@@ -74,13 +73,8 @@ import {
 
 mock.module("server-only", () => ({}));
 
-const {
-  buildSignedPayState,
-  openPayState,
-  payStateTokenQueryParam,
-  sealPayState,
-  getSignedPayStateCheckoutSummary,
-} = await import("./pay-state");
+const { buildSignedPayState, PayState, payStateTokenQueryParam, sealPayState } =
+  await import("./pay-state");
 const { withoutPayStateHoldExpiry } = await import(
   "./signed-pay-state.test-utils"
 );
@@ -460,7 +454,7 @@ const openFreshPayState = (result: CheckoutReferralResult) => {
   ).searchParams.get(payStateTokenQueryParam);
   if (!token) throw new Error("Expected refreshed Pay-state token");
   return Effect.runSync(
-    openPayState(token).pipe(Effect.provide(TestSealedStateKeys))
+    PayState.open(token).pipe(Effect.provide(TestSealedStateKeys))
   );
 };
 
@@ -498,7 +492,7 @@ const expectAcceptedThenIdempotentRetry = async (input: {
     ).searchParams.get(payStateTokenQueryParam);
     if (!token) throw new Error("Expected refreshed Pay-state token");
     const state = Effect.runSync(
-      openPayState(token).pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token).pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.changedKeys).toBeUndefined();
     expect(state.submittedCode).toBeUndefined();
@@ -507,7 +501,7 @@ const expectAcceptedThenIdempotentRetry = async (input: {
     expect(state.referralCode).toBe(
       expectedStatus === "accepted" ? "RFL12345" : undefined
     );
-    expect(getSignedPayStateCheckoutSummary(state).total).toEqual(
+    expect(PayState.summary(state).total).toEqual(
       input.affirmation.quote.payment.expectedPrice
     );
     expect(
@@ -592,7 +586,7 @@ describe("CheckoutReferralService", () => {
       signedOrderId
     );
     const originalState = Effect.runSync(
-      openPayState(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
     );
     const result = await Effect.runPromise(runAcceptCode(layer, payStateToken));
 
@@ -603,7 +597,7 @@ describe("CheckoutReferralService", () => {
     const freshToken = freshUrl.searchParams.get(payStateTokenQueryParam);
     if (!freshToken) throw new Error("Expected fresh signed Pay state");
     const freshState = Effect.runSync(
-      openPayState(freshToken).pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(freshToken).pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(freshState.orderId).toBe(originalState.orderId);
     expect(freshState.changedKeys).toBeUndefined();
@@ -919,6 +913,7 @@ describe("CheckoutReferralService", () => {
           bookedAt: payStateBookedAt,
           submittedCode,
           submittedCodeDiscountId: ordinaryDiscountId,
+          requestedDiscountCode: submittedCode,
         })
       )
     );
@@ -931,6 +926,9 @@ describe("CheckoutReferralService", () => {
     expect(freshState.submittedCode).toBe(submittedCode);
     expect(freshState.submittedCodeDiscountId).toBe(ordinaryDiscountId);
     expect(freshState.referralCode).toBe(referralCode);
+    // Unlike code entry and payment, an accepted referral does not carry the
+    // requested code forward. Whether it should is an open product question.
+    expect(freshState.requestedDiscountCode).toBeUndefined();
   });
 
   test("keeps an already attributed customer's carried code and reports a signed total it no longer matches", async () => {
@@ -1281,7 +1279,7 @@ describe("CheckoutReferralService", () => {
       ).searchParams.get(payStateTokenQueryParam);
       expect(result.freshPayStateToken).toBe(urlToken ?? "missing");
       expect(result.expiresAt).toBe(
-        getPayStateExpiresAt(openFreshPayState(result))
+        PayState.expiresAt(openFreshPayState(result))
       );
     }
   );
@@ -1309,15 +1307,13 @@ describe("CheckoutReferralService", () => {
         { issuedAt: Temporal.Now.instant().subtract({ minutes: 5 }) }
       );
       const signed = Effect.runSync(
-        openPayState(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
+        PayState.open(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
       );
 
       const fresh = await acceptedPayState(payStateToken);
 
       expect(fresh.holdExpiresAt).toBe(payStateHoldExpiresAt);
-      expect(getPayStateExpiresAt(fresh)).not.toBe(
-        getPayStateExpiresAt(signed)
-      );
+      expect(PayState.expiresAt(fresh)).not.toBe(PayState.expiresAt(signed));
     });
 
     test("gives a token signed without the deadline its reservation's stored one", async () => {
