@@ -160,40 +160,34 @@ export class ReservationInvoiceService extends Context.Service<
       });
 
       /**
-       * Issues the payment attempt's invoice and delivers it. Dotypos takes
-       * the buyer before the invoice commits it, so a failed PATCH stops
-       * issuance and Dotypos never lags an issued invoice. The delivery's
-       * outcome is returned for the caller to judge.
+       * Issues the payment attempt's invoice. Dotypos takes the buyer before
+       * the invoice commits it, so a failed PATCH stops issuance; after a lost
+       * race it takes the committed buyer, when the origin allows one. The
+       * caller delivers the issued invoice under its own policy.
        */
-      const issueAndDeliver = <E = never>(input: {
+      const issueInvoice = Effect.fnUntraced(function* <E = never>(input: {
         readonly request: InvoiceIssueRequest;
         readonly dotyposCustomerId: DotyposCustomerId;
         readonly origin: InvoiceBuyerOrigin<E>;
-      }) =>
-        Effect.gen(function* () {
-          const { request, origin } = input;
-          const updateBilling = (buyer: InvoiceBuyer) =>
-            dotypos.updateCustomerBillingDetails(
-              input.dotyposCustomerId,
-              toDotyposCustomerBillingDetails(buyer)
-            );
+      }) {
+        const { request, origin } = input;
+        const updateBilling = (buyer: InvoiceBuyer) =>
+          dotypos.updateCustomerBillingDetails(
+            input.dotyposCustomerId,
+            toDotyposCustomerBillingDetails(buyer)
+          );
 
-          if (origin.kind === "submitted" || !origin.issued) {
-            yield* updateBilling(request.buyer);
-          }
-          const issuance = yield* invoices.issue(request);
-          if (origin.kind === "submitted" && !issuance.changed) {
-            const committed = issuance.invoice.document.buyer;
-            yield* origin.acceptCommitted(committed);
-            yield* updateBilling(committed);
-          }
-          const delivery = yield* invoiceDeliveries
-            .deliverByPaymentAttemptId({
-              paymentAttemptId: request.paymentAttemptId,
-            })
-            .pipe(Effect.result);
-          return { issuance, delivery };
-        });
+        if (origin.kind === "submitted" || !origin.issued) {
+          yield* updateBilling(request.buyer);
+        }
+        const issuance = yield* invoices.issue(request);
+        if (origin.kind === "submitted" && !issuance.changed) {
+          const committed = issuance.invoice.document.buyer;
+          yield* origin.acceptCommitted(committed);
+          yield* updateBilling(committed);
+        }
+        return issuance;
+      });
 
       return ReservationInvoiceService.of({
         issueAfterFulfillment: Effect.fn(
@@ -219,12 +213,14 @@ export class ReservationInvoiceService extends Context.Service<
 
           const issued =
             yield* invoices.findByPaymentAttemptId(paymentAttemptId);
-          const { delivery } = yield* issueAndDeliver({
+          yield* issueInvoice({
             request: { paymentAttemptId, buyer },
             dotyposCustomerId: source.dotyposCustomerId,
             origin: { kind: "frozen", issued: issued !== null },
           });
-          yield* Effect.fromResult(delivery);
+          yield* invoiceDeliveries.deliverByPaymentAttemptId({
+            paymentAttemptId,
+          });
         }),
         getPostOrderState: Effect.fn(
           "ReservationInvoiceService.getPostOrderState"
@@ -244,7 +240,7 @@ export class ReservationInvoiceService extends Context.Service<
             });
           }
 
-          const { issuance, delivery } = yield* issueAndDeliver({
+          const issuance = yield* issueInvoice({
             request: {
               paymentAttemptId: context.paymentAttemptId,
               buyer: {
@@ -257,11 +253,19 @@ export class ReservationInvoiceService extends Context.Service<
             dotyposCustomerId: context.source.dotyposCustomerId,
             origin: { kind: "submitted", acceptCommitted: requirePerson },
           });
+          const delivered = yield* invoiceDeliveries
+            .deliverByPaymentAttemptId({
+              paymentAttemptId: context.paymentAttemptId,
+            })
+            .pipe(
+              Effect.as(true),
+              Effect.catchTag("InvoiceEmailDeliveryError", (error) =>
+                Effect.succeed(error.customerDelivered === true)
+              )
+            );
           return {
             status: issuance.changed ? "created" : "already-issued",
-            delivered:
-              Result.isSuccess(delivery) ||
-              delivery.failure.customerDelivered === true,
+            delivered,
           } as const;
         }),
         resendPostOrderInvoice: Effect.fn(
@@ -325,16 +329,13 @@ const isDeliverableReservationSnapshot = (
  * A post-order request only submits a person, so the request it lost to
  * committed a person too; any other buyer is not this reservation's.
  */
-const requirePerson = (
-  buyer: InvoiceBuyer
-): Effect.Effect<void, PostOrderInvoiceUnavailableError> =>
-  buyer.kind === "person"
-    ? Effect.void
-    : Effect.fail(
-        new PostOrderInvoiceUnavailableError({
-          message: "The issued invoice buyer does not match the reservation.",
-        })
-      );
+const requirePerson = Effect.fnUntraced(function* (buyer: InvoiceBuyer) {
+  if (buyer.kind !== "person") {
+    return yield* new PostOrderInvoiceUnavailableError({
+      message: "The issued invoice buyer does not match the reservation.",
+    });
+  }
+});
 
 /** A personal reservation that asked for no invoice when it was paid. */
 const isUnrequestedPersonalInvoice = (
