@@ -1,7 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Match, Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import EllipsisVertical from "lucide-react-native/icons/ellipsis-vertical";
 import KeyRound from "lucide-react-native/icons/key-round";
 import Mail from "lucide-react-native/icons/mail";
 import Pencil from "lucide-react-native/icons/pencil";
@@ -24,11 +23,11 @@ import { ConfirmDialog } from "../../ui/confirm-dialog";
 import { BodyText, LiveMessage, TextField } from "../../ui/controls";
 import { emailWithBreak } from "../../ui/email-with-break";
 import { EmptyState } from "../../ui/empty-state";
-import { IconButton } from "../../ui/icon-button";
 import { ListGroup, ListRow, SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { useToast } from "../../ui/toast";
 import { space } from "../../ui/tokens";
+import { PasskeyListRow } from "./passkey-list-row";
 import {
   deletePasskeyAtom,
   type PasskeyRow,
@@ -277,23 +276,17 @@ export function SecurityScreen() {
                 <>
                   <ListGroup>
                     {listed.map((row) => (
-                      <ListRow
+                      <PasskeyListRow
                         key={row.id}
-                        icon={KeyRound}
-                        label={row.name}
-                        description={passkeyDetails(row, locale)}
-                        trailing={
-                          <IconButton
-                            icon={EllipsisVertical}
-                            label={m.security_passkey_menu_label(
-                              { name: row.name },
-                              { locale }
-                            )}
-                            disabled={state.adding}
-                            onPress={() =>
-                              setMenu({ row, passkeyCount: listed.length })
-                            }
-                          />
+                        name={row.name}
+                        details={passkeyDetails(row, locale)}
+                        menuLabel={m.security_passkey_menu_label(
+                          { name: row.name },
+                          { locale }
+                        )}
+                        disabled={state.adding}
+                        onOpenMenu={() =>
+                          setMenu({ row, passkeyCount: listed.length })
                         }
                       />
                     ))}
