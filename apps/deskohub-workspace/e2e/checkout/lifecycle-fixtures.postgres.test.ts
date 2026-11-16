@@ -2,6 +2,10 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import type {
+  PaymentAttemptState,
+  ReferralInvitationClaimState,
+} from "@/db/schema";
 import { admitReferralNexiPayment } from "@/features/checkout/backend/repositories/payment-lifecycle.test-utils";
 import { PaymentTerminalTransitions } from "@/features/checkout/backend/repositories/payment-terminal-transitions";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
@@ -33,7 +37,7 @@ const retire = (
 
 const readClaim = async (paymentAttemptId: PaymentAttemptId) => {
   const { rows } = await testDatabase!.pool.query<{
-    state: string;
+    state: ReferralInvitationClaimState;
     release_reason: string | null;
   }>(
     "select state, release_reason from referral_invitation_claims where payment_attempt_id = $1",
@@ -118,10 +122,9 @@ describe.skipIf(!testDatabase)(
           cause: { _tag: "DiscountClaimError", reason: "claim_conflict" },
         },
       });
-      const { rows } = await testDatabase!.pool.query<{ state: string }>(
-        "select state from payment_attempts where id = $1",
-        [attempt.id]
-      );
+      const { rows } = await testDatabase!.pool.query<{
+        state: PaymentAttemptState;
+      }>("select state from payment_attempts where id = $1", [attempt.id]);
       expect(rows).toEqual([{ state: attempt.state }]);
     });
   }

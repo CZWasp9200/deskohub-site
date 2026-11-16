@@ -2,6 +2,12 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import type {
+  PaymentAttemptState,
+  PaymentState,
+  ReferralInvitationClaimState,
+  ReservationState,
+} from "@/db/schema";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { admitReferralNexiPayment } from "./payment-lifecycle.test-utils";
 import { PaymentTerminalTransitions } from "./payment-terminal-transitions";
@@ -26,10 +32,10 @@ const runTransitions = <A, E>(
 
 const readStates = async (paymentAttemptId: string) => {
   const { rows } = await testDatabase!.pool.query<{
-    attempt_state: string;
-    payment_state: string;
-    reservation_state: string;
-    claim_state: string;
+    attempt_state: PaymentAttemptState;
+    payment_state: PaymentState;
+    reservation_state: ReservationState;
+    claim_state: ReferralInvitationClaimState;
     release_reason: string | null;
   }>(
     `select attempt.state as attempt_state,
