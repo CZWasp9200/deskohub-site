@@ -1,10 +1,12 @@
 import Lock from "lucide-react-native/icons/lock";
 import { Children, type ReactNode, type Ref, useId, useState } from "react";
 import {
+  Platform,
   Pressable,
   StyleSheet,
   type TextInputInstance,
   type TextInputProps,
+  type TextStyle,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -82,6 +84,20 @@ const buttonLabelColor = {
 } as const satisfies Record<ButtonVariant, string>;
 
 /**
+ * Whether a focus draws the button's focus ring. On the web only a focus the
+ * browser marks `:focus-visible` (the keyboard's) does, so a pointer press
+ * doesn't ring the button; native focus comes from a keyboard or assistive
+ * technology, so it always does.
+ */
+export const showsFocusRing = (os: string, target: unknown): boolean => {
+  if (os !== "web") return true;
+  const element = target as { matches?: (selector: string) => boolean } | null;
+  return (
+    typeof element?.matches !== "function" || element.matches(":focus-visible")
+  );
+};
+
+/**
  * A pill button, 48 tall (40 drawn with a 48 target when `small`).
  *
  * - `primary`: burned orange, one per screen; `secondary`: outlined white;
@@ -152,7 +168,7 @@ export function Button({
       aria-describedby={reason && reasonId}
       disabled={disabled}
       onPress={busy ? undefined : onPress}
-      onFocus={() => setFocused(true)}
+      onFocus={(event) => setFocused(showsFocusRing(Platform.OS, event.target))}
       onBlur={() => setFocused(false)}
       // A small button is drawn 40 tall; its target stays 48.
       hitSlop={size === "small" ? { top: 4, bottom: 4 } : undefined}
@@ -326,6 +342,7 @@ const buttonPressedStyles = StyleSheet.create({
  */
 export function TextField({
   label,
+  optional,
   hint,
   error,
   readOnly = false,
@@ -339,6 +356,8 @@ export function TextField({
   ...input
 }: {
   readonly label: string;
+  /** The marker after the label of a field that may stay empty. */
+  readonly optional?: string;
   /** Help under the field, such as the format it expects. */
   readonly hint?: string;
   readonly error?: string;
@@ -383,11 +402,11 @@ export function TextField({
   const iconColor = fieldIconColor(state);
   return (
     <View style={fieldColumnStyle}>
-      <FieldLabel label={label} />
+      <FieldLabel label={label} optional={optional} />
       <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
         {leadingIcon && <Icon icon={leadingIcon} size={20} color={iconColor} />}
         <TextInput
-          aria-label={label}
+          aria-label={optional === undefined ? label : `${label} ${optional}`}
           aria-disabled={disabled}
           // Native platforms read the hint; the web reads `aria-describedby`
           // and `aria-invalid`, which react-native-web maps and RN ignores.
@@ -460,6 +479,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     // The frame draws the focus ring; the web's own outline would double it.
+    // Chromium draws an `auto` outline whatever its width, so the style goes
+    // too. React Native's types omit `none`, which React Native Web passes on.
+    outlineStyle: "none" as unknown as TextStyle["outlineStyle"],
     outlineWidth: 0,
     paddingHorizontal: 0,
     paddingVertical: space.md,

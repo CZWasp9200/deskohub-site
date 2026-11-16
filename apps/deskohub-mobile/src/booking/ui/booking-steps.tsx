@@ -1,5 +1,5 @@
 import Check from "lucide-react-native/icons/check";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { Icon } from "../../ui/icon";
@@ -59,7 +59,7 @@ export function BookingSteps({
               <Text
                 variant="badge"
                 tone={index === currentIndex ? "default" : "muted"}
-                numberOfLines={1}
+                {...stepNameFit}
                 style={styles.nameText}
               >
                 {stepName(step, locale)}
@@ -72,6 +72,19 @@ export function BookingSteps({
     </View>
   );
 }
+
+/**
+ * A step name never truncates: at large font sizes it shrinks to fit its
+ * third natively, and wraps on the web, which can't shrink text to fit.
+ */
+const stepNameFit =
+  Platform.OS === "web"
+    ? {}
+    : ({
+        numberOfLines: 1,
+        adjustsFontSizeToFit: true,
+        minimumFontScale: 0.5,
+      } as const);
 
 const styles = StyleSheet.create({
   steps: {

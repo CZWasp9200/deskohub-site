@@ -1,3 +1,4 @@
+import type { AppLocale } from "../../i18n/app-locale";
 import { sitePageUrl } from "../../routing/site-page";
 
 /** The site's legal documents the Legal & Privacy screen links to, in order. */
@@ -19,10 +20,13 @@ const legalDocumentPath: Record<LegalDocument, `/${string}`> = {
 };
 
 /**
- * The locale-agnostic URL of a legal document on the Workspace the app talks
- * to, so a build pointed at a preview opens that preview's documents.
+ * The URL of a legal document on the Workspace the app talks to, so a build
+ * pointed at a preview opens that preview's documents. Without a locale the
+ * site picks the reader's language; with one it opens exactly that
+ * language's document, such as the version a consent is recorded against.
  */
 export const legalDocumentUrl = (
   document: LegalDocument,
-  siteOrigin: string
-): string => sitePageUrl(legalDocumentPath[document], siteOrigin);
+  siteOrigin: string,
+  locale?: AppLocale
+): string => sitePageUrl(legalDocumentPath[document], siteOrigin, locale);

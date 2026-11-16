@@ -27,6 +27,10 @@ export default function BookLayout() {
         name="checkout"
         options={{ title: m.booking_stack_checkout_title({}, { locale }) }}
       />
+      <Stack.Screen
+        name="profile"
+        options={{ title: m.account_section_profile({}, { locale }) }}
+      />
     </Stack>
   );
 }

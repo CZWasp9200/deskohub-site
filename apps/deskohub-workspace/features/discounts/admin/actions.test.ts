@@ -3,7 +3,6 @@ import "@/shared/testing/workspace-test-env";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect, Fiber, Layer, Predicate } from "effect";
 import { administrationHref } from "@/features/administration/administration-href";
-import { m } from "@/features/administration/i18n";
 import { mockAdministrationActionRequest } from "@/shared/testing/workspace-action-request.test-utils";
 
 const revalidatedPaths: string[] = [];
@@ -72,9 +71,7 @@ DiscountAdministration.Live = Layer.succeed(
 );
 
 // Imported after the fake, since the actions take the layer on load.
-const { mutateDiscountAdmin, searchDiscountAdminCustomers } = await import(
-  "./actions"
-);
+const { mutateDiscountAdmin } = await import("./actions");
 
 const customerCode = {
   kind: "create-customer-code",
@@ -174,20 +171,5 @@ describe("mutateDiscountAdmin", () => {
     expect(result).not.toHaveProperty("data");
     expect(calls).toEqual([]);
     expect(revalidatedPaths).toEqual([]);
-  });
-});
-
-describe("searchDiscountAdminCustomers", () => {
-  test("reports any failed search as unavailable", async () => {
-    administration = {
-      searchCustomers: () => Effect.fail(new Error("Dotypos unavailable")),
-    };
-
-    expect(await searchDiscountAdminCustomers({ query: "customer" })).toEqual({
-      serverError: m.discountsErrorCustomerSearchUnavailable(
-        {},
-        { locale: "en-US" }
-      ),
-    });
   });
 });

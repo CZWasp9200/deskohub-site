@@ -17,6 +17,12 @@ export const bookFamilyHref = (
 
 export const bookCheckoutHref = "/book/checkout" as const;
 
+/**
+ * Account › Profile over the checkout, in the book stack, so back returns to
+ * the checkout with its details.
+ */
+export const bookProfileHref = "/book/profile" as const;
+
 /** The Reservations list (#991's reservations index). */
 export const reservationsHref = "/reservations" as const;
 

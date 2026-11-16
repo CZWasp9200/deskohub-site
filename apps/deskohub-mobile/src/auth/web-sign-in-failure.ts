@@ -1,4 +1,14 @@
-import { Data } from "effect";
+import { NextSignInEmailAtFromClient } from "@deskohub/workspace-customer-api/sign-in-email";
+import { Data, type DateTime, Option, Schema } from "effect";
+
+/**
+ * Reads `nextSignInEmailAt` from a sign-in email answer, a success or an
+ * address-limit refusal; anything that is no valid instant (an older server)
+ * is none.
+ */
+export const decodeNextSignInEmailAt = Schema.decodeUnknownOption(
+  NextSignInEmailAtFromClient
+);
 
 export type WebSignInOperation =
   | "send-email"
@@ -35,11 +45,43 @@ export type WebSignInFailureReason =
   | "unavailable"
   | "failed";
 
+/**
+ * A Better Auth error answer. better-fetch puts the body's other fields, such
+ * as an address limit's `nextSignInEmailAt`, beside `status` and `code`.
+ */
+export interface WebSignInErrorAnswer {
+  readonly status?: number;
+  readonly code?: string;
+  readonly nextSignInEmailAt?: unknown;
+}
+
 /** A web sign-in step failed; `reason` decides what the page shows. */
 export class WebSignInFailure extends Data.TaggedError("WebSignInFailure")<{
   readonly operation: WebSignInOperation;
   readonly reason: WebSignInFailureReason;
-}> {}
+  /**
+   * When the server next accepts a sign-in email for the address. Only an
+   * address-limit failure whose answer names a valid instant carries it; an
+   * older server names none.
+   */
+  readonly nextSignInEmailAt?: DateTime.Utc;
+}> {
+  /** The failure a Better Auth error answer to `operation` stands for. */
+  static readonly fromAnswer =
+    (operation: WebSignInOperation) =>
+    (answer: WebSignInErrorAnswer): WebSignInFailure => {
+      const reason = webSignInFailureReason(operation, answer);
+      const nextSignInEmailAt =
+        reason === "address-limit"
+          ? decodeNextSignInEmailAt(answer.nextSignInEmailAt)
+          : Option.none();
+      return Option.match(nextSignInEmailAt, {
+        onNone: () => new WebSignInFailure({ operation, reason }),
+        onSome: (at) =>
+          new WebSignInFailure({ operation, reason, nextSignInEmailAt: at }),
+      });
+    };
+}
 
 const signInCodeRejections: Readonly<Record<string, WebSignInFailureReason>> = {
   INVALID_OTP: "wrong-code",
