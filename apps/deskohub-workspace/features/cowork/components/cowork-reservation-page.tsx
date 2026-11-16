@@ -85,7 +85,10 @@ export const coworkReservationPage = createReservationPage({
     { lastReservation, locale, pageData, today }
   ) {
     const queryValues = withOfferedStay(
-      withWorkspaceDate(coworkSelectionLink.read(searchParams, { locale }), today),
+      withWorkspaceDate(
+        coworkSelectionLink.read(searchParams, { locale }),
+        today
+      ),
       pageData
     );
     if (!lastReservation) return queryValues;

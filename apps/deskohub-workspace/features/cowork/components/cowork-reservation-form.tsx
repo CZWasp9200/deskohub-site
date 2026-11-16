@@ -719,7 +719,7 @@ function CoworkStayField({
       render={({ field }) => (
         <FormItem>
           <SegmentedControl<CoworkStay>
-            className="flex w-full [&>label]:flex-1"
+            className="self-start"
             label={m.coworkReservationStayLabel({}, { locale })}
             name={field.name}
             onValueChange={(stay) =>

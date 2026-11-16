@@ -21,6 +21,13 @@ import {
 import { Schema } from "effect";
 import type { ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { publishQuoteTool } from "@/features/agent-tools/webmcp/site-tool-catalog";
+import {
+  agentToolEventStream,
+  installFakeModelContext,
+  mockAgentToolEndpoint,
+  publishedQuoteTool,
+} from "@/features/agent-tools/webmcp/webmcp.test-utils";
 import {
   type AdvertisedPrice,
   type AdvertisedPriceRequest,
@@ -41,15 +48,9 @@ import {
   getWorkspaceProductTierTitle,
   workspaceProductTierCardMessages,
 } from "@/features/checkout/product-catalog.i18n";
-import { publishQuoteTool } from "@/features/agent-tools/webmcp/site-tool-catalog";
-import {
-  agentToolEventStream,
-  installFakeModelContext,
-  mockAgentToolEndpoint,
-  publishedQuoteTool,
-} from "@/features/agent-tools/webmcp/webmcp.test-utils";
 import { discountIdSchema } from "@/features/discounts/contracts";
 import { type Locale, m } from "@/features/i18n";
+import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import {
   continueAndSubmitReservation,
   mockReservationCheckoutStep,
@@ -2443,11 +2444,16 @@ describe("CoworkReservationForm advertised pricing", () => {
       await waitFor(() => {
         expect(executeAsync).toHaveBeenCalledTimes(1);
       });
-      return (
-        executeAsync.mock.calls[0]?.[0] as unknown as {
-          readonly reservation: Record<string, unknown>;
-        }
-      ).reservation;
+      const submission = executeAsync.mock.calls[0]?.[0] as
+        | {
+            readonly reservation?: {
+              readonly date?: string;
+              readonly entryTier?: string;
+              readonly stay?: string;
+            };
+          }
+        | undefined;
+      return submission?.reservation;
     };
 
     let originalHref = "";
@@ -2544,7 +2550,9 @@ describe("CoworkReservationForm advertised pricing", () => {
 
     test("opens on a linked overnight stay", () => {
       workspaceUseSearchParams.mockReturnValue(
-        new URLSearchParams("entryTier=reserved-desk&date=2099-07-30&stay=overnight")
+        new URLSearchParams(
+          "entryTier=reserved-desk&date=2099-07-30&stay=overnight"
+        )
       );
 
       const view = renderForm({ overnightStayOffered: true });
@@ -2560,17 +2568,19 @@ describe("CoworkReservationForm advertised pricing", () => {
       const ready = {
         data: {
           status: "ready",
-          redirectUrl: "/en-US/checkout/pay?payState=sealed-state&orderId=order-1",
+          redirectUrl:
+            "/en-US/checkout/pay?payState=sealed-state&orderId=order-1",
           expiresAt: "2099-07-29T08:10:00.000Z",
         },
       } as const;
+      const prepared: PreparePayStateInput[] = [];
       // Like next-safe-action, a settled call runs the hook's callbacks first.
       workspaceUseAction.mockImplementation(((
-        action: unknown,
+        action: typeof preparePayState,
         options: { readonly onSuccess?: (result: typeof ready) => void }
       ) => ({
-        executeAsync: async (input: unknown) => {
-          await (executeAsync as (input: unknown) => Promise<unknown>)(input);
+        executeAsync: async (input: PreparePayStateInput) => {
+          prepared.push(input);
           if (action === preparePayState) act(() => options.onSuccess?.(ready));
           return ready;
         },
@@ -2618,19 +2628,24 @@ describe("CoworkReservationForm advertised pricing", () => {
             replacesTypedContact: false,
           },
           // The page fills a linked account's contact into the form.
-          initialValues: { ...reservedDeskFormValues(), entryTier: "open-space" },
+          initialValues: {
+            ...reservedDeskFormValues(),
+            entryTier: "open-space",
+          },
         });
         act(() => publishQuoteTool(publishedQuoteTool));
         await waitFor(() => {
           expect(modelContext.registered.has("prepare_reservation")).toBe(true);
         });
 
-        const result = await modelContext.getTool("prepare_reservation").execute({
-          family: "cowork",
-          date: "2099-07-30",
-          tier: "reserved-desk",
-          stay: "overnight",
-        });
+        const result = await modelContext
+          .getTool("prepare_reservation")
+          .execute({
+            family: "cowork",
+            date: "2099-07-30",
+            tier: "reserved-desk",
+            stay: "overnight",
+          });
 
         expect(endpoint.requests.at(-1)?.params).toMatchObject({
           name: "get_quote",
@@ -2638,8 +2653,8 @@ describe("CoworkReservationForm advertised pricing", () => {
         });
         expect(result).toMatchObject({ status: "ready" });
         expect(stayOption(view, "overnight").checked).toBe(true);
-        expect(executeAsync).toHaveBeenCalledTimes(1);
-        expect(executeAsync.mock.calls[0]?.[0]).toMatchObject({
+        expect(prepared).toHaveLength(1);
+        expect(prepared[0]).toMatchObject({
           reservation: {
             entryTier: "reserved-desk",
             date: "2099-07-30",
@@ -2671,9 +2686,9 @@ describe("CoworkReservationForm advertised pricing", () => {
       expect(stayGroup(view)).toBeNull();
       expect(overnightTimes(view)).toBeNull();
       await waitFor(() => {
-        expect(new URL(window.location.href).searchParams.get("entryTier")).toBe(
-          "open-space"
-        );
+        expect(
+          new URL(window.location.href).searchParams.get("entryTier")
+        ).toBe("open-space");
       });
       expect(linkedStay()).toBeNull();
       const openSpaceRequests = availabilityRequests.filter(
@@ -2686,7 +2701,7 @@ describe("CoworkReservationForm advertised pricing", () => {
 
       const reservation = await submitReservation(view);
       expect(reservation).toMatchObject({ entryTier: "open-space" });
-      expect(reservation.stay).toBeUndefined();
+      expect(reservation?.stay).toBeUndefined();
     });
   });
 
