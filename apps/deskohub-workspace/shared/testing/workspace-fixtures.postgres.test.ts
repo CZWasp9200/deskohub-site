@@ -24,6 +24,7 @@ import {
 } from "./workspace-fixtures.test-utils";
 import {
   connectWorkspacePostgresTestDatabase,
+  holdDatabaseConnection,
   withHeldTransaction,
 } from "./workspace-postgres-test-database.test-utils";
 
@@ -47,13 +48,13 @@ describe.skipIf(!testDatabase)("workspace fixtures", () => {
   const inRolledBackTransaction = async <A, E>(
     use: (db: WorkspaceDatabaseClient) => Effect.Effect<A, E>
   ) => {
-    const connection = await testDatabase!.pool.connect();
+    const connection = await holdDatabaseConnection(testDatabase!);
     try {
       await connection.query("begin");
       return await Effect.runPromise(withHeldTransaction(connection, use));
     } finally {
       await connection.query("rollback").catch(() => {});
-      connection.release();
+      await connection.release();
     }
   };
 

@@ -87,7 +87,10 @@ describe.skipIf(!testDatabase)(
      */
     const databasePerBuild = Layer.effect(
       WorkspaceDatabase,
-      Effect.map(makeDatabaseClient(testDatabase.pool), WorkspaceDatabase.make)
+      Effect.map(
+        makeDatabaseClient(testDatabase.databasePool),
+        WorkspaceDatabase.make
+      )
     );
 
     /**

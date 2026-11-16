@@ -136,7 +136,9 @@ describe.skipIf(!suiteDatabase)(
             Layer.mergeAll(
               authentication,
               links,
-              WorkspaceDatabaseAdvisoryLock.makeLayer(pool)
+              WorkspaceDatabaseAdvisoryLock.makeLayer(
+                suiteDatabase.databasePool
+              )
             )
           )
         );

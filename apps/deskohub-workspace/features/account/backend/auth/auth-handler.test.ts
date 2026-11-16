@@ -4,7 +4,8 @@ import { describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { DotyposUncertain } from "@deskohub/dotypos";
 import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
-import { Deferred, Effect, Fiber, Layer, Option } from "effect";
+import { Context, Deferred, Effect, Fiber, Layer, Option } from "effect";
+import { SqlClient } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   WorkspaceDatabaseAdvisoryLock,
@@ -114,7 +115,9 @@ const makeTestDeletionLayers = (
             Layer.mergeAll(
               links,
               Layer.mock(CustomerAuthentication, {}),
-              WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+              WorkspaceDatabaseAdvisoryLock.makeLayer(
+                testDatabase!.databasePool
+              )
             )
           )
         ),
@@ -1206,7 +1209,10 @@ describe.skipIf(!testDatabase)(
 
           const holdFiber = yield* Effect.forkChild(
             withPostgresAdvisoryLock(
-              testDatabase!.pool,
+              Context.get(
+                testDatabase!.databasePool.postgres,
+                SqlClient.SqlClient
+              ),
               lockKey,
               Deferred.succeed(lockHeld, undefined).pipe(
                 Effect.andThen(Deferred.await(lockReleased)),

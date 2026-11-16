@@ -1,6 +1,8 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import * as Net from "node:net";
+import * as PgClient from "@effect/sql-pg/PgClient";
 import { sql } from "drizzle-orm";
 import {
   Cause,
@@ -9,21 +11,33 @@ import {
   Exit,
   Fiber,
   Latch,
+  Layer,
   Option,
+  Redacted,
   Ref,
-  References,
+  Scope,
   Stream,
 } from "effect";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import {
   createWorkspacePostgresSuiteDatabase,
+  holdDatabaseConnection,
   withHeldTransaction,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { WorkspaceDatabase, WorkspaceTransaction } from "./database.service";
-import { makeDatabaseClient, makeDatabasePool } from "./database-client";
+import {
+  WorkspaceDatabase,
+  WorkspaceTransaction,
+  workspaceStatementConcurrency,
+} from "./database.service";
+import { databaseClient, makeDatabaseClient } from "./database-client";
 
 const suiteDatabase = await createWorkspacePostgresSuiteDatabase(
   "workspace_transaction"
 );
+
+/** A statement from work that outlived its transaction, refused. */
+const refusedAfterEnd =
+  /after the transaction's effect ended|the transaction has already ended/;
 
 describe.skipIf(!suiteDatabase)(
   "Workspace transactions on disposable Postgres",
@@ -156,7 +170,7 @@ describe.skipIf(!suiteDatabase)(
       ]);
     });
 
-    test("runs inherited concurrency one effect at a time inside, and not outside", async () => {
+    test("runs statement concurrency one effect at a time inside, and not outside", async () => {
       const interleaving = Effect.gen(function* () {
         const log = yield* Ref.make<ReadonlyArray<string>>([]);
         const step = (name: string) =>
@@ -166,11 +180,9 @@ describe.skipIf(!suiteDatabase)(
               Ref.update(log, (entries) => [...entries, `${name}:end`])
             )
           );
-        yield* Effect.all([step("a"), step("b")], { concurrency: "inherit" });
-        return {
-          log: yield* Ref.get(log),
-          limit: yield* References.CurrentConcurrency,
-        };
+        const concurrency = yield* workspaceStatementConcurrency;
+        yield* Effect.all([step("a"), step("b")], { concurrency });
+        return { log: yield* Ref.get(log), limit: concurrency };
       });
 
       const inside = await Effect.runPromise(transaction(interleaving));
@@ -257,8 +269,10 @@ describe.skipIf(!suiteDatabase)(
       expect(lateFibers).toHaveLength(4);
       for (const late of lateFibers) {
         const exit = await Effect.runPromiseExit(Fiber.join(late));
-        expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toContain(
-          "after the transaction's effect ended"
+        // Effect SQL refuses it once the level ended; the view refuses it
+        // between the body's end and that.
+        expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toMatch(
+          refusedAfterEnd
         );
       }
       expect(await labels(prefix)).toEqual([]);
@@ -296,8 +310,10 @@ describe.skipIf(!suiteDatabase)(
       ).toBe(true);
       await Effect.runPromise(Deferred.succeed(release, undefined));
       const exit = await Effect.runPromiseExit(Fiber.join(late));
-      expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toContain(
-        "after the transaction's effect ended"
+      // Effect SQL refuses it once the level ended; the view refuses it
+      // between the body's end and that.
+      expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toMatch(
+        refusedAfterEnd
       );
       expect(await labels(prefix)).toEqual([]);
     });
@@ -305,50 +321,76 @@ describe.skipIf(!suiteDatabase)(
     test("waits for a statement admitted before the body ended, so it runs inside the rolled-back transaction", async () => {
       const prefix = `admitted-${crypto.randomUUID()}`;
       const lateLabel = `${prefix}-late`;
-      // One connection, so the next transaction borrows the one this one used.
-      const gatedPool = makeDatabasePool({
-        connectionString: pool.options.connectionString!,
-        max: 1,
-      });
       // Opens when the late INSERT reaches the connection, past the view.
       const reached = Latch.makeUnsafe(false);
-      // Holds the late INSERT back from `pg`, as a scheduler yield between
-      // admission and sending could; opens at the first COMMIT or ROLLBACK,
-      // or when the test opens it.
+      // Holds the late INSERT back from the server, as a scheduler yield
+      // between admission and sending could; opens at the first COMMIT or
+      // ROLLBACK, or when the test opens it.
       const gate = Latch.makeUnsafe(false);
       const sent: Array<unknown> = [];
-      gatedPool.on("connect", (client) => {
-        const query = client.query.bind(client) as (
+      const server = new URL(pool.options.connectionString!);
+      // The driver writes each statement as one frame to its socket.
+      const gatedSocket = () => {
+        const socket = Net.connect({
+          host: server.hostname,
+          port: Number(server.port),
+        });
+        const write = socket.write.bind(socket) as (
           ...args: Array<unknown>
-        ) => unknown;
-        Object.assign(client, {
-          query: (...args: Array<unknown>) => {
-            const [text, values] = args;
-            if (Array.isArray(values) && values.includes(lateLabel)) {
+        ) => boolean;
+        Object.assign(socket, {
+          write: (...args: Array<unknown>) => {
+            const [chunk] = args;
+            const text =
+              chunk instanceof Uint8Array
+                ? Buffer.from(
+                    chunk.buffer,
+                    chunk.byteOffset,
+                    chunk.byteLength
+                  ).toString("latin1")
+                : String(chunk);
+            if (text.includes(lateLabel)) {
               reached.openUnsafe();
               Effect.runFork(
                 gate.await.pipe(
                   Effect.andThen(
                     Effect.sync(() => {
                       sent.push("late");
-                      query(...args);
+                      write(...args);
                     })
                   )
                 )
               );
-              return undefined;
+              return true;
             }
-            const result = query(...args);
-            if (text === "COMMIT" || text === "ROLLBACK") {
-              sent.push(text);
+            const result = write(...args);
+            const control = /\b(COMMIT|ROLLBACK)\b/.exec(text);
+            if (control) {
+              sent.push(control[1]);
               gate.openUnsafe();
             }
             return result;
           },
         });
-      });
+        return socket;
+      };
+      const gatedScope = await Effect.runPromise(Scope.make());
+      // One connection, so the next transaction borrows the one this one used.
+      const gatedPostgres = await Effect.runPromise(
+        Layer.buildWithScope(
+          PgClient.layer({
+            url: Redacted.make(server.toString()),
+            maxConnections: 1,
+            prepare: false,
+            stream: gatedSocket,
+          }),
+          gatedScope
+        )
+      );
       try {
-        const gatedDb = await Effect.runPromise(makeDatabaseClient(gatedPool));
+        const gatedDb = await Effect.runPromise(
+          Effect.provideContext(databaseClient, gatedPostgres)
+        );
         const gated = WorkspaceDatabase.make(gatedDb);
         const lateFibers: Array<Fiber.Fiber<unknown, unknown>> = [];
         const running = Effect.runFork(
@@ -359,7 +401,7 @@ describe.skipIf(!suiteDatabase)(
                 yield* Effect.forkDetach(insertWith(gatedDb, lateLabel))
               );
               // The late statement is admitted and running; the body ends
-              // before `pg` has it.
+              // before the server has it.
               yield* reached.await;
             })
           )
@@ -390,8 +432,41 @@ describe.skipIf(!suiteDatabase)(
         expect(sent).toEqual(["late", "ROLLBACK", "COMMIT"]);
         expect(Option.isNone(endedWhileHeld)).toBe(true);
       } finally {
-        await gatedPool.end();
+        await Effect.runPromise(Scope.close(gatedScope, Exit.void));
       }
+    });
+
+    test("runs afterCommit callbacks once, after the outer COMMIT, and drops those of rolled-back levels", async () => {
+      const ran: Array<string> = [];
+      const after = (label: string) =>
+        db.$client.afterCommit(Effect.sync(() => ran.push(label)));
+      const ranBeforeCommit = await Effect.runPromise(
+        transaction(
+          Effect.gen(function* () {
+            yield* transaction(after("nested"));
+            yield* transaction(
+              after("rolled-back-savepoint").pipe(
+                Effect.andThen(Effect.fail("inner" as const))
+              )
+            ).pipe(Effect.catch(() => Effect.void));
+            yield* after("outer");
+            return [...ran];
+          })
+        )
+      );
+      expect(ranBeforeCommit).toEqual([]);
+      expect(ran).toEqual(["nested", "outer"]);
+
+      ran.length = 0;
+      const rolledBack = await Effect.runPromiseExit(
+        transaction(
+          transaction(after("inside-rolled-back")).pipe(
+            Effect.andThen(Effect.fail("abort" as const))
+          )
+        )
+      );
+      expect(rolledBack).toStrictEqual(Exit.fail("abort"));
+      expect(ran).toEqual([]);
     });
 
     test("refuses a streamed query before it reaches the connection", async () => {
@@ -425,7 +500,12 @@ describe.skipIf(!suiteDatabase)(
 
     test("dies when another client's transaction opens inside, and that client never joins", async () => {
       const prefix = `foreign-${crypto.randomUUID()}`;
-      const otherDb = await Effect.runPromise(makeDatabaseClient(pool));
+      // A client of its own pool: Effect SQL joins statements of one client.
+      const otherPool = await openDatabasePool({
+        connectionString: pool.options.connectionString!,
+        maxConnections: 2,
+      });
+      const otherDb = await Effect.runPromise(makeDatabaseClient(otherPool));
       const other = WorkspaceDatabase.make(otherDb);
 
       const nested = await Effect.runPromiseExit(
@@ -442,6 +522,7 @@ describe.skipIf(!suiteDatabase)(
       );
       expect(escaped).toStrictEqual(Exit.fail("abort"));
       expect(await labels(prefix)).toEqual([`${prefix}-escaped`]);
+      await otherPool.close();
     });
 
     test("releases an advisory lock taken in a savepoint when the savepoint rolls back", async () => {
@@ -484,7 +565,7 @@ describe.skipIf(!suiteDatabase)(
 
     test("inside a held test transaction, a transaction is a savepoint the held rollback removes", async () => {
       const prefix = `held-${crypto.randomUUID()}`;
-      const connection = await pool.connect();
+      const connection = await holdDatabaseConnection(suiteDatabase);
       try {
         await connection.query("begin");
         await Effect.runPromise(
@@ -501,7 +582,7 @@ describe.skipIf(!suiteDatabase)(
         expect(rows).toHaveLength(1);
         await connection.query("rollback");
       } finally {
-        connection.release();
+        await connection.release();
       }
       expect(await labels(prefix)).toEqual([]);
     });

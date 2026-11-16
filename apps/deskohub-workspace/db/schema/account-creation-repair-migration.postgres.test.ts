@@ -12,7 +12,11 @@ import { Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import type { Pool } from "pg";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
+import {
+  type DatabasePool,
+  makeDatabaseClient,
+  makeDatabasePool,
+} from "@/db/database-client";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { customerEvents } from "@/db/schema";
 import { CustomerAccountLinkRepository } from "@/features/account/backend/customer-account-link.repository";
@@ -21,6 +25,7 @@ import { triggeringCustomerEvent } from "@/features/email-campaigns/automation/b
 import { CampaignCandidateRepository } from "@/features/email-campaigns/backend/campaign-candidate.repository";
 import { CustomerEventReconciler } from "@/shared/backend/customer-events/customer-event-reconciler";
 import { createScratchPostgresDatabase } from "@/shared/testing/postgres-scratch-database.test-utils";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import {
   holdPostgresTransaction,
   waitForPostgresLockWaiter,
@@ -54,6 +59,8 @@ const rerunMigration = async (pool: Pool) => {
 type MigratedDatabase = {
   readonly pool: Pool;
   readonly layer: Layer.Layer<WorkspaceDatabase>;
+  /** The native pool the Workspace client runs on. */
+  readonly databasePool: DatabasePool;
 };
 
 /**
@@ -108,11 +115,20 @@ const migrateAcross = async ({
     } else {
       await migrateRemaining();
     }
-    const db = await Effect.runPromise(makeDatabaseClient(pool));
-    await check({
-      pool,
-      layer: Layer.succeed(WorkspaceDatabase, WorkspaceDatabase.make(db)),
+    const databasePool = await openDatabasePool({
+      connectionString: scratch.url,
+      maxConnections: 4,
     });
+    try {
+      const db = await Effect.runPromise(makeDatabaseClient(databasePool));
+      await check({
+        pool,
+        layer: Layer.succeed(WorkspaceDatabase, WorkspaceDatabase.make(db)),
+        databasePool,
+      });
+    } finally {
+      await databasePool.close();
+    }
   } finally {
     await pool.end();
     await scratch.drop();
@@ -509,7 +525,7 @@ describe.skipIf(!testDatabaseUrl)("account creation repair migration", () => {
           verified: false,
         });
       },
-      check: async ({ pool, layer }) => {
+      check: async ({ pool, layer, databasePool }) => {
         for (const id of [
           "legacy",
           "legacy-verified",
@@ -684,7 +700,7 @@ describe.skipIf(!testDatabaseUrl)("account creation repair migration", () => {
                   Layer.provide(
                     Layer.merge(
                       layer,
-                      WorkspaceDatabaseAdvisoryLock.makeLayer(pool)
+                      WorkspaceDatabaseAdvisoryLock.makeLayer(databasePool)
                     )
                   )
                 )
@@ -858,7 +874,7 @@ describe.skipIf(!testDatabaseUrl)("account creation repair migration", () => {
         });
         await insertLogin(pool, id, loginAt);
       },
-      check: async ({ pool, layer }) => {
+      check: async ({ pool, layer, databasePool }) => {
         await pool.query(
           `insert into auth.session (id, expires_at, token, created_at, updated_at, user_id)
            values ($1, $2::timestamptz + interval '7 days', $1, $2, $2, $3)`,
@@ -874,7 +890,7 @@ describe.skipIf(!testDatabaseUrl)("account creation repair migration", () => {
                   Layer.provide(
                     Layer.merge(
                       layer,
-                      WorkspaceDatabaseAdvisoryLock.makeLayer(pool)
+                      WorkspaceDatabaseAdvisoryLock.makeLayer(databasePool)
                     )
                   )
                 )

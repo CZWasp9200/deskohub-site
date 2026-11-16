@@ -1,10 +1,11 @@
 import { expect, mock, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Layer } from "effect";
-import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/http";
-import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
+import { TestClock } from "effect/testing";
+import { makeDatabaseClient } from "@/db/database-client";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { CheckoutRow } from "../types";
@@ -528,8 +529,9 @@ const makeCheckoutRow = () =>
   }) as CheckoutRow;
 
 test("releases the rejected attempt's reserved referral invitation claim", async () => {
-  const pool = makeDatabasePool({
+  const pool = await openDatabasePool({
     connectionString: "postgres://e2e:e2e@127.0.0.1:1/workspace",
+    maxConnections: 1,
   });
   try {
     const db = await Effect.runPromise(makeDatabaseClient(pool));
@@ -560,6 +562,6 @@ test("releases the rejected attempt's reserved referral invitation claim", async
       "reserved",
     ]);
   } finally {
-    await pool.end();
+    await pool.close();
   }
 });

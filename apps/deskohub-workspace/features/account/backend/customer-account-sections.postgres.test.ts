@@ -39,7 +39,9 @@ describe.skipIf(!suiteDatabase)(
 
     afterAll(() => suiteDatabase.close());
 
-    const healthyAdvisoryLock = WorkspaceDatabaseAdvisoryLock.makeLayer(pool);
+    const healthyAdvisoryLock = WorkspaceDatabaseAdvisoryLock.makeLayer(
+      suiteDatabase.databasePool
+    );
 
     /** What the faked session authority answers on every read. */
     type SessionAnswer =
@@ -532,7 +534,7 @@ describe.skipIf(!suiteDatabase)(
           expect(failure.cause?.code).toBe("account-link.lock");
           expect(ran).toBe(false);
         } finally {
-          await unreachable.pool.end();
+          await unreachable.pool.close();
         }
       });
 

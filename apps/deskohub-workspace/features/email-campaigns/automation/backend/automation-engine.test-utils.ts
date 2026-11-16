@@ -92,7 +92,7 @@ export const automationEngineTestLayer = (input: {
 }) => {
   const capabilities = Layer.mergeAll(
     input.database.layer,
-    WorkspaceDatabaseAdvisoryLock.makeLayer(input.database.pool),
+    WorkspaceDatabaseAdvisoryLock.makeLayer(input.database.databasePool),
     AutomationUnitHandlers.layer(Effect.succeed(input.handlers)),
     input.queue.layer,
     input.sweepPlanning ?? idleSweepPlanning,

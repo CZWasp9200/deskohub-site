@@ -1,7 +1,9 @@
-import { Effect, Layer, Predicate } from "effect";
-import { Pool, type QueryResult } from "pg";
+import * as PgClient from "@effect/sql-pg/PgClient";
+import { Effect, Layer, Stream } from "effect";
+import * as Reactivity from "effect/reactivity/Reactivity";
+import { SqlClient, type SqlConnection, SqlError } from "effect/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { type DatabaseClient, makeDatabaseClient } from "@/db/database-client";
+import { type DatabaseClient, databaseClient } from "@/db/database-client";
 
 interface RecordedStatement {
   readonly sql: string;
@@ -17,21 +19,12 @@ export interface RecordingWorkspaceDatabase {
   readonly failNextQueriesWith: (cause: unknown, count: number) => void;
 }
 
-type QueryCallback = (error: Error | null, result: QueryResult) => void;
-
-const emptyQueryResult = (rows: readonly unknown[]): QueryResult =>
-  ({
-    command: "",
-    rowCount: rows.length,
-    oid: 0,
-    fields: [],
-    rows: [...rows],
-  }) as QueryResult;
-
 /**
- * Builds the real workspace drizzle client over a recording stub pool so tests
- * execute the actual query-builder layer and assert on the compiled SQL and
- * bound parameters without needing a live Postgres server.
+ * Builds the real workspace drizzle client over a recording SQL connection so
+ * tests execute the actual query-builder layer and assert on the compiled SQL
+ * and bound parameters without needing a live Postgres server. Every
+ * statement answers with the next canned rows, in whatever row shape Drizzle
+ * asks for.
  */
 export const makeRecordingWorkspaceDatabase =
   async (): Promise<RecordingWorkspaceDatabase> => {
@@ -44,88 +37,70 @@ export const makeRecordingWorkspaceDatabase =
 
     const transactionControlPattern = /^(begin|commit|rollback)\b/i;
 
-    const runStatement = (
-      text: string,
-      values: readonly unknown[]
-    ): QueryResult => {
-      if (failures && failures.remaining > 0) {
-        failures.remaining -= 1;
-        throw failures.cause;
-      }
-      const rows = transactionControlPattern.test(text) ? [] : nextRows();
-      statements.push({ sql: text, params: values });
-      return emptyQueryResult(rows);
-    };
-
-    const clientQuery = (
-      query:
-        | string
-        | { readonly text: string; readonly values?: readonly unknown[] },
-      valuesOrCallback?: readonly unknown[] | QueryCallback,
-      maybeCallback?: QueryCallback
-    ): QueryResult | undefined => {
-      const callback = Predicate.isFunction(valuesOrCallback)
-        ? valuesOrCallback
-        : maybeCallback;
-      const values = Predicate.isFunction(valuesOrCallback)
-        ? []
-        : (valuesOrCallback ?? []);
-      const text = Predicate.isString(query) ? query : query.text;
-      const statementValues =
-        Predicate.isString(query) || !Predicate.hasProperty(query, "values")
-          ? values
-          : (query.values ?? []);
-
-      if (callback) {
-        try {
-          callback(null, runStatement(text, statementValues));
-        } catch (cause) {
-          callback(
-            cause instanceof Error ? cause : new Error(String(cause)),
-            emptyQueryResult([])
+    const runStatement = (text: string, values: readonly unknown[]) =>
+      Effect.suspend(() => {
+        if (failures && failures.remaining > 0) {
+          failures.remaining -= 1;
+          return Effect.fail(
+            new SqlError.SqlError({
+              reason: new SqlError.UnknownError({ cause: failures.cause }),
+            })
           );
         }
-        return undefined;
-      }
-      return runStatement(text, statementValues);
+        const rows = transactionControlPattern.test(text) ? [] : nextRows();
+        statements.push({ sql: text, params: values });
+        return Effect.succeed([...rows] as never[]);
+      });
+
+    const connection: SqlConnection.Connection = {
+      execute: runStatement,
+      executeUnprepared: runStatement,
+      executeValues: runStatement,
+      executeValuesUnprepared: runStatement,
+      executeRaw: (text, values) =>
+        Effect.map(runStatement(text, values), (rows) => ({
+          command: "",
+          rowCount: rows.length,
+          oid: 0,
+          rows,
+          fields: [],
+        })),
+      executeStream: () =>
+        Stream.die(new Error("The recording database does not stream")),
     };
 
-    interface RecordingPoolClient {
-      readonly query: typeof clientQuery;
-      readonly release: () => void;
-      readonly on: () => void;
-      readonly once: () => void;
-      readonly off: () => void;
-      readonly removeListener: () => void;
-    }
-
-    type RecordingPoolConnect = (
-      callback?: (
-        error: Error | undefined,
-        client: RecordingPoolClient | undefined,
-        done?: () => void
-      ) => void
-    ) => void;
-
-    // A real Pool only dials the server when connect() runs, so replacing
-    // connect keeps construction type-safe without any live connection.
-    // @effect/sql-pg acquires clients with the callback connect style.
-    const pool = new Pool({ connectionString: "postgres://unused" });
-    const connectedClient = (): RecordingPoolClient => ({
-      query: clientQuery,
-      release: () => {},
-      on: () => {},
-      once: () => {},
-      off: () => {},
-      removeListener: () => {},
+    const client = await Effect.runPromise(
+      SqlClient.make({
+        acquirer: Effect.succeed(connection),
+        compiler: PgClient.makeCompiler(),
+        spanAttributes: [],
+        driver: "pg",
+      }).pipe(Effect.provide(Reactivity.layer))
+    );
+    // Drizzle's Postgres session uses only the SQL client part of PgClient;
+    // the rest refuses use.
+    const unused = Effect.die(
+      new Error("The recording database has no Postgres extras")
+    );
+    const pgClient: PgClient.PgClient = Object.assign(client, {
+      [PgClient.TypeId]: PgClient.TypeId,
+      config: {},
+      json: () => {
+        throw new Error("The recording database has no Postgres extras");
+      },
+      listen: () => unused,
+      notify: () => unused,
+      poolStats: Effect.succeed({
+        idle: 0,
+        used: 0,
+        pending: 0,
+        min: 0,
+        max: 0,
+      }),
     });
-    const stubConnect: RecordingPoolConnect = (callback) => {
-      if (!callback) return;
-      queueMicrotask(() => callback(undefined, connectedClient(), () => {}));
-    };
-    pool.connect = stubConnect as Pool["connect"];
-
-    const db = await Effect.runPromise(makeDatabaseClient(pool));
+    const db = await Effect.runPromise(
+      Effect.provideService(databaseClient, PgClient.PgClient, pgClient)
+    );
 
     return {
       db,

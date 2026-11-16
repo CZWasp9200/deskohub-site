@@ -525,9 +525,9 @@ describe("PaymentRefundService", () => {
           "@test/RefundClaimTransaction"
         ),
         spanAttributes: [],
-        acquireConnection: Effect.sleep(phases.acquire).pipe(
-          Effect.as([undefined, {}] as const)
-        ),
+        // As PgClient does: only the wait for a connection is interruptible.
+        acquireConnection: (restore) =>
+          restore(Effect.sleep(phases.acquire)).pipe(Effect.as({})),
         begin: () => Effect.sleep(phases.begin),
         commit: () => Effect.sleep(phases.commit),
         rollback: () => Effect.sleep(phases.rollback),
