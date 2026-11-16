@@ -210,6 +210,7 @@
   "callback_failed_title": "Không thể đăng nhập cho bạn",
   "callback_start_again": "Bắt đầu lại",
   "consent_what_we_measure": "Chúng tôi đo lường gì",
+  "signin_signed_in_as": "Đã đăng nhập: {email}",
   "signin_error_cancelled": "Đã hủy đăng nhập. Bạn có thể thử lại.",
   "signin_error_link": "Không thể dùng liên kết đăng nhập này ở đây. Hãy bắt đầu đăng nhập lại.",
   "signin_error_expired": "Quá trình đăng nhập kéo dài quá lâu và đã hết hạn. Hãy bắt đầu lại.",

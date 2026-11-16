@@ -46,7 +46,7 @@ export function SignedInToast() {
     settled.current = next.settled;
     if (next.arrived && Platform.OS !== "web") {
       toast.show({
-        message: m.account_signed_in_as(
+        message: m.signin_signed_in_as(
           { email: wholeAddress(email) },
           { locale }
         ),

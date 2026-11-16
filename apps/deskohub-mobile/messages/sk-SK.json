@@ -210,6 +210,7 @@
   "callback_failed_title": "Nepodarilo sa ťa prihlásiť",
   "callback_start_again": "Začať znova",
   "consent_what_we_measure": "Čo meriame",
+  "signin_signed_in_as": "Prihlásený účet: {email}",
   "signin_error_cancelled": "Prihlásenie bolo zrušené. Môžeš to skúsiť znova.",
   "signin_error_link": "Tento prihlasovací odkaz sa tu nedá použiť. Začni s prihlásením znova.",
   "signin_error_expired": "Prihlásenie trvalo príliš dlho a vypršalo. Začni znova.",

@@ -210,6 +210,7 @@
   "callback_failed_title": "Не вдалося виконати вхід",
   "callback_start_again": "Почати знову",
   "consent_what_we_measure": "Що ми вимірюємо",
+  "signin_signed_in_as": "Ви ввійшли як {email}",
   "signin_error_cancelled": "Вхід скасовано. Можете спробувати ще раз.",
   "signin_error_link": "Це посилання для входу тут не можна використати. Почніть вхід знову.",
   "signin_error_expired": "Вхід тривав надто довго, і його термін дії минув. Почніть знову.",

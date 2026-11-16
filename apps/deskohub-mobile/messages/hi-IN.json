@@ -210,6 +210,7 @@
   "callback_failed_title": "हम आपको साइन इन नहीं कर सके",
   "callback_start_again": "फिर से शुरू करें",
   "consent_what_we_measure": "हम क्या मापते हैं",
+  "signin_signed_in_as": "साइन इन: {email}",
   "signin_error_cancelled": "साइन-इन रद्द कर दिया गया। चाहें तो फिर से कोशिश करें।",
   "signin_error_link": "यह साइन-इन लिंक यहाँ इस्तेमाल नहीं किया जा सकता। फिर से साइन इन शुरू करें।",
   "signin_error_expired": "साइन-इन में बहुत ज़्यादा समय लगा और उसकी वैधता समाप्त हो गई। फिर से शुरू करें।",
