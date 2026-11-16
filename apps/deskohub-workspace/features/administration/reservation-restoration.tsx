@@ -190,18 +190,22 @@ export function ReservationRestoration({
       setNotices(getReservationRestorationNotices(data, locale));
       router.refresh();
     },
-    onError: ({ error: actionError }) =>
+    // A refusal can come from facts the preview predates, such as a refund
+    // the restore's own refund check just recorded, so reload the preview.
+    onError: ({ error: actionError }) => {
       setError(
         actionError.serverError ??
           m.administrationReservationRestorationFailed({}, { locale })
-      ),
+      );
+      router.refresh();
+    },
     onTransportError: () =>
       setError(
         m.administrationReservationRestorationInterrupted({}, { locale })
       ),
   });
 
-  if (!restoration && notices.length === 0) return null;
+  if (!restoration && notices.length === 0 && error === null) return null;
 
   return (
     <div>
@@ -230,6 +234,11 @@ export function ReservationRestoration({
           open={open}
           restoration={restoration}
         />
+      )}
+      {!restoration && error && (
+        <div role="alert">
+          <AdministrationAlert status="error">{error}</AdministrationAlert>
+        </div>
       )}
       <div className="mt-2 space-y-2 empty:mt-0" role="status">
         {notices.map((notice) => (

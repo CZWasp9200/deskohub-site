@@ -103,37 +103,41 @@ describe("administration reservation components", () => {
     const detail = loadFixtureReservation("0198-admin-fixture-attention");
     if (!detail?.accessGrant) throw new Error("Missing access grant fixture");
     const { accessGrant } = detail;
+    const execute = mock();
     workspaceUseAction.mockReturnValue({
-      execute: mock(),
+      execute,
       isExecuting: false,
     } as never);
-    const offersRetry = (state: typeof accessGrant.state) => {
+    const retriesFrom = (state: typeof accessGrant.state) => {
+      execute.mockClear();
       const view = render(
         <ReservationAccessAdministration
           grant={{ ...accessGrant, state }}
           reservationId={detail.reservation.id}
         />
       );
-      const offered =
-        view.queryByRole("button", {
-          name: m.administrationReservationAccessRetry({}, { locale: "en-US" }),
-        }) !== null;
+      const retry = view.queryByRole("button", {
+        name: m.administrationReservationAccessRetry({}, { locale: "en-US" }),
+      });
+      if (retry) fireEvent.click(retry);
       cleanup();
-      return offered;
+      return retry !== null;
     };
 
-    expect(
-      (
-        [
-          "pending",
-          "failed",
-          "provisioning",
-          "issued",
-          "expired",
-          "uncertain",
-        ] as const
-      ).filter(offersRetry)
-    ).toEqual(["pending", "failed"]);
+    for (const state of ["pending", "failed"] as const) {
+      expect(retriesFrom(state)).toBe(true);
+      expect(execute.mock.calls).toEqual([
+        [{ kind: "retry-failed", reservationId: detail.reservation.id }],
+      ]);
+    }
+    for (const state of [
+      "provisioning",
+      "issued",
+      "expired",
+      "uncertain",
+    ] as const) {
+      expect(retriesFrom(state)).toBe(false);
+    }
   });
 
   test("requires explicit manual provider reconciliation for uncertain access", async () => {
