@@ -152,6 +152,27 @@ export const getPlainDatesBetween = (
   return dates;
 };
 
+/**
+ * The instants that bound whole calendar days in `timeZone`: midnight
+ * starting `startsOn` and the midnight after `endsOn`, so `endsAt` is
+ * exclusive.
+ */
+export const plainDateSpanToInstants = ({
+  startsOn,
+  endsOn,
+  timeZone,
+}: {
+  readonly startsOn: Temporal.PlainDate;
+  readonly endsOn: Temporal.PlainDate;
+  readonly timeZone: string;
+}): {
+  readonly startsAt: Temporal.Instant;
+  readonly endsAt: Temporal.Instant;
+} => ({
+  startsAt: startsOn.toZonedDateTime({ timeZone }).toInstant(),
+  endsAt: endsOn.add({ days: 1 }).toZonedDateTime({ timeZone }).toInstant(),
+});
+
 export const temporalInstantToDate = (instant: Temporal.Instant) =>
   new Date(instant.epochMilliseconds);
 
