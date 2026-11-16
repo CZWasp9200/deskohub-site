@@ -37,6 +37,10 @@ One invoice per reservation payment is enforced by unique indexes; repeated or c
 
 Render the PDF on demand from the issued JSON. Never persist the PDF or read current catalog, supplier, customer, or reservation data while rendering.
 
+## VAT status
+
+`workspaceSiteConstants.company.vatStatus` (`shared/utils/site-constants.ts`) is the one VAT setting. The snapshot freezes it as `supplier.vatStatus`, and the invoice states the status it was issued under (`invoice-presentation.ts`), never the current setting. The website footer and the customer API's `CustomerCheckoutSummary.vatStatus` (mapped in `features/customer-api/customer-checkout-summary.ts`) read the setting; the app shows the total's tax note only for `"vat-payer"`. The VAT-payer case has no approved wording yet, so the footer, invoice and app state nothing for it.
+
 ## Customer account access
 
 `CustomerInvoiceService` (`features/account/backend/customer-invoice.service.ts`) is the only customer-facing reader of issued invoices.

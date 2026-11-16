@@ -34,6 +34,7 @@ const summaryOf = (
     { key: "total", items: [{ key: "total:final", amount: total }], total },
   ],
   total,
+  vatStatus: "not-vat-payer",
 });
 
 /** Open Space for a day with a 20% calendar discount on the desk, plus coffee: 290 − 58 + 50 = 282. */
