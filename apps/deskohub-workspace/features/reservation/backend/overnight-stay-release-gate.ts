@@ -18,7 +18,7 @@ export const overnightStayReleaseRunPolicy = {
 } as const satisfies ReleaseGateRunPolicy;
 
 /** A booking asked for an overnight stay while the release gate is closed. */
-export class OvernightStayUnavailableError extends Data.TaggedError(
+class OvernightStayUnavailableError extends Data.TaggedError(
   "OvernightStayUnavailableError"
 )<{
   readonly message: string;

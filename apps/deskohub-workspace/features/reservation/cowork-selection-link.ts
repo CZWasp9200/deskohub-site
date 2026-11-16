@@ -170,9 +170,9 @@ export const coworkSelectionLink = defineSelectionLink({
               ? noMonitorQueryValue
               : undefined),
         }),
-    ...(isOvernightCoworkStay(selection.entryTier, selection.stay) && {
-      stay: "overnight",
-    }),
+    stay: isOvernightCoworkStay(selection.entryTier, selection.stay)
+      ? "overnight"
+      : undefined,
   }),
   /** The stored offer and date, with its add-ons. */
   fromStored: (

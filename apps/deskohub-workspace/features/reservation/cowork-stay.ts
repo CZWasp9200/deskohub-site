@@ -17,14 +17,14 @@ import { workspaceSiteConstants } from "@/shared/utils/site-constants";
  * stay is never stored; read it from its Dotypos bounds with
  * {@link getBookedCoworkStay}.
  */
-export const coworkStays = ["day", "overnight"] as const;
+const coworkStays = ["day", "overnight"] as const;
 
 export const coworkStaySchema = Schema.Literals(coworkStays);
 
 export type CoworkStay = typeof coworkStaySchema.Type;
 
 /** A booking without a stay books a day stay. */
-export const defaultCoworkStay = "day" satisfies CoworkStay;
+const defaultCoworkStay = "day" satisfies CoworkStay;
 
 /** The one cowork tier that offers an overnight stay. */
 export const overnightCoworkStayTier =
