@@ -1118,7 +1118,7 @@ describe("discount administration pages", () => {
     );
 
     const reservationStat = view.getByText(
-      m.discountsCustomerStatReservations({}, { locale }),
+      m.administrationCustomerProfileStatReservations({}, { locale }),
       { selector: "dt" }
     ).nextElementSibling;
     expect(reservationStat?.textContent).toBe(formatCount(1250, locale));

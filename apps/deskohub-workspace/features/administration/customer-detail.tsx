@@ -119,11 +119,14 @@ export function AdministrationCustomerDetail({
 
           <section>
             <h2 className="mb-3 text-xl">
-              {m.discountsCustomerTransactionsTitle({}, { locale })}
+              {m.administrationCustomerProfileTransactionsTitle({}, { locale })}
             </h2>
             {activity.transactionHistoryTruncated && (
               <p className="mb-3 text-sm text-navy-blue/65">
-                {m.discountsCustomerTransactionsTruncated({}, { locale })}
+                {m.administrationCustomerProfileTransactionsTruncated(
+                  {},
+                  { locale }
+                )}
               </p>
             )}
             <CustomerTransactionHistory
@@ -138,15 +141,21 @@ export function AdministrationCustomerDetail({
         <aside className="space-y-5 xl:sticky xl:top-24 xl:h-fit">
           <section className="rounded-xl border border-navy-blue/10 bg-white p-5">
             <h2 className="font-semibold">
-              {m.discountsCustomerContactTitle({}, { locale })}
+              {m.administrationCustomerProfileContactTitle({}, { locale })}
             </h2>
             <dl className="mt-4 grid gap-4 text-sm">
               <AdministrationFact
-                label={m.discountsCustomerEmailLabel({}, { locale })}
+                label={m.administrationCustomerProfileEmailLabel(
+                  {},
+                  { locale }
+                )}
                 value={customer.email ?? "—"}
               />
               <AdministrationFact
-                label={m.discountsCustomerPhoneLabel({}, { locale })}
+                label={m.administrationCustomerProfilePhoneLabel(
+                  {},
+                  { locale }
+                )}
                 value={customer.phone ?? "—"}
               />
               <AdministrationFact
@@ -160,11 +169,11 @@ export function AdministrationCustomerDetail({
 
           <details className="rounded-xl border border-navy-blue/10 bg-white">
             <summary className="cursor-pointer px-5 py-4 text-sm font-semibold">
-              {m.discountsCustomerReferenceTitle({}, { locale })}
+              {m.administrationCustomerProfileReferenceTitle({}, { locale })}
             </summary>
             <div className="border-t border-navy-blue/10 px-5 py-4">
               <AdministrationFact
-                label={m.discountsCustomerIdLabel({}, { locale })}
+                label={m.administrationCustomerProfileIdLabel({}, { locale })}
                 value={customer.id}
                 valueClassName="break-all font-mono text-xs"
               />
@@ -239,25 +248,25 @@ function CustomerReservations({
   return (
     <section>
       <h2 className="mb-3 text-xl">
-        {m.discountsCustomerReservationsTitle({}, { locale })}
+        {m.administrationCustomerProfileReservationsTitle({}, { locale })}
       </h2>
       {activity.reservationHistoryTruncated && (
         <p className="mb-3 text-sm text-navy-blue/65">
-          {m.discountsCustomerReservationsTruncated({}, { locale })}{" "}
+          {m.administrationCustomerProfileReservationsTruncated({}, { locale })}{" "}
           <Link
             className="font-semibold underline underline-offset-4"
             href={`${administrationHref(
               "/[locale]/admin/reservations"
             )}?customerId=${encodeURIComponent(customerId)}`}
           >
-            {m.discountsCustomerViewAllReservations({}, { locale })}
+            {m.administrationCustomerProfileViewAllReservations({}, { locale })}
           </Link>
         </p>
       )}
       <div className="space-y-4">
         <details className="overflow-hidden rounded-xl border border-navy-blue/10 bg-white">
           <summary className="cursor-pointer px-5 py-4 font-semibold">
-            {m.discountsCustomerPastReservations(
+            {m.administrationCustomerProfilePastReservations(
               {
                 count: formatCount(reservationGroups.past.length, locale),
               },
@@ -266,7 +275,7 @@ function CustomerReservations({
           </summary>
           <div className="border-t border-navy-blue/10 p-3">
             <ReservationTable
-              emptyMessage={m.discountsCustomerPastReservationsEmpty(
+              emptyMessage={m.administrationCustomerProfilePastReservationsEmpty(
                 {},
                 { locale }
               )}
@@ -278,16 +287,19 @@ function CustomerReservations({
 
         <section aria-labelledby="current-reservations-heading">
           <h3 className="mb-3 font-semibold" id="current-reservations-heading">
-            {m.discountsCustomerCurrentReservations({}, { locale })}
+            {m.administrationCustomerProfileCurrentReservations({}, { locale })}
           </h3>
           <ReservationTable
             emptyMessage={
               activity.reservationHistoryTruncated
-                ? m.discountsCustomerCurrentReservationsTruncatedEmpty(
+                ? m.administrationCustomerProfileCurrentReservationsTruncatedEmpty(
                     {},
                     { locale }
                   )
-                : m.discountsCustomerCurrentReservationsEmpty({}, { locale })
+                : m.administrationCustomerProfileCurrentReservationsEmpty(
+                    {},
+                    { locale }
+                  )
             }
             reservations={reservationGroups.currentAndFuture}
             showCustomer={false}
@@ -297,7 +309,7 @@ function CustomerReservations({
         {reservationGroups.unavailable.length > 0 && (
           <details className="overflow-hidden rounded-xl border border-navy-blue/10 bg-white">
             <summary className="cursor-pointer px-5 py-4 font-semibold">
-              {m.discountsCustomerUnavailableDateReservations(
+              {m.administrationCustomerProfileUnavailableDateReservations(
                 {
                   count: formatCount(
                     reservationGroups.unavailable.length,
@@ -332,19 +344,25 @@ function CustomerStats({
   return (
     <section>
       <h2 className="mb-3 text-xl">
-        {m.discountsCustomerStatsTitle({}, { locale })}
+        {m.administrationCustomerProfileStatsTitle({}, { locale })}
       </h2>
       <dl className="overflow-hidden rounded-xl border border-navy-blue/10 bg-white">
         <CustomerStat
-          label={m.discountsCustomerStatReservations({}, { locale })}
+          label={m.administrationCustomerProfileStatReservations(
+            {},
+            { locale }
+          )}
           value={formatCount(activity.stats.reservationCount, locale)}
         />
         <CustomerStat
-          label={m.discountsCustomerStatRevenue({}, { locale })}
+          label={m.administrationCustomerProfileStatRevenue({}, { locale })}
           value={formatMoneyTotals(activity.stats.revenue, locale)}
         />
         <CustomerStat
-          label={m.discountsCustomerStatFavoriteProduct({}, { locale })}
+          label={m.administrationCustomerProfileStatFavoriteProduct(
+            {},
+            { locale }
+          )}
           value={
             activity.stats.favoriteReservationProduct
               ? getAdministrationReservationProductTitle(
@@ -355,7 +373,10 @@ function CustomerStats({
           }
         />
         <CustomerStat
-          label={m.discountsCustomerStatDiscountSavings({}, { locale })}
+          label={m.administrationCustomerProfileStatDiscountSavings(
+            {},
+            { locale }
+          )}
           value={formatMoneyTotals(activity.stats.discountSavings, locale)}
         />
         <CustomerStat
@@ -392,7 +413,7 @@ function CustomerConsents({
   return (
     <section>
       <h2 className="mb-3 text-xl">
-        {m.discountsCustomerConsentsTitle({}, { locale })}
+        {m.administrationCustomerProfileConsentsTitle({}, { locale })}
       </h2>
       <dl className="overflow-hidden rounded-xl border border-navy-blue/10 bg-white">
         <CustomerConsent consent={consent} locale={locale} />
@@ -412,15 +433,18 @@ function CustomerConsent({
   return (
     <div className="grid gap-1 border-b border-navy-blue/8 px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <dt className="font-medium">
-        {m.discountsCustomerConsentMarketing({}, { locale })}
+        {m.administrationCustomerProfileConsentMarketing({}, { locale })}
       </dt>
       <dd className="text-sm text-navy-blue/65 sm:text-right">
         {consent ? (
           <>
             <StatusBadge tone={withdrawnAt ? "attention" : "positive"}>
               {withdrawnAt
-                ? m.discountsCustomerConsentWithdrawn({}, { locale })
-                : m.discountsCustomerConsentGranted({}, { locale })}
+                ? m.administrationCustomerProfileConsentWithdrawn(
+                    {},
+                    { locale }
+                  )
+                : m.administrationCustomerProfileConsentGranted({}, { locale })}
             </StatusBadge>{" "}
             ·{" "}
             {formatAdministrationDateTime(
@@ -430,7 +454,7 @@ function CustomerConsent({
             <span className="mt-0.5 block break-all text-xs">
               {withdrawnAt && (
                 <>
-                  {m.discountsCustomerConsentGrantedAt(
+                  {m.administrationCustomerProfileConsentGrantedAt(
                     {
                       date: formatAdministrationDateTime(
                         consent.grantedAt,
@@ -446,7 +470,7 @@ function CustomerConsent({
             </span>
           </>
         ) : (
-          m.discountsCustomerConsentNotGranted({}, { locale })
+          m.administrationCustomerProfileConsentNotGranted({}, { locale })
         )}
       </dd>
     </div>
@@ -463,7 +487,10 @@ function CustomerTransactionHistory({
   if (transactions.length === 0) {
     return (
       <EmptyState
-        message={m.discountsCustomerTransactionsEmpty({}, { locale })}
+        message={m.administrationCustomerProfileTransactionsEmpty(
+          {},
+          { locale }
+        )}
       />
     );
   }

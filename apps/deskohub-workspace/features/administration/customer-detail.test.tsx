@@ -91,16 +91,21 @@ describe("AdministrationCustomerDetail", () => {
 
     expect(view.getAllByText("—").length).toBeGreaterThanOrEqual(2);
     expect(
-      view.queryByText(m.discountsCustomerTransactionsTruncated({}, { locale }))
+      view.queryByText(
+        m.administrationCustomerProfileTransactionsTruncated({}, { locale })
+      )
     ).toBeNull();
     expect(
       view.queryByRole("link", {
-        name: m.discountsCustomerViewAllReservations({}, { locale }),
+        name: m.administrationCustomerProfileViewAllReservations(
+          {},
+          { locale }
+        ),
       })
     ).toBeNull();
     expect(
       view.getByText(
-        m.discountsCustomerCurrentReservationsEmpty({}, { locale })
+        m.administrationCustomerProfileCurrentReservationsEmpty({}, { locale })
       )
     ).toBeDefined();
   });
@@ -117,7 +122,10 @@ describe("AdministrationCustomerDetail", () => {
     expect(
       view
         .getByRole("link", {
-          name: m.discountsCustomerViewAllReservations({}, { locale }),
+          name: m.administrationCustomerProfileViewAllReservations(
+            {},
+            { locale }
+          ),
         })
         .getAttribute("href")
     ).toBe(
@@ -125,14 +133,16 @@ describe("AdministrationCustomerDetail", () => {
     );
     expect(
       view.getByText(
-        m.discountsCustomerUnavailableDateReservations(
+        m.administrationCustomerProfileUnavailableDateReservations(
           { count: "1" },
           { locale }
         )
       )
     ).toBeDefined();
     expect(
-      view.getByText(m.discountsCustomerTransactionsTruncated({}, { locale }))
+      view.getByText(
+        m.administrationCustomerProfileTransactionsTruncated({}, { locale })
+      )
     ).toBeDefined();
   });
 
@@ -151,10 +161,10 @@ describe("AdministrationCustomerDetail", () => {
     const promotions = view.container.querySelector('[data-slot="promotions"]');
     const groupForm = view.container.querySelector('[data-slot="group-form"]');
     const transactions = view.getByRole("heading", {
-      name: m.discountsCustomerTransactionsTitle({}, { locale }),
+      name: m.administrationCustomerProfileTransactionsTitle({}, { locale }),
     });
     const reference = view.getByText(
-      m.discountsCustomerReferenceTitle({}, { locale })
+      m.administrationCustomerProfileReferenceTitle({}, { locale })
     );
     if (!promotions || !groupForm) throw new Error("A slot is missing.");
     // Codes and claims follow the transactions; the group form precedes the reference.

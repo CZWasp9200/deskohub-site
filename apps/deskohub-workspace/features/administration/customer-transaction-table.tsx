@@ -34,7 +34,7 @@ export function CustomerTransactionHistoryTable({
       {
         accessorFn: ({ attempt }) => attempt.updatedAt,
         id: "date",
-        header: m.discountsColumnDate({}, { locale }),
+        header: m.administrationCustomerTransactionColumnDate({}, { locale }),
         cell: ({ row }) => row.original.updatedAtLabel,
         meta: {
           cellClassName: "whitespace-nowrap text-navy-blue/68",
@@ -43,7 +43,7 @@ export function CustomerTransactionHistoryTable({
       {
         accessorFn: ({ attempt }) => attempt.state,
         id: "status",
-        header: m.discountsColumnStatus({}, { locale }),
+        header: m.administrationCustomerTransactionColumnStatus({}, { locale }),
         cell: ({ row }) => {
           const { attempt } = row.original;
           const status = getAdministrationPaymentStatus(attempt, locale);
@@ -64,7 +64,10 @@ export function CustomerTransactionHistoryTable({
         accessorFn: ({ reservation }) =>
           getAdministrationReservationProductTitle(reservation.product, locale),
         id: "reservation",
-        header: m.discountsColumnReservation({}, { locale }),
+        header: m.administrationCustomerTransactionColumnReservation(
+          {},
+          { locale }
+        ),
         cell: ({ row }) => (
           <Link
             className="font-semibold underline decoration-navy-blue/20 underline-offset-4"
@@ -83,7 +86,7 @@ export function CustomerTransactionHistoryTable({
       {
         accessorFn: ({ attempt }) => attempt.amount.value,
         id: "amount",
-        header: m.discountsColumnAmount({}, { locale }),
+        header: m.administrationCustomerTransactionColumnAmount({}, { locale }),
         cell: ({ row }) => (
           <PaymentAmount locale={locale} payment={row.original.attempt} />
         ),
@@ -92,7 +95,10 @@ export function CustomerTransactionHistoryTable({
       {
         accessorFn: ({ attempt }) => attempt.providerOrderId ?? attempt.id,
         id: "paymentId",
-        header: m.discountsColumnPaymentId({}, { locale }),
+        header: m.administrationCustomerTransactionColumnPaymentId(
+          {},
+          { locale }
+        ),
         cell: ({ row }) =>
           row.original.attempt.providerOrderId ? (
             <NexiOrderLink
@@ -110,7 +116,10 @@ export function CustomerTransactionHistoryTable({
 
   return (
     <AdministrationDataTable
-      ariaLabel={m.discountsCustomerTransactionsTableLabel({}, { locale })}
+      ariaLabel={m.administrationCustomerProfileTransactionsTableLabel(
+        {},
+        { locale }
+      )}
       columns={columns}
       data={transactions}
       getRowId={({ attempt }) => attempt.id}
