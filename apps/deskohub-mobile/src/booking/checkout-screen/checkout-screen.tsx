@@ -91,19 +91,34 @@ function CheckoutFlowScreen({
   useEffect(() => {
     if (submitted) setDraft(Option.none());
   }, [submitted, setDraft]);
+  const onDetails = state?._tag === "Details" || state?._tag === "Creating";
+  // Set on every state: options a screen sets outlive the element.
+  const title = (
+    <Stack.Screen
+      options={{
+        title: onDetails
+          ? m.booking_details_title({}, { locale })
+          : m.booking_stack_checkout_title({}, { locale }),
+      }}
+    />
+  );
   if (state?._tag === "Details" || state?._tag === "Creating") {
     return (
-      <DetailsForAccount
-        notice={state._tag === "Details" ? state.notice : Option.none()}
-        busy={state._tag === "Creating"}
-        flow={flow}
-        request={request}
-        locale={locale}
-      />
+      <>
+        {title}
+        <DetailsForAccount
+          notice={state._tag === "Details" ? state.notice : Option.none()}
+          busy={state._tag === "Creating"}
+          flow={flow}
+          request={request}
+          locale={locale}
+        />
+      </>
     );
   }
   return (
     <ScrollScreen>
+      {title}
       {state === undefined ? (
         <LoadingState label={m.booking_checkout_starting({}, { locale })} />
       ) : (
@@ -206,42 +221,37 @@ function DetailsForAccount({
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
   return (
-    <>
-      <Stack.Screen
-        options={{ title: m.booking_details_title({}, { locale }) }}
-      />
-      <AsyncView result={account} onRetry={refresh}>
-        {(current) => {
-          const access = detailsAccess(current);
-          if (access._tag === "Unavailable") {
-            return (
-              <ScrollScreen>
-                <AccountUnavailableNotice
-                  reason={access.reason}
-                  locale={locale}
-                />
-              </ScrollScreen>
-            );
-          }
+    <AsyncView result={account} onRetry={refresh}>
+      {(current) => {
+        const access = detailsAccess(current);
+        if (access._tag === "Unavailable") {
           return (
-            <DetailsWithProfile
-              profile={access}
-              initials={
-                current.kind === "linked" && Option.isSome(access.self.name)
-                  ? Option.some(initialsOf(current.profile))
-                  : Option.none()
-              }
-              linked={current.kind === "linked"}
-              notice={notice}
-              busy={busy}
-              flow={flow}
-              request={request}
-              locale={locale}
-            />
+            <ScrollScreen>
+              <AccountUnavailableNotice
+                reason={access.reason}
+                locale={locale}
+              />
+            </ScrollScreen>
           );
-        }}
-      </AsyncView>
-    </>
+        }
+        return (
+          <DetailsWithProfile
+            profile={access}
+            initials={
+              current.kind === "linked" && Option.isSome(access.self.name)
+                ? Option.some(initialsOf(current.profile))
+                : Option.none()
+            }
+            linked={current.kind === "linked"}
+            notice={notice}
+            busy={busy}
+            flow={flow}
+            request={request}
+            locale={locale}
+          />
+        );
+      }}
+    </AsyncView>
   );
 }
 
