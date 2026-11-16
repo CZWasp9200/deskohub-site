@@ -54,15 +54,23 @@ describe("accessPinBoxSize", () => {
     });
   });
 
-  test("every length the lock issues fits one line at 360 dp, at 100% and 200% font", () => {
+  test("at the default font size every length the lock issues fits one line at 360 dp", () => {
     for (const length of [7, 8, 9]) {
-      for (const fontScale of [1, 1.3, 2]) {
-        const groups = accessPinGroups(digits(length));
-        const size = accessPinBoxSize(groups, narrow, fontScale);
-        expect(lineWidth(groups, size.width)).toBeLessThanOrEqual(narrow);
-        // Still large enough to read at the door.
-        expect(size.fontSize).toBeGreaterThanOrEqual(24);
+      const groups = accessPinGroups(digits(length));
+      const size = accessPinBoxSize(groups, narrow, 1);
+      expect(lineWidth(groups, size.width)).toBeLessThanOrEqual(narrow);
+      expect(size.fontSize).toBeGreaterThanOrEqual(24);
+    }
+  });
+
+  test("at 200% font size the digits grow, and each group still fits a line at 360 dp", () => {
+    for (const length of [7, 8, 9]) {
+      const groups = accessPinGroups(digits(length));
+      const size = accessPinBoxSize(groups, narrow, 2);
+      for (const group of groups) {
+        expect(lineWidth([group], size.width)).toBeLessThanOrEqual(narrow);
       }
+      expect(size.fontSize).toBeGreaterThanOrEqual(accessPinBox.fontSize * 1.5);
     }
   });
 

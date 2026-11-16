@@ -658,7 +658,6 @@
   "reservations_access_starts_in_days": "{days} में",
   "reservations_access_chip_active": "अभी सक्रिय · {end} तक",
   "reservations_access_chip_ended": "{date} को {time} बजे समाप्त",
-  "reservations_access_chip_ended_day": "{date} को समाप्त",
   "reservations_access_copy_address": "पता कॉपी करें",
   "reservations_access_address_copied": "पता कॉपी हो गया।",
   "reservations_access_directions": "रास्ता देखें",

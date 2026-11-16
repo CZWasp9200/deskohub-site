@@ -54,7 +54,10 @@ export function StackHeader({
             ? () => navigation.goBack()
             : undefined
         }
-        actions={options.headerRight?.({ tintColor: color.navy, canGoBack })}
+        actions={options.headerRight?.({
+          tintColor: tone === "navy" ? color.white : color.navy,
+          canGoBack,
+        })}
         raised={options.headerShadowVisible === true}
         back={closes ? "close" : "back"}
         tone={tone}

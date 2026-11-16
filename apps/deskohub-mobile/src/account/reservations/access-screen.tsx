@@ -242,8 +242,9 @@ function PinHero({
 }
 
 /**
- * The PIN in boxes, in groups, on one line: the boxes grow with the font
- * size and shrink to fit the width (`accessPinBoxSize`). Assistive tech
+ * The PIN in boxes, in groups: the boxes grow with the font size, and the
+ * groups wrap whole when the PIN no longer fits one line
+ * (`accessPinBoxSize`). Assistive tech
  * reads it one digit at a time; a placeholder holds the room while loading.
  */
 function PinDigits({
@@ -308,6 +309,9 @@ function PinDigits({
                   {digit}
                 </Text>
               )}
+              {/* Android draws no line-through in the brand face, so an
+                  ended PIN's strike is its own line across the digit. */}
+              {ended && !placeholder && <View style={styles.strike} />}
             </View>
           ))}
         </View>
@@ -436,11 +440,11 @@ function WindowAndPlace({
           Times: ({ from, until }) => [
             [
               m.reservations_access_from({}, { locale }),
-              accessDateTimeText(from, locale),
+              accessDateTimeText(from, locale, "start"),
             ] as const,
             [
               m.reservations_access_until({}, { locale }),
-              accessDateTimeText(until, locale),
+              accessDateTimeText(until, locale, "end"),
             ] as const,
           ],
         }),
@@ -623,8 +627,10 @@ const styles = StyleSheet.create({
   pin: {
     columnGap: accessPinBox.groupGap,
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "center",
     paddingTop: 14,
+    rowGap: space.md,
   },
   group: { columnGap: accessPinBox.digitGap, flexDirection: "row" },
   box: {
@@ -636,9 +642,14 @@ const styles = StyleSheet.create({
   },
   boxEmpty: { backgroundColor: "rgba(255, 255, 255, 0.08)" },
   digit: { color: color.white, fontWeight: "700", textAlign: "center" },
-  digitEnded: {
-    color: "rgba(255, 255, 255, 0.38)",
-    textDecorationLine: "line-through",
+  digitEnded: { color: "rgba(255, 255, 255, 0.38)" },
+  strike: {
+    backgroundColor: "rgba(255, 255, 255, 0.38)",
+    height: 2,
+    left: "22%",
+    position: "absolute",
+    right: "22%",
+    top: "46%",
   },
   how: {
     alignItems: "center",

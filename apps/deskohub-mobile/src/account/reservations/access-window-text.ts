@@ -42,13 +42,11 @@ export const accessWindowSpanOf = ({
     : AccessWindowSpan.Times({ from: startsAt, until: endsAt });
 
 /**
- * A moment the status chip names, as far as it needs: a time on the day
- * it is read, a whole day for a window that ends at midnight (the end of
- * that day), else a date and time.
+ * The end the status chip names: its time alone on the day it is read,
+ * else its date and time.
  */
 export type AccessMoment = Data.TaggedEnum<{
   Time: { readonly at: DateTime.Utc };
-  Day: { readonly day: DateTime.Utc };
   DateTime: { readonly at: DateTime.Utc };
 }>;
 
@@ -64,18 +62,16 @@ export type AccessChip = Data.TaggedEnum<{
   /** Working now, until its end. */
   Active: { readonly until: AccessMoment };
   /** No longer working since its end. */
-  Ended: { readonly at: AccessMoment };
+  Ended: { readonly at: DateTime.Utc };
 }>;
 
 export const AccessChip = Data.taggedEnum<AccessChip>();
 
-const endMoment = (end: DateTime.Utc, now: DateTime.Utc): AccessMoment => {
-  if (isWorkspaceMidnight(end))
-    return AccessMoment.Day({ day: lastDayOf(end) });
-  return isSameWorkspaceDay(now, end)
+/** An end at midnight belongs to the day it closes, as that day's 24:00. */
+const endMoment = (end: DateTime.Utc, now: DateTime.Utc): AccessMoment =>
+  isSameWorkspaceDay(now, isWorkspaceMidnight(end) ? lastDayOf(end) : end)
     ? AccessMoment.Time({ at: end })
     : AccessMoment.DateTime({ at: end });
-};
 
 /** The chip for the window's state at `now`. */
 export const accessChipOf = (
@@ -96,20 +92,35 @@ export const accessChipOf = (
     case "Open":
       return AccessChip.Active({ until: endMoment(endsAt, now) });
     case "Ended":
-      return AccessChip.Ended({
-        at: isWorkspaceMidnight(endsAt)
-          ? AccessMoment.Day({ day: lastDayOf(endsAt) })
-          : AccessMoment.DateTime({ at: endsAt }),
-      });
+      return AccessChip.Ended({ at: endsAt });
   }
 };
 
+// 13:00 on any day: a time format that writes it with "13" is a 24-hour clock.
+const oneInTheAfternoon = DateTime.makeUnsafe("2026-01-01T12:00:00Z");
+
+/**
+ * A window's start or end as a date and a time in the device's clock. On
+ * a 24-hour clock a Prague midnight that ends a window reads as 24:00 of the day it closes
+ * (the boards' "until 24:00"); a 12-hour clock keeps its own midnight.
+ */
+export const accessMomentParts = (
+  at: DateTime.Utc,
+  locale: AppLocale,
+  side: "start" | "end"
+): { readonly date: string; readonly time: string } =>
+  side === "end" &&
+  isWorkspaceMidnight(at) &&
+  formatInstant(oneInTheAfternoon, locale, "time").includes("13")
+    ? { date: shortDate(lastDayOf(at), locale), time: "24:00" }
+    : { date: shortDate(at, locale), time: formatInstant(at, locale, "time") };
+
 /** A From or Until value: the short date and the time. */
-export const accessDateTimeText = (at: DateTime.Utc, locale: AppLocale) =>
-  m.reservations_date_time(
-    { date: shortDate(at, locale), time: formatInstant(at, locale, "time") },
-    { locale }
-  );
+export const accessDateTimeText = (
+  at: DateTime.Utc,
+  locale: AppLocale,
+  side: "start" | "end"
+) => m.reservations_date_time(accessMomentParts(at, locale, side), { locale });
 
 /** The For row's value: one day, or the first and last day. */
 export const accessDaysText = (
@@ -126,9 +137,8 @@ export const accessDaysText = (
 
 const momentText = (moment: AccessMoment, locale: AppLocale) =>
   AccessMoment.$match(moment, {
-    Time: ({ at }) => formatInstant(at, locale, "time"),
-    Day: ({ day }) => shortDate(day, locale),
-    DateTime: ({ at }) => accessDateTimeText(at, locale),
+    Time: ({ at }) => accessMomentParts(at, locale, "end").time,
+    DateTime: ({ at }) => accessDateTimeText(at, locale, "end"),
   });
 
 const startsWhenText = (countdown: BookingCountdown, locale: AppLocale) => {
@@ -152,7 +162,7 @@ export const accessChipText = (chip: AccessChip, locale: AppLocale): string =>
     Starts: ({ at, countdown }) =>
       m.reservations_access_chip_starts(
         {
-          start: accessDateTimeText(at, locale),
+          start: accessDateTimeText(at, locale, "start"),
           when: startsWhenText(countdown, locale),
         },
         { locale }
@@ -163,16 +173,7 @@ export const accessChipText = (chip: AccessChip, locale: AppLocale): string =>
         { locale }
       ),
     Ended: ({ at }) =>
-      AccessMoment.$is("Day")(at)
-        ? m.reservations_access_chip_ended_day(
-            { date: shortDate(at.day, locale) },
-            { locale }
-          )
-        : m.reservations_access_chip_ended(
-            {
-              date: shortDate(at.at, locale),
-              time: formatInstant(at.at, locale, "time"),
-            },
-            { locale }
-          ),
+      m.reservations_access_chip_ended(accessMomentParts(at, locale, "end"), {
+        locale,
+      }),
   });

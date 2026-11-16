@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, Duration } from "effect";
 import { appLocales } from "../../i18n/app-locale";
+import { formatInstant } from "../../i18n/date-time-format";
 import { AccessWindowState, accessWindowState } from "./access-window";
 import {
   AccessChip,
@@ -9,8 +10,10 @@ import {
   accessChipOf,
   accessChipText,
   accessDaysText,
+  accessMomentParts,
   accessWindowSpanOf,
 } from "./access-window-text";
+import { shortDate } from "./booking-ticket-text";
 
 // November in Prague is UTC+1: Prague midnight on the 26th is 23:00 UTC on the 25th.
 const at = (iso: string) => DateTime.makeUnsafe(iso);
@@ -95,17 +98,19 @@ describe("accessChipOf", () => {
     );
   });
 
-  test("a full day works until the end of that day, never a midnight time", () => {
+  test("a full day works until the end of that same day", () => {
     const fullDay = window(pragueMidnight26, pragueMidnight27);
-    const active = chipAt(at("2026-11-26T09:00:00Z"), fullDay);
-    const ended = chipAt(at("2026-11-27T09:00:00Z"), fullDay);
-    expect(active._tag === "Active" && active.until._tag).toBe("Day");
-    expect(ended._tag === "Ended" && ended.at._tag).toBe("Day");
+    expect(chipAt(at("2026-11-26T09:00:00Z"), fullDay)).toEqual(
+      AccessChip.Active({ until: AccessMoment.Time({ at: pragueMidnight27 }) })
+    );
+    expect(chipAt(at("2026-11-27T09:00:00Z"), fullDay)).toEqual(
+      AccessChip.Ended({ at: pragueMidnight27 })
+    );
   });
 
   test("once over, says when it ended", () => {
     expect(chipAt(at("2026-11-27T09:00:00Z"))).toEqual(
-      AccessChip.Ended({ at: AccessMoment.DateTime({ at: fivePm26 }) })
+      AccessChip.Ended({ at: fivePm26 })
     );
   });
 
@@ -129,6 +134,37 @@ describe("accessChipOf", () => {
       for (const chip of chips) {
         expect(accessChipText(chip, locale).trim()).not.toBe("");
       }
+    }
+  });
+});
+
+describe("accessMomentParts", () => {
+  test("on a 24-hour clock a midnight end is 24:00 of the day it closes", () => {
+    // cs-CZ writes times on a 24-hour clock where the device doesn't say.
+    expect(accessMomentParts(pragueMidnight27, "cs-CZ", "end")).toEqual({
+      date: shortDate(fivePm26, "cs-CZ"),
+      time: "24:00",
+    });
+  });
+
+  test("a 12-hour clock keeps its own midnight, on the next day", () => {
+    // en-US writes times on a 12-hour clock where the device doesn't say.
+    expect(accessMomentParts(pragueMidnight27, "en-US", "end")).toEqual({
+      date: shortDate(pragueMidnight27, "en-US"),
+      time: formatInstant(pragueMidnight27, "en-US", "time"),
+    });
+  });
+
+  test("a midnight start is that day's first minute, and other ends keep their time", () => {
+    for (const locale of appLocales) {
+      expect(accessMomentParts(pragueMidnight27, locale, "start")).toEqual({
+        date: shortDate(pragueMidnight27, locale),
+        time: formatInstant(pragueMidnight27, locale, "time"),
+      });
+      expect(accessMomentParts(fivePm26, locale, "end")).toEqual({
+        date: shortDate(fivePm26, locale),
+        time: formatInstant(fivePm26, locale, "time"),
+      });
     }
   });
 });
