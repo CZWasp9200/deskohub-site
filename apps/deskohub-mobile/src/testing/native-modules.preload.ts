@@ -1,6 +1,7 @@
 import { mock } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { Component, createContext, useContext } from "react";
+import { postHogStandIn } from "./posthog-stand-in";
 
 /**
  * Bun can't load React Native or Expo's native modules, so tests get small
@@ -46,6 +47,8 @@ const stillAnimation = () => ({
 mock.module("react-native", () => ({
   // Host components stand in as their names, so a test can read the element
   // tree a component returns without a native renderer.
+  Image: "Image",
+  KeyboardAvoidingView: "KeyboardAvoidingView",
   Modal: "Modal",
   Pressable: "Pressable",
   RefreshControl: "RefreshControl",
@@ -75,6 +78,9 @@ mock.module("react-native", () => ({
     addEventListener: () => ({ remove: () => undefined }),
   },
   Linking: {
+    addEventListener: () => ({ remove: () => undefined }),
+  },
+  BackHandler: {
     addEventListener: () => ({ remove: () => undefined }),
   },
   // Animations stand still: values keep what they were set to and every
@@ -107,6 +113,7 @@ mock.module("react-native", () => ({
   Keyboard: {
     addListener: () => ({ remove: () => undefined }),
     dismiss: () => undefined,
+    isVisible: () => false,
   },
   // The design's narrowest phone at the default font size.
   useWindowDimensions: () => ({
@@ -209,6 +216,8 @@ mock.module("expo-web-browser", () => ({
 // Tests provide their own consent; these keep its module graph loadable.
 mock.module("expo-localization", () => ({
   getLocales: () => [{ languageTag: "en-US" }],
+  // The device doesn't say its clock: times follow the locale.
+  getCalendars: () => [{ uses24hourClock: null }],
 }));
 
 const asyncStorageItems = new Map<string, string>();
@@ -223,3 +232,6 @@ mock.module("@react-native-async-storage/async-storage", () => ({
     },
   },
 }));
+
+// Analytics clients are built on this stand-in in every test file.
+mock.module("posthog-react-native", postHogStandIn);

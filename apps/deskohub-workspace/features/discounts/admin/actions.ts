@@ -8,9 +8,7 @@ import type { Locale } from "@/features/i18n";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
 import { startCalendarDiscountSourceRefresh } from "./calendar-discount-source-maintenance.server";
 import {
-  type DiscountAdminCustomerSearch,
   type DiscountAdminMutation,
-  discountAdminCustomerSearchStandardSchema,
   discountAdminMutationStandardSchema,
 } from "./contracts";
 import { DiscountAdministration } from "./discount-administration.service";
@@ -96,29 +94,3 @@ export const mutateDiscountAdmin: typeof discountAdminMutationAction = async (
   "use server";
   return await discountAdminMutationAction(...args);
 };
-
-const executeCustomerSearch = Effect.fn(
-  "DiscountAdministration.executeCustomerSearch"
-)(function* (input: DiscountAdminCustomerSearch) {
-  const administration = yield* DiscountAdministration;
-  return yield* administration.searchCustomers(input);
-});
-
-const discountAdminCustomerSearchAction = defineAdministrationAction(
-  {
-    operation: "discount-administration.search-customers",
-    failureCopy,
-    schema: discountAdminCustomerSearchStandardSchema,
-    logInput: false,
-    capabilities: DiscountAdministration.Live,
-    publicFailure: (_, locale) =>
-      m.discountsErrorCustomerSearchUnavailable({}, { locale }),
-  },
-  executeCustomerSearch
-);
-
-export const searchDiscountAdminCustomers: typeof discountAdminCustomerSearchAction =
-  async (...args: Parameters<typeof discountAdminCustomerSearchAction>) => {
-    "use server";
-    return await discountAdminCustomerSearchAction(...args);
-  };

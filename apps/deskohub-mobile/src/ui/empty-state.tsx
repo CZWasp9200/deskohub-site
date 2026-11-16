@@ -13,7 +13,8 @@ export type EmptyStateTone =
   | "action"
   | "navy";
 
-const discColors = {
+/** An icon disc's fill and icon colour per tone, shared with gate cards. */
+export const discColors = {
   neutral: { background: color.sunken, ink: color.navy },
   positive: { background: color.positiveTint, ink: color.positiveInk },
   danger: { background: color.dangerTint, ink: color.dangerInk },

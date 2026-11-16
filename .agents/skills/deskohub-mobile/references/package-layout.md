@@ -6,8 +6,16 @@ Paths are relative to `apps/deskohub-mobile`.
 
 - `app/` holds the Expo Router routes. `app/_layout.tsx` gates the signed-in
   routes and mounts analytics, locale, customer-data cleanup and the update
-  banner. `app/(account)/(tabs)` holds the Reservations and Account tabs;
-  booking routes stack outside the tab bar. `app/dev/effect-smoke.tsx` is a
+  banner. `app/(account)/(tabs)` holds the Account, Book and Reservations
+  tabs, drawn by the custom `TabBar` (`src/ui/tab-bar.tsx`); Book's root is
+  the choice of spaces, while booking a space and checkout stack outside the
+  tab bar in `app/(account)/book`. A hidden tab (`href: null`) that gains
+  focus redirects to the initial tab, so keep screens without the bar out of
+  `(tabs)`. `app/(account)/index.tsx` sends `/` to the start tab
+  (`src/routing/start-tab.ts`). Expo Router ignores a navigator's dynamic
+  `initialRouteName` (only `unstable_settings` counts), so the tabs use
+  `backBehavior="none"` and `src/routing/back-to-start-tab.ts` handles
+  Android back at a tab root. `app/dev/effect-smoke.tsx` is a
   development-only screen (an Account tab row when `__DEV__`) that runs the
   `src/smoke` cases (Effect, Paraglide, `Intl`) on the device's Hermes.
 - `app/+native-intent.ts` maps an incoming `https://<host>/app/<route>` App
@@ -93,12 +101,15 @@ CI builds no native app; the release workflow's PR dry run builds the APK.
 - Tests are colocated `*.test.ts(x)` files run by `bun test`; `bunfig.toml`
   preloads `src/testing/native-modules.preload.ts`, which replaces
   `react-native` and the Expo modules with Bun module mocks. Add a mock there
-  when a new native module enters a tested import graph. Component tests
-  either inspect the element tree (`src/ui/testing/element-tree.ts`) or render
-  into happy-dom with `clientRoot()` (`src/testing/client-root.ts`). A
-  rendered component that talks to the fake auth server needs
-  `clientRoot({ keepFetch: true })`: happy-dom's fetch drops the Cookie
-  header.
+  when a new native module enters a tested import graph. All test files share
+  one module registry and run in no fixed order, so a `mock.module` inside a
+  test file misses a module another file loaded first: mock a module that
+  several test graphs reach in the preload, with a recording stand-in in
+  `src/testing/` (`posthog-stand-in.ts`). Component tests either inspect the
+  element tree (`src/ui/testing/element-tree.ts`) or render into happy-dom
+  with `clientRoot()` (`src/testing/client-root.ts`). A rendered component
+  that talks to the fake auth server needs `clientRoot({ keepFetch: true })`:
+  happy-dom's fetch drops the Cookie header.
 - `app.config.test.ts` pins the version code, both update-signing shapes, the
   `eas.json` profiles and the preview App Link filter;
   `plugins/android-asset-statements.test.ts` pins the asset statements;

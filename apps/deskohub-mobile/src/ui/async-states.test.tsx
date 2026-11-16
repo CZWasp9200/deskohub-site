@@ -6,7 +6,14 @@ import { ErrorState, LoadingState, RefreshingIndicator } from "./async-states";
 import { Button } from "./controls";
 import { EmptyState } from "./empty-state";
 import { LoadingIndicator } from "./loading-indicator";
-import { elementTree, find, findAll, hostTree } from "./testing/element-tree";
+import { idleLiveRegionLayout } from "./notice-presentation";
+import {
+  elementTree,
+  find,
+  findAll,
+  flatStyle,
+  hostTree,
+} from "./testing/element-tree";
 
 /** The component's live region: its only Text with a role. */
 const liveRegion = <Props,>(
@@ -33,6 +40,16 @@ describe("loading indicators", () => {
       expect(find(tree, LoadingIndicator)).toBeUndefined();
       expect(find(tree, "Svg")).toBeUndefined();
     }
+  });
+
+  test("an idle refresh line takes no room above the content", () => {
+    const style = (refreshing: boolean) =>
+      flatStyle(
+        liveRegion(RefreshingIndicator, { refreshing, label: "refreshing" })
+          ?.style
+      );
+    expect(style(false)).toMatchObject(idleLiveRegionLayout);
+    expect(style(true).position).not.toBe("absolute");
   });
 });
 

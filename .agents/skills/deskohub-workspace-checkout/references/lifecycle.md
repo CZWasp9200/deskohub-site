@@ -38,6 +38,7 @@ Paths are under `apps/deskohub-workspace/`.
 | Unpaid hold release (claim, live-status policy, Dotypos cancel, failure marker, cancelled marker) for hold cleanup, late payment, and agent rotated holds | `features/checkout/backend/holds/unpaid-hold-release.service.ts` |
 | Dotypos hold release step (live-status rule, cancel, failure marker) inside unpaid hold release, also used by session supersession | `features/checkout/backend/holds/dotypos-hold-release.service.ts` |
 | Discount-code and voucher claims (admission, redemption, readmission, release) inside payment, late-recovery, and cancellation transactions | `features/discounts/promotion-claims.ts` (`PromotionClaims`); see [pricing.md](pricing.md#payment) |
+| Referral invitation claims (first-booking admission, claim admission, first-paid check, redemption with attribution, readmission, release) and the referral lock step inside payment and late-recovery transactions | `features/referrals/referral-invitation-ledger.ts` (`ReferralInvitationLedger`); see the referrals skill |
 | Paid fulfillment | `features/checkout/backend/fulfillment/reservation-fulfillment.service.ts`, trigger adapters `paid-fulfillment-triggers.ts` for queue `app/api/queues/workspace/paid-fulfillment` and daily cron `app/api/cron/workspace/paid-fulfillment` |
 | Email delivery webhook | `app/api/webhooks/resend/route.ts` composes the ingress `shared/backend/email/delivery-reports.ts` with the handlers `customerAccessDeliveryReports` (`features/checkout/backend/fulfillment/reservation-delivery-reports.ts`; `ReservationFulfillment.recordDelivery` applies) and `campaignDeliveryReports`. PostHog-sent campaign mail reports through `app/api/webhooks/posthog/route.ts` and the `posthog-email-deliveries` cron, which poll PostHog's status API into the same handlers (`deskohub-workspace-operations` skill, `references/posthog-email-delivery.md`) |
 
@@ -200,7 +201,7 @@ Each Nexi request times out after 5 seconds in production and 30 seconds elsewhe
 3. Verify with `GET /orders/{orderId}`. Only that verification moves payment state.
 4. In one transaction, mark attempt and reservation paid and redeem the claim; then fulfill synchronously.
 
-A checkout referral's invitation claim stores its referrer and code. Every paid transaction that redeems it (including the zero-total internal payment and late-recovery settlement) records the referral attribution, whatever the `referrals` flag says; a conflicting referrer or a cycle keeps the existing graph and never fails the payment. Lock order is in the referrals skill. The paid status page and the zero-total payment action clear the remembered referral-code cookie.
+A checkout referral's invitation claim stores its referrer and code. Every paid transaction that redeems it (including the zero-total internal payment and late-recovery settlement) records the referral attribution through `ReferralInvitationLedger.redeem`, whatever the `referrals` flag says; a conflicting referrer or a cycle keeps the existing graph and never fails the payment. Lock order is in the referrals skill. The paid status page and the zero-total payment action clear the remembered referral-code cookie.
 
 Never store the notification body, token, `customerInfo`, warnings, `additionalData`, or card data.
 

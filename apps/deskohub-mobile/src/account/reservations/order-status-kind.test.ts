@@ -68,7 +68,7 @@ describe("order actions", () => {
       CustomerOrderStatus.literals.filter((status) =>
         offersAccessLink({ status })
       )
-    ).toEqual(["fulfilled"]);
+    ).toEqual(["paid_delivery_delayed", "fulfilled"]);
   });
 
   test("never links a review sandbox order to a door code", () => {

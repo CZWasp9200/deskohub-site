@@ -93,17 +93,22 @@ describe("BookingSteps", () => {
     }
   );
 
-  test("names every step on screen, on one line each", () => {
-    const names = findAll<{ numberOfLines?: number; children?: ReactNode }>(
-      steps("details"),
-      Text
-    ).map((text) => [text.props.children, text.props.numberOfLines]);
+  test("names every step on screen, on one line each, shrinking rather than truncating at large font sizes", () => {
+    const names = findAll<{
+      numberOfLines?: number;
+      adjustsFontSizeToFit?: boolean;
+      children?: ReactNode;
+    }>(steps("details"), Text).map((text) => [
+      text.props.children,
+      text.props.numberOfLines,
+      text.props.adjustsFontSizeToFit,
+    ]);
     expect(names).toEqual(
       [
         m.booking_steps_choose,
         m.booking_steps_details,
         m.booking_steps_pay,
-      ].map((name) => [name({}, { locale: "en-US" }), 1])
+      ].map((name) => [name({}, { locale: "en-US" }), 1, true])
     );
   });
 
