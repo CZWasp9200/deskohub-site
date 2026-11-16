@@ -1,4 +1,5 @@
 import type { Locale } from "@/features/i18n";
+import { getBookedCoworkStay } from "@/features/reservation/cowork-stay";
 import { formatMoney, type Money } from "@/shared/money/money";
 import {
   temporalInstantToDate,
@@ -50,13 +51,34 @@ export const formatAdministrationExportDateTime = (value: string) =>
 export const formatAdministrationPlainDate = (value: string, locale: Locale) =>
   formatPlainDate({ date: Temporal.PlainDate.from(value), locale });
 
+/**
+ * When a reservation is booked for: a cowork day's date, an overnight stay's
+ * start and end, which fall on different dates, or another booking's start.
+ */
 export const formatAdministrationReservationDate = (
   reservation: Pick<
     AdministrationReservationSummary,
-    "date" | "startsAt" | "type"
+    "date" | "endsAt" | "product" | "startsAt" | "type"
   >,
   locale: Locale
 ) => {
+  const { endsAt, product, startsAt } = reservation;
+  if (
+    product.kind === "cowork" &&
+    startsAt &&
+    endsAt &&
+    getBookedCoworkStay({
+      tier: product.tier,
+      interval: {
+        startsAt: Temporal.Instant.from(startsAt),
+        endsAt: Temporal.Instant.from(endsAt),
+      },
+    }) === "overnight"
+  ) {
+    // Both ends join with plain spaces: `formatRange` separates them with thin
+    // spaces that Chromium rewrites, which fails hydration in the client tables.
+    return `${formatAdministrationDateTime(startsAt, locale)} – ${formatAdministrationDateTime(endsAt, locale)}`;
+  }
   if (reservation.type === "cowork" && reservation.date) {
     return formatAdministrationPlainDate(reservation.date, locale);
   }
