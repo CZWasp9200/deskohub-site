@@ -15,8 +15,11 @@ import {
   InvoiceRepository,
 } from "@/features/accounting/backend/invoice.repository";
 import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";
+import { getInvoicedReservation } from "@/features/accounting/customer-invoice";
 import {
   makeCoworkInvoiceDocument,
+  makeMeetingRoomInvoiceDocument,
+  makeOfficeInvoiceDocument,
   makeTestManualInvoiceDocument,
 } from "@/features/accounting/invoice.test-utils";
 import { getInvoiceTotal } from "@/features/accounting/invoice-settlement";
@@ -34,6 +37,7 @@ import {
 const reservationId = "019edbcf-5026-7ecc-821b-eda46998eaaa";
 const coworkDocument = makeCoworkInvoiceDocument("en-US");
 const manualDocument = makeTestManualInvoiceDocument("en-US", "450.50");
+const cowork = getInvoicedReservation(coworkDocument, "en-US");
 
 /** The account's customer's reservation invoice. */
 const reservationInvoice: Invoice = {
@@ -157,6 +161,11 @@ describe("listInvoices", () => {
           issuedOn: "2026-08-10",
           total: getInvoiceTotal(coworkDocument),
           orderId: reservationId,
+          reservation: {
+            productName: cowork?.productName,
+            startsAt: cowork?.startsAt,
+            endsAt: cowork?.endsAt,
+          },
         },
         {
           id: manualInvoice.id,
@@ -167,6 +176,52 @@ describe("listInvoices", () => {
       ],
     });
     expect(reads).toEqual([`list:${testLinkedAccount.dotyposCustomerId}`]);
+  });
+
+  test("names what each order booked in the asked locale, with an office's seats", async () => {
+    const meetingRoomDocument = makeMeetingRoomInvoiceDocument("cs-CZ");
+    const officeDocument = makeOfficeInvoiceDocument("cs-CZ");
+    stored = [
+      {
+        ...reservationInvoice,
+        invoiceNumber: meetingRoomDocument.invoiceNumber,
+        document: meetingRoomDocument,
+      },
+      {
+        ...reservationInvoice,
+        id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb25"),
+        invoiceNumber: officeDocument.invoiceNumber,
+        document: officeDocument,
+      },
+    ];
+    const api = makeCustomerApiTestServer({ services: invoiceStore() });
+
+    const response = await api.handle(
+      customerApiRequest({ ...listInvoices, path: "/invoices?locale=cs-CZ" })
+    );
+
+    expect(response.status).toBe(200);
+    const meetingRoom = getInvoicedReservation(meetingRoomDocument, "cs-CZ");
+    const office = getInvoicedReservation(officeDocument, "cs-CZ");
+    const { invoices } = (await response.json()) as {
+      invoices: { reservation?: unknown }[];
+    };
+    expect(invoices.map((invoice) => invoice.reservation)).toEqual([
+      {
+        productName: meetingRoom?.productName,
+        startsAt: meetingRoom?.startsAt,
+        endsAt: meetingRoom?.endsAt,
+      },
+      {
+        productName: office?.productName,
+        seats: office?.seats,
+        startsAt: office?.startsAt,
+        endsAt: office?.endsAt,
+      },
+    ]);
+    expect(meetingRoom?.productName).not.toBe(
+      getInvoicedReservation(meetingRoomDocument, "en-US")?.productName
+    );
   });
 
   test("lists a large manual total as plain decimal text", async () => {

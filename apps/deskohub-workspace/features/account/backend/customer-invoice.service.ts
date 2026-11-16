@@ -64,8 +64,13 @@ interface CustomerInvoiceExport {
 }
 
 interface ICustomerInvoiceService {
-  /** The account's issued invoices, newest issue first. */
-  readonly list: Effect.Effect<
+  /**
+   * The account's issued invoices, newest issue first, each invoiced
+   * product named in `locale`.
+   */
+  readonly list: (options: {
+    readonly locale: Locale;
+  }) => Effect.Effect<
     readonly CustomerInvoiceSummary[],
     CustomerInvoicesUnavailableError | CustomerInvoicesLoadError
   >;
@@ -132,7 +137,8 @@ export class CustomerInvoiceService extends Context.Service<
       );
 
       const listWithToday = (
-        account: LinkedCustomerAccount
+        account: LinkedCustomerAccount,
+        locale: Locale
       ): Effect.Effect<
         {
           readonly today: PlainDate;
@@ -150,16 +156,17 @@ export class CustomerInvoiceService extends Context.Service<
           Effect.map(({ issued, today }) => ({
             today,
             summaries: issued.map((invoice) =>
-              getCustomerInvoiceSummary(invoice, today)
+              getCustomerInvoiceSummary(invoice, today, locale)
             ),
           }))
         );
 
-      const list = authorize.pipe(
-        Effect.flatMap(listWithToday),
-        Effect.map(({ summaries }) => summaries),
-        Effect.withSpan("CustomerInvoiceService.list")
-      );
+      const list = ({ locale }: { readonly locale: Locale }) =>
+        authorize.pipe(
+          Effect.flatMap((account) => listWithToday(account, locale)),
+          Effect.map(({ summaries }) => summaries),
+          Effect.withSpan("CustomerInvoiceService.list")
+        );
 
       const pdf = Effect.fn("CustomerInvoiceService.pdf")(function* (
         invoiceId: string
@@ -178,7 +185,7 @@ export class CustomerInvoiceService extends Context.Service<
         locale: Locale
       ) {
         const { today, summaries } = yield* authorize.pipe(
-          Effect.flatMap(listWithToday)
+          Effect.flatMap((account) => listWithToday(account, locale))
         );
         return {
           filename: `invoices-${today}.csv`,

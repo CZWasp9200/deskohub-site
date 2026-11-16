@@ -682,5 +682,6 @@
   "invoices_row_amount_number": "{amount} · Nr. {number}",
   "invoices_download_label": "Rechnung {number} laden",
   "invoices_downloading": "Rechnung {number} wird geladen …",
-  "invoices_download_not_found": "Diese Rechnung haben wir nicht gefunden. Aktualisier die Liste und versuch es erneut."
+  "invoices_download_not_found": "Diese Rechnung haben wir nicht gefunden. Aktualisier die Liste und versuch es erneut.",
+  "invoices_row_product_seats": "{product}, Plätze: {count}"
 }

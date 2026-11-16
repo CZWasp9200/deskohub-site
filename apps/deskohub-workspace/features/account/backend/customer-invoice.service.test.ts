@@ -12,9 +12,16 @@ import { AccountingRecordUnavailable } from "@/features/accounting/backend/seale
 import { getCustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
 import {
   makeCoworkInvoiceDocument,
+  makeMeetingRoomInvoiceDocument,
+  makeOfficeInvoiceDocument,
   makeTestManualInvoiceDocument,
 } from "@/features/accounting/invoice.test-utils";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
+import {
+  getWorkspaceMeetingRoomProductTitle,
+  getWorkspaceOfficeProductTitle,
+  getWorkspaceProductTierTitle,
+} from "@/features/checkout/product-catalog.i18n";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import {
   CustomerAccountAccessError,
@@ -227,11 +234,11 @@ const deniedAuthorities: readonly (readonly [
 
 describe("CustomerInvoiceService.list", () => {
   test("summarizes the account's own invoices on the Prague date", async () => {
-    const summaries = await run((service) => service.list);
+    const summaries = await run((service) => service.list({ locale: "en-US" }));
 
     expect(summaries).toEqual([
-      getCustomerInvoiceSummary(dueInvoice, pragueToday),
-      getCustomerInvoiceSummary(paidInvoice, pragueToday),
+      getCustomerInvoiceSummary(dueInvoice, pragueToday, "en-US"),
+      getCustomerInvoiceSummary(paidInvoice, pragueToday, "en-US"),
     ]);
     expect(summaries[0]?.paymentStatus).toBe("overdue");
     expect(events).toEqual([
@@ -241,8 +248,67 @@ describe("CustomerInvoiceService.list", () => {
     ]);
   });
 
+  test.each(["en-US", "cs-CZ"] as const)(
+    "says what each order-backed invoice was for, named by the %s catalog",
+    async (locale) => {
+      const orderInvoice = (
+        suffix: string,
+        document: Invoice["document"]
+      ): Invoice => ({
+        ...paidInvoice,
+        id: invoiceIdSchema.make(`018f47d2-8f7c-7c5e-9f9a-6ef21f90cc${suffix}`),
+        workspaceReservationId: `reservation-${suffix}`,
+        invoiceNumber: document.invoiceNumber,
+        document,
+      });
+      const office = makeOfficeInvoiceDocument(locale);
+      fixture.list = Effect.succeed([
+        orderInvoice("01", makeCoworkInvoiceDocument(locale)),
+        orderInvoice("02", makeMeetingRoomInvoiceDocument(locale)),
+        orderInvoice("03", office),
+        dueInvoice,
+      ]);
+
+      const [cowork, meetingRoom, officeSummary, manual] = await run(
+        (service) => service.list({ locale })
+      );
+
+      expect(cowork?.reservation).toMatchObject({
+        product: { kind: "cowork", tier: "open-space" },
+        productName: getWorkspaceProductTierTitle("open-space", locale),
+        seats: null,
+      });
+      expect(meetingRoom?.reservation).toMatchObject({
+        product: { kind: "meeting-room" },
+        productName: getWorkspaceMeetingRoomProductTitle(locale),
+        seats: null,
+      });
+      expect(officeSummary?.reservation).toMatchObject({
+        product: { kind: "office" },
+        productName: getWorkspaceOfficeProductTitle(locale),
+        seats: "seats" in office.reservation ? office.reservation.seats : -1,
+      });
+      for (const summary of [cowork, meetingRoom, officeSummary]) {
+        expect(summary?.reservation?.startsAt).toBeString();
+        expect(summary?.reservation?.endsAt).toBeString();
+      }
+      expect(manual?.reservation).toBeNull();
+      // The names come from the catalog alone: the list reads nothing else.
+      expect(events).toEqual([
+        "resolve",
+        `activity:${accountId}`,
+        `list:${dotyposCustomerId}`,
+      ]);
+    }
+  );
+
   test("re-authorizes on every call", async () => {
-    await run((service) => Effect.andThen(service.list, service.list));
+    await run((service) =>
+      Effect.andThen(
+        service.list({ locale: "en-US" }),
+        service.list({ locale: "en-US" })
+      )
+    );
 
     expect(events.filter((event) => event === "resolve")).toHaveLength(2);
     expect(
@@ -255,7 +321,9 @@ describe("CustomerInvoiceService.list", () => {
     async (_, denial, refusal) => {
       Object.assign(fixture, denial);
 
-      const error = await runFailure((service) => service.list);
+      const error = await runFailure((service) =>
+        service.list({ locale: "en-US" })
+      );
 
       expect(error).toEqual(
         new CustomerInvoicesUnavailableError({ account: refusal })
@@ -267,7 +335,9 @@ describe("CustomerInvoiceService.list", () => {
   test("fails to load when the session can't be read", async () => {
     fixture.standing = testResolvedStandings["Dotypos lookup unavailable"];
 
-    const error = await runFailure((service) => service.list);
+    const error = await runFailure((service) =>
+      service.list({ locale: "en-US" })
+    );
 
     expect(error).toEqual(
       new CustomerInvoicesLoadError({ code: "account.authority" })
@@ -286,7 +356,9 @@ describe("CustomerInvoiceService.list", () => {
       })
     );
 
-    const error = await runFailure((service) => service.list);
+    const error = await runFailure((service) =>
+      service.list({ locale: "en-US" })
+    );
 
     expect(error).toEqual(
       new CustomerInvoicesLoadError({ code: "account.authority" })
@@ -303,7 +375,9 @@ describe("CustomerInvoiceService.list", () => {
       })
     );
 
-    const error = await runFailure((service) => service.list);
+    const error = await runFailure((service) =>
+      service.list({ locale: "en-US" })
+    );
 
     expect(error).toEqual(
       new CustomerInvoicesLoadError({ code: "invoice.read" })
@@ -370,8 +444,8 @@ describe("CustomerInvoiceService.csv", () => {
 
     expect(csv.filename).toBe(`invoices-${pragueToday}.csv`);
     expect(csv.rows).toEqual([
-      getCustomerInvoiceSummary(dueInvoice, pragueToday),
-      getCustomerInvoiceSummary(paidInvoice, pragueToday),
+      getCustomerInvoiceSummary(dueInvoice, pragueToday, "cs-CZ"),
+      getCustomerInvoiceSummary(paidInvoice, pragueToday, "cs-CZ"),
     ]);
     expect(csv.columns.length).toBeGreaterThan(0);
     expect(events).toEqual([

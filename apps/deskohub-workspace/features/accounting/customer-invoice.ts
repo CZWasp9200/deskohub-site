@@ -1,6 +1,12 @@
 import { Match } from "effect";
+import type { CustomerReservationProduct } from "@/features/account/contracts";
+import { getReservationProductName } from "@/features/account/reservation-product-name";
 import type { Invoice } from "@/features/accounting/backend/invoice.repository";
-import type { InvoiceNumber } from "@/features/accounting/invoice";
+import {
+  type InvoiceDocument,
+  type InvoiceNumber,
+  isManualInvoiceDocument,
+} from "@/features/accounting/invoice";
 import {
   getInvoicePaymentStatus,
   getInvoiceSettlement,
@@ -18,13 +24,30 @@ import { workspaceSiteConstants } from "@/shared/utils";
 import type { CsvColumn } from "@/shared/utils/csv";
 import {
   type PlainDate,
+  plainDateSpanToInstants,
   plainDateStringSchema,
   temporalInstantToPlainDate,
 } from "@/shared/utils/temporal";
 
 /**
+ * What an invoiced reservation booked and when, as its invoice froze it.
+ * `startsAt` and `endsAt` are ISO instants with `endsAt` exclusive; a booking
+ * of whole days spans the workspace's (Prague) midnights.
+ */
+export interface InvoicedReservation {
+  readonly product: CustomerReservationProduct;
+  /** The catalog name of `product` in the summary's locale. */
+  readonly productName: string;
+  readonly startsAt: string;
+  readonly endsAt: string;
+  /** The office's seats; `null` for a product booked without seats. */
+  readonly seats: number | null;
+}
+
+/**
  * What a customer account shows of one issued invoice. Every fact comes from
- * the issued invoice; no current customer or catalog data joins it.
+ * the issued invoice; only the product's catalog name is read in the
+ * caller's locale, and no current customer data joins it.
  */
 export interface CustomerInvoiceSummary {
   readonly id: InvoiceId;
@@ -37,15 +60,70 @@ export interface CustomerInvoiceSummary {
   readonly paymentStatus: InvoicePaymentStatus;
   /** The due date while the invoice requests payment, else `null`. */
   readonly dueDate: PlainDate | null;
+  /** What the invoiced reservation booked; `null` for a manual invoice. */
+  readonly reservation: InvoicedReservation | null;
 }
 
-/** `today` is the workspace (Prague) calendar date. */
+const workspaceDays = (startsOn: string, endsOn: string) => {
+  const { startsAt, endsAt } = plainDateSpanToInstants({
+    startsOn: Temporal.PlainDate.from(startsOn),
+    endsOn: Temporal.PlainDate.from(endsOn),
+    timeZone: workspaceSiteConstants.location.timeZone,
+  });
+  return { startsAt: startsAt.toString(), endsAt: endsAt.toString() };
+};
+
+/**
+ * The reservation an issued document invoices, from the facts it froze at
+ * checkout; a manual invoice invoices none.
+ */
+export const getInvoicedReservation = (
+  document: InvoiceDocument,
+  locale: Locale
+): InvoicedReservation | null => {
+  if (isManualInvoiceDocument(document)) return null;
+  const booked = Match.value(document).pipe(
+    Match.when(
+      { reservation: { kind: "cowork" } },
+      ({ reservation, quote }) => ({
+        product: { kind: "cowork", tier: quote.items[0].tier } as const,
+        ...workspaceDays(reservation.date, reservation.date),
+        seats: null,
+      })
+    ),
+    Match.when(
+      { reservation: { kind: "meeting-room" } },
+      ({ reservation }) => ({
+        product: { kind: "meeting-room" } as const,
+        startsAt: reservation.startsAt,
+        endsAt: reservation.endsAt,
+        seats: null,
+      })
+    ),
+    Match.when({ reservation: { kind: "office" } }, ({ reservation }) => ({
+      product: { kind: "office" } as const,
+      ...workspaceDays(reservation.startsOn, reservation.endsOn),
+      seats: reservation.seats,
+    })),
+    Match.exhaustive
+  );
+  return {
+    ...booked,
+    productName: getReservationProductName(booked.product, locale),
+  };
+};
+
+/**
+ * `today` is the workspace (Prague) calendar date; `locale` names the
+ * invoiced product.
+ */
 export const getCustomerInvoiceSummary = (
   invoice: Pick<
     Invoice,
     "id" | "workspaceReservationId" | "issuedAt" | "document"
   >,
-  today: PlainDate
+  today: PlainDate,
+  locale: Locale
 ): CustomerInvoiceSummary => ({
   id: invoice.id,
   invoiceNumber: invoice.document.invoiceNumber,
@@ -68,6 +146,7 @@ export const getCustomerInvoiceSummary = (
       PaymentRequested: ({ dueDate }) => dueDate,
     })
   ),
+  reservation: getInvoicedReservation(invoice.document, locale),
 });
 
 export const getCustomerInvoiceStatusLabel = (
