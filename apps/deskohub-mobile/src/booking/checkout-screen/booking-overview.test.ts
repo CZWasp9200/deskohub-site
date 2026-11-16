@@ -14,8 +14,8 @@ const meetingRoom = (
   startTime: Option.Option<string>
 ) => {
   const selection = toMeetingRoomSelection({
-    date: "2026-11-20",
-    duration,
+    date: Option.some("2026-11-20"),
+    duration: Option.some(duration),
     startTime,
     earlySetup: false,
   });

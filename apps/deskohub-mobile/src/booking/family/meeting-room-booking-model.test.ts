@@ -124,9 +124,9 @@ describe("openingMeetingRoomDraft", () => {
     expect(opening(fromBookAgain, bookAgain)).toEqual(oneHour);
     // A restarted checkout returns without the params.
     expect(opening(fromBookAgain, Option.none())).toEqual(oneHour);
-    expect(
-      opening({ seed: "", draft: oneHour }, bookAgain).duration
-    ).toEqual(Option.some("hour:4"));
+    expect(opening({ seed: "", draft: oneHour }, bookAgain).duration).toEqual(
+      Option.some("hour:4")
+    );
   });
 });
 

@@ -268,8 +268,7 @@ describe("choosing", () => {
       reconcileMeetingRoomDraft(keep, Option.some(hourlyStarts), now)
     ).toEqual(keep);
     expect(
-      reconcileMeetingRoomDraft(at10, Option.some(hourlyStarts), now)
-        .earlySetup
+      reconcileMeetingRoomDraft(at10, Option.some(hourlyStarts), now).earlySetup
     ).toBe(false);
     expect(reconcileMeetingRoomDraft(at10, Option.none(), now)).toEqual(at10);
   });
@@ -451,9 +450,7 @@ describe("meetingRoomAlternatives", () => {
 describe("meetingRoomEnablement", () => {
   test("offers today through six months without the days nothing is free", () => {
     const enablement = enablementOf(at11, {
-      calendar: Option.some(
-        calendar({}, { unavailableDates: ["2026-11-13"] })
-      ),
+      calendar: Option.some(calendar({}, { unavailableDates: ["2026-11-13"] })),
     });
 
     expect(enablement.dates).toEqual({
@@ -513,12 +510,12 @@ describe("meetingRoomEnablement", () => {
         ),
       })
     ).toEqual(["StartUnavailable"]);
-    expect(blockerTags(at10, { now: new Date("2026-11-07T09:59:00Z") })).toEqual(
-      []
-    );
-    expect(blockerTags(at10, { now: new Date("2026-11-07T10:00:00Z") })).toEqual(
-      ["StartUnavailable"]
-    );
+    expect(
+      blockerTags(at10, { now: new Date("2026-11-07T09:59:00Z") })
+    ).toEqual([]);
+    expect(
+      blockerTags(at10, { now: new Date("2026-11-07T10:00:00Z") })
+    ).toEqual(["StartUnavailable"]);
   });
 
   test("a whole day needs no start but offers no early setup", () => {
@@ -527,7 +524,11 @@ describe("meetingRoomEnablement", () => {
       date: today,
       duration: "day:1",
       startTimes: [
-        start("2026-11-07T00:00", "2026-11-06T23:00:00Z", "2026-11-07T23:00:00Z"),
+        start(
+          "2026-11-07T00:00",
+          "2026-11-06T23:00:00Z",
+          "2026-11-07T23:00:00Z"
+        ),
       ],
       unavailableStartTimes: [],
     };
@@ -540,8 +541,8 @@ describe("meetingRoomEnablement", () => {
   });
 
   test("blocks a date outside today through six months", () => {
-    expect(
-      blockerTags({ ...at11, date: Option.some("2027-05-08") })
-    ).toEqual(["DateOutOfRange"]);
+    expect(blockerTags({ ...at11, date: Option.some("2027-05-08") })).toEqual([
+      "DateOutOfRange",
+    ]);
   });
 });

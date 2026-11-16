@@ -12,7 +12,12 @@ import {
   type DateChoice,
   SelectionIncomplete,
 } from "./booking-selection";
-import { addDays, addMonths, type PragueDate, pragueToday } from "./prague-date";
+import {
+  addDays,
+  addMonths,
+  type PragueDate,
+  pragueToday,
+} from "./prague-date";
 
 /**
  * A meeting-room booking the customer is putting together: a date, then a
@@ -71,7 +76,10 @@ const isWholeDay = (duration: CustomerMeetingRoomDuration) =>
  * for an hourly length and its early setup. None for another family.
  */
 export const meetingRoomDraftFromSelection = (
-  { selection, earlySetup }: {
+  {
+    selection,
+    earlySetup,
+  }: {
     readonly selection: CustomerBookingSelection;
     readonly earlySetup?: boolean;
   },
@@ -94,7 +102,9 @@ export const meetingRoomDraftFromSelection = (
       (date) => date >= earliest && date <= latest
     ),
     duration,
-    startTime: hourly ? Option.fromNullishOr(selection.startTime) : Option.none(),
+    startTime: hourly
+      ? Option.fromNullishOr(selection.startTime)
+      : Option.none(),
     earlySetup: hourly && earlySetup === true,
   });
 };
@@ -171,8 +181,7 @@ export const meetingRoomStartTimesQuery = (
 ): Option.Option<{
   readonly date: PragueDate;
   readonly duration: CustomerMeetingRoomDuration;
-}> =>
-  Option.all({ date: draft.date, duration: draft.duration });
+}> => Option.all({ date: draft.date, duration: draft.duration });
 
 /** The starts loaded for the draft's date and length, if those are loaded. */
 const startTimesFor = (

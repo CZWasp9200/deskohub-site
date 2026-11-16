@@ -1,8 +1,8 @@
+import { brandFontVariation } from "@deskohub/brand-tokens";
 import type {
   CustomerMeetingRoomDuration,
   Money,
 } from "@deskohub/workspace-customer-api";
-import { brandFontVariation } from "@deskohub/brand-tokens";
 import { type ComponentRef, useRef } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
