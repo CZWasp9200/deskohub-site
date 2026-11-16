@@ -4,6 +4,7 @@ import { Cause, Effect } from "effect";
 import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import { DeviceCapabilityFailed } from "../../customer-api/device-capabilities";
+import { DownloadShareFailure } from "../../customer-api/share-downloaded-file";
 import {
   makeFakeCustomerData,
   settle,
@@ -14,7 +15,6 @@ import {
   sampleInvoices,
 } from "../../customer-api/testing/sample-fixtures";
 import { invoicePdfName } from "./invoice-list-model";
-import { InvoiceShareFailure } from "./invoice-pdf-share";
 import {
   invoiceDownloadAtom,
   invoiceDownloadState,
@@ -114,7 +114,7 @@ describe("invoiceDownloadAtom", () => {
 
     expect(state).toEqual({
       kind: "failed",
-      failure: InvoiceShareFailure.Download({
+      failure: DownloadShareFailure.Download({
         error: CustomerViewError.NotFound(),
       }),
     });
@@ -141,7 +141,7 @@ describe("invoiceDownloadAtom", () => {
           Cause.fail(new DeviceCapabilityFailed({ capability: "share" }))
         )
       )
-    ).toEqual({ kind: "failed", failure: InvoiceShareFailure.Share() });
+    ).toEqual({ kind: "failed", failure: DownloadShareFailure.Share() });
     expect(invoiceDownloadState(AsyncResult.initial())).toEqual({
       kind: "idle",
     });

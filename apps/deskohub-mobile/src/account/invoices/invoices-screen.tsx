@@ -6,6 +6,7 @@ import Receipt from "lucide-react-native/icons/receipt";
 import { useState } from "react";
 import { AsyncView } from "../../customer-api/async-view";
 import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-message";
+import { DownloadShareFailure } from "../../customer-api/share-downloaded-file";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
@@ -20,7 +21,6 @@ import { ScrollScreen } from "../../ui/scroll-screen";
 import { SkeletonGroup } from "../../ui/skeleton";
 import { color } from "../../ui/tokens";
 import { type InvoiceRow, invoiceRowText } from "./invoice-list-model";
-import { InvoiceShareFailure } from "./invoice-pdf-share";
 import {
   invoiceDownloadAtom,
   invoiceDownloadState,
@@ -158,10 +158,10 @@ function InvoiceListRow({
 }
 
 const downloadFailureMessage = (
-  failure: InvoiceShareFailure,
+  failure: DownloadShareFailure,
   locale: AppLocale
 ) =>
-  InvoiceShareFailure.$match(failure, {
+  DownloadShareFailure.$match(failure, {
     Share: () => m.reservations_invoice_share_failed({}, { locale }),
     Download: ({ error }) =>
       Match.value(error).pipe(
