@@ -30,6 +30,7 @@ import {
   isAnalyticsPreferenceUnavailable,
   saveAnalyticsPreferenceAtom,
 } from "./analytics-preference";
+import { DataExportRow } from "./data-export-row";
 import {
   type LegalDocument,
   legalDocuments,
@@ -124,9 +125,7 @@ export function LegalScreen() {
       <SectionHeader title={m.legal_analytics_heading({}, { locale })} />
       <AnalyticsPreference onOpenPrivacyPolicy={openPrivacyPolicy} />
       <SectionHeader title={m.legal_archive_heading({}, { locale })} />
-      <ListGroup>
-        <ListRow label={m.legal_archive_unavailable({}, { locale })} />
-      </ListGroup>
+      <DataExportRow />
     </ScrollScreen>
   );
 }

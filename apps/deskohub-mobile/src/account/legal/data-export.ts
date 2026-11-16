@@ -1,5 +1,5 @@
 import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
-import { DateTime, Effect, Match } from "effect";
+import { Effect, Match } from "effect";
 import type { AsyncResult } from "effect/unstable/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
@@ -12,22 +12,22 @@ import {
   shareDownloadedFile,
 } from "../../customer-api/share-downloaded-file";
 
-/** The archive's name, by the day it was downloaded, as the website names it. */
-export const dataExportFileName = (day: DateTime.DateTime) =>
-  `deskohub-account-data-${DateTime.formatIsoDateUtc(day)}.zip`;
+/**
+ * The name the shared archive carries. The contract gives only the bytes,
+ * not the server's dated file name, so the app names it without a date.
+ */
+export const dataExportFileName = "deskohub-account-data.zip";
 
 /**
  * Downloads the account's personal data archive (GET /account/data-export)
  * and hands it to the share sheet, a download on the web. The server decides
  * who may download; it answers 404 when this account can't.
  */
-export const downloadDataExport = Effect.flatMap(DateTime.now, (now) =>
-  shareDownloadedFile(
-    { name: dataExportFileName(now), mimeType: "application/zip" },
-    Effect.flatMap(Effect.service(CustomerApi), (api) =>
-      api.account.getDataExport()
-    ).pipe(customerRead({ accountRead: false }))
-  )
+export const downloadDataExport = shareDownloadedFile(
+  { name: dataExportFileName, mimeType: "application/zip" },
+  Effect.flatMap(Effect.service(CustomerApi), (api) =>
+    api.account.getDataExport()
+  ).pipe(customerRead({ accountRead: false }))
 ).pipe(Effect.withSpan("Account.downloadDataExport"));
 
 export const dataExportDownloadAtom = customerDataRuntime.fn(

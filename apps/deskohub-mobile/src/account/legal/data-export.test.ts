@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CustomerDataExportUnavailable } from "@deskohub/workspace-customer-api";
-import { Cause, DateTime, Effect, Exit, Layer } from "effect";
+import { Cause, Effect, Exit, Layer } from "effect";
 import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import {
@@ -71,7 +71,7 @@ describe("downloadDataExport", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(shared).toHaveLength(1);
     const [file] = shared;
-    expect(file?.name).toMatch(/\.zip$/);
+    expect(file?.name).toBe(dataExportFileName);
     expect(file?.mimeType).toBe("application/zip");
     // The bytes the server sent: a ZIP archive starts with "PK".
     expect(file?.bytes.slice(0, 2)).toEqual([0x50, 0x4b]);
@@ -144,13 +144,5 @@ describe("dataExportRow", () => {
         error: CustomerViewError.Unavailable(),
       }),
     });
-  });
-});
-
-describe("dataExportFileName", () => {
-  test("names the archive by its day, as the website does", () => {
-    expect(
-      dataExportFileName(DateTime.makeUnsafe("2026-11-16T10:00:00Z"))
-    ).toBe("deskohub-account-data-2026-11-16.zip");
   });
 });
