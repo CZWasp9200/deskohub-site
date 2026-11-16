@@ -54,7 +54,8 @@ export function MastheadClearance() {
  * `useScrollScreenToTop`. A `collapsedHeader`, such as an `AppBar` with the
  * masthead's title and actions (and a dark `FocusedStatusBar`), takes the
  * top of the screen under the status bar once the masthead has scrolled
- * away.
+ * away. `overlap={false}` starts the content below a band that ends with
+ * its own content, such as the access PIN's.
  */
 export function ScrollScreen({
   children,
@@ -62,6 +63,7 @@ export function ScrollScreen({
   collapsedHeader,
   refreshing = false,
   onRefresh,
+  overlap = true,
 }: {
   readonly children: ReactNode;
   /** The tab root's `Masthead`, drawn above the content. */
@@ -70,6 +72,8 @@ export function ScrollScreen({
   readonly collapsedHeader?: ReactNode;
   readonly refreshing?: boolean;
   readonly onRefresh?: () => void;
+  /** Whether the first content overlaps the masthead's navy band. */
+  readonly overlap?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const [mastheadHeight, setMastheadHeight] = useState<number>();
@@ -81,6 +85,7 @@ export function ScrollScreen({
     []
   );
   const withMasthead = masthead !== undefined;
+  const overlapping = withMasthead && overlap;
   return (
     <SafeAreaView edges={["left", "right"]} style={styles.screen}>
       <ScrollView
@@ -119,8 +124,14 @@ export function ScrollScreen({
             </View>
           )}
           <View style={styles.page}>
-            {withMasthead && <View aria-hidden style={styles.overlap} />}
-            <View style={[styles.content, withMasthead && styles.overlapping]}>
+            {overlapping && <View aria-hidden style={styles.overlap} />}
+            <View
+              style={[
+                styles.content,
+                overlapping && styles.overlapping,
+                withMasthead && !overlap && styles.belowBand,
+              ]}
+            >
               {children}
             </View>
           </View>
@@ -163,6 +174,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   overlapping: { paddingTop: 0 },
+  belowBand: { paddingTop: space.lg },
   collapsedHeader: {
     backgroundColor: color.paper,
     left: 0,

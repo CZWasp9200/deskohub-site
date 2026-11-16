@@ -16,7 +16,8 @@ import { color, space, touchTarget } from "./tokens";
  * a line of their own under it, at the end.
  * `raised` draws a hairline under the bar once content scrolls beneath it.
  * `back="close"` draws a close cross instead of the arrow, for a screen that
- * ends a flow rather than stepping back through it.
+ * ends a flow rather than stepping back through it. `tone="navy"` draws the
+ * bar on brand navy with white content, over a navy screen top.
  */
 export function AppBar({
   title,
@@ -24,16 +25,19 @@ export function AppBar({
   actions,
   raised = false,
   back = "back",
+  tone = "paper",
 }: {
   readonly title: string;
   readonly onBack?: () => void;
   readonly back?: "back" | "close";
   readonly actions?: ReactNode;
   readonly raised?: boolean;
+  readonly tone?: "paper" | "navy";
 }) {
   const locale = useAppLocale();
+  const navy = tone === "navy";
   return (
-    <View style={[styles.bar, raised && styles.raised]}>
+    <View style={[styles.bar, navy && styles.navyBar, raised && styles.raised]}>
       {onBack ? (
         <Pressable
           role="button"
@@ -43,14 +47,24 @@ export function AppBar({
               : m.navigation_back({}, { locale })
           }
           onPress={onBack}
-          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.back,
+            pressed && (navy ? styles.navyPressed : styles.pressed),
+          ]}
         >
-          <Icon icon={back === "close" ? X : ArrowLeft} />
+          <Icon
+            icon={back === "close" ? X : ArrowLeft}
+            color={navy ? color.white : color.navy}
+          />
         </Pressable>
       ) : (
         <View style={styles.lead} />
       )}
-      <Text variant="title" role="heading" style={styles.title}>
+      <Text
+        variant="title"
+        role="heading"
+        style={[styles.title, navy && styles.navyTitle]}
+      >
         {title}
       </Text>
       {actions !== undefined && <View style={styles.actions}>{actions}</View>}
@@ -73,6 +87,7 @@ const styles = StyleSheet.create({
     paddingRight: space.sm,
     paddingVertical: space.xs,
   },
+  navyBar: { backgroundColor: color.navy },
   raised: { borderBottomColor: color.line },
   back: {
     alignItems: "center",
@@ -82,6 +97,7 @@ const styles = StyleSheet.create({
     width: touchTarget,
   },
   pressed: { backgroundColor: color.sunken },
+  navyPressed: { backgroundColor: "rgba(255, 255, 255, 0.12)" },
   lead: { width: space.md },
   title: {
     flexBasis: 0,
@@ -90,6 +106,7 @@ const styles = StyleSheet.create({
     minWidth: "50%",
     paddingLeft: space.xs,
   },
+  navyTitle: { color: color.white },
   // Wraps under the title when the title's half and the actions can't share
   // the line; a long action label then wraps within the bar's width.
   actions: {
