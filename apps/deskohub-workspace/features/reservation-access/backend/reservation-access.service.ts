@@ -4,6 +4,7 @@ import {
   IgloohomeService,
 } from "@deskohub/igloohome";
 import { Context, Data, Effect, Layer, Match, Option, Schema } from "effect";
+import type { WorkspaceTransaction } from "@/db/database.service";
 import { env } from "@/env";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceIgloohomeLayer } from "@/shared/backend/config/igloohome.config";
@@ -11,8 +12,10 @@ import { currentInstant } from "@/shared/utils/temporal";
 import type {
   IssuedReservationAccess,
   ReservationAccessGrant,
+  RestoredReservationAccess,
 } from "../reservation-access";
 import {
+  getRestoredReservationAccess,
   makeReservationAccessName,
   reservationAccessProvisioningStaleAfterMilliseconds,
 } from "../reservation-access";
@@ -140,6 +143,33 @@ export interface IReservationAccessService {
   readonly issueForReservation: (
     input: ReservationAccessRequest
   ) => Effect.Effect<IssuedReservationAccess, ReservationAccessIssuanceError>;
+  /**
+   * In the transaction that confirms a cancelled reservation again: locks its
+   * grant and plans its access (`getRestoredReservationAccess`). An `issue`
+   * plan reopens the expired grant as `pending`, or creates a `pending` one
+   * for the reservation's span when it has none, so the reservation commits
+   * with a grant that `issueRestoredAccess`, or the administration retry,
+   * then issues. Lock the grant before the reservation row, as cancellation
+   * does. Other plans write nothing; on `uncertain` the caller refuses the
+   * restore.
+   */
+  readonly prepareRestoredAccess: (
+    input: ReservationAccessRequest & { readonly now: Temporal.Instant }
+  ) => Effect.Effect<
+    RestoredReservationAccess,
+    ReservationAccessIssuanceError,
+    WorkspaceTransaction
+  >;
+  /**
+   * Issues fresh access for a restored reservation through normal issuance,
+   * after its transaction committed. Never fails: a failure leaves the grant
+   * `failed`, `uncertain`, `provisioning` or `pending`, which the
+   * administration retry accepts, and is reported as `failed`. Calls
+   * Igloohome, so run it outside every database transaction.
+   */
+  readonly issueRestoredAccess: (
+    input: ReservationAccessRequest
+  ) => Effect.Effect<"issued" | "failed">;
 }
 
 export class ReservationAccessService extends Context.Service<
@@ -372,11 +402,18 @@ export class ReservationAccessService extends Context.Service<
                 })
             )
           );
-        if (!claimed) {
+        if (claimed === "taken") {
           return yield* new ReservationAccessIssuanceError({
             reservationId: input.reservationId,
             outcome: "uncertain",
             message: "Reservation access grant was claimed concurrently.",
+          });
+        }
+        if (claimed === "not_issuable") {
+          return yield* new ReservationAccessIssuanceError({
+            reservationId: input.reservationId,
+            outcome: "rejected",
+            message: "The reservation is no longer confirmed.",
           });
         }
 
@@ -469,6 +506,52 @@ export class ReservationAccessService extends Context.Service<
         };
       });
 
+      const issueForReservation = Effect.fn(
+        "ReservationAccessService.issueForReservation"
+      )(function* (input: ReservationAccessRequest) {
+        const existingGrant = yield* repository
+          .findByReservationId(input.reservationId)
+          .pipe(
+            Effect.mapError(
+              () =>
+                new ReservationAccessIssuanceError({
+                  reservationId: input.reservationId,
+                  outcome: "rejected",
+                  message: "Reservation access grant could not be loaded.",
+                })
+            )
+          );
+        const reused = yield* reuseIssuedForSameHours(existingGrant, input);
+        if (reused) return reused;
+
+        const interval = yield* getReservationAccessInterval(input);
+        const grant = yield* repository
+          .ensure({
+            reservationId: input.reservationId,
+            deviceId,
+            scheduledAccessStartsAt: interval.scheduledStartsAt,
+            accessStartsAt: interval.startsAt,
+            accessEndsAt: interval.endsAt,
+            // Only an issued grant moved to other hours reaches here.
+            replacingIssued:
+              existingGrant?.state === "issued" ? existingGrant : null,
+          })
+          .pipe(
+            Effect.mapError(
+              () =>
+                new ReservationAccessIssuanceError({
+                  reservationId: input.reservationId,
+                  outcome: "rejected",
+                  message: "Reservation access grant could not be prepared.",
+                })
+            )
+          );
+
+        const settled = yield* resolveUnclaimableGrant(grant, input);
+        if (settled) return settled;
+        return yield* issueClaimableGrant(grant, interval, input);
+      });
+
       return ReservationAccessService.of({
         loadGrant: (reservationId) =>
           repository.findByReservationId(reservationId).pipe(
@@ -506,51 +589,65 @@ export class ReservationAccessService extends Context.Service<
               )
             );
         },
-        issueForReservation: Effect.fn(
-          "ReservationAccessService.issueForReservation"
+        issueForReservation,
+        prepareRestoredAccess: Effect.fn(
+          "ReservationAccessService.prepareRestoredAccess"
         )(function* (input) {
-          const existingGrant = yield* repository
-            .findByReservationId(input.reservationId)
-            .pipe(
-              Effect.mapError(
-                () =>
-                  new ReservationAccessIssuanceError({
-                    reservationId: input.reservationId,
-                    outcome: "rejected",
-                    message: "Reservation access grant could not be loaded.",
-                  })
-              )
-            );
-          const reused = yield* reuseIssuedForSameHours(existingGrant, input);
-          if (reused) return reused;
-
-          const interval = yield* getReservationAccessInterval(input);
-          const grant = yield* repository
-            .ensure({
+          const storageFailure = (cause: ReservationAccessStorageError) =>
+            new ReservationAccessIssuanceError({
               reservationId: input.reservationId,
-              deviceId,
-              scheduledAccessStartsAt: interval.scheduledStartsAt,
-              accessStartsAt: interval.startsAt,
-              accessEndsAt: interval.endsAt,
-              // Only an issued grant moved to other hours reaches here.
-              replacingIssued:
-                existingGrant?.state === "issued" ? existingGrant : null,
-            })
-            .pipe(
-              Effect.mapError(
-                () =>
-                  new ReservationAccessIssuanceError({
-                    reservationId: input.reservationId,
-                    outcome: "rejected",
-                    message: "Reservation access grant could not be prepared.",
-                  })
-              )
-            );
+              outcome: "rejected",
+              message: "Restored reservation access could not be prepared.",
+              cause,
+            });
+          const grant = yield* repository
+            .lockForReservation(input.reservationId)
+            .pipe(Effect.mapError(storageFailure));
+          const access = getRestoredReservationAccess(grant, input, input.now);
+          if (access !== "issue") return access;
 
-          const settled = yield* resolveUnclaimableGrant(grant, input);
-          if (settled) return settled;
-          return yield* issueClaimableGrant(grant, interval, input);
+          // Only an expired grant plans `issue`.
+          const prepared = yield* (
+            grant
+              ? repository.reopenExpired({
+                  id: grant.id,
+                  reservationId: input.reservationId,
+                  reopenedAt: input.now,
+                })
+              : repository.createPending({
+                  reservationId: input.reservationId,
+                  deviceId,
+                  scheduledAccessStartsAt: input.reservedFrom,
+                  accessStartsAt: input.reservedFrom,
+                  accessEndsAt: input.reservedUntil,
+                })
+          ).pipe(Effect.mapError(storageFailure));
+          if (!prepared) {
+            return yield* new ReservationAccessIssuanceError({
+              reservationId: input.reservationId,
+              outcome: "rejected",
+              message: "Reservation access grant changed concurrently.",
+            });
+          }
+          return access;
         }),
+        issueRestoredAccess: Effect.fn(
+          "ReservationAccessService.issueRestoredAccess"
+        )((input) =>
+          issueForReservation(input).pipe(
+            Effect.as("issued" as const),
+            Effect.catch((cause) =>
+              Effect.logWarning(
+                "Restored reservation access could not be issued",
+                {
+                  reservationId: input.reservationId,
+                  outcome: cause.outcome,
+                  refusal: cause.refusal,
+                }
+              ).pipe(Effect.as("failed" as const))
+            )
+          )
+        ),
       });
     })
   );

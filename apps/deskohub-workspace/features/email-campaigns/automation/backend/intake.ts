@@ -31,7 +31,7 @@ import type {
 import {
   readsTriggeringVisit,
   triggeringVisitVerdict,
-  withdrawnByCancellation,
+  withdrawnByWorkspaceCancellation,
 } from "../automation-trigger-verification";
 import { versionInForce } from "../automation-versions";
 import { AutomationEvaluationFacts } from "./automation-evaluation-facts.service";
@@ -171,12 +171,9 @@ const occurrenceOf = ({
 const isAfterOrAt = (left: Temporal.Instant, right: Temporal.Instant) =>
   Temporal.Instant.compare(left, right) >= 0;
 
-/**
- * Whether a Workspace cancellation of the event's reservation withdraws it
- * (D28): runs triggered by a cancellation are never withdrawn, as in planning.
- */
+/** Whether the decision could still be withdrawn: a failed one stands. */
 const isWithdrawable = (decision: IntakeDecision) =>
-  decision.outcome !== "failed" && withdrawnByCancellation(decision.event.kind);
+  decision.outcome !== "failed";
 
 /**
  * Each receipt key once, from its earliest receipted decision (by event
@@ -272,15 +269,21 @@ const commitAutomationDecisions = Effect.fnUntraced(function* (input: {
     released.add(decision.event.id);
     return false;
   });
-  const cancelled = yield* lockTriggeringReservations(
+  const cancellations = yield* lockTriggeringReservations(
     accepted.flatMap((decision) =>
       isWithdrawable(decision) ? [decision.event.workspaceReservationId] : []
     )
   );
   const rechecked = accepted.map((decision) =>
     isWithdrawable(decision) &&
-    decision.event.workspaceReservationId !== null &&
-    cancelled.has(decision.event.workspaceReservationId)
+    withdrawnByWorkspaceCancellation(
+      {
+        kind: decision.event.kind,
+        at: decision.event.occurredAt,
+        reservationId: decision.event.workspaceReservationId,
+      },
+      cancellations
+    )
       ? { ...decision, outcome: "withdrawn" as const }
       : decision
   );
@@ -354,7 +357,10 @@ const settleIntakeEvents = Effect.fnUntraced(function* (input: {
  * released for replanning. Then the triggering reservations are locked: an event whose reservation
  * Workspace cancelled is withdrawn, since that cancellation's event may
  * already be processed with no run to withdraw, and a later cancellation
- * waits for the commit and withdraws the runs it wrote (§5.6). Otherwise
+ * waits for the commit and withdraws the runs it wrote (§5.6). So is a
+ * cancellation a restore has undone: the reservation is no longer cancelled
+ * at its instant, and a restore committing later withdraws its runs before
+ * they send. A withdrawn event keeps its receipt key (D31.7). Otherwise
  * each receipt key records once, from its earliest event, and members
  * enter. Finally the unit's other events are processed.
  */

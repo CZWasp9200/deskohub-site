@@ -14,7 +14,10 @@ import {
   type EmailProviderConfig,
   type EmailSendResult,
 } from "@deskohub/email";
-import type { EmailService } from "@deskohub/email/backend/service";
+import type {
+  EmailSendError,
+  EmailService,
+} from "@deskohub/email/backend/service";
 import { testEmailAddress } from "@deskohub/test-email";
 import { getQueriesForElement } from "@testing-library/react";
 import { Context, Effect, Layer, Logger, Option } from "effect";
@@ -35,6 +38,7 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import { workspaceSiteConstants } from "@/shared/utils";
+import type { IWorkspaceReservationEmailService } from "./workspace-reservation-email.service";
 
 const customerAddress = testEmailAddress("customer");
 
@@ -1624,6 +1628,72 @@ describe("sendPaidReservationEmails reservation access capability", () => {
   });
 });
 
+const runCustomerNoticeScenario = async (
+  outcome: typeof customerEmailLocaleOutcome,
+  send: (
+    service: IWorkspaceReservationEmailService
+  ) => Effect.Effect<void, EmailSendError>
+) => {
+  customerEmailLocaleOutcome = outcome;
+  customerEmailLocaleReads.length = 0;
+  const { WorkspaceReservationEmailService } = await import(
+    "./workspace-reservation-email.service"
+  );
+  const { EmailConfigTag, EmailServiceTag } = await import(
+    "@deskohub/email/backend/service"
+  );
+  const { WorkspaceCheckoutNetworkDetailsService } = await import(
+    "./network-details.service"
+  );
+
+  const sentMessages: EmailMessage[] = [];
+  const emailService: EmailService = {
+    send: mock((message: EmailMessage) => {
+      sentMessages.push(message);
+      return Effect.succeed(sentResult(`email-${sentMessages.length}`));
+    }),
+    sendBatch: () => Effect.die("Reservation email tests do not send batches."),
+  };
+  const emailConfig: EmailProviderConfig = {
+    provider: "console",
+    defaultFrom: {
+      email: workspaceDefaultFromAddress,
+      name: "Deskohub Workspace",
+    },
+  };
+
+  const { env } = await import("@/env");
+  const previousPreviewBypassSecret = env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  Object.assign(env, {
+    VERCEL_AUTOMATION_BYPASS_SECRET: "synthetic-preview-bypass",
+  });
+  try {
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        yield* send(yield* WorkspaceReservationEmailService);
+      }).pipe(
+        Effect.provide(
+          WorkspaceReservationEmailService.Default.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(EmailServiceTag, emailService),
+                Layer.succeed(EmailConfigTag, emailConfig),
+                WorkspaceCheckoutNetworkDetailsService.Default,
+                TestCustomerEmailLocaleService.Default
+              )
+            )
+          )
+        )
+      )
+    );
+    return { exit, sentMessages, reads: customerEmailLocaleReads };
+  } finally {
+    Object.assign(env, {
+      VERCEL_AUTOMATION_BYPASS_SECRET: previousPreviewBypassSecret,
+    });
+  }
+};
+
 describe("reservation customer email language", () => {
   // The paid-fulfillment workflow owns paid-send locale resolution through the
   // exported resolver; the service itself applies the locale it receives.
@@ -1646,72 +1716,6 @@ describe("reservation customer email language", () => {
       }).pipe(Effect.provide(TestCustomerEmailLocaleService.Default))
     );
     return { exit, reads: customerEmailLocaleReads };
-  };
-
-  const runCancellationScenario = async (
-    outcome: typeof customerEmailLocaleOutcome,
-    reservation: WorkspaceReservationDetails
-  ) => {
-    customerEmailLocaleOutcome = outcome;
-    customerEmailLocaleReads.length = 0;
-    const { WorkspaceReservationEmailService } = await import(
-      "./workspace-reservation-email.service"
-    );
-    const { EmailConfigTag, EmailServiceTag } = await import(
-      "@deskohub/email/backend/service"
-    );
-    const { WorkspaceCheckoutNetworkDetailsService } = await import(
-      "./network-details.service"
-    );
-
-    const sentMessages: EmailMessage[] = [];
-    const emailService: EmailService = {
-      send: mock((message: EmailMessage) => {
-        sentMessages.push(message);
-        return Effect.succeed(sentResult(`email-${sentMessages.length}`));
-      }),
-      sendBatch: () =>
-        Effect.die("Reservation email tests do not send batches."),
-    };
-    const emailConfig: EmailProviderConfig = {
-      provider: "console",
-      defaultFrom: {
-        email: workspaceDefaultFromAddress,
-        name: "Deskohub Workspace",
-      },
-    };
-
-    const { env } = await import("@/env");
-    const previousPreviewBypassSecret = env.VERCEL_AUTOMATION_BYPASS_SECRET;
-    Object.assign(env, {
-      VERCEL_AUTOMATION_BYPASS_SECRET: "synthetic-preview-bypass",
-    });
-    try {
-      const exit = await Effect.runPromiseExit(
-        Effect.gen(function* () {
-          const service = yield* WorkspaceReservationEmailService;
-          yield* service.sendCancellationEmail({ reservation });
-        }).pipe(
-          Effect.provide(
-            WorkspaceReservationEmailService.Default.pipe(
-              Layer.provide(
-                Layer.mergeAll(
-                  Layer.succeed(EmailServiceTag, emailService),
-                  Layer.succeed(EmailConfigTag, emailConfig),
-                  WorkspaceCheckoutNetworkDetailsService.Default,
-                  TestCustomerEmailLocaleService.Default
-                )
-              )
-            )
-          )
-        )
-      );
-      return { exit, sentMessages, reads: customerEmailLocaleReads };
-    } finally {
-      Object.assign(env, {
-        VERCEL_AUTOMATION_BYPASS_SECRET: previousPreviewBypassSecret,
-      });
-    }
   };
 
   test("uses the linked account's saved preference over the reservation locale", async () => {
@@ -1756,9 +1760,9 @@ describe("reservation customer email language", () => {
     const { m } = await import("@/features/i18n");
     const reservation = makeReservation({ locale: "en-US" });
 
-    const { exit, sentMessages, reads } = await runCancellationScenario(
+    const { exit, sentMessages, reads } = await runCustomerNoticeScenario(
       { kind: "account", locale: "cs-CZ" },
-      reservation
+      (service) => service.sendCancellationEmail({ reservation })
     );
 
     expect(exit._tag).toBe("Success");
@@ -1767,5 +1771,98 @@ describe("reservation customer email language", () => {
     expect(cancellationMessage?.subject).toBe(
       m.reservationCancellationEmailSubject({}, { locale: "cs-CZ" })
     );
+  });
+});
+
+describe("sendRestorationEmail", () => {
+  test("sends the customer the restoration with its own tag and the reservation IDs", async () => {
+    const reservation = makeReservation({ locale: "en-US" });
+
+    const { exit, sentMessages, reads } = await runCustomerNoticeScenario(
+      { kind: "guest" },
+      (service) =>
+        service.sendRestorationEmail({ reservation, accessReissued: true })
+    );
+
+    expect(exit._tag).toBe("Success");
+    expect(reads).toEqual([reservation.dotyposCustomerId]);
+    expect(sentMessages).toHaveLength(1);
+    const message = sentMessages[0];
+    expect(message?.to).toEqual({ email: customerAddress });
+    expect(message?.subject).toBe(
+      m.reservationRestorationEmailSubject({}, { locale: "en-US" })
+    );
+    expect(message?.tags).toEqual(["workspace-reservation-restoration"]);
+    expect(message?.metadata?.workspaceReservationId).toBe(reservation.id);
+    expect(message?.metadata?.dotyposReservationId).toBe(
+      reservation.dotyposReservationId
+    );
+    expect(message?.html).toContain(
+      `/en-US/reservation/access/${reservation.id}?accessToken=`
+    );
+    expect(message?.text).toContain("/reservation/access/");
+    expect(message?.text).not.toContain("1234");
+  });
+
+  test("links no access page when the restoration issued no new access code", async () => {
+    const reservation = makeReservation({ locale: "en-US" });
+
+    const { exit, sentMessages } = await runCustomerNoticeScenario(
+      { kind: "guest" },
+      (service) =>
+        service.sendRestorationEmail({ reservation, accessReissued: false })
+    );
+
+    expect(exit._tag).toBe("Success");
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]?.html).not.toContain("/reservation/access/");
+    expect(sentMessages[0]?.html).not.toContain("accessToken=");
+    expect(sentMessages[0]?.text).not.toContain("accessToken=");
+  });
+
+  test("writes in the linked account's saved language and links the access page in it", async () => {
+    const reservation = makeReservation({ locale: "en-US" });
+
+    const { exit, sentMessages } = await runCustomerNoticeScenario(
+      { kind: "account", locale: "cs-CZ" },
+      (service) =>
+        service.sendRestorationEmail({ reservation, accessReissued: true })
+    );
+
+    expect(exit._tag).toBe("Success");
+    expect(sentMessages[0]?.subject).toBe(
+      m.reservationRestorationEmailSubject({}, { locale: "cs-CZ" })
+    );
+    expect(sentMessages[0]?.html).toContain(
+      `/cs-CZ/reservation/access/${reservation.id}?accessToken=`
+    );
+  });
+
+  test("fails without sending when the customer has no email address", async () => {
+    const reservation = makeReservation({
+      customer: { ...customer, email: " " },
+    });
+
+    const { exit, sentMessages } = await runCustomerNoticeScenario(
+      { kind: "guest" },
+      (service) =>
+        service.sendRestorationEmail({ reservation, accessReissued: true })
+    );
+
+    expect(exit._tag).toBe("Failure");
+    expect(sentMessages).toHaveLength(0);
+  });
+
+  test("fails without sending when the customer's language cannot be read", async () => {
+    const reservation = makeReservation({});
+
+    const { exit, sentMessages } = await runCustomerNoticeScenario(
+      { kind: "read-error", code: "customer-email-locale.read" },
+      (service) =>
+        service.sendRestorationEmail({ reservation, accessReissued: false })
+    );
+
+    expect(exit._tag).toBe("Failure");
+    expect(sentMessages).toHaveLength(0);
   });
 });

@@ -31,3 +31,12 @@ Grant states: `pending`, `provisioning`, `issued`, `expired`, `failed`, `uncerta
 - A `provisioning` claim older than `reservationAccessProvisioningStaleAfterMilliseconds` carries the same risk. A fresher claim is still in progress.
 
 To recover an `uncertain` or stale `provisioning` grant, the operator uses the Igloohome app over Bluetooth at the lock, finds the grant's access name, shown in the reservation's administration detail and in `dhw`, removes it or verifies it's absent, and confirms that cleanup. Only then reset the grant conditionally and retry. Without confirmation, wait for the possible credential to expire. A `failed` grant retries through normal issuance and fulfillment.
+
+## Restored reservations
+
+Cancellation expires a live grant only after the operator confirmed its credential removed, or once its access ended, so an `expired` grant has no credential that can still open the door. A `pending` or `failed` grant carries no such proof: replacing an issued grant for new hours resets it to `pending` while the replaced credential stays live, and cancellation leaves both states as they are.
+
+- Restoring a reservation that has ended leaves its grant as it is. For one that hasn't, `getRestoredReservationAccess` plans `issue` for an `expired` or missing grant and `uncertain` for every other state, which refuses the restore.
+- `ReservationAccessService.prepareRestoredAccess` runs in the restore's finalize transaction. It locks the grant row (`lockForReservation`) before the reservation row is written, the order cancellation's claim uses. For `issue` it reopens the `expired` grant as `pending` (`reopenExpired`, conditional on `expired`; it keeps its access name and bounds, and issuance records the current ones) or creates a `pending` grant for the reservation's span (`createPending`).
+- Prepare the grant in the finalize transaction, not in the issuance step, so a restore that committed before issuance ran leaves a `pending` grant, which the administration retry (`retry-failed`) and the request ledger's resume accept. An `expired` or missing grant on a confirmed reservation would have no recovery path.
+- After the commit, `issueRestoredAccess` issues through `issueForReservation` and reports `issued` or `failed`; it never fails. A failure leaves `failed` (retry), `uncertain` or stale `provisioning` (operator reconciliation), or `pending` (retry). Restoring never resets fulfillment and never sends the confirmation email again.

@@ -19,6 +19,11 @@ import {
   type ReservationNotificationEmailProps,
   reservationNotificationEmailSubject,
 } from "@/emails/reservation-notification";
+import {
+  ReservationRestorationEmail,
+  type ReservationRestorationEmailProps,
+  reservationRestorationEmailSubject,
+} from "@/emails/reservation-restoration";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
 import { internalWorkspaceEmailSubject } from "@/shared/backend/email/workspace-email-recipients";
 
@@ -68,6 +73,18 @@ export const renderReservationCancellationEmail = (
     renderWorkspaceEmail(<ReservationCancellationEmail {...props} />),
     (rendered) => ({
       subject: reservationCancellationEmailSubject(props),
+      ...rendered,
+    })
+  );
+
+/** Renders the customer's notice that their cancelled reservation is valid again. */
+export const renderReservationRestorationEmail = (
+  props: ReservationRestorationEmailProps
+) =>
+  Effect.map(
+    renderWorkspaceEmail(<ReservationRestorationEmail {...props} />),
+    (rendered) => ({
+      subject: reservationRestorationEmailSubject(props),
       ...rendered,
     })
   );

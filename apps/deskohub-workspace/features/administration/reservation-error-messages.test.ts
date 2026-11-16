@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { baseLocale, supportedLocales } from "@deskohub/i18n/locale-registry";
 import { formatMoney } from "@/shared/money/money";
+import type { ReservationRestorationFailureReason } from "./reservation-administration-error";
 import { getReservationRestorationErrorMessage } from "./reservation-error-messages";
 
-type RestorationRefusal = Parameters<
-  typeof getReservationRestorationErrorMessage
->[0];
+type RestorationRefusal = ReservationRestorationFailureReason;
 
 const restorationRefusals = Object.keys({
   not_found: true,

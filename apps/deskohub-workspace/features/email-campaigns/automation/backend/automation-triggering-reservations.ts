@@ -3,11 +3,13 @@ import { Effect } from "effect";
 import { WorkspaceTransaction } from "@/db/database.service";
 import { workspaceReservations } from "@/db/schema";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { WorkspaceCancellations } from "../automation-trigger-verification";
 
 /**
  * Locks the triggering reservations `FOR SHARE`, in id order, and returns
- * those Workspace cancelled (D28). Callers take it after the lifecycle lock;
- * it holds a Workspace cancellation back until the caller commits.
+ * when Workspace cancelled those it cancelled (D28). Callers take it after
+ * the lifecycle lock; it holds a Workspace cancellation, or a restore
+ * undoing one, back until the caller commits.
  */
 export const lockTriggeringReservations = (
   reservationIds: readonly (WorkspaceReservationId | null)[]
@@ -30,9 +32,11 @@ export const lockTriggeringReservations = (
               .for("share")
       ),
       Effect.map(
-        (rows): ReadonlySet<WorkspaceReservationId> =>
-          new Set(
-            rows.flatMap((row) => (row.cancelledAt === null ? [] : [row.id]))
+        (rows): WorkspaceCancellations =>
+          new Map(
+            rows.flatMap(({ id, cancelledAt }) =>
+              cancelledAt === null ? [] : [[id, cancelledAt] as const]
+            )
           )
       )
     )

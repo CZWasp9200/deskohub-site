@@ -85,11 +85,22 @@ Operator cancellation is its own guarded workflow, separate from unpaid-hold cle
 - It cancels held, confirmed, or retryable `cancellation_failed` reservations. It refuses while fulfillment is `processing` or `awaiting_delivery`, and while payment is pending unless the CLI passes `--force`. A forced cancel atomically cancels the local attempt and releases its discount or voucher claim, and a later provider settlement goes to refund-required recovery without recreating the booking.
 - It preserves payment and fulfillment history, marks paid Nexi attempts as refund `required` without issuing a refund, and leaves zero-total internal payments refund-free.
 - Igloohome can't revoke AlgoPINs remotely. With a live or ambiguous credential, the operator removes it at the lock and confirms removal (`--confirm-access-credential-removed` in `dhw`). The cancellation claim then retires the local credential atomically.
-- Send the customer email only after provider and local cancellation succeed, and report its outcome separately.
+- Send the customer email only after provider and local cancellation succeed, and report its outcome separately. A successful send stamps `cancellation_email_sent_at` for that cancellation; a failed stamp only logs, and the result still reports `sent`.
+
+An operator can restore a cancelled reservation through `ReservationAdministrationService.restore`; the [checkout lifecycle](../../deskohub-workspace-checkout/references/lifecycle.md#administrator-restore) owns its policy, ordering and recovery, and the detail view's restore fields are under [Restore fields on the reservation detail](#restore-fields-on-the-reservation-detail). Refusals carry a `reason`; `refund_acknowledgement_required` also carries `refundedPayment` (amount and coverage) for the operator to acknowledge. A restore moves the reservation's `required` refunds to `not_required`, so they leave the refund work queue. Localize from `reason` and `refundedPayment`, never from the English `message`.
 
 The payment-attempt refund state is the single refund work queue, shared with late-payment recovery. Surface it through `RefundAttention` (backed by `countReservationsNeedingRefund`, in its own Suspense boundary on Overview and Reservations) and the `needs_refund` status filter that the API and `dhw` share. Check every attempt, not only the latest. When Nexi reports a refund, the attempt becomes `refunded` and leaves the queue.
 
 Derive every payment summary's status from `getAdministrationPaymentStatus` and render amounts through `PaymentAmount`. Add the "Refund recorded" timeline item from the stored refund only when live Nexi details are unavailable, so a refund never appears twice. Customer revenue sums paid attempts minus recorded refunds.
+
+## Restore fields on the reservation detail
+
+The detail (`AdministrationService.loadReservation`, contract `AdministrationReservationDetail`) carries `canRestore` and `restoration`, which the restore dialog, the API and `dhw` read. The restore service re-checks the same facts under lock; the detail only predicts them.
+
+- `canRestore` is `canRestoreReservation(row, { hasActiveSuccessor })` (`reservation-status.ts`), and the Dotypos booking must be readable with a valid span. Look the successor up with `WorkspaceReservationRepository.findCurrentByCheckoutSessionKey` only for a row that already passes the predicate. Never write a second successor query. A booking Dotypos can't read now reports `false`, because the restore would fail with `details_unavailable`.
+- `restoration` is null unless `canRestore`. `cancellationEmailRecorded` is `cancellation_email_sent_at` being set, which the cancel flow stamps only after the cancellation email sends. `clearsRefundRequirement` and `refundedPayment` (the total Nexi refunded, `full` or `partial`) come from `getRestorationRefund` over every payment attempt. The restore's `refund_acknowledgement_required` refusal uses the same helper.
+- `issuesNewAccess` means the access span hasn't ended: `getRestoredReservationAccess(grant, { reservedUntil }, now) !== "not_needed"`. `reservedUntil` comes from `getDotyposReservationAccessTiming` over `decodeBookedReservation(Dotypos record, stored details)`, the held span the restore uses, so both sides decide "ended" the same way. The grant state never changes this value. An uncertain grant makes the restore refuse rather than skip access.
+- Both contract fields carry decoding defaults (`false`, `null`), so a newer `dhw` reads an older server's detail.
 
 ## Reservation access recovery
 

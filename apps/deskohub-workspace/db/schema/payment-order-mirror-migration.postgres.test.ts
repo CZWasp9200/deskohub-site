@@ -3,11 +3,13 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Effect } from "effect";
 import type { Pool } from "pg";
 import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
+import { workspaceReservations } from "@/db/schema";
 import { createScratchPostgresDatabase } from "@/shared/testing/postgres-scratch-database.test-utils";
 import {
   fixtureReservationAuthorId,
@@ -44,6 +46,39 @@ const backfillStatements = async () =>
         statement.trimStart().startsWith('UPDATE "payment_attempts"')
     );
 
+/**
+ * Seeds with the fixtures, which write every column the current schema has:
+ * the reservation columns later migrations add exist only while `seed`
+ * runs, so the database stays as it was before the migration.
+ */
+const withLaterReservationColumns = async <A>(
+  pool: Pool,
+  seed: () => Promise<A>
+) => {
+  const { rows } = await pool.query<{ column_name: string }>(
+    `select column_name from information_schema.columns
+     where table_schema = 'public' and table_name = 'workspace_reservations'`
+  );
+  const existing = new Set(rows.map(({ column_name }) => column_name));
+  const later = Object.values(getTableColumns(workspaceReservations)).filter(
+    ({ name }) => !existing.has(name)
+  );
+  for (const column of later) {
+    await pool.query(
+      `alter table workspace_reservations add column "${column.name}" ${column.getSQLType()}`
+    );
+  }
+  try {
+    return await seed();
+  } finally {
+    for (const column of later) {
+      await pool.query(
+        `alter table workspace_reservations drop column "${column.name}"`
+      );
+    }
+  }
+};
+
 type ScratchDatabase = {
   readonly pool: Pool;
   readonly reservation: (input: ReservationFixtureInput) => Promise<string>;
@@ -75,8 +110,11 @@ const beforeMigration = async (
     );
     await run({
       pool,
-      reservation: async (input) =>
-        (await Effect.runPromise(fixtures.reservation(input))).id,
+      reservation: (input) =>
+        withLaterReservationColumns(
+          pool,
+          async () => (await Effect.runPromise(fixtures.reservation(input))).id
+        ),
       migrateRemaining: () =>
         migrate(drizzle({ client: pool }), {
           migrationsFolder: workspaceMigrationsFolder,

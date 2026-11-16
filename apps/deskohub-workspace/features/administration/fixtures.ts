@@ -352,6 +352,8 @@ export const loadFixtureReservation = (
     reservation,
     operatorNotice: null,
     canCancel: true,
+    canRestore: false,
+    restoration: null,
     requiresProviderCredentialRemoval: false,
     timeline: [
       {

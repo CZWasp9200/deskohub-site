@@ -150,6 +150,11 @@ export const workspaceReservations = pgTable(
     reservationCreatedAt: instant("reservation_created_at"),
     reservationConfirmedAt: instant("reservation_confirmed_at"),
     reservationCancelledAt: instant("reservation_cancelled_at"),
+    /**
+     * When the customer's cancellation email went out for the current
+     * cancellation; null when none was sent or recorded. A restore clears it.
+     */
+    cancellationEmailSentAt: instant("cancellation_email_sent_at"),
     paidAt: instant("paid_at"),
     fulfilledAt: instant("fulfilled_at"),
     fulfillmentFailedAt: instant("fulfillment_failed_at"),

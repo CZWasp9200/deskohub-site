@@ -6,6 +6,7 @@ import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { Effect, Layer, Option, Result } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { ReservationAuthorDirectory } from "@/features/account";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { AdministrationService } from "./administration.service";
 import { PaymentAdministrationServiceMock } from "./payment-administration.service.mock";
 import { PostHogReservationHistory } from "./posthog-reservation-history";
@@ -109,6 +110,7 @@ const runAdministration = <A, E>(
   }).pipe(
     Effect.provide(
       AdministrationService.Default.pipe(
+        Layer.provide(Layer.mock(WorkspaceReservationRepository, {})),
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(
