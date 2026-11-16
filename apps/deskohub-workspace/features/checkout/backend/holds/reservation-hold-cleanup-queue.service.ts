@@ -1,7 +1,5 @@
 import { Context, Data, Duration, Effect, Layer, Schema } from "effect";
 import { toStoredInstant } from "@/db/instant";
-import type { WorkspaceReservationRow } from "@/db/schema";
-import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
@@ -19,6 +17,7 @@ import {
   type ReservationHoldCleanupOutcome,
   ReservationHoldCleanupService,
 } from "./reservation-hold-cleanup.service";
+import { HoldCancellationInProgress } from "./unpaid-hold-release.service";
 
 export const reservationHoldCleanupScheduleMaxDelaySeconds = 7 * 24 * 60 * 60;
 const reservationHoldCleanupRetryWindowSeconds = 60 * 60;
@@ -97,7 +96,7 @@ class ReservationHoldCleanupScheduleError extends Data.TaggedError(
 class ReservationHoldCleanupDeferredError extends Data.TaggedError(
   "ReservationHoldCleanupDeferredError"
 )<{
-  readonly abandonmentCutoff: Temporal.Instant;
+  readonly redeliverAt: Temporal.Instant;
 }> {}
 
 interface IReservationHoldCleanupScheduleService {
@@ -155,22 +154,6 @@ export class ReservationHoldCleanupScheduleService extends Context.Service<
   static Live = this.Default.pipe(Layer.provide(QueuePublisher.Default));
 }
 
-const dueReservationStates = ["held", "cancelling", "cancellation_failed"];
-
-const isDueReservation = (
-  reservation: WorkspaceReservationRow | null,
-  reservationHoldExpiresAt: Temporal.Instant,
-  now: Temporal.Instant
-) =>
-  reservation !== null &&
-  dueReservationStates.includes(reservation?.reservationState ?? "") &&
-  reservation.paymentState !== "paid" &&
-  reservation.reservationHoldExpiresAt !== null &&
-  toStoredInstant(reservation.reservationHoldExpiresAt).equals(
-    toStoredInstant(reservationHoldExpiresAt)
-  ) &&
-  Temporal.Instant.compare(reservation.reservationHoldExpiresAt, now) <= 0;
-
 export const processReservationHoldCleanupScheduleMessage = Effect.fn(
   "reservationHoldCleanupSchedule.processMessage"
 )(function* (
@@ -181,28 +164,13 @@ export const processReservationHoldCleanupScheduleMessage = Effect.fn(
     payload.reservationHoldExpiresAtIso
   );
 
-  const reservations = yield* WorkspaceReservationRepository;
   const cleanup = yield* ReservationHoldCleanupService;
-  const reservation = yield* reservations
-    .findById(payload.orderId)
-    .pipe(
-      Effect.mapError(
-        ReservationHoldCleanupScheduleError.fromError(
-          "Queued reservation hold cleanup state could not be loaded."
-        )
-      )
-    );
-
-  if (!isDueReservation(reservation, reservationHoldExpiresAt, now)) {
-    yield* Effect.logInfo(
-      "Reservation hold cleanup queue message ignored: reservation not due",
-      { payload }
-    );
-    return "ignored" as const;
-  }
-
   const outcome = yield* cleanup
-    .cancelOrderHold({ orderId: payload.orderId, checkedAt: now })
+    .cancelOrderHold({
+      orderId: payload.orderId,
+      holdExpiresAt: reservationHoldExpiresAt,
+      checkedAt: now,
+    })
     .pipe(
       Effect.mapError(
         ReservationHoldCleanupScheduleError.fromError(
@@ -211,13 +179,31 @@ export const processReservationHoldCleanupScheduleMessage = Effect.fn(
       )
     );
 
+  if (outcome === "not_due") {
+    yield* Effect.logInfo(
+      "Reservation hold cleanup queue message ignored: reservation not due",
+      { payload }
+    );
+    return "ignored" as const;
+  }
+
   if (outcome instanceof ProviderPaymentDeferral) {
     yield* Effect.logInfo(
       "Reservation hold cleanup queue message deferred until provider cutoff",
       { payload, abandonmentCutoff: outcome.abandonmentCutoff }
     );
     return yield* new ReservationHoldCleanupDeferredError({
-      abandonmentCutoff: outcome.abandonmentCutoff,
+      redeliverAt: outcome.abandonmentCutoff,
+    });
+  }
+
+  if (outcome instanceof HoldCancellationInProgress) {
+    yield* Effect.logInfo(
+      "Reservation hold cleanup queue message deferred until another run's claim is stale",
+      { payload, staleAt: outcome.staleAt }
+    );
+    return yield* new ReservationHoldCleanupDeferredError({
+      redeliverAt: outcome.staleAt,
     });
   }
 
@@ -227,5 +213,5 @@ export const processReservationHoldCleanupScheduleMessage = Effect.fn(
 /** Classifies a failed delivery; the route's Layer failures stay unclassified. */
 export const reservationHoldCleanupRedelivery = (cause: unknown) =>
   cause instanceof ReservationHoldCleanupDeferredError
-    ? QueueRedelivery.At({ instant: cause.abandonmentCutoff })
+    ? QueueRedelivery.At({ instant: cause.redeliverAt })
     : QueueRedelivery.Default();

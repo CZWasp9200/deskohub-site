@@ -1,4 +1,7 @@
-import type { Money } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerVatStatus,
+  Money,
+} from "@deskohub/workspace-customer-api";
 import { StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
@@ -16,7 +19,10 @@ export interface PriceLinesTotal {
   readonly label: string;
   /** The total before a discount, struck through above the total. */
   readonly was?: Money;
-  /** The one tax note under the total's label, only when there is one. */
+  /**
+   * The one tax note under the total's label, shown only while the
+   * breakdown's seller is a VAT payer.
+   */
   readonly taxNote?: string;
 }
 
@@ -99,7 +105,12 @@ export function PriceLines({
         );
       })}
       {variant === "card" && total !== undefined && (
-        <TotalRow total={total} amount={breakdown.total} locale={locale} />
+        <TotalRow
+          total={total}
+          amount={breakdown.total}
+          vatStatus={breakdown.vatStatus}
+          locale={locale}
+        />
       )}
     </View>
   );
@@ -108,13 +119,16 @@ export function PriceLines({
 function TotalRow({
   total,
   amount,
+  vatStatus,
   locale,
 }: {
   readonly total: PriceLinesTotal;
   readonly amount: Money;
+  readonly vatStatus: CustomerVatStatus;
   readonly locale: AppLocale;
 }) {
-  const { label, was, taxNote } = total;
+  const { label, was } = total;
+  const taxNote = vatStatus === "vat-payer" ? total.taxNote : undefined;
   return (
     <View style={totalStyles.row}>
       <View style={cardStyles.name}>

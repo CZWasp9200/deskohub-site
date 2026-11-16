@@ -42,10 +42,13 @@ import {
 import { supersedableReservationPaymentStates } from "./reservation-supersession";
 import {
   StoredReservationDetails,
+  type WithStoredReservationDetails,
   type WorkspaceReservationDetailsMalformedError,
 } from "./stored-reservation-details.server";
 
-const withReservationKindFields = (reservation: WorkspaceReservationRow) => {
+const withReservationKindFields = (
+  reservation: WithStoredReservationDetails<WorkspaceReservationRow>
+) => {
   const reservationWithCoworkFields = withCoworkProductFields(reservation);
 
   // Compose field enrichments for additional reservation kinds here.
@@ -105,6 +108,16 @@ export interface CreateWorkspaceReservationDraftInput
   readonly checkoutSessionLockKey: bigint;
   readonly acceptedCheckoutSessionKeys: readonly CheckoutSessionKey[];
   readonly acceptedCheckoutAttemptKeys: readonly CheckoutAttemptKey[];
+}
+
+/**
+ * The Dotypos hold a cancellation claim is for. A claim given one takes the
+ * reservation only while it still carries that hold and deadline, so a claim
+ * made for a hold never takes the hold that replaced it.
+ */
+export interface ExpectedReservationHold {
+  readonly dotyposReservationId: DotyposReservationId;
+  readonly reservationHoldExpiresAt: Temporal.Instant;
 }
 
 export interface IWorkspaceReservationRepository {
@@ -222,9 +235,29 @@ export interface IWorkspaceReservationRepository {
     void,
     EffectDrizzleQueryError | WorkspaceReservationStateError
   >;
-  readonly claimCancellation: (
-    id: WorkspaceReservationId
-  ) => Effect.Effect<
+  /**
+   * Moves an unpaid `held`, `hold_expired` or `cancellation_failed`
+   * reservation to `cancelling`. The returned reservation's `updatedAt` is the
+   * claim's stamp: only a caller holding it may record the cancellation's
+   * outcome.
+   */
+  readonly claimCancellation: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly expectedHold?: ExpectedReservationHold;
+  }) => Effect.Effect<
+    WorkspaceReservation | null,
+    EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+  >;
+  /**
+   * Takes over an unpaid `cancelling` reservation whose claim was stamped at
+   * or before `staleBefore`, restamping it, so the interrupted claimant can no
+   * longer record an outcome. A fresher claim is left to its claimant.
+   */
+  readonly takeOverStaleCancellation: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly staleBefore: Temporal.Instant;
+    readonly expectedHold?: ExpectedReservationHold;
+  }) => Effect.Effect<
     WorkspaceReservation | null,
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
   >;
@@ -249,8 +282,10 @@ export interface IWorkspaceReservationRepository {
     | WorkspaceReservationDetailsMalformedError
     | WorkspaceReservationStateError
   >;
+  /** Records the cancellation of the claim stamped `claimedAt`. */
   readonly markCancelled: (input: {
     readonly id: WorkspaceReservationId;
+    readonly claimedAt: Temporal.Instant;
     readonly cancelledAt: Temporal.Instant;
     readonly holdExpiredAt?: Temporal.Instant;
   }) => Effect.Effect<
@@ -277,8 +312,10 @@ export interface IWorkspaceReservationRepository {
     | WorkspaceReservationDetailsMalformedError
     | WorkspaceReservationStateError
   >;
+  /** Records the failure of the claim stamped `claimedAt`. */
   readonly markCancellationFailed: (input: {
     readonly id: WorkspaceReservationId;
+    readonly claimedAt: Temporal.Instant;
     readonly failureCode: string;
   }) => Effect.Effect<
     void,
@@ -422,7 +459,9 @@ const recordReservationDraft = Effect.fnUntraced(function* (
       reservationState: "draft",
       paymentState: "not_started",
       fulfillmentState: "not_started",
-      reservationDetails: input.reservationDetails,
+      reservationDetails: yield* StoredReservationDetails.encode(
+        input.reservationDetails
+      ),
       locale: input.locale,
       reservationHoldExpiresAt: input.reservationHoldExpiresAt,
     })
@@ -449,6 +488,20 @@ const lockAccessGrantOfReservation = Effect.fnUntraced(function* (
 type LockedAccessGrant = Effect.Success<
   ReturnType<typeof lockAccessGrantOfReservation>
 >[number];
+
+/** Matches a reservation still carrying `expected`, or any without one. */
+const carriesExpectedHold = (expected: ExpectedReservationHold | undefined) =>
+  expected &&
+  and(
+    eq(
+      workspaceReservations.dotyposReservationId,
+      expected.dotyposReservationId
+    ),
+    eq(
+      workspaceReservations.reservationHoldExpiresAt,
+      expected.reservationHoldExpiresAt
+    )
+  );
 
 /**
  * Moves the reservation to `cancelling` from a cancellable state or a stale
@@ -794,7 +847,9 @@ export class WorkspaceReservationRepository extends Context.Service<
           const updated = yield* db
             .update(workspaceReservations)
             .set({
-              reservationDetails: input.reservationDetails,
+              reservationDetails: yield* StoredReservationDetails.encode(
+                input.reservationDetails
+              ),
               locale: input.locale,
               updatedAt: Temporal.Now.instant(),
             })
@@ -952,7 +1007,7 @@ export class WorkspaceReservationRepository extends Context.Service<
           );
         }),
         claimCancellation: Effect.fn("workspaceReservations.claimCancellation")(
-          function* (id) {
+          function* (input) {
             const [claimed] = yield* db
               .update(workspaceReservations)
               .set({
@@ -961,20 +1016,39 @@ export class WorkspaceReservationRepository extends Context.Service<
               })
               .where(
                 and(
-                  eq(workspaceReservations.id, id),
+                  eq(workspaceReservations.id, input.id),
                   inArray(workspaceReservations.reservationState, [
                     "held",
                     "hold_expired",
                     "cancellation_failed",
                   ]),
                   sql`${workspaceReservations.paymentState} <> 'paid'`,
-                  sql`${workspaceReservations.reservationState} <> 'confirmed'`
+                  sql`${workspaceReservations.reservationState} <> 'confirmed'`,
+                  carriesExpectedHold(input.expectedHold)
                 )
               )
               .returning();
             return yield* decodeOptionalWorkspaceReservation(claimed);
           }
         ),
+        takeOverStaleCancellation: Effect.fn(
+          "workspaceReservations.takeOverStaleCancellation"
+        )(function* (input) {
+          const [claimed] = yield* db
+            .update(workspaceReservations)
+            .set({ updatedAt: Temporal.Now.instant() })
+            .where(
+              and(
+                eq(workspaceReservations.id, input.id),
+                eq(workspaceReservations.reservationState, "cancelling"),
+                lte(workspaceReservations.updatedAt, input.staleBefore),
+                sql`${workspaceReservations.paymentState} <> 'paid'`,
+                carriesExpectedHold(input.expectedHold)
+              )
+            )
+            .returning();
+          return yield* decodeOptionalWorkspaceReservation(claimed);
+        }),
         claimSupersessionCancellation: Effect.fn(
           "workspaceReservations.claimSupersessionCancellation"
         )(function* (id) {
@@ -1040,6 +1114,7 @@ export class WorkspaceReservationRepository extends Context.Service<
                 and(
                   eq(workspaceReservations.id, input.id),
                   eq(workspaceReservations.reservationState, "cancelling"),
+                  eq(workspaceReservations.updatedAt, input.claimedAt),
                   sql`${workspaceReservations.paymentState} <> 'paid'`,
                   sql`${workspaceReservations.reservationConfirmedAt} is null`
                 )
@@ -1049,7 +1124,7 @@ export class WorkspaceReservationRepository extends Context.Service<
               updated,
               "workspaceReservations.markCancelled",
               input.id,
-              "Only unpaid cancelling reservations can be marked cancelled."
+              "Only an unpaid reservation still cancelling under the claim can be marked cancelled."
             );
           }
         ),
@@ -1162,7 +1237,9 @@ export class WorkspaceReservationRepository extends Context.Service<
                   reservationState: "draft",
                   paymentState: "not_started",
                   fulfillmentState: "not_started",
-                  reservationDetails: input.replacement.reservationDetails,
+                  reservationDetails: yield* StoredReservationDetails.encode(
+                    input.replacement.reservationDetails
+                  ),
                   locale: input.replacement.locale,
                   reservationHoldExpiresAt:
                     input.replacement.reservationHoldExpiresAt,
@@ -1197,6 +1274,7 @@ export class WorkspaceReservationRepository extends Context.Service<
               and(
                 eq(workspaceReservations.id, input.id),
                 eq(workspaceReservations.reservationState, "cancelling"),
+                eq(workspaceReservations.updatedAt, input.claimedAt),
                 sql`${workspaceReservations.paymentState} <> 'paid'`
               )
             )
@@ -1205,7 +1283,7 @@ export class WorkspaceReservationRepository extends Context.Service<
             updated,
             "workspaceReservations.markCancellationFailed",
             input.id,
-            "Workspace reservation was not found."
+            "Only an unpaid reservation still cancelling under the claim can be marked failed."
           );
         }),
         markAdministrationCancellationFailed: Effect.fn(

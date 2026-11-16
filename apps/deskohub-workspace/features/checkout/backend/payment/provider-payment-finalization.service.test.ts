@@ -837,7 +837,7 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
 
   test("yields to a provider session attached concurrently", async () => {
     const { PaymentLifecycleStateError } = await import(
-      "../repositories/payment-lifecycle.repository"
+      "../repositories/payment-lifecycle-state"
     );
     const { result } = await finalizeUnattached({
       abandonmentCheckedAt: afterCutoff,

@@ -151,6 +151,7 @@ const openSpaceWithCode: PriceFixture = (() => {
       { key: "total", items: [{ key: "total:final", amount: total }], total },
     ],
     total,
+    vatStatus: "not-vat-payer",
   };
   return { selection: openSpaceWithCoffee.selection, summary };
 })();

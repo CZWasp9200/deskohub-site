@@ -18,7 +18,10 @@ import {
   formatInstantDate,
   formatPlainDate,
 } from "@/shared/utils/date-time-format";
-import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+import {
+  type VatStatus,
+  workspaceSiteConstants,
+} from "@/shared/utils/site-constants";
 
 export interface InvoicePresentationParty {
   readonly heading: string;
@@ -57,7 +60,8 @@ export interface InvoicePresentation {
   readonly lines: readonly InvoicePresentationLine[];
   readonly totalLabel: string;
   readonly total: string;
-  readonly nonVatStatement: string;
+  /** What the supplier's VAT status at issue says; none without wording. */
+  readonly vatStatement: string | undefined;
   readonly footer: string;
 }
 
@@ -83,7 +87,6 @@ type InvoiceCopy = {
   readonly total: string;
   readonly totalPaid: string;
   readonly totalDue: string;
-  readonly nonVatPayer: string;
   readonly coworkProducts: Readonly<Record<WorkspaceCoworkProductTier, string>>;
   readonly coffee: string;
   readonly workstation: string;
@@ -117,7 +120,6 @@ const getInvoiceCopy = (locale: Locale): InvoiceCopy => ({
   total: m.invoiceManualTotal({}, { locale }),
   totalPaid: m.invoiceTotalPaidLabel({}, { locale }),
   totalDue: m.invoiceManualTotalDue({}, { locale }),
-  nonVatPayer: m.invoiceNonVatPayerStatement({}, { locale }),
   coworkProducts: {
     "open-space": getWorkspaceProductTierTitle("open-space", locale),
     "reserved-desk": getWorkspaceProductTierTitle("reserved-desk", locale),
@@ -195,7 +197,7 @@ export const getInvoicePresentation = (
     ],
     totalLabel: settlement.totalLabel,
     total: formatMoney(document.quote.payment.expectedPrice, locale),
-    nonVatStatement: copy.nonVatPayer,
+    vatStatement: getVatStatement(document),
     footer: `${document.supplier.legalName} · ${document.supplier.contactEmail}`,
   };
 };
@@ -242,10 +244,25 @@ const getManualInvoicePresentation = (
     status: settlement.status,
     totalLabel: settlement.totalLabel,
     total: formatManualMoney(getInvoiceTotal(document)),
-    nonVatStatement: copy.nonVatPayer,
+    vatStatement: getVatStatement(document),
     footer: `${document.supplier.legalName} · ${document.supplier.contactEmail}`,
   };
 };
+
+const vatStatements: Readonly<
+  Record<VatStatus, ((locale: Locale) => string) | undefined>
+> = {
+  "not-vat-payer": (locale) => m.invoiceNonVatPayerStatement({}, { locale }),
+  // No invoice wording exists for a VAT payer yet.
+  "vat-payer": undefined,
+};
+
+/**
+ * The statement of the VAT status the invoice was issued under, not the
+ * current setting: an issued invoice never changes.
+ */
+const getVatStatement = (document: InvoiceDocument) =>
+  vatStatements[document.supplier.vatStatus]?.(document.locale);
 
 /** The status, total label, and payment facts an invoice's settlement prints. */
 const getSettlementPresentation = (

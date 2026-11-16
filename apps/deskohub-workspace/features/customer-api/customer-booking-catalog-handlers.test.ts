@@ -45,6 +45,7 @@ import {
 } from "@/features/reservation/workspace-availability";
 import { moneyWithValue } from "@/shared/money/money";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
+import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
   instantStringSchema,
   localDateTimeSchema,
@@ -846,6 +847,9 @@ describe("getQuote", () => {
       Temporal.Instant
     );
     expect(body.summary.total).toEqual(body.total);
+    expect(body.summary.vatStatus).toBe(
+      workspaceSiteConstants.company.vatStatus
+    );
     expect(
       body.summary.sections.flatMap(({ items }: { items: { key: string }[] }) =>
         items.map(({ key }) => key)

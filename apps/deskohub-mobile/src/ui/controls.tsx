@@ -1,5 +1,13 @@
 import Lock from "lucide-react-native/icons/lock";
-import { Children, type ReactNode, type Ref, useId, useState } from "react";
+import {
+  Children,
+  createContext,
+  type ReactNode,
+  type Ref,
+  useContext,
+  useId,
+  useState,
+} from "react";
 import {
   Platform,
   Pressable,
@@ -146,6 +154,7 @@ export function Button({
   readonly accessibilityLabel?: string;
 }) {
   const [focused, setFocused] = useState(false);
+  const half = useContext(ButtonRowContext);
   const reasonId = useId();
   const reason = disabled && !busy ? disabledReason : undefined;
   const labelColor = disabled ? color.disabledInk : buttonLabelColor[variant];
@@ -177,6 +186,7 @@ export function Button({
         buttonStyles.base,
         size === "small" && buttonStyles.small,
         textOnly && buttonStyles.textOnly,
+        half && buttonStyles.half,
         width === "full" ? buttonStyles.fullWidth : buttonStyles.contentWidth,
         buttonStyles[variant],
         // The raised lighting of a filled button goes while it is pressed or
@@ -189,9 +199,10 @@ export function Button({
         // padding, so going busy changes neither the width nor the label's.
         busy &&
           !icon && {
-            paddingHorizontal:
-              (size === "small" || textOnly ? space.lg : space.xxl) -
-              busySlotWidth / 2,
+            paddingHorizontal: Math.max(
+              0,
+              buttonSidePadding({ size, textOnly, half }) - busySlotWidth / 2
+            ),
           },
       ]}
     >
@@ -232,10 +243,27 @@ export function Button({
   );
 }
 
+/** The side padding a button's label keeps from its edges. */
+const buttonSidePadding = ({
+  size,
+  textOnly,
+  half,
+}: {
+  readonly size: "regular" | "small";
+  readonly textOnly: boolean;
+  readonly half: boolean;
+}) => {
+  if (half) return space.md;
+  return size === "small" || textOnly ? space.lg : space.xxl;
+};
+
+/** Whether a button is one of a `ButtonRow`'s half-width pair. */
+const ButtonRowContext = createContext(false);
+
 /**
  * Buttons side by side, sharing the width equally (the boards' half-width
- * pair). When the labels no longer fit, as at large font sizes, the buttons
- * stack instead.
+ * pair, with 12 dp side padding and one height). When the labels no longer
+ * fit, as at large font sizes, the buttons stack instead.
  */
 export function ButtonRow({ children }: { readonly children: ReactNode }) {
   // A button's label grows with the system font size, so the width at which
@@ -243,11 +271,13 @@ export function ButtonRow({ children }: { readonly children: ReactNode }) {
   const { fontScale } = useWindowDimensions();
   const item = { flexBasis: buttonRowItemWidth * fontScale, flexGrow: 1 };
   return (
-    <View style={buttonStyles.row}>
-      {Children.map(children, (child) =>
-        child ? <View style={item}>{child}</View> : null
-      )}
-    </View>
+    <ButtonRowContext value={true}>
+      <View style={buttonStyles.row}>
+        {Children.map(children, (child) =>
+          child ? <View style={item}>{child}</View> : null
+        )}
+      </View>
+    </ButtonRowContext>
   );
 }
 
@@ -268,6 +298,8 @@ const buttonStyles = StyleSheet.create({
   },
   small: { minHeight: 40, paddingHorizontal: space.lg, paddingVertical: 10 },
   textOnly: { paddingHorizontal: space.lg },
+  // A pair shares one height, however its labels wrap.
+  half: { flexGrow: 1, paddingHorizontal: space.md },
   fullWidth: { alignSelf: "stretch" },
   contentWidth: { alignSelf: "flex-start" },
   label: { flexShrink: 1, textAlign: "center" },

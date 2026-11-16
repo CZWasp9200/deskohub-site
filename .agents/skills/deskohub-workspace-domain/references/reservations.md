@@ -32,7 +32,7 @@ Dotypos owns reservation facts. Local stored details for offices contain only th
 
 Keep historical and provider-owned projections structural, so current purchase limits never make older data undecodable. Historical cowork tiers stay decodable.
 
-Read `workspace_reservations.reservation_details` only through `StoredReservationDetails` (`features/reservation/backend/stored-reservation-details.server.ts`). Use `decode`, `decodeRow` or `decodeRows` where a malformed document must fail the read with the reservation's ID, and `project` where a view shows less instead. In SQL, use its `kind`, `property` and `earlySetupMeetingRoom` accessors; they yield null for a malformed value, never a cast error. Don't hand-build JSON paths or trust the column's Drizzle `$type`.
+Read and write `workspace_reservations.reservation_details` and `review_account_holds.reservation_details` only through `StoredReservationDetails` (`features/reservation/backend/stored-reservation-details.server.ts`). Both columns are untyped JSON, so a read stays an opaque value until the module decodes it. Use `decode`, `decodeRow` or `decodeRows` where a malformed document must fail the read with the reservation's ID, and `project` where a view shows less instead. Write every insert and update through `encode`; it checks the document against the readers' schema and dies on a document that fails it. In SQL, use its `kind`, `property` and `earlySetupMeetingRoom` accessors; they yield null for a malformed value, never a cast error. Don't hand-build JSON paths, and don't give the columns a Drizzle `$type` or cast a read to the document type. E2E code can't import the `server-only` module; it decodes with the persistence schema itself.
 
 ## Meeting rooms
 

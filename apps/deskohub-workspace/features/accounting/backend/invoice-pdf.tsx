@@ -154,9 +154,11 @@ const InvoicePdfDocument = ({
           <PaymentRequest payment={payment} locale={document.locale} />
         ) : null}
 
-        <View style={styles.nonVatNote} wrap={false}>
-          <Text>{presentation.nonVatStatement}</Text>
-        </View>
+        {presentation.vatStatement !== undefined && (
+          <View style={styles.vatNote} wrap={false}>
+            <Text>{presentation.vatStatement}</Text>
+          </View>
+        )}
 
         <View fixed style={styles.footer}>
           <Text>{presentation.footer}</Text>
@@ -405,7 +407,7 @@ const styles = StyleSheet.create({
     minWidth: 120,
     textAlign: "right",
   },
-  nonVatNote: {
+  vatNote: {
     backgroundColor: "#fff6ed",
     borderLeftColor: "#d15a35",
     borderLeftWidth: 3,
