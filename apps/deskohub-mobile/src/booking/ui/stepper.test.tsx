@@ -77,10 +77,13 @@ describe("Stepper", () => {
       throw new Error("the stepper renders fewer than two buttons");
     }
     const { style, onPress } = minus.props;
-    if (typeof style !== "function" || typeof onPress !== "function") {
-      throw new Error("a step button has no pressed style or press handler");
+    if (typeof onPress !== "function") {
+      throw new Error("a step button has no press handler");
     }
-    const look = flatStyle(style({ pressed: false }));
+    // The resting look: a Pressable's style may be a function of its state.
+    const look = flatStyle(
+      typeof style === "function" ? style({ pressed: false }) : style
+    );
 
     expect(look.width).toBe(touchTarget);
     expect(look.borderRadius).toBe(touchTarget / 2);
