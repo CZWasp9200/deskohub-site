@@ -7,12 +7,12 @@ import type { AnnualNumberCounter } from "@/db/schema";
 import { getInvoiceNumberingYear } from "@/features/accounting/invoice";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
 
-export class DocumentNumberAllocationError extends Data.TaggedError(
+class DocumentNumberAllocationError extends Data.TaggedError(
   "DocumentNumberAllocationError"
 )<{ readonly message: string }> {}
 
 /** A number taken from an annual series, and the instant it was issued at. */
-export interface AnnualNumberAllocation {
+interface AnnualNumberAllocation {
   readonly issuedAt: Temporal.Instant;
   readonly numberingYear: number;
   readonly numberingSequence: number;

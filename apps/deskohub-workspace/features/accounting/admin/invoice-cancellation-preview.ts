@@ -12,7 +12,7 @@ import {
 } from "./invoice-administration.service";
 
 /** The reservation cancelled with the invoice, and what its cancellation asks. */
-export type InvoiceCancellationReservation = {
+type InvoiceCancellationReservation = {
   readonly reservationId: AdministrationWorkspaceReservationIdType;
   /** The reservation's product and date, worded for the operator. */
   readonly label: string;

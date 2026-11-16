@@ -13,7 +13,7 @@ import {
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { AdministrationActor } from "@/features/administrators/administration-source";
 
-export interface InvoiceArchiving {
+interface InvoiceArchiving {
   readonly archive: InvoiceArchive;
   /** False when the invoice was already archived; nothing was recorded. */
   readonly changed: boolean;

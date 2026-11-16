@@ -32,7 +32,7 @@ import {
 } from "@/shared/backend/read-limit";
 import { isStaleDeliveryClaim } from "./delivery-claim-lease";
 
-export interface InvoiceEmailDeliveryClaim {
+interface InvoiceEmailDeliveryClaim {
   readonly attemptNumber: number;
 }
 

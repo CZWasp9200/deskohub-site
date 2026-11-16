@@ -135,7 +135,7 @@ export type InvoiceAdministrationListQuery = {
  * reads with `false`, so an archived invoice is the admin 404 there; the
  * administration API, `dhw` and agent tools read with `true`.
  */
-export type InvoiceAdministrationReadScope = {
+type InvoiceAdministrationReadScope = {
   readonly includeArchived: boolean;
 };
 
@@ -243,7 +243,7 @@ type InvoiceAdministrationRetryResult = {
   readonly notices: InvoiceNoticeSummary | null;
 };
 
-export type InvoiceAdministrationCancelInput = {
+type InvoiceAdministrationCancelInput = {
   readonly invoiceId: string;
   readonly actor: AdministrationActor;
   /** The operator saw that the customer will be emailed a cancellation notice. */
@@ -271,7 +271,7 @@ export type InvoiceAdministrationCancelResult = {
   } | null;
 };
 
-export type InvoiceAdministrationArchiveResult = {
+type InvoiceAdministrationArchiveResult = {
   readonly invoiceId: AdministrationInvoiceIdType;
   readonly archivedAt: string;
   /** False when the invoice was already archived. */

@@ -19,7 +19,7 @@ import type {
 import { InvoiceArchive } from "./invoice-archive";
 import { InvoiceCancellation } from "./invoice-cancellation-dialog";
 
-export function InvoicePaymentStatusBadge({
+function InvoicePaymentStatusBadge({
   status,
 }: {
   readonly status: InvoiceAdministrationDetail["paymentStatus"];

@@ -32,9 +32,8 @@ export type InvoiceEmailDeliveryResult =
   | { readonly status: "delivered"; readonly changed: boolean };
 
 /** A cancelled invoice's original email is never sent, resent or retried. */
-export const isOriginalDeliveryBlocked = (
-  invoice: Pick<Invoice, "cancellation">
-) => invoice.cancellation !== null;
+const isOriginalDeliveryBlocked = (invoice: Pick<Invoice, "cancellation">) =>
+  invoice.cancellation !== null;
 
 export interface IInvoiceEmailDeliveryService {
   readonly deliverByInvoiceId: (input: {

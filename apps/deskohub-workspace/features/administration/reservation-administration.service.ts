@@ -33,7 +33,7 @@ import {
 } from "./reservation-status";
 
 /** The reservation's invoice, cancelled with it. */
-export type ReservationInvoiceCancellation = {
+type ReservationInvoiceCancellation = {
   readonly outcome: "cancelled" | "already_cancelled";
   readonly invoiceId: InvoiceId;
   readonly invoiceNumber: string;
@@ -41,7 +41,7 @@ export type ReservationInvoiceCancellation = {
   readonly notices: InvoiceNoticeSummary;
 };
 
-export type ReservationCancellationResult = {
+type ReservationCancellationResult = {
   readonly outcome: "cancelled" | "already_cancelled";
   readonly email: "not_requested" | "sent" | "failed";
   /** `null` when the reservation had no live invoice to cancel. */
@@ -79,7 +79,7 @@ export class ReservationAdministrationError extends Data.TaggedError(
  * predate invoice cancellation (released `dhw` binaries) omit them, and the
  * check is skipped.
  */
-export type ReservationCancellationConfirmedConsequences = {
+type ReservationCancellationConfirmedConsequences = {
   /** The reservation's live invoice is cancelled with it. */
   readonly invoice: boolean;
   /** The customer is emailed a cancellation notice for that invoice. */

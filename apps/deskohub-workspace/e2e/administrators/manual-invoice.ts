@@ -20,14 +20,14 @@ import type { WorkspaceE2EAdministrationLinkedAccount } from "./identities";
 // their en-US labels, as the download case always did, so callers drive the
 // form on the en-US route.
 
-export type IssuedInvoice = {
+type IssuedInvoice = {
   readonly id: string;
   readonly invoiceNumber: string;
   /** The day in Prague it was issued, as the export writes it. */
   readonly issuedOn: string;
 };
 
-export const reviewButton = (page: Page) =>
+const reviewButton = (page: Page) =>
   page.getByRole("button", { name: "Review invoice" });
 
 /** Opens the Admin UI's new invoice form and waits until it can be reviewed. */

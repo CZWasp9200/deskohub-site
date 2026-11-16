@@ -105,7 +105,7 @@ export const resolveInvoiceEmailRecipient = Effect.fn(
 });
 
 /** Where a claimed send records its outcome: the claim on its own ledger. */
-export interface ClaimedInvoiceEmailLedger {
+interface ClaimedInvoiceEmailLedger {
   readonly markAccepted: (accepted: {
     readonly providerDeliveryId: EmailDeliveryId;
     readonly acceptedAt: Temporal.Instant;
