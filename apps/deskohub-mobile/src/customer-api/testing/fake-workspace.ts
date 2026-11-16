@@ -97,6 +97,34 @@ type EndpointName = HttpApiEndpoint.Name<
   | HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
 >;
 
+const requestOutcomes: ReadonlyArray<FakeRequestOutcome> = [
+  "session-required",
+  "rate-limited",
+  "service-unavailable",
+  "transport-failure",
+  "hang",
+  "unreadable-answer",
+  "session-not-fresh",
+];
+
+/**
+ * The failures sample data answers every request of an endpoint with, so a
+ * capture can show a loading or failed state: `endpoint=outcome` pairs,
+ * comma separated, such as `listInvoices=hang`. Unknown outcomes are left
+ * out.
+ */
+export const sampleRequestOutcomes = (
+  text: string | undefined
+): ReadonlyArray<readonly [EndpointName, FakeRequestOutcome]> =>
+  (text ?? "").split(",").flatMap((pair) => {
+    const [endpoint, outcome] = pair.split("=").map((part) => part.trim());
+    return endpoint !== undefined &&
+      endpoint !== "" &&
+      requestOutcomes.includes(outcome as FakeRequestOutcome)
+      ? [[endpoint as EndpointName, outcome as FakeRequestOutcome] as const]
+      : [];
+  });
+
 /**
  * An in-memory Workspace serving the real customer API and Better Auth
  * contracts, so the app's real clients, transports and error decoding run
@@ -660,20 +688,32 @@ const serverLayer = (workspace: FakeWorkspace) => {
         )
   );
 
-  // The sample data issues no invoices yet: the list is empty and every
-  // invoice is not found, as the Workspace answers an account without any.
+  // The account's invoices; one without a stored PDF, or any other ID, is
+  // not found, as the Workspace answers another customer's invoice.
   const invoices = HttpApiBuilder.group(
     WorkspaceCustomerApi,
     "invoices",
     (handlers) =>
       handlers
         .handle("listInvoices", () =>
-          Effect.as(linkedAccount, { invoices: [] })
-        )
-        .handle("getInvoicePdf", () =>
           Effect.andThen(
             linkedAccount,
-            Effect.fail(new CustomerInvoiceNotFound())
+            Effect.sync(() => ({
+              invoices: workspace.data.invoices.map(({ invoice }) => invoice),
+            }))
+          )
+        )
+        .handle("getInvoicePdf", ({ params }) =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.suspend(() => {
+              const pdf = workspace.data.invoices.find(
+                ({ invoice }) => invoice.id === params.invoiceId
+              )?.pdf;
+              return pdf === undefined
+                ? Effect.fail(new CustomerInvoiceNotFound())
+                : Effect.succeed(pdf);
+            })
           )
         )
   );

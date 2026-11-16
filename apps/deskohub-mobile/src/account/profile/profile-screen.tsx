@@ -1,6 +1,6 @@
 import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { Match, Option } from "effect";
+import { Option } from "effect";
 import { AsyncResult, type Atom } from "effect/unstable/reactivity";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -8,12 +8,8 @@ import { useEffect } from "react";
 import { KeyboardAvoidingView, StyleSheet, View } from "react-native";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
-import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-message";
-import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { ActionFooter } from "../../ui/action-footer";
-import { Button } from "../../ui/controls";
 import { SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { useToast } from "../../ui/toast";
@@ -25,15 +21,12 @@ import { LoginEmailCard } from "./login-email-card";
 import { identityFields } from "./profile-draft";
 import { ProfileTextFields } from "./profile-fields";
 import {
-  type ProfileFooterMessage,
-  profileFooterView,
-} from "./profile-footer-view";
-import {
   invalidOf,
   UnsavedChangesGuard,
   useFocusFirstInvalid,
   useProfileForm,
 } from "./profile-form";
+import { ProfileFormFooter } from "./profile-form-footer";
 
 type LinkedAccount = Extract<CustomerAccountState, { kind: "linked" }>;
 
@@ -84,7 +77,7 @@ function ProfileForm({
   const headerHeight = useHeaderHeight();
   const form = useProfileForm(account);
   const { inputs } = useFocusFirstInvalid(form.state, identityFields);
-  const footer = profileFooterView(form.state, form.unsaved, identityFields);
+  const saving = form.state._tag === "Submitting";
   const saved = form.state._tag === "Done";
 
   useEffect(() => {
@@ -126,7 +119,7 @@ function ProfileForm({
                   invalid={invalidOf(form.state)}
                   onChange={form.setField}
                   inputs={inputs}
-                  editable={!footer.saving}
+                  editable={!saving}
                   locale={locale}
                 />
               </View>
@@ -134,53 +127,21 @@ function ProfileForm({
           )}
         </AsyncView>
       </ScrollScreen>
-      <ActionFooter
-        message={footerMessage(footer.message, locale)}
-        messageTone={
-          footer.message === undefined || footer.message.kind === "no-changes"
-            ? "neutral"
-            : "error"
-        }
-      >
-        <Button
-          label={m.profile_save({}, { locale })}
-          onPress={form.save}
-          disabled={!footer.saveEnabled}
-          busy={footer.saving}
-        />
-        {footer.message?.kind === "fix-elsewhere" && (
-          <Button
-            variant="secondary"
-            label={m.account_section_billing({}, { locale })}
-            onPress={() => router.push("/account/billing")}
-          />
-        )}
-      </ActionFooter>
+      <ProfileFormFooter
+        state={form.state}
+        unsaved={form.unsaved}
+        shownFields={identityFields}
+        onSave={form.save}
+        elsewhere={{
+          message: m.profile_invalid_on_billing({}, { locale }),
+          label: m.account_section_billing({}, { locale }),
+          onPress: () => router.push("/account/billing"),
+        }}
+        locale={locale}
+      />
     </KeyboardAvoidingView>
   );
 }
-
-const footerMessage = (
-  message: ProfileFooterMessage | undefined,
-  locale: AppLocale
-): string | undefined =>
-  message === undefined
-    ? undefined
-    : Match.value(message).pipe(
-        Match.discriminatorsExhaustive("kind")({
-          "no-changes": () => m.profile_no_changes({}, { locale }),
-          "fix-fields": ({ count }) =>
-            count === 1
-              ? m.profile_fix_one_field({}, { locale })
-              : m.profile_fix_fields({ count }, { locale }),
-          "fix-elsewhere": () => m.profile_invalid_on_billing({}, { locale }),
-          failed: ({ error }) =>
-            error._tag === "LinkRequired"
-              ? m.profile_link_required({}, { locale })
-              : (sharedViewErrorMessage(error, locale) ??
-                m.profile_save_failed({}, { locale })),
-        })
-      );
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },

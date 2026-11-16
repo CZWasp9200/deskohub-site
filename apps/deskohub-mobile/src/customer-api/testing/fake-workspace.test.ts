@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { CustomerApi, CustomerAuthApi } from "../customer-api.service";
 import { fakeCustomerApiLayer } from "./fake-customer-data";
-import { FakeWorkspace } from "./fake-workspace";
+import { FakeWorkspace, sampleRequestOutcomes } from "./fake-workspace";
 
 const refusal = (
   workspace: FakeWorkspace,
@@ -199,5 +199,22 @@ describe("the fake Workspace's Better Auth consent endpoint", () => {
       code: "not_found",
     });
     expect(workspace.data.assistants).toEqual(assistants);
+  });
+});
+
+describe("sampleRequestOutcomes", () => {
+  test("reads endpoint and outcome pairs, leaving out unknown outcomes", () => {
+    expect(
+      sampleRequestOutcomes(
+        "listInvoices=hang, getInvoicePdf = service-unavailable,getAccount=nope,"
+      )
+    ).toEqual([
+      ["listInvoices", "hang"],
+      ["getInvoicePdf", "service-unavailable"],
+    ]);
+  });
+
+  test("nothing set fails nothing", () => {
+    expect(sampleRequestOutcomes(undefined)).toEqual([]);
   });
 });
