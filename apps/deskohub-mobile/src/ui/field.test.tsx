@@ -8,7 +8,12 @@ import {
   fieldFrameStyles,
 } from "./field";
 import { idleLiveRegionLayout } from "./notice-presentation";
-import { elementTree, findAll, hostTree } from "./testing/element-tree";
+import {
+  elementTree,
+  findAll,
+  flatStyle,
+  hostTree,
+} from "./testing/element-tree";
 import { color } from "./tokens";
 
 describe("fieldFrameState", () => {
@@ -107,8 +112,8 @@ describe("FieldLabel", () => {
     const [label, marker] = texts;
     // The marker is nested in the label, so both read as one.
     expect(findAll(label, "Text")).toHaveLength(2);
-    expect(StyleSheet.flatten(marker?.props.style).fontWeight).not.toBe(
-      StyleSheet.flatten(label?.props.style).fontWeight
+    expect(flatStyle(marker?.props.style).fontWeight).not.toBe(
+      flatStyle(label?.props.style).fontWeight
     );
   });
 

@@ -111,7 +111,9 @@ export function DetailsStep(props: DetailsStepProps) {
     useState<DetailsFieldProblems>(initialProblems);
   const [raised, setRaised] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
-  const fieldViews = useRef(new Map<DetailsField, View | null>());
+  const fieldViews = useRef(
+    new Map<DetailsField, ComponentRef<typeof View> | null>()
+  );
   const [scrollTo, setScrollTo] = useState<{ field: DetailsField } | null>(
     null
   );
@@ -166,7 +168,7 @@ export function DetailsStep(props: DetailsStepProps) {
       onSome: (problem) => fieldProblemMessage(name, problem, locale),
     }),
     editable: !busy,
-    viewRef: (view: View | null) => {
+    viewRef: (view: ComponentRef<typeof View> | null) => {
       fieldViews.current.set(name, view);
     },
   });
@@ -275,7 +277,7 @@ type Change = (next: DetailsDraft, what: DetailsChange) => void;
 type FieldPropsOf = (name: DetailsField) => {
   readonly error: string | undefined;
   readonly editable: boolean;
-  readonly viewRef: (view: View | null) => void;
+  readonly viewRef: (view: ComponentRef<typeof View> | null) => void;
 };
 
 /** "Me" or "Someone else" (`.bk-seg`): icon rows, the chosen one tinted. */
@@ -852,7 +854,7 @@ function Field({
   viewRef,
   ...input
 }: Parameters<typeof TextField>[0] & {
-  readonly viewRef: (view: View | null) => void;
+  readonly viewRef: (view: ComponentRef<typeof View> | null) => void;
 }): ReactNode {
   return (
     <View ref={viewRef}>
