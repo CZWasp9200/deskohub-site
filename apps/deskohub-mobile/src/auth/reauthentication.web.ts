@@ -1,6 +1,7 @@
 import { router, usePathname } from "expo-router";
 import { useCallback, useState } from "react";
 import { type AuthUser, safeReturnPath } from "./auth-session-state";
+import type { ReauthenticationPurpose } from "./native-handoff-request";
 import {
   type NativeSignInFailure,
   NotSignedIn,
@@ -29,9 +30,11 @@ const idle: AuthTaskState<AuthUser, NativeSignInFailure> = {
  * which signs in again even with a browser session and then returns to the
  * current route, where the customer repeats the action. The route is stored
  * with the account, so the email's link returns there from any tab. Signing in to another
- * account there is refused, as on native.
+ * account there is refused, as on native. The web page names no purpose.
  */
-export const useReauthentication = (): Reauthentication => {
+export const useReauthentication = (
+  _purpose?: ReauthenticationPurpose
+): Reauthentication => {
   const pathname = usePathname();
   const session = useAuthSession();
   const [state, setState] =

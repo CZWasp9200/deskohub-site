@@ -220,7 +220,8 @@ export const reauthenticationExpectation = ({
  * replace the browser's session cookie, which the page can't restore. Until
  * that first read nothing is sent, so an address entered early can't slip
  * past the lock. Without a session there is nothing to keep, and the account
- * check still refuses a switch.
+ * check still refuses a switch. An app's reauthentication goes only to the
+ * account the app named, whatever the browser's session.
  */
 export type SignInEmailField =
   | { readonly kind: "waiting" }
@@ -230,15 +231,36 @@ export type SignInEmailField =
 export const signInEmailField = ({
   reauthenticating,
   pageSession,
+  appAccountEmail,
 }: {
   readonly reauthenticating: boolean;
   readonly pageSession: { readonly user: AuthUser | undefined } | undefined;
+  /** The account an app's reauthentication named (see {@link appAccountEmail}). */
+  readonly appAccountEmail?: string | undefined;
 }): SignInEmailField => {
+  if (appAccountEmail !== undefined) {
+    return { kind: "locked", email: appAccountEmail };
+  }
   if (pageSession === undefined) return { kind: "waiting" };
   return reauthenticating && pageSession.user !== undefined
     ? { kind: "locked", email: pageSession.user.email }
     : { kind: "free" };
 };
+
+/**
+ * The account the app asked to sign in again as. The app refuses any other
+ * account's session when it comes back, so the page sends the code only to
+ * this one; an older app that names none leaves the address free.
+ */
+export const appAccountEmail = (
+  nativeRequest: Option.Option<NativeHandoffRequest>
+): string | undefined =>
+  Option.getOrUndefined(
+    Option.flatMapNullishOr(
+      Option.filter(nativeRequest, (request) => request.reauthenticate),
+      (request) => request.loginHint
+    )
+  );
 
 const refuseAccount = (
   reason: "account-switch" | "reauthentication-unconfirmed"

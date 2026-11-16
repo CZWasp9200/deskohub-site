@@ -72,7 +72,7 @@ export function DangerZoneScreen() {
   const requestDeletion = useAtomSet(requestAccountDeletionAtom, {
     mode: "promiseExit",
   });
-  const reauthentication = useReauthentication();
+  const reauthentication = useReauthentication("delete-account");
   const [confirmed, setConfirmed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [requesting, setRequesting] = useState(false);

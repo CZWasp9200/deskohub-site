@@ -178,6 +178,8 @@
   "signin_continue_as_body": "You're already signed in on this browser. Continue to return to the app.",
   "signin_returning_to_app": "Returning you to the app.",
   "signin_reauthenticate_body": "Sign in again to confirm it's you.",
+  "signin_reauthenticate_title": "Confirm it's you",
+  "signin_reauthenticate_delete_account_body": "Sign in again to delete your account.",
   "signin_send_code": "Send code",
   "signin_sign_in": "Sign in",
   "signin_sending_code": "Sending code…",

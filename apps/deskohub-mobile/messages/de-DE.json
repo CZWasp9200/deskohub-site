@@ -178,6 +178,8 @@
   "signin_continue_as_body": "In diesem Browser bist du bereits angemeldet. Fahre fort, um zur App zurückzukehren.",
   "signin_returning_to_app": "Du wirst zur App zurückgeleitet.",
   "signin_reauthenticate_body": "Melde dich erneut an, um zu bestätigen, dass du es bist.",
+  "signin_reauthenticate_title": "Bestätige, dass du es bist",
+  "signin_reauthenticate_delete_account_body": "Melde dich erneut an, um dein Konto zu löschen.",
   "signin_send_code": "Code senden",
   "signin_sign_in": "Anmelden",
   "signin_sending_code": "Code wird gesendet…",
