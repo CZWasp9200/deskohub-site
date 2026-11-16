@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { isValidElement, type RefObject } from "react";
+import {
+  Children,
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { LoadingIndicator } from "./loading-indicator";
 import { ScrollScreen, useScrollScreenToTop } from "./scroll-screen";
-import { elementTree, find } from "./testing/element-tree";
+import { elementTree, find, findAll, flatStyle } from "./testing/element-tree";
+import { color, space } from "./tokens";
 
 describe("ScrollScreen", () => {
   test("scrolls its content back to the top on request", () => {
@@ -37,5 +46,75 @@ describe("ScrollScreen", () => {
       return null;
     }, {});
     expect(() => scrollToTop?.()).not.toThrow();
+  });
+
+  test("content sits on the screen gutter", () => {
+    const content = findAll(
+      elementTree(ScrollScreen, { children: createElement("Content") }),
+      "View"
+    ).find((view) =>
+      Children.toArray(view.props.children).some(
+        (child) => isValidElement(child) && child.type === "Content"
+      )
+    );
+    expect(flatStyle(content?.props.style)).toMatchObject({
+      paddingHorizontal: space.gutter,
+    });
+  });
+
+  test("a masthead leads the scrolling content, which overlaps its navy band by 40", () => {
+    const tree = elementTree(ScrollScreen, {
+      masthead: createElement("Masthead"),
+      children: createElement("Content"),
+    });
+    const provider = find(tree, "ScrollView")?.props.children;
+    if (!isValidElement<{ children: unknown }>(provider)) {
+      throw new Error("ScrollScreen renders nothing inside its ScrollView");
+    }
+    const scrolled = Children.toArray(
+      provider.props.children as ReactNode
+    ) as ReactElement<{ children: ReactNode }>[];
+    expect(scrolled[0]?.type).toBe("Masthead");
+    const [band, content] = Children.toArray(
+      scrolled[1]?.props.children
+    ) as ReactElement<{ style: unknown }>[];
+    expect(flatStyle(band?.props.style)).toMatchObject({
+      backgroundColor: color.navy,
+      height: 40,
+      position: "absolute",
+      top: 0,
+    });
+    expect(flatStyle(content?.props.style)).toMatchObject({
+      paddingTop: 0,
+    });
+  });
+
+  test("pull-to-refresh keeps the gesture but hides the native spinner", () => {
+    const refresh = find(
+      elementTree(ScrollScreen, {
+        children: null,
+        onRefresh: () => undefined,
+      }),
+      "ScrollView"
+    )?.props.refreshControl as ReactElement<Record<string, unknown>>;
+    expect(refresh.props).toMatchObject({
+      tintColor: "transparent",
+      colors: ["transparent"],
+      progressBackgroundColor: "transparent",
+    });
+  });
+
+  test("the shared loading indicator shows at the top only while refreshing", () => {
+    const indicator = (refreshing: boolean) =>
+      find(
+        elementTree(ScrollScreen, {
+          children: null,
+          refreshing,
+          onRefresh: () => undefined,
+        }),
+        LoadingIndicator
+      );
+    expect(indicator(true)?.props).toMatchObject({ size: "inline" });
+    expect(indicator(false)).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Match, Schema } from "effect";
 import {
   type CheckoutSummary,
   type CheckoutSummaryChangedKeys,
@@ -197,7 +197,12 @@ const getReferralRepricing = (input: {
   });
   const changed =
     !signedTotalWasConsistent ||
-    (verdict.status === "pricing_changed" && !expectedReferralAddition);
+    Match.value(verdict).pipe(
+      Match.discriminatorsExhaustive("status")({
+        affirmed: () => false,
+        pricing_changed: () => !expectedReferralAddition,
+      })
+    );
   return changed
     ? {
         changed,
