@@ -1,114 +1,68 @@
 import type {
-  CustomerCheckoutSummary,
-  CustomerCheckoutSummaryItem,
   CustomerLegalDocument,
   Money,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { canClearCode, canPay } from "../checkout/checkout-machine";
 import type {
+  CheckoutDetails,
   CodeStatus,
-  HeldCheckout,
   ReviewMutation,
   ReviewState,
 } from "../checkout/checkout-state";
-import { summaryItemSubject } from "../ui/price-breakdown";
-import type { SummaryLineView, SummaryView } from "../ui/price-summary";
-
-/** The changed lines and sections a price review names. */
-export type ChangedKeys = Option.Option<
-  Option.Option.Value<HeldCheckout["priceReview"]>
->;
-
-const totalKey = "total:final";
-
-/** The applied entered code, as `HeldCheckout` keeps it. */
-export type AppliedCode = Option.Option.Value<
-  HeldCheckout["appliedDiscountCode"]
->;
-
-const lineView = (
-  item: CustomerCheckoutSummaryItem,
-  changed: (key: string) => boolean,
-  appliedCode: Option.Option<AppliedCode>
-): SummaryLineView => ({
-  key: item.key,
-  kind: summaryItemSubject(item.key),
-  amount: item.amount,
-  originalAmount: Option.fromUndefinedOr(item.originalAmount),
-  discounts: (item.discounts ?? []).map(({ discount, amount }) => ({
-    id: discount.id,
-    label: discount.label,
-    amount,
-    enteredCode: Option.exists(
-      appliedCode,
-      ({ discountId }) => discountId === discount.id
-    ),
-  })),
-  office: Option.all({
-    dayCount: Option.fromUndefinedOr(item.dayCount),
-    seats: Option.fromUndefinedOr(item.seats),
-  }).pipe(
-    Option.map((counts) => ({
-      ...counts,
-      accessAmount: Option.fromUndefinedOr(item.accessAmount),
-      // `seatAmount` is one seat's price for the days booked.
-      seatTotal: Option.map(
-        Option.fromUndefinedOr(item.seatAmount),
-        (seat): Money => ({ ...seat, value: seat.value * counts.seats })
-      ),
-    }))
-  ),
-  changed: changed(item.key),
-});
+import { type PriceBreakdown, priceBreakdown } from "../ui/price-breakdown";
 
 /**
- * The itemized summary (no VAT line: the summary has none), with the lines
- * a price review changed marked. A line is marked when its own key changed
- * (a section changes when its total does, which says nothing about its
- * other lines, as on the site); the total is marked when its section or the
- * final total line changed. The applied entered code's discount line is
- * marked so it can remove the code.
+ * Who the booking is for and who is invoiced, as the details step sent
+ * them. `bookerName` is the account's own name, for "Booked by" when the
+ * booking is for someone else; none while the account isn't read.
  */
-export const summaryView = (
-  summary: CustomerCheckoutSummary,
-  changedKeys: ChangedKeys,
-  appliedCode: Option.Option<AppliedCode>
-): SummaryView => {
-  const changed = Option.getOrElse(changedKeys, () => ({
-    sectionKeys: [] as ReadonlyArray<string>,
-    itemKeys: [] as ReadonlyArray<string>,
-  }));
-  const lines = summary.sections.flatMap((section) =>
-    section.items
-      .filter((item) => item.key !== totalKey)
-      .map((item) =>
-        lineView(item, (key) => changed.itemKeys.includes(key), appliedCode)
-      )
-  );
-  return {
-    lines,
-    total: summary.total,
-    totalChanged:
-      changed.sectionKeys.includes("total") ||
-      changed.itemKeys.includes(totalKey),
-  };
+export type ReviewParty =
+  | { readonly _tag: "Self"; readonly name: string }
+  | {
+      readonly _tag: "SomeoneElse";
+      readonly name: string;
+      readonly email: string;
+      readonly bookerName: Option.Option<string>;
+    };
+
+/** Who the invoice goes to: no invoice, the customer (by city), a company. */
+export type ReviewInvoice =
+  | { readonly _tag: "None" }
+  | { readonly _tag: "Personal"; readonly city: string }
+  | { readonly _tag: "Company"; readonly legalName: string };
+
+export const reviewParty = (
+  details: CheckoutDetails,
+  bookerName: Option.Option<string>
+): ReviewParty =>
+  details.bookingFor === "self"
+    ? { _tag: "Self", name: details.contact.name }
+    : {
+        _tag: "SomeoneElse",
+        name: details.contact.name,
+        email: details.contact.email,
+        bookerName,
+      };
+
+export const reviewInvoice = ({ billing }: CheckoutDetails): ReviewInvoice => {
+  if (billing.purpose === "business") {
+    return { _tag: "Company", legalName: billing.buyer.legalName };
+  }
+  return billing.invoice === "requested"
+    ? { _tag: "Personal", city: billing.address.city }
+    : { _tag: "None" };
 };
 
 /**
- * - `Applying` / `Applied` / `Rejected`: the code's latest outcome.
- * - `AwaitingPriceAcceptance`: accept the new price, then apply the code
- *   again.
- * - `Retryable`: the code couldn't be checked (`unavailable`, R5); the
- *   customer can apply it again, it isn't marked invalid.
+ * Why the code wasn't applied, shown at the field:
+ * - `AwaitingPriceAcceptance`: the price changed first; accept it, then
+ *   apply the code again.
+ * - `Retryable`: the code couldn't be checked (`unavailable`, R5); it isn't
+ *   marked invalid.
+ * - `Rejected`: the server's reason.
  */
-export type CodeMessage =
-  | { readonly _tag: "None" }
-  | { readonly _tag: "Applying" }
-  | {
-      readonly _tag: "Applied";
-      readonly outcome: "applied" | "referral_accepted";
-    }
+export type CodeProblem =
   | { readonly _tag: "AwaitingPriceAcceptance" }
   | { readonly _tag: "Retryable" }
   | {
@@ -119,38 +73,99 @@ export type CodeMessage =
         | "code_already_applied";
     };
 
-const codeMessage = (status: CodeStatus): CodeMessage => {
+const codeProblem = (status: CodeStatus): Option.Option<CodeProblem> => {
   switch (status._tag) {
     case "Idle":
-      return { _tag: "None" };
     case "Applying":
-      return { _tag: "Applying" };
     case "Applied":
-      return { _tag: "Applied", outcome: status.outcome };
+      return Option.none();
     case "AwaitingPriceAcceptance":
-      return { _tag: "AwaitingPriceAcceptance" };
+      return Option.some({ _tag: "AwaitingPriceAcceptance" });
     case "Rejected":
-      return status.reason === "unavailable"
-        ? { _tag: "Retryable" }
-        : { _tag: "Rejected", reason: status.reason };
+      return Option.some(
+        status.reason === "unavailable"
+          ? { _tag: "Retryable" }
+          : { _tag: "Rejected", reason: status.reason }
+      );
   }
 };
 
-export interface CodeFieldView {
-  readonly input: string;
-  /** Holds still while any write runs. */
-  readonly editable: boolean;
-  readonly canApply: boolean;
-  readonly message: CodeMessage;
-  /**
-   * The entered code the price includes; its summary line is the discount
-   * marked `enteredCode`. `ClearCode` removes it.
-   */
-  readonly applied: Option.Option<AppliedCode>;
-  readonly canClear: boolean;
-  /** The code's removal runs. */
-  readonly clearing: boolean;
+/**
+ * The code row:
+ * - `Entry`: the field with Apply beside it. `startsOpen` while it holds
+ *   something to show (an input, a running apply, a problem); otherwise
+ *   the screen shows the quiet "add a code" row that opens it.
+ * - `Applied`: the code the price includes, as a chip; Remove only when
+ *   `canClear` (the server's applied entered code, with no price review or
+ *   write running). Its saving is its own line in the price.
+ */
+export type CodeFieldView =
+  | {
+      readonly _tag: "Entry";
+      readonly input: string;
+      /** Holds still while any write runs. */
+      readonly editable: boolean;
+      readonly canApply: boolean;
+      readonly applying: boolean;
+      readonly problem: Option.Option<CodeProblem>;
+      readonly startsOpen: boolean;
+    }
+  | {
+      readonly _tag: "Applied";
+      readonly code: string;
+      readonly canClear: boolean;
+      /** The code's removal runs. */
+      readonly clearing: boolean;
+    };
+
+const codeFieldView = (review: ReviewState, idle: boolean): CodeFieldView => {
+  const { code, checkout } = review;
+  const applied = Option.orElse(
+    Option.map(checkout.appliedDiscountCode, ({ code }) => code),
+    () =>
+      code.status._tag === "Applied" && code.input.trim() !== ""
+        ? Option.some(code.input.trim())
+        : Option.none()
+  );
+  if (Option.isSome(applied)) {
+    return {
+      _tag: "Applied",
+      code: applied.value,
+      canClear: canClearCode(review),
+      clearing: pendingIs(review)("ClearDiscountCode"),
+    };
+  }
+  const problem = codeProblem(code.status);
+  const applying = code.status._tag === "Applying";
+  return {
+    _tag: "Entry",
+    input: code.input,
+    editable: idle,
+    canApply: idle && code.input.trim() !== "",
+    applying,
+    problem,
+    startsOpen: code.input !== "" || applying || Option.isSome(problem),
+  };
+};
+
+/**
+ * The price the server holds: its lines and total, the total struck by
+ * the quote's when the two differ (a code or a changed price moved it).
+ */
+export interface ReviewPriceView {
+  readonly breakdown: PriceBreakdown;
+  readonly was: Option.Option<Money>;
 }
+
+/** A changed price waiting for the customer: the quote's total, the new. */
+export interface PriceChangeView {
+  readonly before: Money;
+  readonly now: Money;
+  readonly accepting: boolean;
+}
+
+const sameMoney = (a: Money, b: Money) =>
+  a.value === b.value && a.currency === b.currency;
 
 export type LegalView =
   | { readonly _tag: "Loading" }
@@ -168,64 +183,88 @@ export interface ConsentView {
   readonly earlyPerformance: boolean;
 }
 
+/**
+ * Why Pay is off while nothing runs: a changed price to accept first, else
+ * the agreement to tick.
+ */
+export type PayBlock = "AcceptPrice" | "Agreement";
+
+const payBlock = (
+  idle: boolean,
+  priceChanged: boolean,
+  consented: boolean
+): Option.Option<PayBlock> => {
+  if (!idle) return Option.none();
+  if (priceChanged) return Option.some("AcceptPrice");
+  return consented ? Option.none() : Option.some("Agreement");
+};
+
 export interface ReviewView {
-  readonly summary: SummaryView;
-  /** A changed price waits for the customer's acceptance. */
-  readonly priceReview: boolean;
-  readonly acceptingPrice: boolean;
+  readonly party: ReviewParty;
+  readonly invoice: ReviewInvoice;
+  readonly price: ReviewPriceView;
+  readonly priceChange: Option.Option<PriceChangeView>;
   readonly code: CodeFieldView;
   readonly consent: ConsentView;
   readonly canPay: boolean;
+  readonly payBlock: Option.Option<PayBlock>;
   /** A write runs: every other review action holds still. */
   readonly busy: boolean;
   readonly submitting: boolean;
   /**
-   * When the hold ends (ISO instant), for the app bar's hold timer chip;
-   * entering or clearing a code never moves it.
+   * When the hold ends (ISO instant), from the server's latest answer, for
+   * the app bar's hold timer chip. Only an answer that moves it moves the
+   * chip; entering or clearing a code keeps it.
    */
   readonly holdExpiresAt: string;
-  /** Whole seconds left on the hold at the flow clock's latest tick. */
-  readonly holdSecondsLeft: number;
 }
 
 const pendingIs = (review: ReviewState) => (tag: ReviewMutation["_tag"]) =>
   Option.exists(review.pending, (pending) => pending._tag === tag);
 
-export const reviewView = (review: ReviewState, now: number): ReviewView => {
+/**
+ * The review screen's view of `review`. `quotedTotal` is the total the
+ * selection screen quoted; `bookerName` the account's own name.
+ */
+export const reviewView = (
+  review: ReviewState,
+  quotedTotal: Money,
+  bookerName: Option.Option<string>
+): ReviewView => {
   const idle = Option.isNone(review.pending);
   const pending = pendingIs(review);
-  const { checkout, code, legal } = review;
+  const { checkout, legal } = review;
+  const total = checkout.summary.total;
+  const priceChange = Option.map(
+    checkout.priceReview,
+    (): PriceChangeView => ({
+      before: quotedTotal,
+      now: total,
+      accepting: pending("AcceptPriceChange"),
+    })
+  );
+  const consented = Option.isSome(review.consent);
   return {
-    summary: summaryView(
-      checkout.summary,
-      checkout.priceReview,
-      checkout.appliedDiscountCode
-    ),
-    priceReview: Option.isSome(checkout.priceReview),
-    acceptingPrice: pending("AcceptPriceChange"),
-    code: {
-      input: code.input,
-      editable: idle,
-      canApply: idle && code.input.trim() !== "",
-      message: codeMessage(code.status),
-      applied: checkout.appliedDiscountCode,
-      canClear: canClearCode(review),
-      clearing: pending("ClearDiscountCode"),
+    party: reviewParty(review.details, bookerName),
+    invoice: reviewInvoice(review.details),
+    price: {
+      breakdown: priceBreakdown(checkout.summary),
+      was: sameMoney(quotedTotal, total)
+        ? Option.none()
+        : Option.some(quotedTotal),
     },
+    priceChange,
+    code: codeFieldView(review, idle),
     consent: {
       legal,
-      checked: Option.isSome(review.consent),
+      checked: consented,
       disabled: !idle || legal._tag !== "Loaded",
       earlyPerformance: checkout.earlyPerformanceConsent.required,
     },
     canPay: canPay(review),
+    payBlock: payBlock(idle, Option.isSome(priceChange), consented),
     busy: !idle,
     submitting: pending("SubmitCheckout"),
     holdExpiresAt: checkout.holdExpiresAt,
-    holdSecondsLeft: holdSecondsLeft(Date.parse(checkout.holdExpiresAt), now),
   };
 };
-
-/** Whole seconds left on the hold at `now` (epoch ms), never below zero. */
-export const holdSecondsLeft = (holdExpiresAt: number, now: number): number =>
-  Math.max(0, Math.ceil((holdExpiresAt - now) / 1000));

@@ -183,7 +183,7 @@ const onCreating = (creating: CreatingState, event: CheckoutEvent) =>
   Event.$match(event, {
     CheckoutCreated: ({ operationId, start }) =>
       answers(creating.command, operationId)
-        ? created(creating.flow, start)
+        ? created(creating.flow, creating.details, start)
         : stay(creating),
     CommandFailed: ({ operationId, problem }) =>
       answers(creating.command, operationId)
@@ -207,18 +207,23 @@ const onCreating = (creating: CreatingState, event: CheckoutEvent) =>
     PaymentEnded: () => stay(creating),
   });
 
-const created = (flow: CheckoutFlow, start: CustomerCheckoutStart) =>
+const created = (
+  flow: CheckoutFlow,
+  details: CheckoutDetails,
+  start: CustomerCheckoutStart
+) =>
   Match.value(start).pipe(
     Match.discriminatorsExhaustive("status")({
       payment_disabled: () =>
         to(CheckoutState.Blocked({ reason: "payment-disabled" })),
-      ready: (checkout) => enterReview(flow, checkout),
-      price_review: (checkout) => enterReview(flow, checkout),
+      ready: (checkout) => enterReview(flow, details, checkout),
+      price_review: (checkout) => enterReview(flow, details, checkout),
     })
   );
 
 const enterReview = (
   flow: CheckoutFlow,
+  details: CheckoutDetails,
   checkout: CustomerCheckout
 ): CheckoutStep => {
   const [operationId, next] = takeOperation(flow);
@@ -226,6 +231,7 @@ const enterReview = (
   return to(
     CheckoutState.Review({
       flow: withReferralUpdate(next, update),
+      details,
       checkout: heldCheckout(checkout),
       code: { input: "", status: CodeStatus.Idle() },
       legal: LegalDocuments.Loading({ operationId }),

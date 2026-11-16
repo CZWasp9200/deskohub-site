@@ -17,6 +17,9 @@ export const bookFamilyHref = (
 
 export const bookCheckoutHref = "/book/checkout" as const;
 
+/** The Book tab's choice of spaces. */
+export const bookHref = "/book" as const;
+
 /**
  * Account › Profile over the checkout, in the book stack, so back returns to
  * the checkout with its details.
@@ -37,6 +40,4 @@ export const paymentStatusHref = (orderId: string) =>
  * the screen.
  */
 export const bookAgainHref = (booked: CustomerBookedSelection | undefined) =>
-  booked === undefined
-    ? ("/book" as const)
-    : bookFamilyHref(booked.selection.family);
+  booked === undefined ? bookHref : bookFamilyHref(booked.selection.family);

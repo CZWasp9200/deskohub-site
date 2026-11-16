@@ -195,6 +195,8 @@ export const ReviewNotice = Data.taggedEnum<ReviewNotice>();
 
 interface ReviewFields {
   readonly flow: CheckoutFlow;
+  /** Who books and who is invoiced, as the details step submitted them. */
+  readonly details: CheckoutDetails;
   readonly checkout: HeldCheckout;
   readonly code: CodeEntry;
   readonly legal: LegalDocuments;
