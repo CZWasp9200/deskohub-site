@@ -7,9 +7,10 @@ import { CustomerDataProvider } from "../../src/customer-api/customer-data-provi
 /**
  * The signed-in app over the signed-in account's own data registry: the
  * `/` start-tab redirect, the Account, Book and Reservations tabs, and
- * booking a space (`book/`) stacked above them so it stays out of the tab
- * bar. The Stack registers routes it doesn't declare, so `index` and
- * `book/` need no screen here. The device's analytics consent follows the
+ * booking a space (`book/`) and a reservation's access PIN
+ * (`reservations/`) stacked above them so they stay out of the tab bar.
+ * The Stack registers routes it doesn't declare, so `index`, `book/` and
+ * `reservations/` need no screen here. The device's analytics consent follows the
  * account while the group is mounted, and the account's reservations are
  * read once per launch (`ReservationsRefreshRoot`).
  */

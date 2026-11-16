@@ -1,6 +1,6 @@
 import { CustomerAccountId } from "@deskohub/workspace-customer-api";
 import type { FakeWorkspace } from "./fake-workspace";
-import { sampleDeskReservation } from "./sample-fixtures";
+import { sampleDeskReservation, sampleWholeDayDesk } from "./sample-fixtures";
 
 /**
  * Which reservations the sample-data mode lists, for evidence of the
@@ -14,8 +14,10 @@ import { sampleDeskReservation } from "./sample-fixtures";
  *   device saved earlier shows, or the retry state when nothing is saved.
  * - `offline-fresh`: as `offline`, for another sample account, which has
  *   nothing saved on the device.
- * - `loading`: the list and every booking's status never answer, so their
- *   skeletons stay; for the account with nothing saved.
+ * - `loading`: the list, every booking's status and its PIN never answer,
+ *   so their skeletons stay; for the account with nothing saved.
+ * - `whole-day`: the next booking is a reserved desk for the whole of today,
+ *   with a nine-digit PIN.
  */
 export const sampleHistories = [
   "today",
@@ -26,6 +28,7 @@ export const sampleHistories = [
   "offline",
   "offline-fresh",
   "loading",
+  "whole-day",
 ] as const;
 export type SampleHistory = (typeof sampleHistories)[number];
 
@@ -40,6 +43,7 @@ export const withSampleHistory = (
 ): FakeWorkspace => {
   const { data } = workspace;
   const [today, ...later] = data.history.current;
+  const wholeDay = sampleWholeDayDesk(now);
   const todayOrder =
     today?.orderId === undefined ? undefined : data.orders.get(today.orderId);
   const current = {
@@ -54,6 +58,7 @@ export const withSampleHistory = (
     offline: () => data.history.current,
     "offline-fresh": () => data.history.current,
     loading: () => data.history.current,
+    "whole-day": () => [wholeDay.reservation, ...data.history.current],
   }[history]();
   workspace.data = {
     ...data,
@@ -63,6 +68,14 @@ export const withSampleHistory = (
           accountId: CustomerAccountId.make(
             `sample-account-unsaved-${history}`
           ),
+        }
+      : {}),
+    ...(history === "whole-day"
+      ? {
+          orders: new Map([
+            ...data.orders,
+            [wholeDay.reservation.orderId ?? "", wholeDay.order],
+          ]),
         }
       : {}),
     history:
@@ -76,6 +89,7 @@ export const withSampleHistory = (
   if (history === "loading") {
     workspace.fail("listReservations", "hang", 10_000);
     workspace.fail("getReservationStatus", "hang", 10_000);
+    workspace.fail("getReservationAccess", "hang", 10_000);
   }
   return workspace;
 };
