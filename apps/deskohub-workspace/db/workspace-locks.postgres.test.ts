@@ -6,13 +6,13 @@ import { Cause, Duration, Effect, Exit } from "effect";
 import { Statement } from "effect/sql";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   WorkspaceDatabase,
   type WorkspaceTransaction,
 } from "./database.service";
 import { makeDatabaseClient } from "./database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { WorkspaceDatabaseAdvisoryLock } from "./postgres-advisory-lock";
 import { isLockWaitTimeout } from "./sql-constraint";
 import { WorkspaceLockSections, WorkspaceLocks } from "./workspace-locks";

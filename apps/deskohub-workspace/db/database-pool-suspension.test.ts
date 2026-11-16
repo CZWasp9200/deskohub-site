@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { makeDatabaseClient } from "./database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { attachDatabaseReleaseReporter } from "./database-release-reporter";
 
 const postgresDatabase = await connectWorkspacePostgresTestDatabase();

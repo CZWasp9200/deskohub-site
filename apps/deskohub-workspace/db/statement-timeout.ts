@@ -23,7 +23,7 @@ export const startStatementClock: Effect.Effect<void> = Effect.flatMap(
  * Retryable, like the code-less driver error pg's `query_timeout` produced
  * before, so `retryDatabaseRead` still retries a read that timed out.
  */
-export const statementTimedOut = (timeout: Duration.Duration) =>
+const statementTimedOut = (timeout: Duration.Duration) =>
   new SqlError.SqlError({
     reason: new SqlError.StatementTimeoutError({
       cause: new Error(

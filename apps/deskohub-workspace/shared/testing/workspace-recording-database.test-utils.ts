@@ -49,7 +49,7 @@ export const makeRecordingWorkspaceDatabase =
         }
         const rows = transactionControlPattern.test(text) ? [] : nextRows();
         statements.push({ sql: text, params: values });
-        return Effect.succeed<ReadonlyArray<any>>([...rows]);
+        return Effect.succeed([...rows] as never[]);
       });
 
     const connection: SqlConnection.Connection = {
@@ -90,7 +90,13 @@ export const makeRecordingWorkspaceDatabase =
       },
       listen: () => unused,
       notify: () => unused,
-      poolStats: Effect.succeed({ idle: 0, used: 0, pending: 0, min: 0, max: 0 }),
+      poolStats: Effect.succeed({
+        idle: 0,
+        used: 0,
+        pending: 0,
+        min: 0,
+        max: 0,
+      }),
     });
     const db = await Effect.runPromise(
       Effect.provideService(databaseClient, PgClient.PgClient, pgClient)

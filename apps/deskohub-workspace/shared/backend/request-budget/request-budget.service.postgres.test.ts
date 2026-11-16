@@ -5,7 +5,11 @@ import { randomUUID } from "node:crypto";
 import { DateTime, Duration, Effect, Exit, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { databaseClient, databasePostgresLayer, makeDatabaseClient } from "@/db/database-client";
+import {
+  databaseClient,
+  databasePostgresLayer,
+  makeDatabaseClient,
+} from "@/db/database-client";
 import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import {
   holdPostgresTransaction,
@@ -50,7 +54,6 @@ const otherInstancePool =
 
 describe.skipIf(!testDatabase)("RequestBudget on disposable Postgres", () => {
   if (!testDatabase || !otherInstancePool) return;
-
 
   afterAll(async () => {
     await otherInstancePool.close();

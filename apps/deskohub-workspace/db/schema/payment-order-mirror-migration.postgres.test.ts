@@ -7,9 +7,13 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Effect } from "effect";
 import type { Pool } from "pg";
-import { type DatabasePool, makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
+import {
+  type DatabasePool,
+  makeDatabaseClient,
+  makeDatabasePool,
+} from "@/db/database-client";
 import { createScratchPostgresDatabase } from "@/shared/testing/postgres-scratch-database.test-utils";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import {
   fixtureReservationAuthorId,
   type ReservationFixtureInput,

@@ -1592,9 +1592,7 @@ describe("customer MCP route per client", () => {
     );
 
     expect(
-      Object.fromEntries(
-        tools.map((tool) => [tool.name, tool["securitySchemes"]])
-      )
+      Object.fromEntries(tools.map((tool) => [tool.name, tool.securitySchemes]))
     ).toMatchObject({
       start_reservation: [{ type: "noauth" }],
       get_reservation_status: [
@@ -1617,7 +1615,7 @@ describe("customer MCP route per client", () => {
       ({ name }) => name === "start_reservation"
     );
 
-    expect(startReservation?.["securitySchemes"]).toEqual([
+    expect(startReservation?.securitySchemes).toEqual([
       { type: "oauth2", scopes: ["reservations:create"] },
     ]);
     expect(startReservation?.annotations).toMatchObject({
@@ -1654,7 +1652,7 @@ describe("customer MCP route per client", () => {
 
     expect(started).toEqual({
       family: "cowork",
-      reservation_url: quote?.["reservation_url"],
+      reservation_url: quote?.reservation_url,
       note: expect.any(String),
     });
     expect(bookingCalls).toEqual([]);
@@ -1686,9 +1684,7 @@ describe("customer MCP route per client", () => {
       "whoami",
     ]);
     expect(
-      Object.fromEntries(
-        tools.map((tool) => [tool.name, tool["securitySchemes"]])
-      )
+      Object.fromEntries(tools.map((tool) => [tool.name, tool.securitySchemes]))
     ).toEqual({
       list_offerings: [{ type: "noauth" }],
       check_availability: [{ type: "noauth" }],
@@ -1702,7 +1698,7 @@ describe("customer MCP route per client", () => {
       whoami: [{ type: "oauth2", scopes: ["reservations:read"] }],
     });
     for (const tool of tools) {
-      expect(tool._meta?.["securitySchemes"]).toEqual(tool["securitySchemes"]);
+      expect(tool._meta?.securitySchemes).toEqual(tool.securitySchemes);
     }
   });
 

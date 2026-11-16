@@ -15,10 +15,10 @@ import {
 } from "effect";
 import { SqlClient } from "effect/sql";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { WorkspaceDatabase } from "./database.service";
 import { makeDatabaseClient } from "./database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { WorkspaceDatabaseAdvisoryLock } from "./postgres-advisory-lock";
 import { WorkspaceLocks } from "./workspace-locks";
 

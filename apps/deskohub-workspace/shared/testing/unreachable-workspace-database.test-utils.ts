@@ -1,8 +1,8 @@
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { type DatabasePool, makeDatabaseClient } from "@/db/database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 
 export interface UnreachableWorkspaceDatabase {
   readonly database: Layer.Layer<WorkspaceDatabase>;

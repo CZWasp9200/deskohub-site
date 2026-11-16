@@ -12,8 +12,11 @@ import { Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import type { Pool } from "pg";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { type DatabasePool, makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
+import {
+  type DatabasePool,
+  makeDatabaseClient,
+  makeDatabasePool,
+} from "@/db/database-client";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { customerEvents } from "@/db/schema";
 import { CustomerAccountLinkRepository } from "@/features/account/backend/customer-account-link.repository";
@@ -22,6 +25,7 @@ import { triggeringCustomerEvent } from "@/features/email-campaigns/automation/b
 import { CampaignCandidateRepository } from "@/features/email-campaigns/backend/campaign-candidate.repository";
 import { CustomerEventReconciler } from "@/shared/backend/customer-events/customer-event-reconciler";
 import { createScratchPostgresDatabase } from "@/shared/testing/postgres-scratch-database.test-utils";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import {
   holdPostgresTransaction,
   waitForPostgresLockWaiter,

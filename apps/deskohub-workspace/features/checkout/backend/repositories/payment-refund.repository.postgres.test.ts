@@ -6,13 +6,13 @@ import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { makeDatabaseClient } from "@/db/database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { paymentAttempts } from "@/db/schema";
 import {
   type PaymentAttemptId,
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { PaymentRefundRepository } from "./payment-refund.repository";

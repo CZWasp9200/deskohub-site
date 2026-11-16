@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
+import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { makeDatabaseClient } from "./database-client";
-import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 
 const postgresDatabase = await connectWorkspacePostgresTestDatabase();
 

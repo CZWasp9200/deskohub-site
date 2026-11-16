@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Effect, Exit } from "effect";
-import { makeDatabaseClient } from "./database-client";
 import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
+import { makeDatabaseClient } from "./database-client";
 import { normalizePostgresConnectionUrl } from "./postgres-connection-url";
 
 const sslModeOf = (url: string) =>
