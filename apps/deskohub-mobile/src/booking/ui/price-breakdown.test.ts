@@ -16,6 +16,15 @@ const signedTotal = (lines: ReadonlyArray<PriceLine>) =>
   lines.reduce((sum, line) => sum + priceLineAmount(line).value, 0);
 
 describe("priceBreakdown", () => {
+  test.each(["not-vat-payer", "vat-payer"] as const)(
+    "keeps the response's %s VAT status for the total's tax note",
+    (vatStatus) => {
+      expect(
+        priceBreakdown({ ...openSpaceWithCoffee.summary, vatStatus }).vatStatus
+      ).toBe(vatStatus);
+    }
+  );
+
   test.each(Object.entries(priceFixtures))(
     "the %s lines add up to the response's total",
     (_, { summary }) => {

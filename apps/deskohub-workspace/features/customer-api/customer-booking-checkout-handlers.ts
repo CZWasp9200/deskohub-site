@@ -70,6 +70,7 @@ import {
   CheckoutServicesUnavailable,
   CustomerCheckoutOperations,
 } from "./customer-checkout-operations.service";
+import { toCustomerCheckoutSummary } from "./customer-checkout-summary";
 import { CustomerReferralUpdates } from "./customer-referral-updates";
 
 type Operations = CustomerCheckoutOperations["Service"];
@@ -771,7 +772,7 @@ const toCustomerCheckout = (
     orderId: view.orderId,
     payStateToken,
     expiresAt: view.expiresAt,
-    summary: view.summary,
+    summary: toCustomerCheckoutSummary(view.summary),
     ...(view.changedKeys !== undefined && {
       priceReview: { changedKeys: view.changedKeys },
     }),

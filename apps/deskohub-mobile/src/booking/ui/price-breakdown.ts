@@ -1,6 +1,7 @@
 import type {
   CustomerCheckoutSummary,
   CustomerCheckoutSummaryItem,
+  CustomerVatStatus,
   Money,
 } from "@deskohub/workspace-customer-api";
 
@@ -50,6 +51,8 @@ export interface PriceBreakdown {
   readonly lines: ReadonlyArray<PriceLine>;
   /** The response's total, never summed by the app. */
   readonly total: Money;
+  /** The seller's VAT status: only a VAT payer's total has a tax note. */
+  readonly vatStatus: CustomerVatStatus;
 }
 
 /**
@@ -133,6 +136,7 @@ export const priceBreakdown = (
     section.items.filter((item) => item.key !== totalKey).flatMap(itemLines)
   ),
   total: summary.total,
+  vatStatus: summary.vatStatus,
 });
 
 /** A line's amount with its sign: a reduction is negative. */

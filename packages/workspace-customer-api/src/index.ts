@@ -101,6 +101,7 @@ export {
   CustomerCheckoutSummary,
   CustomerCheckoutSummaryDiscount,
   CustomerCheckoutSummaryItem,
+  CustomerVatStatus,
 } from "./customer-checkout-summary";
 export {
   CustomerInvoice,
