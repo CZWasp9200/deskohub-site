@@ -9,11 +9,11 @@ import {
 } from "@/features/discounts/contracts";
 import { promotionCodeIdSchema } from "@/features/discounts/persistence-contracts";
 import { m } from "@/features/i18n";
-import { getReferralBenefitIds } from "@/features/referrals/referral-benefits";
+import { getReferralBenefitIds } from "./referral-benefits";
 import {
   isAttributedToAnotherReferral,
   referralInvitationBenefitChanged,
-} from "./payment-claim-benefits";
+} from "./referral-invitation-claim-benefits";
 
 const czk = (value: number) => ({ value, exponent: 2, currency: "CZK" });
 const invited = "100000001" as DotyposCustomerId;
