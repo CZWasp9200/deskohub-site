@@ -58,6 +58,7 @@ export {
   CustomerMeetingRoomUnavailableDates,
   CustomerOffering,
   CustomerOfferingAddOn,
+  CustomerOfferingFact,
   customerAvailabilityReplacementHeader,
 } from "./customer-booking-catalog-api";
 export {

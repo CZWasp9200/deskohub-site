@@ -5734,6 +5734,20 @@
         "required": ["id", "name", "price", "included"],
         "additionalProperties": false
       },
+      "CustomerOfferingFact": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["capacity", "equipment"]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": ["kind", "text"],
+        "additionalProperties": false
+      },
       "CustomerOffering": {
         "anyOf": [
           {
@@ -5802,6 +5816,12 @@
               "usage": {
                 "type": "string"
               },
+              "facts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CustomerOfferingFact"
+                }
+              },
               "price": {
                 "$ref": "#/components/schemas/Money"
               },
@@ -5816,6 +5836,7 @@
               "name",
               "description",
               "usage",
+              "facts",
               "price",
               "advertisedPrice"
             ],

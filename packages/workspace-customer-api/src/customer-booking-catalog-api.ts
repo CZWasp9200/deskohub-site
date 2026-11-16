@@ -43,6 +43,16 @@ const offeringCopyFields = {
   usage: Schema.String,
 };
 
+/**
+ * One key fact about a space, in the customer's language, such as how many
+ * people it holds or the equipment it has; `kind` says which.
+ */
+export const CustomerOfferingFact = Schema.Struct({
+  kind: Schema.Literals(["capacity", "equipment"]),
+  text: Schema.String,
+}).annotate({ identifier: "CustomerOfferingFact" });
+export type CustomerOfferingFact = typeof CustomerOfferingFact.Type;
+
 /** An optional or included extra of a cowork offering. */
 export const CustomerOfferingAddOn = Schema.Struct({
   id: Schema.Literals(["coffee", "workstation"]),
@@ -74,6 +84,8 @@ export const CustomerOffering = Schema.Union([
     duration: CustomerMeetingRoomDuration,
     durationLabel: Schema.String,
     ...offeringCopyFields,
+    /** The room's key facts, as the room's page lists them. */
+    facts: Schema.Array(CustomerOfferingFact),
     /** Per booking of the duration. */
     price: Money,
     advertisedPrice: CustomerAdvertisedPrice,

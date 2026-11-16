@@ -297,6 +297,7 @@ const toCustomerOffering = (offering: PublicOffering): CustomerOffering => {
         duration: getMeetingRoomReservationDurationKey(meetingRoom.duration),
         durationLabel: meetingRoom.durationLabel,
         ...copy,
+        facts: meetingRoom.facts,
         price: meetingRoom.price,
         advertisedPrice,
       }),
