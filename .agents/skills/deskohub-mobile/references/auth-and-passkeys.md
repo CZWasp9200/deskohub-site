@@ -48,6 +48,11 @@ opens the web bundle's `/app/sign-in?native=1` in an in-app auth session:
   handoff code, returns to `deskohub://auth/callback` or the `/app/auth/callback`
   App Link with code and state, and `auth-callback.ts` exchanges it with the
   verifier.
+- The request (`native-handoff-request.ts`) may carry the app's analytics
+  answer as `analytics=granted|denied` plus `analytics_decided_at`, the
+  stored instant byte for byte. Only a single, valid pair counts; anything
+  else drops the answer and keeps the request. The page applies it as the
+  analytics reference describes.
 - A magic link opened later on the device arrives as the
   `/app/auth/callback?token=…` App Link; the app verifies the token itself with
   its Expo origin. `ACCOUNT_SWITCH_REFUSED` keeps the current account signed in

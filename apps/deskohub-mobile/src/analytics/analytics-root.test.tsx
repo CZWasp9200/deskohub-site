@@ -11,8 +11,14 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import { act, Profiler } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { nativeReturnUri } from "../auth/auth-callback";
 import type { AuthSessionState } from "../auth/auth-session-state";
 import { appAccountConsentCheck } from "../consent/account-consent-check";
+import {
+  type AnalyticsGate,
+  consentAnalyticsGate,
+  nativeHandoffAnalyticsGate,
+} from "../consent/analytics-gate";
 import { appAnalyticsConsent } from "../consent/use-analytics-consent";
 import { AppLocaleProvider } from "../i18n/locale-context";
 import { clientRoot } from "../testing/client-root";
@@ -23,6 +29,12 @@ let session: AuthSessionState = { status: "restoring" };
 mock.module("expo-router", () => expoRouterStandIn());
 mock.module("../auth/use-auth-session", () => ({
   useAuthSession: () => session,
+}));
+// The page's gate; the web page the native app opened replaces it.
+let pageGate: AnalyticsGate | undefined;
+mock.module("../consent/app-analytics-gate", () => ({
+  appAnalyticsGate: () =>
+    pageGate ?? consentAnalyticsGate(appAnalyticsConsent()),
 }));
 
 const { AnalyticsRoot } = await import("./analytics-root");
@@ -131,5 +143,27 @@ describe("AnalyticsRoot's consent prompt", () => {
     expectNoPromptFrame(await renderUnder(signedIn("account-d")));
     expect(await settleCheck("account-d")).toMatchObject({ showing: true });
     expect(await renderUnder(signedOut)).toMatchObject({ showing: true });
+  });
+});
+
+describe("AnalyticsRoot on the page the native app opened", () => {
+  test("never asks, even without the app's answer", async () => {
+    pageGate = nativeHandoffAnalyticsGate(appAnalyticsConsent(), {
+      codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+      state: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+      returnUri: nativeReturnUri,
+      reauthenticate: false,
+    });
+    try {
+      session = signedOut;
+      frames.length = 0;
+      await render(app());
+      expect(appAnalyticsConsent().status()).toBe("undecided");
+      expect(frames.length).toBeGreaterThan(0);
+      expect(frames).not.toContain(true);
+      expect(promptShowing()).toBe(false);
+    } finally {
+      pageGate = undefined;
+    }
   });
 });
