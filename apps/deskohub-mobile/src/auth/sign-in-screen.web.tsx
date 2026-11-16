@@ -14,6 +14,7 @@ import {
 } from "../ui/controls";
 import { AppSignInCodeStep } from "./app-sign-in-code-step.web";
 import { AppSignInContinueStep } from "./app-sign-in-continue-step";
+import { appSignInEmailHeading } from "./app-sign-in-email-heading";
 import { AppSignInEmailStep } from "./app-sign-in-email-step";
 import { AppSignInLinkStep } from "./app-sign-in-link-step";
 import {
@@ -21,6 +22,7 @@ import {
   isFreshSignIn,
   safeReturnPath,
 } from "./auth-session-state";
+import { ReauthenticationShield } from "./reauthentication-shield";
 import { webSignInFailureMessage } from "./sign-in-failure-message";
 import { signInResendAvailableAt } from "./sign-in-resend-gate";
 import type { SignInScreenProps } from "./sign-in-screen.native";
@@ -334,7 +336,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     passkey.reset();
   };
 
-  if (openedByApp) {
+  if (Option.isSome(nativeRequest)) {
     const verifyFailure =
       verify.state.status === "failed" ? verify.state.failure : undefined;
     // A refused resend outranks the earlier code result, so it is seen.
@@ -411,13 +413,13 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
         />
       );
     }
+    const heading = appSignInEmailHeading(nativeRequest.value, locale);
     return (
       <AppSignInEmailStep
-        title={m.signin_create_title({}, { locale })}
-        body={
-          reauthenticate
-            ? m.signin_reauthenticate_body({}, { locale })
-            : undefined
+        title={heading.title}
+        body={heading.body}
+        illustration={
+          heading.confirmsAccount ? <ReauthenticationShield /> : undefined
         }
         email={{
           value: emailField.kind === "locked" ? emailField.email : email,
