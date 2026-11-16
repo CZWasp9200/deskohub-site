@@ -564,6 +564,37 @@ describe("getReservationStatus", () => {
     });
   });
 
+  test("marks a pending order whose payment page can be opened again", async () => {
+    const pendingOrder = {
+      orderId,
+      returnOutcome: "unknown",
+      kind: "cowork",
+      status: "pending",
+      paymentStatus: "pending",
+      fulfillmentStatus: "not_started",
+    } as CheckoutStatusViewModel;
+    const answer = async (state: CheckoutStatusViewModel) => {
+      const api = makeCustomerApiTestServer({
+        reservations: statusServices(() => Effect.succeed(state)),
+      });
+      const response = await api.handle(
+        customerApiRequest(getReservationStatus)
+      );
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+
+    expect(
+      await answer({
+        ...pendingOrder,
+        paymentPageReopenable: true,
+      } as CheckoutStatusViewModel)
+    ).toMatchObject({ status: "pending", paymentPageReopenable: true });
+    expect(await answer(pendingOrder)).not.toHaveProperty(
+      "paymentPageReopenable"
+    );
+  });
+
   test("answers someone else's order as not found, without reading it", async () => {
     const refreshStatus = mock(() => Effect.succeed(fulfilledOrder));
     const api = makeCustomerApiTestServer({

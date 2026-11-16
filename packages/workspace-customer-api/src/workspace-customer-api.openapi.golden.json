@@ -5811,6 +5811,17 @@
               }
             ]
           },
+          "paymentPageReopenable": {
+            "anyOf": [
+              {
+                "type": "boolean",
+                "enum": [true]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "startsAt": {
             "anyOf": [
               {
