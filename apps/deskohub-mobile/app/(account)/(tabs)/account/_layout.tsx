@@ -42,10 +42,6 @@ export default function AccountSectionsLayout() {
         options={{ title: m.account_section_invoices({}, { locale }) }}
       />
       <Stack.Screen
-        name="complete"
-        options={{ title: m.account_section_complete({}, { locale }) }}
-      />
-      <Stack.Screen
         name="security"
         options={{ title: m.account_section_security({}, { locale }) }}
       />
