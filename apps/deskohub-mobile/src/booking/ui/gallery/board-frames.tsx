@@ -3,7 +3,9 @@ import type {
   Money,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
+import Coffee from "lucide-react-native/icons/coffee";
 import Lock from "lucide-react-native/icons/lock";
+import Monitor from "lucide-react-native/icons/monitor";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { type ComponentRef, type ReactNode, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
@@ -24,9 +26,17 @@ import {
   initialDetailsDraft,
 } from "../../checkout-screen/details-form";
 import { DetailsStep } from "../../checkout-screen/details-step";
+import { CoworkSkeleton } from "../../family/cowork-booking-screen";
+import {
+  type CoworkTierCard,
+  CoworkTierCards,
+  tierArtwork,
+} from "../../family/cowork-tier-cards";
+import { RestartNotice } from "../../family/restart-notice";
 import type { DateChoice } from "../../selection/booking-selection";
 import type { PragueDate } from "../../selection/prague-date";
 import { czk } from "../../testing/sample-booking-catalog";
+import { AddonOptions, AddonToggle } from "../addon-toggle";
 import {
   BookingBar,
   type BookingBarAction,
@@ -250,6 +260,57 @@ function Calendar({
   );
 }
 
+/** Board 26's desk cards, the chosen one first-class. */
+function DeskCards({
+  locale,
+  selected = "open-space",
+  workstation = false,
+  only,
+}: {
+  readonly locale: AppLocale;
+  readonly selected?: CoworkTierCard["tier"];
+  readonly workstation?: boolean;
+  readonly only?: CoworkTierCard["tier"];
+}) {
+  const sample = useSample();
+  const czech = locale === "cs-CZ";
+  const cards: ReadonlyArray<CoworkTierCard> = [
+    {
+      tier: "open-space",
+      name: sample(czech ? "Sdílené místo" : "Open Space"),
+      price: czk(232),
+      was: czk(290),
+      description: sample(
+        czech
+          ? "Seď, kde chceš, k dispozici do 17:00."
+          : "Sit wherever you like, available until 17:00."
+      ),
+      artwork: tierArtwork("open-space", false),
+    },
+    {
+      tier: "reserved-desk",
+      name: sample(czech ? "Vyhrazené místo" : "Reserved Desk"),
+      price: czk(328),
+      was: czk(410),
+      description: sample(
+        czech
+          ? "Tvůj vlastní stůl pro nepřetržitý flow."
+          : "Your own desk for uninterrupted flow."
+      ),
+      artwork: tierArtwork("reserved-desk", workstation),
+    },
+  ];
+  return (
+    <CoworkTierCards
+      label={sample("Desk type")}
+      cards={cards.filter((card) => only === undefined || card.tier === only)}
+      selected={selected}
+      onSelect={ignore}
+      locale={locale}
+    />
+  );
+}
+
 const next = (
   label: string,
   overrides: Partial<BookingBarAction> = {}
@@ -279,7 +340,7 @@ function CoworkStart({ onBack }: { readonly onBack: () => void }) {
       }
     >
       <BookingSectionHeading title={sample("Desk type")} first />
-      <Placeholder label="Desk type cards (screen ticket)" height={232} />
+      <DeskCards locale={locale} />
       <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} />
     </FlowScreen>
@@ -316,11 +377,17 @@ function CoworkChosen({
       }
     >
       <BookingSectionHeading title={sample("Desk type")} first />
-      <Placeholder label="Desk type cards (screen ticket)" height={232} />
+      <DeskCards locale={locale} />
       <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} selected={chosenDay} />
       <BookingSectionHeading title={sample("Coffee")} />
-      <Placeholder label="Coffee switch (screen ticket)" height={56} />
+      <AddonToggle
+        label={sample("Coffee")}
+        icon={Coffee}
+        checked
+        onToggle={ignore}
+        price="+ CZK 50"
+      />
     </FlowScreen>
   );
 }
@@ -384,11 +451,33 @@ function ReservedDeskOpened({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <Placeholder label="Reserved desk card (screen ticket)" height={112} />
-      <BookingSectionHeading title={sample("Workstation")} aside="+ CZK 120" />
-      <Placeholder label="Workstation grid (screen ticket)" height={168} />
+      <DeskCards
+        locale={locale}
+        selected="reserved-desk"
+        workstation
+        only="reserved-desk"
+      />
       <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} selected={chosenDay} legend={false} />
+      <BookingSectionHeading title={sample("Monitor workstation")} />
+      <AddonToggle
+        label={sample("Monitor workstation")}
+        icon={Monitor}
+        checked
+        onToggle={ignore}
+        price="+ CZK 120"
+      />
+      <AddonOptions
+        label={sample("Monitor workstation")}
+        options={[
+          { value: "2x27-qhd", label: "2× 27″ QHD" },
+          { value: "2x32-qhd", label: "2× 32″ QHD" },
+          { value: "2x27-4k", label: "2× 27″ 4K" },
+          { value: "2x32-4k", label: "2× 32″ 4K" },
+        ]}
+        selected="2x27-qhd"
+        onSelect={ignore}
+      />
     </FlowScreen>
   );
 }
@@ -410,10 +499,7 @@ function CoworkLoading({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <BookingSectionHeading title={sample("Desk type")} first />
-      <Placeholder label="Desk type skeleton (screen ticket)" height={184} />
-      <BookingSectionHeading title={sample("Date")} />
-      <Placeholder label="Calendar skeleton (screen ticket)" height={232} />
+      <CoworkSkeleton locale={locale} />
     </FlowScreen>
   );
 }
@@ -450,6 +536,37 @@ function CoworkPriceError({ onBack }: { readonly onBack: () => void }) {
   );
 }
 
+/** Board 27: back after the hold ran out, the choices kept. */
+function CoworkRestart({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Cowork desk")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample("Thu 26 Nov, until 17:00"),
+            detail: sample("Open Space desk · coffee"),
+            price: quoted(openSpaceWithCoffee, locale, czk(340)),
+          }}
+          action={next(sample("Continue"))}
+        />
+      }
+    >
+      <RestartNotice reason={Option.some("hold_expired")} />
+      <BookingSectionHeading title={sample("Desk type")} />
+      <DeskCards locale={locale} />
+      <BookingSectionHeading title={sample("Date")} />
+      <Calendar locale={locale} selected={chosenDay} legend={false} />
+    </FlowScreen>
+  );
+}
+
 /** Board 27's Czech strings at their real length; the whole frame in cs-CZ. */
 function CoworkCzech({ onBack }: { readonly onBack: () => void }) {
   const locale: AppLocale = "cs-CZ";
@@ -475,7 +592,13 @@ function CoworkCzech({ onBack }: { readonly onBack: () => void }) {
       <BookingSectionHeading title={sample("Datum")} first />
       <Calendar locale={locale} selected={chosenDay} legend={false} />
       <BookingSectionHeading title={sample("Káva")} />
-      <Placeholder label="Coffee switch (screen ticket)" height={56} />
+      <AddonToggle
+        label={sample("Káva")}
+        icon={Coffee}
+        checked
+        onToggle={ignore}
+        price="+ 50 Kč"
+      />
     </FlowScreen>
   );
 }
@@ -942,6 +1065,12 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     board: "27",
     state: "Price couldn’t load",
     Screen: CoworkPriceError,
+  },
+  {
+    key: "cowork-restart",
+    board: "27",
+    state: "Back after the hold ran out",
+    Screen: CoworkRestart,
   },
   {
     key: "cowork-czech",

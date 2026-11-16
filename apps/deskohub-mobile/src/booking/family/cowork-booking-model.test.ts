@@ -11,12 +11,17 @@ import {
   type CoworkDraft,
   coworkAvailabilityQueries,
   defaultCoworkDraft,
+  selectCoworkDate,
   selectCoworkTier,
 } from "../selection/cowork-selection";
 import { pragueToday } from "../selection/prague-date";
 import { fakeBooking } from "../testing/fake-booking-api";
 import { checkoutRequestOf } from "./booking-family-view";
-import { coworkBookingModel } from "./cowork-booking-model";
+import {
+  coworkBookingModel,
+  coworkPreselectionKey,
+  openingCoworkDraft,
+} from "./cowork-booking-model";
 import { settledValue } from "./testing/settled-value";
 
 const now = new Date();
@@ -32,7 +37,9 @@ const settledModel = async (
     settledValue(registry, bookingAvailabilityAtom({ query }));
   const availability = {
     range: Option.some(await read(queries.range)),
-    selection: Option.some(await read(queries.selection)),
+    selection: Option.isSome(queries.selection)
+      ? Option.some(await read(queries.selection.value))
+      : Option.none(),
     workstationRequirement: Option.isSome(queries.workstationRequirement)
       ? Option.some(await read(queries.workstationRequirement.value))
       : Option.none(),
@@ -53,10 +60,10 @@ const setup = async () => {
     bookingOfferingsAtom("en-US")
   );
   // Tomorrow, so the same-day Open Space cutoff never applies.
-  const draft = {
-    ...defaultCoworkDraft(booking.today(), catalog.offerings),
-    date: booking.dateIn(1),
-  };
+  const draft = selectCoworkDate(
+    defaultCoworkDraft(catalog.offerings),
+    booking.dateIn(1)
+  );
   return { ...data, booking, draft };
 };
 
@@ -74,14 +81,14 @@ describe("coworkBookingModel", () => {
     expect(
       checkoutRequestOf({
         locale: "en-US",
-        selection: Option.some(model.selection),
+        selection: model.selection,
         blockers: model.enablement.blockers,
         quote: Option.some(quote),
       })
     ).toEqual(
       Option.some({
         locale: "en-US",
-        selection: model.selection,
+        selection: Option.getOrThrow(model.selection),
         advertisedPriceToken: quote.advertisedPriceToken,
         quote: { summary: quote.summary, regularPrice: quote.regularPrice },
       })
@@ -92,7 +99,7 @@ describe("coworkBookingModel", () => {
     const { registry, booking, draft } = await setup();
     const taken = booking.unavailableDates[0] ?? "";
 
-    const model = await settledModel(registry, { ...draft, date: taken });
+    const model = await settledModel(registry, selectCoworkDate(draft, taken));
 
     expect(model.enablement.dates.unavailable.has(taken)).toBe(true);
     expect(model.enablement.blockers.map(({ _tag }) => _tag)).toContain(
@@ -105,7 +112,7 @@ describe("coworkBookingModel", () => {
     const { registry, booking, draft } = await setup();
     const reservedDesk = {
       ...selectCoworkTier(draft, "reserved-desk"),
-      date: booking.workstationRequiredDates[0] ?? "",
+      date: Option.some(booking.workstationRequiredDates[0] ?? ""),
     };
 
     const fitted = await settledModel(registry, reservedDesk);
@@ -122,9 +129,23 @@ describe("coworkBookingModel", () => {
 
     expect(settled.draft).toBe(fitted.draft);
     expect(settled.enablement.blockers).toEqual([]);
-    expect(settled.selection.monitorOption).toBe(
+    expect(Option.getOrThrow(settled.selection).monitorOption).toBe(
       Option.getOrThrow(fitted.draft.workstation).option
     );
+  });
+
+  test("a draft without a date asks for one and isn't quoted", async () => {
+    const { registry } = await setup();
+    const catalog = await settledValue(registry, bookingOfferingsAtom("en-US"));
+    const draft = defaultCoworkDraft(catalog.offerings);
+
+    const model = await settledModel(registry, draft);
+
+    expect(model.enablement.blockers.map(({ _tag }) => _tag)).toEqual([
+      "DateRequired",
+    ]);
+    expect(model.selection).toEqual(Option.none());
+    expect(model.quotable).toEqual(Option.none());
   });
 
   test("waits for availability before continuing", async () => {
@@ -145,6 +166,93 @@ describe("coworkBookingModel", () => {
     expect(model.enablement.blockers.map(({ _tag }) => _tag)).toEqual([
       "AvailabilityPending",
     ]);
-    expect(model.quotable).toEqual(Option.some(model.selection));
+    expect(model.quotable).toEqual(model.selection);
+  });
+});
+
+describe("openingCoworkDraft", () => {
+  const opening = async () => {
+    const { registry, booking } = await setup();
+    const { offerings } = await settledValue(
+      registry,
+      bookingOfferingsAtom("en-US")
+    );
+    const today = booking.today();
+    const booked = {
+      selection: {
+        family: "cowork" as const,
+        date: booking.dateIn(2),
+        tier: "reserved-desk" as const,
+        monitorOption: "2x27-4k" as const,
+      },
+    };
+    return { offerings, today, booked };
+  };
+
+  test("opens empty without a preselection", async () => {
+    const { offerings, today } = await opening();
+
+    expect(
+      openingCoworkDraft({
+        kept: Option.none(),
+        preselection: Option.none(),
+        offerings,
+        today,
+      })
+    ).toEqual(defaultCoworkDraft(offerings));
+  });
+
+  test("opens on a preselection's tier, day and workstation", async () => {
+    const { offerings, today, booked } = await opening();
+
+    const draft = openingCoworkDraft({
+      kept: Option.none(),
+      preselection: Option.some(booked),
+      offerings,
+      today,
+    });
+
+    expect(draft.tier).toBe("reserved-desk");
+    expect(draft.date).toEqual(Option.some(booked.selection.date));
+    expect(Option.map(draft.workstation, ({ option }) => option)).toEqual(
+      Option.some("2x27-4k")
+    );
+  });
+
+  test("a new preselection replaces the kept draft; none keeps it", async () => {
+    const { offerings, today, booked } = await opening();
+    const earlier = selectCoworkDate(
+      defaultCoworkDraft(offerings),
+      booked.selection.date
+    );
+    const kept = Option.some({ seed: "", draft: earlier });
+
+    expect(
+      openingCoworkDraft({
+        kept,
+        preselection: Option.none(),
+        offerings,
+        today,
+      })
+    ).toBe(earlier);
+    expect(
+      openingCoworkDraft({
+        kept,
+        preselection: Option.some(booked),
+        offerings,
+        today,
+      }).tier
+    ).toBe("reserved-desk");
+    expect(
+      openingCoworkDraft({
+        kept: Option.some({
+          seed: coworkPreselectionKey(Option.some(booked)),
+          draft: earlier,
+        }),
+        preselection: Option.some(booked),
+        offerings,
+        today,
+      })
+    ).toBe(earlier);
   });
 });

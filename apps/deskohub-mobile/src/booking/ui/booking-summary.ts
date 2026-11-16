@@ -1,13 +1,17 @@
-import type { CustomerBookingSelection } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerBookingQuote,
+  CustomerBookingSelection,
+} from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { bookingOverviewOf } from "../checkout-screen/booking-overview";
 import { productLabel } from "../checkout-screen/checkout-copy";
 import { openSpaceClosingTime } from "../selection/cowork-selection";
-import type { PragueDate } from "../selection/prague-date";
-import { formatPragueDate, formatPragueTime } from "./prague-date-format";
-import { monitorOptionName } from "./price-line-description";
+import type { BookingBarSummary } from "./booking-bar";
+import { formatPragueTime, formatShortPragueDate } from "./prague-date-format";
+import { priceBreakdown } from "./price-breakdown";
+import { describePriceLine, monitorOptionName } from "./price-line-description";
 
 /** What the booking bar says about a selection: when, and what. */
 export interface BookingSummaryText {
@@ -16,13 +20,6 @@ export interface BookingSummaryText {
   /** What: the product and its extras, "Open Space · coffee". */
   readonly detail: string;
 }
-
-const shortDate = (date: PragueDate, locale: AppLocale) =>
-  formatPragueDate(date, locale, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
 
 /**
  * The booking bar's summary of a complete selection, as the booking boards
@@ -39,7 +36,7 @@ export const bookingSummaryOf = (
   const overview = bookingOverviewOf(selection, false);
   switch (overview._tag) {
     case "Cowork": {
-      const date = shortDate(overview.date, locale);
+      const date = formatShortPragueDate(overview.date, locale);
       if (selection.tier === "reserved-desk") {
         return {
           title: m.booking_summary_reserved_desk_day({ date }, { locale }),
@@ -63,7 +60,7 @@ export const bookingSummaryOf = (
       };
     }
     case "MeetingRoom": {
-      const date = shortDate(overview.date, locale);
+      const date = formatShortPragueDate(overview.date, locale);
       return Option.match(overview.time, {
         onNone: () => ({ title: date, detail: detail() }),
         onSome: (time) => {
@@ -92,13 +89,16 @@ export const bookingSummaryOf = (
       });
     }
     case "Office": {
-      const first = shortDate(overview.firstDate, locale);
+      const first = formatShortPragueDate(overview.firstDate, locale);
       return {
         title:
           overview.lastDate === overview.firstDate
             ? first
             : m.booking_summary_range(
-                { start: first, end: shortDate(overview.lastDate, locale) },
+                {
+                  start: first,
+                  end: formatShortPragueDate(overview.lastDate, locale),
+                },
                 { locale }
               ),
         detail: detail(
@@ -111,3 +111,25 @@ export const bookingSummaryOf = (
     }
   }
 };
+
+/**
+ * The booking bar's summary of a quoted selection: what and when, and the
+ * quoted total with its lines, struck above by the regular price while a
+ * discount lowers it.
+ */
+export const quotedBarSummary = (
+  selection: CustomerBookingSelection,
+  {
+    summary,
+    regularPrice,
+  }: Pick<CustomerBookingQuote, "summary" | "regularPrice">,
+  locale: AppLocale
+): BookingBarSummary => ({
+  ...bookingSummaryOf(selection, locale),
+  price: {
+    kind: "quoted",
+    breakdown: priceBreakdown(summary),
+    describeLine: describePriceLine(selection, locale),
+    ...(regularPrice.value > summary.total.value && { was: regularPrice }),
+  },
+});
