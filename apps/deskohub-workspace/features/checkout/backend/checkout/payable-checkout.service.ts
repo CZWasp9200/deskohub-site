@@ -156,12 +156,22 @@ export class PayableCheckout extends Context.Service<
 
         const status =
           yield* dotypos.getReservationStatus(dotyposReservationId);
+        // The remote read takes time: payment may have completed and the hold
+        // may have run out meanwhile, so a refusal from here on names a paid
+        // order from the row as it is now.
+        const refuseAfterRead = (reason: CheckoutUnavailableReason) =>
+          reservations
+            .findById(state.orderId)
+            .pipe(
+              Effect.flatMap((latest) =>
+                Effect.fail(unavailable(state, reason, latest ?? reservation))
+              )
+            );
         if (status !== "NEW") {
-          return yield* refuse("dotypos_not_pending");
+          return yield* refuseAfterRead("dotypos_not_pending");
         }
-        // The remote read takes time; the hold may have run out meanwhile.
         if (yield* hasPassed(reservationHoldExpiresAt)) {
-          return yield* refuse("expired");
+          return yield* refuseAfterRead("expired");
         }
 
         const payable: PayableReservation = {

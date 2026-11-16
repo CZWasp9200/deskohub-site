@@ -73,6 +73,8 @@ const runPayableCheckout = <A, E>(
   use: (payableCheckout: PayableCheckout["Service"]) => Effect.Effect<A, E>,
   input: {
     readonly stored?: WorkspaceReservationRow | null;
+    /** What the order's row reads as after the first read, if it changes. */
+    readonly storedLater?: WorkspaceReservationRow | null;
     readonly current?: WorkspaceReservationRow | null;
     readonly dotyposStatus?: "NEW" | "CANCELLED" | "CONFIRMED";
     readonly duringDotyposRead?: Effect.Effect<void>;
@@ -80,7 +82,15 @@ const runPayableCheckout = <A, E>(
 ) => {
   const stored = input.stored === undefined ? row() : input.stored;
   const current = input.current === undefined ? stored : input.current;
-  const findById = mock(() => Effect.succeed(stored));
+  let reads = 0;
+  const findById = mock(() =>
+    Effect.sync(() => {
+      reads += 1;
+      return reads > 1 && input.storedLater !== undefined
+        ? input.storedLater
+        : stored;
+    })
+  );
   const findCurrentByCheckoutSessionKey = mock(() => Effect.succeed(current));
   const getReservationStatus = mock(() =>
     (input.duringDotyposRead ?? Effect.void).pipe(
@@ -310,6 +320,35 @@ describe("PayableCheckout.reconfirm", () => {
         failure: unavailable(reason),
       });
       expect(getReservationStatus).not.toHaveBeenCalled();
+    }
+  );
+
+  test.each([
+    {
+      name: "Dotypos no longer reports the hold NEW",
+      input: { dotyposStatus: "CONFIRMED" as const },
+      reason: "dotypos_not_pending",
+    },
+    {
+      name: "the hold runs out during the read",
+      input: { duringDotyposRead: TestClock.adjust("9 minutes") },
+      reason: "expired",
+    },
+  ] as const)(
+    "names an order paid during the Dotypos read when $name",
+    async ({ input, reason }) => {
+      const { result } = await reconfirm({
+        ...input,
+        storedLater: row({
+          reservationState: "confirmed",
+          paymentState: "paid",
+        }),
+      });
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: unavailable(reason, syntheticPayStateOrderId),
+      });
     }
   );
 
