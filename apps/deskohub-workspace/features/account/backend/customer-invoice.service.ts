@@ -9,6 +9,7 @@ import {
   type CustomerInvoiceSummary,
   getCustomerInvoiceCsvColumns,
   getCustomerInvoiceSummary,
+  type InvoicedReservation,
 } from "@/features/accounting/customer-invoice";
 import type { Locale } from "@/features/i18n";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -19,6 +20,7 @@ import {
   isCustomerAccountAccessDenial,
   type LinkedCustomerAccount,
 } from "../customer-account";
+import { getReservationProductName } from "../reservation-product-name";
 import { CurrentCustomerAccount } from "./current-customer-account";
 import { requireAccountActivity } from "./customer-account-activity";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
@@ -56,6 +58,18 @@ export class CustomerInvoicesLoadError extends Data.TaggedError(
   readonly code: CustomerInvoiceLoadFailureCode;
 }> {}
 
+/**
+ * An invoice in the account's list: its summary, with the product an order's
+ * invoice booked named from the catalog in the list's locale, as the
+ * reservation history names it.
+ */
+export interface CustomerInvoiceListing
+  extends Omit<CustomerInvoiceSummary, "reservation"> {
+  readonly reservation:
+    | (InvoicedReservation & { readonly productName: string })
+    | null;
+}
+
 /** The account's invoice export, ready for `createCsvDownloadResponse`. */
 interface CustomerInvoiceExport {
   readonly filename: string;
@@ -71,7 +85,7 @@ interface ICustomerInvoiceService {
   readonly list: (options: {
     readonly locale: Locale;
   }) => Effect.Effect<
-    readonly CustomerInvoiceSummary[],
+    readonly CustomerInvoiceListing[],
     CustomerInvoicesUnavailableError | CustomerInvoicesLoadError
   >;
   /**
@@ -137,8 +151,7 @@ export class CustomerInvoiceService extends Context.Service<
       );
 
       const listWithToday = (
-        account: LinkedCustomerAccount,
-        locale: Locale
+        account: LinkedCustomerAccount
       ): Effect.Effect<
         {
           readonly today: PlainDate;
@@ -156,15 +169,28 @@ export class CustomerInvoiceService extends Context.Service<
           Effect.map(({ issued, today }) => ({
             today,
             summaries: issued.map((invoice) =>
-              getCustomerInvoiceSummary(invoice, today, locale)
+              getCustomerInvoiceSummary(invoice, today)
             ),
           }))
         );
 
       const list = ({ locale }: { readonly locale: Locale }) =>
         authorize.pipe(
-          Effect.flatMap((account) => listWithToday(account, locale)),
-          Effect.map(({ summaries }) => summaries),
+          Effect.flatMap(listWithToday),
+          Effect.map(({ summaries }) =>
+            summaries.map(
+              ({ reservation, ...summary }): CustomerInvoiceListing => ({
+                ...summary,
+                reservation: reservation && {
+                  ...reservation,
+                  productName: getReservationProductName(
+                    reservation.product,
+                    locale
+                  ),
+                },
+              })
+            )
+          ),
           Effect.withSpan("CustomerInvoiceService.list")
         );
 
@@ -185,7 +211,7 @@ export class CustomerInvoiceService extends Context.Service<
         locale: Locale
       ) {
         const { today, summaries } = yield* authorize.pipe(
-          Effect.flatMap((account) => listWithToday(account, locale))
+          Effect.flatMap(listWithToday)
         );
         return {
           filename: `invoices-${today}.csv`,

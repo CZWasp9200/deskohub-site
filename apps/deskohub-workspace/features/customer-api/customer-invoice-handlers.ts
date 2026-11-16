@@ -8,8 +8,10 @@ import {
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
-import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
-import type { CustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
+import {
+  type CustomerInvoiceListing,
+  CustomerInvoiceService,
+} from "@/features/account/backend/customer-invoice.service";
 import { defaultLocale } from "@/features/i18n";
 import { CustomerAccountLayers } from "./customer-account-layers";
 import { answerCustomerApiFailure } from "./customer-api-failure";
@@ -86,7 +88,7 @@ const answerInvoice = ({
   issuedOn,
   total: { amount, currency },
   reservation,
-}: CustomerInvoiceSummary): CustomerInvoice => ({
+}: CustomerInvoiceListing): CustomerInvoice => ({
   id,
   invoiceNumber,
   issuedOn,

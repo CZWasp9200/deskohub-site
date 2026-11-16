@@ -39,8 +39,7 @@ const summarize = (
 ) =>
   getCustomerInvoiceSummary(
     { id: invoiceId, workspaceReservationId, issuedAt, document },
-    today,
-    "en-US"
+    today
   );
 
 const dueManual = makeTestManualInvoiceDocument("en-US", "450.50", {
@@ -60,7 +59,7 @@ describe("customer invoice summary", () => {
       total: getInvoiceTotal(document),
       paymentStatus: "paid",
       dueDate: null,
-      reservation: getInvoicedReservation(document, "en-US"),
+      reservation: getInvoicedReservation(document),
     });
   });
 
@@ -122,8 +121,7 @@ describe("customer invoice summary", () => {
         issuedAt: Temporal.Instant.from("2026-08-31T22:30:00Z"),
         document: dueManual,
       },
-      date("2026-09-01"),
-      "en-US"
+      date("2026-09-01")
     );
 
     expect(summary.issuedOn).toBe(date("2026-09-01"));
@@ -209,7 +207,7 @@ describe("invoiced reservation", () => {
       throw new Error("a cowork invoice");
     const day = Temporal.PlainDate.from(document.reservation.date);
 
-    const reservation = getInvoicedReservation(document, "en-US");
+    const reservation = getInvoicedReservation(document);
 
     expect(reservation?.product.kind).toBe("cowork");
     expect(reservation?.seats).toBeNull();
@@ -229,7 +227,7 @@ describe("invoiced reservation", () => {
     )
       throw new Error("a meeting-room invoice");
 
-    const reservation = getInvoicedReservation(document, "en-US");
+    const reservation = getInvoicedReservation(document);
 
     expect(reservation?.product).toEqual({ kind: "meeting-room" });
     expect(reservation?.seats).toBeNull();
@@ -250,7 +248,7 @@ describe("invoiced reservation", () => {
       throw new Error("an office invoice");
     const { startsOn, endsOn, seats } = document.reservation;
 
-    const reservation = getInvoicedReservation(document, "en-US");
+    const reservation = getInvoicedReservation(document);
 
     expect(reservation?.product).toEqual({ kind: "office" });
     expect(reservation?.seats).toBe(seats);
@@ -265,7 +263,7 @@ describe("invoiced reservation", () => {
   });
 
   test("a manual invoice invoices no reservation", () => {
-    expect(getInvoicedReservation(dueManual, "en-US")).toBeNull();
+    expect(getInvoicedReservation(dueManual)).toBeNull();
     expect(summarize(dueManual).reservation).toBeNull();
   });
 });

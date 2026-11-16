@@ -1,6 +1,4 @@
 import { Match } from "effect";
-import type { CustomerReservationProduct } from "@/features/account/contracts";
-import { getReservationProductName } from "@/features/account/reservation-product-name";
 import type { Invoice } from "@/features/accounting/backend/invoice.repository";
 import {
   type InvoiceDocument,
@@ -15,6 +13,7 @@ import {
   type InvoiceTotal,
 } from "@/features/accounting/invoice-settlement";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
+import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
 import { type Locale, m } from "@/features/i18n";
 import {
   type WorkspaceReservationId,
@@ -29,15 +28,21 @@ import {
   temporalInstantToPlainDate,
 } from "@/shared/utils/temporal";
 
+/** The product an invoiced reservation booked. */
+type InvoicedProduct =
+  | { readonly kind: "cowork"; readonly tier: WorkspaceCoworkProductTier }
+  | { readonly kind: "meeting-room" }
+  | { readonly kind: "office" };
+
 /**
- * What an invoiced reservation booked and when, as its invoice froze it.
- * `startsAt` and `endsAt` are ISO instants with `endsAt` exclusive; a booking
- * of whole days spans the workspace's (Prague) midnights.
+ * What an invoiced reservation booked and the calendar span it invoices, as
+ * its invoice froze them. `startsAt` and `endsAt` are ISO instants with
+ * `endsAt` exclusive. A booking of whole days (cowork, office) invoices those
+ * whole Prague days, midnight to midnight, whatever hours the space is open;
+ * a meeting room keeps the instants it was booked for.
  */
 export interface InvoicedReservation {
-  readonly product: CustomerReservationProduct;
-  /** The catalog name of `product` in the summary's locale. */
-  readonly productName: string;
+  readonly product: InvoicedProduct;
   readonly startsAt: string;
   readonly endsAt: string;
   /** The office's seats; `null` for a product booked without seats. */
@@ -46,8 +51,7 @@ export interface InvoicedReservation {
 
 /**
  * What a customer account shows of one issued invoice. Every fact comes from
- * the issued invoice; only the product's catalog name is read in the
- * caller's locale, and no current customer data joins it.
+ * the issued invoice; no current customer or catalog data joins it.
  */
 export interface CustomerInvoiceSummary {
   readonly id: InvoiceId;
@@ -78,11 +82,10 @@ const workspaceDays = (startsOn: string, endsOn: string) => {
  * checkout; a manual invoice invoices none.
  */
 export const getInvoicedReservation = (
-  document: InvoiceDocument,
-  locale: Locale
+  document: InvoiceDocument
 ): InvoicedReservation | null => {
   if (isManualInvoiceDocument(document)) return null;
-  const booked = Match.value(document).pipe(
+  return Match.value(document).pipe(
     Match.when(
       { reservation: { kind: "cowork" } },
       ({ reservation, quote }) => ({
@@ -107,23 +110,15 @@ export const getInvoicedReservation = (
     })),
     Match.exhaustive
   );
-  return {
-    ...booked,
-    productName: getReservationProductName(booked.product, locale),
-  };
 };
 
-/**
- * `today` is the workspace (Prague) calendar date; `locale` names the
- * invoiced product.
- */
+/** `today` is the workspace (Prague) calendar date. */
 export const getCustomerInvoiceSummary = (
   invoice: Pick<
     Invoice,
     "id" | "workspaceReservationId" | "issuedAt" | "document"
   >,
-  today: PlainDate,
-  locale: Locale
+  today: PlainDate
 ): CustomerInvoiceSummary => ({
   id: invoice.id,
   invoiceNumber: invoice.document.invoiceNumber,
@@ -146,7 +141,7 @@ export const getCustomerInvoiceSummary = (
       PaymentRequested: ({ dueDate }) => dueDate,
     })
   ),
-  reservation: getInvoicedReservation(invoice.document, locale),
+  reservation: getInvoicedReservation(invoice.document),
 });
 
 export const getCustomerInvoiceStatusLabel = (

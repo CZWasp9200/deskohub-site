@@ -236,9 +236,16 @@ describe("CustomerInvoiceService.list", () => {
   test("summarizes the account's own invoices on the Prague date", async () => {
     const summaries = await run((service) => service.list({ locale: "en-US" }));
 
+    const paid = getCustomerInvoiceSummary(paidInvoice, pragueToday);
     expect(summaries).toEqual([
-      getCustomerInvoiceSummary(dueInvoice, pragueToday, "en-US"),
-      getCustomerInvoiceSummary(paidInvoice, pragueToday, "en-US"),
+      getCustomerInvoiceSummary(dueInvoice, pragueToday),
+      {
+        ...paid,
+        reservation: paid.reservation && {
+          ...paid.reservation,
+          productName: getWorkspaceProductTierTitle("open-space", "en-US"),
+        },
+      },
     ]);
     expect(summaries[0]?.paymentStatus).toBe("overdue");
     expect(events).toEqual([
@@ -288,7 +295,21 @@ describe("CustomerInvoiceService.list", () => {
         productName: getWorkspaceOfficeProductTitle(locale),
         seats: "seats" in office.reservation ? office.reservation.seats : -1,
       });
-      for (const summary of [cowork, meetingRoom, officeSummary]) {
+      // A cowork day invoices the whole Prague day, whatever hours it opens.
+      const coworkDay = Temporal.PlainDate.from(
+        "date" in coworkDocument.reservation
+          ? coworkDocument.reservation.date
+          : ""
+      );
+      const pragueMidnight = (day: Temporal.PlainDate) =>
+        day.toZonedDateTime({ timeZone: "Europe/Prague" }).toInstant();
+      expect(
+        Temporal.Instant.from(cowork?.reservation?.startsAt ?? "")
+      ).toEqual(pragueMidnight(coworkDay));
+      expect(Temporal.Instant.from(cowork?.reservation?.endsAt ?? "")).toEqual(
+        pragueMidnight(coworkDay.add({ days: 1 }))
+      );
+      for (const summary of [meetingRoom, officeSummary]) {
         expect(summary?.reservation?.startsAt).toBeString();
         expect(summary?.reservation?.endsAt).toBeString();
       }
@@ -444,8 +465,8 @@ describe("CustomerInvoiceService.csv", () => {
 
     expect(csv.filename).toBe(`invoices-${pragueToday}.csv`);
     expect(csv.rows).toEqual([
-      getCustomerInvoiceSummary(dueInvoice, pragueToday, "cs-CZ"),
-      getCustomerInvoiceSummary(paidInvoice, pragueToday, "cs-CZ"),
+      getCustomerInvoiceSummary(dueInvoice, pragueToday),
+      getCustomerInvoiceSummary(paidInvoice, pragueToday),
     ]);
     expect(csv.columns.length).toBeGreaterThan(0);
     expect(events).toEqual([

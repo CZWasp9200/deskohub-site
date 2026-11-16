@@ -25,6 +25,11 @@ import {
 import { getInvoiceTotal } from "@/features/accounting/invoice-settlement";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
 import {
+  getWorkspaceMeetingRoomProductTitle,
+  getWorkspaceOfficeProductTitle,
+  getWorkspaceProductTierTitle,
+} from "@/features/checkout/product-catalog.i18n";
+import {
   type CustomerApiCall,
   type CustomerApiTestOptions,
   currentAccountResolving,
@@ -37,7 +42,7 @@ import {
 const reservationId = "019edbcf-5026-7ecc-821b-eda46998eaaa";
 const coworkDocument = makeCoworkInvoiceDocument("en-US");
 const manualDocument = makeTestManualInvoiceDocument("en-US", "450.50");
-const cowork = getInvoicedReservation(coworkDocument, "en-US");
+const cowork = getInvoicedReservation(coworkDocument);
 
 /** The account's customer's reservation invoice. */
 const reservationInvoice: Invoice = {
@@ -162,7 +167,7 @@ describe("listInvoices", () => {
           total: getInvoiceTotal(coworkDocument),
           orderId: reservationId,
           reservation: {
-            productName: cowork?.productName,
+            productName: getWorkspaceProductTierTitle("open-space", "en-US"),
             startsAt: cowork?.startsAt,
             endsAt: cowork?.endsAt,
           },
@@ -201,26 +206,26 @@ describe("listInvoices", () => {
     );
 
     expect(response.status).toBe(200);
-    const meetingRoom = getInvoicedReservation(meetingRoomDocument, "cs-CZ");
-    const office = getInvoicedReservation(officeDocument, "cs-CZ");
+    const meetingRoom = getInvoicedReservation(meetingRoomDocument);
+    const office = getInvoicedReservation(officeDocument);
     const { invoices } = (await response.json()) as {
       invoices: { reservation?: unknown }[];
     };
     expect(invoices.map((invoice) => invoice.reservation)).toEqual([
       {
-        productName: meetingRoom?.productName,
+        productName: getWorkspaceMeetingRoomProductTitle("cs-CZ"),
         startsAt: meetingRoom?.startsAt,
         endsAt: meetingRoom?.endsAt,
       },
       {
-        productName: office?.productName,
+        productName: getWorkspaceOfficeProductTitle("cs-CZ"),
         seats: office?.seats,
         startsAt: office?.startsAt,
         endsAt: office?.endsAt,
       },
     ]);
-    expect(meetingRoom?.productName).not.toBe(
-      getInvoicedReservation(meetingRoomDocument, "en-US")?.productName
+    expect(getWorkspaceMeetingRoomProductTitle("cs-CZ")).not.toBe(
+      getWorkspaceMeetingRoomProductTitle("en-US")
     );
   });
 
