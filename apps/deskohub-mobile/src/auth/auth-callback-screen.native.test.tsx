@@ -161,12 +161,16 @@ const mountScreen = async () => {
     tree = AuthCallbackScreen();
     return null;
   };
-  await render(
+  const app = () => (
     <AppLocaleProvider locale="en-US">
       <Probe />
     </AppLocaleProvider>
   );
-  return () => tree;
+  await render(app());
+  const shown = () => tree;
+  /** Draws the same screen again, as a session change would. */
+  shown.redraw = () => render(app());
+  return shown;
 };
 
 /** The props of the screen's loading indicator, if it shows one. */
@@ -179,6 +183,7 @@ const drawScreen = async () => {
   // The completion runs on the auth runtime; let it finish and re-render.
   await act(() => Effect.runPromise(eventually(() => failure() !== undefined)));
   return {
+    redraw: tree.redraw,
     /** What the failure says happened. */
     cause: () => failure()?.body,
     /** Whether the failure title is announced as soon as it shows. */
@@ -266,6 +271,19 @@ describe("AuthCallbackScreen", () => {
     await screen.pressButton(1);
 
     expect(navigation).toEqual([`dismissTo:${JSON.stringify("/sign-in")}`]);
+  });
+
+  test("goes on when a sign-in lands though its callback then failed", async () => {
+    runtime = launchApp().app;
+    params = { error: "access_denied" };
+    const screen = await drawScreen();
+    expect(navigation).toEqual([]);
+
+    // The session the callback accepted arrives after its account read failed.
+    session = { status: "signed-in", user: ada, signedInAt: new Date() };
+    await screen.redraw();
+
+    expect(navigation).toEqual(["back"]);
   });
 
   test("starts a new email sign-in from the sign-in screen after a refused callback", async () => {

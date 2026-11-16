@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { router, useLocalSearchParams } from "expo-router";
 import CircleAlert from "lucide-react-native/icons/circle-alert";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AppLocale } from "../i18n/app-locale";
@@ -85,11 +85,20 @@ export function AuthCallbackScreen() {
     void start(callback, locale);
   }, [start, callback, locale]);
 
+  // Where the session first settled while this screen showed. Signed out
+  // there, a session that lands is this sign-in's, even when reading its
+  // account then failed: the app is signed in (and says so), so it goes on
+  // rather than reporting a failure. A reauthentication starts signed in.
+  const [arrivedSignedIn, setArrivedSignedIn] = useState<boolean>();
+  if (arrivedSignedIn === undefined && session.status !== "restoring") {
+    setArrivedSignedIn(session.status === "signed-in");
+  }
   const completed = state.status === "succeeded";
   const signedIn = session.status === "signed-in";
+  const landed = signedIn && arrivedSignedIn === false;
   useEffect(() => {
-    if (completed && signedIn) leave();
-  }, [completed, signedIn]);
+    if ((completed || landed) && signedIn) leave();
+  }, [completed, landed, signedIn]);
 
   if (state.status !== "failed") {
     return (
