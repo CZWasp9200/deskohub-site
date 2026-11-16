@@ -3,9 +3,15 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
 import { Effect, Layer } from "effect";
+import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-document-snapshot";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
+import {
+  findRenderedTexts,
+  identifyingTexts,
+} from "@/shared/testing/rendered-representations.test-utils";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
+  type AccountingSnapshotKey,
   AccountingSnapshotKeyError,
   type IAccountingSnapshotKeyService,
 } from "./accounting-snapshot-key.service";
@@ -102,6 +108,33 @@ const makeService = (
     );
   return { delivered, run };
 };
+
+const sealingKey: AccountingSnapshotKey = {
+  id: accountingSnapshotKeyIdSchema.make("K209904"),
+  secret: "synthetic cancellation service secret!",
+};
+const sealingKeys: IAccountingSnapshotKeyService = {
+  getActive: Effect.succeed(sealingKey),
+  getById: () => Effect.succeed(sealingKey),
+};
+const wrongSecret = "synthetic cancellation service wrong secret!";
+const wrongKeys: IAccountingSnapshotKeyService = {
+  getActive: Effect.succeed(sealingKey),
+  getById: (keyId) => Effect.succeed({ id: keyId, secret: wrongSecret }),
+};
+
+/** Neither key, nor the texts of the invoice's document. */
+const sensitiveTexts = (
+  invoice: Awaited<ReturnType<typeof kit.issueManualInvoice>>
+) => [
+  sealingKey.secret,
+  wrongSecret,
+  ...identifyingTexts(invoice.document, [
+    invoice.id,
+    invoice.invoiceNumber,
+    invoice.dotyposCustomerId,
+  ]),
+];
 
 const readCancellationCount = async (invoiceId: InvoiceId) =>
   Number(
@@ -251,8 +284,8 @@ describe.skipIf(!testDatabase)(
 
     test("a database failure while reading the invoice fails persistence_failed before anything is written", async () => {
       const actor = await kit.makeActor("service-outage");
-      const invoice = await kit.issueManualInvoice(actor);
-      const { delivered, run } = makeService();
+      const invoice = await kit.issueManualInvoice(actor, sealingKeys);
+      const { delivered, run } = makeService({ keys: sealingKeys });
       const countersBefore = await kit.query(
         "select * from corrective_document_number_counters"
       );
@@ -280,6 +313,32 @@ describe.skipIf(!testDatabase)(
         await kit.query("select * from corrective_document_number_counters")
       ).toEqual(countersBefore);
       expect(delivered).toEqual([]);
+      expect(
+        await findRenderedTexts(cancelled, sensitiveTexts(invoice))
+      ).toEqual([]);
+    });
+
+    test("an invoice sealed under another key fails document_unavailable without rendering a key or the document", async () => {
+      const actor = await kit.makeActor("service-wrong-key");
+      const invoice = await kit.issueManualInvoice(actor, sealingKeys);
+      const { delivered, run } = makeService({ keys: wrongKeys });
+
+      const cancelled = await run((service) =>
+        Effect.flip(
+          service.cancelStandalone({
+            invoiceId: invoice.id,
+            actor,
+            confirmedCustomerNotice: true,
+          })
+        )
+      );
+
+      expect(cancelled.code).toBe("document_unavailable");
+      expect(await readCancellationCount(invoice.id)).toBe(0);
+      expect(delivered).toEqual([]);
+      expect(
+        await findRenderedTexts(cancelled, sensitiveTexts(invoice))
+      ).toEqual([]);
     });
 
     test("routes a reservation invoice by its reservation and cancels a legacy-cancelled reservation's invoice alone", async () => {

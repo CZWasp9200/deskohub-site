@@ -127,6 +127,36 @@ export const createWorkspacePostgresSuiteDatabase = async (
 };
 
 /**
+ * The same database over a pool of its own whose statements give up after
+ * `statementTimeoutMillis`, as Production's pool does after its own timeout.
+ * `pool` stays the original one, so setup and checks never time out. Close
+ * it before the database; `close` ends only the new pool.
+ */
+export const withStatementTimeout = async <
+  Database extends WorkspacePostgresTestDatabase,
+>(
+  database: Database,
+  statementTimeoutMillis: number
+): Promise<Database> => {
+  const { connectionString } = database.pool.options;
+  if (!connectionString) {
+    throw new Error("The test database pool has no connection string.");
+  }
+  const pool = makeDatabasePool({
+    connectionString,
+    ...databasePoolTimeouts,
+    statement_timeout: statementTimeoutMillis,
+  });
+  const db = await Effect.runPromise(makeDatabaseClient(pool));
+  return {
+    ...database,
+    db,
+    layer: Layer.succeed(WorkspaceDatabase, WorkspaceDatabase.make(db)),
+    close: () => pool.end(),
+  };
+};
+
+/**
  * Runs `use` with a database client that writes inside the transaction the
  * connection holds open, such as one a test began with `begin` to keep its
  * rows uncommitted. The client's own transactions become savepoints named

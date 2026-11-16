@@ -3,28 +3,47 @@ import "@/shared/testing/workspace-test-env";
 import { afterAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
-import { Data, Effect, Option } from "effect";
+import { Data, Effect, Exit, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { findSqlState } from "@/db/sql-constraint";
+import { findSqlState, isDatabaseQueryError } from "@/db/sql-constraint";
+import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-document-snapshot";
 import {
   type InvoiceId,
   invoiceIdSchema,
 } from "@/features/accounting/manual-invoice";
+import {
+  findRenderedTexts,
+  identifyingTexts,
+} from "@/shared/testing/rendered-representations.test-utils";
 import { waitForPostgresLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import {
   createWorkspacePostgresSuiteDatabase,
   type WorkspacePostgresSuiteDatabase,
+  withStatementTimeout,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import type {
+  AccountingSnapshotKey,
+  IAccountingSnapshotKeyService,
+} from "./accounting-snapshot-key.service";
 import { InvoiceRepository } from "./invoice.repository";
 import { InvoiceCancellationRepository } from "./invoice-cancellation.repository";
-import { makeInvoiceCancellationTestKit } from "./invoice-cancellation.test-utils";
+import {
+  lockingAfterKeyLookup,
+  makeInvoiceCancellationTestKit,
+} from "./invoice-cancellation.test-utils";
 import { InvoiceEmailDeliveryRepository } from "./invoice-email-delivery.repository";
 
 // The suite counts corrective document numbers, so it owns its database.
 const testDatabase = await createWorkspacePostgresSuiteDatabase(
   "invoice_cancellation"
 );
-afterAll(() => testDatabase?.close());
+// The same database, whose statements time out while a table lock holds them.
+const timingOutDatabase =
+  testDatabase && (await withStatementTimeout(testDatabase, 300));
+afterAll(async () => {
+  await timingOutDatabase?.close();
+  await testDatabase?.close();
+});
 
 // The kit only touches the database when a test calls it.
 const {
@@ -36,6 +55,21 @@ const {
   query,
   run,
 } = makeInvoiceCancellationTestKit(testDatabase!);
+const timingOut = makeInvoiceCancellationTestKit(timingOutDatabase!);
+
+const sealingKey: AccountingSnapshotKey = {
+  id: accountingSnapshotKeyIdSchema.make("K209903"),
+  secret: "synthetic cancellation sealing secret!",
+};
+const sealingKeys: IAccountingSnapshotKeyService = {
+  getActive: Effect.succeed(sealingKey),
+  getById: () => Effect.succeed(sealingKey),
+};
+const wrongSecret = "synthetic cancellation wrong secret!";
+const wrongKeys: IAccountingSnapshotKeyService = {
+  getActive: Effect.succeed(sealingKey),
+  getById: (keyId) => Effect.succeed({ id: keyId, secret: wrongSecret }),
+};
 
 const readCorrectiveCounters = () =>
   query<{ numbering_year: number; last_sequence: number }>(
@@ -155,24 +189,42 @@ describe.skipIf(!testDatabase)(
 
     test("reports a database failure while loading the corrective document as the query error, not an unavailable document", async () => {
       const actor = await makeActor("cancellation-document-outage");
-      const invoice = await issueManualInvoice(actor);
-      await run(cancel({ invoiceId: invoice.id, actor }));
-      const load = (keys?: Parameters<typeof run>[1]) =>
-        run(
+      const invoice = await issueManualInvoice(actor, sealingKeys);
+      await run(cancel({ invoiceId: invoice.id, actor }), sealingKeys);
+      const loadWith = (
+        kit: { readonly run: typeof run },
+        keys: IAccountingSnapshotKeyService
+      ) =>
+        kit.run(
           Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
-            Effect.flip(cancellations.loadCorrectiveDocument(invoice.id))
+            Effect.exit(cancellations.loadCorrectiveDocument(invoice.id))
           ),
           keys
         );
+      const document = await run(
+        Effect.flatMap(InvoiceCancellationRepository, (cancellations) =>
+          cancellations.loadCorrectiveDocument(invoice.id)
+        ),
+        sealingKeys
+      );
+      // Neither key, nor the texts of the corrective document or its invoice.
+      const sensitive = [
+        sealingKey.secret,
+        wrongSecret,
+        ...identifyingTexts({ document, invoice: invoice.document }, [
+          invoice.id,
+          invoice.invoiceNumber,
+          invoice.dotyposCustomerId,
+        ]),
+      ];
+      const failureOf = (exit: Exit.Exit<unknown, unknown>) =>
+        Exit.isFailure(exit)
+          ? Exit.findErrorOption(exit).pipe(Option.getOrUndefined)
+          : undefined;
 
       // A wrong key is the document's failure.
-      expect(
-        await load({
-          getActive: Effect.die("unused"),
-          getById: (keyId) =>
-            Effect.succeed({ id: keyId, secret: "synthetic wrong secret!" }),
-        })
-      ).toMatchObject({
+      const wrongKey = failureOf(await loadWith({ run }, wrongKeys));
+      expect(wrongKey).toMatchObject({
         _tag: "InvoiceCancellationError",
         code: "document_unavailable",
         invoiceId: invoice.id,
@@ -185,14 +237,34 @@ describe.skipIf(!testDatabase)(
           `alter table corrective_documents rename column ${from} to ${to}`
         );
       await renameCiphertext("encrypted_document", "encrypted_document_gone");
-      const failed = await load().finally(() =>
-        renameCiphertext("encrypted_document_gone", "encrypted_document")
+      const missingColumn = failureOf(
+        await loadWith({ run }, sealingKeys).finally(() =>
+          renameCiphertext("encrypted_document_gone", "encrypted_document")
+        )
       );
 
-      expect(failed).toMatchObject({ _tag: "EffectDrizzleQueryError" });
-      expect(
-        failed._tag === "EffectDrizzleQueryError" && findSqlState(failed)
-      ).toEqual(Option.some("42703"));
+      // The decrypting statement waits on a lock until it times out.
+      const locking = lockingAfterKeyLookup({
+        pool: testDatabase!.pool,
+        table: "corrective_documents",
+        keys: sealingKeys,
+      });
+      const timedOut = failureOf(
+        await loadWith(timingOut, locking.keys).finally(locking.release)
+      );
+
+      for (const [error, sqlState] of [
+        [missingColumn, "42703"],
+        [timedOut, "57014"],
+      ] as const) {
+        expect(error).toMatchObject({ _tag: "EffectDrizzleQueryError" });
+        expect(isDatabaseQueryError(error) && findSqlState(error)).toEqual(
+          Option.some(sqlState)
+        );
+      }
+      for (const error of [wrongKey, missingColumn, timedOut]) {
+        expect(await findRenderedTexts(error, sensitive)).toEqual([]);
+      }
     });
 
     test("allocates one number when concurrent requests cancel the same invoice", async () => {

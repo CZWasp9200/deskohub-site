@@ -7,7 +7,7 @@ import { EmailDeliveryIdSchema } from "@deskohub/email";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
-import type { QueryResultRow } from "pg";
+import type { Pool, QueryResultRow } from "pg";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { paymentAttempts } from "@/db/schema";
 import {
@@ -24,6 +24,7 @@ import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
+import { holdPostgresTransaction } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import type { WorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
 import type { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
@@ -43,6 +44,36 @@ import { InvoiceEmailDeliveryRepository } from "./invoice-email-delivery.reposit
  * Issues manual invoices and cancels them through the real repositories on a
  * disposable Postgres, for suites about cancellation, archive and visibility.
  */
+/**
+ * `keys` that take an exclusive lock on `table` from another connection the
+ * first time a key is looked up: between a read's key lookup and its
+ * decrypting statement, so on a pool with a statement timeout the decrypting
+ * statement waits until the timeout cancels it. `release` drops the lock.
+ */
+export const lockingAfterKeyLookup = (input: {
+  readonly pool: Pick<Pool, "connect">;
+  readonly table: string;
+  readonly keys: IAccountingSnapshotKeyService;
+}) => {
+  let held: ReturnType<typeof holdPostgresTransaction> | undefined;
+  const keys: IAccountingSnapshotKeyService = {
+    ...input.keys,
+    getById: (keyId) =>
+      Effect.promise(() => {
+        held ??= holdPostgresTransaction(
+          input.pool,
+          `lock table ${input.table} in access exclusive mode`,
+          []
+        );
+        return held;
+      }).pipe(Effect.andThen(input.keys.getById(keyId))),
+  };
+  const release = async () => {
+    await (await held)?.commit();
+  };
+  return { keys, release };
+};
+
 export const makeInvoiceCancellationTestKit = (
   database: WorkspacePostgresTestDatabase
 ) => {

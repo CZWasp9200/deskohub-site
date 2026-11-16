@@ -671,6 +671,16 @@ describe.skipIf(!testDatabase)("sealed accounting JSON in PostgreSQL", () => {
       sqlState: Option.some("39000"),
       undecryptable: true,
     });
+    // Text that isn't valid UTF-8, as invalid decrypted text would fail; the
+    // message quotes its bytes. pgcrypto refuses such a message first, so
+    // `convert_from` stands in for it.
+    expect(
+      await classify(
+        Effect.flatMap(WorkspaceDatabase, ({ db }) =>
+          db.execute(sql`select convert_from('\\xc328'::bytea, 'UTF8')`)
+        )
+      )
+    ).toEqual({ sqlState: Option.some("22021"), undecryptable: true });
     // A statement timeout while decrypting with the right key.
     expect(
       await classify(

@@ -95,18 +95,29 @@ const encryptJson = (json: string, secret: string): SQL<Buffer> =>
 const decryptJson = (ciphertext: PgColumn, secret: string): SQL<string> =>
   sql<string>`pgp_sym_decrypt(${ciphertext}, ${sensitiveDatabaseParameter(secret)})`;
 
-// pgcrypto raises each failure to decrypt, such as a wrong key, corrupt data
-// or a message sealed as binary, as external_routine_invocation_exception.
-const pgcryptoFailureSqlState = "39000";
+const undecryptableRecordSqlStates: ReadonlySet<string> = new Set([
+  // pgcrypto raises each failure to decrypt, such as a wrong key, corrupt
+  // data or a message sealed as binary, as
+  // external_routine_invocation_exception.
+  "39000",
+  // Decrypted text that isn't valid in the database encoding
+  // (character_not_in_repertoire, untranslatable_character). Its message
+  // quotes the offending bytes of the plaintext.
+  "22021",
+  "22P05",
+]);
 
 /**
  * Whether a failed decrypting statement failed on the sealed record itself:
  * pgcrypto, the only routine the statement calls, could not decrypt it with
- * the key its row names. Anything else, such as a timeout, a cancelled
- * statement, a lost connection or a refused privilege, is a database failure.
+ * the key its row names, or decrypted it to invalid text. Anything else, such
+ * as a timeout, a cancelled statement, a lost connection or a refused
+ * privilege, is a database failure.
  */
 export const isUndecryptableRecord = (error: DatabaseQueryError) =>
-  Option.contains(findSqlState(error), pgcryptoFailureSqlState);
+  Option.exists(findSqlState(error), (sqlState) =>
+    undecryptableRecordSqlStates.has(sqlState)
+  );
 
 /**
  * Stores values of one kind as versionless JSON that PostgreSQL `pgcrypto`
