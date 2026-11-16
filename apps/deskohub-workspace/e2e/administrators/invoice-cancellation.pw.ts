@@ -354,6 +354,12 @@ const hideInvoiceFromList = async (
       name: adminMessages.accountingInvoiceHideConfirm({}, { locale }),
     })
     .click({ timeout: workspaceE2ETimeouts.uiTransition });
+  // The open dialog hides the rest of the page from the accessibility tree,
+  // so the row's link stops matching before the invoice is hidden. Wait for
+  // the dialog to close first; it closes only once the action has answered.
+  await expect(page.getByRole("dialog")).toHaveCount(0, {
+    timeout: workspaceE2ETimeouts.providerTransition,
+  });
   await expect(
     page.getByRole("link", { name: invoiceNumber, exact: true })
   ).toHaveCount(0, { timeout: workspaceE2ETimeouts.providerTransition });
