@@ -5,10 +5,8 @@ import {
   AdministrationRecordNotFound,
   runAdministrationPage,
 } from "@/features/administrators/server/administration-request.server";
-import type { Locale } from "@/features/i18n";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import type { DiscountCodeId, VoucherId } from "../persistence-contracts";
-import { formatDiscountAdminCustomerName } from "./customer-display-name";
 import {
   DiscountAdministration,
   type DiscountAdminNotFoundError,
@@ -146,22 +144,6 @@ export const loadDiscountAdminCodePageData = (
       )
   );
 
-export const loadDiscountAdminCustomerPageData = (
-  customerId: DotyposCustomerId,
-  searchParams: DiscountAdminSearchParams
-) =>
-  runDiscountAdminRecordPage(
-    "discount-administration.load-customer",
-    (administration) =>
-      Effect.all(
-        {
-          profile: administration.loadCustomerProfile({ customerId }),
-          notice: readNotice(searchParams),
-        },
-        { concurrency: "unbounded" }
-      )
-  );
-
 export const loadDiscountAdminVoucherPageData = (
   voucherId: VoucherId,
   searchParams: DiscountAdminSearchParams
@@ -196,57 +178,31 @@ export const loadDiscountAdminCustomerVoucherCreationPageData = (
   );
 
 /**
- * The customer page without a 404: a customer the discount administration
- * can't read still shows their workspace activity.
+ * The discount sections of the customer detail page, beside the page's
+ * notice. Sections that can't load are null, so the page shows only the
+ * customer's Workspace activity.
  */
-export const loadOptionalDiscountAdminCustomerPageData = (
+export const loadDiscountCustomerSections = (
   customerId: DotyposCustomerId,
   searchParams: DiscountAdminSearchParams
 ) =>
   runDiscountAdministration(
-    "discount-administration.load-customer-optional",
+    "discount-administration.load-customer-sections",
     (administration) =>
       Effect.all(
         {
-          profile: administration.loadCustomerProfile({ customerId }).pipe(
-            Effect.catchTag("DiscountAdminNotFoundError", () =>
-              Effect.succeed(null)
+          sections: administration
+            .loadCustomerDiscountSections({ customerId })
+            .pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning(
+                  "Customer administration details unavailable",
+                  { cause, customerId }
+                ).pipe(Effect.as(null))
+              )
             ),
-            Effect.catch((cause) =>
-              Effect.logWarning("Customer administration details unavailable", {
-                cause,
-                customerId,
-              }).pipe(Effect.as(null))
-            )
-          ),
           notice: readNotice(searchParams),
         },
         { concurrency: "unbounded" }
       )
-  );
-
-export const loadDiscountAdminCustomerBreadcrumbLabel = (
-  customerId: DotyposCustomerId,
-  locale: Locale
-) =>
-  runAdministrationPage(
-    "discount-administration.customer-breadcrumb",
-    Effect.gen(function* () {
-      const administration = yield* DiscountAdministration;
-      const customer = yield* administration.loadCustomerBreadcrumbLabel({
-        customerId,
-      });
-      return formatDiscountAdminCustomerName(customer, locale);
-    }).pipe(
-      // The label falls back to the route segment even when the discount
-      // administration itself can't start.
-      Effect.provide(DiscountAdministration.Live),
-      Effect.catch((cause) =>
-        Effect.logWarning("Customer breadcrumb label unavailable", {
-          cause,
-          customerId,
-        }).pipe(Effect.as(undefined))
-      )
-    ),
-    Layer.empty
   );

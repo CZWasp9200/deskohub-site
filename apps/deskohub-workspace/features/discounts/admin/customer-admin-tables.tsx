@@ -2,17 +2,12 @@
 
 import { useMemo } from "react";
 import { AdministrationLink as Link } from "@/features/administration/admin-link";
-import type { AdministrationCustomerTransaction } from "@/features/administration/administration.service";
 import { administrationHref } from "@/features/administration/administration-href";
 import {
   AdministrationDataTable,
   type AdministrationDataTableColumn,
 } from "@/features/administration/data-table";
-import { getAdministrationPaymentStatus } from "@/features/administration/formatters";
 import { m } from "@/features/administration/i18n";
-import { NexiOrderLink } from "@/features/administration/nexi-order-link";
-import { PaymentAmount } from "@/features/administration/payment-status";
-import { getAdministrationReservationProductTitle } from "@/features/administration/reservation-product";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
 import type { Locale } from "@/features/i18n";
@@ -70,11 +65,6 @@ export type ClaimHistoryItem = {
   readonly completedAtLabel: string | null;
   readonly state: AdminDiscountCodeClaim["state"];
   readonly workspaceReservationId: string;
-};
-
-/** A transaction whose time arrives formatted from the server. */
-export type CustomerTransactionTableItem = AdministrationCustomerTransaction & {
-  readonly updatedAtLabel: string;
 };
 
 const getPromotionCodeKindLabel = (
@@ -241,104 +231,6 @@ export function CustomerPromotionCodeTable({
       columns={columns}
       data={items}
       getRowId={(item) => `${item.kind}:${item.id}`}
-      tableClassName="min-w-[760px]"
-    />
-  );
-}
-
-export function CustomerTransactionHistoryTable({
-  transactions,
-}: {
-  readonly transactions: readonly CustomerTransactionTableItem[];
-}) {
-  const locale = useRouteLocale();
-  const columns = useMemo<
-    AdministrationDataTableColumn<CustomerTransactionTableItem>[]
-  >(
-    () => [
-      {
-        accessorFn: ({ attempt }) => attempt.updatedAt,
-        id: "date",
-        header: m.discountsColumnDate({}, { locale }),
-        cell: ({ row }) => row.original.updatedAtLabel,
-        meta: {
-          cellClassName: "whitespace-nowrap text-navy-blue/68",
-        },
-      },
-      {
-        accessorFn: ({ attempt }) => attempt.state,
-        id: "status",
-        header: m.discountsColumnStatus({}, { locale }),
-        cell: ({ row }) => {
-          const { attempt } = row.original;
-          const status = getAdministrationPaymentStatus(attempt, locale);
-          return (
-            <StatusBadge
-              tone={
-                attempt.state === "paid" && !status.refunded
-                  ? "positive"
-                  : "neutral"
-              }
-            >
-              {status.label}
-            </StatusBadge>
-          );
-        },
-      },
-      {
-        accessorFn: ({ reservation }) =>
-          getAdministrationReservationProductTitle(reservation.product, locale),
-        id: "reservation",
-        header: m.discountsColumnReservation({}, { locale }),
-        cell: ({ row }) => (
-          <Link
-            className="font-semibold underline decoration-navy-blue/20 underline-offset-4"
-            href={administrationHref(
-              "/[locale]/admin/reservations/[reservationId]",
-              { reservationId: row.original.reservation.id }
-            )}
-          >
-            {getAdministrationReservationProductTitle(
-              row.original.reservation.product,
-              locale
-            )}
-          </Link>
-        ),
-      },
-      {
-        accessorFn: ({ attempt }) => attempt.amount.value,
-        id: "amount",
-        header: m.discountsColumnAmount({}, { locale }),
-        cell: ({ row }) => (
-          <PaymentAmount locale={locale} payment={row.original.attempt} />
-        ),
-        meta: { cellClassName: "whitespace-nowrap font-semibold" },
-      },
-      {
-        accessorFn: ({ attempt }) => attempt.providerOrderId ?? attempt.id,
-        id: "paymentId",
-        header: m.discountsColumnPaymentId({}, { locale }),
-        cell: ({ row }) =>
-          row.original.attempt.providerOrderId ? (
-            <NexiOrderLink
-              className="font-mono text-xs"
-              locale={locale}
-              orderId={row.original.attempt.providerOrderId}
-            />
-          ) : (
-            <span className="font-mono text-xs">{row.original.attempt.id}</span>
-          ),
-      },
-    ],
-    [locale]
-  );
-
-  return (
-    <AdministrationDataTable
-      ariaLabel={m.discountsCustomerTransactionsTableLabel({}, { locale })}
-      columns={columns}
-      data={transactions}
-      getRowId={({ attempt }) => attempt.id}
       tableClassName="min-w-[760px]"
     />
   );
