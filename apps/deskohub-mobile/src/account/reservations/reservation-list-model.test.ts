@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, Option } from "effect";
 import { m } from "../../i18n/messages";
+import { shortDate } from "./booking-ticket-text";
 import {
   nextReservationView,
   type ReservationListRow,
@@ -105,6 +106,43 @@ describe("reservationRowView", () => {
     expect(
       Option.isNone(reservationRowView(row("c"), "later", "en-US").badge)
     ).toBe(true);
+  });
+
+  test("a booking held into the next day ends on that day's date and time", () => {
+    // An overnight stay: noon to noon in Prague (UTC+1).
+    const overnight = reservationRowView(
+      row("o", {
+        product: { kind: "cowork", tier: "reserved-desk" },
+        startsAt: "2026-11-17T11:00:00Z",
+        endsAt: "2026-11-18T11:00:00Z",
+      }),
+      "later",
+      "en-US"
+    );
+    // Whole days keep only their last date.
+    const days = reservationRowView(
+      row("d", {
+        product: { kind: "office" },
+        startsAt: "2026-11-16T23:00:00Z",
+        endsAt: "2026-11-18T23:00:00Z",
+        seats: null,
+      }),
+      "later",
+      "en-US"
+    );
+
+    expect(overnight.detail).toContain(
+      shortDate(DateTime.makeUnsafe("2026-11-18T11:00:00Z"), "en-US")
+    );
+    expect(overnight.detail).not.toBe(days.detail);
+    expect(days.detail).toBe(
+      m.reservations_time_until(
+        {
+          time: shortDate(DateTime.makeUnsafe("2026-11-18T12:00:00Z"), "en-US"),
+        },
+        { locale: "en-US" }
+      )
+    );
   });
 
   test("an unreadable time has no tile and reads as unavailable", () => {
