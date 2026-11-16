@@ -3,17 +3,12 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import {
-  buildCheckoutPayContinuationPath,
+  CheckoutUnavailableError,
   discountCodeErrorIdQueryParam,
   discountCodeErrorQueryParam,
-  getPayStateRestartKind,
-  getSignedPayStateCheckoutSummary,
-  getSignedPayStateSubmittedCodeApplication,
-  openPayState,
-  PayableReservationService,
-  payStateContinuesOn,
+  PayableCheckout,
+  PayState,
   payStateTokenQueryParam,
-  withPayStateHoldExpiry,
 } from "@/features/checkout/backend/checkout";
 import {
   checkoutReferralAppliedQueryParam,
@@ -50,7 +45,7 @@ import {
 } from "@/shared/components/ui/card";
 import { getSearchParam, type SearchParamsRecord } from "@/shared/utils";
 
-type SignedPayState = Effect.Success<ReturnType<typeof openPayState>>;
+type SignedPayState = Effect.Success<ReturnType<typeof PayState.open>>;
 
 type LocalizedCheckoutPayPageProps = {
   searchParams: Promise<SearchParamsRecord>;
@@ -88,83 +83,61 @@ export default async function LocalizedCheckoutPayPage({
 }
 
 /**
- * The Pay state behind `payStateToken`, or none with the reservation kind to
- * restart when the token can still name one.
+ * The reservation kind an unusable Pay state restarts with: the kind of an
+ * order that can't be paid, else whatever kind the token can still name.
  */
-const openCheckoutPayState = (payStateToken: string) =>
-  openPayState(payStateToken).pipe(
-    Effect.map((state) => ({
-      state,
-      restartKind: state.reservation.kind,
+const getRestartKind = (cause: unknown, payStateToken: string) =>
+  cause instanceof CheckoutUnavailableError
+    ? Effect.succeed(cause.restartKind)
+    : PayState.restartKind(payStateToken).pipe(
+        Effect.provide(SealedStateKeys.Default),
+        Effect.orElseSucceed(() => undefined)
+      );
+
+type PayableCheckoutPage = Extract<
+  Awaited<ReturnType<typeof loadPayableCheckout>>,
+  { readonly status: "payable" }
+>;
+
+/**
+ * The opened checkout whose held reservation the Pay state still pays for,
+ * with what the page needs alongside it, or the reservation kind to restart
+ * with once the state can't be paid on this page.
+ */
+const loadPayableCheckout = (payStateToken: string, locale: Locale) =>
+  Effect.Do.pipe(
+    Effect.bind("payableCheckout", () => PayableCheckout),
+    Effect.bind("checkout", ({ payableCheckout }) =>
+      payableCheckout.open({ payStateToken, page: { locale } })
+    ),
+    Effect.bind("discountCodeEntryEnabled", () => getDiscountCodeEntryEnabled),
+    Effect.bind("freshPayUrl", ({ checkout }) =>
+      PayState.reissue(checkout.state, { kind: "reviewed" }).pipe(
+        Effect.map(({ payUrl }) => payUrl),
+        Effect.when(Effect.succeed(checkout.state.changedKeys !== undefined)),
+        Effect.map(Option.getOrUndefined)
+      )
+    ),
+    Effect.map(({ checkout, discountCodeEntryEnabled, freshPayUrl }) => ({
+      status: "payable" as const,
+      checkout,
+      discountCodeEntryEnabled,
+      freshPayUrl,
     })),
-    // A key ring that can't be read leaves the token unreadable, like any
-    // other failure to open it.
-    Effect.provide(SealedStateKeys.Default),
+    // A key ring or provider configuration that can't be read leaves the
+    // checkout unpayable, like any other failure to open it.
+    Effect.provide(Layer.merge(PayableCheckout.Live, SealedStateKeys.Default)),
     Effect.catch((cause) =>
       Effect.logWarning("Checkout pay state could not be loaded", {
         cause,
         reason: "payStateUnavailable",
       }).pipe(
-        Effect.andThen(
-          getPayStateRestartKind(payStateToken).pipe(
-            Effect.map((restartKind) => ({
-              state: undefined,
-              restartKind,
-            })),
-            Effect.provide(SealedStateKeys.Default),
-            Effect.orElseSucceed(() => ({
-              state: undefined,
-              restartKind: undefined,
-            }))
-          )
-        )
+        Effect.andThen(getRestartKind(cause, payStateToken)),
+        Effect.map((restartKind) => ({
+          status: "unavailable" as const,
+          restartKind,
+        }))
       )
-    ),
-    runWorkspaceEffect("checkout.pay.open")
-  );
-
-type PayableCheckout = Exclude<
-  Awaited<ReturnType<typeof loadPayableCheckout>>,
-  undefined
->;
-
-/**
- * The held reservation the Pay state still pays for, with what the page needs
- * alongside it, or none once the state can no longer be paid.
- */
-const loadPayableCheckout = (state: SignedPayState) =>
-  Effect.Do.pipe(
-    Effect.bind("payableReservations", () => PayableReservationService),
-    Effect.bind("currentReservation", ({ payableReservations }) =>
-      payableReservations.requireCurrent({
-        orderId: state.orderId,
-        checkoutSessionId: state.checkoutSessionId,
-      })
-    ),
-    Effect.bind("discountCodeEntryEnabled", () => getDiscountCodeEntryEnabled),
-    Effect.bind("freshPayUrl", ({ currentReservation }) =>
-      buildCheckoutPayContinuationPath(
-        withPayStateHoldExpiry(state, currentReservation)
-      ).pipe(
-        Effect.when(Effect.succeed(state.changedKeys !== undefined)),
-        Effect.map(Option.getOrUndefined)
-      )
-    ),
-    Effect.map(
-      ({ currentReservation, discountCodeEntryEnabled, freshPayUrl }) => ({
-        currentReservation,
-        discountCodeEntryEnabled,
-        freshPayUrl,
-      })
-    ),
-    Effect.provide(
-      Layer.merge(PayableReservationService.Live, SealedStateKeys.Default)
-    ),
-    Effect.catch((cause) =>
-      Effect.logWarning("Checkout pay state could not be loaded", {
-        cause,
-        reason: "payStateUnavailable",
-      }).pipe(Effect.as(undefined))
     ),
     runWorkspaceEffect("checkout.pay.load")
   );
@@ -204,16 +177,9 @@ async function CheckoutPayContent({
     ));
   }
 
-  const { state, restartKind } = await openCheckoutPayState(payStateToken);
-  const restartPath = getPayRestartPath(locale, restartKind);
-  if (!state || !payStateContinuesOn(state, { locale })) {
-    return runWithRequestLocale(() => (
-      <InvalidPayState locale={locale} restartPath={restartPath} />
-    ));
-  }
-
-  const payableCheckout = await loadPayableCheckout(state);
-  if (!payableCheckout) {
+  const payableCheckout = await loadPayableCheckout(payStateToken, locale);
+  if (payableCheckout.status === "unavailable") {
+    const restartPath = getPayRestartPath(locale, payableCheckout.restartKind);
     return runWithRequestLocale(() => (
       <InvalidPayState locale={locale} restartPath={restartPath} />
     ));
@@ -225,14 +191,14 @@ async function CheckoutPayContent({
       payableCheckout,
       payStateToken,
       searchParams: resolvedSearchParams,
-      state,
+      state: payableCheckout.checkout.state,
     })
   );
 }
 
 type CheckoutPayRenderInput = {
   readonly locale: Locale;
-  readonly payableCheckout: PayableCheckout;
+  readonly payableCheckout: PayableCheckoutPage;
   readonly payStateToken: string;
   readonly searchParams: SearchParamsRecord;
   readonly state: SignedPayState;
@@ -286,7 +252,7 @@ function renderCheckoutPay(input: CheckoutPayRenderInput) {
         locale={locale}
         key={earlyPerformanceRequestRequired ? "early-performance" : "standard"}
         payStateToken={state.changedKeys ? undefined : payStateToken}
-        summary={getSignedPayStateCheckoutSummary(state)}
+        summary={PayState.summary(state)}
         variant={state.changedKeys ? "pricingChanged" : "pay"}
       />
     </CheckoutFlowLayout>
@@ -304,8 +270,7 @@ function renderDiscountCodeForm({
   searchParams,
   state,
 }: CheckoutPayRenderInput) {
-  const submittedCodeApplication =
-    getSignedPayStateSubmittedCodeApplication(state);
+  const submittedCodeApplication = PayState.submittedCodeApplication(state);
   return (
     <CheckoutDiscountCodeForm
       appliedAdjustment={submittedCodeApplication?.discount.adjustment}
@@ -318,7 +283,8 @@ function renderDiscountCodeForm({
       payStateToken={payStateToken}
       referralApplied={hasCheckoutReferralAppliedNotice({
         discounts: state.quote.payment.discounts,
-        dotyposCustomerId: payableCheckout.currentReservation.dotyposCustomerId,
+        dotyposCustomerId:
+          payableCheckout.checkout.reservation.dotyposCustomerId,
         marker: searchParams[checkoutReferralAppliedQueryParam],
       })}
       rejection={parseDiscountCodeRejection(

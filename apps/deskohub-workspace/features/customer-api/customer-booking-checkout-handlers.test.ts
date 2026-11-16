@@ -19,14 +19,14 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import {
   CheckoutError,
   CheckoutService,
-  openPayState,
   openPayStateWithHoldExpiry,
+  PayState,
   PayStateAuthorNotFoundError,
   PayStateIssueError,
   PayStateTokenError,
 } from "@/features/checkout/backend/checkout";
+import { CheckoutUnavailableError } from "@/features/checkout/backend/checkout/checkout-unavailable";
 import { sealPayState } from "@/features/checkout/backend/checkout/pay-state";
-import { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
 import {
   sealSyntheticPayStateToken,
   syntheticChangedKeys,
@@ -98,7 +98,7 @@ const storedReservations = Layer.mock(WorkspaceReservationRepository, {
 });
 
 const openTestPayState = (token: string) =>
-  openPayState(token).pipe(Effect.provide(TestSealedStateKeys));
+  PayState.open(token).pipe(Effect.provide(TestSealedStateKeys));
 
 /**
  * Checkout operations over the test key ring: tokens open, and the session's
@@ -1259,9 +1259,10 @@ describe("acceptCheckoutPriceChange", () => {
         operations: operationsWith({
           acceptPriceChange: () =>
             Effect.fail(
-              new PayableReservationUnavailableError({
+              new CheckoutUnavailableError({
                 orderId: syntheticPayStateOrderId,
                 reason: "missing_reservation",
+                restartKind: "cowork",
               })
             ),
         }),

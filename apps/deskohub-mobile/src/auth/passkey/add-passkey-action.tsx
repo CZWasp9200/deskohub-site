@@ -1,11 +1,12 @@
-import { Match } from "effect";
-import { Pressable, StyleSheet, View } from "react-native";
+import KeyRound from "lucide-react-native/icons/key-round";
+import Plus from "lucide-react-native/icons/plus";
+import RotateCcw from "lucide-react-native/icons/rotate-ccw";
+import { StyleSheet, View } from "react-native";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { theme } from "../../theme";
-import { LiveMessage } from "../../ui/controls";
-import { LoadingIndicator } from "../../ui/loading-indicator";
-import { Text } from "../../ui/text";
+import { Button } from "../../ui/controls";
+import { Notice } from "../../ui/notice";
+import { space } from "../../ui/tokens";
 import type { AddedPasskey } from "./passkey-ceremony";
 import { addPasskeyFailureMessage } from "./passkey-failure-message";
 import { usePasskeyCeremony } from "./use-passkey-ceremony";
@@ -18,9 +19,15 @@ import { usePasskeyCeremony } from "./use-passkey-ceremony";
  * prompt opens and `onSettled` once the ceremony has ended, after `onAdded`
  * or `onReauthenticationRequired`, so the screen can hold its other
  * controls and announce the progress meanwhile.
+ *
+ * The button waits for the device while the prompt is open. A failure shows
+ * its cause above "Try again"; closing the system prompt is a cancel and
+ * shows nothing. `first` is the one orange action of an account without
+ * passkeys; `another` sits under the list.
  */
 export function AddPasskeyAction({
   name,
+  kind,
   onAdded,
   onReauthenticationRequired,
   onStart,
@@ -28,6 +35,7 @@ export function AddPasskeyAction({
 }: {
   /** The passkey's name; the server names it after its provider otherwise. */
   readonly name?: string;
+  readonly kind: "first" | "another";
   readonly onAdded?: (passkey: AddedPasskey) => void;
   readonly onReauthenticationRequired: () => void;
   readonly onStart?: () => void;
@@ -50,56 +58,40 @@ export function AddPasskeyAction({
     },
   });
   const pending = state.status === "pending";
-  const status = Match.value(state).pipe(
-    Match.discriminatorsExhaustive("status")({
-      idle: () => undefined,
-      pending: () => undefined,
-      succeeded: () => m.passkey_added({}, { locale }),
-      failed: ({ failure }) => addPasskeyFailureMessage(failure, locale),
-    })
-  );
+  const failed = state.status === "failed";
+  const idle =
+    kind === "first"
+      ? { label: m.passkey_add({}, { locale }), icon: KeyRound }
+      : { label: m.passkey_add_another({}, { locale }), icon: Plus };
+  const shown = failed
+    ? { label: m.account_retry({}, { locale }), icon: RotateCcw }
+    : idle;
 
   return (
     <View style={styles.action}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ busy: pending, disabled: pending }}
-        accessibilityLabel={
-          pending
-            ? m.passkey_add_pending({}, { locale })
-            : m.passkey_add({}, { locale })
+      <Notice
+        tone="error"
+        title={failed ? m.passkey_add_failed_title({}, { locale }) : undefined}
+        message={
+          state.status === "failed"
+            ? addPasskeyFailureMessage(state.failure, locale)
+            : undefined
         }
-        disabled={pending}
+      />
+      <Button
+        variant={kind === "first" || failed ? "primary" : "secondary"}
+        icon={shown.icon}
+        label={pending ? m.passkey_add_waiting({}, { locale }) : shown.label}
+        busy={pending}
+        accessibilityLabel={
+          pending ? m.passkey_add_pending({}, { locale }) : undefined
+        }
         onPress={start}
-        style={({ pressed }) => [styles.button, pressed && styles.pressed]}
-      >
-        {pending && (
-          <LoadingIndicator
-            size="inline"
-            tone={{ color: theme.colors.accent }}
-          />
-        )}
-        <Text style={styles.label}>{m.passkey_add({}, { locale })}</Text>
-      </Pressable>
-      {/* Kept mounted so assistive tech announces each change. */}
-      <LiveMessage role="status" message={status} />
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  action: { alignSelf: "stretch", gap: theme.spacing.sm },
-  button: {
-    alignItems: "center",
-    borderColor: theme.colors.accent,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-    justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: theme.spacing.md,
-  },
-  pressed: { opacity: 0.8 },
-  label: { color: theme.colors.accent, ...theme.type.body },
+  action: { alignSelf: "stretch", gap: space.md },
 });

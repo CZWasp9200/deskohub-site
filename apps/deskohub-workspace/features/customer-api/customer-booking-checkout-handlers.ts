@@ -593,7 +593,7 @@ const acceptPriceChange = Effect.fn("customerApi.acceptCheckoutPriceChange")(
         PayStateTokenError: answerTokenFailure(operation),
         PayStateIssueError: retryable(operation),
         // Only a state signed without its hold deadline reads the reservation.
-        PayableReservationUnavailableError: ({ reason }) =>
+        CheckoutUnavailableError: ({ reason }) =>
           Effect.fail(
             new CustomerCheckoutUnavailable({
               reason: toCheckoutUnavailableReason(reason),

@@ -48,8 +48,32 @@ export const bookingSummaryOf = (
     overnightStay,
   }: BookingSummaryProduct = {}
 ): BookingSummaryText => {
-  const detail = (...extras: ReadonlyArray<string | undefined>) =>
-    [product, ...extras.filter((extra) => extra !== undefined)].join(" · ");
+  const { title, extras } = bookingSummaryParts(
+    selection,
+    locale,
+    overnightStay
+  );
+  return { title, detail: [product, ...extras].join(" · ") };
+};
+
+/**
+ * A selection's summary in parts: when, and what the product comes with
+ * ("coffee", "4 hours", "Office seats: 6"), for the bar's one detail line
+ * or the review's booking card.
+ */
+export interface BookingSummaryParts {
+  readonly title: string;
+  readonly extras: ReadonlyArray<string>;
+}
+
+export const bookingSummaryParts = (
+  selection: CustomerBookingSelection,
+  locale: AppLocale,
+  /** A Reserved Desk's overnight stay times, for an overnight selection. */
+  overnightStay?: CoworkOvernightStay
+): BookingSummaryParts => {
+  const extrasOf = (...extras: ReadonlyArray<string | undefined>) =>
+    extras.filter((extra): extra is string => extra !== undefined);
   const overview = bookingOverviewOf(selection, false, overnightStay);
   switch (overview._tag) {
     case "Cowork": {
@@ -70,7 +94,7 @@ export const bookingSummaryOf = (
                 { locale }
               ),
           }),
-          detail: detail(
+          extras: extrasOf(
             selection.monitorOption === undefined
               ? undefined
               : monitorOptionName(selection.monitorOption)
@@ -82,7 +106,7 @@ export const bookingSummaryOf = (
           { date, time: formatPragueTime(openSpaceClosingTime, locale) },
           { locale }
         ),
-        detail: detail(
+        extras: extrasOf(
           selection.coffee === true
             ? m.booking_summary_coffee({}, { locale })
             : undefined
@@ -92,12 +116,12 @@ export const bookingSummaryOf = (
     case "MeetingRoom": {
       const date = formatShortPragueDate(overview.date, locale);
       return Option.match(overview.time, {
-        onNone: () => ({ title: date, detail: detail() }),
+        onNone: () => ({ title: date, extras: extrasOf() }),
         onSome: (time) => {
           if (time._tag === "WholeDay") {
             return {
               title: m.booking_summary_whole_day({ date }, { locale }),
-              detail: detail(),
+              extras: extrasOf(),
             };
           }
           return {
@@ -109,7 +133,7 @@ export const bookingSummaryOf = (
               },
               { locale }
             ),
-            detail: detail(
+            extras: extrasOf(
               selection.duration === "hour:4"
                 ? m.booking_summary_four_hours({}, { locale })
                 : m.booking_summary_one_hour({}, { locale })
@@ -131,7 +155,7 @@ export const bookingSummaryOf = (
                 },
                 { locale }
               ),
-        detail: detail(
+        extras: extrasOf(
           m.booking_checkout_summary_office_seats(
             { count: overview.seats },
             { locale }

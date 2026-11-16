@@ -5,15 +5,17 @@ import {
   instantStringSchema,
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
+import { CheckoutUnavailableError } from "./checkout-unavailable";
 import {
-  openPayState,
+  PayState,
   type PayStateWithHoldExpiry,
   type SignedPayState,
 } from "./pay-state";
-import {
-  type PayableReservation,
-  PayableReservationUnavailableError,
-} from "./payable-reservation.service";
+
+/** A reservation's stored hold deadline. */
+type StoredHoldDeadline = {
+  readonly reservationHoldExpiresAt: Temporal.Instant;
+};
 
 /** A stored hold deadline as the Pay state signs it. */
 export const toPayStateHoldExpiresAt = (
@@ -30,7 +32,7 @@ export const toPayStateHoldExpiresAt = (
  */
 export const getPayStateHoldExpiresAt = (
   state: Pick<SignedPayState, "holdExpiresAt">,
-  reservation: Pick<PayableReservation, "reservationHoldExpiresAt">
+  reservation: StoredHoldDeadline
 ): Instant =>
   state.holdExpiresAt ??
   toPayStateHoldExpiresAt(reservation.reservationHoldExpiresAt);
@@ -38,7 +40,7 @@ export const getPayStateHoldExpiresAt = (
 /** `state` with the hold deadline `getPayStateHoldExpiresAt` gives it. */
 export const withPayStateHoldExpiry = <State extends SignedPayState>(
   state: State,
-  reservation: Pick<PayableReservation, "reservationHoldExpiresAt">
+  reservation: StoredHoldDeadline
 ): State & { readonly holdExpiresAt: Instant } => ({
   ...state,
   holdExpiresAt: getPayStateHoldExpiresAt(state, reservation),
@@ -59,16 +61,18 @@ export const loadPayStateHoldExpiry = Effect.fn("payState.loadHoldExpiry")(
     const reservations = yield* WorkspaceReservationRepository;
     const reservation = yield* reservations.findById(state.orderId);
     if (!reservation) {
-      return yield* new PayableReservationUnavailableError({
+      return yield* new CheckoutUnavailableError({
         orderId: state.orderId,
         reason: "missing_reservation",
+        restartKind: state.reservation.kind,
       });
     }
     const { reservationHoldExpiresAt } = reservation;
     if (reservationHoldExpiresAt === null) {
-      return yield* new PayableReservationUnavailableError({
+      return yield* new CheckoutUnavailableError({
         orderId: state.orderId,
         reason: "not_held",
+        restartKind: state.reservation.kind,
       });
     }
     return withPayStateHoldExpiry(state, { reservationHoldExpiresAt });
@@ -78,5 +82,5 @@ export const loadPayStateHoldExpiry = Effect.fn("payState.loadHoldExpiry")(
 /** Opens a Pay state token with its hold deadline. */
 export const openPayStateWithHoldExpiry = Effect.fn("payState.openHeld")(
   (token: string) =>
-    openPayState(token).pipe(Effect.flatMap(loadPayStateHoldExpiry))
+    PayState.open(token).pipe(Effect.flatMap(loadPayStateHoldExpiry))
 );

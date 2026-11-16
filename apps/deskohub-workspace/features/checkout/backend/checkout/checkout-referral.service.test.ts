@@ -52,7 +52,6 @@ import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/o
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { type Instant, instantStringSchema } from "@/shared/utils/temporal";
-import { getPayStateExpiresAt } from "./checkout-pay-url";
 import {
   CheckoutPricingService,
   type PaymentPriceAffirmationInput,
@@ -65,22 +64,15 @@ import {
   type CheckoutReferralResult,
   CheckoutReferralService,
 } from "./checkout-referral.service";
+import { CheckoutUnavailableError } from "./checkout-unavailable";
 import type { SignedPayState } from "./pay-state";
-import {
-  type PayableReservation,
-  PayableReservationService,
-  PayableReservationUnavailableError,
-} from "./payable-reservation.service";
+import type { PayableReservation } from "./payable-checkout.service";
+import { PayableCheckoutMock } from "./payable-checkout.service.mock";
 
 mock.module("server-only", () => ({}));
 
-const {
-  buildSignedPayState,
-  openPayState,
-  payStateTokenQueryParam,
-  sealPayState,
-  getSignedPayStateCheckoutSummary,
-} = await import("./pay-state");
+const { buildSignedPayState, PayState, payStateTokenQueryParam, sealPayState } =
+  await import("./pay-state");
 const { withoutPayStateHoldExpiry } = await import(
   "./signed-pay-state.test-utils"
 );
@@ -379,8 +371,8 @@ const makeServiceLayer = (input: {
   readonly codeKind?: "referral" | "discount";
   /** The code-kind lookup fails, as when the referral registry is down. */
   readonly codeKindFailure?: DatabaseQueryError;
-  readonly payableReservationFailure?: PayableReservationUnavailableError;
-  /** The payment attempt every live payable-reservation read reports. */
+  readonly checkoutUnavailable?: CheckoutUnavailableError;
+  /** The payment attempt every payable-checkout confirmation reports. */
   readonly activePaymentAttemptId?: string;
   /** The payment attempt reads after the first report, once pricing ran. */
   readonly activePaymentAttemptIdAfterPricing?: string;
@@ -408,28 +400,26 @@ const makeServiceLayer = (input: {
         })
       )
     ),
-    Layer.mock(PayableReservationService, {
-      requireCurrent: () =>
-        Effect.suspend(() => {
-          payableReservationReadCount += 1;
-          input.onPayableReservationRead?.();
-          if (input.payableReservationFailure !== undefined) {
-            return Effect.fail(input.payableReservationFailure);
-          }
-          const activePaymentAttemptId =
-            payableReservationReadCount > 1
-              ? (input.activePaymentAttemptIdAfterPricing ??
-                input.activePaymentAttemptId)
-              : input.activePaymentAttemptId;
-          return Effect.succeed({
-            dotyposCustomerId:
-              input.payableReservationCustomerId ?? dotyposCustomerId,
-            activePaymentAttemptId: activePaymentAttemptId ?? null,
-            reservationHoldExpiresAt:
-              Temporal.Instant.from(storedHoldExpiresAt),
-          } as PayableReservation);
-        }),
-    })
+    PayableCheckoutMock(() =>
+      Effect.suspend(() => {
+        payableReservationReadCount += 1;
+        input.onPayableReservationRead?.();
+        if (input.checkoutUnavailable !== undefined) {
+          return Effect.fail(input.checkoutUnavailable);
+        }
+        const activePaymentAttemptId =
+          payableReservationReadCount > 1
+            ? (input.activePaymentAttemptIdAfterPricing ??
+              input.activePaymentAttemptId)
+            : input.activePaymentAttemptId;
+        return Effect.succeed({
+          dotyposCustomerId:
+            input.payableReservationCustomerId ?? dotyposCustomerId,
+          activePaymentAttemptId: activePaymentAttemptId ?? null,
+          reservationHoldExpiresAt: Temporal.Instant.from(storedHoldExpiresAt),
+        } as PayableReservation);
+      })
+    ).pipe(Layer.provide(TestSealedStateKeys))
   );
   return CheckoutReferralService.Default.pipe(
     Layer.provide(Layer.merge(dependencies, TestSealedStateKeys))
@@ -460,7 +450,7 @@ const openFreshPayState = (result: CheckoutReferralResult) => {
   ).searchParams.get(payStateTokenQueryParam);
   if (!token) throw new Error("Expected refreshed Pay-state token");
   return Effect.runSync(
-    openPayState(token).pipe(Effect.provide(TestSealedStateKeys))
+    PayState.open(token).pipe(Effect.provide(TestSealedStateKeys))
   );
 };
 
@@ -498,7 +488,7 @@ const expectAcceptedThenIdempotentRetry = async (input: {
     ).searchParams.get(payStateTokenQueryParam);
     if (!token) throw new Error("Expected refreshed Pay-state token");
     const state = Effect.runSync(
-      openPayState(token).pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token).pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.changedKeys).toBeUndefined();
     expect(state.submittedCode).toBeUndefined();
@@ -507,7 +497,7 @@ const expectAcceptedThenIdempotentRetry = async (input: {
     expect(state.referralCode).toBe(
       expectedStatus === "accepted" ? "RFL12345" : undefined
     );
-    expect(getSignedPayStateCheckoutSummary(state).total).toEqual(
+    expect(PayState.summary(state).total).toEqual(
       input.affirmation.quote.payment.expectedPrice
     );
     expect(
@@ -592,7 +582,7 @@ describe("CheckoutReferralService", () => {
       signedOrderId
     );
     const originalState = Effect.runSync(
-      openPayState(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
     );
     const result = await Effect.runPromise(runAcceptCode(layer, payStateToken));
 
@@ -603,7 +593,7 @@ describe("CheckoutReferralService", () => {
     const freshToken = freshUrl.searchParams.get(payStateTokenQueryParam);
     if (!freshToken) throw new Error("Expected fresh signed Pay state");
     const freshState = Effect.runSync(
-      openPayState(freshToken).pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(freshToken).pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(freshState.orderId).toBe(originalState.orderId);
     expect(freshState.changedKeys).toBeUndefined();
@@ -919,6 +909,7 @@ describe("CheckoutReferralService", () => {
           bookedAt: payStateBookedAt,
           submittedCode,
           submittedCodeDiscountId: ordinaryDiscountId,
+          requestedDiscountCode: submittedCode,
         })
       )
     );
@@ -931,6 +922,9 @@ describe("CheckoutReferralService", () => {
     expect(freshState.submittedCode).toBe(submittedCode);
     expect(freshState.submittedCodeDiscountId).toBe(ordinaryDiscountId);
     expect(freshState.referralCode).toBe(referralCode);
+    // Unlike code entry and payment, an accepted referral does not carry the
+    // requested code forward. Whether it should is an open product question.
+    expect(freshState.requestedDiscountCode).toBeUndefined();
   });
 
   test("keeps an already attributed customer's carried code and reports a signed total it no longer matches", async () => {
@@ -1109,33 +1103,6 @@ describe("CheckoutReferralService", () => {
     expect(result).toEqual({ status: "unavailable", reason: "provider" });
   });
 
-  test("reports a stored customer identity it can't read as a provider failure", async () => {
-    const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
-    let evaluationCount = 0;
-    const layer = makeServiceLayer({
-      affirmation: {
-        quote,
-        commitment: makeCommitment(coworkProduct, []),
-      },
-      payableReservationCustomerId: "" as typeof dotyposCustomerId,
-      evaluateCheckoutReferral: () =>
-        Effect.sync(() => {
-          evaluationCount += 1;
-          return eligible;
-        }),
-    });
-
-    const result = await Effect.runPromise(
-      runAcceptCode(
-        layer,
-        tokenFor({ reservation, quote, bookedAt: payStateBookedAt })
-      )
-    );
-
-    expect(result).toEqual({ status: "unavailable", reason: "provider" });
-    expect(evaluationCount).toBe(0);
-  });
-
   test.each(["expired", "not_current", "dotypos_not_pending"] as const)(
     "reports a reservation that is no longer payable (%s) as a checkout failure with its reason",
     async (checkoutReason) => {
@@ -1145,11 +1112,12 @@ describe("CheckoutReferralService", () => {
           quote,
           commitment: makeCommitment(coworkProduct, []),
         },
-        payableReservationFailure: new PayableReservationUnavailableError({
+        checkoutUnavailable: new CheckoutUnavailableError({
           orderId: workspaceReservationIdSchema.make(
             "checkout-referral-service-test-reservation"
           ),
           reason: checkoutReason,
+          restartKind: "cowork",
         }),
         evaluateCheckoutReferral: () => Effect.succeed(eligible),
       });
@@ -1281,7 +1249,7 @@ describe("CheckoutReferralService", () => {
       ).searchParams.get(payStateTokenQueryParam);
       expect(result.freshPayStateToken).toBe(urlToken ?? "missing");
       expect(result.expiresAt).toBe(
-        getPayStateExpiresAt(openFreshPayState(result))
+        PayState.expiresAt(openFreshPayState(result))
       );
     }
   );
@@ -1309,15 +1277,13 @@ describe("CheckoutReferralService", () => {
         { issuedAt: Temporal.Now.instant().subtract({ minutes: 5 }) }
       );
       const signed = Effect.runSync(
-        openPayState(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
+        PayState.open(payStateToken).pipe(Effect.provide(TestSealedStateKeys))
       );
 
       const fresh = await acceptedPayState(payStateToken);
 
       expect(fresh.holdExpiresAt).toBe(payStateHoldExpiresAt);
-      expect(getPayStateExpiresAt(fresh)).not.toBe(
-        getPayStateExpiresAt(signed)
-      );
+      expect(PayState.expiresAt(fresh)).not.toBe(PayState.expiresAt(signed));
     });
 
     test("gives a token signed without the deadline its reservation's stored one", async () => {

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { CustomerInvoice } from "@deskohub/workspace-customer-api";
 import { formatPragueDate } from "../../booking/ui/prague-date-format";
 import { sampleInvoices } from "../../customer-api/testing/sample-fixtures";
 import { formatInstantRange, parseInstant } from "../../i18n/date-time-format";
 import {
   formatInvoiceTotal,
-  type InvoiceSubject,
   invoiceListOf,
   invoiceRowOf,
   invoiceRowText,
@@ -12,16 +12,13 @@ import {
 
 const locale = "en-US";
 const invoices = sampleInvoices().map(({ invoice }) => invoice);
-const [desk] = invoices;
-if (desk === undefined) throw new Error("the sample has invoices");
-
-// What a described invoice was for, fed by hand until the list says it (#1301).
-// One whole Prague day, which reads as that day alone.
-const subject: InvoiceSubject = {
-  productName: "Sample desk",
-  startsAt: "2026-11-25T23:00:00.000Z",
-  endsAt: "2026-11-26T23:00:00.000Z",
-};
+// The desk invoice says what it was for; the office one, issued by hand,
+// doesn't.
+const desk = invoices.find((invoice) => invoice.reservation !== undefined);
+const manual = invoices.find((invoice) => invoice.reservation === undefined);
+if (desk?.reservation === undefined || manual === undefined)
+  throw new Error("the sample has described and plain invoices");
+const subject = desk.reservation;
 const instant = (iso: string) => {
   const parsed = parseInstant(iso);
   if (parsed._tag === "None") throw new Error("a readable instant");
@@ -33,31 +30,37 @@ describe("invoiceListOf", () => {
     expect(invoiceListOf([])).toEqual({ kind: "empty" });
   });
 
-  test("one row per invoice, in the order the Workspace lists them", () => {
+  test("one row per invoice, in the order the Workspace lists them, described when it says what for", () => {
     const list = invoiceListOf(invoices);
 
     expect(list.kind).toBe("list");
-    expect(list.kind === "list" && list.rows.map((row) => row.id)).toEqual(
+    if (list.kind !== "list") return;
+    expect(list.rows.map((row) => row.id)).toEqual(
       invoices.map((invoice) => invoice.id)
+    );
+    expect(list.rows.map((row) => row._tag)).toEqual(
+      invoices.map((invoice) =>
+        invoice.reservation === undefined ? "Plain" : "Described"
+      )
     );
   });
 });
 
 describe("invoice rows", () => {
   test("without what it was for, a row is plain: number, issue date, total", () => {
-    const row = invoiceRowOf(desk);
+    const row = invoiceRowOf(manual);
     const text = invoiceRowText(row, locale);
 
     expect(row._tag).toBe("Plain");
     expect(text).toEqual({
-      title: desk.invoiceNumber,
-      when: formatPragueDate(desk.issuedOn, locale, { dateStyle: "medium" }),
-      amount: formatInvoiceTotal(desk.total, locale),
+      title: manual.invoiceNumber,
+      when: formatPragueDate(manual.issuedOn, locale, { dateStyle: "medium" }),
+      amount: formatInvoiceTotal(manual.total, locale),
     });
   });
 
   test("described, a row leads with what it was for and the reservation's dates", () => {
-    const row = invoiceRowOf(desk, subject);
+    const row = invoiceRowOf(desk);
     const text = invoiceRowText(row, locale);
 
     expect(row._tag).toBe("Described");
@@ -71,6 +74,19 @@ describe("invoice rows", () => {
     );
     expect(text.amount).toContain(formatInvoiceTotal(desk.total, locale));
     expect(text.amount).toContain(desk.invoiceNumber);
+  });
+
+  test("an office's row names its seats after the product", () => {
+    const office: CustomerInvoice = {
+      ...desk,
+      reservation: { ...subject, productName: "Sample office", seats: 6 },
+    };
+
+    const { title } = invoiceRowText(invoiceRowOf(office), locale);
+
+    expect(title).not.toBe("Sample office");
+    expect(title).toContain("Sample office");
+    expect(title).toContain("6");
   });
 
   test("the total keeps the digits it was issued with", () => {

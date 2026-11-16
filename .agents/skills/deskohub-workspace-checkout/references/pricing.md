@@ -45,7 +45,7 @@ Removing an entered code (`clearDiscountCodeFromPayState`) shares entry's live g
 3. An applied code with `changedKeys` pending: `price_review_pending`.
 4. An applied code: `CheckoutPricingService.clearDiscountCode` affirms every displayed discount except `submittedCodeDiscountId` through `affirmDisplayedDiscounts`, so `selectAffirmedCandidates` decides as at payment and the kept discounts are stacked afresh, never by taking the code's amount back off. The referral benefit is affirmed with them through `referralCode`. Reissue without `submittedCode`, `submittedCodeDiscountId` and `requestedDiscountCode`, with the new quote (and so its `acceptedTotal`) and `changedKeys` from the signed summary to the new one, so the customer accepts the price before paying. A code that changed no summary key signs no review.
 
-Every reissue keeps `holdExpiresAt` through `getPayStateHoldExpiresAt`/`withPayStateHoldExpiry`; neither operation moves the hold.
+Both reissue through `PayState.reissue` (`requested_code_cleared` and `code_cleared`), on a state given its `holdExpiresAt` by `withPayStateHoldExpiry`; neither operation moves the hold.
 
 ### Removing an entered code
 
@@ -58,9 +58,9 @@ Every reissue keeps `holdExpiresAt` through `getPayStateHoldExpiresAt`/`withPayS
 
 ### Hold deadline
 
-Every Pay state signs `holdExpiresAt`, the reservation's stored `reservation_hold_expires_at`, separately from the token's own `exp`. Every issue and reissue copies it from the state or the payable reservation (`pay-state-hold.ts`); never recompute it from the token TTL. A token issued before the claim existed reads it from the stored reservation. `PayableReservationService.requireCurrent` remains the authority that refuses an ended hold.
+Every Pay state signs `holdExpiresAt`, the reservation's stored `reservation_hold_expires_at`, separately from the token's own `exp`. Every issue copies it from the stored reservation, and `PayState.reissue` takes only a `PayStateWithHoldExpiry` and carries its deadline into every outcome; an opened state gets it from `withPayStateHoldExpiry` or `loadPayStateHoldExpiry` (`pay-state-hold.ts`). Never recompute it from the token TTL. A token issued before the claim existed reads it from the stored reservation. `PayableCheckout` (`open`, `reconfirm`) remains the authority that refuses an ended hold, and its `OpenCheckout.state` already carries the deadline.
 
-Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. Every reservation family quotes and affirms through its own canonical product identity; dispatch family-owned quote, summary, persistence, and checkout-details projections exhaustively, with no implicit cowork default.
+Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. Issue a new order's Pay state with `PayState.issue` and replace an open one only with `PayState.reissue(state, outcome)` (`pay-state.ts`): each outcome owns the fields it carries forward, so callers never assemble a replacement's fields by hand. Every reservation family quotes and affirms through its own canonical product identity; dispatch family-owned quote, summary, persistence, and checkout-details projections exhaustively, with no implicit cowork default.
 
 ### Payment
 
@@ -96,7 +96,7 @@ A Calendar sale applies according to the booking instant. The eligibility rule i
 
 - Advertisement and the home-page banner use the current instant.
 - Reservation submission (`prepareWorkspacePayState`) captures the instant once and signs it into the Pay state as `bookedAt`. Re-signed Pay states carry it forward.
-- Every later affirmation reads `getSignedPayStateBookedAt`, never the clock: summary acceptance, code entry, payment start, and claim-conflict refresh.
+- Every later affirmation reads `PayState.bookedAt`, never the clock: summary acceptance, code entry, payment start, and claim-conflict refresh.
 - Editing the reservation creates a new Pay state and a new booking instant. Never use the reservation draft's creation time.
 - Webhook, finalization, and late-payment recovery read persisted application snapshots and never re-evaluate eligibility.
 

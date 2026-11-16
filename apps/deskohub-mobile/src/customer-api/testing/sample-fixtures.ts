@@ -665,11 +665,13 @@ const sampleReferrals: ReferralAccountOverview = {
     code: ReferralCode.make("SAMPLE-ALEX"),
     inviteeCount: 3,
     eligibleInviteeCount: 2,
-    discount: "10",
+    discount: "9.75",
     savings: [{ value: 15000, exponent: 2, currency: "CZK" }],
   },
   shareUrl: "https://workspace.deskohub.example/r/SAMPLE-ALEX",
   discountPerInvitee: "5",
+  invitationDiscount: "15",
+  savingsCurrency: "CZK",
 };
 
 const sampleAccount = (
@@ -758,6 +760,12 @@ export const sampleInvoices = (): ReadonlyArray<SampleInvoice> => [
       issuedOn: "2026-11-26",
       total: { amount: "258.80", currency: "CZK" },
       orderId: sampleOrderIds.fulfilled,
+      // One whole Prague day.
+      reservation: {
+        productName: "Open Space desk",
+        startsAt: "2026-11-25T23:00:00.000Z",
+        endsAt: "2026-11-26T23:00:00.000Z",
+      },
     },
     pdf: sampleInvoicePdf(),
   },
@@ -768,6 +776,11 @@ export const sampleInvoices = (): ReadonlyArray<SampleInvoice> => [
       issuedOn: "2026-11-02",
       total: { amount: "280", currency: "CZK" },
       orderId: sampleOrderIds.past,
+      reservation: {
+        productName: "Meeting room",
+        startsAt: "2026-11-02T09:00:00.000Z",
+        endsAt: "2026-11-02T11:00:00.000Z",
+      },
     },
     pdf: sampleInvoicePdf(),
   },

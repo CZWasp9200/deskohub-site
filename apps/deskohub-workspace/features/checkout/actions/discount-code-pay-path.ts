@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { buildCheckoutPayPathFromToken } from "@/features/checkout/backend/checkout";
+import { buildCheckoutPayPath } from "@/features/checkout/backend/checkout";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
 
@@ -13,7 +13,7 @@ export const getDiscountCodeRejectedPayPath = (
   payStateToken: string,
   rejection: DiscountCodeRejection
 ) =>
-  buildCheckoutPayPathFromToken(
+  buildCheckoutPayPath(
     isLocale(locale) ? locale : defaultLocale,
     payStateToken,
     {

@@ -180,7 +180,10 @@ documents); the handlers only map. A refused account carries its
 `CustomerAccountAccessError` on `CustomerInvoicesUnavailableError.account`
 and answers as the account endpoints do; any id the service can't find,
 another customer's included, answers 404 `CustomerInvoiceNotFound`. Totals stay
-exact decimal text, as issued. An order's own invoice stays
+exact decimal text, as issued. An order's invoice carries `reservation`:
+the product's catalog name in the optional `?locale` (as `listReservations`
+names it), an office's seats, and the start and exclusive end, all from the
+service's summary; a manual invoice has none. An order's own invoice stays
 `getReservationInvoice`, authorized by the order.
 
 ## Company lookup

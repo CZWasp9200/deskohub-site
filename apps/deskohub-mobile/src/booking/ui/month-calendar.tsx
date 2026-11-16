@@ -7,6 +7,7 @@ import Info from "lucide-react-native/icons/info";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { m } from "../../i18n/messages";
+import { upperFirst } from "../../i18n/sentence-case";
 import { Icon, type IconComponent } from "../../ui/icon";
 import { useLiveRegionAnnouncement } from "../../ui/live-announcement";
 import { Text } from "../../ui/text";
@@ -49,7 +50,7 @@ const monthTitle = ({ year, month }: PragueMonth, locale: CustomerLocale) => {
     year: "numeric",
     timeZone: "UTC",
   }).format(utcNoon(year, month, 1));
-  return title.charAt(0).toLocaleUpperCase(locale) + title.slice(1);
+  return upperFirst(title, locale);
 };
 
 // 1 January 2024 is a Monday, so its week names the weekdays Monday first.
