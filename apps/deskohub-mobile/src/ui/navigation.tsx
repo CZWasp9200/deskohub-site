@@ -28,7 +28,11 @@ export function StackHeader({
   options,
   route,
   navigation,
-}: NativeStackHeaderProps) {
+  closes = false,
+}: NativeStackHeaderProps & {
+  /** The screen ends a flow: its button closes it rather than going back. */
+  readonly closes?: boolean;
+}) {
   const insets = useSafeAreaInsets();
   const canGoBack = back !== undefined;
   return (
@@ -43,6 +47,7 @@ export function StackHeader({
         }
         actions={options.headerRight?.({ tintColor: color.navy, canGoBack })}
         raised={options.headerShadowVisible === true}
+        back={closes ? "close" : "back"}
       />
     </View>
   );
@@ -50,6 +55,11 @@ export function StackHeader({
 
 const renderStackHeader = (props: NativeStackHeaderProps) => (
   <StackHeader {...props} />
+);
+
+/** A stack header whose button closes the screen (`StackHeader`'s `closes`). */
+export const renderClosingStackHeader = (props: NativeStackHeaderProps) => (
+  <StackHeader {...props} closes />
 );
 
 const stackOptionsByLocale = mapSupportedLocales(

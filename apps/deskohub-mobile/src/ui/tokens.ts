@@ -151,7 +151,11 @@ export const fontWeights = [400, 500, 600, 700] as const;
 
 type Weight = (typeof fontWeights)[number];
 
-const brandText = (
+/**
+ * A text style in the brand face at a size and weight off the type scale,
+ * such as a date tile's figures; prefer a `typeScale` entry.
+ */
+export const brandText = (
   fontSize: number,
   lineHeight: number,
   weight: Weight,

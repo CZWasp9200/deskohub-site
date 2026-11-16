@@ -68,6 +68,14 @@ describe("AppBar", () => {
     expect(presses).toEqual(["back"]);
   });
 
+  test("a closing bar names its button apart from the back button", () => {
+    const label = (back: "back" | "close") =>
+      find(bar({ title: "title", onBack: () => undefined, back }), Pressable)
+        ?.props["aria-label"];
+    expect(label("close")).toBeTruthy();
+    expect(label("close")).not.toBe(label("back"));
+  });
+
   test("without onBack there is no back button", () => {
     expect(find(bar({ title: "title" }), Pressable)).toBeUndefined();
   });

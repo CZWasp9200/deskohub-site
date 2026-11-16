@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { DateTime, Option } from "effect";
 import { m } from "../../i18n/messages";
 import {
+  nextReservationView,
   type ReservationListRow,
   reservationGroups,
-  reservationRowText,
+  reservationRowView,
   reservationStatusTarget,
 } from "./reservation-list-model";
 
@@ -73,57 +74,95 @@ describe("reservationGroups", () => {
   });
 });
 
-describe("reservationRowText", () => {
-  test("shows a missing time and seat count as unavailable, never blank", () => {
-    for (const locale of ["en-US", "cs-CZ"] as const) {
-      const text = reservationRowText(
-        row("x", {
-          startsAt: null,
-          endsAt: "2026-11-08T17:00:00Z",
-          seats: null,
-        }),
-        locale
-      );
-      expect(text.period).toBe(
-        m.reservations_value_unavailable({}, { locale })
-      );
-      expect(text.seats).toBe(m.reservations_seats_unavailable({}, { locale }));
-      expect(text.title.length).toBeGreaterThan(0);
-      expect(text.status.length).toBeGreaterThan(0);
-    }
+describe("reservationRowView", () => {
+  test("a past booking says only that it was cancelled, else its time", () => {
+    const cancelled = reservationRowView(
+      row("c", { status: "cancelled" }),
+      "past",
+      "en-US"
+    );
+    const done = reservationRowView(row("d"), "past", "en-US");
+    expect(cancelled.detail).toBe(
+      m.reservations_status_cancelled({}, { locale: "en-US" })
+    );
+    expect(done.detail).not.toBe(cancelled.detail);
+    expect(Option.isNone(cancelled.badge)).toBe(true);
+    expect(Option.isNone(done.badge)).toBe(true);
   });
 
-  test("shows an unreadable time as unavailable", () => {
-    const text = reservationRowText(row("x", { endsAt: "soon" }), "en-US");
-    expect(text.period).toBe(
+  test("a later booking not confirmed yet carries its badge", () => {
+    expect(
+      reservationRowView(
+        row("a", { status: "requires-attention" }),
+        "later",
+        "en-US"
+      ).badge
+    ).toEqual(Option.some("attention"));
+    expect(
+      reservationRowView(row("p", { status: "pending" }), "later", "en-US")
+        .badge
+    ).toEqual(Option.some("pending"));
+    expect(
+      Option.isNone(reservationRowView(row("c"), "later", "en-US").badge)
+    ).toBe(true);
+  });
+
+  test("an unreadable time has no tile and reads as unavailable", () => {
+    const view = reservationRowView(
+      row("x", { startsAt: null }),
+      "later",
+      "en-US"
+    );
+    expect(Option.isNone(view.date)).toBe(true);
+    expect(view.detail).toBe(
       m.reservations_value_unavailable({}, { locale: "en-US" })
     );
   });
+});
 
-  test("shows an office booking's days without times", () => {
-    const office = reservationRowText(
-      row("o", {
-        product: { kind: "office" },
-        startsAt: "2026-11-29T23:00:00Z",
-        endsAt: "2026-11-30T23:00:00Z",
+describe("nextReservationView", () => {
+  const access = {
+    code: "5129083",
+    accessStartsAt: "2026-11-08T08:00:00Z",
+    accessEndsAt: "2026-11-08T17:00:00Z",
+  };
+
+  test("shows today's PIN when the list carries it", () => {
+    const view = nextReservationView(
+      row("t", { todayAccess: access }),
+      now,
+      "en-US"
+    );
+    expect(view.access).toMatchObject({ _tag: "Pin", code: access.code });
+    expect(view.countdown).toEqual(Option.some({ kind: "open-now" }));
+  });
+
+  test("a confirmed booking without today's PIN points to it", () => {
+    const view = nextReservationView(
+      row("r", {
+        startsAt: "2026-11-26T08:00:00Z",
+        endsAt: "2026-11-26T16:00:00Z",
+        accessStartsAt: "2026-11-25T23:00:00Z",
       }),
+      now,
       "en-US"
     );
-    expect(office.period).toBe("Monday, November 30, 2026");
+    expect(view.access._tag).toBe("Ready");
+    expect(
+      view.access._tag === "Ready" && Option.isSome(view.access.from)
+    ).toBe(true);
   });
 
-  test("shows the period, and the setup start only when booked with setup", () => {
-    const plain = reservationRowText(row("x"), "en-US");
-    expect(plain.period).not.toBe(
-      m.reservations_value_unavailable({}, { locale: "en-US" })
-    );
-    expect(Option.isNone(plain.setup)).toBe(true);
-
-    const withSetup = reservationRowText(
-      row("y", { setupStartsAt: "2026-11-08T08:30:00Z" }),
-      "en-US"
-    );
-    expect(Option.isSome(withSetup.setup)).toBe(true);
+  test("a booking not confirmed yet waits for payment, whatever it carries", () => {
+    for (const status of ["pending", "requires-attention"] as const) {
+      expect(
+        nextReservationView(
+          row("p", { status, todayAccess: access }),
+          now,
+          "en-US"
+        ).access
+      ).toEqual({ _tag: "AfterPayment" });
+    }
   });
 });
 
