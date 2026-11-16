@@ -9,7 +9,8 @@ import { withSessionWriteLock } from "./session-write-lock";
 import { signInLocaleHeaders } from "./sign-in-locale";
 import { signOutOf } from "./sign-out-request";
 import {
-  clearReauthenticatingUser,
+  completeReauthentication,
+  loadReauthentication,
   saveReauthenticatingUser,
 } from "./web-reauthentication-store";
 import {
@@ -320,9 +321,16 @@ export const prepareReauthenticationEmail = (
       none: () => Effect.void,
       unrecoverable: () => Effect.fail(reauthenticationUnavailable()),
       account: ({ userId }) =>
-        Effect.sync(() =>
-          saveReauthenticatingUser({ userId, returnPath }, Date.now())
-        ).pipe(
+        Effect.sync(() => {
+          const now = Date.now();
+          // The screen that asked keeps its purpose through the email.
+          const purpose = loadReauthentication(now).pipe(
+            Option.filter((stored) => stored.userId === userId),
+            Option.flatMap((stored) => Option.fromNullishOr(stored.purpose)),
+            Option.getOrUndefined
+          );
+          return saveReauthenticatingUser({ userId, returnPath, purpose }, now);
+        }).pipe(
           Effect.filterOrFail(
             (saved) => saved,
             () => reauthenticationUnavailable()
@@ -403,7 +411,9 @@ export const magicLinkExpectation = ({
  * its account. A refused or failed attempt keeps it, so the email's other
  * still-valid links are checked against it too.
  */
-const clearOnceConfirmed = Effect.sync(clearReauthenticatingUser);
+const clearOnceConfirmed = Effect.flatMap(Clock.currentTimeMillis, (now) =>
+  Effect.sync(() => completeReauthentication(now))
+);
 
 /**
  * Signs the browser in with a magic link, refusing an account switch. The

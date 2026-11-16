@@ -1,18 +1,23 @@
 import type { ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Icon, type IconComponent } from "./icon";
 import { Text } from "./text";
 import { color, radius, shadow, space } from "./tokens";
 
 /**
  * A white card over the navy scrim that asks one question. Its `actions`
- * stack full width, the safe action first. The title, body and `children`
+ * stack full width, the safe action first (a flow whose board puts the
+ * consequential action on top passes them in that order). The `header`,
+ * title, body and `children`
  * scroll when they're taller than the screen, so the actions stay in view.
  * The back button and a tap on the scrim call `onDismiss`.
  */
 export function Dialog({
   visible,
   title,
+  titleIcon,
+  header,
   body,
   onDismiss,
   children,
@@ -22,6 +27,10 @@ export function Dialog({
 }: {
   readonly visible: boolean;
   readonly title: string;
+  /** A Lucide icon on the title's line, before it. */
+  readonly titleIcon?: IconComponent;
+  /** Content above the title, such as a badge with what just happened. */
+  readonly header?: ReactNode;
   readonly body?: string;
   readonly onDismiss: () => void;
   /** Content between the body and the actions, such as a field. */
@@ -34,6 +43,15 @@ export function Dialog({
   readonly busy?: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const heading = (
+    <Text
+      variant="dialogTitle"
+      role="heading"
+      style={titleIcon === undefined ? undefined : styles.titleText}
+    >
+      {title}
+    </Text>
+  );
   return (
     <Modal
       transparent
@@ -67,9 +85,15 @@ export function Dialog({
           style={styles.card}
         >
           <ScrollView style={styles.scroll} contentContainerStyle={styles.copy}>
-            <Text variant="dialogTitle" role="heading">
-              {title}
-            </Text>
+            {header}
+            {titleIcon === undefined ? (
+              heading
+            ) : (
+              <View style={styles.titleLine}>
+                <Icon icon={titleIcon} size={24} color={color.navy} />
+                {heading}
+              </View>
+            )}
             {body !== undefined && (
               <Text variant="lead" tone="muted">
                 {body}
@@ -103,6 +127,8 @@ const styles = StyleSheet.create({
     ...shadow.dialog,
   },
   scroll: { flexGrow: 0, flexShrink: 1 },
-  copy: { gap: space.md },
+  copy: { alignItems: "stretch", gap: space.md },
+  titleLine: { alignItems: "center", flexDirection: "row", gap: 10 },
+  titleText: { flexShrink: 1 },
   actions: { gap: space.sm, marginTop: space.md },
 });

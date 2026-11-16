@@ -141,19 +141,26 @@ describe("the Legal screen's analytics preference", () => {
   }
 });
 
-// The app doesn't offer the site's data export: every signed-in account sees
-// the archive section's row saying so.
+// A linked account can download its data archive; an account without a
+// customer of its own sees the archive section's row saying it can't.
 describe("the Legal screen's personal data archive", () => {
   const archiveRow = m.legal_archive_unavailable({}, { locale: "en-US" });
+  const downloadRow = m.legal_data_download({}, { locale: "en-US" });
+
+  test("offers a linked account the download", async () => {
+    const markup = await legalScreen("linked");
+    expect(markup).toContain(downloadRow);
+    expect(markup).not.toContain(archiveRow);
+  });
 
   for (const kind of [
-    "linked",
     "completion-required",
     "authenticated-unavailable",
   ] as const) {
     test(`keeps its archive row (${kind})`, async () => {
       const markup = await legalScreen(kind);
       expect(markup).toContain(archiveRow);
+      expect(markup).not.toContain(downloadRow);
     });
   }
 });
