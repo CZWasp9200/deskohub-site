@@ -13,7 +13,10 @@ export default function AccountSectionsLayout() {
     <Stack screenOptions={stackScreenOptions(locale)}>
       <Stack.Screen
         name="index"
-        options={{ title: m.account_tab_account({}, { locale }) }}
+        options={{
+          title: m.account_tab_account({}, { locale }),
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="profile"

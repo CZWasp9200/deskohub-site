@@ -58,6 +58,7 @@ export {
   CustomerMeetingRoomUnavailableDates,
   CustomerOffering,
   CustomerOfferingAddOn,
+  CustomerOfferingFact,
   customerAvailabilityReplacementHeader,
 } from "./customer-booking-catalog-api";
 export {
@@ -102,6 +103,13 @@ export {
   CustomerCheckoutSummaryDiscount,
   CustomerCheckoutSummaryItem,
 } from "./customer-checkout-summary";
+export {
+  CustomerCompaniesApi,
+  CustomerCompanyDetails,
+  CustomerCompanyIdInvalid,
+  CustomerCompanyNotFound,
+  CustomerCompanyRegistryUnavailable,
+} from "./customer-companies-api";
 export {
   CustomerInvoice,
   CustomerInvoiceId,
