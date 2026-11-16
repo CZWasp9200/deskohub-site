@@ -401,7 +401,11 @@ describe.skipIf(!testDatabase)(
         const expectedHold = await expectedHoldOf(id);
 
         const claimed = await run((repository) =>
-          repository.claimCancellation({ id, expectedHold })
+          repository.claimCancellation({
+            id,
+            expectedHold,
+            cause: "hold_expired",
+          })
         );
 
         expect(claimed?.reservationState).toBe("cancelling");
@@ -431,7 +435,11 @@ describe.skipIf(!testDatabase)(
 
           expect(
             await run((repository) =>
-              repository.claimCancellation({ id, expectedHold })
+              repository.claimCancellation({
+                id,
+                expectedHold,
+                cause: "hold_expired",
+              })
             )
           ).toBeNull();
           expect((await readReservation(id))?.reservationState).toBe("held");
@@ -503,7 +511,9 @@ describe.skipIf(!testDatabase)(
         const failed = await expiredHold();
         const claims = await Promise.all(
           [cancelled, failed].map((id) =>
-            run((repository) => repository.claimCancellation({ id }))
+            run((repository) =>
+              repository.claimCancellation({ id, cause: "hold_expired" })
+            )
           )
         );
         const [cancelledClaim, failedClaim] = claims.map(

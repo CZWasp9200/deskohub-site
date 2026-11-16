@@ -10,6 +10,7 @@ import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import { retryDatabaseRead } from "@/db/retry-database-read";
 import {
   paymentAttempts,
+  type ReservationCancellationCause,
   reservationAccessGrants,
   type WorkspaceReservationRow,
   workspaceReservations,
@@ -53,6 +54,12 @@ const withReservationKindFields = (reservation: WorkspaceReservationRow) => {
 };
 
 export type WorkspaceReservation = ReturnType<typeof withReservationKindFields>;
+
+/** The cancellation causes an unpaid-hold release records. */
+export type UnpaidHoldReleaseCause = Extract<
+  ReservationCancellationCause,
+  "hold_expired" | "late_payment" | "payment_retry"
+>;
 
 /**
  * The reservation's identifiers and states for log annotations. Scoped
@@ -241,6 +248,13 @@ export interface IWorkspaceReservationRepository {
   readonly claimCancellation: (input: {
     readonly id: WorkspaceReservationId;
     readonly expectedHold?: ExpectedReservationHold;
+    /**
+     * Why the hold is released; recorded as the cancellation's cause when
+     * this claim starts the cancellation. Claiming a `cancellation_failed`
+     * reservation again keeps the cause its first claim recorded, so a
+     * retried release never relabels another cancellation.
+     */
+    readonly cause: UnpaidHoldReleaseCause;
   }) => Effect.Effect<
     WorkspaceReservation | null,
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
@@ -511,6 +525,9 @@ const recordAdministrationCancellationClaim = Effect.fnUntraced(function* (
     .update(workspaceReservations)
     .set({
       reservationState: "cancelling",
+      // An administrator's cancellation is never the customer's to retry,
+      // whatever claimed the reservation before.
+      cancellationCause: "operator",
       ...(input.pendingPaymentCancellation && {
         paymentState: "cancelled" as const,
         failureCode: input.pendingPaymentCancellation.failureCode,
@@ -1005,6 +1022,7 @@ export class WorkspaceReservationRepository extends Context.Service<
               .update(workspaceReservations)
               .set({
                 reservationState: "cancelling",
+                cancellationCause: sql`case when ${workspaceReservations.reservationState} in ('held', 'hold_expired') then ${input.cause} else ${workspaceReservations.cancellationCause} end`,
                 updatedAt: Temporal.Now.instant(),
               })
               .where(
@@ -1049,6 +1067,7 @@ export class WorkspaceReservationRepository extends Context.Service<
             .update(workspaceReservations)
             .set({
               reservationState: "cancelling",
+              cancellationCause: "checkout_superseded",
               updatedAt: Temporal.Now.instant(),
             })
             .where(
