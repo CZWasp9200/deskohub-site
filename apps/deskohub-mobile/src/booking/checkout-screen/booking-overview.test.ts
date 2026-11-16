@@ -25,12 +25,14 @@ const meetingRoom = (
 
 describe("bookingOverviewOf", () => {
   test("cowork names the booked date", () => {
-    const selection = toCoworkSelection({
-      tier: "reserved-desk",
-      date: "2026-11-20",
-      coffee: false,
-      workstation: Option.none(),
-    });
+    const selection = Option.getOrThrow(
+      toCoworkSelection({
+        tier: "reserved-desk",
+        date: Option.some("2026-11-20"),
+        coffee: false,
+        workstation: Option.none(),
+      })
+    );
     expect(bookingOverviewOf(selection, false)).toEqual(
       BookingOverview.Cowork({ date: "2026-11-20" })
     );

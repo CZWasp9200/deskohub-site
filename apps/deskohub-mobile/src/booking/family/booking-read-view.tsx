@@ -26,10 +26,13 @@ import {
 export function BookingReadView<A>({
   read,
   onRetry,
+  loading,
   children,
 }: {
   readonly read: BookingRead<A>;
   readonly onRetry: () => void;
+  /** The first load's placeholder in the screen's layout; a spinner without. */
+  readonly loading?: ReactNode;
   readonly children: (value: A) => ReactNode;
 }) {
   const locale = useAppLocale();
@@ -50,9 +53,8 @@ export function BookingReadView<A>({
       />
       {/* Kept mounted so assistive tech announces each change. */}
       <Notice tone="error" message={retryState ? undefined : message} />
-      {read.kind === "loading" && (
-        <LoadingState label={m.account_loading({}, { locale })} />
-      )}
+      {read.kind === "loading" &&
+        (loading ?? <LoadingState label={m.account_loading({}, { locale })} />)}
       {retryState && (
         <ErrorState
           message={message ?? ""}
