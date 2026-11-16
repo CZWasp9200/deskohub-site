@@ -1,20 +1,13 @@
-import { brandFontVariation } from "@deskohub/brand-tokens";
 import type { CustomerReservationFamily } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { ReactNode } from "react";
-import {
-  Pressable,
-  StyleSheet,
-  type TextStyle,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
 import { Skeleton, SkeletonGroup } from "../../ui/skeleton";
 import { Text } from "../../ui/text";
-import { color, radius, shadow, space, typeScale } from "../../ui/tokens";
+import { brandText, color, radius, shadow, space } from "../../ui/tokens";
 import { SpaceIllustration } from "../ui/space-illustration";
 import { familyTitle } from "./booking-family-copy";
 import {
@@ -215,7 +208,7 @@ function FullCard({
     <CardShell card={card} locale={locale} onOpen={onOpen} half={false}>
       <View style={styles.fullText}>
         <View style={styles.fullName}>
-          <Text variant="headline" style={styles.fullTitle}>
+          <Text tone="default" style={styles.fullTitle}>
             {spaceName(card, locale)}
           </Text>
           <Text variant="hint">{factsText(card.facts, locale)}</Text>
@@ -311,13 +304,6 @@ function FullSkeleton() {
   );
 }
 
-const bold = (style: TextStyle, fontSize: number): TextStyle => ({
-  ...style,
-  fontSize,
-  fontWeight: "700",
-  fontVariationSettings: brandFontVariation(700),
-});
-
 const styles = StyleSheet.create({
   // The board keeps the first card's top edge clear of the masthead's edge.
   cards: { gap: space.md, paddingTop: space.xs },
@@ -352,7 +338,8 @@ const styles = StyleSheet.create({
   // The name keeps at least 40% of the row; a price that no longer fits
   // beside it, with long names or large text, moves under it.
   fullName: { flexGrow: 1, flexShrink: 1, gap: space.xxs, minWidth: "40%" },
-  fullTitle: { fontSize: 18 },
+  // Off the type scale, as the board sizes it: between headline and title.
+  fullTitle: brandText(18, 24, 600),
   price: { alignItems: "flex-start" },
   from: { fontSize: 10, lineHeight: 11, marginBottom: -2 },
   amountLine: {
@@ -361,8 +348,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
   },
-  amountHalf: bold(typeScale.bodyStrong, 16),
-  amountFull: bold(typeScale.bodyStrong, 18),
+  amountHalf: brandText(16, 22, 700),
+  amountFull: brandText(18, 22, 700),
   unitHalf: { fontSize: 11, lineHeight: 16 },
   unitFull: { fontSize: 12, lineHeight: 16 },
   halfSkeletonText: { gap: 10, padding: space.md },
