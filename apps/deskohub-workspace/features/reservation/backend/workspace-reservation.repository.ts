@@ -18,7 +18,6 @@ import { postgresUuidV7 } from "@/db/uuid-v7";
 import { WorkspaceLocks } from "@/db/workspace-locks";
 import type { CustomerAgentClientId } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
-import { releaseCodeClaim } from "@/features/checkout/backend/repositories/payment-lifecycle.repository";
 import type {
   CheckoutAttemptKey,
   CheckoutSessionKey,
@@ -26,6 +25,7 @@ import type {
 } from "@/features/checkout/checkout-identifiers";
 import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
 import type { DiscountClaimError } from "@/features/discounts/errors";
+import { PromotionClaims } from "@/features/discounts/promotion-claims";
 import type { AgentSelectionKey } from "@/features/reservation/backend/booking-agent";
 import { withCoworkProductFields } from "@/features/reservation/cowork-reservation-product";
 import type {
@@ -532,11 +532,11 @@ const cancelPendingPaymentAttempt = Effect.fnUntraced(function* (
       message: "The active payment attempt could not be cancelled.",
     });
   }
-  yield* releaseCodeClaim(
-    pendingPaymentCancellation.paymentAttemptId,
-    now,
-    pendingPaymentCancellation.failureCode
-  );
+  yield* PromotionClaims.release({
+    paymentAttemptId: pendingPaymentCancellation.paymentAttemptId,
+    releasedAt: now,
+    releaseReason: pendingPaymentCancellation.failureCode,
+  });
 });
 
 /** Expires the grant and forgets its access code. */
