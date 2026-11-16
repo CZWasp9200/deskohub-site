@@ -93,6 +93,11 @@ export interface IFulfillmentLedger {
     | WorkspaceReservationDeliveryGenerationSupersededError
     | WorkspaceReservationStateError
   >;
+  /**
+   * Completes fulfillment on a delivered report for the active delivery.
+   * Returns the order it moved to fulfilled, or null when the fence matched
+   * nothing.
+   */
   readonly markCustomerEmailDeliveryFulfilled: (input: {
     readonly customerEmailDeliveryId: EmailDeliveryId;
     readonly fulfilledAt: Temporal.Instant;
@@ -111,6 +116,8 @@ export interface IFulfillmentLedger {
   /**
    * Completes fulfillment on provider acceptance. The accepted send replaces
    * any earlier delivery ID, so webhooks for a superseded send cannot match.
+   * Fails with `WorkspaceReservationStateError` when the order was not
+   * `processing`, so success means this call moved it to fulfilled.
    */
   readonly markFulfilled: (input: {
     readonly id: WorkspaceReservationId;
@@ -148,6 +155,12 @@ export interface IFulfillmentLedger {
  * and `markFulfillmentFailed` fence on state alone, not on the claim, so a
  * stalled run that was reclaimed can still settle it. Change that only
  * together with the invoice delivery lease's fence.
+ *
+ * The transitions into fulfilled tell their caller whether they moved the
+ * order: `markFulfilled` succeeds only then, and
+ * `markCustomerEmailDeliveryFulfilled` returns the moved order or null.
+ * Fulfillment completion captures "reservation fulfilled" only after a move,
+ * so the event goes out once per transition into fulfilled.
  */
 export class FulfillmentLedger extends Context.Service<
   FulfillmentLedger,
