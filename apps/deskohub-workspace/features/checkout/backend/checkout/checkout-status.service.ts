@@ -20,6 +20,10 @@ import {
   decodeBookedReservation,
 } from "@/features/reservation/backend/booked-reservation";
 import {
+  getStoredRebookingSelection,
+  type RebookingSelection,
+} from "@/features/reservation/backend/booking-selection";
+import {
   type CustomerReservationPlacement,
   getCustomerReservationPlacement,
 } from "@/features/reservation/backend/customer-reservation-placement";
@@ -32,12 +36,10 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getDotyposReservationTiming } from "@/features/reservation/backend/workspace-reservation.service";
+import { getBookedSelection } from "@/features/reservation/booked-selection";
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
-import { coworkSelectionLink } from "@/features/reservation/cowork-selection-link";
 import type { StoredMeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
-import { meetingRoomSelectionLink } from "@/features/reservation/meeting-room-selection-link";
 import type { StoredOfficeReservationDetails } from "@/features/reservation/office-reservation";
-import { officeSelectionLink } from "@/features/reservation/office-selection-link";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReservationSelection } from "@/features/reservation/selection-path";
 import { ReviewSandbox } from "@/features/review-accounts";
@@ -46,7 +48,10 @@ import { nexiRequestTimeout } from "@/shared/backend/config/nexi.config";
 import type { Money } from "@/shared/money/money";
 import { currentInstant } from "@/shared/utils/temporal";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
-import { ProviderPaymentFinalizationService } from "../payment/provider-payment-finalization.service";
+import {
+  ProviderPaymentFinalizationService,
+  providerPaymentFinalizationLogFields,
+} from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
 import {
   type PaymentAttempt,
@@ -102,6 +107,11 @@ type CheckoutReservationStatusViewModelBase = CheckoutStatusViewModelBase &
     /** The booked selection a retry status reopens on the reservation page. */
     readonly retrySelection?: ReservationSelection;
     /**
+     * What booking the order's reservation again sends, read from the same
+     * stored details and Dotypos reservation as the summary.
+     */
+    readonly bookedSelection?: RebookingSelection;
+    /**
      * Marks a review account's sample or simulated hold, which nothing was
      * reserved or charged for and which has no access code.
      */
@@ -155,6 +165,7 @@ type CheckoutStatusReservationReconstruction =
 type CheckoutStatusReconstruction = {
   readonly reservation: CheckoutStatusReservationReconstruction;
   readonly placement?: CustomerReservationPlacement;
+  readonly bookedSelection?: RebookingSelection;
 };
 
 type CheckoutStatusError =
@@ -207,45 +218,6 @@ const isRetryablePaymentState = (paymentState: PaymentState) =>
 const getRetryDotyposReservationId = (reservation: WorkspaceReservation) =>
   Option.fromNullishOr(reservation.dotyposReservationId).pipe(
     Option.filter(() => isRetryablePaymentState(reservation.paymentState))
-  );
-
-/** Projects the booked selection onto the family's reservation-page link. */
-const getRetrySelection = ({
-  reservation,
-  booked,
-  timing,
-}: {
-  readonly reservation: WorkspaceReservation;
-  readonly booked: Pick<BookedReservation, "seats">;
-  readonly timing: Effect.Success<
-    ReturnType<typeof getDotyposReservationTiming>
-  >;
-}) =>
-  Match.value(reservation.reservationDetails).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (details) =>
-        coworkSelectionLink.fromStored({
-          ...details,
-          ...timing,
-        }),
-      "meeting-room": (details) =>
-        meetingRoomSelectionLink.fromStored({
-          ...details,
-          ...timing,
-        }),
-      office: (details) => {
-        // Unreadable Dotypos seats fall back to the stored selection's.
-        const seats = Option.getOrUndefined(booked.seats) ?? details.seats;
-
-        return seats === undefined
-          ? undefined
-          : officeSelectionLink.fromStored({
-              ...details,
-              ...timing,
-              seats,
-            });
-      },
-    })
   );
 
 /**
@@ -513,12 +485,18 @@ const implementation = Effect.gen(function* () {
         timing,
         attempt,
       });
+      const bookedSelection = getStoredRebookingSelection({
+        details: reservation.reservationDetails,
+        booked,
+        timing,
+      });
 
       yield* Effect.logDebug("Checkout status summary reconstructed");
 
       const reconstruction: CheckoutStatusReconstruction = {
         reservation: statusReservation,
         placement,
+        ...(bookedSelection && { bookedSelection }),
       };
 
       return reconstruction;
@@ -596,7 +574,13 @@ const implementation = Effect.gen(function* () {
             reservation: booked,
           })
         ),
-        Effect.map(getRetrySelection),
+        Effect.map(({ reservation, booked, timing }) =>
+          getBookedSelection({
+            details: reservation.reservationDetails,
+            booked,
+            timing,
+          })
+        ),
         Effect.timeoutOrElse({
           duration: summaryTimeout,
           orElse: () =>
@@ -750,6 +734,9 @@ const implementation = Effect.gen(function* () {
         // retry of the payment it replaced.
         ...(checkoutStatusTraits[statusKind].offersReservationRetry &&
           retrySelection && { retrySelection }),
+        ...(reconstruction.bookedSelection && {
+          bookedSelection: reconstruction.bookedSelection,
+        }),
       };
       const result: CheckoutReservationStatusViewModel = {
         ...resultBase,
@@ -798,7 +785,9 @@ const implementation = Effect.gen(function* () {
           orderId: input.orderId,
           verificationDeadline: refreshVerificationBudget,
         });
-        yield* Effect.annotateLogsScoped({ result });
+        yield* Effect.annotateLogsScoped(
+          providerPaymentFinalizationLogFields(result)
+        );
         yield* Effect.logInfo("Checkout status refresh finalization completed");
 
         if (result === "not_pending") {

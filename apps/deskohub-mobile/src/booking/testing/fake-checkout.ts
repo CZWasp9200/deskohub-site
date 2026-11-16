@@ -29,6 +29,7 @@ import {
 } from "../payment-browser.service";
 import { observedRememberedReferralCode } from "../remembered-referral.service.mock";
 import { fakeBooking } from "./fake-booking-api";
+import { pricedLines, sampleSummary } from "./sample-booking-catalog";
 
 /** The payment page as a test scripts it, recording each page it opened. */
 export const makeFakePaymentBrowser = () => {
@@ -129,11 +130,15 @@ export const makeFakeCheckout = async (kind: SampleAccountKind = "linked") => {
       date: booking.dateIn(20),
       coffee: true,
     }
-  ): CheckoutRequest => ({
-    locale: "en-US",
-    selection,
-    advertisedPriceToken: booking.issueQuoteToken(selection),
-  });
+  ): CheckoutRequest => {
+    const summary = sampleSummary({ lines: pricedLines(selection) });
+    return {
+      locale: "en-US",
+      selection,
+      advertisedPriceToken: booking.issueQuoteToken(selection),
+      quote: { summary, regularPrice: summary.total },
+    };
+  };
 
   return {
     registry,

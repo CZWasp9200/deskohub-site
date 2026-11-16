@@ -39,7 +39,7 @@ import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-util
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
 import { CENSORED_LOG_VALUE } from "@/shared/utils/log-classification";
-import { sealedAccountingDocumentSnapshots } from "./accounting-document-snapshot.repository";
+import { sealedAccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import {
   type AccountingSnapshotKey,
   AccountingSnapshotKeyError,

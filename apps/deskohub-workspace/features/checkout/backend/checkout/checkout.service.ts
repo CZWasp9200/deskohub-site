@@ -91,7 +91,7 @@ import {
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
-import type { PriceVerdict } from "./price-verdict";
+import { getPriceVerdictChangedKeys, type PriceVerdict } from "./price-verdict";
 import { getReservationStatusPath } from "./reservation-status-url";
 import { appendVercelPreviewProtectionBypass } from "./vercel-preview-protection-bypass";
 
@@ -240,7 +240,7 @@ export class CheckoutService extends Context.Service<
     Layer.provide(PayableReservationService.Default),
     Layer.provide(LegalEvidenceEventRepository.Default),
     Layer.provide(CheckoutAnalytics.Live),
-    Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(PaymentLifecycleRepository.Live),
     Layer.provide(PaymentAttemptRepository.Default),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
@@ -500,14 +500,13 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           readonly returnTarget: PaymentReturnTarget | undefined;
         }) {
           yield* Effect.annotateLogsScoped({
-            providerSessionInput: {
-              workspaceReservationId: input.workspaceReservationId,
-              correlationId: input.correlationId,
-              checkoutSessionId: input.checkoutSessionId,
-              locale: input.locale,
-              total: input.total,
-              hasCustomer: true,
-            },
+            reservationId: input.workspaceReservationId,
+            correlationId: input.correlationId,
+            checkoutSessionId: input.checkoutSessionId,
+            locale: input.locale,
+            totalValue: input.total.value,
+            totalCurrency: input.total.currency,
+            hasCustomer: true,
           });
           yield* Effect.logInfo("Checkout provider session start requested");
 
@@ -539,7 +538,10 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
             input.workspaceReservationId,
             "cancelled"
           );
-          yield* Effect.annotateLogsScoped({ nexiAmount });
+          yield* Effect.annotateLogsScoped({
+            nexiAmount: nexiAmount.amount,
+            nexiCurrency: nexiAmount.currency,
+          });
           yield* Effect.logDebug("Checkout provider session inputs prepared");
 
           yield* ensureReservationHasNotEnded(input.reservation);
@@ -970,15 +972,17 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
       }) {
         const { state, verdict } = input;
-        if (verdict.status === "affirmed") return undefined;
-        const { changedKeys, priced: prepared } = verdict;
+        const changedKeys = getPriceVerdictChangedKeys(verdict);
+        if (changedKeys === undefined) return undefined;
+        const prepared = verdict.priced;
         const freshSummary = prepared.summary;
         yield* Effect.annotateLogsScoped({
-          changedKeys,
+          changedSectionKeys: changedKeys.sectionKeys.join(","),
+          changedItemKeys: changedKeys.itemKeys.join(","),
           acceptedQuoteFingerprint: state.quote.fingerprint,
-          acceptedTotal: state.acceptedTotal,
+          acceptedTotalValue: state.acceptedTotal.value,
           freshQuoteFingerprint: prepared.quote.fingerprint,
-          freshTotal: freshSummary.total,
+          freshTotalValue: freshSummary.total.value,
         });
         yield* Effect.logInfo(
           "Hosted payment checkout returned pricing_changed"

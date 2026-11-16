@@ -30,7 +30,7 @@ describe("customer request budget classes", () => {
       )
       .toSorted();
 
-    expect(contractEndpoints()).toHaveLength(29);
+    expect(contractEndpoints()).toHaveLength(34);
     expect(classified).toEqual(contractEndpoints());
   });
 
@@ -42,6 +42,9 @@ describe("customer request budget classes", () => {
       syncAnalyticsConsent: "workspace-only",
       getAnalyticsPreference: "workspace-only",
       saveAnalyticsPreference: "workspace-only",
+    });
+    expect(customerRequestBudgetClasses.reservations).toMatchObject({
+      getEstablishment: "workspace-only",
     });
     expect(customerRequestBudgetClasses.booking).toMatchObject({
       listLegalDocuments: "workspace-only",
@@ -72,7 +75,7 @@ describe("customer request budget classes", () => {
       Object.values(customerRequestBudgetClasses.account).filter(
         (budgetClass) => budgetClass === "dotypos-read"
       )
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(
       Object.values(customerRequestBudgetClasses.reservations).filter(
         (budgetClass) => budgetClass === "dotypos-read"
@@ -83,6 +86,11 @@ describe("customer request budget classes", () => {
         (budgetClass) => budgetClass === "dotypos-read"
       )
     ).toHaveLength(0);
+    expect(
+      Object.values(customerRequestBudgetClasses.invoices).filter(
+        (budgetClass) => budgetClass === "dotypos-read"
+      )
+    ).toHaveLength(2);
     expect(
       Object.values(customerRequestBudgetClasses.booking).filter(
         (budgetClass) => budgetClass === "dotypos-mutation"
@@ -113,6 +121,10 @@ describe("customer request budget classes", () => {
         getReferrals: "dotypos-read",
       },
       reservations: { getReservationInvoice: "dotypos-read" },
+      invoices: {
+        listInvoices: "dotypos-read",
+        getInvoicePdf: "dotypos-read",
+      },
     });
   });
 
@@ -123,6 +135,7 @@ describe("customer request budget classes", () => {
       listOfferings: "catalog-read",
       getAvailability: "catalog-read",
       getMeetingRoomStartTimes: "catalog-read",
+      getMeetingRoomUnavailableDates: "catalog-read",
       getQuote: "catalog-read",
     });
   });

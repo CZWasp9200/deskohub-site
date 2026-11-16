@@ -10,6 +10,7 @@ import { StyleSheet } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import { theme } from "../../theme";
 import { ChoiceList } from "../../ui/choice-list";
 import { LiveMessage } from "../../ui/controls";
@@ -31,7 +32,6 @@ import {
 } from "../selection/cowork-selection";
 import { pragueToday } from "../selection/prague-date";
 import { Checkbox } from "../ui/checkbox";
-import { formatMoney } from "../ui/money";
 import { MonthCalendar } from "../ui/month-calendar";
 import { bookingClockAtom } from "./booking-clock";
 import { BookingContinue } from "./booking-continue";

@@ -1969,6 +1969,7 @@
           "query": null
         },
         "middleware": [
+          "@deskohub/workspace-admin-api/CliClientCompatibility",
           "@deskohub/workspace-admin-api/AdministrationActionRecord",
           "@deskohub/workspace-admin-api/AdministrationAuthentication"
         ],
@@ -1976,13 +1977,19 @@
           "@deskohub/workspace-admin-api/AdministrationOperationBehavior": {
             "kind": "read",
             "idempotent": true
-          }
+          },
+          "@deskohub/workspace-admin-api/MinimumDhwVersion": {
+            "_tag": "Some",
+            "value": "1.36.1"
+          },
+          "@deskohub/workspace-admin-api/OutdatedDhwRefusal": "CliServiceUnavailable"
         },
         "effectiveAnnotations": {
           "minimumDhwVersion": {
-            "_tag": "None"
+            "_tag": "Some",
+            "value": "1.36.1"
           },
-          "outdatedDhwRefusal": "CliInputInvalid"
+          "outdatedDhwRefusal": "CliServiceUnavailable"
         },
         "operation": {
           "tags": [
@@ -4165,9 +4172,6 @@
                       },
                       "canCancel": {
                         "type": "boolean"
-                      },
-                      "requiresProviderCredentialRemoval": {
-                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -4182,10 +4186,19 @@
                       "otherCustomerReservations",
                       "sameDateReservations",
                       "references",
-                      "canCancel",
-                      "requiresProviderCredentialRemoval"
+                      "canCancel"
                     ],
                     "additionalProperties": false
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "CliInputInvalid",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CliInputInvalidEncoded"
                   }
                 }
               }
@@ -4263,6 +4276,7 @@
           "query": null
         },
         "middleware": [
+          "@deskohub/workspace-admin-api/CliClientCompatibility",
           "@deskohub/workspace-admin-api/AdministrationActionRecord",
           "@deskohub/workspace-admin-api/AdministrationAuthentication"
         ],
@@ -4277,6 +4291,11 @@
               ]
             }
           },
+          "@deskohub/workspace-admin-api/MinimumDhwVersion": {
+            "_tag": "Some",
+            "value": "1.36.1"
+          },
+          "@deskohub/workspace-admin-api/OutdatedDhwRefusal": "CliServiceUnavailable",
           "effect/http-api/HttpApi/PayloadParseOptions": {
             "errors": "all",
             "onExcessProperty": "error"
@@ -4284,9 +4303,10 @@
         },
         "effectiveAnnotations": {
           "minimumDhwVersion": {
-            "_tag": "None"
+            "_tag": "Some",
+            "value": "1.36.1"
           },
-          "outdatedDhwRefusal": "CliInputInvalid"
+          "outdatedDhwRefusal": "CliServiceUnavailable"
         },
         "operation": {
           "tags": [
@@ -4341,6 +4361,16 @@
                 }
               }
             },
+            "400": {
+              "description": "CliInputInvalid",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CliInputInvalidEncoded"
+                  }
+                }
+              }
+            },
             "401": {
               "description": "CliSessionUnauthorized",
               "content": {
@@ -4388,20 +4418,7 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "accessGrantUpdatedAt": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
                     "force": {
-                      "type": "boolean"
-                    },
-                    "providerCredentialRemoved": {
                       "type": "boolean"
                     },
                     "sendCancellationEmail": {
@@ -4409,8 +4426,6 @@
                     }
                   },
                   "required": [
-                    "accessGrantUpdatedAt",
-                    "providerCredentialRemoved",
                     "sendCancellationEmail"
                   ],
                   "additionalProperties": false

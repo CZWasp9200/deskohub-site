@@ -22,10 +22,10 @@ import {
   type VoucherAvailability,
 } from "./promotion-code";
 import {
-  buildDiscountCodeAvailabilityQuery,
   buildDiscountCodePreviewAvailabilityQuery,
-  buildPromotionAudienceQuery,
-  buildVoucherAvailabilityQuery,
+  readDiscountCodeUses,
+  readPromotionAudience,
+  readVoucherUses,
 } from "./promotion-code.repository-query";
 
 type RepositoryError =
@@ -112,13 +112,13 @@ export class PromotionCodeRepository extends Context.Service<
         readonly codeId: DiscountCodeId;
         readonly dotyposCustomerId: DotyposCustomerId;
       }) {
-        const [audienceRows, claimRows] = yield* Effect.flatMap(
+        const [audience, uses] = yield* Effect.flatMap(
           workspaceStatementConcurrency,
           (concurrency) =>
             Effect.all(
               [
-                buildPromotionAudienceQuery({ db, ...input }),
-                buildDiscountCodeAvailabilityQuery({ db, ...input }),
+                readPromotionAudience({ db, ...input }),
+                readDiscountCodeUses({ db, ...input }),
               ],
               { concurrency }
             )
@@ -126,12 +126,7 @@ export class PromotionCodeRepository extends Context.Service<
         return yield* Schema.decodeUnknownEffect(
           discountCodeAvailabilitySchema,
           { errors: "all", onExcessProperty: "error" }
-        )({
-          allowlistSize: audienceRows[0]?.allowlistSize ?? 0,
-          customerAllowed: audienceRows[0]?.customerAllowed ?? false,
-          activeUseCount: claimRows[0]?.activeUseCount ?? 0,
-          customerActiveUseCount: claimRows[0]?.customerActiveUseCount ?? 0,
-        }).pipe(
+        )({ ...audience, ...uses }).pipe(
           Effect.mapError((cause) =>
             malformedAvailability(input.promotionCodeId, cause)
           )
@@ -165,13 +160,13 @@ export class PromotionCodeRepository extends Context.Service<
         readonly voucherId: VoucherId;
         readonly dotyposCustomerId: DotyposCustomerId;
       }) {
-        const [audienceRows, claimRows] = yield* Effect.flatMap(
+        const [audience, uses] = yield* Effect.flatMap(
           workspaceStatementConcurrency,
           (concurrency) =>
             Effect.all(
               [
-                buildPromotionAudienceQuery({ db, ...input }),
-                buildVoucherAvailabilityQuery({ db, ...input }),
+                readPromotionAudience({ db, ...input }),
+                readVoucherUses({ db, ...input }),
               ],
               { concurrency }
             )
@@ -179,12 +174,7 @@ export class PromotionCodeRepository extends Context.Service<
         return yield* Schema.decodeUnknownEffect(voucherAvailabilitySchema, {
           errors: "all",
           onExcessProperty: "error",
-        })({
-          allowlistSize: audienceRows[0]?.allowlistSize ?? 0,
-          customerAllowed: audienceRows[0]?.customerAllowed ?? false,
-          customerHasReserved: claimRows[0]?.customerHasReserved ?? false,
-          usedValue: claimRows[0]?.usedValue ?? 0,
-        }).pipe(
+        })({ ...audience, ...uses }).pipe(
           Effect.mapError((cause) =>
             malformedAvailability(input.promotionCodeId, cause)
           )

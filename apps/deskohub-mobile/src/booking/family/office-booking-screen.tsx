@@ -5,6 +5,7 @@ import { StyleSheet } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import { theme } from "../../theme";
 import { LiveMessage } from "../../ui/controls";
 import { SectionHeader } from "../../ui/list";
@@ -24,7 +25,6 @@ import {
   officeAvailabilityQuery,
 } from "../selection/office-selection";
 import { addDays, pragueToday } from "../selection/prague-date";
-import { formatMoney } from "../ui/money";
 import { MonthCalendar } from "../ui/month-calendar";
 import { formatPragueDate } from "../ui/prague-date-format";
 import { Stepper } from "../ui/stepper";

@@ -31,6 +31,7 @@ import {
 } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceLocks } from "@/db/workspace-locks";
+import { toDotyposCustomerBillingDetails } from "@/features/accounting/billing-identity";
 import {
   type InvoiceBuyer,
   invoiceBuyerSchema,
@@ -62,7 +63,8 @@ import {
   type AdministrationHref,
   administrationHref,
 } from "@/features/administration/administration-href";
-import { unnamedCustomerDisplayName } from "@/features/administration/customer-name";
+import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
+import { nameAdministrationCustomer } from "@/features/administration/customer-identity";
 import { getAdministrationPagination } from "@/features/administration/listing";
 import { baseLocale, defaultPhoneRegion, type Locale } from "@/features/i18n";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
@@ -77,7 +79,7 @@ import {
   plainDateStringSchema,
   temporalInstantToPlainDate,
 } from "@/shared/utils/temporal";
-import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
+import { AccountingStorage } from "../backend/accounting-storage";
 import { type Invoice, InvoiceRepository } from "../backend/invoice.repository";
 import {
   type InvoiceDeliverySummary,
@@ -215,6 +217,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   const deliveries = yield* InvoiceEmailDeliveryService;
   const deliveryLedger = yield* InvoiceEmailDeliveryRepository;
   const dotypos = yield* DotyposService;
+  const customerDirectory = yield* AdministrationCustomerDirectory;
   const creationRequests = yield* ManualInvoiceCreationRequests;
 
   const prepare = Effect.fn("InvoiceAdministrationService.prepare")(function* (
@@ -238,6 +241,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     return {
       invoiceId,
       provenance,
+      buyer,
       forCustomer: (dotyposCustomerId: DotyposCustomerId) => ({
         invoiceId,
         dotyposCustomerId,
@@ -329,11 +333,8 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   const searchCustomers = Effect.fn(
     "InvoiceAdministrationService.searchCustomers"
   )(function* (query: string) {
-    const matches = yield* dotypos.searchCustomers(query);
-    return matches
-      .filter((customer) => !customer.deleted)
-      .map(toCustomer)
-      .slice(0, 50);
+    const { customers } = yield* customerDirectory.search(query);
+    return customers.map(toCustomer);
   });
 
   const preview = Effect.fn("InvoiceAdministrationService.preview")(function* (
@@ -401,7 +402,11 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
             : DotyposCustomerIdSchema.make(existing.dotyposCustomerId)
         );
       }
-      const customerResolution = resolveCustomer(dotypos, input.customer);
+      const customerResolution = resolveCustomer(
+        dotypos,
+        input.customer,
+        prepared.buyer
+      );
       return yield* (
         input.customer.kind === "new"
           ? // ponytail: one global new-customer lock avoids putting email
@@ -504,7 +509,10 @@ export class InvoiceAdministrationService extends Context.Service<
   InvoiceAdministrationService,
   Effect.Success<typeof makeInvoiceAdministrationService>
 >()("@deskohub-workspace/accounting/InvoiceAdministrationService") {
-  static Default = Layer.effect(this, makeInvoiceAdministrationService);
+  static Default = Layer.effect(this, makeInvoiceAdministrationService).pipe(
+    // The directory has one implementation: tests substitute `DotyposService` beneath it.
+    Layer.provide(AdministrationCustomerDirectory.Default)
+  );
   static Live = this.Default.pipe(Layer.provide(getDependencies()));
 }
 
@@ -523,9 +531,10 @@ const resolveCustomer = Effect.fn(
   "InvoiceAdministrationService.resolveCustomer"
 )(function* (
   dotypos: Context.Service.Shape<typeof DotyposService>,
-  input: AdministrationInvoiceCreateInputType["customer"]
+  input: AdministrationInvoiceCreateInputType["customer"],
+  buyer: InvoiceBuyer
 ) {
-  const details = toDotyposDetails(input.details);
+  const details = toDotyposDetails(input.details, buyer);
   if (input.kind === "existing") {
     const customerId = yield* Schema.decodeUnknownEffect(
       DotyposCustomerIdSchema
@@ -575,7 +584,8 @@ const resolveCustomer = Effect.fn(
 });
 
 const toDotyposDetails = (
-  details: AdministrationInvoiceCustomerDetailsType
+  details: AdministrationInvoiceCustomerDetailsType,
+  buyer: InvoiceBuyer
 ): DotyposCustomerDetails => ({
   firstName: details.firstName ?? "",
   lastName: details.lastName ?? "",
@@ -587,14 +597,7 @@ const toDotyposDetails = (
   phone: Option.getOrUndefined(
     parsePhoneNumber(details.phone ?? "", defaultPhoneRegion(baseLocale))
   ),
-  addressLine1: details.address.line1,
-  addressLine2: details.address.line2 ?? "",
-  city: details.address.city,
-  zip: details.address.postalCode,
-  country: details.address.country,
-  companyName: details.kind === "business" ? details.companyName : "",
-  companyId: details.kind === "business" ? details.companyId : "",
-  vatId: details.kind === "business" ? (details.vatId ?? "") : "",
+  ...toDotyposCustomerBillingDetails(buyer),
 });
 
 const toBuyer = Effect.fn("InvoiceAdministrationService.toBuyer")(
@@ -673,21 +676,12 @@ const toCustomerDetails = (
 
 const toCustomer = (
   customer: DotyposCustomer
-): InvoiceAdministrationCustomer => {
-  const personName = [customer.firstName, customer.lastName]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-  const email = customerText(customer.email);
-  const name = customerText(customer.companyName) || personName || email;
-  return {
-    id: customer.id,
-    displayName: name || unnamedCustomerDisplayName,
-    hasName: Boolean(name),
-    email: email || null,
-    details: toCustomerDetails(customer),
-  };
-};
+): InvoiceAdministrationCustomer => ({
+  id: customer.id,
+  ...nameAdministrationCustomer(customer, "company-person-email"),
+  email: customerText(customer.email) || null,
+  details: toCustomerDetails(customer),
+});
 
 const toListItem = (
   invoice: Invoice,
@@ -816,18 +810,11 @@ export const sortInvoiceAdministrationItems = (
 };
 
 function getDependencies() {
-  const storage = Layer.merge(
-    WorkspaceDatabase.Default,
-    AccountingSnapshotKeyService.Default
-  );
-  const creationRequests = ManualInvoiceCreationRequests.Default.pipe(
-    Layer.provide(storage)
-  );
   return Layer.mergeAll(
     WorkspaceDatabase.Default,
-    InvoiceRepository.Live,
+    AccountingStorage.Live,
     InvoiceEmailDeliveryRepository.Live,
-    creationRequests,
+    ManualInvoiceCreationRequests.Live,
     InvoiceEmailDeliveryService.Live,
     WorkspaceDotyposLayer
   );

@@ -13,10 +13,11 @@ import {
   CurrentAccountConsentCheck,
 } from "./account-consent-check";
 import {
-  type AccountAnalyticsDecision,
   type AnalyticsConsent,
+  type AnalyticsDecision,
   analyticsConsentStatusOf,
   consentChoiceMark,
+  decisionToTake,
   type StoredConsent,
 } from "./analytics-consent";
 import { DeviceAnalyticsConsent } from "./use-analytics-consent";
@@ -72,7 +73,7 @@ export const takeAccountDecision = Effect.fn(
   readonly accountId: string | undefined;
   /** The device's choice when the request was sent. */
   readonly sent: StoredConsent | undefined;
-  readonly decision: AccountAnalyticsDecision;
+  readonly decision: AnalyticsDecision;
 }) {
   const consent = yield* DeviceAnalyticsConsent;
   const check = yield* CurrentAccountConsentCheck;
@@ -173,16 +174,14 @@ export const syncedChoiceOf = (
 export const accountDecisionFrom = (
   answer: CustomerAnalyticsConsentSync,
   sent: StoredConsent
-): AccountAnalyticsDecision | undefined =>
+): AnalyticsDecision | undefined =>
   Match.value(answer).pipe(
     Match.discriminatorsExhaustive("kind")({
       unchanged: () => undefined,
       withdraw: ({ decidedAt }) =>
-        analyticsConsentStatusOf(sent) === "granted"
-          ? { analytics: false, decidedAt }
-          : undefined,
+        decisionToTake(sent, { analytics: false, decidedAt }),
       grant: ({ decidedAt }) =>
-        sent.kind === "undecided" ? { analytics: true, decidedAt } : undefined,
+        decisionToTake(sent, { analytics: true, decidedAt }),
     })
   );
 

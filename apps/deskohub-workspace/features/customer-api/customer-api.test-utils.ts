@@ -4,6 +4,7 @@ import {
   customerApiPathPrefix,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer } from "effect";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   testCustomerSession,
   testLinkedAccount,
@@ -27,9 +28,10 @@ import {
   CustomerAuthentication,
 } from "@/features/account/backend/customer-authentication.service";
 import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
+import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
 import { CustomerLocalePreference } from "@/features/account/backend/customer-locale-preference.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
-import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
+import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import type { CustomerProfile } from "@/features/account/contracts";
 import {
   type CustomerAccountAccessError,
@@ -231,12 +233,14 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
   analyticsConsentLedger: Layer.mock(AnalyticsConsentLedger, {}),
   analyticsPersonAnonymisation: Layer.mock(AnalyticsPersonAnonymisation, {}),
   localePreference: Layer.mock(CustomerLocalePreference, {}),
+  dataExport: Layer.mock(AccountDataExportService, {}),
+  invoices: Layer.mock(CustomerInvoiceService, {}),
 };
 
 const unusedReservationServices: CustomerReservationServiceLayers = {
-  currentAccount: () => Layer.mock(CurrentCustomerAccount, {}),
-  history: Layer.mock(CustomerReservationHistoryService, {}),
-  authorization: () => Layer.mock(ReservationAuthorizationService, {}),
+  currentAccount: Layer.mock(CurrentCustomerAccount, {}),
+  history: () => Layer.mock(CustomerReservationHistoryWithAccessService, {}),
+  authorization: Layer.mock(ReservationAuthorizationService, {}),
   checkoutStatus: Layer.mock(CheckoutStatusService, {}),
   access: () => Layer.mock(ReservationAccessService, {}),
   invoice: () => Layer.mock(ReservationInvoicePdfService, {}),

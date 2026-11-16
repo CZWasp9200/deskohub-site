@@ -1,21 +1,25 @@
-export type NoticeTone = "info" | "warning" | "error";
+export type NoticeTone = "info" | "positive" | "warning" | "error";
 
 /**
- * How a notice presents its message: `error` interrupts (`alert`), `info`
- * and `warning` wait their turn (`status`). Without a message the live region
+ * How a notice presents its message: `error` interrupts (`alert`), the
+ * other tones wait their turn (`status`). Without a message the live region
  * stays mounted, so assistive tech announces the next one, but takes no
- * layout space.
+ * layout space. A title is announced with the message, before it.
  */
 export const noticePresentation = (
   tone: NoticeTone,
-  message: string | undefined
+  message: string | undefined,
+  title?: string
 ) => {
   const alert = tone === "error";
+  const shown = message !== undefined && message !== "";
   return {
-    shown: message !== undefined && message !== "",
+    shown,
     role: alert ? "alert" : "status",
     live: alert ? "assertive" : "polite",
-    glyph: tone === "info" ? "i" : "!",
+    announcement: shown
+      ? [title, message].filter((part) => !!part).join("\n")
+      : undefined,
   } as const;
 };
 

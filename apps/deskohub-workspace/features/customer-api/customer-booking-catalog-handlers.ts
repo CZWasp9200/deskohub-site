@@ -20,19 +20,26 @@ import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quo
 import type { Locale } from "@/features/i18n";
 import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-evidence";
 import { resolveBookingQuoteSelection } from "@/features/reservation/backend/booking-selection";
+import { AvailabilityQueryInvalid } from "@/features/reservation/backend/workspace-availability.service";
 import {
   loadAvailability,
   loadMeetingRoomStartTimes,
+  loadMeetingRoomUnavailableDates,
 } from "@/features/reservation/backend/workspace-availability-loader";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
+import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import {
+  getMeetingRoomUnavailableDatesQuery,
   parseMeetingRoomStartTimesQuery,
   parseWorkspaceAvailabilityQuery,
   type WorkspaceAvailability,
 } from "@/features/reservation/workspace-availability";
 import { providePerRequest } from "@/shared/backend/provide-per-request";
 import { currentInstant } from "@/shared/utils/temporal";
-import { answerSessionApiFailure } from "./customer-api-failure";
+import {
+  answerSessionApiFailure,
+  type CustomerSessionApiFailure,
+} from "./customer-api-failure";
 import { CustomerBookingCatalogLayers } from "./customer-booking-catalog-layers";
 import type {
   CustomerBookingEndpointName,
@@ -55,6 +62,7 @@ export type CustomerBookingCatalogEndpointName =
   | "listOfferings"
   | "getAvailability"
   | "getMeetingRoomStartTimes"
+  | "getMeetingRoomUnavailableDates"
   | "getQuote"
   | "listLegalDocuments";
 
@@ -144,6 +152,23 @@ export const handleCustomerBookingCatalog = <R>(
           )
         )
       )
+      .handle("getMeetingRoomUnavailableDates", ({ query, headers }) =>
+        currentInstant.pipe(
+          Effect.flatMap((now) =>
+            loadMeetingRoomUnavailableDates({
+              query: getMeetingRoomUnavailableDatesQuery({
+                ...query,
+                today: getCurrentWorkspaceDate(now).toString(),
+              }),
+              replacementToken: headers[customerAvailabilityReplacementHeader],
+            })
+          ),
+          Effect.provide(availability),
+          answerAvailabilityRangeFailure(
+            "customerApi.getMeetingRoomUnavailableDates"
+          )
+        )
+      )
       .handle("getQuote", ({ query }) =>
         quoteSelection(query).pipe(
           providePerRequest(quoting),
@@ -206,6 +231,29 @@ const parseAvailabilityQuery = <Query>(
     onNone: () => Effect.fail(new CustomerBookingSelectionInvalid({})),
     onSome: Effect.succeed,
   });
+
+/**
+ * Answers a range the availability service refuses, such as one longer than
+ * the calendar, as an invalid selection, and every other failure as
+ * `answerSessionApiFailure` does.
+ */
+const answerAvailabilityRangeFailure =
+  (operation: string) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.catch(
+        (
+          failure
+        ): Effect.Effect<
+          never,
+          | CustomerBookingSelectionInvalid
+          | CustomerSessionApiFailure<Exclude<E, AvailabilityQueryInvalid>>
+        > =>
+          failure instanceof AvailabilityQueryInvalid
+            ? Effect.fail(new CustomerBookingSelectionInvalid({}))
+            : Effect.fail(failure).pipe(answerSessionApiFailure(operation))
+      )
+    );
 
 const definedEntries = (
   query: Readonly<Record<string, string | number | undefined>>

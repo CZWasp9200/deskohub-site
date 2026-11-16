@@ -1,4 +1,5 @@
 import type {
+  CustomerBookingQuote,
   CustomerBookingSelection,
   CustomerLocale,
 } from "@deskohub/workspace-customer-api";
@@ -47,6 +48,11 @@ export interface CheckoutRequest {
   readonly locale: CustomerLocale;
   readonly selection: CustomerBookingSelection;
   readonly advertisedPriceToken: string;
+  /**
+   * The same quote's price, which the booking bar shows until checkout holds
+   * the order: its lines and the price without the sale.
+   */
+  readonly quote: Pick<CustomerBookingQuote, "summary" | "regularPrice">;
   /** Meeting room only. */
   readonly earlySetup?: boolean;
 }
