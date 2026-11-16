@@ -10,6 +10,11 @@ import { deviceCapabilitiesLayer } from "../device-capabilities-layer";
 import type { SampleAccountKind } from "../sample-data-mode";
 import { fakeCustomerApiLayer } from "./fake-customer-data";
 import { FakeWorkspace, fakeWorkspaceOrigin } from "./fake-workspace";
+import {
+  type SampleHistory,
+  sampleHistoryOf,
+  withSampleHistory,
+} from "./sample-history";
 
 /**
  * The development-only sample-data layer: the real clients over a fake
@@ -17,9 +22,12 @@ import { FakeWorkspace, fakeWorkspaceOrigin } from "./fake-workspace";
  * sheet, clipboard and picker. Loaded only behind the sample-data switch.
  */
 export const sampleCustomerDataLayer = (
-  kind: SampleAccountKind
+  kind: SampleAccountKind,
+  history: SampleHistory = sampleHistoryOf(
+    process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_HISTORY
+  )
 ): Layer.Layer<CustomerDataServices> => {
-  const workspace = FakeWorkspace.forKind(kind);
+  const workspace = withSampleHistory(FakeWorkspace.forKind(kind), history);
   return Layer.mergeAll(
     fakeCustomerApiLayer(workspace),
     AccountReadBudget.Default,

@@ -9,7 +9,11 @@ import {
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LoadingIndicator } from "./loading-indicator";
-import { ScrollScreen, useScrollScreenToTop } from "./scroll-screen";
+import {
+  MastheadClearance,
+  ScrollScreen,
+  useScrollScreenToTop,
+} from "./scroll-screen";
 import { elementTree, find, findAll, flatStyle } from "./testing/element-tree";
 import { color, space } from "./tokens";
 
@@ -116,5 +120,13 @@ describe("ScrollScreen", () => {
       );
     expect(indicator(true)?.props).toMatchObject({ size: "inline" });
     expect(indicator(false)).toBeUndefined();
+  });
+
+  test("a masthead clearance moves content past the 40 overlap, less the column gap", () => {
+    const clearance = elementTree(MastheadClearance, {}) as {
+      props: { style: unknown; "aria-hidden": boolean };
+    };
+    expect(clearance.props["aria-hidden"]).toBe(true);
+    expect(flatStyle(clearance.props.style).height).toBe(40 - space.md);
   });
 });

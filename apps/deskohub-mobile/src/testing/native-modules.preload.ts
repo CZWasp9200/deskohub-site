@@ -80,6 +80,9 @@ mock.module("react-native", () => ({
   Linking: {
     addEventListener: () => ({ remove: () => undefined }),
   },
+  BackHandler: {
+    addEventListener: () => ({ remove: () => undefined }),
+  },
   // Animations stand still: values keep what they were set to and every
   // animation finishes at once when started.
   Animated: {
@@ -216,6 +219,8 @@ mock.module("expo-web-browser", () => ({
 // Tests provide their own consent; these keep its module graph loadable.
 mock.module("expo-localization", () => ({
   getLocales: () => [{ languageTag: "en-US" }],
+  // The device doesn't say its clock: times follow the locale.
+  getCalendars: () => [{ uses24hourClock: null }],
 }));
 
 const asyncStorageItems = new Map<string, string>();

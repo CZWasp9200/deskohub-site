@@ -8,17 +8,13 @@ import type { BottomTabNavigationOptions } from "expo-router/tabs";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AppLocale } from "../i18n/app-locale";
-import { theme } from "../theme";
 import { AppBar } from "./app-bar";
 import { FocusedStatusBar } from "./focused-status-bar";
-import { localeTextStyle } from "./text-style";
 import { color } from "./tokens";
 
 // Options are one object per locale, so a navigator sees the same options
 // until the locale changes. The stack header is the app's own `AppBar`,
-// whose Text follows the locale; the tab bar draws its own labels, out of
-// reach of the app's Text, so its options carry the locale's font (see
-// `localeTextStyle`).
+// whose Text follows the locale.
 
 /**
  * A stack screen's header: the app bar below the top safe area, with a
@@ -32,7 +28,11 @@ export function StackHeader({
   options,
   route,
   navigation,
-}: NativeStackHeaderProps) {
+  closes = false,
+}: NativeStackHeaderProps & {
+  /** The screen ends a flow: its button closes it rather than going back. */
+  readonly closes?: boolean;
+}) {
   const insets = useSafeAreaInsets();
   const canGoBack = back !== undefined;
   return (
@@ -47,6 +47,7 @@ export function StackHeader({
         }
         actions={options.headerRight?.({ tintColor: color.navy, canGoBack })}
         raised={options.headerShadowVisible === true}
+        back={closes ? "close" : "back"}
       />
     </View>
   );
@@ -54,6 +55,11 @@ export function StackHeader({
 
 const renderStackHeader = (props: NativeStackHeaderProps) => (
   <StackHeader {...props} />
+);
+
+/** A stack header whose button closes the screen (`StackHeader`'s `closes`). */
+export const renderClosingStackHeader = (props: NativeStackHeaderProps) => (
+  <StackHeader {...props} closes />
 );
 
 const stackOptionsByLocale = mapSupportedLocales(
@@ -69,49 +75,12 @@ const stackOptionsByLocale = mapSupportedLocales(
 export const stackScreenOptions = (locale: AppLocale) =>
   stackOptionsByLocale[locale];
 
-/**
- * The tabs carry text labels; the bar above the label marks the open tab
- * in place of an icon, which the app doesn't ship.
- */
-function TabIndicator({ focused }: { readonly focused: boolean }) {
-  return (
-    <View
-      aria-hidden
-      style={[styles.indicator, focused && styles.indicatorFocused]}
-    />
-  );
-}
-
-const tabOptionsByLocale = mapSupportedLocales(
-  (locale) =>
-    ({
-      headerShown: false,
-      sceneStyle: { backgroundColor: color.paper },
-      tabBarActiveTintColor: color.action,
-      tabBarInactiveTintColor: color.ink2,
-      tabBarIcon: TabIndicator,
-      // The bar holds 49pt: a 28pt icon slot leaves no room for a readable
-      // label, so the slot shrinks to the indicator.
-      tabBarIconStyle: { height: 3, marginBottom: theme.spacing.xs + 2 },
-      tabBarLabelStyle: localeTextStyle(theme.type.captionStrong, locale),
-      tabBarStyle: {
-        backgroundColor: color.surface,
-        borderTopColor: color.line,
-      },
-    }) satisfies BottomTabNavigationOptions
-);
-
-/** The bottom tab bar; each tab's stack draws its own header. */
-export const tabScreenOptions = (locale: AppLocale) =>
-  tabOptionsByLocale[locale];
+/** The tabs' scenes; each tab's stack draws its own header, `TabBar` the bar. */
+export const tabScreenOptions = {
+  headerShown: false,
+  sceneStyle: { backgroundColor: color.paper },
+} as const satisfies BottomTabNavigationOptions;
 
 const styles = StyleSheet.create({
   header: { backgroundColor: color.paper },
-  indicator: {
-    backgroundColor: "transparent",
-    borderRadius: 2,
-    height: 3,
-    width: 24,
-  },
-  indicatorFocused: { backgroundColor: color.action },
 });

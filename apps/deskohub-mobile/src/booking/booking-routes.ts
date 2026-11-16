@@ -1,4 +1,7 @@
-import type { CustomerBookingSelection } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerBookedSelection,
+  CustomerBookingSelection,
+} from "@deskohub/workspace-customer-api";
 import type { CheckoutRestartReason } from "./checkout/booking-problem";
 
 type BookingFamily = CustomerBookingSelection["family"];
@@ -26,3 +29,14 @@ export const reservationsHref = "/reservations" as const;
 /** The status screen a finished checkout opens (#991's reservations route). */
 export const paymentStatusHref = (orderId: string) =>
   `/reservations/${encodeURIComponent(orderId)}?after=payment` as const;
+
+/**
+ * Where "Book again" leads: the booked kind of space, or the choice of
+ * spaces when the booking can no longer be booked as it was. The family
+ * screens don't take a preselection yet, so the stored selection only picks
+ * the screen.
+ */
+export const bookAgainHref = (booked: CustomerBookedSelection | undefined) =>
+  booked === undefined
+    ? ("/book" as const)
+    : bookFamilyHref(booked.selection.family);
