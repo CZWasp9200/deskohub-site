@@ -11,6 +11,7 @@ import {
   sealPayState,
 } from "@/features/checkout/backend/checkout/pay-state";
 import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
+import { buildReservationQuote } from "@/features/checkout/reservation-quote";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
 import {
   type DiscountAdvertisementInput,
@@ -29,12 +30,18 @@ import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
-import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
+import {
+  AvailabilityQueryInvalid,
+  WorkspaceAvailabilityService,
+} from "@/features/reservation/backend/workspace-availability.service";
 import { normalizedCoworkReservationOrderSchema } from "@/features/reservation/cowork-reservation";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
-import type {
-  MeetingRoomStartTimes,
-  WorkspaceAvailability,
+import { reservationOrderSchema } from "@/features/reservation/reservation-order";
+import {
+  getWorkspaceAvailabilityRange,
+  type MeetingRoomStartTimes,
+  type MeetingRoomUnavailableDates,
+  type WorkspaceAvailability,
 } from "@/features/reservation/workspace-availability";
 import { moneyWithValue } from "@/shared/money/money";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
@@ -514,11 +521,18 @@ describe("getMeetingRoomStartTimes", () => {
         earlySetupAvailable: true,
       },
     ],
+    unavailableStartTimes: [
+      {
+        startDateTime: localDateTimeSchema.make("2026-11-09T10:00"),
+        startsAt: instantStringSchema.make("2026-11-09T09:00:00Z"),
+        endsAt: instantStringSchema.make("2026-11-09T13:00:00Z"),
+      },
+    ],
   };
 
   testCustomerEndpointGuards(getStartTimes);
 
-  test("answers every free start of the duration on the date", async () => {
+  test("answers every free and taken start of the duration on the date", async () => {
     const queries: unknown[] = [];
     const api = makeCustomerApiTestServer({
       bookingCatalog: {
@@ -574,6 +588,216 @@ describe("getMeetingRoomStartTimes", () => {
     const response = await api.handle(customerApiRequest(getStartTimes));
 
     expect(response.status).toBe(503);
+  });
+});
+
+/** A signed meeting-room pay state, as a client changing that booking sends it. */
+const meetingRoomReplacementToken = Effect.runPromise(
+  Effect.gen(function* () {
+    const reservation = Schema.decodeUnknownSync(reservationOrderSchema("CZ"))({
+      kind: "meeting-room",
+      duration: { unit: "hour", amount: 1 },
+      reservationDate: "2099-06-20",
+      startsAt: "2099-06-20T08:00:00Z",
+      endsAt: "2099-06-20T09:00:00Z",
+      name: "Ada Lovelace",
+      email: testEmailAddress("ada"),
+      phone: "+420777000111",
+    });
+    const state = yield* buildSignedPayState({
+      locale: "en-US",
+      reservation,
+      quote: yield* buildReservationQuote(reservation),
+      orderId: "reservation-id",
+      bookedAt: Schema.decodeUnknownSync(instantStringSchema)(
+        "2099-06-01T10:00:00Z"
+      ),
+      checkoutSessionId: "session-id",
+    });
+    return yield* sealPayState(state);
+  }).pipe(Effect.provide(TestSealedStateKeys))
+);
+
+describe("getMeetingRoomUnavailableDates", () => {
+  type UnavailableDatesRequest = Parameters<
+    WorkspaceAvailabilityService["Service"]["getMeetingRoomUnavailableDates"]
+  >[0];
+
+  const getUnavailableDates: CustomerApiCall = {
+    method: "GET",
+    path: "/booking/availability/meeting-room-dates?from=2026-11-09&to=2026-11-30",
+  };
+
+  const calendar: MeetingRoomUnavailableDates = {
+    from: plainDateStringSchema.make("2026-11-09"),
+    to: plainDateStringSchema.make("2026-11-30"),
+    unavailableDates: [plainDateStringSchema.make("2026-11-12")],
+    durations: [
+      {
+        duration: "hour:1",
+        unavailableDates: [plainDateStringSchema.make("2026-11-12")],
+      },
+      {
+        duration: "hour:4",
+        unavailableDates: [
+          plainDateStringSchema.make("2026-11-11"),
+          plainDateStringSchema.make("2026-11-12"),
+        ],
+      },
+      {
+        duration: "day:1",
+        unavailableDates: [
+          plainDateStringSchema.make("2026-11-11"),
+          plainDateStringSchema.make("2026-11-12"),
+        ],
+      },
+    ],
+  };
+
+  testCustomerEndpointGuards(getUnavailableDates);
+
+  test("answers the meeting-room calendar for the range", async () => {
+    const requests: UnavailableDatesRequest[] = [];
+    const api = makeCustomerApiTestServer({
+      bookingCatalog: {
+        availability: availabilityWith({
+          getMeetingRoomUnavailableDates: (input) => {
+            requests.push(input);
+            return Effect.succeed(calendar);
+          },
+        }),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(getUnavailableDates));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(calendar);
+    expect(requests).toEqual([
+      {
+        query: { from: "2026-11-09", to: "2026-11-30" },
+        occupancyExclusion: undefined,
+      },
+    ]);
+  });
+
+  test("reads the calendar range from today when the client names none", async () => {
+    const requests: UnavailableDatesRequest[] = [];
+    const api = makeCustomerApiTestServer({
+      bookingCatalog: {
+        availability: availabilityWith({
+          getMeetingRoomUnavailableDates: (input) => {
+            requests.push(input);
+            return Effect.succeed(calendar);
+          },
+        }),
+      },
+    });
+
+    const response = await api.handle(
+      customerApiRequest({
+        method: "GET",
+        path: "/booking/availability/meeting-room-dates",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(requests.map(({ query }) => query)).toEqual([
+      getWorkspaceAvailabilityRange(workspaceDateFromToday(0)),
+    ]);
+  });
+
+  test.each([
+    ["a meeting-room", meetingRoomReplacementToken, ["dotypos-reservation-1"]],
+    ["a cowork", coworkReplacementToken, []],
+  ])(
+    "ignores the hold of %s pay state the client replaces only for a meeting room",
+    async (_kind, token, excluded) => {
+      const requests: UnavailableDatesRequest[] = [];
+      const api = makeCustomerApiTestServer({
+        bookingCatalog: {
+          availability: Layer.mergeAll(
+            Layer.mock(WorkspaceAvailabilityService, {
+              getMeetingRoomUnavailableDates: (input) => {
+                requests.push(input);
+                return Effect.succeed(calendar);
+              },
+            }),
+            Layer.mock(ReservationSupersessionService, {
+              findCurrent: () =>
+                Effect.succeed({
+                  dotyposReservationId: "dotypos-reservation-1",
+                } as never),
+            }),
+            TestSealedStateKeys
+          ),
+        },
+      });
+
+      const response = await api.handle(
+        customerApiRequest({
+          ...getUnavailableDates,
+          headers: { [customerAvailabilityReplacementHeader]: await token },
+        })
+      );
+
+      expect(response.status).toBe(200);
+      expect(
+        requests.flatMap(({ occupancyExclusion }) =>
+          occupancyExclusion ? [occupancyExclusion.dotyposReservationId] : []
+        )
+      ).toEqual(excluded);
+    }
+  );
+
+  test("refuses a range the calendar doesn't cover", async () => {
+    const api = makeCustomerApiTestServer({
+      bookingCatalog: {
+        availability: availabilityWith({
+          getMeetingRoomUnavailableDates: () =>
+            Effect.fail(
+              new AvailabilityQueryInvalid({ message: "Range too long" })
+            ),
+        }),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(getUnavailableDates));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerBookingSelectionInvalid",
+    });
+  });
+
+  test("refuses a malformed date before reading availability", async () => {
+    const api = makeCustomerApiTestServer();
+
+    const response = await api.handle(
+      customerApiRequest({
+        method: "GET",
+        path: "/booking/availability/meeting-room-dates?from=9.11.2026",
+      })
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  test("answers unavailable while Dotypos can't be read", async () => {
+    const api = makeCustomerApiTestServer({
+      bookingCatalog: {
+        availability: availabilityWith({
+          getMeetingRoomUnavailableDates: () => Effect.fail(providerDown),
+        }),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(getUnavailableDates));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
   });
 });
 

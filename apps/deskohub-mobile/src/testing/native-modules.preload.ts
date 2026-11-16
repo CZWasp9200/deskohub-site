@@ -90,6 +90,10 @@ mock.module("react-native", () => ({
     parallel: stillAnimation,
     delay: stillAnimation,
   },
+  LayoutAnimation: {
+    configureNext: () => undefined,
+    Presets: { easeInEaseOut: {} },
+  },
   Easing: {
     bezier: () => (t: number) => t,
     ease: (t: number) => t,

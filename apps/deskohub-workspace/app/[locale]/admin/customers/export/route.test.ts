@@ -18,8 +18,12 @@ import { mockAdministratorAccess } from "@/features/administrators/server/admini
 
 const access = mockAdministratorAccess();
 
-const { AdministrationListSourceUnavailableError, AdministrationService } =
-  await import("@/features/administration/administration.service");
+const { AdministrationService } = await import(
+  "@/features/administration/administration.service"
+);
+const { AdministrationListSourceUnavailableError } = await import(
+  "@/features/administration/provider-read-policy"
+);
 
 const exportInputs: AdministrationCustomerExportInput[] = [];
 let exportResult: Effect.Effect<

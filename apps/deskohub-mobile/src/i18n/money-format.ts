@@ -1,18 +1,12 @@
 import { formatCurrencyAmount } from "@deskohub/i18n/currency";
+import type { Money } from "@deskohub/workspace-customer-api";
 import type { AppLocale } from "./app-locale";
-
-/** An amount as the customer API sends it: `value` minor units of `exponent`. */
-export interface MinorUnitMoney {
-  readonly value: number;
-  readonly exponent: number;
-  readonly currency: string;
-}
 
 /** The exact decimal text of `value` minor units, e.g. 45000 at 2 → "450.00". */
 export const minorUnitsText = ({
   value,
   exponent,
-}: Pick<MinorUnitMoney, "value" | "exponent">): string => {
+}: Pick<Money, "value" | "exponent">): string => {
   const digits = Math.abs(value)
     .toString()
     .padStart(exponent + 1, "0");
@@ -21,11 +15,19 @@ export const minorUnitsText = ({
   return `${value < 0 ? "-" : ""}${whole}${exponent > 0 ? `.${fraction}` : ""}`;
 };
 
-/** Formats a customer API amount for the locale, with its currency's minor units. */
-export const formatMoney = (money: MinorUnitMoney, locale: AppLocale) =>
+/**
+ * A customer API amount as the customer reads it, such as "CZK 282",
+ * "CZK 258.80" or "282 Kč": whole amounts drop their minor units, others
+ * show all of the currency's. The app's one money formatter.
+ */
+export const formatMoney = (money: Money, locale: AppLocale): string =>
   formatCurrencyAmount({
     amount: minorUnitsText(money),
     currency: money.currency,
     locale,
     fractionDigits: money.exponent,
   });
+
+/** What a discount takes off, such as "− CZK 58" (a minus sign, then a space). */
+export const formatMoneyReduction = (money: Money, locale: AppLocale): string =>
+  `− ${formatMoney({ ...money, value: Math.abs(money.value) }, locale)}`;

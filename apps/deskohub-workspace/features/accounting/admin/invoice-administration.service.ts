@@ -62,7 +62,8 @@ import {
   type AdministrationHref,
   administrationHref,
 } from "@/features/administration/administration-href";
-import { unnamedCustomerDisplayName } from "@/features/administration/customer-name";
+import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
+import { nameAdministrationCustomer } from "@/features/administration/customer-identity";
 import { getAdministrationPagination } from "@/features/administration/listing";
 import { baseLocale, defaultPhoneRegion, type Locale } from "@/features/i18n";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
@@ -215,6 +216,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   const deliveries = yield* InvoiceEmailDeliveryService;
   const deliveryLedger = yield* InvoiceEmailDeliveryRepository;
   const dotypos = yield* DotyposService;
+  const customerDirectory = yield* AdministrationCustomerDirectory;
   const creationRequests = yield* ManualInvoiceCreationRequests;
 
   const prepare = Effect.fn("InvoiceAdministrationService.prepare")(function* (
@@ -329,11 +331,8 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
   const searchCustomers = Effect.fn(
     "InvoiceAdministrationService.searchCustomers"
   )(function* (query: string) {
-    const matches = yield* dotypos.searchCustomers(query);
-    return matches
-      .filter((customer) => !customer.deleted)
-      .map(toCustomer)
-      .slice(0, 50);
+    const { customers } = yield* customerDirectory.search(query);
+    return customers.map(toCustomer);
   });
 
   const preview = Effect.fn("InvoiceAdministrationService.preview")(function* (
@@ -504,7 +503,10 @@ export class InvoiceAdministrationService extends Context.Service<
   InvoiceAdministrationService,
   Effect.Success<typeof makeInvoiceAdministrationService>
 >()("@deskohub-workspace/accounting/InvoiceAdministrationService") {
-  static Default = Layer.effect(this, makeInvoiceAdministrationService);
+  static Default = Layer.effect(this, makeInvoiceAdministrationService).pipe(
+    // The directory has one implementation: tests substitute `DotyposService` beneath it.
+    Layer.provide(AdministrationCustomerDirectory.Default)
+  );
   static Live = this.Default.pipe(Layer.provide(getDependencies()));
 }
 
@@ -673,21 +675,12 @@ const toCustomerDetails = (
 
 const toCustomer = (
   customer: DotyposCustomer
-): InvoiceAdministrationCustomer => {
-  const personName = [customer.firstName, customer.lastName]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-  const email = customerText(customer.email);
-  const name = customerText(customer.companyName) || personName || email;
-  return {
-    id: customer.id,
-    displayName: name || unnamedCustomerDisplayName,
-    hasName: Boolean(name),
-    email: email || null,
-    details: toCustomerDetails(customer),
-  };
-};
+): InvoiceAdministrationCustomer => ({
+  id: customer.id,
+  ...nameAdministrationCustomer(customer, "company-person-email"),
+  email: customerText(customer.email) || null,
+  details: toCustomerDetails(customer),
+});
 
 const toListItem = (
   invoice: Invoice,
