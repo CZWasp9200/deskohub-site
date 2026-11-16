@@ -155,7 +155,7 @@ const deliveringCollaborators = (
   },
   authors: { describe: succeed(new Map()), ...overrides.authors },
   invoices: {
-    processByPaymentAttemptId: succeed(undefined),
+    issueAfterFulfillment: succeed(undefined),
     ...overrides.invoices,
   },
 });
@@ -343,27 +343,15 @@ describe("ReservationFulfillment.run trace", () => {
     `);
   });
 
-  const expectInvoiceRetried = async (
-    activePaymentAttemptId: string | null
-  ) => {
+  test("only retries the invoice of a fulfilled order", async () => {
     const { exit, trace } = await runFulfillment({
       reservations: {
-        findById: succeed({
-          ...paidOrder,
-          fulfillmentState: "fulfilled",
-          activePaymentAttemptId,
-        }),
+        findById: succeed({ ...paidOrder, fulfillmentState: "fulfilled" }),
       },
-      invoices: { processByPaymentAttemptId: succeed(undefined) },
+      invoices: { issueAfterFulfillment: succeed(undefined) },
     });
     expect(exit._tag).toBe("Success");
-    return trace;
-  };
-
-  test("only retries the invoice of a fulfilled order with its payment attempt", async () => {
-    expect(
-      await expectInvoiceRetried(paidOrder.activePaymentAttemptId)
-    ).toMatchInlineSnapshot(`
+    expect(trace).toMatchInlineSnapshot(`
       [
         "span workspacePaidFulfillment.fulfillPaidOrder",
         "Info Paid fulfillment started {orderId} in workspacePaidFulfillment.fulfillPaidOrder",
@@ -372,22 +360,7 @@ describe("ReservationFulfillment.run trace", () => {
         "Debug Paid fulfillment reservation loaded {activePaymentAttemptId,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
         "Info Paid access fulfillment already completed; retrying invoice processing (reason=already_fulfilled) {activePaymentAttemptId,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
         "span workspacePaidFulfillment.processReservationInvoice",
-        "call invoices.processByPaymentAttemptId(paymentAttemptId=payment-attempt-id)",
-      ]
-    `);
-  });
-
-  test("skips the invoice of a fulfilled order without a payment attempt", async () => {
-    expect(await expectInvoiceRetried(null)).toMatchInlineSnapshot(`
-      [
-        "span workspacePaidFulfillment.fulfillPaidOrder",
-        "Info Paid fulfillment started {orderId} in workspacePaidFulfillment.fulfillPaidOrder",
-        "Debug Paid fulfillment reservation lookup started {orderId} in workspacePaidFulfillment.fulfillPaidOrder",
-        "call reservations.findById(reservation-id)",
-        "Debug Paid fulfillment reservation loaded {activePaymentAttemptId,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
-        "Info Paid access fulfillment already completed; retrying invoice processing (reason=already_fulfilled) {activePaymentAttemptId,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
-        "span workspacePaidFulfillment.processReservationInvoice",
-        "Warn Reservation invoice processing skipped: payment attempt missing (orderId=reservation-id) {activePaymentAttemptId,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.processReservationInvoice",
+        "call invoices.issueAfterFulfillment(reservationId=reservation-id)",
       ]
     `);
   });
@@ -397,7 +370,7 @@ describe("ReservationFulfillment.run trace", () => {
       reservations: {
         findById: succeed({ ...paidOrder, fulfillmentState: "fulfilled" }),
       },
-      invoices: { processByPaymentAttemptId: fail(new Error("invoice down")) },
+      invoices: { issueAfterFulfillment: fail(new Error("invoice down")) },
     });
 
     expect(failureCodeOf(exit)).toBe("invoice_processing_failed");
@@ -410,7 +383,7 @@ describe("ReservationFulfillment.run trace", () => {
         "Debug Paid fulfillment reservation loaded {activePaymentAttemptId,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
         "Info Paid access fulfillment already completed; retrying invoice processing (reason=already_fulfilled) {activePaymentAttemptId,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
         "span workspacePaidFulfillment.processReservationInvoice",
-        "call invoices.processByPaymentAttemptId(paymentAttemptId=payment-attempt-id)",
+        "call invoices.issueAfterFulfillment(reservationId=reservation-id)",
         "Fatal Reservation invoice processing failed (orderId=reservation-id, cause=<Error>) {activePaymentAttemptId,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.processReservationInvoice",
       ]
     `);
@@ -900,7 +873,7 @@ describe("ReservationFulfillment.run trace", () => {
         "Info Paid reservation email flow succeeded {activePaymentAttemptId,claimed,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
         "call ledger.markFulfilled(id=reservation-id, fulfilledAt=<Instant>, customerEmailDeliveryId=resend-delivery-id)",
         "span workspacePaidFulfillment.processReservationInvoice",
-        "call invoices.processByPaymentAttemptId(paymentAttemptId=payment-attempt-id)",
+        "call invoices.issueAfterFulfillment(reservationId=reservation-id)",
         "Info Paid fulfillment completed after email provider acceptance (acceptedByConsole=false) {activePaymentAttemptId,claimed,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
       ]
     `);
@@ -936,7 +909,7 @@ describe("ReservationFulfillment.run trace", () => {
         "Info Paid reservation email flow succeeded {activePaymentAttemptId,claimed,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
         "call ledger.markFulfilled(id=reservation-id, fulfilledAt=<Instant>, customerEmailDeliveryId=console-delivery-id)",
         "span workspacePaidFulfillment.processReservationInvoice",
-        "call invoices.processByPaymentAttemptId(paymentAttemptId=payment-attempt-id)",
+        "call invoices.issueAfterFulfillment(reservationId=reservation-id)",
         "Info Paid fulfillment completed after email provider acceptance (acceptedByConsole=true) {activePaymentAttemptId,claimed,dotyposReservationId,fulfillmentState,orderId,paymentState,reservationId,reservationState} in workspacePaidFulfillment.fulfillPaidOrder",
       ]
     `);
@@ -1078,7 +1051,7 @@ const awaitingOrder = {
 const recordDelivery = (
   ledger: Methods,
   report: Partial<typeof deliveryReport> = {},
-  invoices: Methods = { processByPaymentAttemptId: succeed(undefined) }
+  invoices: Methods = { issueAfterFulfillment: succeed(undefined) }
 ) =>
   traceFulfillment({ ledger, invoices }, (fulfillment) =>
     fulfillment.recordDelivery({ ...deliveryReport, ...report } as never)
@@ -1185,29 +1158,7 @@ describe("ReservationFulfillment.recordDelivery trace", () => {
         "span reservationFulfillment.recordDelivery",
         "call ledger.findByActiveCustomerEmailDeliveryId(resend-delivery-id)",
         "span resendWebhook.processReservationInvoice",
-        "call invoices.processByPaymentAttemptId(paymentAttemptId=payment-attempt-id)",
-      ]
-    `);
-  });
-
-  test("skips the invoice of an already fulfilled reservation without a payment attempt", async () => {
-    const { exit, trace } = await recordDelivery({
-      findByActiveCustomerEmailDeliveryId: succeed({
-        ...awaitingOrder,
-        fulfillmentState: "fulfilled",
-        activePaymentAttemptId: null,
-      }),
-    });
-
-    expect(outcomeOf(exit)).toEqual({
-      ignored: "reservation_already_fulfilled",
-    });
-    expect(trace).toMatchInlineSnapshot(`
-      [
-        "span reservationFulfillment.recordDelivery",
-        "call ledger.findByActiveCustomerEmailDeliveryId(resend-delivery-id)",
-        "span resendWebhook.processReservationInvoice",
-        "Warn Reservation invoice processing skipped: payment attempt missing (workspaceReservationId=reservation-id) {} in resendWebhook.processReservationInvoice",
+        "call invoices.issueAfterFulfillment(reservationId=reservation-id)",
       ]
     `);
   });
@@ -1221,7 +1172,7 @@ describe("ReservationFulfillment.recordDelivery trace", () => {
         }),
       },
       {},
-      { processByPaymentAttemptId: fail(new Error("invoice down")) }
+      { issueAfterFulfillment: fail(new Error("invoice down")) }
     );
 
     expect(outcomeOf(exit)).toBe("invoice_processing_failed");
@@ -1230,7 +1181,7 @@ describe("ReservationFulfillment.recordDelivery trace", () => {
         "span reservationFulfillment.recordDelivery",
         "call ledger.findByActiveCustomerEmailDeliveryId(resend-delivery-id)",
         "span resendWebhook.processReservationInvoice",
-        "call invoices.processByPaymentAttemptId(paymentAttemptId=payment-attempt-id)",
+        "call invoices.issueAfterFulfillment(reservationId=reservation-id)",
       ]
     `);
   });
@@ -1273,7 +1224,7 @@ describe("ReservationFulfillment.recordDelivery trace", () => {
         "call ledger.markCustomerEmailDeliveryFulfilled(customerEmailDeliveryId=resend-delivery-id, fulfilledAt=<Instant>)",
         "call checkoutAnalytics.reservationFulfilled(reservation=<Object>, timestamp=<Instant>)",
         "span resendWebhook.processReservationInvoice",
-        "call invoices.processByPaymentAttemptId(paymentAttemptId=payment-attempt-id)",
+        "call invoices.issueAfterFulfillment(reservationId=reservation-id)",
       ]
     `);
   });
