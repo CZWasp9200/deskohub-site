@@ -41,6 +41,7 @@ import {
   openPayState,
   type SignedPayState,
 } from "./pay-state.server";
+import { getPayStateHoldExpiresAt } from "./pay-state-hold";
 import {
   PayableReservationService,
   type PayableReservationUnavailableError,
@@ -307,6 +308,7 @@ export class CheckoutReferralService extends Context.Service<
             locale: input.locale,
             orderId: opened.orderId,
             bookedAt: opened.bookedAt,
+            holdExpiresAt: getPayStateHoldExpiresAt(opened, currentReservation),
             checkoutSessionId: opened.checkoutSessionId,
             ...referralInput,
             ...getSignedPayStateSubmittedCode(

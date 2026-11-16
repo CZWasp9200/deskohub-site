@@ -64,6 +64,7 @@ export {
 export {
   AcceptCustomerCheckoutPriceChange,
   ApplyCustomerCheckoutDiscountCode,
+  ClearCustomerCheckoutDiscountCode,
   CreateCustomerCheckout,
   CustomerCheckout,
   CustomerCheckoutBilling,

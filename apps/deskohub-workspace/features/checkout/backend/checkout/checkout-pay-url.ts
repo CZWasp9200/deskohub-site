@@ -8,6 +8,7 @@ import {
   buildSignedPayState,
   type PayStateLinkOptions,
   type PayStateTokenError,
+  type PayStateWithHoldExpiry,
   payStateTokenQueryParam,
   type SealPayStateForUrlResult,
   type SignedPayState,
@@ -123,10 +124,10 @@ export const getPayStateExpiresAt = (state: Pick<SignedPayState, "exp">) =>
 
 /**
  * The Pay state a customer continues with after reviewing a price change:
- * the same signed order without its changed keys.
+ * the same signed order and hold deadline without its changed keys.
  */
 export const issuePayStateContinuation = Effect.fn("issuePayStateContinuation")(
-  (state: SignedPayState, options: PayStateLinkOptions = {}) =>
+  (state: PayStateWithHoldExpiry, options: PayStateLinkOptions = {}) =>
     issueFreshPayState({ ...state, changedKeys: undefined }, options)
 );
 
@@ -143,7 +144,7 @@ export const buildFreshCheckoutPayPath = Effect.fn("buildFreshCheckoutPayPath")(
 
 export const buildCheckoutPayContinuationPath = Effect.fn(
   "buildCheckoutPayContinuationPath"
-)((state: SignedPayState, options: PayStateLinkOptions = {}) =>
+)((state: PayStateWithHoldExpiry, options: PayStateLinkOptions = {}) =>
   issuePayStateContinuation(state, options).pipe(
     Effect.map(({ payUrl }) => payUrl)
   )

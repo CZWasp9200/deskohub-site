@@ -27,12 +27,17 @@ export class PayableReservationUnavailableError extends Data.TaggedError(
     | "dotypos_not_pending";
 }> {}
 
+/** A reservation that holds its booking until its stored deadline. */
+export type PayableReservation = WorkspaceReservation & {
+  readonly reservationHoldExpiresAt: Temporal.Instant;
+};
+
 interface IPayableReservationService {
   readonly requireCurrent: (input: {
     readonly orderId: WorkspaceReservationId;
     readonly checkoutSessionId?: CheckoutSessionId;
   }) => Effect.Effect<
-    WorkspaceReservation,
+    PayableReservation,
     | PayableReservationUnavailableError
     | SealedStateTokenError
     | EffectDrizzleQueryError
@@ -91,8 +96,11 @@ export class PayableReservationService extends Context.Service<
               checkoutSessionId: input.checkoutSessionId,
             });
 
+            const { reservationHoldExpiresAt } = reservation;
             const holdRefusal = getHoldRefusal(reservation);
-            if (holdRefusal) return yield* unavailable(input, holdRefusal);
+            if (holdRefusal || reservationHoldExpiresAt === null) {
+              return yield* unavailable(input, holdRefusal ?? "not_held");
+            }
 
             if (!reservation.dotyposReservationId) {
               return yield* unavailable(input, "missing_dotypos_reservation");
@@ -105,7 +113,11 @@ export class PayableReservationService extends Context.Service<
               return yield* unavailable(input, "dotypos_not_pending");
             }
 
-            return reservation;
+            const payable: PayableReservation = {
+              ...reservation,
+              reservationHoldExpiresAt,
+            };
+            return payable;
           }
         ),
       });
@@ -136,8 +148,9 @@ const getHoldRefusal = (
   >
 ): PayableReservationUnavailableError["reason"] | undefined => {
   if (reservation.reservationState !== "held") return "not_held";
+  // Payment never starts on a hold without a deadline, so it holds nothing.
+  if (reservation.reservationHoldExpiresAt === null) return "not_held";
   if (
-    reservation.reservationHoldExpiresAt &&
     Temporal.Instant.compare(
       reservation.reservationHoldExpiresAt,
       Temporal.Now.instant()

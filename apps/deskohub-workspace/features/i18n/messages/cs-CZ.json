@@ -707,6 +707,7 @@
   "checkoutDiscountCodePlaceholder": "Zadej kód",
   "checkoutDiscountCodeApply": "Použít kód",
   "checkoutDiscountCodeApplying": "Aplikuje se...",
+  "checkoutDiscountCodeRemove": "Odebrat kód",
   "checkoutDiscountCodeUnavailable": "Tento slevový, doporučovací kód nebo poukaz není dostupný. Zkontroluj ho a zkus to znovu, nebo pokračuj s aktuální cenou.",
   "checkoutVoucherLabel": "Poukaz",
   "checkoutDiscountCodeApplied": "Kód uplatněn: sleva {discount} 🎉",

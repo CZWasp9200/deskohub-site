@@ -13,6 +13,7 @@ import {
   PayableReservationService,
   payStateContinuesOn,
   payStateTokenQueryParam,
+  withPayStateHoldExpiry,
 } from "@/features/checkout/backend/checkout";
 import {
   checkoutReferralAppliedQueryParam,
@@ -141,8 +142,10 @@ const loadPayableCheckout = (state: SignedPayState) =>
       })
     ),
     Effect.bind("discountCodeEntryEnabled", () => getDiscountCodeEntryEnabled),
-    Effect.bind("freshPayUrl", () =>
-      buildCheckoutPayContinuationPath(state).pipe(
+    Effect.bind("freshPayUrl", ({ currentReservation }) =>
+      buildCheckoutPayContinuationPath(
+        withPayStateHoldExpiry(state, currentReservation)
+      ).pipe(
         Effect.when(Effect.succeed(state.changedKeys !== undefined)),
         Effect.map(Option.getOrUndefined)
       )

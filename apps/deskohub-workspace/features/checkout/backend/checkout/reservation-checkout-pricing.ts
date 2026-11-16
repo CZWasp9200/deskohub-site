@@ -1,6 +1,7 @@
 import { Effect, Match, Option } from "effect";
 import {
   type CheckoutSummary,
+  type CheckoutSummaryChangedKeys,
   getCheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
 import type { ReservationQuotePayment } from "@/features/checkout/reservation-quote-schema";
@@ -134,6 +135,20 @@ export type ReservationDiscountCodePriceInput<
   readonly submittedCode: CanonicalPromotionCode;
 };
 
+/**
+ * A signed order whose entered code is removed: the signed quote and the
+ * code's discount in it, which is not affirmed again.
+ */
+export type ReservationDiscountCodeClearInput<
+  Reservation extends ReservationDetails,
+  Quote extends ReservationQuote,
+> = Omit<
+  ReservationPaymentRepricingInput<Reservation, Quote>,
+  "submittedCode"
+> & {
+  readonly submittedCodeDiscountId: DiscountId;
+};
+
 type ReservationAdvertisedPrice<
   Reservation extends AdvertisedReservation<ReservationDetails>,
   Quote extends ReservationQuote,
@@ -210,6 +225,17 @@ export type ReservationDiscountCodeVerdict<
   },
   ReservationCustomerQuote<Reservation, Quote>
 >;
+
+/**
+ * The order re-priced without its entered code, and what changed from the
+ * signed summary; nothing changed when the code was worth nothing.
+ */
+export type ReservationDiscountCodeClearResult<
+  Reservation extends ReservationDetails,
+  Quote extends ReservationQuote,
+> = ReservationCustomerQuote<Reservation, Quote> & {
+  readonly changedKeys: CheckoutSummaryChangedKeys;
+};
 
 /**
  * The payment boundary's rule: the signed price holds only when the re-priced
@@ -366,6 +392,12 @@ interface ReservationCheckoutPricing<
     input: ReservationDiscountCodePriceInput<CustomerReservation, Quote>
   ) => Effect.Effect<
     ReservationDiscountCodeVerdict<CustomerReservation, Quote>,
+    Error
+  >;
+  readonly clearDiscountCode: (
+    input: ReservationDiscountCodeClearInput<CustomerReservation, Quote>
+  ) => Effect.Effect<
+    ReservationDiscountCodeClearResult<CustomerReservation, Quote>,
     Error
   >;
 }
@@ -681,31 +713,40 @@ export const reservationCheckoutPricing = <
       );
     });
 
+    /**
+     * Affirms the signed quote's discounts again, except `removedDiscountId`,
+     * and builds the quote from the affirmed ones.
+     */
     const affirmDisplayedPrice = Effect.fn(
       "ReservationCheckoutPricing.affirmDisplayedPrice"
-    )((input: ReservationPaymentRepricingInput<CustomerReservation, Quote>) =>
-      domain.getPricingContext(input.reservation).pipe(
-        Effect.bindTo("pricing"),
-        Effect.bind("affirmation", ({ pricing }) =>
-          discounts.affirmDisplayedDiscounts({
-            ...pricing.discountInput,
-            bookedAt: input.bookedAt,
-            dotyposCustomerId: input.dotyposCustomerId,
-            locale: input.locale,
-            submittedCode: input.submittedCode,
-            ...getReferralCode(input),
-            displayedDiscountIds: input.quote.payment.discounts.map(
-              ({ discount }) => discount.id
-            ),
-          })
-        ),
-        Effect.bind("quote", ({ affirmation, pricing }) =>
-          domain.buildQuote({
-            pricing,
-            discountQuote: affirmation.quote,
-          })
+    )(
+      (
+        input: ReservationPaymentRepricingInput<CustomerReservation, Quote> & {
+          readonly removedDiscountId?: DiscountId;
+        }
+      ) =>
+        domain.getPricingContext(input.reservation).pipe(
+          Effect.bindTo("pricing"),
+          Effect.bind("affirmation", ({ pricing }) =>
+            discounts.affirmDisplayedDiscounts({
+              ...pricing.discountInput,
+              bookedAt: input.bookedAt,
+              dotyposCustomerId: input.dotyposCustomerId,
+              locale: input.locale,
+              submittedCode: input.submittedCode,
+              ...getReferralCode(input),
+              displayedDiscountIds: input.quote.payment.discounts
+                .map(({ discount }) => discount.id)
+                .filter((discountId) => discountId !== input.removedDiscountId),
+            })
+          ),
+          Effect.bind("quote", ({ affirmation, pricing }) =>
+            domain.buildQuote({
+              pricing,
+              discountQuote: affirmation.quote,
+            })
+          )
         )
-      )
     );
 
     /**
@@ -842,6 +883,43 @@ export const reservationCheckoutPricing = <
       return verdict;
     });
 
+    /**
+     * Re-prices a signed order without its entered code: the other displayed
+     * discounts affirmed again and stacked afresh, never the code's amount
+     * taken back off. A discount a provider could not answer for fails, as
+     * at payment.
+     */
+    const clearDiscountCode = Effect.fn(
+      "ReservationCheckoutPricing.clearDiscountCode"
+    )(function* (
+      input: ReservationDiscountCodeClearInput<CustomerReservation, Quote>
+    ) {
+      const { quote } = yield* affirmDisplayedPrice({
+        reservation: input.reservation,
+        dotyposCustomerId: input.dotyposCustomerId,
+        locale: input.locale,
+        quote: input.quote,
+        bookedAt: input.bookedAt,
+        removedDiscountId: input.submittedCodeDiscountId,
+        ...getReferralCode(input),
+      });
+      const summarize = (summarized: Quote) =>
+        domain.getCheckoutSummary({
+          reservation: input.reservation,
+          quote: summarized,
+        });
+
+      return {
+        kind: input.reservation.kind,
+        reservation: input.reservation,
+        quote,
+        changedKeys: getCheckoutSummaryChangedKeys(
+          summarize(input.quote),
+          summarize(quote)
+        ),
+      };
+    });
+
     return {
       quoteAdvertisement,
       affirmAdvertisement,
@@ -849,5 +927,6 @@ export const reservationCheckoutPricing = <
       repriceForPayment,
       affirmForPayment,
       applyDiscountCode,
+      clearDiscountCode,
     };
   });
