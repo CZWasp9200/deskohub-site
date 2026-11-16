@@ -101,6 +101,7 @@
   "booking_checkout_blocked_account_unavailable": "आपका खाता लोड नहीं किया जा सका। थोड़ी देर में फिर से कोशिश करें; अगर फिर भी न हो, तो साइन आउट करके दोबारा साइन इन करें।",
   "booking_checkout_blocked_payment_disabled": "यह बुकिंग रिव्यू खाते से हो रही है। बुकिंग सिर्फ़ सिमुलेशन है और भुगतान बंद है, इसलिए न कुछ बुक हुआ, न कोई भुगतान हुआ।",
   "account_dev_smoke_link": "रनटाइम जाँच चलाएँ",
+  "account_dev_design_system_link": "डिज़ाइन सिस्टम गैलरी",
   "smoke_title": "रनटाइम जाँच",
   "smoke_running": "जाँच चल रही है…",
   "smoke_finished": "जाँच पूरी हुई।",
@@ -557,5 +558,6 @@
   "booking_restart_availability_changed": "आपका चयन अब उपलब्ध नहीं है, इसलिए बुकिंग फिर से शुरू हो रही है। कृपया कोई दूसरा समय या तारीख़ चुनें।",
   "booking_restart_price_changed": "इस बीच विकल्प बदल गया, इसलिए बुकिंग मौजूदा कीमत के साथ फिर से शुरू हो रही है।",
   "booking_restart_selection_unavailable": "आपका चयन इस रूप में बुक नहीं किया जा सकता, इसलिए बुकिंग फिर से शुरू हो रही है। इसे बदलें और जारी रखें।",
-  "booking_restart_checkout_not_found": "आपकी अधूरी बुकिंग अब नहीं मिली, इसलिए बुकिंग फिर से शुरू हो रही है।"
+  "booking_restart_checkout_not_found": "आपकी अधूरी बुकिंग अब नहीं मिली, इसलिए बुकिंग फिर से शुरू हो रही है।",
+  "navigation_back": "वापस"
 }
