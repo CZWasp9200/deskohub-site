@@ -1,6 +1,10 @@
 import { Schema } from "effect";
 import type { RequireAllOrNone } from "type-fest";
-import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
+import {
+  checkoutSessionIdSchema,
+  type PaymentAttemptId,
+  paymentAttemptIdSchema,
+} from "@/features/checkout/checkout-identifiers";
 import {
   type CheckoutSummaryChangedKeys,
   checkoutSummaryChangedKeysSchema,
@@ -30,6 +34,19 @@ export const signedPayStateEnvelopeSchema = Schema.Struct({
   orderId: workspaceReservationIdSchema,
   bookedAt: instantStringSchema,
   checkoutSessionId: Schema.optional(checkoutSessionIdSchema),
+  /**
+   * `order`: issued for an existing order (a payment retry) and accepted
+   * while that order is still the current one of its checkout session,
+   * without the session's raw id. Absent: bound to `checkoutSessionId`.
+   */
+  binding: Schema.optional(Schema.Literal("order")),
+  /**
+   * The order's payment attempt an order-bound state retries; present exactly
+   * when `binding` is `order`. The state pays only while that attempt is
+   * still the order's active one, so it can't start a second retry after a
+   * later attempt.
+   */
+  retriedAttemptId: Schema.optional(paymentAttemptIdSchema),
   acceptedTotal: nonNegativeMoneyCodec,
   submittedCode: Schema.optional(canonicalPromotionCodeSchema),
   submittedCodeDiscountId: Schema.optional(discountIdSchema),
@@ -45,12 +62,22 @@ export const signedPayStateEnvelopeSchema = Schema.Struct({
 
 export type SignedPayStateEnvelope = typeof signedPayStateEnvelopeSchema.Type;
 
-type BuildSignedPayStateBaseInput = {
+export type BuildSignedPayStateBindingInput = {
+  readonly checkoutSessionId?: typeof checkoutSessionIdSchema.Type;
+  /**
+   * `order` binds the state to `orderId` alone, for a payment retry; it
+   * excludes `checkoutSessionId` (building such a state fails).
+   */
+  readonly binding?: "order";
+  /** The attempt an order-bound state retries; required with `binding`. */
+  readonly retriedAttemptId?: PaymentAttemptId;
+};
+
+type BuildSignedPayStateBaseInput = BuildSignedPayStateBindingInput & {
   readonly locale: Locale;
   readonly orderId: typeof workspaceReservationIdSchema.Type;
   /** Moment the reservation was submitted; calendar sales are evaluated at it. */
   readonly bookedAt: Instant;
-  readonly checkoutSessionId?: typeof checkoutSessionIdSchema.Type;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
   readonly referralCode?: CanonicalPromotionCode;
   readonly changedKeys?: CheckoutSummaryChangedKeys;
@@ -82,6 +109,8 @@ export const buildSignedPayStateEnvelope = (
     SignedPayStateEnvelope,
     | "acceptedTotal"
     | "checkoutSessionId"
+    | "binding"
+    | "retriedAttemptId"
     | "submittedCode"
     | "submittedCodeDiscountId"
     | "requestedDiscountCode"
@@ -95,6 +124,10 @@ export const buildSignedPayStateEnvelope = (
   acceptedTotal,
   ...(input.checkoutSessionId !== undefined && {
     checkoutSessionId: input.checkoutSessionId,
+  }),
+  ...(input.binding !== undefined && { binding: input.binding }),
+  ...(input.retriedAttemptId !== undefined && {
+    retriedAttemptId: input.retriedAttemptId,
   }),
   ...(input.submittedCode !== undefined && {
     submittedCode: input.submittedCode,
@@ -113,5 +146,74 @@ export const buildSignedPayStateEnvelope = (
       sectionKeys: [...input.changedKeys.sectionKeys],
       itemKeys: [...input.changedKeys.itemKeys],
     },
+  }),
+});
+
+export type PayStateBinding =
+  | {
+      readonly kind: "session";
+      readonly checkoutSessionId: typeof checkoutSessionIdSchema.Type;
+    }
+  | {
+      readonly kind: "order";
+      readonly retriedAttemptId: PaymentAttemptId;
+    };
+
+type PayStateBindingFields = Pick<
+  SignedPayStateEnvelope,
+  "binding" | "checkoutSessionId" | "retriedAttemptId"
+>;
+
+/**
+ * The order a Pay state may pay, or `undefined` when it names neither a
+ * session nor an order binding, or a contradictory one (such a state pays
+ * nothing).
+ */
+export const getPayStateBinding = (
+  state: PayStateBindingFields
+): PayStateBinding | undefined => {
+  if (state.binding === "order") {
+    return state.checkoutSessionId === undefined &&
+      state.retriedAttemptId !== undefined
+      ? { kind: "order", retriedAttemptId: state.retriedAttemptId }
+      : undefined;
+  }
+  return state.checkoutSessionId === undefined ||
+    state.retriedAttemptId !== undefined
+    ? undefined
+    : { kind: "session", checkoutSessionId: state.checkoutSessionId };
+};
+
+/**
+ * Whether the order's active attempt is still the one the state may follow:
+ * always for a session state, and for an order-bound state only while its
+ * retried attempt is the active one. Otherwise a later attempt already
+ * started from this order, and paying again needs a new retry.
+ */
+export const isPayStateAttemptCurrent = (
+  binding: PayStateBinding,
+  order: { readonly activePaymentAttemptId: string | null }
+) =>
+  binding.kind === "session" ||
+  order.activePaymentAttemptId === binding.retriedAttemptId;
+
+/** A Pay state issued to retry the payment of one existing order. */
+export const isOrderBoundPayState = (state: PayStateBindingFields) =>
+  getPayStateBinding(state)?.kind === "order";
+
+/**
+ * The binding a state issued from `state` keeps: its checkout session, or
+ * its order for a payment retry. Every reissue (price review, discount code,
+ * referral) spreads it instead of naming `checkoutSessionId`.
+ */
+export const getPayStateBindingInput = (
+  state: PayStateBindingFields
+): BuildSignedPayStateBindingInput => ({
+  ...(state.checkoutSessionId !== undefined && {
+    checkoutSessionId: state.checkoutSessionId,
+  }),
+  ...(state.binding !== undefined && { binding: state.binding }),
+  ...(state.retriedAttemptId !== undefined && {
+    retriedAttemptId: state.retriedAttemptId,
   }),
 });

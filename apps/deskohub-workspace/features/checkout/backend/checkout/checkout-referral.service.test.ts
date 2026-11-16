@@ -408,6 +408,9 @@ const makeServiceLayer = (input: {
             dotyposCustomerId:
               input.payableReservationCustomerId ?? dotyposCustomerId,
             activePaymentAttemptId: activePaymentAttemptId ?? null,
+            // Admitting an attempt makes the order's payment pending.
+            paymentState:
+              activePaymentAttemptId === undefined ? "not_started" : "pending",
           } as WorkspaceReservation);
         }),
     })

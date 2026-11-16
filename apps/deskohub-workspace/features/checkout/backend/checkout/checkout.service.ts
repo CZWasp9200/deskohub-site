@@ -19,7 +19,6 @@ import {
   type AccountingDocumentSnapshot,
   makeAccountingDocumentSnapshot,
 } from "@/features/accounting/accounting-document-snapshot";
-import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import {
   type CheckoutSummary,
   type CheckoutSummaryChangedKeys,
@@ -89,6 +88,10 @@ import {
   openPayState,
   type SignedPayState,
 } from "./pay-state.server";
+import {
+  type BuildSignedPayStateBindingInput,
+  getPayStateBindingInput,
+} from "./pay-state-contract";
 import {
   PayableReservationService,
   type PayableReservationUnavailableError,
@@ -482,11 +485,12 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         "checkout.revalidatePayableReservation"
       )(function* (input: {
         readonly workspaceReservationId: WorkspaceReservationId;
-        readonly checkoutSessionId?: CheckoutSessionId;
+        /** The order the signed Pay state may pay: its session or its order. */
+        readonly binding: BuildSignedPayStateBindingInput;
       }) {
         yield* payableReservations.requireCurrent({
           orderId: input.workspaceReservationId,
-          checkoutSessionId: input.checkoutSessionId,
+          ...input.binding,
         });
         yield* Effect.logDebug("Checkout payable reservation revalidated");
       });
@@ -495,7 +499,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         function* (input: {
           readonly workspaceReservationId: WorkspaceReservationId;
           readonly correlationId: NexiCorrelationId;
-          readonly checkoutSessionId?: CheckoutSessionId;
+          readonly binding: BuildSignedPayStateBindingInput;
           readonly locale: Locale;
           readonly total: Money;
           readonly commitment: DiscountCommitment;
@@ -507,7 +511,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           yield* Effect.annotateLogsScoped({
             reservationId: input.workspaceReservationId,
             correlationId: input.correlationId,
-            checkoutSessionId: input.checkoutSessionId,
+            checkoutSessionId: input.binding.checkoutSessionId,
             locale: input.locale,
             totalValue: input.total.value,
             totalCurrency: input.total.currency,
@@ -660,7 +664,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         "checkout.completeInternalPayment"
       )(function* (input: {
         readonly workspaceReservationId: WorkspaceReservationId;
-        readonly checkoutSessionId?: CheckoutSessionId;
+        readonly binding: BuildSignedPayStateBindingInput;
         readonly locale: Locale;
         readonly total: Money;
         readonly commitment: DiscountCommitment;
@@ -748,7 +752,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         const reservation = yield* payableReservations
           .requireCurrent({
             orderId: state.orderId,
-            checkoutSessionId: state.checkoutSessionId,
+            ...getPayStateBindingInput(state),
           })
           .pipe(
             Effect.catchTag(
@@ -998,7 +1002,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           locale: input.locale,
           orderId: input.reservation.id,
           bookedAt: state.bookedAt,
-          checkoutSessionId: state.checkoutSessionId,
+          ...getPayStateBindingInput(state),
           referralCode: state.referralCode,
           requestedDiscountCode:
             state.requestedDiscountCode ?? state.submittedCode,
@@ -1047,7 +1051,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
             ).pipe(provideSealedStateKeys);
             yield* Effect.annotateLogsScoped({
               orderId: state.orderId,
-              checkoutSessionId: state.checkoutSessionId,
+              ...getPayStateBindingInput(state),
               reservationKind: state.reservation.kind,
             });
             yield* Effect.logInfo("Hosted payment checkout pay state opened");
@@ -1220,7 +1224,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                     expectedPrice.value === 0
                       ? completeInternalPayment({
                           workspaceReservationId: reservation.id,
-                          checkoutSessionId: state.checkoutSessionId,
+                          binding: getPayStateBindingInput(state),
                           locale,
                           total: expectedPrice,
                           commitment: prepared.commitment,
@@ -1230,7 +1234,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                       : startProviderSession({
                           workspaceReservationId: reservation.id,
                           correlationId: reservation.correlationId,
-                          checkoutSessionId: state.checkoutSessionId,
+                          binding: getPayStateBindingInput(state),
                           locale,
                           total: expectedPrice,
                           commitment: prepared.commitment,
@@ -1295,7 +1299,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                             locale,
                             orderId: reservation.id,
                             bookedAt: state.bookedAt,
-                            checkoutSessionId: state.checkoutSessionId,
+                            ...getPayStateBindingInput(state),
                             referralCode: state.referralCode,
                             requestedDiscountCode:
                               state.requestedDiscountCode ??

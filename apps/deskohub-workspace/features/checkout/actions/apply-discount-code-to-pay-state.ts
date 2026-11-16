@@ -15,7 +15,9 @@ import {
 } from "@/features/checkout/backend/checkout/checkout-pay-url";
 import type { CheckoutReferralResult } from "@/features/checkout/backend/checkout/checkout-referral.service";
 import type { SignedPayState } from "@/features/checkout/backend/checkout/pay-state";
+import { getPayStateBindingInput } from "@/features/checkout/backend/checkout/pay-state-contract";
 import type { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
+import { hasPaymentInProgress } from "@/features/checkout/backend/checkout/reusable-payment-attempt";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import {
   type CanonicalPromotionCode,
@@ -108,7 +110,7 @@ const issueRejectedCodePayState = (
       ...state,
       locale: input.locale,
       orderId: state.orderId,
-      checkoutSessionId: state.checkoutSessionId,
+      ...getPayStateBindingInput(state),
       requestedDiscountCode: submittedCode,
     },
     {},
@@ -235,9 +237,9 @@ const applyPromotionCode = Effect.fnUntraced(function* (
 
   const reservation = yield* payableReservations.requireCurrent({
     orderId: state.orderId,
-    checkoutSessionId: state.checkoutSessionId,
+    ...getPayStateBindingInput(state),
   });
-  if (reservation.activePaymentAttemptId) return paymentInProgress;
+  if (hasPaymentInProgress(reservation)) return paymentInProgress;
 
   const dotyposCustomerId = yield* Schema.decodeEffect(dotyposCustomerIdSchema)(
     reservation.dotyposCustomerId
@@ -274,9 +276,9 @@ const applyPromotionCode = Effect.fnUntraced(function* (
     );
   const currentReservation = yield* payableReservations.requireCurrent({
     orderId: state.orderId,
-    checkoutSessionId: state.checkoutSessionId,
+    ...getPayStateBindingInput(state),
   });
-  if (currentReservation.activePaymentAttemptId) return paymentInProgress;
+  if (hasPaymentInProgress(currentReservation)) return paymentInProgress;
 
   if (result.status === "unavailable") {
     return result;
@@ -291,7 +293,7 @@ const applyPromotionCode = Effect.fnUntraced(function* (
             locale: input.locale,
             orderId: state.orderId,
             bookedAt: state.bookedAt,
-            checkoutSessionId: state.checkoutSessionId,
+            ...getPayStateBindingInput(state),
             submittedCode,
             submittedCodeDiscountId: applied.priced.submittedCodeDiscountId,
             requestedDiscountCode: submittedCode,
@@ -312,7 +314,7 @@ const applyPromotionCode = Effect.fnUntraced(function* (
             locale: input.locale,
             orderId: state.orderId,
             bookedAt: state.bookedAt,
-            checkoutSessionId: state.checkoutSessionId,
+            ...getPayStateBindingInput(state),
             changedKeys: changed.changedKeys,
             requestedDiscountCode: submittedCode,
             referralCode: state.referralCode,

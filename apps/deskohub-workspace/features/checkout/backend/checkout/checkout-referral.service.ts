@@ -41,11 +41,13 @@ import {
   openPayState,
   type SignedPayState,
 } from "./pay-state.server";
+import { getPayStateBindingInput } from "./pay-state-contract";
 import {
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
 import type { PriceVerdict } from "./price-verdict";
+import { hasPaymentInProgress } from "./reusable-payment-attempt";
 
 /**
  * Why a referral code could not be accepted. The customer sees one generic
@@ -259,13 +261,13 @@ export class CheckoutReferralService extends Context.Service<
           // customer, or the person it books for.
           const payableReservation = {
             orderId: opened.orderId,
-            checkoutSessionId: opened.checkoutSessionId,
+            ...getPayStateBindingInput(opened),
           };
           const currentReservation =
             yield* payableReservations.requireCurrent(payableReservation);
           // Like an ordinary code, a referral never replaces the summary of a
           // payment already in progress; payment admission rechecks it too.
-          if (currentReservation.activePaymentAttemptId) {
+          if (hasPaymentInProgress(currentReservation)) {
             return paymentInProgress;
           }
           const dotyposCustomerId = yield* Schema.decodeEffect(
@@ -299,7 +301,7 @@ export class CheckoutReferralService extends Context.Service<
           // summary it was admitted with.
           const repricedReservation =
             yield* payableReservations.requireCurrent(payableReservation);
-          if (repricedReservation.activePaymentAttemptId) {
+          if (hasPaymentInProgress(repricedReservation)) {
             return paymentInProgress;
           }
           const freshPayPathInput = {
@@ -307,7 +309,7 @@ export class CheckoutReferralService extends Context.Service<
             locale: input.locale,
             orderId: opened.orderId,
             bookedAt: opened.bookedAt,
-            checkoutSessionId: opened.checkoutSessionId,
+            ...getPayStateBindingInput(opened),
             ...referralInput,
             ...getSignedPayStateSubmittedCode(
               opened,

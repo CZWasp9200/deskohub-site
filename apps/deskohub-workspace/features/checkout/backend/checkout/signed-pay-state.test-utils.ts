@@ -1,6 +1,9 @@
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
-import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
+import {
+  checkoutSessionIdSchema,
+  paymentAttemptIdSchema,
+} from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 import type { Locale } from "@/features/i18n";
@@ -12,6 +15,9 @@ import { buildSignedPayState, sealPayState } from "./pay-state";
 
 export const syntheticPayStateOrderId =
   workspaceReservationIdSchema.make("reservation-id");
+
+/** The attempt a synthetic order-bound state retries. */
+export const syntheticRetriedAttemptId = "retried-attempt-id";
 
 export const syntheticChangedKeys: CheckoutSummaryChangedKeys = {
   sectionKeys: ["order"],
@@ -26,6 +32,8 @@ export const sealSyntheticPayStateToken = (input?: {
   readonly locale?: Locale;
   readonly changedKeys?: CheckoutSummaryChangedKeys;
   readonly issuedAt?: Temporal.Instant;
+  /** Seal an order-bound (payment retry) state instead of a session one. */
+  readonly orderBound?: boolean;
 }) => {
   const reservation = Schema.decodeUnknownSync(
     normalizedCoworkReservationOrderSchema
@@ -46,7 +54,18 @@ export const sealSyntheticPayStateToken = (input?: {
         quote: buildCoworkReservationQuote(reservation),
         orderId: syntheticPayStateOrderId,
         bookedAt: instantStringSchema.make("2099-07-01T09:58:00.000Z"),
-        checkoutSessionId: checkoutSessionIdSchema.make("checkout-session-id"),
+        ...(input?.orderBound
+          ? {
+              binding: "order" as const,
+              retriedAttemptId: paymentAttemptIdSchema.make(
+                syntheticRetriedAttemptId
+              ),
+            }
+          : {
+              checkoutSessionId: checkoutSessionIdSchema.make(
+                "checkout-session-id"
+              ),
+            }),
         changedKeys: input?.changedKeys,
       },
       { issuedAt: input?.issuedAt }

@@ -14,6 +14,7 @@ import {
   payStateContinuesOn,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
+import { getPayStateBindingInput } from "@/features/checkout/backend/checkout/pay-state-contract";
 import {
   checkoutReferralAppliedQueryParam,
   hasCheckoutReferralAppliedNotice,
@@ -137,7 +138,7 @@ const loadPayableCheckout = (state: SignedPayState) =>
     Effect.bind("currentReservation", ({ payableReservations }) =>
       payableReservations.requireCurrent({
         orderId: state.orderId,
-        checkoutSessionId: state.checkoutSessionId,
+        ...getPayStateBindingInput(state),
       })
     ),
     Effect.bind("discountCodeEntryEnabled", () => getDiscountCodeEntryEnabled),

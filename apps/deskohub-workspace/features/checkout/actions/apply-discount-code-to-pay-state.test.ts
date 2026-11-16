@@ -140,6 +140,8 @@ type SubmissionInput = {
   readonly payStateToken?: string;
   readonly activePaymentAttemptId?: string;
   readonly activePaymentAttemptIdAfterPricing?: string;
+  /** The order's payment state while it has an active attempt. */
+  readonly activeAttemptPaymentState?: "pending" | "failed";
   readonly payableReservationUnavailableAt?: 1 | 2;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
   /** How long each live payable-reservation guard takes. */
@@ -173,16 +175,25 @@ const prepareSubmission = async (input?: SubmissionInput) => {
     import("@/features/referrals"),
   ]);
   let payableReservationReadCount = 0;
-  const getReservation = () => ({
-    id: "reservation-id",
-    dotyposCustomerId: input?.dotyposCustomerId ?? "customer-id",
-    activePaymentAttemptId:
+  const getReservation = () => {
+    const activePaymentAttemptId =
       payableReservationReadCount > 1
         ? (input?.activePaymentAttemptIdAfterPricing ??
           input?.activePaymentAttemptId ??
           null)
-        : (input?.activePaymentAttemptId ?? null),
-  });
+        : (input?.activePaymentAttemptId ?? null);
+    return {
+      id: "reservation-id",
+      dotyposCustomerId: input?.dotyposCustomerId ?? "customer-id",
+      activePaymentAttemptId,
+      // Admitting an attempt makes the order's payment pending; a retried
+      // order keeps its ended attempt active with that attempt's state.
+      paymentState:
+        activePaymentAttemptId === null
+          ? "not_started"
+          : (input?.activeAttemptPaymentState ?? "pending"),
+    };
+  };
   const requireCurrent = mock(() =>
     Effect.sleep(input?.requireCurrentDuration ?? 0).pipe(
       Effect.andThen(() => {
@@ -803,6 +814,16 @@ describe("applyDiscountCodeToPayState", () => {
       checkoutReason: "payment_in_progress",
     });
     expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
+  });
+
+  test("reprices an order whose last payment attempt failed, before its retry", async () => {
+    const scenario = await runSubmission({
+      activePaymentAttemptId: "attempt-id",
+      activeAttemptPaymentState: "failed",
+    });
+
+    expect(scenario.result.status).not.toBe("unavailable");
+    expect(scenario.applyDiscountCode).toHaveBeenCalledTimes(1);
   });
 
   test("discards a replacement summary when payment starts during repricing", async () => {

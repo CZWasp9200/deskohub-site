@@ -694,7 +694,8 @@ describe.skipIf(!testDatabase)(
       const [unchanged] = await Effect.runPromise(
         testDatabase!.db
           .select({
-            activePaymentAttemptId: workspaceReservations.activePaymentAttemptId,
+            activePaymentAttemptId:
+              workspaceReservations.activePaymentAttemptId,
             paymentState: workspaceReservations.paymentState,
           })
           .from(workspaceReservations)

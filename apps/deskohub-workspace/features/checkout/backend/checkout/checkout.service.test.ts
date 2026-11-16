@@ -19,8 +19,8 @@ import {
   References,
   Schema,
 } from "effect";
-import { env } from "@/env";
 import { makeRecordingAdvisoryLock } from "@/db/postgres-advisory-lock.test-utils";
+import { env } from "@/env";
 import {
   type CustomerAccountSectionsFixture,
   makeCustomerAccountSections,
