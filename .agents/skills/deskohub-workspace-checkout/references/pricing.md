@@ -47,6 +47,19 @@ Removing an entered code (`clearDiscountCodeFromPayState`) shares entry's live g
 
 Every reissue keeps `holdExpiresAt` through `getPayStateHoldExpiresAt`/`withPayStateHoldExpiry`; neither operation moves the hold.
 
+### Removing an entered code
+
+`clearDiscountCodeFromPayState` (`features/checkout/backend/checkout/pay-state-discount-code.ts`) is the one removal operation; the site's `clearDiscountCodeForm` and the customer API's `clearCheckoutDiscountCode` are adapters over it.
+
+1. A state with no applied and no intended code returns its own token unchanged, so a retried removal is safe.
+2. An intended code that never applied is dropped after the live payable guard, without repricing.
+3. An applied code is removed by `CheckoutPricingService.clearDiscountCode` between the same two live payable-reservation guards as code entry, under the same deadline (`getDiscountCodeChangeDeadline`). It re-affirms every displayed discount except the code's (`removedDiscountId`) and stacks them afresh; it never subtracts the code's amount. An unknown retained discount is a retryable provider failure that signs nothing.
+4. The replacement drops `submittedCode`, `submittedCodeDiscountId` and `requestedDiscountCode`, keeps `referralCode`, and carries the summary's `changedKeys`, so the customer accepts the new price through the ordinary acceptance flow before paying. A pending price review refuses removal of an applied code.
+
+### Hold deadline
+
+Every Pay state signs `holdExpiresAt`, the reservation's stored `reservation_hold_expires_at`, separately from the token's own `exp`. Every issue and reissue copies it from the state or the payable reservation (`pay-state-hold.ts`); never recompute it from the token TTL. A token issued before the claim existed reads it from the stored reservation. `PayableReservationService.requireCurrent` remains the authority that refuses an ended hold.
+
 Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. Every reservation family quotes and affirms through its own canonical product identity; dispatch family-owned quote, summary, persistence, and checkout-details projections exhaustively, with no implicit cowork default.
 
 ### Payment

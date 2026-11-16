@@ -179,6 +179,11 @@ export interface ReviewView {
   /** A write runs: every other review action holds still. */
   readonly busy: boolean;
   readonly submitting: boolean;
+  /**
+   * When the hold ends (ISO instant), for the app bar's hold timer chip;
+   * entering or clearing a code never moves it.
+   */
+  readonly holdExpiresAt: string;
   /** Whole seconds left on the hold at the flow clock's latest tick. */
   readonly holdSecondsLeft: number;
 }
@@ -216,6 +221,7 @@ export const reviewView = (review: ReviewState, now: number): ReviewView => {
     canPay: canPay(review),
     busy: !idle,
     submitting: pending("SubmitCheckout"),
+    holdExpiresAt: checkout.holdExpiresAt,
     holdSecondsLeft: holdSecondsLeft(Date.parse(checkout.holdExpiresAt), now),
   };
 };
