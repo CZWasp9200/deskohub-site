@@ -1,6 +1,6 @@
 import { useAtom } from "@effect/atom-react";
 import { Option } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import type { CheckoutState } from "../checkout/checkout-state";
 import type { DetailsDraft } from "./details-form";
 

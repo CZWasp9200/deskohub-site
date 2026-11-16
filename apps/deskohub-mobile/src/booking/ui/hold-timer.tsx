@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Clock, Stream } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import Timer from "lucide-react-native/icons/timer";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
 import { StyleSheet, View } from "react-native";

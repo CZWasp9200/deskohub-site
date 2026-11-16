@@ -1,6 +1,6 @@
 import { Clock, Effect, Schedule, Schema, Stream } from "effect";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
 
 /**
  * The sign-in email (`POST /api/auth/sign-in/magic-link`) as the site and

@@ -60,8 +60,8 @@ describe("customer API package imports", () => {
 
     expect(imports).toEqual([
       "effect",
-      "effect/unstable/reactivity/AsyncResult",
-      "effect/unstable/reactivity/Atom",
+      "effect/reactivity/AsyncResult",
+      "effect/reactivity/Atom",
     ]);
   });
 });

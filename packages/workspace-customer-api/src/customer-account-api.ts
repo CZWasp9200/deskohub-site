@@ -95,7 +95,7 @@ export class CustomerMarketingPreferencesRejected extends Schema.TaggedError<Cus
  * Dotypos customer, it is a review account, or its deletion is pending. The
  * website refuses the same sessions.
  */
-export class CustomerDataExportUnavailable extends Schema.TaggedErrorClass<CustomerDataExportUnavailable>()(
+export class CustomerDataExportUnavailable extends Schema.TaggedError<CustomerDataExportUnavailable>()(
   "CustomerDataExportUnavailable",
   {}
 ) {

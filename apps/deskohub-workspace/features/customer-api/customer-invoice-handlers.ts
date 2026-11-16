@@ -6,7 +6,7 @@ import {
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/http-api";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
 import type { CustomerInvoiceSummary } from "@/features/accounting/customer-invoice";

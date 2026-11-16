@@ -85,7 +85,7 @@ const lookupTodayAccess = (
               })
               .pipe(Effect.map((view) => [order.orderId, view] as const))
           ),
-        { concurrency: "inherit" }
+        { concurrency: "unbounded" }
       );
       return new Map(
         resolved.flatMap(([orderId, view]) =>
