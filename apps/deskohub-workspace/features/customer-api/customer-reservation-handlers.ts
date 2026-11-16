@@ -26,6 +26,7 @@ import {
 } from "@/features/account";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
+import { getReservationSummaryStay } from "@/features/account/reservation-summary-stay";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { loadAuthorizedCheckoutStatus } from "@/features/checkout/backend/checkout/authorized-checkout-status";
 import {
@@ -205,6 +206,15 @@ const answerReservationHistory = (history: ReservationHistoryRecord) =>
     })
   );
 
+/** A history entry's product, with a cowork booking's stay. */
+const answerReservationProduct = (
+  reservation: Pick<ReservationSummaryRecord, "endsAt" | "product" | "startsAt">
+): CustomerReservationSummary["product"] => {
+  const { product } = reservation;
+  const stay = getReservationSummaryStay(reservation);
+  return product.kind === "cowork" && stay ? { ...product, stay } : product;
+};
+
 /** A history entry as the contract carries it, without unknown fields. */
 const answerReservationSummary = ({
   id,
@@ -227,7 +237,7 @@ const answerReservationSummary = ({
   ...(workspaceReservationId && { orderId: workspaceReservationId }),
   ...(reviewSandbox && { reviewSandbox }),
   ...(party && { party }),
-  product,
+  product: answerReservationProduct({ product, startsAt, endsAt }),
   startsAt,
   endsAt,
   ...(setupStartsAt && { setupStartsAt }),
@@ -257,6 +267,7 @@ const answerBookedSelection = ({
     duration,
     seats,
     tier,
+    stay,
     coffee,
     monitorOption,
   },
@@ -270,6 +281,7 @@ const answerBookedSelection = ({
     ...(duration !== undefined && { duration }),
     ...(seats !== undefined && { seats }),
     ...(tier !== undefined && { tier }),
+    ...(stay !== undefined && { stay }),
     ...(coffee !== undefined && { coffee }),
     ...(monitorOption !== undefined && { monitorOption }),
   },

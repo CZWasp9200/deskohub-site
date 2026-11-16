@@ -5403,6 +5403,11 @@
         "type": "string",
         "enum": ["basic", "plus", "profi", "open-space", "reserved-desk"]
       },
+      "CustomerCoworkStay": {
+        "type": "string",
+        "enum": ["day", "overnight"],
+        "description": "day (the arrival date's Prague calendar day) or overnight (noon on the arrival date to noon the next date, Prague time). Reserved Desk only."
+      },
       "CustomerReservationProduct": {
         "anyOf": [
           {
@@ -5414,6 +5419,9 @@
               },
               "tier": {
                 "$ref": "#/components/schemas/CustomerCoworkTier"
+              },
+              "stay": {
+                "$ref": "#/components/schemas/CustomerCoworkStay"
               }
             },
             "required": ["kind", "tier"],
@@ -5492,11 +5500,6 @@
       "CustomerMonitorOption": {
         "type": "string",
         "enum": ["2x27-qhd", "2x32-qhd", "2x27-4k", "2x32-4k"]
-      },
-      "CustomerCoworkStay": {
-        "type": "string",
-        "enum": ["day", "overnight"],
-        "description": "day (the arrival date's Prague calendar day) or overnight (noon on the arrival date to noon the next date, Prague time). Reserved Desk only."
       },
       "CustomerBookingSelection": {
         "type": "object",

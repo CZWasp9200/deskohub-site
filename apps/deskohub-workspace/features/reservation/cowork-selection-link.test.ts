@@ -279,6 +279,7 @@ describe("cowork offer links", () => {
 describe("coworkSelectionLink.fromStored", () => {
   // Shortly after midnight in Prague, still the previous day in UTC.
   const reservedFrom = Temporal.Instant.from("2099-06-11T22:30:00Z");
+  const reservedUntil = Temporal.Instant.from("2099-06-12T22:00:00Z");
 
   test.each([
     { kind: "cowork", entryTier: "open-space", coffee: false },
@@ -296,6 +297,7 @@ describe("coworkSelectionLink.fromStored", () => {
       const selection = coworkSelectionLink.fromStored({
         ...details,
         reservedFrom,
+        reservedUntil,
       });
       expect(selection).toMatchObject({
         kind: "cowork",
@@ -333,7 +335,41 @@ describe("coworkSelectionLink.fromStored", () => {
         entryTier: "basic",
         coffee: false,
         reservedFrom,
+        reservedUntil,
       })
+    ).toBeUndefined();
+  });
+
+  test("reopens an overnight Reserved Desk stay as overnight on its arrival date", () => {
+    const selection = coworkSelectionLink.fromStored({
+      kind: "cowork",
+      entryTier: "reserved-desk",
+      coffee: false,
+      reservedFrom: Temporal.Instant.from("2099-06-12T10:00:00Z"),
+      reservedUntil: Temporal.Instant.from("2099-06-13T10:00:00Z"),
+    });
+    if (!selection) throw new Error("Expected a cowork selection.");
+    const searchParams = new URLSearchParams();
+    setReservationSelectionSearchParams(
+      searchParams,
+      coworkSelectionLink.write(selection)
+    );
+
+    expect(selection).toMatchObject({ date: "2099-06-12", stay: "overnight" });
+    expect(
+      coworkSelectionLink.read(searchParams, { locale: "cs-CZ" })
+    ).toMatchObject({ date: "2099-06-12", stay: "overnight" });
+  });
+
+  test("reopens a day stay without an overnight stay", () => {
+    expect(
+      coworkSelectionLink.fromStored({
+        kind: "cowork",
+        entryTier: "reserved-desk",
+        coffee: false,
+        reservedFrom,
+        reservedUntil,
+      })?.stay
     ).toBeUndefined();
   });
 });

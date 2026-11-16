@@ -14,6 +14,7 @@ import {
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
 import {
   coworkStaySchema,
+  getBookedCoworkStay,
   isOvernightCoworkStay,
   overnightCoworkStayTier,
 } from "@/features/reservation/cowork-stay";
@@ -174,10 +175,14 @@ export const coworkSelectionLink = defineSelectionLink({
       ? "overnight"
       : undefined,
   }),
-  /** The stored offer and date, with its add-ons. */
+  /**
+   * The stored offer and arrival date, with its add-ons and, for an overnight
+   * stay, the stay its booked interval shows.
+   */
   fromStored: (
     reservation: StoredCoworkReservationDetails & {
       readonly reservedFrom: Temporal.Instant;
+      readonly reservedUntil: Temporal.Instant;
     }
   ): CoworkSelection | undefined =>
     isWorkspaceCoworkCurrentProductTier(reservation.entryTier)
@@ -186,6 +191,13 @@ export const coworkSelectionLink = defineSelectionLink({
           date: getWorkspaceDate(reservation.reservedFrom).toString(),
           coffee: reservation.coffee,
           monitorOption: reservation.monitorOption,
+          ...(getBookedCoworkStay({
+            tier: reservation.entryTier,
+            interval: {
+              startsAt: reservation.reservedFrom,
+              endsAt: reservation.reservedUntil,
+            },
+          }) === "overnight" && { stay: "overnight" }),
         }
       : undefined,
 });

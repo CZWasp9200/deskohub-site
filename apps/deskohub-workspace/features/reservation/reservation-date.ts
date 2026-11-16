@@ -149,6 +149,20 @@ export const formatReservationDisplayTimeRange = (
     reservationDisplayTimeFormatOptions
   ).formatRange(temporalInstantToDate(start), temporalInstantToDate(end));
 
+/**
+ * A reservation that starts and ends at set times on different dates, such as
+ * an overnight stay, with both dates and times.
+ */
+export const formatReservationDisplayDateTimeRange = (
+  start: Temporal.Instant,
+  end: Temporal.Instant,
+  locale: Locale
+) =>
+  new Intl.DateTimeFormat(
+    locale,
+    reservationDisplayDateTimeFormatOptions
+  ).formatRange(temporalInstantToDate(start), temporalInstantToDate(end));
+
 export const formatReservationDisplayDateTime = (
   instant: Temporal.Instant,
   locale: Locale
