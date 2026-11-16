@@ -47,6 +47,19 @@ export const formatReferralDiscount = (
   }).format(percent / 100);
 };
 
+/**
+ * A referral percentage exactly, such as "9.75%" for two invitees'
+ * compounded 5%, as the account's own rows show it.
+ */
+export const formatExactReferralDiscount = (
+  discount: string,
+  locale: AppLocale
+): string =>
+  new Intl.NumberFormat(locale, {
+    style: "percent",
+    maximumFractionDigits: 2,
+  }).format(Number(discount) / 100);
+
 /** What the Referrals screen shows for a summary. */
 export interface ReferralsView {
   readonly code: string;

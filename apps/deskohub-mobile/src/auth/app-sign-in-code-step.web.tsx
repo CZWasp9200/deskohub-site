@@ -6,6 +6,7 @@ import { StyleSheet, View } from "react-native";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
 import { Button } from "../ui/controls";
+import { emailWithBreak } from "../ui/email-with-break";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
 import { AppSignInLayout } from "./app-sign-in-layout";
@@ -91,7 +92,7 @@ export function AppSignInCodeStep({
             email: (
               <Text style={styles.email}>
                 {/* A long address wraps before the @, not inside a word. */}
-                {email.replace("@", "\u200B@")}
+                {emailWithBreak(email)}
               </Text>
             ),
           }}
