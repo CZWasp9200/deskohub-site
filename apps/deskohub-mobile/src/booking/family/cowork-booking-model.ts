@@ -4,6 +4,7 @@ import type {
   CustomerOffering,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
+import { bookingPreselectionKey } from "../booking-preselection";
 import {
   type CoworkAvailability,
   type CoworkDraft,
@@ -19,19 +20,10 @@ import { quotableSelection } from "./booking-family-view";
 
 /** A draft the screen keeps, with the preselection it grew from. */
 export interface KeptCoworkDraft {
-  /** The preselection's key (`coworkPreselectionKey`); empty without one. */
+  /** The preselection's key (`bookingPreselectionKey`); empty without one. */
   readonly seed: string;
   readonly draft: CoworkDraft;
 }
-
-/** Tells preselections apart; empty when the screen opened without one. */
-export const coworkPreselectionKey = (
-  preselection: Option.Option<CustomerBookedSelection>
-) =>
-  Option.match(preselection, {
-    onNone: () => "",
-    onSome: ({ selection }) => JSON.stringify(selection),
-  });
 
 /**
  * The draft the cowork screen shows: the one it keeps, unless the screen
@@ -51,7 +43,7 @@ export const openingCoworkDraft = ({
   readonly offerings: ReadonlyArray<CustomerOffering>;
   readonly today: PragueDate;
 }): CoworkDraft => {
-  const seed = coworkPreselectionKey(preselection);
+  const seed = bookingPreselectionKey(preselection);
   return Option.filter(
     kept,
     (draft) => seed === "" || draft.seed === seed
