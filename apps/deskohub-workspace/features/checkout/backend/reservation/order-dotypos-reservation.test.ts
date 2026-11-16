@@ -165,7 +165,10 @@ describe("findOrderCoworkStay", () => {
   const findStay = (
     input: {
       readonly order?: WorkspaceReservation;
-      readonly bounds?: { readonly startDate: string; readonly endDate: string };
+      readonly bounds?: {
+        readonly startDate: string;
+        readonly endDate: string;
+      };
     } = {}
   ) => {
     const getReservationWithoutCustomer = mock(() =>
