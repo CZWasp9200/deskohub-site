@@ -1,4 +1,6 @@
 import { Stack } from "expo-router";
+import { completeProfileAtom } from "../../../src/account/profile/profile-save";
+import { useSettledResultReset } from "../../../src/customer-api/settled-result-reset";
 import { useAppLocale } from "../../../src/i18n/locale-context";
 import { m } from "../../../src/i18n/messages";
 import {
@@ -14,6 +16,8 @@ import {
  */
 export default function OnboardingLayout() {
   const locale = useAppLocale();
+  // The steps share one submit; it is forgotten once onboarding closes.
+  useSettledResultReset(completeProfileAtom);
   const title = m.account_section_complete({}, { locale });
   return (
     <Stack screenOptions={stackScreenOptions(locale)}>

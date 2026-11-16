@@ -20,7 +20,6 @@ import {
   aboutYouFields,
   aboutYouRefusal,
   createdHere,
-  onboardingFooterMessage,
   onboardingView,
   stepOfField,
   stepOfInvalid,
@@ -167,48 +166,5 @@ describe("onboarding view", () => {
         })
       )
     ).toBe(false);
-  });
-});
-
-describe("onboarding footer", () => {
-  const invalid = (...fields: ReadonlyArray<CompletionTextField>) =>
-    ProfileSubmitState.Invalid({ invalid: invalidOn(...fields), attempt: {} });
-
-  test("counts only the fields to fix on its own step", () => {
-    const state = invalid("firstName", "phone", "companyName");
-    expect(onboardingFooterMessage(state, aboutYouFields(true))).toEqual({
-      kind: "fix-fields",
-      count: 2,
-    });
-    expect(onboardingFooterMessage(state, billingFieldsOf("business"))).toEqual(
-      { kind: "fix-fields", count: 1 }
-    );
-  });
-
-  test("says nothing about another step's fields", () => {
-    expect(
-      onboardingFooterMessage(invalid("firstName"), billingFieldsOf("none"))
-    ).toBeUndefined();
-  });
-
-  test("a failed create is said in the footer", () => {
-    const error = CustomerViewError.Unavailable();
-    expect(
-      onboardingFooterMessage(
-        ProfileSubmitState.Failed({ error }),
-        billingFieldsOf("personal")
-      )
-    ).toEqual({ kind: "failed", error });
-  });
-
-  test("progress and success leave the footer quiet", () => {
-    for (const state of [
-      ProfileSubmitState.Idle(),
-      ProfileSubmitState.Submitting(),
-      ProfileSubmitState.Done({ referral: Option.none() }),
-    ])
-      expect(onboardingFooterMessage(state, aboutYouFields(true))).toBe(
-        undefined
-      );
   });
 });

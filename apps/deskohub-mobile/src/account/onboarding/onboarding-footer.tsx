@@ -8,10 +8,8 @@ import { Button } from "../../ui/controls";
 import { Notice } from "../../ui/notice";
 import type { CompletionTextField } from "../profile/profile-draft";
 import type { ProfileSubmitState } from "../profile/profile-save";
-import {
-  type OnboardingStep,
-  onboardingFooterMessage,
-} from "./onboarding-model";
+import { profileFooterView } from "../profile/profile-footer-view";
+import type { OnboardingStep } from "./onboarding-model";
 
 const fixFieldsMessage = (
   step: OnboardingStep,
@@ -71,7 +69,10 @@ export function OnboardingFooter({
   readonly onPress: () => void;
   readonly locale: AppLocale;
 }) {
-  const message = onboardingFooterMessage(state, shownFields);
+  // Nothing to compare against a saved profile, so the draft always counts
+  // as unsaved. Fields to fix on the other step say nothing here: the flow
+  // takes the customer there.
+  const { message } = profileFooterView(state, true, shownFields);
   const failed = message?.kind === "failed" ? message.error : undefined;
   const busy = state._tag === "Submitting";
   const retryLabel = m.account_retry({}, { locale });

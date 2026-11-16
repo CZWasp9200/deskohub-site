@@ -1,6 +1,5 @@
 import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
 import { Match, Option, Result } from "effect";
-import type { CustomerViewError } from "../../customer-api/customer-view-error";
 import {
   type CompletionDraft,
   type CompletionTextField,
@@ -109,34 +108,3 @@ export const onboardingView = (
     ? "finish"
     : "leave";
 };
-
-/** What a step's footer says above its button, as data. */
-export type OnboardingFooterMessage =
-  /** Fields on this step to fix. */
-  | { readonly kind: "fix-fields"; readonly count: number }
-  /** The completion request failed; the answers are kept. */
-  | { readonly kind: "failed"; readonly error: CustomerViewError };
-
-/**
- * A step's footer message for its submit state and the fields it shows. A
- * refusal naming only another step's fields says nothing here: the flow
- * takes the customer to that step.
- */
-export const onboardingFooterMessage = (
-  state: ProfileSubmitState,
-  shownFields: ReadonlyArray<CompletionTextField>
-): OnboardingFooterMessage | undefined =>
-  Match.value(state).pipe(
-    Match.tagsExhaustive({
-      Idle: () => undefined,
-      Submitting: () => undefined,
-      Done: () => undefined,
-      Invalid: ({ invalid }) => {
-        const count = shownFields.filter(
-          (field) => invalid.fields[field] !== undefined
-        ).length;
-        return count > 0 ? ({ kind: "fix-fields", count } as const) : undefined;
-      },
-      Failed: ({ error }) => ({ kind: "failed", error }) as const,
-    })
-  );

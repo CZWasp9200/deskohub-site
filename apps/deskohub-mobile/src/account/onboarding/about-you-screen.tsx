@@ -4,7 +4,6 @@ import { useHeaderHeight } from "expo-router/react-navigation";
 import Plus from "lucide-react-native/icons/plus";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, StyleSheet, View } from "react-native";
-import { useSettledResultReset } from "../../customer-api/settled-result-reset";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { Button } from "../../ui/controls";
@@ -14,10 +13,7 @@ import { LoginEmailCard } from "../profile/login-email-card";
 import { identityFields } from "../profile/profile-draft";
 import { ProfileTextFields } from "../profile/profile-fields";
 import { invalidOf, useFocusFirstInvalid } from "../profile/profile-form";
-import {
-  completeProfileAtom,
-  ProfileSubmitState,
-} from "../profile/profile-save";
+import { ProfileSubmitState } from "../profile/profile-save";
 import {
   type CompletionRequiredAccount,
   useOnboardingDraft,
@@ -32,11 +28,9 @@ import { OnboardingStepHead } from "./onboarding-step-head";
  * Onboarding's first step, About you (board 06): the verified login email,
  * name and phone, and a referral code behind "Add a referral code".
  * Continue points at a field to fix before moving on; nothing is sent
- * until the billing step. This step stays below the billing step for the
- * whole flow, so it forgets a settled submit only when onboarding closes.
+ * until the billing step.
  */
 export function AboutYouScreen() {
-  useSettledResultReset(completeProfileAtom);
   return (
     <OnboardingGate>
       {(account) => <AboutYouForm account={account} />}
@@ -62,18 +56,21 @@ function AboutYouForm({
   const fields = aboutYouFields(account.referralsEnabled);
   const { inputs } = useFocusFirstInvalid(state, fields);
   const invalid = invalidOf(state);
-  const [referralOpened, setReferralOpened] = useState(false);
+  // Shown from the start when the invitation prefilled a code, and kept
+  // open once shown, so clearing it doesn't hide the field being typed in.
+  const [referralOpened, setReferralOpened] = useState(
+    () => draft.draft.referralCode !== ""
+  );
+  const [referralFocus, setReferralFocus] = useState(false);
   const referralShown =
     account.referralsEnabled &&
-    (referralOpened ||
-      draft.draft.referralCode !== "" ||
-      invalid?.fields.referralCode !== undefined);
+    (referralOpened || invalid?.fields.referralCode !== undefined);
   const submitting = draft.state._tag === "Submitting";
 
   // The field "Add a referral code" opens takes the focus.
   useEffect(() => {
-    if (referralOpened) inputs.current.get("referralCode")?.focus();
-  }, [referralOpened, inputs]);
+    if (referralFocus) inputs.current.get("referralCode")?.focus();
+  }, [referralFocus, inputs]);
 
   const setField = (
     field: Parameters<typeof draft.setField>[0],
@@ -138,7 +135,10 @@ function AboutYouForm({
               size="small"
               icon={Plus}
               label={m.onboarding_add_referral_code({}, { locale })}
-              onPress={() => setReferralOpened(true)}
+              onPress={() => {
+                setReferralOpened(true);
+                setReferralFocus(true);
+              }}
               disabled={submitting}
             />
           </View>

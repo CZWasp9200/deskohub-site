@@ -22,6 +22,7 @@ import {
 import { OnboardingFooter } from "./onboarding-footer";
 import { OnboardingGate } from "./onboarding-gate";
 import { stepOfInvalid } from "./onboarding-model";
+import { onboardingHref } from "./onboarding-routes";
 import { OnboardingStepHead } from "./onboarding-step-head";
 
 /**
@@ -59,9 +60,12 @@ function BillingStepForm({
     Option.contains(stepOfInvalid(refusal.invalid), "about-you");
   const attempt = refusal?.attempt;
 
-  // About you shows and focuses the field to fix.
+  // About you shows and focuses the field to fix: back to it, or to a new
+  // About you when this step was opened on its own.
   useEffect(() => {
-    if (focused && backToAboutYou && attempt !== undefined) router.back();
+    if (!(focused && backToAboutYou && attempt !== undefined)) return;
+    if (router.canDismiss()) router.back();
+    else router.replace(onboardingHref);
   }, [focused, backToAboutYou, attempt, router]);
 
   const billingFields = {
