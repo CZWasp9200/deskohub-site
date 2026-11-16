@@ -63,6 +63,8 @@ export function useProfileForm(account: {
     draft,
     state,
     unsaved: hasUnsavedChanges(edits, edited),
+    /** Changes several fields at once, as an applied company lookup does. */
+    change,
     setField: (field: ProfileTextField, value: string) =>
       change({ [field]: value }),
     setBillingKind: (billingKind: BillingChoice) => change({ billingKind }),

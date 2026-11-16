@@ -1,10 +1,10 @@
 /**
  * The screens inside a tab's stack that hide the tab bar while they show:
  * forms with their own sticky action footer, which the bar would otherwise
- * sit on (board 12). Keyed by tab, then by the stack screen's route name.
+ * sit on (boards 12 and 13). Keyed by tab, then by the stack screen's route name.
  */
 const screensWithoutTabBar: Readonly<Record<string, ReadonlySet<string>>> = {
-  account: new Set(["profile"]),
+  account: new Set(["profile", "billing"]),
 };
 
 /**

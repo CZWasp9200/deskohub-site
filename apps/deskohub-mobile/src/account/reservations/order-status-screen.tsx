@@ -26,12 +26,12 @@ import { LoadingIndicator } from "../../ui/loading-indicator";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
-import { bookingEntryEnabled } from "./booking-entry";
 import {
   InvoiceShareFailure,
-  invoiceShareAtom,
   invoiceShareFailureOf,
-} from "./invoice-share";
+} from "../invoices/invoice-pdf-share";
+import { bookingEntryEnabled } from "./booking-entry";
+import { invoiceShareAtom } from "./invoice-share";
 import {
   offersAccessLink,
   offersInvoice,

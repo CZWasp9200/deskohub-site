@@ -3,9 +3,11 @@ import { Match } from "effect";
 import { useRouter } from "expo-router";
 import Bot from "lucide-react-native/icons/bot";
 import Building from "lucide-react-native/icons/building";
+import CreditCard from "lucide-react-native/icons/credit-card";
 import FileText from "lucide-react-native/icons/file-text";
 import Gift from "lucide-react-native/icons/gift";
 import Languages from "lucide-react-native/icons/languages";
+import Receipt from "lucide-react-native/icons/receipt";
 import Shield from "lucide-react-native/icons/shield";
 import Trash2 from "lucide-react-native/icons/trash-2";
 import User from "lucide-react-native/icons/user";
@@ -19,7 +21,10 @@ import { Icon, type IconComponent } from "../ui/icon";
 import { ListGroup, ListRow, SectionHeader } from "../ui/list";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
-import { accountSectionHref } from "./account-gating";
+import {
+  type AccountScreenSection,
+  accountSectionHref,
+} from "./account-gating";
 import type {
   AccountGroup,
   AccountGroupHeading,
@@ -33,6 +38,8 @@ const rowIcon: Record<AccountRowSection, IconComponent> = {
   security: Shield,
   assistants: Bot,
   billing: Building,
+  "payment-methods": CreditCard,
+  invoices: Receipt,
   language: Languages,
   referrals: Gift,
   legal: FileText,
@@ -45,6 +52,8 @@ const rowLabel = (section: AccountRowSection, locale: AppLocale) =>
     security: m.account_section_security,
     assistants: m.account_section_assistants,
     billing: m.account_section_billing,
+    "payment-methods": m.account_section_payment_methods,
+    invoices: m.account_section_invoices,
     language: m.account_section_language,
     referrals: m.account_section_referrals,
     legal: m.account_section_legal,
@@ -103,6 +112,12 @@ export const accountRowSubtitleText = (
     })
   );
 
+// Payment methods has no screen yet, so its row only shows.
+const opensScreen = (
+  section: AccountRowSection
+): section is AccountRowSection & AccountScreenSection =>
+  section !== "payment-methods";
+
 /**
  * The Account tab's groups of section rows, each after its heading (the
  * first, on the masthead, has none), the Danger zone's row in crimson.
@@ -131,7 +146,9 @@ export function AccountRootGroups({
                   description: accountRowSubtitleText(subtitle, locale),
                 })}
                 destructive={section === "danger"}
-                onPress={() => router.push(accountSectionHref[section])}
+                {...(opensScreen(section) && {
+                  onPress: () => router.push(accountSectionHref[section]),
+                })}
               />
             ))}
           </ListGroup>

@@ -28,6 +28,8 @@ const fieldInput: Record<
     readonly label: (locale: AppLocale) => string;
     /** The customer may leave it empty; its label says so. */
     readonly optional?: true;
+    /** What the field takes, under it until it has an error. */
+    readonly hint?: (locale: AppLocale) => string;
   }
 > = {
   firstName: {
@@ -68,12 +70,15 @@ const fieldInput: Record<
   },
   companyId: {
     label: (locale) => m.profile_company_id_label({}, { locale }),
+    optional: true,
+    hint: (locale) => m.profile_company_id_hint({}, { locale }),
     autoComplete: "off",
     keyboardType: "number-pad",
     maxLength: 32,
   },
   vatId: {
     label: (locale) => m.profile_vat_id_label({}, { locale }),
+    optional: true,
     autoComplete: "off",
     autoCapitalize: "characters",
     maxLength: 32,
@@ -87,6 +92,7 @@ const fieldInput: Record<
   },
   addressLine2: {
     label: (locale) => m.profile_address_line2_label({}, { locale }),
+    optional: true,
     autoComplete: "address-line2",
     textContentType: "streetAddressLine2",
     autoCapitalize: "words",
@@ -114,7 +120,8 @@ const fieldInput: Record<
   },
 };
 
-const problemMessage = (
+/** What a field's problem from the last submit says, at the field. */
+export const profileFieldProblemMessage = (
   field: CompletionTextField,
   problem: ProfileFieldProblem,
   locale: AppLocale
@@ -158,7 +165,7 @@ export function ProfileTextFields<F extends CompletionTextField>({
   readonly locale: AppLocale;
 }) {
   return fields.map((field) => {
-    const { label, optional, ...input } = fieldInput[field];
+    const { label, optional, hint, ...input } = fieldInput[field];
     const problem = invalid?.fields[field];
     return (
       <TextField
@@ -170,13 +177,14 @@ export function ProfileTextFields<F extends CompletionTextField>({
         {...(optional && {
           optional: m.booking_details_optional_field({}, { locale }),
         })}
+        {...(hint !== undefined && { hint: hint(locale) })}
         value={draft[field]}
         onChangeText={(value) => onChange(field, value)}
         editable={editable}
         error={
           problem === undefined
             ? undefined
-            : problemMessage(field, problem, locale)
+            : profileFieldProblemMessage(field, problem, locale)
         }
         {...input}
       />

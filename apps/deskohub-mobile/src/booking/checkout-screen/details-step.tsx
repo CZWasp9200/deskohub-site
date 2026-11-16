@@ -1,5 +1,4 @@
 import { Option } from "effect";
-import Check from "lucide-react-native/icons/check";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import User from "lucide-react-native/icons/user";
 import UserPlus from "lucide-react-native/icons/user-plus";
@@ -21,16 +20,13 @@ import {
   View,
 } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
-import { countryName, invoiceCountries } from "../../i18n/country-names";
 import { m } from "../../i18n/messages";
-import { BottomSheet } from "../../ui/bottom-sheet";
 import { CheckboxRow } from "../../ui/checkbox";
 import { ChoiceList } from "../../ui/choice-list";
 import { Button, TextField } from "../../ui/controls";
+import { CountryField } from "../../ui/country-field";
 import { Icon } from "../../ui/icon";
-import { ListGroup, ListRow } from "../../ui/list";
 import { Notice } from "../../ui/notice";
-import { SelectField } from "../../ui/select-field";
 import { Text } from "../../ui/text";
 import { color, radius, shadow, space, touchTarget } from "../../ui/tokens";
 import { useKeyboardShown } from "../../ui/use-keyboard-shown";
@@ -697,7 +693,6 @@ function AddressFields({
   readonly field: FieldPropsOf;
   readonly busy: boolean;
 }) {
-  const [picking, setPicking] = useState(false);
   const set = (patch: Partial<AddressDraft>, name: DetailsField) =>
     onChange({ ...address, ...patch }, name);
   const country = field("address.country");
@@ -735,70 +730,16 @@ function AddressFields({
         </View>
       </View>
       <View ref={country.viewRef}>
-        <SelectField
+        <CountryField
           label={m.booking_details_country({}, { locale })}
-          value={
-            address.country === ""
-              ? undefined
-              : countryName(address.country, locale)
-          }
-          onPress={() => busy || setPicking(true)}
+          value={address.country}
+          onChange={(code) => set({ country: code }, "address.country")}
           error={country.error}
+          disabled={busy}
+          locale={locale}
         />
       </View>
-      <CountrySheet
-        visible={picking}
-        selected={address.country}
-        onPick={(code) => {
-          setPicking(false);
-          set({ country: code }, "address.country");
-        }}
-        onDismiss={() => setPicking(false)}
-        locale={locale}
-      />
     </View>
-  );
-}
-
-/** Every invoice country by name in the app's language, the chosen one ticked. */
-function CountrySheet({
-  visible,
-  selected,
-  onPick,
-  onDismiss,
-  locale,
-}: Locale & {
-  readonly visible: boolean;
-  readonly selected: string;
-  readonly onPick: (code: string) => void;
-  readonly onDismiss: () => void;
-}) {
-  return (
-    <BottomSheet
-      visible={visible}
-      title={m.booking_details_country({}, { locale })}
-      onDismiss={onDismiss}
-    >
-      {visible && (
-        <ListGroup>
-          {invoiceCountries(locale).map((option) => (
-            <ListRow
-              key={option.code}
-              label={option.name}
-              kind="action"
-              trailing={
-                option.code === selected ? (
-                  <Icon icon={Check} size={20} color={color.action} />
-                ) : (
-                  "none"
-                )
-              }
-              onPress={() => onPick(option.code)}
-            />
-          ))}
-        </ListGroup>
-      )}
-    </BottomSheet>
   );
 }
 

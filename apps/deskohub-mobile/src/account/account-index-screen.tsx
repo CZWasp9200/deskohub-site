@@ -20,6 +20,7 @@ import { Text } from "../ui/text";
 import { space } from "../ui/tokens";
 import { type AccountNotice, accountIndexModel } from "./account-gating";
 import { AccountIdentityView } from "./account-identity-view";
+import { useAccountRelease } from "./account-release";
 import {
   AccountRootGroups,
   ProfileCompletionCard,
@@ -63,6 +64,7 @@ export function AccountIndexScreen() {
   const locale = useAppLocale();
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
+  const release = useAccountRelease();
   const current = Option.getOrUndefined(AsyncResult.value(account));
   const notice =
     current === undefined ? undefined : accountIndexModel(current).notice;
@@ -122,7 +124,7 @@ export function AccountIndexScreen() {
         }
       >
         {(loaded) => {
-          const model = accountRootModel(loaded);
+          const model = accountRootModel(loaded, release);
           return (
             <>
               {model.completionCard && <ProfileCompletionCard />}

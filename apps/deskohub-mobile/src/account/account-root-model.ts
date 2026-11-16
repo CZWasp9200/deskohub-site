@@ -2,7 +2,19 @@ import type {
   CustomerAccountState,
   CustomerProfile,
 } from "@deskohub/workspace-customer-api";
-import { type AccountSection, accountIndexModel } from "./account-gating";
+import {
+  type AccountRelease,
+  type AccountSection,
+  accountIndexModel,
+} from "./account-gating";
+
+/**
+ * The PostHog flag that shows the Payment methods row. No such flag exists
+ * yet, so the row stays off everywhere until saved cards (issue #412) ship
+ * and decide their real release; an unknown or unloaded flag reads as off.
+ * The screen reads it; the model only takes `AccountRelease`.
+ */
+export const paymentMethodsFeatureFlag = "saved_payment_methods";
 
 /** Initials for an account without a photo, from the saved name. */
 export const initialsOf = (profile: CustomerProfile) =>
@@ -121,6 +133,8 @@ const subtitleOf = (
       // Marketing emails need a profile, so before it the row names no part.
       return firstGroupedWithLegal ? undefined : { kind: "legal" };
     case "profile":
+    case "payment-methods":
+    case "invoices":
     case "danger":
       return undefined;
   }
@@ -131,12 +145,13 @@ const subtitleOf = (
  * order: the account's sections under the masthead, then Rewards, Privacy
  * and the Danger zone. Before the profile exists a card leads to it, and
  * the reachable sections follow under "Your account". Which sections show
- * is `accountIndexModel`'s gating.
+ * is `accountIndexModel`'s gating for the app's releases.
  */
 export const accountRootModel = (
-  account: CustomerAccountState
+  account: CustomerAccountState,
+  release?: AccountRelease
 ): AccountRootModel => {
-  const sections = accountIndexModel(account).sections.filter(
+  const sections = accountIndexModel(account, release).sections.filter(
     (section): section is AccountRowSection => section !== "complete"
   );
   const completionCard = account.kind === "completion-required";
