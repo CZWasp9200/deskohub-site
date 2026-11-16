@@ -132,6 +132,7 @@ export function Button({
   busy = false,
   variant = "primary",
   icon,
+  iconPlacement = "start",
   size = "regular",
   width = "full",
   accessibilityLabel,
@@ -148,6 +149,8 @@ export function Button({
   readonly variant?: ButtonVariant;
   /** A Lucide icon before the label. */
   readonly icon?: IconComponent;
+  /** `end` puts the icon after the label, as for a page opening outside the app. */
+  readonly iconPlacement?: "start" | "end";
   readonly size?: "regular" | "small";
   readonly width?: "full" | "content";
   /** The accessible name when the visible label alone is ambiguous, such as "Delete" in a list. */
@@ -206,7 +209,7 @@ export function Button({
           },
       ]}
     >
-      {(icon || busy) && (
+      {(busy || (icon && iconPlacement === "start")) && (
         // The die takes the icon's 20 dp slot, so the button keeps its size.
         <View style={buttonStyles.iconSlot}>
           {busy
@@ -220,6 +223,11 @@ export function Button({
       >
         {label}
       </Text>
+      {!busy && icon && iconPlacement === "end" && (
+        <View style={buttonStyles.iconSlot}>
+          <Icon icon={icon} size={20} color={labelColor} />
+        </View>
+      )}
     </Pressable>
   );
   if (disabledReason === undefined) return pressable;

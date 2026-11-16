@@ -9,6 +9,7 @@ import type { WorkspaceReservationRow } from "@/db/schema";
 import {
   type CheckoutSessionKey,
   checkoutSessionIdSchema,
+  paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
@@ -231,6 +232,56 @@ describe("PayableCheckout.reconfirm", () => {
     );
     return { ...run, result: await run.result };
   };
+
+  /** The state as a payment retry issues it: bound to its order, not a session. */
+  const orderBound = (state: SignedPayState): SignedPayState => ({
+    ...state,
+    checkoutSessionId: undefined,
+    binding: "order",
+    retriedAttemptId: paymentAttemptIdSchema.make("retried-attempt-id"),
+  });
+
+  test("confirms an order-bound state's order while it awaits its retry, without a session id", async () => {
+    const stored = row({ activePaymentAttemptId: null });
+    const { result } = await reconfirm({ state: orderBound, stored });
+
+    expect(result).toMatchObject({
+      _tag: "Success",
+      success: { reservation: { id: syntheticPayStateOrderId } },
+    });
+  });
+
+  test.each([
+    {
+      name: "after the retry's own payment started",
+      input: {
+        stored: row({
+          activePaymentAttemptId: paymentAttemptIdSchema.make("retry-attempt"),
+        }),
+      },
+      reason: "retried_attempt_replaced",
+    },
+    {
+      name: "once a newer order replaced it in its session",
+      input: {
+        stored: row({ activePaymentAttemptId: null }),
+        current: row({
+          id: workspaceReservationIdSchema.make("replacement-id"),
+        }),
+      },
+      reason: "not_current",
+    },
+  ] as const)(
+    "refuses an order-bound state $name",
+    async ({ input, reason }) => {
+      const { result } = await reconfirm({ ...input, state: orderBound });
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: unavailable(reason),
+      });
+    }
+  );
 
   test.each(["CANCELLED", "CONFIRMED"] as const)(
     "refuses a hold Dotypos reports %s",

@@ -190,16 +190,19 @@ const prepareClear = (input: ClearInput) => {
         })
       );
     }
+    const activePaymentAttemptId =
+      guardReads > 1
+        ? (input.activePaymentAttemptIdAfterPricing ??
+          input.activePaymentAttemptId ??
+          null)
+        : (input.activePaymentAttemptId ?? null);
     return Effect.succeed({
       id: "reservation-id",
       dotyposCustomerId: "customer-id",
       reservationHoldExpiresAt: storedHoldExpiresAt,
-      activePaymentAttemptId:
-        guardReads > 1
-          ? (input.activePaymentAttemptIdAfterPricing ??
-            input.activePaymentAttemptId ??
-            null)
-          : (input.activePaymentAttemptId ?? null),
+      activePaymentAttemptId,
+      // Admitting an attempt makes the order's payment pending.
+      paymentState: activePaymentAttemptId === null ? "not_started" : "pending",
     } as never);
   };
   const confirm = mock((state: SignedPayState) =>

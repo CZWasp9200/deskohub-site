@@ -332,6 +332,7 @@ describe("ReservationHoldCleanupScheduleService", () => {
           dotyposReservationId: "dotypos-reservation-id",
           reservationHoldExpiresAt: expiresAt,
         },
+        cause: "hold_expired",
       });
     }
   });
