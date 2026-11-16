@@ -308,6 +308,7 @@ const getAvailability = (input: {
   readonly seats?: number;
   readonly entryTier?: "open-space" | "reserved-desk";
   readonly monitorOption?: "2x27-qhd" | "2x32-qhd" | "2x27-4k" | "2x32-4k";
+  readonly stay?: "day" | "overnight";
   readonly tables?: readonly Table[];
   readonly reservations?: readonly Reservation[];
   readonly advisoryReservations?: readonly Reservation[];
@@ -360,6 +361,7 @@ const getAvailability = (input: {
           date: input.date,
           entryTier: input.entryTier,
           monitorOption: input.monitorOption,
+          stay: input.stay,
         },
       });
     }).pipe(Effect.provide(Logger.layer([captureLogs(input.logs ?? [])]))),
@@ -2578,5 +2580,125 @@ describe("WorkspaceAvailabilityService meeting-room unavailable dates", () => {
           .map(({ date }) => date)
       );
     }
+  });
+});
+
+describe("WorkspaceAvailabilityService overnight Reserved Desk stays", () => {
+  // testDate 2099-06-10 is in Prague summer time (UTC+2): the overnight stay
+  // runs 2099-06-10T10:00Z to 2099-06-11T10:00Z.
+  const nextDate = "2099-06-11";
+  const tables = [makeTable({ id: "desk-1", tags: ["cowork:reserved-desk"] })];
+  const nextDayBooking = makeReservation({
+    tableId: "desk-1",
+    status: "CONFIRMED",
+    startDate: "2099-06-10T22:00:00Z",
+    endDate: "2099-06-11T22:00:00Z",
+  });
+  const morningBooking = makeReservation({
+    tableId: "desk-1",
+    status: "CONFIRMED",
+    startDate: testStart,
+    endDate: "2099-06-10T10:00:00Z",
+  });
+  const nextAfternoonBooking = makeReservation({
+    tableId: "desk-1",
+    status: "CONFIRMED",
+    startDate: "2099-06-11T10:00:00Z",
+    endDate: "2099-06-11T22:00:00Z",
+  });
+
+  test("closes the arrival date when the desk is taken the next morning", async () => {
+    const overnight = await getAvailability({
+      date: testDate,
+      entryTier: "reserved-desk",
+      stay: "overnight",
+      tables,
+      reservations: [nextDayBooking],
+    });
+    const day = await getAvailability({
+      date: testDate,
+      entryTier: "reserved-desk",
+      tables,
+      reservations: [nextDayBooking],
+    });
+
+    expect(overnight.unavailableDates).toEqual([testDate]);
+    expect(overnight.unavailableCoworkTiers).toContain("reserved-desk");
+    expect(day.unavailableDates).toEqual([]);
+    expect(day.unavailableCoworkTiers).not.toContain("reserved-desk");
+  });
+
+  test("offers the arrival date when the desk is free from noon", async () => {
+    const overnight = await getAvailability({
+      date: testDate,
+      entryTier: "reserved-desk",
+      stay: "overnight",
+      tables,
+      reservations: [morningBooking, nextAfternoonBooking],
+    });
+
+    expect(overnight.unavailableDates).toEqual([]);
+    expect(overnight.unavailableCoworkTiers).not.toContain("reserved-desk");
+  });
+
+  test("closes the arrival date when the next date is fully occupied", async () => {
+    const overnight = await getAvailability({
+      date: testDate,
+      entryTier: "reserved-desk",
+      stay: "overnight",
+      tables: coworkOfferTables,
+      limitations: [
+        WorkspaceCalendarLimitation.FullyOccupied({
+          date: nextDate,
+          sourceEventId: "calendar-full",
+        }),
+      ],
+    });
+
+    expect(overnight.unavailableDates).toEqual([testDate]);
+    expect(overnight.unavailableCoworkTiers).toEqual(["reserved-desk"]);
+    expect(overnight.reservedDeskWorkstationRequiredDates).toEqual([]);
+  });
+
+  test("reads inventory through the date after the last arrival date", async () => {
+    const intervals: DotyposReservationInterval[] = [];
+    await getAvailability({
+      date: testDate,
+      entryTier: "reserved-desk",
+      stay: "overnight",
+      tables,
+      onReservationInterval: (interval) => intervals.push(interval),
+    });
+
+    expect(intervals.at(-1)?.endDate.toISOString()).toBe(
+      "2099-06-11T22:00:00.000Z"
+    );
+  });
+
+  test("ensures only the arrival date's noon-to-noon interval", async () => {
+    const ensure = (reservations: readonly Reservation[]) =>
+      runWithInventory(
+        Effect.result(
+          Effect.gen(function* () {
+            const availability = yield* Effect.promise(
+              () => import("./workspace-availability.service")
+            );
+            const service = yield* availability.WorkspaceAvailabilityService;
+            return yield* service.ensureAvailable({
+              kind: "cowork",
+              date: testDate,
+              entryTier: "reserved-desk",
+              monitorOption: undefined,
+              stay: "overnight",
+            });
+          })
+        ),
+        { tables, reservations }
+      );
+
+    expect((await ensure([nextDayBooking]))._tag).toBe("Failure");
+    expect((await ensure([morningBooking, nextAfternoonBooking]))._tag).toBe(
+      "Success"
+    );
   });
 });

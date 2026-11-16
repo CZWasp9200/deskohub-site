@@ -39,6 +39,10 @@ import {
   reservationTimestampInputSchema,
 } from "@/features/reservation/reservation-interval";
 import {
+  coworkStaySchema,
+  isOvernightCoworkStay,
+} from "@/features/reservation/cowork-stay";
+import {
   coworkReservationKind,
   meetingRoomReservationKind,
   officeReservationKind,
@@ -65,6 +69,12 @@ const coworkWorkspaceAvailabilityQuerySchema = Schema.Struct({
   monitorOption: Schema.optional(
     Schema.Literals(workspaceProductMonitorOptions)
   ),
+  /**
+   * The Reserved Desk stay the query evaluates; absence is a day stay. An
+   * overnight query keeps arrival dates as its dates and checks each one's
+   * noon-to-noon interval.
+   */
+  stay: Schema.optional(coworkStaySchema),
 });
 
 const meetingRoomWorkspaceAvailabilityQuerySchema = Schema.Struct({
@@ -283,19 +293,26 @@ export const getCoworkAvailabilityQueries = ({
   date,
   entryTier,
   monitorOption,
+  stay,
   today,
 }: {
   readonly date?: string;
   readonly entryTier?: string;
   readonly monitorOption?: string;
+  readonly stay?: string;
   readonly today: string;
 }): CoworkAvailabilityQueries => {
   if (!isWorkspaceCoworkCurrentProductTier(entryTier)) return {};
 
+  const overnight = isOvernightCoworkStay(
+    entryTier,
+    stay === "overnight" ? stay : undefined
+  );
   const range: CoworkWorkspaceAvailabilityQuery = {
     kind: coworkReservationKind,
     ...getWorkspaceAvailabilityRange(today),
     entryTier,
+    ...(overnight && { stay: "overnight" }),
   };
   if (!date) return { range };
 
@@ -307,6 +324,7 @@ export const getCoworkAvailabilityQueries = ({
     to: date,
     entryTier,
     date,
+    ...(overnight && { stay: "overnight" }),
   };
 
   return {
