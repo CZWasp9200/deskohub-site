@@ -55,6 +55,7 @@ export {
   CustomerLegalDocument,
   CustomerLegalDocuments,
   CustomerMeetingRoomStartTimes,
+  CustomerMeetingRoomUnavailableDates,
   CustomerOffering,
   CustomerOfferingAddOn,
   customerAvailabilityReplacementHeader,
