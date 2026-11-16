@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { m } from "../../i18n/messages";
 import { productLabel } from "../checkout-screen/checkout-copy";
-import { bookingSummaryOf } from "./booking-summary";
+import { bookingSummaryOf, bookingSummaryParts } from "./booking-summary";
 import { formatPragueTime, formatShortPragueDate } from "./prague-date-format";
 import { monitorOptionName } from "./price-line-description";
 
@@ -92,5 +92,42 @@ describe("bookingSummaryOf", () => {
     expect(bookingSummaryOf(desk, locale, { overnightStay }).title).toBe(
       bookingSummaryOf(desk, locale).title
     );
+  });
+});
+
+describe("bookingSummaryParts", () => {
+  test("an overnight Reserved Desk's review card names arrival and departure", () => {
+    const overnightDesk = {
+      family: "cowork",
+      tier: "reserved-desk",
+      date: "2026-11-30",
+      stay: "overnight",
+      monitorOption: "2x27-qhd",
+    } as const;
+    const overnightStay = { startTime: "12:00", endTime: "12:00" };
+    const { title, extras } = bookingSummaryParts(
+      overnightDesk,
+      locale,
+      overnightStay
+    );
+
+    expect(title).not.toBe(
+      bookingSummaryParts({ ...overnightDesk, stay: "day" }, locale).title
+    );
+    // Arrival on the reserved date, departure on the next, both at noon.
+    const positions = [
+      formatShortPragueDate("2026-11-30", locale),
+      formatPragueTime("12:00", locale),
+      formatShortPragueDate("2026-12-01", locale),
+    ].map((part) => title.indexOf(part));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(
+      title.lastIndexOf(formatPragueTime("12:00", locale))
+    ).toBeGreaterThan(positions[2] ?? -1);
+    expect(extras).toEqual([monitorOptionName("2x27-qhd")]);
+    expect(
+      bookingSummaryOf(overnightDesk, locale, { overnightStay }).title
+    ).toBe(title);
   });
 });
