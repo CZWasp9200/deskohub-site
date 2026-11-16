@@ -1,3 +1,5 @@
+import { sitePageUrl } from "../../routing/site-page";
+
 /** The site's legal documents the Legal & Privacy screen links to, in order. */
 export const legalDocuments = [
   "privacy",
@@ -9,7 +11,7 @@ export type LegalDocument = (typeof legalDocuments)[number];
 
 // The site's page paths without a locale prefix: the site redirects each to
 // the reader's language.
-const legalDocumentPath: Record<LegalDocument, string> = {
+const legalDocumentPath: Record<LegalDocument, `/${string}`> = {
   privacy: "/privacy-policy",
   marketing: "/marketing-communications",
   terms: "/terms-and-conditions",
@@ -23,4 +25,4 @@ const legalDocumentPath: Record<LegalDocument, string> = {
 export const legalDocumentUrl = (
   document: LegalDocument,
   siteOrigin: string
-): string => new URL(legalDocumentPath[document], siteOrigin).href;
+): string => sitePageUrl(legalDocumentPath[document], siteOrigin);

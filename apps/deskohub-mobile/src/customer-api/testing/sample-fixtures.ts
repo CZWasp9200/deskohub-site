@@ -6,11 +6,15 @@ import {
   type CustomerAgentConnection,
   type CustomerEstablishment,
   type CustomerMarketingPreferences,
+  type CustomerOrderFulfillmentStatus,
+  type CustomerOrderPaymentStatus,
   type CustomerOrderState,
+  type CustomerOrderStatus,
   type CustomerProfile,
   type CustomerReservationAccess,
   type CustomerReservationHistory,
   CustomerReservationOrderId,
+  type CustomerReservationSummary,
   type ReferralAccountOverview,
   ReferralCode,
 } from "@deskohub/workspace-customer-api";
@@ -132,6 +136,138 @@ export const sampleInvoicePdf = (): Uint8Array =>
     ].join("\n")
   );
 
+/** The Prague midnight `days` days from `now`, as the booking boards show. */
+const pragueDayStart = (now: Date, days: number): Date => {
+  const date = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Europe/Prague",
+  }).format(new Date(now.getTime() + days * day));
+  const utcMidnight = Date.parse(`${date}T00:00:00Z`);
+  // Prague is one or two hours ahead of UTC.
+  const pragueHour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: "Europe/Prague",
+    }).format(utcMidnight)
+  );
+  return new Date(utcMidnight - pragueHour * hour);
+};
+
+/**
+ * The statuses of the sample Open Space desk booked 16 days ahead, one order
+ * each, so every state of the booking ticket opens by deep link
+ * (deskohub://reservations/sample-desk-<status>).
+ */
+export const sampleDeskStatuses = [
+  "created",
+  "pending",
+  "payment_pending_delayed",
+  "paid_waiting_fulfillment",
+  "paid_delivery_delayed",
+  "fulfilled",
+  "payment_failed",
+  "expired",
+  "cancelled",
+  "late_payment_review",
+  "late_payment_refund",
+] as const satisfies ReadonlyArray<CustomerOrderStatus>;
+
+export const sampleDeskOrderId = (
+  status: (typeof sampleDeskStatuses)[number]
+) => CustomerReservationOrderId.make(`sample-desk-${status}`);
+
+const deskPayment = {
+  created: ["not_started", "not_started"],
+  pending: ["pending", "not_started"],
+  payment_pending_delayed: ["pending", "not_started"],
+  paid_waiting_fulfillment: ["paid", "processing"],
+  paid_delivery_delayed: ["paid", "awaiting_delivery"],
+  fulfilled: ["paid", "fulfilled"],
+  payment_failed: ["failed", "not_started"],
+  expired: ["expired", "not_started"],
+  cancelled: ["cancelled", "not_started"],
+  late_payment_review: ["paid", "not_started"],
+  late_payment_refund: ["paid", "not_started"],
+} as const satisfies Record<
+  (typeof sampleDeskStatuses)[number],
+  readonly [CustomerOrderPaymentStatus, CustomerOrderFulfillmentStatus]
+>;
+
+/** The desk's day: 00:00 to 17:00 in Prague, 16 days ahead. */
+const deskDay = (now: Date) => {
+  const start = pragueDayStart(now, 16);
+  return {
+    startsAt: start.toISOString(),
+    endsAt: new Date(start.getTime() + 17 * hour).toISOString(),
+  };
+};
+
+const sampleDeskOrders = (now: Date): ReadonlyArray<[string, SampleOrder]> => {
+  const { startsAt, endsAt } = deskDay(now);
+  return sampleDeskStatuses.map((status) => {
+    const [paymentStatus, fulfillmentStatus] = deskPayment[status];
+    const orderId = sampleDeskOrderId(status);
+    const confirmed =
+      status === "fulfilled" || status === "paid_delivery_delayed";
+    return [
+      orderId,
+      {
+        state: {
+          orderId,
+          kind: "cowork",
+          status,
+          paymentStatus,
+          fulfillmentStatus,
+          startsAt,
+          endsAt,
+          total: { value: 25880, exponent: 2, currency: "CZK" },
+          bookedSelection: {
+            selection: {
+              family: "cowork",
+              date: startsAt.slice(0, 10),
+              tier: "open-space",
+            },
+          },
+        },
+        ...(confirmed
+          ? {
+              access: {
+                code: "3804276",
+                accessStartsAt: startsAt,
+                accessEndsAt: endsAt,
+              },
+              invoice: sampleInvoicePdf(),
+            }
+          : {}),
+      },
+    ];
+  });
+};
+
+/** The sample desk in the history, with the lock's window. */
+export const sampleDeskReservation = (
+  now: Date,
+  status: CustomerReservationSummary["status"] = "confirmed"
+): CustomerReservationSummary => {
+  const { startsAt, endsAt } = deskDay(now);
+  return {
+    id: "sample-reservation-desk",
+    orderId: sampleDeskOrderId(
+      status === "confirmed" ? "fulfilled" : "pending"
+    ),
+    product: { kind: "cowork", tier: "open-space" },
+    startsAt,
+    endsAt,
+    seats: 1,
+    status,
+    accessStartsAt: startsAt,
+    accessEndsAt: endsAt,
+  };
+};
+
 const sampleHistory = (now: Date): CustomerReservationHistory => ({
   current: [
     {
@@ -209,6 +345,7 @@ const sampleHistory = (now: Date): CustomerReservationHistory => ({
 
 const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
   new Map<string, SampleOrder>([
+    ...sampleDeskOrders(now),
     [
       sampleOrderIds.fulfilled,
       {
