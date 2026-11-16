@@ -78,10 +78,13 @@ import {
   type FreshPayState,
   PayState,
   type PayStateReissue,
+  type PayStateWithHoldExpiry,
   type SignedPayState,
   toFreshPayState,
 } from "./pay-state";
+import { withPayStateHoldExpiry } from "./pay-state-hold";
 import {
+  type PayableReservation,
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
@@ -339,7 +342,7 @@ const openFinalPayState: (
 });
 
 const reissuePriceReviewPayState: (
-  state: SignedPayState,
+  state: PayStateWithHoldExpiry,
   outcome: PayStateReissue
 ) => Effect.Effect<FreshPayState, CheckoutError, SealedStateKeys> = Effect.fn(
   "reissuePriceReviewPayState"
@@ -889,15 +892,17 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         function* (input: {
           readonly state: SignedPayState;
           readonly changedKeys: CheckoutSummaryChangedKeys;
+          readonly reservation: PayableReservation;
         }) {
           const { state } = input;
           yield* Effect.logInfo(
             "Hosted payment checkout returned existing pricing_changed review"
           );
 
-          const priceReviewPayState = yield* reissuePriceReviewPayState(state, {
-            kind: "review_pending",
-          }).pipe(provideSealedStateKeys);
+          const priceReviewPayState = yield* reissuePriceReviewPayState(
+            withPayStateHoldExpiry(state, input.reservation),
+            { kind: "review_pending" }
+          ).pipe(provideSealedStateKeys);
           return {
             status: "pricing_changed" as const,
             changedKeys: input.changedKeys,
@@ -948,6 +953,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
        */
       const findRepricedResult = Effect.fnUntraced(function* (input: {
         readonly state: SignedPayState;
+        readonly reservation: PayableReservation;
         readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
       }) {
         const { state, verdict } = input;
@@ -967,10 +973,10 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           "Hosted payment checkout returned pricing_changed"
         );
 
-        const priceReviewPayState = yield* reissuePriceReviewPayState(state, {
-          kind: "repriced",
-          verdict,
-        }).pipe(provideSealedStateKeys);
+        const priceReviewPayState = yield* reissuePriceReviewPayState(
+          withPayStateHoldExpiry(state, input.reservation),
+          { kind: "repriced", verdict }
+        ).pipe(provideSealedStateKeys);
         return {
           status: "pricing_changed" as const,
           changedKeys,
@@ -1039,6 +1045,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
               return yield* getPendingPricingReviewResult({
                 state,
                 changedKeys: state.changedKeys,
+                reservation,
               });
             }
 
@@ -1050,6 +1057,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
 
             const repricedResult = yield* findRepricedResult({
               state,
+              reservation,
               verdict,
             });
             if (repricedResult) return repricedResult;
@@ -1226,14 +1234,17 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                           }),
                         });
                         const priceReviewPayState =
-                          yield* reissuePriceReviewPayState(state, {
-                            kind: "repriced",
-                            verdict: {
-                              status: "pricing_changed",
-                              priced: refreshed,
-                              changedKeys,
-                            },
-                          }).pipe(provideSealedStateKeys);
+                          yield* reissuePriceReviewPayState(
+                            withPayStateHoldExpiry(state, reservation),
+                            {
+                              kind: "repriced",
+                              verdict: {
+                                status: "pricing_changed",
+                                priced: refreshed,
+                                changedKeys,
+                              },
+                            }
+                          ).pipe(provideSealedStateKeys);
 
                         return {
                           status: "pricing_changed" as const,

@@ -130,8 +130,10 @@ export const customerRequestBudgetClasses = {
     listLegalDocuments: "workspace-only",
     // A booking spends two to four Dotypos mutations: the hold, an
     // optional code, the submission, and one retry after a price change.
+    // Removing a code reprices like entering one.
     createCheckout: "dotypos-mutation",
     applyCheckoutDiscountCode: "dotypos-mutation",
+    clearCheckoutDiscountCode: "dotypos-mutation",
     submitCheckout: "dotypos-mutation",
     // Reseals the signed checkout state only.
     acceptCheckoutPriceChange: "workspace-only",

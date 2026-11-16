@@ -83,10 +83,12 @@ export type CheckoutRetryKind =
   | "payment_browser"
   | "unexpected";
 
-/** A token the server signed after rejecting a code, which keeps the hold. */
+/**
+ * A token the server signed after rejecting a code. It replaces only the
+ * token: the hold's end stays where it was.
+ */
 export interface CheckoutReplacementToken {
   readonly payStateToken: string;
-  readonly expiresAt: string;
 }
 
 /**
@@ -171,11 +173,13 @@ const checkoutUnavailable = (
     Match.exhaustive
   );
 
-/** The contract sends both fields of a replacement token, or neither. */
+/** The token's own `expiresAt` isn't needed: the hold ends first. */
 const replacementToken = (
   rejected: CustomerDiscountCodeRejected
 ): Option.Option<CheckoutReplacementToken> =>
-  Option.all({
-    payStateToken: Option.fromUndefinedOr(rejected.payStateToken),
-    expiresAt: Option.fromUndefinedOr(rejected.expiresAt),
-  });
+  Option.map(
+    Option.fromUndefinedOr(rejected.payStateToken),
+    (payStateToken) => ({
+      payStateToken,
+    })
+  );

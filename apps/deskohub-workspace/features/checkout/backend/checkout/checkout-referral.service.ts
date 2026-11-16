@@ -34,6 +34,7 @@ import {
   type SignedPayState,
   toFreshPayState,
 } from "./pay-state";
+import { withPayStateHoldExpiry } from "./pay-state-hold";
 import {
   PayableReservationService,
   type PayableReservationUnavailableError,
@@ -294,11 +295,14 @@ export class CheckoutReferralService extends Context.Service<
           if (repricedReservation.activePaymentAttemptId) {
             return paymentInProgress;
           }
-          const freshPayState = yield* PayState.reissue(opened, {
-            kind: "referral_applied",
-            referralCode: referralInput.referralCode,
-            verdict,
-          }).pipe(Effect.map(toFreshPayState));
+          const freshPayState = yield* PayState.reissue(
+            withPayStateHoldExpiry(opened, currentReservation),
+            {
+              kind: "referral_applied",
+              referralCode: referralInput.referralCode,
+              verdict,
+            }
+          ).pipe(Effect.map(toFreshPayState));
 
           return toReferralAcceptanceResult({
             verdict,

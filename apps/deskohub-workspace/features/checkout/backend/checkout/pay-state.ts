@@ -25,7 +25,10 @@ import {
   type SealedStateSealOptions,
   type SealedStateTokenError,
 } from "@/shared/backend/sealed-state";
-import { temporalInstantToIsoString } from "@/shared/utils/temporal";
+import {
+  type Instant,
+  temporalInstantToIsoString,
+} from "@/shared/utils/temporal";
 import {
   buildCheckoutPayPath,
   type CheckoutPayPathOptions,
@@ -97,6 +100,16 @@ export const signedPayStateSchema = Schema.Union([
 
 export type SignedPayState = typeof signedPayStateSchema.Type &
   PayStateSubmittedCodeMetadata;
+
+/**
+ * A Pay state whose reservation hold deadline is known. Every Pay state built
+ * carries it; an opened one may predate the claim, so it gets the stored
+ * deadline from `withPayStateHoldExpiry` or `loadPayStateHoldExpiry` before
+ * it is reissued.
+ */
+export type PayStateWithHoldExpiry = SignedPayState & {
+  readonly holdExpiresAt: Instant;
+};
 
 const preserveSignedPayStateMetadataInvariant = (
   state: typeof signedPayStateSchema.Type
@@ -278,6 +291,7 @@ export const buildSignedPayState = Effect.fn("payState.build")(function* (
         locale: input.locale,
         orderId: input.orderId,
         bookedAt: input.bookedAt,
+        holdExpiresAt: input.holdExpiresAt,
       },
       input,
       input.quote.payment.expectedPrice
@@ -289,7 +303,12 @@ export const buildSignedPayState = Effect.fn("payState.build")(function* (
   return yield* Schema.decodeUnknownEffect(signedPayStateSchema, {
     onExcessProperty: "error",
   })(state).pipe(
-    Effect.map(preserveSignedPayStateMetadataInvariant),
+    Effect.map(
+      (decoded): PayStateWithHoldExpiry => ({
+        ...preserveSignedPayStateMetadataInvariant(decoded),
+        holdExpiresAt: input.holdExpiresAt,
+      })
+    ),
     Effect.mapError(PayStateTokenError.invalidState)
   );
 });
@@ -422,11 +441,21 @@ export type PayStateReissue =
       readonly kind: "referral_applied";
       readonly referralCode: CanonicalPromotionCode | undefined;
       readonly verdict: PriceVerdict<SignedPayStatePricing>;
-    };
+    }
+  /**
+   * The entered code was removed and the order re-priced without it; a
+   * changed price asks the customer to review it.
+   */
+  | {
+      readonly kind: "code_cleared";
+      readonly verdict: PriceVerdict<SignedPayStatePricing>;
+    }
+  /** A requested code that was never applied was dropped without repricing. */
+  | { readonly kind: "requested_code_cleared" };
 
 /** The replacement's signed fields and Pay URL options for one outcome. */
 const getContinuation = (
-  state: SignedPayState,
+  state: PayStateWithHoldExpiry,
   outcome: PayStateReissue
 ): {
   readonly fresh: BuildSignedPayStateInput;
@@ -436,6 +465,7 @@ const getContinuation = (
     locale: state.locale,
     orderId: state.orderId,
     bookedAt: state.bookedAt,
+    holdExpiresAt: state.holdExpiresAt,
     checkoutSessionId: state.checkoutSessionId,
   };
   // Code entry answers on the order's own Pay page.
@@ -513,12 +543,25 @@ const getContinuation = (
         },
         path: orderPage,
       }),
+      code_cleared: ({ verdict }) => ({
+        fresh: {
+          ...verdict.priced,
+          ...order,
+          referralCode: state.referralCode,
+          changedKeys: getPriceVerdictChangedKeys(verdict),
+        },
+        path: orderPage,
+      }),
+      requested_code_cleared: () => ({
+        fresh: { ...state, requestedDiscountCode: undefined },
+        path: orderPage,
+      }),
     })
   );
 };
 
 const reissue = Effect.fn("payState.reissue")(
-  (state: SignedPayState, outcome: PayStateReissue) => {
+  (state: PayStateWithHoldExpiry, outcome: PayStateReissue) => {
     const { fresh, path } = getContinuation(state, outcome);
     return issueLink(fresh, {}, path);
   },
@@ -551,7 +594,8 @@ export const PayState = {
   issue,
   /**
    * Replaces an open Pay state after an outcome, carrying forward the fields
-   * that outcome keeps. Sealing failures are `PayStateIssueError`s.
+   * that outcome keeps and always the hold deadline. Sealing failures are
+   * `PayStateIssueError`s.
    */
   reissue,
   summary: getSignedPayStateCheckoutSummary,

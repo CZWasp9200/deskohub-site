@@ -23,8 +23,11 @@ export interface SummaryLineView {
   /** The price before discounts, on a discounted line. */
   readonly originalAmount: Option.Option<Money>;
   readonly discounts: ReadonlyArray<{
+    readonly id: string;
     readonly label: string;
     readonly amount: Money;
+    /** The entered code's line, which can remove the code. */
+    readonly enteredCode: boolean;
   }>;
   /** Office lines: the days and seats booked, with each part's price. */
   readonly office: Option.Option<{

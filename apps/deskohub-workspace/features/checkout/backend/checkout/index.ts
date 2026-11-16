@@ -39,6 +39,11 @@ export {
   requirePayStateAuthor,
 } from "./pay-state-author";
 export { getPayStateCheckoutView } from "./pay-state-checkout-view";
+export {
+  openPayStateWithHoldExpiry,
+  toPayStateHoldExpiresAt,
+  withPayStateHoldExpiry,
+} from "./pay-state-hold";
 export { acceptPayStatePriceChange } from "./pay-state-price-acceptance";
 export { PayableReservationService } from "./payable-reservation.service";
 export { getPaymentReturnDestination } from "./payment-return-destination";

@@ -246,6 +246,9 @@ export const pricedLines = (
   ];
 };
 
+/** The id of the one discount a sample summary lists. */
+export const sampleDiscountId = "sample-code";
+
 /**
  * The checkout summary for priced lines, taking `discountShare` (0 to 1) off
  * every product line and adding `surcharge` crowns to the first line, as a
@@ -273,7 +276,7 @@ export const sampleSummary = ({
             originalAmount: czk(original),
             discounts: [
               {
-                discount: { id: "sample-code", label: discountLabel },
+                discount: { id: sampleDiscountId, label: discountLabel },
                 amount: czk(off),
               },
             ],

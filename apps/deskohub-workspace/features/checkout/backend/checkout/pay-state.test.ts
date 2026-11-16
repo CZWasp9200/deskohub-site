@@ -21,14 +21,19 @@ import { instantStringSchema } from "@/shared/utils/temporal";
 import type {
   BuildSignedPayStateInput,
   PayStateReissue,
+  PayStateWithHoldExpiry,
   SignedPayState,
 } from "./pay-state";
+import { withoutPayStateHoldExpiry } from "./signed-pay-state.test-utils";
 
 const testEmailAddressForAda = testEmailAddress("ada");
 
 mock.module("server-only", () => ({}));
 
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
+const payStateHoldExpiresAt = instantStringSchema.make(
+  "2026-06-01T10:08:00.000Z"
+);
 
 const {
   buildSignedPayState,
@@ -81,7 +86,7 @@ const baseReservation = Schema.decodeUnknownSync(
   phone: "+420 777 777 777",
 });
 
-const buildState = (overrides: Partial<SignedPayState> = {}) => ({
+const buildState = (overrides: Partial<PayStateWithHoldExpiry> = {}) => ({
   ...run(
     buildSignedPayState({
       locale: "en-US",
@@ -89,6 +94,7 @@ const buildState = (overrides: Partial<SignedPayState> = {}) => ({
       quote: buildCoworkReservationQuote(baseReservation),
       orderId: "pay-state-test-order-id",
       bookedAt: payStateBookedAt,
+      holdExpiresAt: payStateHoldExpiresAt,
       checkoutSessionId: "pay-state-test-checkout-session-id",
       ttlMilliseconds: 10 * 60 * 1000,
     }),
@@ -119,6 +125,7 @@ const buildMeetingRoomState = () => {
       quote: Effect.runSync(buildReservationQuote(reservation)),
       orderId: "meeting-room-pay-state-test-order-id",
       bookedAt: payStateBookedAt,
+      holdExpiresAt: payStateHoldExpiresAt,
     }),
     { keys: fixedKey, at: fixedNow }
   );
@@ -172,6 +179,29 @@ describe("Pay URL state", () => {
     expect(state.checkoutSessionId).toBe("pay-state-test-checkout-session-id");
     expect(state.submittedCode).toBeUndefined();
     expect(token.split(".")).toHaveLength(4);
+  });
+
+  test("signs the reservation hold deadline it is built with", () => {
+    const state = buildState();
+
+    const opened = run(PayState.open(seal(state)), { at: fixedNow });
+
+    expect(state.holdExpiresAt).toBe(payStateHoldExpiresAt);
+    expect(opened.holdExpiresAt).toBe(payStateHoldExpiresAt);
+  });
+
+  test("opens a token signed before Pay states carried the hold deadline", () => {
+    const state = buildState();
+
+    const opened = run(
+      PayState.open(
+        run(sealPayState(withoutPayStateHoldExpiry(state)), { keys: fixedKey })
+      ),
+      { at: fixedNow }
+    );
+
+    expect(opened.holdExpiresAt).toBeUndefined();
+    expect(opened).toEqual(withoutPayStateHoldExpiry(state));
   });
 
   test("preserves discount and price-change metadata for meeting-room state", () => {
@@ -451,10 +481,34 @@ describe("Pay URL state", () => {
     });
 
     expect(continued.changedKeys).toBeUndefined();
+    expect(continued.holdExpiresAt).toBe(reviewState.holdExpiresAt);
     expect(continued.quote).toEqual(reviewState.quote);
     expect(continued.orderId).toBe(reviewState.orderId);
     expect(continued.submittedCode).toBeUndefined();
     expect(continued.submittedCodeDiscountId).toBeUndefined();
+  });
+
+  test("keeps the hold deadline while a later continuation gets a later expiry", () => {
+    const reviewState = buildState({
+      changedKeys: { sectionKeys: ["total"], itemKeys: [] },
+    });
+    const later = new Date(fixedNow.getTime() + 3 * 60 * 1000);
+
+    const { payUrl: path } = run(
+      PayState.reissue(reviewState, { kind: "reviewed" }),
+      { at: later }
+    );
+    const continued = run(
+      PayState.open(
+        new URL(path, "https://deskohub.test").searchParams.get(
+          payStateTokenQueryParam
+        ) ?? ""
+      ),
+      { at: later }
+    );
+
+    expect(continued.exp).toBeGreaterThan(reviewState.exp);
+    expect(continued.holdExpiresAt).toBe(payStateHoldExpiresAt);
   });
 });
 
@@ -497,7 +551,7 @@ const discountedQuote = {
 };
 
 /** A state carrying every optional field a continuation may keep. */
-const buildCarryingState = (overrides: Partial<SignedPayState> = {}) =>
+const buildCarryingState = (overrides: Partial<PayStateWithHoldExpiry> = {}) =>
   buildState({
     quote: discountedQuote,
     submittedCode: canonicalCode,
@@ -505,13 +559,14 @@ const buildCarryingState = (overrides: Partial<SignedPayState> = {}) =>
     requestedDiscountCode: canonicalCode,
     referralCode,
     ...overrides,
-  } as Partial<SignedPayState>);
+  } as Partial<PayStateWithHoldExpiry>);
 
 /** What a Pay state signs for its order, without its claims. */
 const signedOrderFields = [
   "locale",
   "orderId",
   "bookedAt",
+  "holdExpiresAt",
   "checkoutSessionId",
   "submittedCode",
   "submittedCodeDiscountId",
@@ -528,7 +583,7 @@ const signedOrder = (state: SignedPayState) =>
     )
   );
 
-const reissue = (state: SignedPayState, outcome: PayStateReissue) => {
+const reissue = (state: PayStateWithHoldExpiry, outcome: PayStateReissue) => {
   const issued = run(PayState.reissue(state, outcome));
   const url = new URL(issued.payUrl, "https://deskohub.test");
   return {
@@ -729,6 +784,99 @@ describe("PayState.reissue", () => {
     });
   });
 
+  test("re-prices without the removed code, asking to review the changed price", () => {
+    const state = buildCarryingState();
+    const { url, continued } = reissue(state, {
+      kind: "code_cleared",
+      verdict: {
+        status: "pricing_changed",
+        priced: { reservation: state.reservation, quote: baseQuote },
+        changedKeys: repricedKeys,
+      },
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      quote: baseQuote,
+      submittedCode: undefined,
+      submittedCodeDiscountId: undefined,
+      requestedDiscountCode: undefined,
+      changedKeys: repricedKeys,
+    });
+    expect(url.searchParams.get("orderId")).toBe(state.orderId);
+  });
+
+  test("removes a code worth nothing without asking for a review", () => {
+    const state = buildCarryingState({ changedKeys: reviewKeys });
+    const { continued } = reissue(state, {
+      kind: "code_cleared",
+      verdict: {
+        status: "affirmed",
+        priced: { reservation: state.reservation, quote: discountedQuote },
+      },
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      submittedCode: undefined,
+      submittedCodeDiscountId: undefined,
+      requestedDiscountCode: undefined,
+      changedKeys: undefined,
+    });
+  });
+
+  test("drops a requested code without repricing", () => {
+    const state = buildState({
+      referralCode,
+      requestedDiscountCode: enteredCode,
+    });
+    const { url, continued } = reissue(state, {
+      kind: "requested_code_cleared",
+    });
+
+    expect(continued).toEqual({
+      ...signedOrder(state),
+      requestedDiscountCode: undefined,
+    });
+    expect(url.searchParams.get("orderId")).toBe(state.orderId);
+  });
+
+  test("carries the hold deadline it is given into every outcome", () => {
+    const storedDeadline = instantStringSchema.make("2026-06-01T10:05:00.000Z");
+    const state = buildCarryingState({
+      holdExpiresAt: storedDeadline,
+      changedKeys: reviewKeys,
+    });
+    const priced = { reservation: state.reservation, quote: baseQuote };
+    const outcomes: ReadonlyArray<PayStateReissue> = [
+      { kind: "review_pending" },
+      { kind: "reviewed" },
+      {
+        kind: "repriced",
+        verdict: { status: "pricing_changed", priced, changedKeys: reviewKeys },
+      },
+      {
+        kind: "code_entered",
+        code: enteredCode,
+        verdict: { status: "pricing_changed", priced, changedKeys: reviewKeys },
+      },
+      { kind: "code_rejected", code: enteredCode, rejection: "unavailable" },
+      {
+        kind: "referral_applied",
+        referralCode,
+        verdict: { status: "affirmed", priced },
+      },
+      { kind: "code_cleared", verdict: { status: "affirmed", priced } },
+      { kind: "requested_code_cleared" },
+    ];
+
+    for (const outcome of outcomes) {
+      expect(reissue(state, outcome).continued.holdExpiresAt).toBe(
+        storedDeadline
+      );
+    }
+  });
+
   test("reports a sealing failure as a server failure, never a rejected caller token", () => {
     const state = buildState();
     const error = run(
@@ -754,6 +902,7 @@ describe("PayState.issue", () => {
     quote: baseQuote,
     orderId: "pay-state-test-order-id",
     bookedAt: payStateBookedAt,
+    holdExpiresAt: payStateHoldExpiresAt,
     checkoutSessionId: "pay-state-test-checkout-session-id",
   } satisfies BuildSignedPayStateInput;
 

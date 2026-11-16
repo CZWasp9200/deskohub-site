@@ -29,6 +29,12 @@ export const signedPayStateEnvelopeSchema = Schema.Struct({
   locale: Schema.Literals(locales),
   orderId: workspaceReservationIdSchema,
   bookedAt: instantStringSchema,
+  /**
+   * When the order's reservation hold ends: its stored deadline, copied into
+   * every reissue. Tokens issued before the claim existed lack it; their
+   * deadline is read from the reservation.
+   */
+  holdExpiresAt: Schema.optional(instantStringSchema),
   checkoutSessionId: Schema.optional(checkoutSessionIdSchema),
   acceptedTotal: nonNegativeMoneyCodec,
   submittedCode: Schema.optional(canonicalPromotionCodeSchema),
@@ -50,6 +56,8 @@ type BuildSignedPayStateBaseInput = {
   readonly orderId: typeof workspaceReservationIdSchema.Type;
   /** Moment the reservation was submitted; calendar sales are evaluated at it. */
   readonly bookedAt: Instant;
+  /** The reservation's stored hold deadline; reissuing never moves it. */
+  readonly holdExpiresAt: Instant;
   readonly checkoutSessionId?: typeof checkoutSessionIdSchema.Type;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
   readonly referralCode?: CanonicalPromotionCode;
