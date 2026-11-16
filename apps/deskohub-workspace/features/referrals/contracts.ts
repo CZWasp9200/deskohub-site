@@ -59,6 +59,8 @@ export type ReferralAccountOverview = {
    * exact percentage in the same form.
    */
   readonly invitationDiscount: string;
+  /** The currency savings are counted in while there are none yet. */
+  readonly savingsCurrency: string;
 };
 
 /** A verdict that the code can't refer this customer now. */

@@ -720,5 +720,6 @@
   "passkey_add_failed_title": "Chưa tạo được khóa truy cập",
   "passkey_add_failed_hint": "Hãy kiểm tra điện thoại này đã có khóa màn hình và trình quản lý mật khẩu.",
   "legal_marketing_turned_on": "Đã bật thông tin tiếp thị",
-  "legal_marketing_turned_off": "Đã tắt thông tin tiếp thị"
+  "legal_marketing_turned_off": "Đã tắt thông tin tiếp thị",
+  "assistants_help_open_failed": "Không mở được trang. Hãy thử lại."
 }

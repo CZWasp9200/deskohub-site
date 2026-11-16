@@ -201,6 +201,7 @@ const accountReferrals = {
   ),
   discountPerInvitee: "5",
   invitationDiscount: "15",
+  savingsCurrency: "CZK",
 };
 
 type StoredSignupIntent = {

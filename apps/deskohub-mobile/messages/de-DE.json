@@ -720,5 +720,6 @@
   "passkey_add_failed_title": "Der Passkey wurde nicht erstellt",
   "passkey_add_failed_hint": "Prüf, ob auf diesem Telefon eine Displaysperre und ein Passwortmanager eingerichtet sind.",
   "legal_marketing_turned_on": "Marketingnachrichten eingeschaltet",
-  "legal_marketing_turned_off": "Marketingnachrichten ausgeschaltet"
+  "legal_marketing_turned_off": "Marketingnachrichten ausgeschaltet",
+  "assistants_help_open_failed": "Die Seite ließ sich nicht öffnen. Versuch es erneut."
 }

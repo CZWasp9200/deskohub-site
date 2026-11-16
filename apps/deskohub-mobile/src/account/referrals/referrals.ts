@@ -71,8 +71,8 @@ export interface ReferralsView {
   /** The referrer discount exactly, such as "9.75%". */
   readonly discount: string;
   /**
-   * One formatted total per currency; empty when nothing was saved, which
-   * has no currency to show.
+   * One formatted total per currency; with nothing saved, a zero in the
+   * server's currency, or nothing from a Workspace that doesn't say it.
    */
   readonly savings: ReadonlyArray<string>;
   /** The invited friend's first-booking discount, when the server says. */
@@ -107,6 +107,7 @@ export const referralsView = (
     shareUrl,
     discountPerInvitee,
     invitationDiscount,
+    savingsCurrency,
   }: ReferralAccountOverview,
   locale: AppLocale
 ): ReferralsView => {
@@ -127,7 +128,15 @@ export const referralsView = (
             eligibleInvitees: counted,
           },
     discount: formatExactReferralDiscount(summary.discount, locale),
-    savings: summary.savings.map((money) => formatMoney(money, locale)),
+    savings:
+      summary.savings.length === 0 && savingsCurrency !== undefined
+        ? [
+            formatMoney(
+              { value: 0, exponent: 0, currency: savingsCurrency },
+              locale
+            ),
+          ]
+        : summary.savings.map((money) => formatMoney(money, locale)),
     invitationDiscount:
       invitationDiscount === undefined
         ? undefined
@@ -142,15 +151,6 @@ export const referralsView = (
 
 /** How long the copy button shows its check after a copy. */
 export const copiedFeedbackMs = 2000;
-
-/**
- * Whether the system confirms a copy on its own, so the app adds no toast:
- * Android 13 (API 33) and later shows a clipboard confirmation.
- */
-export const systemConfirmsCopy = (platform: {
-  readonly OS: string;
-  readonly Version: string | number;
-}): boolean => platform.OS === "android" && Number(platform.Version) >= 33;
 
 /**
  * How the Referrals screen words a failed read: referrals not released, or

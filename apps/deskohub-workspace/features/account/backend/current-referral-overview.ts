@@ -7,6 +7,7 @@ import { referralInvitationDiscountBasisPoints } from "@/features/referrals/prog
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { formatReferrerDiscountPercentage } from "@/features/referrals/referrer-discount";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
+import { defaultWorkspaceCurrencyCode } from "@/shared/money/currencies";
 import { requireAccountFeature } from "./account-feature-withheld";
 import { requireLinkedCustomerAccount } from "./linked-customer-account";
 
@@ -31,6 +32,7 @@ export const accountReferralOverview = (account: LinkedCustomerAccount) =>
             invitationDiscount: String(
               referralInvitationDiscountBasisPoints / 100
             ),
+            savingsCurrency: defaultWorkspaceCurrencyCode,
           })
         )
       )

@@ -93,7 +93,10 @@ export function LegalScreen() {
     openDocument(legalDocumentUrl("privacy", apiOrigin));
 
   return (
-    <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      refreshing={account.waiting && !AsyncResult.isInitial(account)}
+      onRefresh={refresh}
+    >
       <SectionHeader first title={m.legal_documents_heading({}, { locale })} />
       <ListGroup>
         {legalDocuments.map((document) => (

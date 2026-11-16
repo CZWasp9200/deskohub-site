@@ -423,6 +423,7 @@ describe("SignedInAccount for a linked account", () => {
       shareUrl: "https://workspace.example/account?ref=RFL12345",
       discountPerInvitee: "5",
       invitationDiscount: "15",
+      savingsCurrency: "CZK",
     });
     const renderLinked = (discount: string) =>
       withAccountLayout(
@@ -687,6 +688,7 @@ describe("SignedInAccount for a linked account", () => {
               shareUrl: "https://workspace.example/account?ref=RFL12345",
               discountPerInvitee: "5",
               invitationDiscount: "15",
+              savingsCurrency: "CZK",
             },
             signupReferral: { status: "applied" },
           })}

@@ -720,5 +720,6 @@
   "passkey_add_failed_title": "Ключ доступу не створено",
   "passkey_add_failed_hint": "Перевірте, чи на цьому телефоні є блокування екрана й менеджер паролів.",
   "legal_marketing_turned_on": "Маркетингові повідомлення увімкнено",
-  "legal_marketing_turned_off": "Маркетингові повідомлення вимкнено"
+  "legal_marketing_turned_off": "Маркетингові повідомлення вимкнено",
+  "assistants_help_open_failed": "Не вдалося відкрити сторінку. Спробуйте ще раз."
 }

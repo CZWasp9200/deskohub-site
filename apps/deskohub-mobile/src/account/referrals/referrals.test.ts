@@ -20,7 +20,6 @@ import {
   referralsFailure,
   referralsView,
   shareReferralLinkAtom,
-  systemConfirmsCopy,
 } from "./referrals";
 
 const run = <A, E>(
@@ -177,6 +176,19 @@ describe("referralsView", () => {
     expect(view.example?.total).toBe(view.discountPerInvitee as string);
   });
 
+  test("with nothing saved, a zero in the server's currency", () => {
+    const view = referralsView(
+      {
+        ...overview,
+        summary: { ...overview.summary, savings: [] },
+        savingsCurrency: "CZK",
+      },
+      "en-US"
+    );
+
+    expect(view.savings.map(plain)).toEqual(["CZK 0"]);
+  });
+
   test("someone joined but nobody counts yet", () => {
     const view = referralsView(
       {
@@ -204,19 +216,6 @@ describe("referralsView", () => {
     expect(view.discountPerInvitee).toBeUndefined();
     expect(view.invitationDiscount).toBeUndefined();
     expect(view.example).toBeUndefined();
-  });
-});
-
-describe("systemConfirmsCopy", () => {
-  const cases: ReadonlyArray<[string, string | number, boolean]> = [
-    ["android", 33, true],
-    ["android", 35, true],
-    ["android", 32, false],
-    ["ios", "18.2", false],
-    ["web", "", false],
-  ];
-  test.each(cases)("%s %s: %s", (OS, Version, expected) => {
-    expect(systemConfirmsCopy({ OS, Version })).toBe(expected);
   });
 });
 

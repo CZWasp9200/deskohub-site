@@ -671,6 +671,7 @@ const sampleReferrals: ReferralAccountOverview = {
   shareUrl: "https://workspace.deskohub.example/r/SAMPLE-ALEX",
   discountPerInvitee: "5",
   invitationDiscount: "15",
+  savingsCurrency: "CZK",
 };
 
 const sampleAccount = (

@@ -196,6 +196,11 @@ export const ReferralAccountOverview = Schema.Struct({
    * exact percentage like `summary.discount`. Optional for the same reason.
    */
   invitationDiscount: Schema.optional(Schema.String),
+  /**
+   * The currency savings are counted in while `summary.savings` is still
+   * empty, so a client can show a zero amount. Optional for the same reason.
+   */
+  savingsCurrency: Schema.optional(Schema.String),
 }).annotate({ identifier: "ReferralAccountOverview" });
 export type ReferralAccountOverview = typeof ReferralAccountOverview.Type;
 

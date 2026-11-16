@@ -720,5 +720,6 @@
   "passkey_add_failed_title": "The passkey wasn't created",
   "passkey_add_failed_hint": "Check that this phone has a screen lock and a password manager.",
   "legal_marketing_turned_on": "Marketing messages turned on",
-  "legal_marketing_turned_off": "Marketing messages turned off"
+  "legal_marketing_turned_off": "Marketing messages turned off",
+  "assistants_help_open_failed": "We couldn't open the page. Try again."
 }

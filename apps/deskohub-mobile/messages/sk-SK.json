@@ -720,5 +720,6 @@
   "passkey_add_failed_title": "Prístupový kľúč sa nepodarilo vytvoriť",
   "passkey_add_failed_hint": "Skontroluj, či má telefón zámok obrazovky a správcu hesiel.",
   "legal_marketing_turned_on": "Marketingové správy zapnuté",
-  "legal_marketing_turned_off": "Marketingové správy vypnuté"
+  "legal_marketing_turned_off": "Marketingové správy vypnuté",
+  "assistants_help_open_failed": "Stránku sa nepodarilo otvoriť. Skús to znova."
 }

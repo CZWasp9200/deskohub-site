@@ -720,5 +720,6 @@
   "passkey_add_failed_title": "पासकी नहीं बनी",
   "passkey_add_failed_hint": "जाँच लें कि इस फ़ोन में स्क्रीन लॉक और पासवर्ड मैनेजर है।",
   "legal_marketing_turned_on": "मार्केटिंग संदेश चालू किए गए",
-  "legal_marketing_turned_off": "मार्केटिंग संदेश बंद किए गए"
+  "legal_marketing_turned_off": "मार्केटिंग संदेश बंद किए गए",
+  "assistants_help_open_failed": "पेज नहीं खुल सका। फिर से कोशिश करें।"
 }

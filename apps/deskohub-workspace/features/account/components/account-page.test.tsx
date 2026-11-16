@@ -1266,6 +1266,7 @@ describe("AccountPage states", () => {
           shareUrl: "https://workspace.example/account?ref=RFL12345",
           discountPerInvitee: "5",
           invitationDiscount: "15",
+          savingsCurrency: "CZK",
         },
       })
     );

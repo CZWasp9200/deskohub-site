@@ -224,7 +224,10 @@ export function SecurityScreen() {
   );
 
   return (
-    <ScrollScreen refreshing={passkeys.waiting} onRefresh={refreshPasskeys}>
+    <ScrollScreen
+      refreshing={passkeys.waiting && !AsyncResult.isInitial(passkeys)}
+      onRefresh={refreshPasskeys}
+    >
       <SectionHeader first title={m.security_methods_title({}, { locale })} />
       <AsyncView result={account} onRetry={refreshAccount}>
         {(current) => (

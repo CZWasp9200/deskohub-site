@@ -1,5 +1,5 @@
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import Bot from "lucide-react-native/icons/bot";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import { useState } from "react";
@@ -34,12 +34,6 @@ const listErrorMessage = (locale: AppLocale) => (error: CustomerViewError) =>
     ? m.assistants_unavailable({}, { locale })
     : undefined;
 
-// The site's help page with the steps for each assistant.
-const openConnectingHelp = () =>
-  void openSitePage(sitePageUrl("/ai-assistants", apiOrigin)).catch(
-    () => undefined
-  );
-
 /**
  * Connected assistants: the AI assistants the customer let use their
  * account, what each may do, and a way to disconnect one. It needs only the
@@ -53,6 +47,15 @@ export function AssistantsScreen() {
   const disconnected = useAtomValue(disconnectedAssistantsAtom);
   const [result, disconnect] = useAtom(disconnectAssistantAtom);
   const [target, setTarget] = useState<DisconnectTarget>();
+  const [helpFailed, setHelpFailed] = useState(false);
+
+  // The site's help page with the steps for each assistant.
+  const openConnectingHelp = () => {
+    setHelpFailed(false);
+    openSitePage(sitePageUrl("/ai-assistants", apiOrigin)).catch(() =>
+      setHelpFailed(true)
+    );
+  };
 
   const view = disconnectView({ target, result });
   const targetName = target?.name ?? m.assistants_unnamed({}, { locale });
@@ -64,7 +67,10 @@ export function AssistantsScreen() {
   };
 
   return (
-    <ScrollScreen refreshing={connections.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      refreshing={connections.waiting && !AsyncResult.isInitial(connections)}
+      onRefresh={refresh}
+    >
       {/* Kept mounted so assistive tech announces each change. */}
       <LiveMessage
         role="status"
@@ -72,6 +78,12 @@ export function AssistantsScreen() {
           view.outcome === "disconnected"
             ? m.assistants_disconnected({}, { locale })
             : undefined
+        }
+      />
+      <LiveMessage
+        role="alert"
+        message={
+          helpFailed ? m.assistants_help_open_failed({}, { locale }) : undefined
         }
       />
       <Notice

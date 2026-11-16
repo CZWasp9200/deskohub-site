@@ -1,5 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Exit } from "effect";
+import { AsyncResult } from "effect/unstable/reactivity";
 import Check from "lucide-react-native/icons/check";
 import Copy from "lucide-react-native/icons/copy";
 import Info from "lucide-react-native/icons/info";
@@ -11,6 +12,7 @@ import type { CustomerViewError } from "../../customer-api/customer-view-error";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { systemConfirmsCopy } from "../../platform/clipboard-confirmation";
 import { Card } from "../../ui/card";
 import { Button, LiveMessage } from "../../ui/controls";
 import { Icon } from "../../ui/icon";
@@ -30,7 +32,6 @@ import {
   referralsFailure,
   referralsView,
   shareReferralLinkAtom,
-  systemConfirmsCopy,
 } from "./referrals";
 
 const failureMessage = (error: CustomerViewError, locale: AppLocale) => {
@@ -54,7 +55,10 @@ export function ReferralsScreen() {
   const refresh = useAtomRefresh(referralsAtom);
 
   return (
-    <ScrollScreen refreshing={referrals.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      refreshing={referrals.waiting && !AsyncResult.isInitial(referrals)}
+      onRefresh={refresh}
+    >
       <AsyncView
         result={referrals}
         onRetry={refresh}
