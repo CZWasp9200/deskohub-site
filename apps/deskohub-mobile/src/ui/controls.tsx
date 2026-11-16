@@ -26,6 +26,7 @@ import {
 import { Icon, type IconComponent } from "./icon";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { LoadingIndicator } from "./loading-indicator";
+import { idleLiveRegionLayout } from "./notice-presentation";
 import { Text, TextInput } from "./text";
 import { textFieldSubmit } from "./text-field-submit";
 import { color, radius, shadow, space, touchTarget, typeScale } from "./tokens";
@@ -443,7 +444,7 @@ export function TextField({
 
 /**
  * Live regions stay mounted so assistive tech announces each change; only
- * their text changes. `status` is polite progress, `alert` an error. iOS,
+ * their text changes, and while idle they take no room. `status` is polite progress, `alert` an error. iOS,
  * which ignores `aria-live`, has each change announced directly.
  */
 export function LiveMessage({
@@ -462,6 +463,8 @@ export function LiveMessage({
       accessibilityLiveRegion={role === "alert" ? "assertive" : "polite"}
       variant="body"
       tone={role === "alert" ? "danger" : "muted"}
+      // Idle, it takes no room, so it leaves no gap in a dialog's actions.
+      style={message ? undefined : idleLiveRegionLayout}
     >
       {message ?? ""}
     </Text>
