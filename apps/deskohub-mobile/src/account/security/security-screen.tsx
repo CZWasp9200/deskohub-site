@@ -84,7 +84,6 @@ const announcementMessage = (
         renamed: m.security_renamed,
         deleted: m.security_deleted,
         gone: m.security_passkey_gone,
-        adding: m.passkey_add_pending,
       }[announcement]({}, { locale });
 
 const dialogFailureMessage = ({
