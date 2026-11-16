@@ -1670,6 +1670,112 @@
         }
       }
     },
+    "/api/customer/reservations/{orderId}/payment-page": {
+      "post": {
+        "tags": ["reservations"],
+        "operationId": "reservations.reopenPaymentPage",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerReservationOrderId"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerPaymentPage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerPaymentPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CustomerReservationNotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerReservationNotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CustomerPaymentPageClosed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerPaymentPageClosed"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReopenCustomerPaymentPage"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/customer/reservations/{orderId}/access": {
       "get": {
         "tags": ["reservations"],
@@ -5660,6 +5766,59 @@
         "required": ["_tag"],
         "additionalProperties": false
       },
+      "CustomerCheckoutReturnTarget": {
+        "type": "string",
+        "enum": ["native-app", "web-app"]
+      },
+      "ReopenCustomerPaymentPage": {
+        "type": "object",
+        "properties": {
+          "returnTarget": {
+            "$ref": "#/components/schemas/CustomerCheckoutReturnTarget"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CustomerPaymentPage": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "allOf": [
+              {
+                "minLength": 1,
+                "description": "The payment provider's page to open in a browser."
+              }
+            ]
+          }
+        },
+        "required": ["url"],
+        "additionalProperties": false
+      },
+      "CustomerPaymentPageClosedReason": {
+        "type": "string",
+        "enum": [
+          "paid",
+          "late_payment",
+          "released",
+          "no_active_attempt",
+          "window_elapsed"
+        ]
+      },
+      "CustomerPaymentPageClosed": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["CustomerPaymentPageClosed"]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/CustomerPaymentPageClosedReason"
+          }
+        },
+        "required": ["_tag", "reason"],
+        "additionalProperties": false
+      },
       "CustomerAccessCodeUnavailable": {
         "type": "object",
         "properties": {
@@ -6836,10 +6995,6 @@
         },
         "required": ["locale", "payStateToken"],
         "additionalProperties": false
-      },
-      "CustomerCheckoutReturnTarget": {
-        "type": "string",
-        "enum": ["native-app", "web-app"]
       },
       "SubmitCustomerCheckout": {
         "type": "object",

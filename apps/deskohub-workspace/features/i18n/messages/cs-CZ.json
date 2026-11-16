@@ -887,6 +887,8 @@
   "checkoutStatusBookAgain": "Rezervovat znovu",
   "checkoutStatusTryAgain": "Zkusit znovu",
   "checkoutStatusBackHome": "Zpět domů",
+  "checkoutStatusOpenPaymentPage": "Otevřít platební stránku",
+  "checkoutStatusOpenPaymentPageError": "Platební stránku se nepodařilo otevřít. Zkus to prosím znovu.",
   "reservationEmailTierLabel": "Vstup",
   "reservationEmailReservationLabel": "Rezervace",
   "reservationEmailDateLabel": "Datum rezervace",

@@ -8,6 +8,8 @@ import {
   type CustomerEstablishment,
   CustomerInvoiceNotIssued,
   type CustomerOrderState,
+  type CustomerPaymentPage,
+  CustomerPaymentPageClosed,
   type CustomerReservationAccess,
   type CustomerReservationHistory,
   CustomerReservationNotFound,
@@ -26,6 +28,10 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { loadAuthorizedCheckoutStatus } from "@/features/checkout/backend/checkout/authorized-checkout-status";
+import {
+  CheckoutPaymentPageService,
+  type PaymentPageReopening,
+} from "@/features/checkout/backend/checkout/checkout-payment-page.service";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout/checkout-status.service";
 import { defaultLocale } from "@/features/i18n";
 import type { RebookingSelection } from "@/features/reservation/backend/booking-selection";
@@ -114,6 +120,21 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
             runToCompletion,
             answerSessionApiFailure("customerApi.getReservationStatus"),
             Effect.flatMap(answerOrderState)
+          )
+        )
+        .handle("reopenPaymentPage", ({ params: { orderId }, payload }) =>
+          Effect.flatMap(CheckoutPaymentPageService, (paymentPages) =>
+            paymentPages.reopen({
+              orderId,
+              locale: defaultLocale,
+              ...(payload.returnTarget !== undefined && {
+                returnTarget: payload.returnTarget,
+              }),
+            })
+          ).pipe(
+            Effect.provide(reservations.paymentPage(authorization)),
+            answerSessionApiFailure("customerApi.reopenPaymentPage"),
+            Effect.flatMap(answerPaymentPage)
           )
         )
         // Showing a code can issue it at the lock provider and store it, so
@@ -307,6 +328,18 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
           }),
         })
     )
+  );
+
+/** The payment page to open again, or why the order has none. */
+const answerPaymentPage = (reopening: PaymentPageReopening) =>
+  Match.value(reopening).pipe(
+    Match.discriminatorsExhaustive("state")({
+      opened: ({ providerRedirectUrl }) =>
+        Effect.succeed<CustomerPaymentPage>({ url: providerRedirectUrl }),
+      not_found: () => Effect.fail(new CustomerReservationNotFound()),
+      closed: ({ reason }) =>
+        Effect.fail(new CustomerPaymentPageClosed({ reason })),
+    })
   );
 
 /**
