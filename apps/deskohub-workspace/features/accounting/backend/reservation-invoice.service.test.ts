@@ -220,6 +220,53 @@ describe("reservation invoice processing", () => {
     expect(harness.deliver).not.toHaveBeenCalled();
   });
 
+  test("does nothing more when a concurrent issuance committed the frozen buyer first", async () => {
+    const source = makeSource({
+      purpose: "personal",
+      invoice: "requested",
+      address: personalAddress,
+    });
+    const harness = makeHarness(source, {
+      issuedInvoice: {
+        document: {
+          ...makeCoworkInvoiceDocument("en-US"),
+          buyer: {
+            kind: "person",
+            legalName: "Ada Lovelace",
+            address: personalAddress,
+          },
+        },
+      },
+      issueChanged: false,
+    });
+
+    await runProcessing(harness);
+
+    expect(harness.updateBilling).toHaveBeenCalledTimes(1);
+    expect(harness.issue).toHaveBeenCalledTimes(1);
+    expect(harness.deliver).toHaveBeenCalledTimes(1);
+  });
+
+  test("fails when the invoice delivery after fulfillment fails", async () => {
+    const deliveryFailure = new InvoiceEmailDeliveryError({
+      code: "email_delivery_failed",
+      paymentAttemptId,
+      message: "Customer invoice email delivery failed.",
+      customerDelivered: false,
+    });
+    const harness = makeHarness(
+      makeSource({
+        purpose: "personal",
+        invoice: "requested",
+        address: personalAddress,
+      }),
+      { deliveryFailure }
+    );
+
+    await expect(runProcessing(harness)).rejects.toBe(deliveryFailure);
+    expect(harness.issue).toHaveBeenCalledTimes(1);
+  });
+
   test("rejects an invalid capability before loading the reservation", async () => {
     const source = makeSource({ purpose: "personal", invoice: "none" });
     const harness = makeHarness(source);
@@ -333,6 +380,51 @@ describe("reservation invoice processing", () => {
     ).rejects.toMatchObject({ _tag: "PostOrderInvoiceUnavailableError" });
     expect(harness.updateBilling).toHaveBeenCalledTimes(1);
     expect(harness.deliver).not.toHaveBeenCalled();
+  });
+
+  test("does not deliver when Dotypos refuses the committed buyer of a lost race", async () => {
+    const source = makeSource({ purpose: "personal", invoice: "none" });
+    const reconcileBillingFailure = new DotyposVersionConflict({
+      operation: "patchCustomer",
+    });
+    const harness = makeHarness(source, {
+      issuedInvoice: {
+        document: {
+          ...makeCoworkInvoiceDocument("en-US"),
+          buyer: {
+            kind: "person",
+            legalName: "Ada Lovelace",
+            address: { ...personalAddress, line1: "Winner 1" },
+          },
+        },
+      },
+      issueChanged: false,
+      reconcileBillingFailure,
+    });
+
+    await expect(
+      runPostOrderCreate(harness, await makeAccessToken(source))
+    ).rejects.toBe(reconcileBillingFailure);
+    expect(harness.updateBilling).toHaveBeenCalledTimes(2);
+    expect(harness.deliver).not.toHaveBeenCalled();
+  });
+
+  test("offers customer resend when the delivery failure does not say whether the customer copy went out", async () => {
+    const source = makeSource({ purpose: "personal", invoice: "none" });
+    const harness = makeHarness(source, {
+      deliveryFailure: new InvoiceEmailDeliveryError({
+        code: "invoice_load_failed",
+        paymentAttemptId,
+        message: "Invoice could not be loaded for delivery.",
+      }),
+    });
+
+    const result = await runPostOrderCreate(
+      harness,
+      await makeAccessToken(source)
+    );
+
+    expect(result).toEqual({ status: "created", delivered: false });
   });
 
   test("offers customer resend when the customer copy failed", async () => {
@@ -656,6 +748,7 @@ const makeHarness = (
   source: AccountingDocumentSnapshot | null,
   options: {
     readonly billingFailure?: DotyposVersionConflict;
+    readonly reconcileBillingFailure?: DotyposVersionConflict;
     readonly existingInvoice?: object;
     readonly issuedInvoice?: object;
     readonly issueChanged?: boolean;
@@ -675,9 +768,15 @@ const makeHarness = (
       ? Effect.fail(options.deliveryFailure)
       : Effect.succeed({ status: "delivered" as const, changed: true })
   );
-  const updateBilling = mock(() =>
-    options.billingFailure ? Effect.fail(options.billingFailure) : Effect.void
-  );
+  let billingUpdates = 0;
+  const updateBilling = mock(() => {
+    billingUpdates += 1;
+    const failure =
+      billingUpdates === 1
+        ? options.billingFailure
+        : (options.reconcileBillingFailure ?? options.billingFailure);
+    return failure ? Effect.fail(failure) : Effect.void;
+  });
   const findReservation = mock(() =>
     Effect.succeed(
       source && options.reservation !== null

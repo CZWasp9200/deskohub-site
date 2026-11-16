@@ -26,6 +26,7 @@ import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { AccountingStorage } from "./accounting-storage";
 import {
+  type IInvoiceRepository,
   InvoiceRepository,
   type InvoiceRepositoryError,
 } from "./invoice.repository";
@@ -55,6 +56,31 @@ interface PostOrderInvoiceAccess {
   readonly locale: Locale;
   readonly accessToken?: ReservationAccessToken;
 }
+
+type InvoiceIssueRequest = Parameters<IInvoiceRepository["issue"]>[0];
+
+/** Where an issuance's buyer comes from, which decides what Dotypos holds. */
+type InvoiceBuyerOrigin<E> =
+  | {
+      /**
+       * The payment attempt's snapshot froze the buyer, so every issuance of
+       * the attempt derives the same one and a lost race committed it too.
+       */
+      readonly kind: "frozen";
+      /** The invoice exists, and Dotypos took this buyer before it was issued. */
+      readonly issued: boolean;
+    }
+  | {
+      /**
+       * The customer submitted the buyer after payment. A concurrent
+       * submission can commit another buyer, which Dotypos must then hold
+       * once `acceptCommitted` accepts it.
+       */
+      readonly kind: "submitted";
+      readonly acceptCommitted: (
+        committed: InvoiceBuyer
+      ) => Effect.Effect<void, E>;
+    };
 
 export interface IReservationInvoiceService {
   /**
@@ -97,25 +123,6 @@ export class ReservationInvoiceService extends Context.Service<
       const invoices = yield* InvoiceRepository;
       const reservations = yield* WorkspaceReservationRepository;
 
-      /**
-       * A concurrent request may have issued the invoice first: Dotypos must
-       * hold the buyer the issued invoice committed, not this request's.
-       */
-      const syncCommittedInvoiceBuyer = Effect.fnUntraced(function* (input: {
-        readonly dotyposCustomerId: DotyposCustomerId;
-        readonly buyer: InvoiceBuyer;
-      }) {
-        if (input.buyer.kind !== "person") {
-          return yield* new PostOrderInvoiceUnavailableError({
-            message: "The issued invoice buyer does not match the reservation.",
-          });
-        }
-        yield* dotypos.updateCustomerBillingDetails(
-          input.dotyposCustomerId,
-          toDotyposCustomerBillingDetails(input.buyer)
-        );
-      });
-
       const getPostOrderContext = Effect.fn(
         "ReservationInvoiceService.getPostOrderContext"
       )(function* (input: PostOrderInvoiceAccess) {
@@ -152,32 +159,41 @@ export class ReservationInvoiceService extends Context.Service<
         return { state: "create" as const, paymentAttemptId, source };
       });
 
-      const issueForPaymentAttempt = Effect.fnUntraced(function* (
-        paymentAttemptId: PaymentAttemptId
-      ) {
-        const source = yield* accountingSnapshots.find(paymentAttemptId);
-        if (!source?.billing) return;
+      /**
+       * Issues the payment attempt's invoice and delivers it. Dotypos takes
+       * the buyer before the invoice commits it, so a failed PATCH stops
+       * issuance and Dotypos never lags an issued invoice. The delivery's
+       * outcome is returned for the caller to judge.
+       */
+      const issueAndDeliver = <E = never>(input: {
+        readonly request: InvoiceIssueRequest;
+        readonly dotyposCustomerId: DotyposCustomerId;
+        readonly origin: InvoiceBuyerOrigin<E>;
+      }) =>
+        Effect.gen(function* () {
+          const { request, origin } = input;
+          const updateBilling = (buyer: InvoiceBuyer) =>
+            dotypos.updateCustomerBillingDetails(
+              input.dotyposCustomerId,
+              toDotyposCustomerBillingDetails(buyer)
+            );
 
-        const buyer = getReservationInvoiceBuyer({
-          billing: source.billing,
-          customerName: source.buyer.legalName,
+          if (origin.kind === "submitted" || !origin.issued) {
+            yield* updateBilling(request.buyer);
+          }
+          const issuance = yield* invoices.issue(request);
+          if (origin.kind === "submitted" && !issuance.changed) {
+            const committed = issuance.invoice.document.buyer;
+            yield* origin.acceptCommitted(committed);
+            yield* updateBilling(committed);
+          }
+          const delivery = yield* invoiceDeliveries
+            .deliverByPaymentAttemptId({
+              paymentAttemptId: request.paymentAttemptId,
+            })
+            .pipe(Effect.result);
+          return { issuance, delivery };
         });
-        if (!buyer) return;
-
-        const existing =
-          yield* invoices.findByPaymentAttemptId(paymentAttemptId);
-        if (!existing) {
-          yield* dotypos.updateCustomerBillingDetails(
-            source.dotyposCustomerId,
-            toDotyposCustomerBillingDetails(buyer)
-          );
-        }
-
-        yield* invoices.issue({ paymentAttemptId, buyer });
-        yield* invoiceDeliveries.deliverByPaymentAttemptId({
-          paymentAttemptId,
-        });
-      });
 
       return ReservationInvoiceService.of({
         issueAfterFulfillment: Effect.fn(
@@ -192,7 +208,23 @@ export class ReservationInvoiceService extends Context.Service<
             );
             return;
           }
-          yield* issueForPaymentAttempt(paymentAttemptId);
+
+          const source = yield* accountingSnapshots.find(paymentAttemptId);
+          if (!source?.billing) return;
+          const buyer = getReservationInvoiceBuyer({
+            billing: source.billing,
+            customerName: source.buyer.legalName,
+          });
+          if (!buyer) return;
+
+          const issued =
+            yield* invoices.findByPaymentAttemptId(paymentAttemptId);
+          const { delivery } = yield* issueAndDeliver({
+            request: { paymentAttemptId, buyer },
+            dotyposCustomerId: source.dotyposCustomerId,
+            origin: { kind: "frozen", issued: issued !== null },
+          });
+          yield* Effect.fromResult(delivery);
         }),
         getPostOrderState: Effect.fn(
           "ReservationInvoiceService.getPostOrderState"
@@ -212,39 +244,24 @@ export class ReservationInvoiceService extends Context.Service<
             });
           }
 
-          const buyer: InvoiceBuyer = {
-            kind: "person",
-            legalName: context.source.buyer.legalName,
-            address: input.address,
-          };
-          yield* dotypos.updateCustomerBillingDetails(
-            context.source.dotyposCustomerId,
-            toDotyposCustomerBillingDetails(buyer)
-          );
-          const issuance = yield* invoices.issue({
-            paymentAttemptId: context.paymentAttemptId,
-            buyer,
-            provenance: { source: "post-order-link" },
-          });
-          if (!issuance.changed) {
-            yield* syncCommittedInvoiceBuyer({
-              dotyposCustomerId: context.source.dotyposCustomerId,
-              buyer: issuance.invoice.document.buyer,
-            });
-          }
-          const delivered = yield* invoiceDeliveries
-            .deliverByPaymentAttemptId({
+          const { issuance, delivery } = yield* issueAndDeliver({
+            request: {
               paymentAttemptId: context.paymentAttemptId,
-            })
-            .pipe(
-              Effect.as(true),
-              Effect.catchTag("InvoiceEmailDeliveryError", (error) =>
-                Effect.succeed(error.customerDelivered === true)
-              )
-            );
+              buyer: {
+                kind: "person",
+                legalName: context.source.buyer.legalName,
+                address: input.address,
+              },
+              provenance: { source: "post-order-link" },
+            },
+            dotyposCustomerId: context.source.dotyposCustomerId,
+            origin: { kind: "submitted", acceptCommitted: requirePerson },
+          });
           return {
             status: issuance.changed ? "created" : "already-issued",
-            delivered,
+            delivered:
+              Result.isSuccess(delivery) ||
+              delivery.failure.customerDelivered === true,
           } as const;
         }),
         resendPostOrderInvoice: Effect.fn(
@@ -303,6 +320,21 @@ const isDeliverableReservationSnapshot = (
   Boolean(source.delivery) &&
   source.workspaceReservationId === reservation.id &&
   source.dotyposCustomerId === reservation.dotyposCustomerId;
+
+/**
+ * A post-order request only submits a person, so the request it lost to
+ * committed a person too; any other buyer is not this reservation's.
+ */
+const requirePerson = (
+  buyer: InvoiceBuyer
+): Effect.Effect<void, PostOrderInvoiceUnavailableError> =>
+  buyer.kind === "person"
+    ? Effect.void
+    : Effect.fail(
+        new PostOrderInvoiceUnavailableError({
+          message: "The issued invoice buyer does not match the reservation.",
+        })
+      );
 
 /** A personal reservation that asked for no invoice when it was paid. */
 const isUnrequestedPersonalInvoice = (
