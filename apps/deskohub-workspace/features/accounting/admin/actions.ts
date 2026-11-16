@@ -1,7 +1,6 @@
 "use server";
 
 import {
-  AdministrationCustomerSearchQuery,
   AdministrationInvoiceCancellationInput,
   AdministrationInvoiceCreateInput,
   AdministrationInvoiceId,
@@ -9,6 +8,7 @@ import {
 import { Effect, Layer, Match, Schema } from "effect";
 import { AdministrationService } from "@/features/administration/administration.service";
 import { administrationHref } from "@/features/administration/administration-href";
+import { customerSearchQuerySchema } from "@/features/administration/customer-search-query";
 import { m } from "@/features/administration/i18n";
 import { getReservationCancellationErrorMessage } from "@/features/administration/reservation-error-messages";
 import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
@@ -106,9 +106,7 @@ const searchCustomersAction = defineAdministrationAction(
   {
     operation: "invoice-administration.search-customers",
     failureCopy,
-    schema: Schema.toStandardSchemaV1(AdministrationCustomerSearchQuery, {
-      parseOptions: strict,
-    }),
+    schema: customerSearchQuerySchema,
     logInput: false,
     fallback: m.accountingInvoiceCustomerSearchUnavailable,
     capabilities: InvoiceAdministrationService.Live,

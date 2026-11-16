@@ -75,7 +75,7 @@ Write responses are unprobed, so they keep their id fallbacks:
 
 ## Customer records
 
-- Compute lifecycle with `customerLifecycle(customer, now)` (`"active" | "expired" | "deleted"`) when you read the record; expiry depends on time, so never store it on a record. Each caller decides which lifecycles to show: Administration hides only deleted customers.
+- Compute lifecycle with `customerLifecycle(customer, now)` (`"active" | "expired" | "deleted"`) when you read the record; expiry depends on time, so never store it on a record. Each caller decides which lifecycles to show. Administration's customer search and single-customer lookups hide deleted customers and keep expired ones; its id reads behind lists, exports, the Overview, reservation authors and promotion audiences show deleted customers too. `AdministrationCustomerDirectory` keeps the split: `search` and `find` hide them, `findMany` doesn't.
 
 - Dotypos filters customer `email` only with `email|like|value`, a case-insensitive substring match (`ILIKE '%value%'`). Treat results as candidates and identify a customer only by a whole-address, case-insensitive comparison. Customers whose emails differ only by case are ambiguous; never merge them silently.
 - Customer `versionDate` and `created` carry microseconds, and filters compare at that precision. Decode them with `DotyposTimestampFromString` and filter with `formatDotyposTimestamp`; `Date`, `DateTime`, and epoch-millisecond filter values drop the microseconds. Dotypos can't sort customers by `id`.

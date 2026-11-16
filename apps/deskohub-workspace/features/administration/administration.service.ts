@@ -7,7 +7,6 @@ import {
   DotyposService,
   type DotyposTable,
   type DotyposTableId,
-  getCustomerDisplayName,
 } from "@deskohub/dotypos";
 import type { NexiOrderId } from "@deskohub/nexi";
 import type {
@@ -33,7 +32,7 @@ import {
   sum,
 } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Data, Effect, Layer, Option, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { unstable_rethrow } from "next/navigation";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
@@ -86,6 +85,11 @@ import {
   instantStringSchema,
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
+import { AdministrationCustomerDirectory } from "./customer-directory.service";
+import {
+  type AdministrationCustomer,
+  describeAdministrationCustomer,
+} from "./customer-identity";
 import {
   type AdministrationCustomerName,
   unnamedCustomerDisplayName,
@@ -113,6 +117,13 @@ import {
   mergeReservationHistory,
   PostHogReservationHistory,
 } from "./posthog-reservation-history";
+import {
+  type AdministrationListSourceUnavailableError,
+  degradeProviderRead,
+  failProviderRead,
+  type ProviderReadPolicy,
+  recoverProviderRead,
+} from "./provider-read-policy";
 import {
   type EarlySetupDetailsById,
   getAdministrationReservationHeldRangeBounds,
@@ -199,23 +210,6 @@ export type AdministrationReservationExportInput = Omit<
   "page"
 >;
 
-/** The Dotypos data a list export can't do without. */
-type AdministrationListSource =
-  | "booking-dates"
-  | "booking-details"
-  | "customer-details";
-
-/**
- * A list export couldn't read Dotypos details its rows need. Pages show such
- * details as unavailable instead; an export fails rather than leave them out.
- */
-export class AdministrationListSourceUnavailableError extends Data.TaggedError(
-  "AdministrationListSourceUnavailableError"
-)<{
-  readonly source: AdministrationListSource;
-  readonly cause: unknown;
-}> {}
-
 /**
  * The customer list's criteria. `from` and `to` are inclusive Workspace
  * calendar dates: a customer belongs to the list only with a successful
@@ -247,16 +241,6 @@ export type AdministrationBookingListInput = {
 };
 
 type AdministrationBookingSort = "booking" | "status";
-
-type AdministrationCustomer = {
-  readonly id: DotyposCustomerId;
-  /** Never empty: the API and `dhw` show "Unnamed customer" when `hasName` is false. */
-  readonly displayName: string;
-  /** Whether Dotypos holds a personal or company name, so the Admin UI can name an unnamed customer in the operator's language. */
-  readonly hasName: boolean;
-  readonly email: string | null;
-  readonly phone: string | null;
-};
 
 export type AdministrationReservationSummary = {
   readonly id: WorkspaceReservationId;
@@ -621,16 +605,8 @@ const toIsoString = (instant: Temporal.Instant) => instant.toString();
 
 const decodeInstantString = Schema.decodeUnknownOption(instantStringSchema);
 
-const toCustomer = (customer: DotyposCustomer): AdministrationCustomer => {
-  const name = getCustomerDisplayName(customer);
-  return {
-    id: customer.id,
-    displayName: name || unnamedCustomerDisplayName,
-    hasName: Boolean(name),
-    email: customer.email?.trim() || null,
-    phone: customer.phone?.trim() || null,
-  };
-};
+const toCustomer = (customer: DotyposCustomer): AdministrationCustomer =>
+  describeAdministrationCustomer(customer, "person-company");
 
 type SafePaymentAttemptRow = {
   readonly id: PaymentAttemptId;
@@ -1252,54 +1228,6 @@ const latePaymentCondition = (
     eq(webhookEvents.errorCode, "nexi_webhook_late_payment")
   );
 
-type ProviderReadFailure = {
-  /** What a failed read logs beside the cause, such as its date range. */
-  readonly annotations?: Readonly<Record<string, string | undefined>>;
-  readonly cause: unknown;
-  /** The warning a degrading read logs. */
-  readonly message: string;
-  readonly source: AdministrationListSource;
-};
-
-/**
- * How a list read treats a failed Dotypos read. A page degrades: it logs and
- * shows the details as unavailable. An export fails fast with
- * `AdministrationListSourceUnavailableError`. A read that succeeds without some
- * record isn't a failure under either.
- */
-type ProviderFailurePolicy<E> = {
-  readonly recover: <A>(
-    failure: ProviderReadFailure,
-    fallback: A
-  ) => Effect.Effect<A, E>;
-};
-
-const degradeOnProviderFailure: ProviderFailurePolicy<never> = {
-  recover: ({ annotations, cause, message }, fallback) =>
-    Effect.logWarning(message, { cause, ...annotations }).pipe(
-      Effect.as(fallback)
-    ),
-};
-
-const failOnProviderFailure: ProviderFailurePolicy<AdministrationListSourceUnavailableError> =
-  {
-    recover: ({ cause, source }) =>
-      Effect.fail(
-        new AdministrationListSourceUnavailableError({ cause, source })
-      ),
-  };
-
-const recoverProviderRead =
-  <A, E>(
-    policy: ProviderFailurePolicy<E>,
-    failure: Omit<ProviderReadFailure, "cause">,
-    fallback: A
-  ) =>
-  (cause: unknown) => {
-    unstable_rethrow(cause);
-    return policy.recover({ ...failure, cause }, fallback);
-  };
-
 export class AdministrationService extends Context.Service<
   AdministrationService,
   {
@@ -1443,6 +1371,7 @@ export class AdministrationService extends Context.Service<
       const reservationHistory = yield* PostHogReservationHistory;
       const paymentAdministration = yield* PaymentAdministrationService;
       const reservationAuthors = yield* ReservationAuthorDirectory;
+      const customerDirectory = yield* AdministrationCustomerDirectory;
 
       const loadLiveReservation = Effect.fn(
         "AdministrationService.loadLiveReservation"
@@ -1486,78 +1415,6 @@ export class AdministrationService extends Context.Service<
         );
       });
 
-      const loadCustomers = Effect.fn("AdministrationService.loadCustomers")(
-        function* <E = never>(
-          ids: readonly DotyposCustomerId[],
-          policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
-        ) {
-          yield* Effect.annotateCurrentSpan({
-            uniqueCustomerCount: new Set(ids).size,
-          });
-          const customersById = new Map(
-            yield* dotypos
-              .getCustomersByIds(ids, {
-                concurrency: 3,
-                ...(policy === degradeOnProviderFailure && {
-                  onBatchFailure: (cause) =>
-                    degradeOnProviderFailure.recover(
-                      {
-                        cause,
-                        message: "Batch customer details unavailable",
-                        source: "customer-details",
-                      },
-                      undefined
-                    ),
-                }),
-              })
-              .pipe(
-                Effect.catch(
-                  recoverProviderRead(
-                    policy,
-                    {
-                      message: "Batch customer details unavailable",
-                      source: "customer-details",
-                    },
-                    new Map<DotyposCustomerId, DotyposCustomer>()
-                  )
-                )
-              )
-          );
-          // Missing batch records, including degraded batches, retain the individual lookup fallback.
-          const unreturnedIds = [...new Set(ids)].filter(
-            (id) => !customersById.has(id)
-          );
-          const missingCustomers = yield* Effect.all(
-            unreturnedIds.map((id) =>
-              dotypos.getCustomer(id).pipe(
-                Effect.map(
-                  Option.match({
-                    onNone: () => null,
-                    onSome: (customer) => [id, customer] as const,
-                  })
-                ),
-                Effect.catch(
-                  recoverProviderRead(
-                    policy,
-                    {
-                      annotations: { customerId: id },
-                      message: "Customer details unavailable",
-                      source: "customer-details",
-                    },
-                    null
-                  )
-                )
-              )
-            ),
-            { concurrency: 5 }
-          );
-          for (const customer of missingCustomers) {
-            if (customer) customersById.set(...customer);
-          }
-          return customersById;
-        }
-      );
-
       const loadAuthor = Effect.fn("AdministrationService.loadAuthor")(
         function* (
           accountId: CustomerAccountId,
@@ -1570,9 +1427,9 @@ export class AdministrationService extends Context.Service<
           if (isCustomerOwnAuthor(author, customerId)) return null;
           if (author.kind === "deleted") return { kind: "deleted" } as const;
           const customer = author.dotyposCustomerId
-            ? (yield* loadCustomers([author.dotyposCustomerId])).get(
-                author.dotyposCustomerId
-              )
+            ? (yield* customerDirectory.findMany([
+                author.dotyposCustomerId,
+              ])).get(author.dotyposCustomerId)
             : undefined;
           const name =
             customer && author.dotyposCustomerId
@@ -1605,7 +1462,7 @@ export class AdministrationService extends Context.Service<
         knownReservations:
           | ReadonlyMap<DotyposReservationId, DotyposReservation>
           | undefined,
-        policy: ProviderFailurePolicy<E>
+        policy: ProviderReadPolicy<E>
       ) {
         const missingReservationIds = rows.flatMap((row) =>
           row.dotyposReservationId &&
@@ -1616,9 +1473,9 @@ export class AdministrationService extends Context.Service<
         const loadedReservations = yield* dotypos
           .getReservationsByIds(missingReservationIds, {
             concurrency: 3,
-            ...(policy === degradeOnProviderFailure && {
+            ...(policy.kind === "degrade" && {
               onBatchFailure: (cause) =>
-                degradeOnProviderFailure.recover(
+                degradeProviderRead.recover(
                   {
                     cause,
                     message: "Live booking details unavailable",
@@ -1654,7 +1511,10 @@ export class AdministrationService extends Context.Service<
             })
           ),
         ];
-        const customersById = yield* loadCustomers(customerIds, policy);
+        const customersById = yield* customerDirectory.findMany(
+          customerIds,
+          policy
+        );
 
         return rows.map((row) => {
           const reservation = row.dotyposReservationId
@@ -1678,7 +1538,7 @@ export class AdministrationService extends Context.Service<
             DotyposReservationId,
             DotyposReservation
           >,
-          policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+          policy: ProviderReadPolicy<E> = degradeProviderRead
         ) {
           if (rows.length === 0) return [];
           const { attemptRows, latePaymentRows, liveRows, recoveryRows } =
@@ -1814,7 +1674,7 @@ export class AdministrationService extends Context.Service<
        */
       const loadReservationRangeMap = <E = never>(
         range: AdministrationReservationDateRange | undefined,
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) => {
         if (!range) return Effect.succeed(undefined);
         return dotypos
@@ -1883,7 +1743,7 @@ export class AdministrationService extends Context.Service<
           | ReadonlyMap<DotyposReservationId, DotyposReservation>
           | null
           | undefined,
-        policy: ProviderFailurePolicy<E>
+        policy: ProviderReadPolicy<E>
       ) {
         if (hasDateRange) {
           if (!dateReservations) return null;
@@ -1943,7 +1803,7 @@ export class AdministrationService extends Context.Service<
         "AdministrationService.loadReservationListScope"
       )(function* <E = never>(
         input: AdministrationReservationExportInput,
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) {
         const dateRange = getAdministrationReservationDateRange(input);
         const dateReservations = yield* loadReservationRangeMap(
@@ -2093,7 +1953,7 @@ export class AdministrationService extends Context.Service<
         "AdministrationService.exportReservations"
       )(function* (input: AdministrationReservationExportInput) {
         const { dateReservations, orderedProviderIds, where } =
-          yield* loadReservationListScope(input, failOnProviderFailure);
+          yield* loadReservationListScope(input, failProviderRead);
         const rows = yield* selectReservationListRows({
           direction: input.direction,
           orderedProviderIds,
@@ -2104,7 +1964,7 @@ export class AdministrationService extends Context.Service<
         return yield* enrichRows(
           rows,
           dateReservations ?? undefined,
-          failOnProviderFailure
+          failProviderRead
         );
       });
 
@@ -2468,7 +2328,7 @@ export class AdministrationService extends Context.Service<
           ];
           const { customersById, rows, tables } = yield* Effect.all(
             {
-              customersById: loadCustomers(customerIds),
+              customersById: customerDirectory.findMany(customerIds),
               rows:
                 bookingIds.length > 0
                   ? db
@@ -2617,7 +2477,7 @@ export class AdministrationService extends Context.Service<
         "AdministrationService.getCustomerListFilter"
       )(function* <E = never>(
         input: AdministrationCustomerExportInput,
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) {
         const dateRange = getAdministrationReservationDateRange({
           from: input.from,
@@ -2689,9 +2549,9 @@ export class AdministrationService extends Context.Service<
           readonly reservationCount: number;
           readonly lastActivityAt: Temporal.Instant | null;
         }[],
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) {
-        const customersById = yield* loadCustomers(
+        const customersById = yield* customerDirectory.findMany(
           rows.map(({ customerId }) => customerId),
           policy
         );
@@ -2743,13 +2603,10 @@ export class AdministrationService extends Context.Service<
       )(function* (input: AdministrationCustomerExportInput) {
         // A failed range read fails the export, so the filter is never left
         // unavailable here.
-        const { where } = yield* getCustomerListFilter(
-          input,
-          failOnProviderFailure
-        );
+        const { where } = yield* getCustomerListFilter(input, failProviderRead);
         const rows = yield* selectCustomerSummaryRows(input, where);
         yield* Effect.annotateCurrentSpan({ customerCount: rows.length });
-        return yield* toCustomerSummaries(rows, failOnProviderFailure);
+        return yield* toCustomerSummaries(rows, failProviderRead);
       });
 
       const loadCustomerReservations = Effect.fn(
@@ -2792,7 +2649,7 @@ export class AdministrationService extends Context.Service<
         "AdministrationService.loadCustomerActivity"
       )(function* <E = never>(
         customerId: DotyposCustomerId,
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) {
         const { attemptRowsWithSentinel, marketingConsentRows, recentRows } =
           yield* Effect.all(
@@ -3276,7 +3133,8 @@ export class AdministrationService extends Context.Service<
                   earlySetupDetails: reservations.earlySetupDetails,
                 })
               : [];
-          const customersById = yield* loadCustomers(uniqueCustomerIds);
+          const customersById =
+            yield* customerDirectory.findMany(uniqueCustomerIds);
           const newCustomerIds =
             reservations.kind === "available"
               ? getNewCustomerIds({
@@ -3342,9 +3200,7 @@ export class AdministrationService extends Context.Service<
         loadCustomerActivity,
         loadCustomerActivityStrict: Effect.fn(
           "AdministrationService.loadCustomerActivityStrict"
-        )((customerId) =>
-          loadCustomerActivity(customerId, failOnProviderFailure)
-        ),
+        )((customerId) => loadCustomerActivity(customerId, failProviderRead)),
         loadCustomerReservationActivity,
         loadReservationActivity,
         listOrders: paymentAdministration.listOrders,
@@ -3353,6 +3209,9 @@ export class AdministrationService extends Context.Service<
         loadOperation: paymentAdministration.loadOperation,
       };
     })
+  ).pipe(
+    // The directory has one implementation: tests substitute `DotyposService` beneath it.
+    Layer.provide(AdministrationCustomerDirectory.Default)
   );
 
   static Live = this.Default.pipe(
