@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Image, type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
 import { FocusedStatusBar } from "../ui/focused-status-bar";
@@ -14,8 +15,30 @@ const heroPhoto = require("../../assets/images/sign-in-hero.jpg");
 const heroAspect = 1080 / 1012;
 const colorLogo = require("../../assets/images/logo-color-on-navy.png");
 
-const navyFade = (direction: "to bottom" | "to top") =>
-  `linear-gradient(${direction}, ${color.navy}, rgba(0, 2, 79, 0))`;
+/**
+ * The photo's fade into the navy over its top and bottom 30%, as the board's
+ * mask draws it: navy at the band's edges, clear across its middle.
+ */
+function NavyFade() {
+  return (
+    <Svg
+      width="100%"
+      height="100%"
+      style={StyleSheet.absoluteFill}
+      preserveAspectRatio="none"
+    >
+      <Defs>
+        <LinearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={color.navy} stopOpacity={1} />
+          <Stop offset="0.3" stopColor={color.navy} stopOpacity={0} />
+          <Stop offset="0.7" stopColor={color.navy} stopOpacity={0} />
+          <Stop offset="1" stopColor={color.navy} stopOpacity={1} />
+        </LinearGradient>
+      </Defs>
+      <Rect width="100%" height="100%" fill="url(#fade)" />
+    </Svg>
+  );
+}
 
 /**
  * The photo fills its band's height and at least its width, right-aligned,
@@ -33,9 +56,14 @@ const heroPhotoSize = ({ width, height }: { width: number; height: number }) =>
 export function SignInMasthead() {
   const locale = useAppLocale();
   const insets = useSafeAreaInsets();
-  const [band, setBand] = useState<{ width: number; height: number }>();
+  const [band, setBand] = useState<{
+    top: number;
+    width: number;
+    height: number;
+  }>();
   const onBandLayout = ({ nativeEvent }: LayoutChangeEvent) =>
     setBand({
+      top: nativeEvent.layout.y,
       width: nativeEvent.layout.width,
       height: nativeEvent.layout.height,
     });
@@ -67,14 +95,18 @@ export function SignInMasthead() {
             ]}
           />
         )}
-        <View style={[styles.fade, styles.fadeTop]} />
-        <View style={[styles.fade, styles.fadeBottom]} />
-      </View>
-      <View
-        style={[styles.mark, { top: insets.top + space.md }]}
-        pointerEvents="none"
-      >
-        <LogoMark width={300} color={color.white} />
+        <NavyFade />
+        {/* The die keeps its place on the masthead (12 below the status
+            bar), but blends only over the photo: Android's overlay lightens
+            the bare navy, which CSS leaves alone. */}
+        {band && (
+          <View
+            style={[styles.mark, { top: insets.top + space.md - band.top }]}
+            pointerEvents="none"
+          >
+            <LogoMark width={300} color={color.white} />
+          </View>
+        )}
       </View>
       <View style={styles.titles}>
         <Text
@@ -121,14 +153,11 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
     marginTop: space.md,
     minHeight: 0,
-    opacity: 0.6,
     overflow: "hidden",
   },
-  photo: { position: "absolute", right: 0 },
-  // The photo fades into the navy over its top and bottom 30%.
-  fade: { height: "30%", left: 0, position: "absolute", right: 0 },
-  fadeTop: { backgroundImage: navyFade("to bottom"), top: 0 },
-  fadeBottom: { backgroundImage: navyFade("to top"), bottom: 0 },
+  // Translucent on the navy. Android fades each child of a translucent view
+  // on its own, which would thin the fade too, so only the photo is.
+  photo: { opacity: 0.6, position: "absolute", right: 0 },
   mark: {
     mixBlendMode: "overlay",
     opacity: 0.6,

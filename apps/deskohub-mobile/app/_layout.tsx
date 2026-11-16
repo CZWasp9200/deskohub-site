@@ -48,7 +48,14 @@ export default function RootLayout() {
         <AnalyticsRoot>
           <CustomerDataExitCleanup>
             {restored && (
-              <Stack screenOptions={{ headerShown: false }}>
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  // The brand canvas, not the navigator's grey, shows
+                  // while a screen mounts.
+                  contentStyle: { backgroundColor: color.paper },
+                }}
+              >
                 <Stack.Screen name="sign-in" />
                 <Stack.Protected guard={session.status === "signed-in"}>
                   <Stack.Screen name="index" />

@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
 import { useToast } from "../ui/toast";
+import { wholeAddress } from "../ui/whole-address";
 import type { AuthSessionState } from "./auth-session-state";
 import { useAuthSession } from "./use-auth-session";
 
@@ -44,7 +45,12 @@ export function SignedInToast() {
     const next = followSettledSession(settled.current, session);
     settled.current = next.settled;
     if (next.arrived && Platform.OS !== "web") {
-      toast.show({ message: m.account_signed_in_as({ email }, { locale }) });
+      toast.show({
+        message: m.account_signed_in_as(
+          { email: wholeAddress(email) },
+          { locale }
+        ),
+      });
     }
   }, [session.status, email]);
 

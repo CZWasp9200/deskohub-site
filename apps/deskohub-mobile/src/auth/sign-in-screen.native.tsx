@@ -166,7 +166,9 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
           icon={Mail}
           busy={running}
           onPress={startEmail}
-          disabled={restoring || passkeyPending}
+          // A session re-read while the attempt runs keeps it busy, not
+          // disabled.
+          disabled={(restoring && !running) || passkeyPending}
         />
         {passkeyOption !== undefined && (
           <>
