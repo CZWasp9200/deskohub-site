@@ -873,6 +873,8 @@
   "checkoutStatusBookAgain": "Đặt chỗ lại",
   "checkoutStatusTryAgain": "Thử lại",
   "checkoutStatusBackHome": "Về trang chủ",
+  "checkoutStatusOpenPaymentPage": "Mở trang thanh toán",
+  "checkoutStatusOpenPaymentPageError": "Không thể mở trang thanh toán. Hãy thử lại.",
   "reservationEmailTierLabel": "Gói",
   "reservationEmailReservationLabel": "Đặt chỗ",
   "reservationEmailDateLabel": "Ngày đặt chỗ",
