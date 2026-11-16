@@ -5,6 +5,7 @@ import {
   AdministrationInvoiceId,
 } from "@deskohub/workspace-admin-api";
 import { cleanup, render, within } from "@testing-library/react";
+import type { InvoiceNoticeSummary } from "@/features/accounting/invoice-cancellation";
 import { m } from "@/features/administration/i18n";
 import { RouteLocaleProvider } from "@/features/i18n/route-locale";
 import { workspaceUseAction } from "@/shared/testing/workspace-component-module-mocks";
@@ -12,6 +13,7 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+import type { InvoiceAdministrationListItem } from "./invoice-administration.service";
 import type { InvoiceAdministrationTableRow } from "./invoice-table";
 
 mock.module("./actions", () => ({
@@ -208,4 +210,74 @@ test("shows an invoice whose document cannot be read without its document's fiel
       { locale }
     ),
   ]);
+});
+
+test("reports a cancelled invoice's delivery from its cancellation notices, not its original email", () => {
+  workspaceUseAction.mockImplementation(
+    () => ({ execute: mock(), isExecuting: false }) as never
+  );
+  const locale = "en-US";
+  const cancelledWith = (
+    suffix: string,
+    delivery: InvoiceAdministrationListItem["delivery"],
+    notices: InvoiceNoticeSummary
+  ): InvoiceAdministrationTableRow => ({
+    ...cancelledInvoice,
+    id: AdministrationInvoiceId.make(
+      `018f47d2-8f7c-7c5e-9f9a-6ef21f90cb${suffix}`
+    ),
+    invoiceNumber: `20260000${suffix}`,
+    delivery,
+    needsAttention: notices.needsAttention,
+    cancellation: { ...cancelledInvoice.cancellation!, notices },
+  });
+  // The customer's invoice email failed, so no customer notice is owed.
+  const noticesSent = cancelledWith(
+    "31",
+    { customer: "failed", internal: "accepted" },
+    { customer: "not_owed", internal: "accepted", needsAttention: false }
+  );
+  const noticeSending = cancelledWith(
+    "32",
+    { customer: "accepted", internal: "accepted" },
+    { customer: "processing", internal: "accepted", needsAttention: false }
+  );
+  const noticeFailed = cancelledWith(
+    "33",
+    { customer: "accepted", internal: "accepted" },
+    { customer: "failed", internal: "accepted", needsAttention: true }
+  );
+  const view = render(
+    <RouteLocaleProvider locale={locale}>
+      <InvoiceAdministrationTable
+        items={[noticesSent, noticeSending, noticeFailed]}
+        query={{}}
+      />
+    </RouteLocaleProvider>
+  );
+  const table = view.getByRole("table");
+  const deliveryColumn = within(table)
+    .getAllByRole("columnheader")
+    .findIndex((header) =>
+      within(header).queryByText(
+        m.accountingInvoiceColumnDelivery({}, { locale })
+      )
+    );
+  const deliveryOf = (row: InvoiceAdministrationTableRow) =>
+    (
+      within(table)
+        .getByRole("link", { name: row.invoiceNumber })
+        .closest("tr") as HTMLTableRowElement
+    ).cells[deliveryColumn]!.textContent?.trim();
+
+  expect(deliveryColumn).toBeGreaterThan(-1);
+  expect(deliveryOf(noticesSent)).toBe(
+    m.accountingInvoiceDeliverySent({}, { locale })
+  );
+  expect(deliveryOf(noticeSending)).toBe(
+    m.accountingInvoiceDeliverySending({}, { locale })
+  );
+  expect(deliveryOf(noticeFailed)).toBe(
+    m.accountingInvoiceDeliveryNeedsResend({}, { locale })
+  );
 });

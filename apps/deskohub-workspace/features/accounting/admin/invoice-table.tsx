@@ -175,12 +175,20 @@ const getInvoiceColumns = (
   },
 ];
 
+/**
+ * The invoice email's delivery, or a cancelled invoice's notices: its own
+ * email no longer matters, and a notice not owed counts as delivered.
+ */
 function InvoiceDeliveryBadge({
   invoice,
 }: {
   readonly invoice: InvoiceAdministrationListItem;
 }) {
   const locale = useRouteLocale();
+  const { customer, internal } =
+    invoice.cancellation?.notices ?? invoice.delivery;
+  const delivered = (status: typeof customer) =>
+    status === "accepted" || status === "not_owed";
   if (invoice.needsAttention) {
     return (
       <StatusBadge tone="attention">
@@ -189,10 +197,7 @@ function InvoiceDeliveryBadge({
       </StatusBadge>
     );
   }
-  if (
-    invoice.delivery.customer === "accepted" &&
-    invoice.delivery.internal === "accepted"
-  ) {
+  if (delivered(customer) && delivered(internal)) {
     return (
       <StatusBadge tone="positive">
         {m.accountingInvoiceDeliverySent({}, { locale })}
