@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { StyleSheet } from "react-native";
 import {
+  FieldLabel,
   FieldMessages,
   fieldDescription,
   fieldFrameState,
@@ -93,5 +94,26 @@ describe("FieldMessages", () => {
     expect(region(tree)?.props.children).toBe("error");
     expect(region(tree)?.props["aria-live"]).toBe("polite");
     expect(findAll(tree, "Svg")).toHaveLength(1);
+  });
+});
+
+describe("FieldLabel", () => {
+  test("an optional field adds its marker inside the label, in a lighter style", () => {
+    const tree = hostTree(
+      elementTree(FieldLabel, { label: "VAT", optional: "(opt)" })
+    );
+    const texts = findAll(tree, "Text");
+    expect(texts).toHaveLength(2);
+    const [label, marker] = texts;
+    // The marker is nested in the label, so both read as one.
+    expect(findAll(label, "Text")).toHaveLength(2);
+    expect(StyleSheet.flatten(marker?.props.style).fontWeight).not.toBe(
+      StyleSheet.flatten(label?.props.style).fontWeight
+    );
+  });
+
+  test("a required field's label is its text alone", () => {
+    const tree = hostTree(elementTree(FieldLabel, { label: "City" }));
+    expect(findAll(tree, "Text")).toHaveLength(1);
   });
 });

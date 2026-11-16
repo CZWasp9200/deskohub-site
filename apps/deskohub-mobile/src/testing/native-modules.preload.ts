@@ -46,6 +46,7 @@ const stillAnimation = () => ({
 mock.module("react-native", () => ({
   // Host components stand in as their names, so a test can read the element
   // tree a component returns without a native renderer.
+  KeyboardAvoidingView: "KeyboardAvoidingView",
   Modal: "Modal",
   Pressable: "Pressable",
   RefreshControl: "RefreshControl",
@@ -107,6 +108,7 @@ mock.module("react-native", () => ({
   Keyboard: {
     addListener: () => ({ remove: () => undefined }),
     dismiss: () => undefined,
+    isVisible: () => false,
   },
   // The design's narrowest phone at the default font size.
   useWindowDimensions: () => ({
