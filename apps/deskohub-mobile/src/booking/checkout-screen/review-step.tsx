@@ -135,7 +135,7 @@ export function ReviewStep({
         />
         <BookingCard
           selection={selection}
-          earlySetup={review.flow.earlySetup === true}
+          earlySetup={view.earlySetup}
           party={view.party}
           invoice={view.invoice}
           locale={locale}
@@ -224,8 +224,8 @@ const payAction = (
 });
 
 /** The booking's first day as a date tile. */
-const startDay = (selection: CustomerBookingSelection, earlySetup: boolean) => {
-  const overview = bookingOverviewOf(selection, earlySetup);
+const startDay = (selection: CustomerBookingSelection) => {
+  const overview = bookingOverviewOf(selection, false);
   return overview._tag === "Office" ? overview.firstDate : overview.date;
 };
 
@@ -238,6 +238,7 @@ function BookingCard({
   locale,
 }: Locale & {
   readonly selection: CustomerBookingSelection;
+  /** The meeting room opens early for setup, as the customer chose. */
   readonly earlySetup: boolean;
   readonly party: ReviewParty;
   readonly invoice: ReviewInvoice;
@@ -249,10 +250,7 @@ function BookingCard({
       <View style={styles.bookingCard}>
         <View style={styles.what}>
           <DateTile
-            parts={dateTileParts(
-              pragueDateTime(startDay(selection, earlySetup)),
-              locale
-            )}
+            parts={dateTileParts(pragueDateTime(startDay(selection)), locale)}
           />
           <View style={styles.whatText}>
             <Text variant="bodyStrong" role="heading">
@@ -264,6 +262,11 @@ function BookingCard({
             {summary.extras.length > 0 && (
               <Text variant="bodySmall" tone="muted">
                 {upperFirst(summary.extras.join(", "), locale)}
+              </Text>
+            )}
+            {earlySetup && (
+              <Text variant="bodySmall" tone="muted">
+                {m.booking_checkout_overview_early_setup({}, { locale })}
               </Text>
             )}
           </View>

@@ -11,6 +11,7 @@ import type {
   ReviewState,
 } from "../checkout/checkout-state";
 import { type PriceBreakdown, priceBreakdown } from "../ui/price-breakdown";
+import { bookingOverviewOf } from "./booking-overview";
 
 /**
  * Who the booking is for and who is invoiced, as the details step sent
@@ -202,6 +203,8 @@ const payBlock = (
 
 export interface ReviewView {
   readonly party: ReviewParty;
+  /** A meeting room booked with early setup: the room opens before the start. */
+  readonly earlySetup: boolean;
   readonly invoice: ReviewInvoice;
   readonly price: ReviewPriceView;
   readonly priceChange: Option.Option<PriceChangeView>;
@@ -219,6 +222,11 @@ export interface ReviewView {
    */
   readonly holdExpiresAt: string;
 }
+
+const withEarlySetup = ({ flow }: ReviewState): boolean => {
+  const overview = bookingOverviewOf(flow.selection, flow.earlySetup === true);
+  return overview._tag === "MeetingRoom" && overview.earlySetup;
+};
 
 const pendingIs = (review: ReviewState) => (tag: ReviewMutation["_tag"]) =>
   Option.exists(review.pending, (pending) => pending._tag === tag);
@@ -247,6 +255,7 @@ export const reviewView = (
   const consented = Option.isSome(review.consent);
   return {
     party: reviewParty(review.details, bookerName),
+    earlySetup: withEarlySetup(review),
     invoice: reviewInvoice(review.details),
     price: {
       breakdown: priceBreakdown(checkout.summary),

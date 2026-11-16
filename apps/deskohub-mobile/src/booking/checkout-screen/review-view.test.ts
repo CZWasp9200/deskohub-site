@@ -156,7 +156,47 @@ const applyCode = (from: Run, input: string) => {
   };
 };
 
+/** A meeting room review, with or without early setup. */
+const meetingRoomReview = (earlySetup: boolean) => {
+  const meetingRoom = {
+    family: "meeting-room",
+    date: "2026-11-20",
+    duration: "hour:1",
+    startTime: "14:00",
+  } as const;
+  const started = startCheckout({
+    checkoutSessionId: "session-2",
+    locale: "en-US",
+    selection: meetingRoom,
+    advertisedPriceToken: "advertised-2",
+    rememberedReferralCode: Option.none(),
+    earlySetup,
+  });
+  const continued = run(
+    started,
+    CheckoutEvent.Continue({
+      checkoutAttemptId: "attempt-2",
+      details: selfDetails,
+    })
+  );
+  return run(
+    continued.state,
+    CheckoutEvent.CheckoutCreated({
+      operationId: operationOf(continued, "CreateCheckout"),
+      start: held({
+        summary: sampleSummary({ lines: pricedLines(meetingRoom) }),
+      }),
+    })
+  );
+};
+
 describe("reviewView", () => {
+  test("a meeting room booked with early setup says so; without it, or for a desk, it doesn't", () => {
+    expect(viewOf(meetingRoomReview(true)).earlySetup).toBe(true);
+    expect(viewOf(meetingRoomReview(false)).earlySetup).toBe(false);
+    expect(viewOf(reviewWith(held())).earlySetup).toBe(false);
+  });
+
   test("opens on the booking, the server's price and the quiet code row; Pay waits for the agreement", () => {
     const view = viewOf(reviewWith(held()));
     expect(view.party).toEqual({ _tag: "Self", name: "Synthetic Booker" });
