@@ -5,7 +5,6 @@ import {
   type RootDatabaseClient,
 } from "../../db/database-client";
 import type { DatasourceConfig } from "../config";
-import { toWorkspaceE2EError } from "../errors";
 
 interface IE2EDatabase {
   readonly db: RootDatabaseClient;
@@ -28,9 +27,6 @@ export class E2EDatabase extends Context.Service<E2EDatabase, IE2EDatabase>()(
           connectTimeout: Duration.millis(config.timeouts.datasource),
           statementTimeout: Duration.millis(config.timeouts.datasource),
         })
-      ),
-      Layer.catch((cause) =>
-        Layer.fail(toWorkspaceE2EError("create E2E database pool", cause))
       )
     );
 }

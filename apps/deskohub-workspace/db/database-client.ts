@@ -1,15 +1,7 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { EffectCache } from "drizzle-orm/cache/core/cache-effect";
 import { type EffectPgDatabase, make } from "drizzle-orm/effect-postgres";
-import {
-  type Context,
-  Duration,
-  Effect,
-  Exit,
-  Layer,
-  Redacted,
-  Scope,
-} from "effect";
+import { type Context, Duration, Effect, Layer, Redacted } from "effect";
 import type { SqlClient } from "effect/sql";
 import { Pool, type PoolConfig } from "pg";
 import { DatabaseQueryLoggerLive } from "@/shared/backend/logging/database-query-logger";
@@ -103,6 +95,11 @@ export const databasePostgresLayer = (settings: DatabasePoolSettings) => {
       }),
       (client) => withStatementTimeout(client, statementTimeout)
     )
+  ).pipe(
+    // With no minimum connections the pool opens none while it is built, so
+    // building fails only on invalid settings: a defect, as constructing a
+    // `pg.Pool` was. Statements and checkouts still fail with `SqlError`.
+    Layer.orDie
   );
 };
 
