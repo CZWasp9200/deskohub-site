@@ -184,6 +184,7 @@ describe.skipIf(!testDatabase)(
       const stalledDelivery = newDeliveryId();
       const reclaimedDelivery = newDeliveryId();
       let sends = 0;
+      let reclaimed: Exit.Exit<void, unknown> | undefined;
       // The first run stalls while its email is out; a second run reclaims
       // the stale claim and completes the order before the first resumes.
       const fulfillment = fulfillmentOnPostgres(() => {
@@ -191,9 +192,11 @@ describe.skipIf(!testDatabase)(
         if (sends > 1) return Effect.succeed(reclaimedDelivery);
         return stallClaim(id).pipe(
           Effect.andThen(
-            Effect.promise(() =>
-              fulfillment.use((reclaiming) => reclaiming.run(id))
-            )
+            Effect.promise(async () => {
+              reclaimed = await fulfillment.use((reclaiming) =>
+                reclaiming.run(id)
+              );
+            })
           ),
           Effect.as(stalledDelivery),
           Effect.orDie
@@ -201,6 +204,8 @@ describe.skipIf(!testDatabase)(
       });
 
       const stalled = await fulfillment.use((run) => run.run(id));
+
+      expect(reclaimed && Exit.isSuccess(reclaimed)).toBe(true);
 
       expect(
         Exit.isFailure(stalled) ? Cause.squash(stalled.cause) : stalled

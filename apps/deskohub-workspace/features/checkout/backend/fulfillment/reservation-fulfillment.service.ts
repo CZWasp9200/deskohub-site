@@ -341,35 +341,35 @@ export class ReservationFulfillment extends Context.Service<
       // rejected completes nothing; an order found already fulfilled retries
       // its invoice alone. Each path supplies its invoice issuance, which
       // keeps that path's span, log and error.
-      const completeFulfillment = <TransitionError, InvoiceError>(
+      const completeFulfillment = Effect.fnUntraced(function* <
+        TransitionError = never,
+        InvoiceError = never,
+      >(
         completion: FulfillmentCompletion<TransitionError>,
         issueInvoice: (
           order: FulfilledOrder
         ) => Effect.Effect<void, InvoiceError>
-      ): Effect.Effect<
+      ): Effect.fn.Return<
         FulfillmentCompletionOutcome,
         TransitionError | InvoiceError
-      > =>
-        Effect.gen(function* () {
-          if (completion.kind === "already_fulfilled") {
-            yield* issueInvoice(completion.order);
-            return "already_fulfilled" as const;
-          }
+      > {
+        if (completion.kind === "already_fulfilled") {
+          yield* issueInvoice(completion.order);
+          return "already_fulfilled";
+        }
 
-          const fulfilled = yield* completion.transition(
-            completion.fulfilledAt
-          );
-          if (!fulfilled) {
-            return "unchanged" as const;
-          }
+        const fulfilled = yield* completion.transition(completion.fulfilledAt);
+        if (!fulfilled) {
+          return "unchanged";
+        }
 
-          yield* checkoutAnalytics.reservationFulfilled({
-            reservation: fulfilled,
-            timestamp: completion.fulfilledAt,
-          });
-          yield* issueInvoice(fulfilled);
-          return "completed" as const;
+        yield* checkoutAnalytics.reservationFulfilled({
+          reservation: fulfilled,
+          timestamp: completion.fulfilledAt,
         });
+        yield* issueInvoice(fulfilled);
+        return "completed";
+      });
 
       // Settles an order this run must not claim, retrying a fulfilled
       // order's invoice; returns the order to claim otherwise.
