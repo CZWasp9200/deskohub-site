@@ -36,7 +36,12 @@ browser SDK; this page covers what differs in the app. Paths are relative to
 `consent/` uses the site's categories (necessary, analytics, marketing,
 preferences). Native keeps one AsyncStorage record (`categories`, `decidedAt`,
 `locale`); the web bundle reads and writes the site's `cc_cookie` on the
-shared origin and rereads it when the page regains focus. No choice yet shows
+shared origin and rereads it when the page regains focus. It saves under the
+site's banner revision, `consentBannerRevision` from
+`@deskohub/workspace-customer-api/consent-banner`, and reads a copy saved
+under another revision as no choice, as the site does; the Workspace's
+`consent-banner-revision.test.ts` pins that copy to `getConsentBannerRevision()`,
+so update it there when the privacy notice or cookie policy changes. No choice yet shows
 the prompt; a malformed or unreadable record, or one without a valid
 `decidedAt`, counts as no consent. `decidedAt` is kept exactly as stored,
 because an account decision stored with the account's instant must be sent
@@ -100,10 +105,6 @@ opened, or the tab its sign-in email opens), analytics and the prompt follow
 - Without an answer, analytics stays off on the page (`undecided`, or
   `denied` over a stored refusal so stale SDK state clears) and nothing is
   written: no answer is consent, and the site's grant isn't the app's.
-- Known gap: the app writes a new `cc_cookie` with `revision: 0` and reads
-  it without checking the revision, while the site treats a copy under
-  another banner revision as no choice. The site re-prompts and the server
-  mirrors nothing from a cookie the app created.
 
 ### Analytics preference
 
