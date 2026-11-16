@@ -78,7 +78,8 @@ describe("ScrollScreen", () => {
     const scrolled = Children.toArray(
       provider.props.children as ReactNode
     ) as ReactElement<{ children: ReactNode }>[];
-    expect(scrolled[0]?.type).toBe("Masthead");
+    // Measured in a wrapper, so a collapsed header knows when it has gone.
+    expect(find(scrolled[0], "Masthead")).toBeDefined();
     const [band, content] = Children.toArray(
       scrolled[1]?.props.children
     ) as ReactElement<{ style: unknown }>[];

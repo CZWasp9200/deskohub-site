@@ -7,18 +7,19 @@ import { Match } from "effect";
 import type { Href } from "expo-router";
 
 /**
- * The Account tab's sections, in the site's navigation order (reservations
- * has its own tab). `complete` takes the profile's place until the profile
+ * The Account tab's sections, in the approved order (reservations has its
+ * own tab): the account's own sections, then Rewards, Privacy and the
+ * Danger zone. `complete` takes the profile's place until the profile
  * exists.
  */
 export const accountSectionOrder = [
-  "referrals",
   "complete",
   "profile",
-  "language",
   "security",
   "assistants",
   "billing",
+  "language",
+  "referrals",
   "legal",
   "danger",
 ] as const;

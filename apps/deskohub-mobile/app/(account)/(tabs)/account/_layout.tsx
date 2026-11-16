@@ -1,7 +1,10 @@
 import { Stack } from "expo-router";
+import { SignOutButton } from "../../../../src/account/sign-out-button";
 import { useAppLocale } from "../../../../src/i18n/locale-context";
 import { m } from "../../../../src/i18n/messages";
 import { stackScreenOptions } from "../../../../src/ui/navigation";
+
+const renderSignOutButton = () => <SignOutButton />;
 
 // A link straight to a deeper screen, such as a reservation from a payment
 // return, keeps this stack's index behind it for Back.
@@ -20,7 +23,11 @@ export default function AccountSectionsLayout() {
       />
       <Stack.Screen
         name="profile"
-        options={{ title: m.account_section_profile({}, { locale }) }}
+        options={{
+          title: m.account_section_profile({}, { locale }),
+          // Checkout's own route to the profile leaves it out.
+          headerRight: renderSignOutButton,
+        }}
       />
       <Stack.Screen
         name="language"
