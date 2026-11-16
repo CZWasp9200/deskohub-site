@@ -83,6 +83,7 @@ import type { WorkspaceReservationId } from "@/features/reservation/persistence-
 import type { Money } from "@/shared/money/money";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
+  holdPostgresTransaction,
   waitForAdvisoryLockWaiter,
   waitForPostgresLockWaiter,
 } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
@@ -3071,6 +3072,40 @@ const setCodeServiceDates = (
     [codeId, serviceDateFrom, serviceDateUntil]
   );
 
+/**
+ * Admits while another transaction holds the allowlist table, so an allowlist
+ * read would block. Reports whether admission tried to read it.
+ */
+const admitWithAllowlistUnreadable = async (
+  repository: IPaymentLifecycleRepository,
+  reservation: Reservation,
+  admission: ReturnType<typeof makeCodeAdmission>
+) => {
+  const allowlist = await holdPostgresTransaction(
+    testDatabase!.pool,
+    "lock table promotion_code_customers in access exclusive mode",
+    []
+  );
+  const result = Effect.runPromise(
+    Effect.result(admit(repository, reservation, admission))
+  );
+  try {
+    const readAllowlist = await Promise.race([
+      result.then(() => false),
+      waitForPostgresLockWaiter(testDatabase!.pool, {
+        condition: "relation = 'promotion_code_customers'::regclass",
+        description: "an allowlist read",
+      }).then(
+        () => true,
+        () => false
+      ),
+    ]);
+    return { readAllowlist, result };
+  } finally {
+    await allowlist.commit();
+  }
+};
+
 const getCandidateCodeId = (candidate: DiscountCandidate) => {
   if (candidate.claim?.kind !== "discount_code") {
     throw new Error("Expected a discount-code candidate.");
@@ -3158,6 +3193,76 @@ describe.skipIf(!testDatabase)(
         expect(attempts.rows).toEqual([]);
       } finally {
         await promotion.cleanup();
+      }
+    });
+
+    test("refuses a code outside its service dates before reading the allowlist", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const promotion = await createOrdinaryDiscountCode(dotyposCustomerId);
+      try {
+        const reservation = await createHeldReservation(dotyposCustomerId);
+        const admission = makeCodeAdmission({
+          reservation,
+          dotyposCustomerId,
+          candidate: promotion.candidate,
+          firstServiceDate: reservationStartDate,
+        });
+        await setCodeServiceDates(
+          getCandidateCodeId(promotion.candidate),
+          "2099-01-02",
+          "2099-01-31"
+        );
+
+        const { readAllowlist, result } = await admitWithAllowlistUnreadable(
+          repository,
+          reservation,
+          admission
+        );
+
+        expect(readAllowlist).toBe(false);
+        expect(await result).toMatchObject({
+          _tag: "Failure",
+          failure: {
+            _tag: "DiscountClaimError",
+            reason: "service_date_ineligible",
+          },
+        });
+      } finally {
+        await promotion.cleanup();
+      }
+    });
+
+    test("refuses an expired voucher before reading the allowlist", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const voucher = await createVoucher(dotyposCustomerId);
+      try {
+        const reservation = await createHeldReservation(dotyposCustomerId);
+        const admission = makeCodeAdmission({
+          reservation,
+          dotyposCustomerId,
+          candidate: voucher.candidate,
+          firstServiceDate: reservationStartDate,
+        });
+        await testDatabase!.pool.query(
+          "update promotion_codes set valid_until = now() - interval '1 hour' where id = (select promotion_code_id from vouchers where id = $1)",
+          [voucher.candidate.provenance.providerReference]
+        );
+
+        const { readAllowlist, result } = await admitWithAllowlistUnreadable(
+          repository,
+          reservation,
+          admission
+        );
+
+        expect(readAllowlist).toBe(false);
+        expect(await result).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "DiscountClaimError", reason: "expired" },
+        });
+      } finally {
+        await voucher.cleanup();
       }
     });
 

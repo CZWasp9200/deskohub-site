@@ -1,4 +1,4 @@
-import { Match } from "effect";
+import { Match, Option } from "effect";
 import type {
   FulfillmentState,
   PaymentState,
@@ -15,6 +15,7 @@ import type {
   CheckoutStatusViewModel,
 } from "@/features/checkout/backend/checkout/checkout-status.service";
 import type { CheckoutStatusKind } from "@/features/checkout/checkout-status-kind";
+import { getStoredRebookingSelection } from "@/features/reservation/backend/booking-selection";
 import type { ReviewSandboxReservation } from "./review-sandbox-reservation";
 
 type ReservationState = ReviewSandboxReservation["state"];
@@ -42,18 +43,33 @@ const toHistoryProduct = (
     })
   );
 
+/** What booking a sandbox reservation again sends, as for a real one. */
+const getSandboxRebookingSelection = (reservation: ReviewSandboxReservation) =>
+  getStoredRebookingSelection({
+    details: reservation.details,
+    booked: { seats: Option.some(reservation.seats) },
+    timing: {
+      reservedFrom: reservation.startsAt,
+      reservedUntil: reservation.endsAt,
+    },
+  });
+
 const toHistorySummary = (
   reservation: ReviewSandboxReservation
-): CustomerReservationSummary => ({
-  id: reservation.orderId,
-  workspaceReservationId: reservation.orderId,
-  reviewSandbox: true,
-  product: toHistoryProduct(reservation.details),
-  startsAt: reservation.startsAt.toString(),
-  endsAt: reservation.endsAt.toString(),
-  seats: reservation.seats,
-  status: historyStatuses[reservation.state],
-});
+): CustomerReservationSummary => {
+  const bookedSelection = getSandboxRebookingSelection(reservation);
+  return {
+    id: reservation.orderId,
+    workspaceReservationId: reservation.orderId,
+    reviewSandbox: true,
+    product: toHistoryProduct(reservation.details),
+    startsAt: reservation.startsAt.toString(),
+    endsAt: reservation.endsAt.toString(),
+    seats: reservation.seats,
+    status: historyStatuses[reservation.state],
+    ...(bookedSelection && { bookedSelection }),
+  };
+};
 
 /** A review account's sandbox reservations as its history, newest start first. */
 export const toReviewSandboxHistory = (
@@ -108,11 +124,13 @@ export const toReviewSandboxStatus = (
   reservation: ReviewSandboxReservation,
   returnOutcome: CheckoutStatusReturnOutcome
 ): CheckoutStatusViewModel => {
+  const bookedSelection = getSandboxRebookingSelection(reservation);
   const view = {
     orderId: reservation.orderId,
     returnOutcome,
     reviewSandbox: true as const,
     ...statusStates[reservation.state],
+    ...(bookedSelection && { bookedSelection }),
   };
   const summary = {
     price: reservation.total,
