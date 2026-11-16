@@ -14,6 +14,7 @@ import type {
   PaymentAttemptState,
   PaymentState,
   ReservationState,
+  WebhookEventState,
 } from "@/db/schema";
 import type { Locale } from "@/features/i18n";
 import type {
@@ -78,7 +79,7 @@ export type CheckoutRow = {
   webhook_event_id: NexiWebhookEventId | null;
   webhook_provider_order_id: NexiOrderId | null;
   webhook_processed_at: Temporal.Instant | null;
-  webhook_state: string | null;
+  webhook_state: WebhookEventState | null;
   webhook_error_code: string | null;
 };
 

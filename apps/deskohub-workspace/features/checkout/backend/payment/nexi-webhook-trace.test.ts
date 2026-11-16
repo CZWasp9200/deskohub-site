@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { NexiService, type PaymentVerificationResult } from "@deskohub/nexi";
 import { Cause, Effect, Exit, Layer, Predicate } from "effect";
+import type { PaymentAttemptState, WebhookEventState } from "@/db/schema";
 import {
   type EffectTrace,
   recordEffectTrace,
@@ -122,13 +123,13 @@ const verification = (
   mismatches,
 });
 
-const receivedEvent = (state: string) => ({
+const receivedEvent = (state: WebhookEventState) => ({
   id: "webhook-row-id",
   eventId: "event-id",
   state,
 });
 
-const transition = (changed: boolean, state: string) => ({
+const transition = (changed: boolean, state: PaymentAttemptState) => ({
   attempt: { ...pendingAttempt, state },
   changed,
   timestamp: createdAt,

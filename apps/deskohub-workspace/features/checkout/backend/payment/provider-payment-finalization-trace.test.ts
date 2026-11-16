@@ -8,6 +8,7 @@ import {
   type PaymentVerificationResult,
 } from "@deskohub/nexi";
 import { Cause, Effect, Exit, Layer, Predicate } from "effect";
+import type { FulfillmentState, PaymentAttemptState } from "@/db/schema";
 import {
   type EffectTrace,
   recordEffectTrace,
@@ -87,7 +88,7 @@ const pendingReservation = {
   activePaymentAttemptId: "attempt-id",
 };
 
-const paidReservation = (fulfillmentState: string) => ({
+const paidReservation = (fulfillmentState: FulfillmentState) => ({
   ...pendingReservation,
   paymentState: "paid",
   fulfillmentState,
@@ -142,7 +143,7 @@ const emptyPendingProvider = {
   captureExecuted: false,
 };
 
-const lifecycleTransition = (changed: boolean, state: string) => ({
+const lifecycleTransition = (changed: boolean, state: PaymentAttemptState) => ({
   attempt: { ...pendingAttempt, state },
   changed,
   timestamp: afterCutoff,

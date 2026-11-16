@@ -25,6 +25,11 @@ import {
   type HttpClientResponse,
 } from "effect/unstable/http";
 import type { DatabaseClient } from "@/db/database-client";
+import type {
+  DiscountCodeClaimState,
+  PaymentState,
+  ReferralInvitationClaimState,
+} from "@/db/schema";
 import {
   accountingDocumentSnapshots,
   discountApplications,
@@ -337,9 +342,7 @@ export const validateDiscountApplications = (
           subtotal_after_currency: discountApplications.subtotalAfterCurrency,
           expires_at: discountApplications.expiresAt,
           countdown_starts_at: discountApplications.countdownStartsAt,
-          redemption_state: sql<
-            string | null
-          >`coalesce(${discountCodeRedemptions.state}, ${voucherRedemptions.state})`,
+          redemption_state: sql<DiscountCodeClaimState | null>`coalesce(${discountCodeRedemptions.state}, ${voucherRedemptions.state})`,
           redeemed_at: sql<Date | null>`coalesce(${discountCodeRedemptions.redeemedAt}, ${voucherRedemptions.redeemedAt})`,
         })
         .from(discountApplications)
@@ -384,7 +387,7 @@ export interface DiscountApplicationRow {
   readonly expires_at: Date | Temporal.Instant | null;
   readonly label: string;
   readonly redeemed_at: Date | Temporal.Instant | null;
-  readonly redemption_state: string | null;
+  readonly redemption_state: DiscountCodeClaimState | null;
   readonly sequence: number;
   readonly subtotal_after_currency: string;
   readonly subtotal_after_exponent: number;
@@ -789,10 +792,10 @@ export type ReferralInvitationPaymentRecord = {
   readonly claims: readonly {
     readonly applicationId: string;
     readonly paymentAttemptId: string;
-    readonly state: string;
+    readonly state: ReferralInvitationClaimState;
   }[];
   readonly dotyposCustomerId: string | null;
-  readonly paymentState: string;
+  readonly paymentState: PaymentState;
 };
 
 export const readReferralInvitationPayment = (
@@ -1304,11 +1307,8 @@ export const markFulfillmentFailedForE2E = (
     );
   });
 
-const terminalUnpaidPaymentStates: ReadonlySet<string> = new Set([
-  "failed",
-  "cancelled",
-  "expired",
-]);
+const terminalUnpaidPaymentStates: ReadonlySet<PaymentState> =
+  new Set<PaymentState>(["failed", "cancelled", "expired"]);
 
 export const getPreviewFulfillmentMarkerDiagnosticCode = (
   row: CheckoutRow | undefined
@@ -1608,9 +1608,7 @@ const assertInternalDiscountState = (
           subtotal_before_value: discountApplications.subtotalBeforeValue,
           applied_amount_value: discountApplications.appliedAmountValue,
           subtotal_after_value: discountApplications.subtotalAfterValue,
-          redemption_state: sql<
-            string | null
-          >`coalesce(${discountCodeRedemptions.state}, ${voucherRedemptions.state})`,
+          redemption_state: sql<DiscountCodeClaimState | null>`coalesce(${discountCodeRedemptions.state}, ${voucherRedemptions.state})`,
           redeemed_at: sql<Date | null>`coalesce(${discountCodeRedemptions.redeemedAt}, ${voucherRedemptions.redeemedAt})`,
         })
         .from(discountApplications)
@@ -1637,7 +1635,7 @@ const assertInternalDiscountState = (
 
 interface InternalDiscountApplicationRow {
   readonly applied_amount_value: number;
-  readonly redemption_state: string | null;
+  readonly redemption_state: DiscountCodeClaimState | null;
   readonly redeemed_at: Date | Temporal.Instant | null;
   readonly subtotal_after_value: number;
   readonly subtotal_before_value: number;
