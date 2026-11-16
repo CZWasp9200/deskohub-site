@@ -20,6 +20,7 @@ const { appliedDetails } = await import(
   "../../company-lookup/company-lookup-model"
 );
 const { elementTree, find } = await import("../../ui/testing/element-tree");
+const { m } = await import("../../i18n/messages");
 const { useOnboardingDraft } = await import("../onboarding/onboarding-draft");
 const { useProfileForm } = await import("../profile/profile-form");
 const { BillingCompanyLookup } = await import("./billing-company-lookup");
@@ -102,6 +103,10 @@ describe("Account › Billing details: Apply reaches the profile draft", () => {
     const lookup = lookupOf(current(registry, useDraft), true, registry);
     expect(lookup.remindsToSave).toBe(true);
     expect(lookup.companyId).toBe("12345679");
+    // The review names the country as the form's country picker does.
+    expect(lookup.fields.find(({ field }) => field === "country")?.label).toBe(
+      m.booking_details_country({}, { locale: "en-US" })
+    );
     applyThrough(lookup);
 
     const { draft } = current(registry, useDraft);

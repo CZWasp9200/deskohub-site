@@ -1,6 +1,7 @@
 import { CompanyLookup } from "../../company-lookup/company-lookup";
 import type { CompanyDetailsField } from "../../company-lookup/company-lookup-model";
 import type { AppLocale } from "../../i18n/app-locale";
+import { m } from "../../i18n/messages";
 import type { ProfileDraft } from "../profile/profile-draft";
 import { profileFieldLabel } from "../profile/profile-fields";
 
@@ -40,7 +41,11 @@ export function BillingCompanyLookup({
       companyId={draft.companyId}
       fields={billingDetails.map((field) => ({
         field,
-        label: profileFieldLabel(field, locale),
+        // The country is a picker labelled as in checkout (BillingAddressSection).
+        label:
+          field === "country"
+            ? m.booking_details_country({}, { locale })
+            : profileFieldLabel(field, locale),
       }))}
       onApply={onApply}
       disabled={disabled}
