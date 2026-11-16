@@ -17,7 +17,6 @@ import {
   type AccountingDocumentSnapshot,
   makeAccountingDocumentSnapshot,
 } from "@/features/accounting/accounting-document-snapshot";
-import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import {
   type CheckoutSummary,
   type CheckoutSummaryChangedKeys,
@@ -35,6 +34,7 @@ import { isEarlyPerformanceRequestRequired } from "@/features/legal/early-perfor
 import { getPaymentSubmitLegalEvidence } from "@/features/legal/payment-submit-evidence";
 import {
   reservationLogFields,
+  type WorkspaceReservation,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCoworkReservationIntervalInput } from "@/features/reservation/cowork-reservation";
@@ -83,11 +83,7 @@ import {
   type SignedPayState,
   toFreshPayState,
 } from "./pay-state";
-import {
-  type OpenCheckout,
-  PayableCheckout,
-  type PayableReservation,
-} from "./payable-checkout.service";
+import { type OpenCheckout, PayableCheckout } from "./payable-checkout.service";
 import type { PriceVerdict } from "./price-verdict";
 import { getReservationStatusPath } from "./reservation-status-url";
 import {
@@ -465,7 +461,6 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         function* (input: {
           readonly workspaceReservationId: WorkspaceReservationId;
           readonly correlationId: NexiCorrelationId;
-          readonly checkoutSessionId?: CheckoutSessionId;
           readonly locale: Locale;
           readonly total: Money;
           readonly commitment: DiscountCommitment;
@@ -478,7 +473,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           yield* Effect.annotateLogsScoped({
             reservationId: input.workspaceReservationId,
             correlationId: input.correlationId,
-            checkoutSessionId: input.checkoutSessionId,
+            checkoutSessionId: input.checkout.state.checkoutSessionId,
             locale: input.locale,
             totalValue: input.total.value,
             totalCurrency: input.total.currency,
@@ -740,7 +735,11 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
       });
 
       type ReservationProgressInput = {
-        readonly reservation: PayableReservation;
+        /**
+         * The order as opened, or as read again under the account lock; the
+         * progress checks read only its payment state and active attempt.
+         */
+        readonly reservation: WorkspaceReservation;
         readonly state: SignedPayState;
         readonly locale: Locale;
         readonly returnTarget: PaymentReturnTarget | undefined;
@@ -1021,14 +1020,38 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
             }
 
             // The full state-creating section runs inside the account
-            // advisory lock: authority is re-checked under the lock and
-            // the same lock is held until the section completes, so
-            // deletion cannot interleave with the reservation update,
-            // legal evidence, or payment start. Idempotent recovery
-            // paths above stay reachable without the lock.
+            // advisory lock: authority is re-checked under the lock and the
+            // same lock is held until the section completes, so deletion
+            // cannot interleave with the reservation update, legal evidence,
+            // or payment start, and the account's submissions of one order
+            // record its evidence and start its payment once. Attempt
+            // admission locks the order's row, so no submission starts a
+            // second attempt. Idempotent recovery paths above stay reachable
+            // without the lock.
             return yield* accountSections
               .withOptionalAccount(
                 Effect.fn(function* () {
+                  // Another submission of this order may have started its
+                  // payment, or the hold may have changed, since the check
+                  // above: decide again under the account lock, before any
+                  // evidence or provider work.
+                  const lockedReservation = yield* reservations.findById(
+                    reservation.id
+                  );
+                  // An order gone meanwhile can't be paid; the status page
+                  // tells the customer what happened to it.
+                  if (!lockedReservation) {
+                    return { status: "in_progress" as const };
+                  }
+                  const lockedProgressResult =
+                    yield* findReservationProgressResult({
+                      reservation: lockedReservation,
+                      state,
+                      locale,
+                      returnTarget: input.returnTarget,
+                    });
+                  if (lockedProgressResult) return lockedProgressResult;
+
                   yield* reservations.updateReservationDetails({
                     id: reservation.id,
                     reservationDetails:
@@ -1100,7 +1123,6 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                       : startProviderSession({
                           workspaceReservationId: reservation.id,
                           correlationId: reservation.correlationId,
-                          checkoutSessionId: state.checkoutSessionId,
                           locale,
                           total: expectedPrice,
                           commitment: prepared.commitment,

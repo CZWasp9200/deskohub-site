@@ -3,6 +3,10 @@ import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Predicate, Schema } from "effect";
 import type { JsonObject } from "type-fest";
+import {
+  checkoutSessionIdSchema,
+  paymentAttemptIdSchema,
+} from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 import { buildReservationQuote } from "@/features/checkout/reservation-quote";
@@ -47,6 +51,9 @@ const {
   discountCodeErrorIdQueryParam,
   discountCodeErrorQueryParam,
 } = await import("./checkout-pay-url");
+const { getPayStateBinding, isOrderBoundPayState } = await import(
+  "./pay-state-contract"
+);
 const { makeLegacySealedState, sealedStateClaimsSchema } = await import(
   "@/shared/backend/sealed-state"
 );
@@ -1087,5 +1094,100 @@ describe("reservation phone in signed Pay state", () => {
       run(PayState.open(seal(state)), { keys: fixedKey, at: fixedNow })
         .reservation.phone
     ).toBe("0151 23456789");
+  });
+});
+
+describe("Pay state binding", () => {
+  const retriedAttemptId = paymentAttemptIdSchema.make(
+    "pay-state-test-retried-attempt-id"
+  );
+  const buildOrderBoundState = () =>
+    run(
+      buildSignedPayState({
+        locale: "en-US",
+        reservation: baseReservation,
+        quote: buildCoworkReservationQuote(baseReservation),
+        orderId: "pay-state-test-order-id",
+        bookedAt: payStateBookedAt,
+        holdExpiresAt: payStateHoldExpiresAt,
+        binding: "order",
+        retriedAttemptId,
+      })
+    );
+
+  test("an order-bound state round-trips without a checkout session", () => {
+    const state = buildOrderBoundState();
+    const opened = run(PayState.open(seal(state)));
+
+    expect(opened).toEqual(state);
+    expect(opened.checkoutSessionId).toBeUndefined();
+    expect(getPayStateBinding(opened)).toEqual({
+      kind: "order",
+      retriedAttemptId,
+    });
+    expect(isOrderBoundPayState(opened)).toBe(true);
+  });
+
+  test("a session state, as issued before order binding existed, stays session-bound", () => {
+    const state = buildState();
+
+    expect(state.binding).toBeUndefined();
+    expect(getPayStateBinding(state)).toEqual({
+      kind: "session",
+      checkoutSessionId: "pay-state-test-checkout-session-id",
+    });
+    expect(isOrderBoundPayState(state)).toBe(false);
+  });
+
+  test("a state naming neither binding pays no order", () => {
+    const state = buildMeetingRoomState();
+
+    expect(getPayStateBinding(state)).toBeUndefined();
+    expect(isOrderBoundPayState(state)).toBe(false);
+  });
+
+  test("an order-bound state must name the attempt it retries, and only it may", () => {
+    const { retriedAttemptId: _retried, ...withoutRetriedAttempt } =
+      buildOrderBoundState();
+
+    expect(() => decodeSignedPayState(withoutRetriedAttempt)).toThrow();
+    expect(() =>
+      decodeSignedPayState({ ...buildState(), retriedAttemptId })
+    ).toThrow();
+    expect(getPayStateBinding({ binding: "order" })).toBeUndefined();
+    expect(
+      getPayStateBinding({
+        checkoutSessionId: checkoutSessionIdSchema.make("session"),
+        retriedAttemptId,
+      })
+    ).toBeUndefined();
+  });
+
+  test("an order-bound state carrying a checkout session id is refused", () => {
+    expect(() =>
+      decodeSignedPayState({
+        ...buildOrderBoundState(),
+        checkoutSessionId: "pay-state-test-checkout-session-id",
+      })
+    ).toThrow();
+    expect(
+      getPayStateBinding({
+        binding: "order",
+        checkoutSessionId: checkoutSessionIdSchema.make("session"),
+      })
+    ).toBeUndefined();
+  });
+
+  test("the price-review continuation keeps the order binding", () => {
+    const reviewed = {
+      ...buildOrderBoundState(),
+      changedKeys: { sectionKeys: ["total"], itemKeys: [] },
+    };
+    const issued = run(PayState.reissue(reviewed, { kind: "reviewed" }));
+    const continued = run(PayState.open(issued.payStateToken));
+
+    expect(continued.changedKeys).toBeUndefined();
+    expect(isOrderBoundPayState(continued)).toBe(true);
+    expect(continued.retriedAttemptId).toBe(retriedAttemptId);
   });
 });

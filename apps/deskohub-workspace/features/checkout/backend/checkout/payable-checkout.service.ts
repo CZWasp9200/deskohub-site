@@ -26,6 +26,10 @@ import {
   type PayStateWithHoldExpiry,
   type SignedPayState,
 } from "./pay-state";
+import {
+  getPayStateBinding,
+  isPayStateAttemptCurrent,
+} from "./pay-state-contract";
 import { withPayStateHoldExpiry } from "./pay-state-hold";
 
 /**
@@ -100,7 +104,12 @@ export class PayableCheckout extends Context.Service<
         yield* SealedStateKeys
       );
 
-      /** The order, when it is the current reservation of this checkout session. */
+      /**
+       * The order, when it is the current reservation of its checkout
+       * session: the state's own session, or for an order-bound (payment
+       * retry) state the session the order was booked in, while the order
+       * awaits that retry (no attempt active).
+       */
       const findSessionReservation = Effect.fnUntraced(function* (
         state: SignedPayState
       ) {
@@ -110,17 +119,28 @@ export class PayableCheckout extends Context.Service<
         }
         const refuse = (reason: CheckoutUnavailableReason) =>
           unavailable(state, reason, reservation);
-        if (!state.checkoutSessionId) {
+        const binding = getPayStateBinding(state);
+        if (!binding) {
           return yield* refuse("missing_checkout_session");
         }
 
-        const checkoutSessionKeys = yield* deriveCheckoutSessionKeys(
-          state.checkoutSessionId
-        ).pipe(provideSealedStateKeys);
-        if (
-          !checkoutSessionKeys.accepted.includes(reservation.checkoutSessionKey)
-        ) {
-          return yield* refuse("not_current");
+        if (binding.kind === "order") {
+          // Only the stored session key is known: the state carries no raw
+          // session id.
+          if (!isPayStateAttemptCurrent(binding, reservation)) {
+            return yield* refuse("retried_attempt_replaced");
+          }
+        } else {
+          const checkoutSessionKeys = yield* deriveCheckoutSessionKeys(
+            binding.checkoutSessionId
+          ).pipe(provideSealedStateKeys);
+          if (
+            !checkoutSessionKeys.accepted.includes(
+              reservation.checkoutSessionKey
+            )
+          ) {
+            return yield* refuse("not_current");
+          }
         }
         const current = yield* reservations.findCurrentByCheckoutSessionKey(
           reservation.checkoutSessionKey

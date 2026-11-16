@@ -35,6 +35,7 @@ import type {
 import { loadPayStateHoldExpiry } from "./pay-state-hold";
 import { type OpenCheckout, PayableCheckout } from "./payable-checkout.service";
 import type { PriceVerdict } from "./price-verdict";
+import { hasPaymentInProgress } from "./reusable-payment-attempt";
 
 /**
  * Entering or removing a discount code affirms the displayed discounts,
@@ -146,8 +147,8 @@ const priceReviewPending = unavailableBecause({
 });
 
 /**
- * The opened checkout while its order is payable and no payment attempt has
- * started; none once a payment is in progress. An order that can't be paid
+ * The opened checkout while its order is payable and no payment is pending
+ * or paid; none once a payment is in progress. An order that can't be paid
  * fails.
  */
 const requirePayableBeforePayment = Effect.fnUntraced(function* (
@@ -155,7 +156,7 @@ const requirePayableBeforePayment = Effect.fnUntraced(function* (
 ) {
   const payableCheckout = yield* PayableCheckout;
   const checkout = yield* payableCheckout.reconfirm(state);
-  return checkout.reservation.activePaymentAttemptId
+  return hasPaymentInProgress(checkout.reservation)
     ? Option.none<OpenCheckout>()
     : Option.some(checkout);
 });

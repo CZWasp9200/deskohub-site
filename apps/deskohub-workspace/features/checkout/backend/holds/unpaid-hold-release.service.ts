@@ -26,11 +26,15 @@ import { DotyposHoldRelease } from "./dotypos-hold-release.service";
  *   recreates the reservation or refunds.
  * - `agent_rotated`: an agent client's hold left behind in a rotated checkout
  *   session.
+ * - `payment_retry`: a customer retries the order's failed, cancelled or
+ *   expired payment, and its hold expired; the retry books the reservation
+ *   again for the same order once this hold is released.
  */
 type UnpaidHoldReleaseReason =
   | "hold_expired"
   | "late_payment"
-  | "agent_rotated";
+  | "agent_rotated"
+  | "payment_retry";
 
 export type UnpaidHoldReleaseRequest =
   | {
@@ -57,6 +61,12 @@ export type UnpaidHoldReleaseRequest =
   | {
       readonly reason: "agent_rotated";
       readonly reservationId: WorkspaceReservationId;
+    }
+  | {
+      readonly reason: "payment_retry";
+      readonly reservationId: WorkspaceReservationId;
+      /** The hold the retry found; a reservation carrying another is left alone. */
+      readonly expectedHold: ExpectedReservationHold;
     };
 
 /** A hold this run released and marked cancelled. */
@@ -159,6 +169,11 @@ const releasePolicies = {
     failureCode: "checkout_supersession_cancel_failed",
     markerRefused: "fails",
   },
+  payment_retry: {
+    liveStatus: "require_new",
+    failureCode: "dotypos_cancel_failed",
+    markerRefused: "state_changed",
+  },
 } as const satisfies Record<UnpaidHoldReleaseReason, ReleasePolicy>;
 
 /**
@@ -256,6 +271,7 @@ export class UnpaidHoldRelease extends Context.Service<
       // claim on it; leaves a fresh claim to its run, and is unreleasable
       // after logging why it may not be released.
       const claimExpectedHold = Effect.fnUntraced(function* (request: {
+        readonly reason: "hold_expired" | "payment_retry";
         readonly reservationId: WorkspaceReservationId;
         readonly expectedHold: ExpectedReservationHold;
       }): Effect.fn.Return<ClaimResult, UnpaidHoldReleaseError> {
@@ -263,6 +279,7 @@ export class UnpaidHoldRelease extends Context.Service<
         const claimedFromNew = yield* reservations.claimCancellation({
           id: reservationId,
           expectedHold,
+          cause: request.reason,
         });
         yield* Effect.logDebug(
           "Reservation hold cancellation claim completed",
@@ -387,7 +404,10 @@ export class UnpaidHoldRelease extends Context.Service<
               id: reservation.id,
               staleBefore: now.subtract(staleHoldCancellationAfter),
             })
-          : yield* reservations.claimCancellation({ id: reservation.id });
+          : yield* reservations.claimCancellation({
+              id: reservation.id,
+              cause: "late_payment",
+            });
         if (!claimed) return "unclaimed" as const;
         return {
           reservation,
@@ -403,6 +423,7 @@ export class UnpaidHoldRelease extends Context.Service<
       const claimHold = (request: UnpaidHoldReleaseRequest) => {
         switch (request.reason) {
           case "hold_expired":
+          case "payment_retry":
             return claimExpectedHold(request);
           case "late_payment":
             return claimResumingStale(request);
