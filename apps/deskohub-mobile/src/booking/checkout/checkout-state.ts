@@ -198,6 +198,12 @@ interface ReviewFields {
   /** Who books and who is invoiced, as the details step submitted them. */
   readonly details: CheckoutDetails;
   readonly checkout: HeldCheckout;
+  /**
+   * The total shown before the price changed, while a price review waits;
+   * none when the review opened on a changed price (the quote's total was
+   * the last one shown).
+   */
+  readonly priceBefore: Option.Option<CustomerCheckout["summary"]["total"]>;
   readonly code: CodeEntry;
   readonly legal: LegalDocuments;
   /** The documents the ticked checkbox accepted; none while unticked. */

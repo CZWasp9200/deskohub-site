@@ -245,7 +245,7 @@ describe("reviewView", () => {
     expect(
       Option.map(pending.priceChange, (change) => change.accepting)
     ).toEqual(Option.some(true));
-    expect(pending.payBlock).toEqual(Option.none());
+    expect(pending.payBlock).toEqual(Option.some("AcceptPrice"));
 
     const accepted = run(
       accepting.state,
@@ -259,6 +259,34 @@ describe("reviewView", () => {
     expect(settled.price.was).toEqual(Option.some(quoted));
     expect(settled.canPay).toBe(true);
     expect(settled.payBlock).toEqual(Option.none());
+  });
+
+  test("a price review after a removed code compares against the total last shown, not the quote's", () => {
+    const appliedDiscountCode = { code: "SAVE10", discountId: "sample-code" };
+    const applied = reviewWith(
+      held({ summary: discounted, appliedDiscountCode })
+    );
+    const clearing = run(applied.state, CheckoutEvent.ClearCode());
+    const cleared = run(
+      clearing.state,
+      CheckoutEvent.CodeCleared({
+        operationId: operationOf(clearing, "ClearDiscountCode"),
+        checkout: held({
+          status: "price_review",
+          payStateToken: "token-2",
+          priceReview: {
+            changedKeys: { sectionKeys: ["total"], itemKeys: [] },
+          },
+        }),
+      })
+    );
+    expect(viewOf(cleared).priceChange).toEqual(
+      Option.some({
+        before: discounted.total,
+        now: summary.total,
+        accepting: false,
+      })
+    );
   });
 
   test("code entry opens with an input, holds still while applying, and shows the server's refusal at the field", () => {
@@ -283,6 +311,7 @@ describe("reviewView", () => {
       canApply: false,
     });
     expect(pending.busy).toBe(true);
+    expect(pending.payBlock).toEqual(Option.some("Agreement"));
 
     const refusedWith = (reason: "ineligible" | "unavailable") =>
       viewOf(

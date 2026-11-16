@@ -8,6 +8,7 @@ import {
   useNavigation,
   useRouter,
 } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
@@ -262,6 +263,7 @@ function ReviewForAccount({
   readonly locale: AppLocale;
 }) {
   const router = useRouter();
+  const headerHeight = useHeaderHeight();
   const account = useAtomValue(accountAtom);
   const family = request.selection.family;
   const bookerName = AsyncResult.value(account).pipe(
@@ -284,6 +286,7 @@ function ReviewForAccount({
         bookerName={bookerName}
         send={ended ? ignoreIntent : flow.send}
         onChangeBooking={() => backToSelection()}
+        keyboardOffset={headerHeight}
         onOpenDocument={(document) =>
           void WebBrowser.openBrowserAsync(
             new URL(document.path, apiOrigin).href

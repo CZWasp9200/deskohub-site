@@ -77,6 +77,7 @@ export function ReviewStep({
   send,
   onChangeBooking,
   onOpenDocument,
+  keyboardOffset = 0,
   locale,
 }: Locale & {
   readonly review: ReviewState;
@@ -89,6 +90,8 @@ export function ReviewStep({
   /** Back to the selection, with the choices kept. */
   readonly onChangeBooking: () => void;
   readonly onOpenDocument: (document: CustomerLegalDocument) => void;
+  /** The height above the step, such as the stack header's. */
+  readonly keyboardOffset?: number;
 }) {
   const view = reviewView(review, quotedTotal, bookerName);
   const hold = useHoldCountdown(view.holdExpiresAt);
@@ -96,7 +99,11 @@ export function ReviewStep({
   const [raised, setRaised] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.screen}>
+    <KeyboardAvoidingView
+      behavior="padding"
+      keyboardVerticalOffset={keyboardOffset}
+      style={styles.screen}
+    >
       <BookingSteps current="pay" raised={raised} locale={locale} />
       {hold.phase === "ending" && (
         <View style={styles.banner}>
@@ -263,7 +270,9 @@ function BookingCard({
         </View>
         {party._tag === "Self" ? (
           <Row label={m.booking_review_for({}, { locale })}>
-            <Text variant="bodySmall">{you(party.name)}</Text>
+            <Text variant="bodySmall" style={styles.end}>
+              {you(party.name)}
+            </Text>
           </Row>
         ) : (
           <>
@@ -280,7 +289,9 @@ function BookingCard({
             </Row>
             {Option.isSome(party.bookerName) && (
               <Row label={m.booking_review_booked_by({}, { locale })}>
-                <Text variant="bodySmall">{you(party.bookerName.value)}</Text>
+                <Text variant="bodySmall" style={styles.end}>
+                  {you(party.bookerName.value)}
+                </Text>
               </Row>
             )}
           </>

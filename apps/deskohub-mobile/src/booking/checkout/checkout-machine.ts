@@ -233,6 +233,7 @@ const enterReview = (
       flow: withReferralUpdate(next, update),
       details,
       checkout: heldCheckout(checkout),
+      priceBefore: Option.none(),
       code: { input: "", status: CodeStatus.Idle() },
       legal: LegalDocuments.Loading({ operationId }),
       consent: Option.none(),
@@ -619,6 +620,18 @@ const codeCleared = (review: ReviewState, checkout: CustomerCheckout) =>
   );
 
 /**
+ * The total the customer saw before an answer that asks them to accept a
+ * new price: the one shown when the review began, kept across answers
+ * while it waits.
+ */
+const priceBeforeOf = (review: ReviewState, checkout: CustomerCheckout) => {
+  if (checkout.priceReview === undefined) return Option.none();
+  return Option.isSome(review.checkout.priceReview)
+    ? review.priceBefore
+    : Option.some(review.checkout.summary.total);
+};
+
+/**
  * Takes a checkout answer as the whole truth about the held order: token,
  * summary, hold end, applied code, price review and early-performance
  * requirement.
@@ -633,6 +646,7 @@ const replaceCheckout = (
       ...review,
       flow: withReferralUpdate(review.flow, update),
       checkout: heldCheckout(checkout),
+      priceBefore: priceBeforeOf(review, checkout),
       // The checkbox asks to start early only while that's required, so a
       // tick given before doesn't cover it.
       consent:

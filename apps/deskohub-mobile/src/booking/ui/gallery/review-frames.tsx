@@ -195,6 +195,7 @@ const reviewOf = (
       referralApplied: false,
       ...frame.checkout,
     },
+    priceBefore: Option.none(),
     code: frame.code ?? { input: "", status: CodeStatus.Idle() },
     legal: documents,
     consent: frame.consented

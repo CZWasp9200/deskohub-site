@@ -157,7 +157,10 @@ export interface ReviewPriceView {
   readonly was: Option.Option<Money>;
 }
 
-/** A changed price waiting for the customer: the quote's total, the new. */
+/**
+ * A changed price waiting for the customer: the total they last saw (the
+ * quote's, when the review opened on the change) and the new one.
+ */
 export interface PriceChangeView {
   readonly before: Money;
   readonly now: Money;
@@ -184,17 +187,15 @@ export interface ConsentView {
 }
 
 /**
- * Why Pay is off while nothing runs: a changed price to accept first, else
- * the agreement to tick.
+ * Why Pay is off, also while a write runs: a changed price to accept
+ * first, else the agreement to tick.
  */
 export type PayBlock = "AcceptPrice" | "Agreement";
 
 const payBlock = (
-  idle: boolean,
   priceChanged: boolean,
   consented: boolean
 ): Option.Option<PayBlock> => {
-  if (!idle) return Option.none();
   if (priceChanged) return Option.some("AcceptPrice");
   return consented ? Option.none() : Option.some("Agreement");
 };
@@ -238,7 +239,7 @@ export const reviewView = (
   const priceChange = Option.map(
     checkout.priceReview,
     (): PriceChangeView => ({
-      before: quotedTotal,
+      before: Option.getOrElse(review.priceBefore, () => quotedTotal),
       now: total,
       accepting: pending("AcceptPriceChange"),
     })
@@ -262,7 +263,7 @@ export const reviewView = (
       earlyPerformance: checkout.earlyPerformanceConsent.required,
     },
     canPay: canPay(review),
-    payBlock: payBlock(idle, Option.isSome(priceChange), consented),
+    payBlock: payBlock(Option.isSome(priceChange), consented),
     busy: !idle,
     submitting: pending("SubmitCheckout"),
     holdExpiresAt: checkout.holdExpiresAt,
