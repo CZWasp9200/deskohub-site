@@ -4,7 +4,7 @@ import { use } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { Icon, type IconComponent } from "./icon";
 import { useToastObstruction } from "./toast";
-import { color, radius } from "./tokens";
+import { color, radius, tabBarRaisedOverhang } from "./tokens";
 
 /** How a tab shows in the bar: its icon, and whether it is the raised one. */
 export interface TabBarItem {
@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     boxShadow: "0 10px 18px -8px rgba(150, 48, 4, 0.75)",
     height: raisedSize,
     justifyContent: "center",
-    marginTop: -26,
+    marginTop: -tabBarRaisedOverhang,
     width: raisedSize,
   },
   circleActive: { backgroundColor: color.actionPressed },

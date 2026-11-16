@@ -13,7 +13,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { LoadingIndicator } from "./loading-indicator";
-import { color, radius, shadow, space } from "./tokens";
+import { color, radius, shadow, space, tabBarRaisedOverhang } from "./tokens";
 
 /**
  * Scrolls the enclosing `ScrollScreen` back to its top; outside one, it does
@@ -168,7 +168,8 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     gap: space.md,
     maxWidth: 640,
-    paddingBottom: space.xxl,
+    // The last control ends clear of the tab bar's raised circle.
+    paddingBottom: space.xxl + tabBarRaisedOverhang,
     paddingHorizontal: space.gutter,
     paddingTop: space.sm,
     width: "100%",

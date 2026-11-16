@@ -215,6 +215,8 @@ describe("loadAccountState", () => {
         summary,
         shareUrl: expect.stringContaining(summary.code),
         discountPerInvitee: "5",
+        invitationDiscount: "15",
+        savingsCurrency: "CZK",
       },
     });
     expect(state).not.toHaveProperty("history");
