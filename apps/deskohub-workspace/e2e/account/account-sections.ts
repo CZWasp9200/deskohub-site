@@ -29,7 +29,8 @@ export const accountSectionLandmarks = {
   security: "#account-security-passkeys-title",
   assistants: "#account-assistants-title",
   billing: "#account-profile-billing-kind",
-  legal: "main a[href$='/privacy-policy']",
+  // The section's title: the page links to the privacy policy more than once.
+  legal: "#account-legal-title",
   danger: "#delete-account-trigger",
 } as const satisfies Readonly<Record<AccountSection, string>>;
 

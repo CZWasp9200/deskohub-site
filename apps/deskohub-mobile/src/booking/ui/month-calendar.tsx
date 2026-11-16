@@ -398,6 +398,10 @@ const styles = StyleSheet.create({
   disc: {
     alignItems: "center",
     borderRadius: radius.pill,
+    // Android drops the radius of a view that gains an outer shadow after
+    // it mounts, squaring a day once it's picked: every disc carries the
+    // selected disc's shadow, clear until picked.
+    boxShadow: "0 4px 10px -6px rgba(150, 48, 4, 0)",
     justifyContent: "center",
     minHeight: discSize,
     minWidth: discSize,

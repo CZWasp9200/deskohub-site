@@ -41,7 +41,8 @@ const openSpaceClosingHour = 17;
 export const openSpaceClosingTime = `${openSpaceClosingHour}:00`;
 const horizonMonths = 6;
 
-const coworkOfferings = (offerings: ReadonlyArray<CustomerOffering>) =>
+/** The cowork tiers the catalog offers, in catalog order. */
+export const coworkOfferings = (offerings: ReadonlyArray<CustomerOffering>) =>
   offerings.filter(
     (offering): offering is CoworkOffering => offering.family === "cowork"
   );

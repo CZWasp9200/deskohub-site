@@ -62,9 +62,20 @@ const sectionPanel = (section: AccountSection, includeLegalLink: boolean) => {
     case "legal":
       return includeLegalLink
         ? createElement(
-            "a",
-            { href: "/en-US/privacy-policy" },
-            "Privacy policy"
+            "section",
+            { "aria-labelledby": "account-legal-title" },
+            createElement("h2", { id: "account-legal-title" }, "Legal"),
+            // The real section links to the privacy policy more than once.
+            createElement(
+              "a",
+              { href: "/en-US/privacy-policy" },
+              "Privacy policy"
+            ),
+            createElement(
+              "a",
+              { href: "/en-US/privacy-policy" },
+              "privacy policy"
+            )
           )
         : null;
     case "danger":

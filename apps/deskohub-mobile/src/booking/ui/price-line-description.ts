@@ -60,16 +60,14 @@ const productDetail = (
 
 const chargeDescription = (
   subject: PriceLineSubject,
-  selection: CustomerBookingSelection,
+  /** What the booked product covers; asked only for a product line. */
+  coveredByProduct: () => string | undefined,
   locale: AppLocale,
   productName: string
 ): PriceLineDescription => {
   switch (subject._tag) {
     case "Product":
-      return {
-        label: productName,
-        detail: productDetail(selection, locale),
-      };
+      return { label: productName, detail: coveredByProduct() };
     case "OfficeAccess":
       return {
         label: productName,
@@ -120,4 +118,21 @@ export const describePriceLine =
   (line: PriceLine): PriceLineDescription =>
     line._tag === "Reduction"
       ? { label: line.label }
-      : chargeDescription(line.subject, selection, locale, productName);
+      : chargeDescription(
+          line.subject,
+          () => productDetail(selection, locale),
+          locale,
+          productName
+        );
+
+/**
+ * Names an office's lines before there is a selection, such as those of
+ * its from-price: access by its days, seats by seats and days, the same
+ * way `describePriceLine` names them once quoted.
+ */
+export const describeOfficePriceLine =
+  (locale: AppLocale, productName: string) =>
+  (line: PriceLine): PriceLineDescription =>
+    line._tag === "Reduction"
+      ? { label: line.label }
+      : chargeDescription(line.subject, () => undefined, locale, productName);

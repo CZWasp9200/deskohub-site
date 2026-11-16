@@ -38,15 +38,16 @@ export type BookingBarPrice =
   /** A new quote is on its way: "Updating price…", announced. */
   | { readonly kind: "updating" }
   /**
-   * A price before the selection is complete, not expandable: the
-   * from-price with its unit such as "per day", or a chosen option's price
-   * without one.
+   * A price before the selection is complete: the from-price with its unit
+   * such as "per day", or a chosen option's price without one. It opens
+   * only when `itemized` gives the lines it adds up from.
    */
   | {
       readonly kind: "from";
       readonly amount: Money;
       readonly was?: Money;
       readonly unit?: string;
+      readonly itemized?: ItemizedPrice;
     }
   /** The quoted total, which opens to its itemized lines. */
   | {
@@ -55,6 +56,20 @@ export type BookingBarPrice =
       readonly describeLine: (line: PriceLine) => PriceLineDescription;
       readonly was?: Money;
     };
+
+/** The lines a price opens to, and how each reads. */
+export interface ItemizedPrice {
+  readonly breakdown: PriceBreakdown;
+  readonly describeLine: (line: PriceLine) => PriceLineDescription;
+}
+
+/** The lines the bar's price opens to; none when it doesn't open. */
+const itemizedPriceOf = (
+  price: BookingBarPrice | undefined
+): ItemizedPrice | undefined => {
+  if (price?.kind === "quoted") return price;
+  return price?.kind === "from" ? price.itemized : undefined;
+};
 
 /** What and when is booked, and its price. */
 export interface BookingBarSummary {
@@ -114,8 +129,8 @@ const openListShare = 0.45;
 /**
  * The sticky footer of a booking screen: what and when on the left, the
  * price on the right, the screen's one action under them and, under the
- * action, why it is off. A quoted price opens to its itemized lines above
- * the summary: tap the summary or the grey arrow, or swipe the bar up;
+ * action, why it is off. A quoted price, or a from-price given its lines,
+ * opens to its itemized lines above the summary: tap the summary or the grey arrow, or swipe the bar up;
  * swipe down or tap again to close. The arrow is the accessible toggle.
  * Without a `summary` the bar is the action alone (the Pay step). Toasts
  * rise above the bar.
@@ -148,13 +163,13 @@ export function BookingBar({
   useToastObstruction(height);
   const reducedMotion = useReducedMotion() !== false;
   const [open, setOpen] = useState(initiallyOpen);
-  const quoted = summary?.price.kind === "quoted" ? summary.price : undefined;
-  // The breakdown closes when the price stops being quoted.
-  if (open && quoted === undefined) setOpen(false);
-  const shownOpen = open && quoted !== undefined;
+  const itemized = itemizedPriceOf(summary?.price);
+  // The breakdown closes when the price stops being itemized.
+  if (open && itemized === undefined) setOpen(false);
+  const shownOpen = open && itemized !== undefined;
 
   const toggle = (next: boolean) => {
-    if (quoted === undefined || next === shownOpen) return;
+    if (itemized === undefined || next === shownOpen) return;
     if (!reducedMotion) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
@@ -176,7 +191,7 @@ export function BookingBar({
       return false;
     },
     onMoveShouldSetResponderCapture: (event: GestureResponderEvent) =>
-      quoted !== undefined && claimsSwipe(travel(event)),
+      itemized !== undefined && claimsSwipe(travel(event)),
     onResponderTerminationRequest: () => true,
     onResponderRelease: (event: GestureResponderEvent) => {
       const intent = swipeIntent(travel(event));
@@ -200,7 +215,7 @@ export function BookingBar({
     >
       {summary !== undefined && (
         <View style={styles.summaryArea}>
-          {quoted !== undefined && (
+          {itemized !== undefined && (
             <View {...swipeResponder} style={styles.grabArea}>
               <Pressable
                 role="button"
@@ -213,15 +228,15 @@ export function BookingBar({
               </Pressable>
             </View>
           )}
-          {quoted !== undefined && shownOpen && (
+          {itemized !== undefined && shownOpen && (
             // Long lists scroll, so the summary and the action stay on screen.
             <ScrollView
               bounces={false}
               style={{ maxHeight: windowHeight * openListShare }}
             >
               <PriceLines
-                breakdown={quoted.breakdown}
-                describeLine={quoted.describeLine}
+                breakdown={itemized.breakdown}
+                describeLine={itemized.describeLine}
                 locale={locale}
                 variant="bar"
               />
@@ -232,7 +247,7 @@ export function BookingBar({
               // A pointer convenience: the arrow is the accessible toggle.
               accessible={false}
               focusable={false}
-              disabled={quoted === undefined}
+              disabled={itemized === undefined}
               onPress={() => toggle(!shownOpen)}
               style={styles.summary}
             >

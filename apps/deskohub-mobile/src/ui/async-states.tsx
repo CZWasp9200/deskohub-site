@@ -28,25 +28,34 @@ export function LoadingState({ label }: { readonly label: string }) {
  * content's place (over a tab root's masthead, like the content) with an
  * empty state that says so, and a retry button that shows progress while the retry runs. Its
  * alert region mounts empty and takes the message right after, since screen
- * readers often skip a region inserted together with its text.
+ * readers often skip a region inserted together with its text. With a
+ * `title` naming what didn't load, `message` is the line under it.
  */
 export function ErrorState({
+  title,
   message,
   retryLabel,
   onRetry,
   retrying = false,
 }: {
+  readonly title?: string;
   readonly message: string;
   readonly retryLabel: string;
   readonly onRetry: () => void;
   readonly retrying?: boolean;
 }) {
   const [alert, setAlert] = useState<string>();
-  useEffect(() => setAlert(message), [message]);
+  const headline = title ?? message;
+  useEffect(() => setAlert(headline), [headline]);
   return (
     <Card padding="none">
       <View style={styles.errorCard}>
-        <EmptyState icon={WifiOff} title={alert ?? ""} live="assertive">
+        <EmptyState
+          icon={WifiOff}
+          title={alert ?? ""}
+          body={title === undefined ? undefined : message}
+          live="assertive"
+        >
           <Button
             variant="secondary"
             icon={RotateCcw}

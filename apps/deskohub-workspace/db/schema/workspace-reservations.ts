@@ -26,10 +26,7 @@ import {
 import type { Locale } from "@/features/i18n";
 import { orderFulfillmentStates, orderPaymentStates } from "@/features/order";
 import type { AgentSelectionKey } from "@/features/reservation/backend/booking-agent";
-import type {
-  StoredWorkspaceReservationDetails,
-  WorkspaceReservationId,
-} from "@/features/reservation/persistence-contracts";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   type ReservationPurpose,
   reservationPurposeSchema,
@@ -134,9 +131,7 @@ export const workspaceReservations = pgTable(
     activeCustomerEmailDeliveryLocale: text(
       "active_customer_email_delivery_locale"
     ).$type<Locale>(),
-    reservationDetails: jsonb("reservation_details")
-      .$type<StoredWorkspaceReservationDetails>()
-      .notNull(),
+    reservationDetails: jsonb("reservation_details").notNull(),
     locale: text("locale").notNull(),
     /**
      * The app the last submission that returned a payment page asked the
