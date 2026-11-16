@@ -15,8 +15,9 @@ import { theme } from "../../theme";
 import { BodyText, Button } from "../../ui/controls";
 import { ListGroup, ListRow, SectionHeader } from "../../ui/list";
 import { listRowAccessibleLabel } from "../../ui/list-row-presentation";
+import { Masthead } from "../../ui/masthead";
 import { Notice } from "../../ui/notice";
-import { ScrollScreen } from "../../ui/scroll-screen";
+import { MastheadClearance, ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import {
   type AccountNotice,
@@ -64,6 +65,12 @@ const useOpenReservation = () => {
     router.push({ pathname: "/reservations/[orderId]", params: { orderId } });
 };
 
+/** The tab root's masthead. */
+function ReservationsMasthead() {
+  const locale = useAppLocale();
+  return <Masthead title={m.account_section_reservations({}, { locale })} />;
+}
+
 /**
  * The Reservations tab: the account's reservations (GET /reservations)
  * grouped as the site groups them, gated by the account's state. Saved
@@ -103,7 +110,11 @@ function ReservationsGate({ access }: { readonly access: ReservationsAccess }) {
   const notice =
     shownNotice === undefined ? undefined : gateNotice[shownNotice](locale);
   return (
-    <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      masthead={<ReservationsMasthead />}
+      refreshing={account.waiting}
+      onRefresh={refresh}
+    >
       {/* Kept mounted so assistive tech announces each change. */}
       <Notice tone="info" message={notice} />
       <AsyncView result={account} onRetry={refresh}>
@@ -146,7 +157,11 @@ function ReservationsListView<E extends CustomerRequestFailure>({
     (shown) => shown.savedAt
   );
   return (
-    <ScrollScreen refreshing={list.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      masthead={<ReservationsMasthead />}
+      refreshing={list.waiting}
+      onRefresh={refresh}
+    >
       {/* Kept mounted so assistive tech announces each change. */}
       <Notice
         tone="info"
@@ -176,6 +191,7 @@ function ReservationGroupsView({
   if (groups.empty) {
     return (
       <View style={styles.empty}>
+        <MastheadClearance />
         <BodyText>{m.reservations_empty({}, { locale })}</BodyText>
         {bookingEntryEnabled && (
           <Button
@@ -188,6 +204,7 @@ function ReservationGroupsView({
   }
   return (
     <>
+      <MastheadClearance />
       {Option.isSome(groups.featured) && (
         <>
           <SectionHeader title={m.reservations_current_title({}, { locale })} />

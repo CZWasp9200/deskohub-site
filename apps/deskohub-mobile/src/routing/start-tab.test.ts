@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { DateTime, Option, Schema } from "effect";
+import { DateTime, Deferred, Effect, Fiber, Option, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import {
   type ReservationListRow,
   reservationGroups,
@@ -8,7 +9,10 @@ import {
   reservationsCacheName,
   SavedReservations,
 } from "../account/reservations/reservations-cache";
-import type { ReservationsList } from "../account/reservations/reservations-list-state";
+import {
+  type ReservationsList,
+  savedReservationsAtom,
+} from "../account/reservations/reservations-list-state";
 import { accountStorageKey } from "../customer-api/account-scoped-storage";
 import {
   makeCustomerDataRegistry,
@@ -22,7 +26,12 @@ import {
   FakeWorkspace,
   fakeWorkspaceOrigin,
 } from "../customer-api/testing/fake-workspace";
-import { startTabAtom, startTabOf } from "./start-tab";
+import {
+  decideStartTab,
+  startTabAtom,
+  startTabOf,
+  startTabReadBudget,
+} from "./start-tab";
 
 const now = DateTime.makeUnsafe("2026-11-16T12:00:00Z");
 const row = (
@@ -92,6 +101,54 @@ describe("startTabOf", () => {
   });
 });
 
+describe("decideStartTab", () => {
+  const upcoming = saved([row("upcoming")]);
+  const run = <A>(effect: Effect.Effect<A>) =>
+    Effect.runPromise(Effect.provide(effect, TestClock.layer()));
+
+  test("a read that answers within the budget decides", async () => {
+    const tab = await run(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(
+          decideStartTab(Effect.as(Effect.sleep("400 millis"), upcoming))
+        );
+        yield* TestClock.adjust("400 millis");
+        return yield* Fiber.join(fiber);
+      })
+    );
+    expect(tab).toBe("reservations");
+  });
+
+  test("a read still running after the budget opens Book, and its late answer is dropped", async () => {
+    const result = await run(
+      Effect.gen(function* () {
+        const answered = yield* Deferred.make<void>();
+        const lateRead = Effect.sleep("2 seconds").pipe(
+          Effect.andThen(Deferred.succeed(answered, undefined)),
+          Effect.as(upcoming)
+        );
+        const fiber = yield* Effect.forkChild(decideStartTab(lateRead));
+        yield* TestClock.adjust(startTabReadBudget);
+        const tab = yield* Fiber.join(fiber);
+        yield* TestClock.adjust("5 seconds");
+        return { tab, lateAnswer: yield* Deferred.isDone(answered) };
+      })
+    );
+    expect(result).toEqual({ tab: "book", lateAnswer: false });
+  });
+
+  test("a read that never answers opens Book", async () => {
+    const tab = await run(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(decideStartTab(Effect.never));
+        yield* TestClock.adjust(startTabReadBudget);
+        return yield* Fiber.join(fiber);
+      })
+    );
+    expect(tab).toBe("book");
+  });
+});
+
 describe("startTabAtom", () => {
   const chosen = (tab: string) =>
     expect.objectContaining({ _tag: "Success", success: tab });
@@ -136,6 +193,33 @@ describe("startTabAtom", () => {
     );
     const result = await settle(registry, startTabAtom);
     expect(result).toEqual(chosen("reservations"));
+  });
+
+  test("is decided once per account: a list saved later doesn't move it", async () => {
+    const { registry, device, cacheKey } = setup();
+    expect(await settle(registry, startTabAtom)).toEqual(chosen("book"));
+    device.storage.set(
+      cacheKey,
+      Schema.encodeSync(Schema.fromJsonString(SavedReservations))({
+        savedAt: DateTime.nowUnsafe(),
+        history: {
+          current: [
+            row("upcoming", {
+              startsAt: new Date(Date.now() + 86_400_000).toISOString(),
+              endsAt: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+            }),
+          ],
+          past: [],
+          unavailable: [],
+        },
+      })
+    );
+    // The saved list itself is read again; the start tab stays.
+    registry.refresh(savedReservationsAtom);
+    expect(await settle(registry, savedReservationsAtom)).toMatchObject({
+      _tag: "Success",
+    });
+    expect(await settle(registry, startTabAtom)).toEqual(chosen("book"));
   });
 
   test("an unreadable saved entry reads as nothing saved: Book", async () => {

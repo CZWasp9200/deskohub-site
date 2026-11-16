@@ -36,21 +36,29 @@ export const startTabOf = (list: Option.Option<ReservationsList>): StartTab =>
 export const startTabReadBudget = Duration.millis(500);
 
 /**
+ * The start tab from a read of the device's saved reservations: Book when
+ * nothing is saved, and Book when the read is still running after
+ * `startTabReadBudget` (the read is then interrupted, so a late answer
+ * changes nothing).
+ */
+export const decideStartTab = <E, R>(
+  savedRead: Effect.Effect<Option.Option<ReservationsList>, E, R>
+): Effect.Effect<StartTab, E, R> =>
+  savedRead.pipe(
+    Effect.map(startTabOf),
+    Effect.timeoutOrElse({
+      duration: startTabReadBudget,
+      orElse: () => Effect.succeed<StartTab>("book"),
+    })
+  );
+
+/**
  * The start tab from the reservations this device saved on the last list
  * read: a local read the Reservations tab makes anyway, so the first screen
- * never waits for the network. With nothing saved (a new device, or the
- * read failed) or the read still running after `startTabReadBudget`, Book.
- * Decided once per signed-in account: a list saved later in the session
- * doesn't move the tab back navigates to.
+ * never waits for the network (see `decideStartTab`). Decided once per
+ * signed-in account: a list saved later in the session doesn't move the tab
+ * back navigates to.
  */
 export const startTabAtom = customerDataRuntime
-  .atom((get) =>
-    get.resultOnce(savedReservationsAtom).pipe(
-      Effect.map(startTabOf),
-      Effect.timeoutOrElse({
-        duration: startTabReadBudget,
-        orElse: () => Effect.succeed<StartTab>("book"),
-      })
-    )
-  )
+  .atom((get) => decideStartTab(get.resultOnce(savedReservationsAtom)))
   .pipe(Atom.keepAlive);
