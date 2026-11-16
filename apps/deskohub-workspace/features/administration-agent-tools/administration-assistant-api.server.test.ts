@@ -282,6 +282,10 @@ const makeInstanceServices = () => {
   > = [];
   const sessionOwners: Array<string> = [];
   const sessionAuthentications: Array<string> = [];
+  const reservationReads: Array<string> = [];
+  const restorations: Array<
+    Parameters<ReservationAdministrationService["Service"]["restore"]>[0]
+  > = [];
   const layer = Layer.mergeAll(
     Layer.succeed(CliAuthentication, {
       ...({} as CliAuthentication["Service"]),
@@ -324,11 +328,29 @@ const makeInstanceServices = () => {
       finish: () => Effect.void,
     }),
     Layer.succeed(CliAuthenticationAdmission, {} as never),
-    Layer.succeed(AdministrationService, {} as never),
+    Layer.succeed(AdministrationService, {
+      ...({} as AdministrationService["Service"]),
+      loadReservation: (id) =>
+        Effect.sync(() => {
+          reservationReads.push(id);
+          return null;
+        }),
+    }),
     Layer.succeed(AdministratorRoster, {} as never),
     Layer.succeed(LegacyAdministratorBackfill, {} as never),
     Layer.succeed(CampaignOperations, {} as never),
-    Layer.succeed(ReservationAdministrationService, {} as never),
+    Layer.succeed(ReservationAdministrationService, {
+      ...({} as ReservationAdministrationService["Service"]),
+      restore: (input) =>
+        Effect.sync(() => {
+          restorations.push(input);
+          return {
+            outcome: "restored",
+            email: "not_requested",
+            access: "issued",
+          } as const;
+        }),
+    }),
     Layer.succeed(ReservationProductDetailsBackfill, {
       runBatch: (input) =>
         Effect.sync(() => {
@@ -351,6 +373,8 @@ const makeInstanceServices = () => {
     backfills,
     callers,
     layer,
+    reservationReads,
+    restorations,
     sessionAuthentications,
     sessionOwners,
   };
@@ -701,6 +725,61 @@ describe("administration tools through the assistant API", () => {
 
     expect(applied).toMatchObject({ result: { outcome: "applied" } });
     expect(backfills.at(-1)).toEqual({ dryRun: false, after: null });
+    expect(callers.map(({ channel }) => channel)).toEqual([assistantChannel]);
+  });
+
+  const restoreTool = makeAdministrationAgentTools(
+    administrationOperationTools
+  ).find(({ name }) => name === "admin_restore_reservation");
+  const restoredReservationId = "01980000-0000-7000-8000-0000000000f1";
+
+  const callRestore = (handler: Handler, args: Schema.Json) =>
+    restoreTool!
+      .call(args, Option.some(caller))
+      .pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            makeAssistantServices().layer,
+            AdministrationApiClient.Default.pipe(
+              Layer.provide(Layer.succeed(AdministrationApiTransport, handler))
+            )
+          )
+        ),
+        Effect.runPromise
+      );
+
+  test("restores a reservation only with confirm: true, after reading it as the preview", async () => {
+    const { callers, handler, reservationReads, restorations } =
+      serveAssistant();
+    const input = {
+      reservationId: restoredReservationId,
+      acknowledgeRefundedPayment: true,
+      sendRestorationEmail: false,
+    };
+
+    await callRestore(handler, input);
+    await callRestore(handler, { ...input, confirm: false });
+
+    expect(reservationReads).toEqual([
+      restoredReservationId,
+      restoredReservationId,
+    ]);
+    expect(restorations).toEqual([]);
+    expect(callers).toEqual([]);
+
+    const applied = await callRestore(handler, { ...input, confirm: true });
+
+    expect(applied).toMatchObject({
+      result: {
+        outcome: "applied",
+        result: {
+          outcome: "restored",
+          email: "not_requested",
+          access: "issued",
+        },
+      },
+    });
+    expect(restorations).toEqual([input]);
     expect(callers.map(({ channel }) => channel)).toEqual([assistantChannel]);
   });
 });

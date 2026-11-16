@@ -1591,6 +1591,127 @@ describe("customer and reservation administration endpoints", () => {
     expect(errors[2]).toBeInstanceOf(CliServiceUnavailable);
   });
 
+  test("serves a reservation restore through the shared service", async () => {
+    const reservationId = AdministrationWorkspaceReservationId.make(
+      "01980000-0000-7000-8000-000000000001"
+    );
+    const restorations: unknown[] = [];
+    const reservations = Layer.succeed(ReservationAdministrationService, {
+      ...({} as ReservationAdministrationService["Service"]),
+      restore: (input) =>
+        Effect.sync(() => {
+          restorations.push(input);
+          return {
+            outcome: "restored",
+            email: "sent",
+            access: "failed",
+          } as const;
+        }),
+    });
+
+    const result = await callAdministrationApi(
+      (client) =>
+        client.restoreReservation({
+          params: { reservationId },
+          payload: {
+            acknowledgeRefundedPayment: true,
+            sendRestorationEmail: true,
+          },
+        }),
+      { reservations }
+    );
+
+    expect(restorations).toEqual([
+      {
+        acknowledgeRefundedPayment: true,
+        reservationId,
+        sendRestorationEmail: true,
+      },
+    ]);
+    expect(result).toEqual({
+      outcome: "restored",
+      email: "sent",
+      access: "failed",
+    });
+  });
+
+  test("maps each reservation restoration failure to its API error", async () => {
+    const reservationId = AdministrationWorkspaceReservationId.make(
+      "01980000-0000-7000-8000-000000000001"
+    );
+    const failures = [
+      new ReservationAdministrationError({
+        code: "not_found",
+        reason: "not_found",
+        message: "Synthetic not_found failure",
+      }),
+      new ReservationAdministrationError({
+        code: "not_restorable",
+        reason: "table_unavailable",
+        message: "Synthetic table_unavailable failure",
+      }),
+      new ReservationAdministrationError({
+        code: "not_restorable",
+        reason: "refund_acknowledgement_required",
+        refundedPayment: {
+          amount: { value: 25000, exponent: 2, currency: "CZK" },
+          coverage: "partial",
+        },
+        message: "Synthetic refund_acknowledgement_required failure",
+      }),
+      new ReservationAdministrationError({
+        code: "restoration_failed",
+        reason: "dotypos_failed",
+        message: "Synthetic dotypos_failed failure",
+      }),
+    ];
+    const restorations: unknown[] = [];
+    const reservations = Layer.succeed(ReservationAdministrationService, {
+      ...({} as ReservationAdministrationService["Service"]),
+      restore: (input) => {
+        const failure = failures[restorations.length];
+        restorations.push(input);
+        return failure
+          ? Effect.fail(failure)
+          : Effect.die("unexpected restore");
+      },
+    });
+
+    const errors = await callAdministrationApi(
+      (client) =>
+        Effect.forEach(failures, () =>
+          client
+            .restoreReservation({
+              params: { reservationId },
+              payload: {
+                acknowledgeRefundedPayment: false,
+                sendRestorationEmail: false,
+              },
+            })
+            .pipe(Effect.flip)
+        ),
+      { reservations }
+    );
+
+    expect(restorations).toHaveLength(failures.length);
+    expect(errors[0]).toBeInstanceOf(CliResourceNotFound);
+    expect(errors[0]).toMatchObject({ message: "Synthetic not_found failure" });
+    expect(errors[1]).toBeInstanceOf(CliMutationRejected);
+    expect(errors[1]).toMatchObject({
+      message: "Synthetic table_unavailable failure",
+    });
+    // The refund refusal reaches the caller with the service's message,
+    // which names the refunded amount.
+    expect(errors[2]).toBeInstanceOf(CliMutationRejected);
+    expect(errors[2]).toMatchObject({
+      message: "Synthetic refund_acknowledgement_required failure",
+    });
+    expect(errors[3]).toBeInstanceOf(CliServiceUnavailable);
+    expect(errors[3]).not.toMatchObject({
+      message: "Synthetic dotypos_failed failure",
+    });
+  });
+
   /**
    * One administration API handler whose cancellations run through
    * `ReservationAdministrationService.perOperationOver`, as `Live`'s do, over
