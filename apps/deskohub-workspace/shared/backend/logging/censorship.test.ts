@@ -1570,8 +1570,9 @@ describe("censorLogValue stack traces", () => {
 describe("WorkspaceLoggerLive", () => {
   test("names the level as the log lines always have", async () => {
     const lines: string[] = [];
-    const capture = (line: unknown) => {
-      lines.push(String(line));
+    // The leveled console logger writes each formatted line as one string.
+    const capture = (line: string) => {
+      lines.push(line);
     };
     const error = spyOn(console, "error").mockImplementation(capture);
     const warn = spyOn(console, "warn").mockImplementation(capture);
