@@ -3,13 +3,17 @@ import { type SQL, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import type { SelectResultFields } from "drizzle-orm/query-builders/select.types";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { type DatabaseQueryError, findSqlState } from "@/db/sql-constraint";
 import type { AccountingSnapshotKeyId } from "@/features/accounting/accounting-document-snapshot";
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
-import { censorLogValue } from "@/shared/backend/logging/censorship";
+import {
+  censorDatabaseQueryError,
+  censorLogValue,
+} from "@/shared/backend/logging/censorship";
 import { sensitiveDatabaseParameter } from "@/shared/backend/logging/database-query-parameter-classifier";
 import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
 
@@ -90,6 +94,19 @@ const encryptJson = (json: string, secret: string): SQL<Buffer> =>
 
 const decryptJson = (ciphertext: PgColumn, secret: string): SQL<string> =>
   sql<string>`pgp_sym_decrypt(${ciphertext}, ${sensitiveDatabaseParameter(secret)})`;
+
+// pgcrypto raises each failure to decrypt, such as a wrong key, corrupt data
+// or a message sealed as binary, as external_routine_invocation_exception.
+const pgcryptoFailureSqlState = "39000";
+
+/**
+ * Whether a failed decrypting statement failed on the sealed record itself:
+ * pgcrypto, the only routine the statement calls, could not decrypt it with
+ * the key its row names. Anything else, such as a timeout, a cancelled
+ * statement, a lost connection or a refused privilege, is a database failure.
+ */
+export const isUndecryptableRecord = (error: DatabaseQueryError) =>
+  Option.contains(findSqlState(error), pgcryptoFailureSqlState);
 
 /**
  * Stores values of one kind as versionless JSON that PostgreSQL `pgcrypto`
@@ -221,12 +238,16 @@ export const sealedAccountingJson = <
         .limit(1)
         .pipe(
           Effect.withTracerEnabled(false),
-          Effect.mapError(
-            unavailableBecause(
-              input.reference,
-              "decrypt",
-              "could not be decrypted."
-            )
+          // The statement binds the key, so a database failure leaves with
+          // its parameters censored.
+          Effect.mapError((error) =>
+            isUndecryptableRecord(error)
+              ? unavailableBecause(
+                  input.reference,
+                  "decrypt",
+                  "could not be decrypted."
+                )(error)
+              : censorDatabaseQueryError(error)
           )
         );
 

@@ -7,7 +7,7 @@ import {
 } from "@opentelemetry/api-logs";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base";
-import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import {
   Cause,
   type Context,
@@ -376,6 +376,21 @@ export const censorDatabaseQueryParams = (
     seen
   ) as readonly unknown[];
 };
+
+/**
+ * The failed query with its `deskohub:sensitive` parameters censored, for a
+ * statement that binds a secret: the query error's message lists every
+ * parameter. Keeps the query and the database's answer, so the failure can
+ * still be classified.
+ */
+export const censorDatabaseQueryError = (
+  error: EffectDrizzleQueryError
+): EffectDrizzleQueryError =>
+  new EffectDrizzleQueryError({
+    query: error.query,
+    params: [...censorDatabaseQueryParams(error.query, error.params)],
+    cause: error.cause,
+  });
 
 const isStackTraceKey = (key: string) =>
   ["exception.stacktrace", "stack", "stacktrace"].includes(key.toLowerCase());

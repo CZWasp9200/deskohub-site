@@ -286,7 +286,8 @@ export const makeInvoiceReads = Effect.gen(function* () {
             Effect.map((invoice) => invoice && { readable: invoice }),
             // Whatever keeps the document from opening (a foreign key, a
             // missing key, a document that disagrees with its row), the
-            // unencrypted columns still name the invoice.
+            // unencrypted columns still name the invoice. A failing database
+            // fails the listing: it reports no AccountingRecordUnavailable.
             Effect.catchTag("AccountingRecordUnavailable", () =>
               readUnreadable(invoiceIdSchema.make(id)).pipe(
                 Effect.map((invoice) => invoice && { unreadable: invoice })

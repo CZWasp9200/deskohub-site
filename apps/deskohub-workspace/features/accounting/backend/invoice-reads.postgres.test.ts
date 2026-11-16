@@ -1,7 +1,8 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Exit, Option } from "effect";
+import { findSqlState } from "@/db/sql-constraint";
 import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-document-snapshot";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import type {
@@ -94,5 +95,38 @@ describe.skipIf(!testDatabase)("listing invoices that cannot be opened", () => {
       operation: "decrypt",
       reference: { type: "invoiceId", id: foreign.id },
     });
+  });
+
+  test("fails the listing when the decrypting statement fails for a reason other than the document", async () => {
+    const actor = await makeActor("unreadable-listing-outage");
+    await issueManualInvoice(actor, sealingWith(readableKey));
+    // Only the decrypting statement reads this column: the key lookup before
+    // it and the standing a degraded row is read from still succeed.
+    const renameCustomerColumn = (from: string, to: string) =>
+      testDatabase!.pool.query(
+        `alter table invoices rename column ${from} to ${to}`
+      );
+    await renameCustomerColumn("dotypos_customer_id", "dotypos_customer_gone");
+    const listed = await run(
+      Effect.flatMap(InvoiceRepository, (invoices) =>
+        Effect.exit(invoices.listWithUnreadable())
+      ),
+      readingKeys
+    ).finally(() =>
+      renameCustomerColumn("dotypos_customer_gone", "dotypos_customer_id")
+    );
+
+    expect(Exit.isFailure(listed)).toBe(true);
+    const error = Exit.isFailure(listed)
+      ? Exit.findErrorOption(listed).pipe(Option.getOrUndefined)
+      : undefined;
+    expect(error).toMatchObject({ _tag: "EffectDrizzleQueryError" });
+    expect(
+      error?._tag === "EffectDrizzleQueryError" && findSqlState(error)
+    ).toEqual(Option.some("42703"));
+    // The decrypting statement binds the key: the error keeps it censored.
+    const reported = `${error?.message} ${JSON.stringify(error)}`;
+    expect(reported).not.toContain(readableKey.secret);
+    expect(reported).not.toContain("synthetic local deployment secret!");
   });
 });
