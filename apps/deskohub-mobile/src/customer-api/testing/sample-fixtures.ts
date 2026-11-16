@@ -4,6 +4,7 @@ import {
   CustomerAccountId,
   type CustomerAccountState,
   type CustomerAgentConnection,
+  type CustomerCompanyDetails,
   type CustomerEstablishment,
   type CustomerMarketingPreferences,
   type CustomerOrderState,
@@ -66,6 +67,37 @@ export const sampleProfile: CustomerProfile = {
 
 /** The code a completion-required sample customer was invited with. */
 export const sampleInvitationCode = ReferralCode.make("SAMPLE-FRIEND");
+
+/**
+ * Made-up companies the company lookup finds, by company ID: one with a VAT
+ * ID and one without. Any other ID is not found.
+ */
+export const sampleCompanies: ReadonlyMap<string, CustomerCompanyDetails> =
+  new Map([
+    [
+      "12345679",
+      {
+        companyName: "Ukázková firma s.r.o.",
+        companyId: "12345679",
+        vatId: "CZ12345679",
+        addressLine1: "Ukázková 1",
+        city: "Praha",
+        zip: "10000",
+        country: "CZ",
+      },
+    ],
+    [
+      "00000019",
+      {
+        companyName: "Vzorový spolek",
+        companyId: "00000019",
+        addressLine1: "Vzorová 2",
+        city: "Brno",
+        zip: "60200",
+        country: "CZ",
+      },
+    ],
+  ]);
 
 /** A made-up space the reservation screens can place and link to a map. */
 export const sampleEstablishment: CustomerEstablishment = {
