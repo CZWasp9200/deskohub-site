@@ -1,7 +1,6 @@
 import Check from "lucide-react-native/icons/check";
 import Mail from "lucide-react-native/icons/mail";
-import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { Badge } from "../../ui/badge";
@@ -18,9 +17,16 @@ import { space } from "../../ui/tokens";
  */
 export function LoginEmailCard({ email }: { readonly email: string }) {
   const locale = useAppLocale();
-  // The address keeps clear of the badge; the note under it takes the
-  // full width.
-  const [badgeWidth, setBadgeWidth] = useState(0);
+  // At large font sizes the badge takes its own line, still top right, so
+  // the address keeps the card's width (as `ListRow` moves its badge).
+  const badgeAbove = useWindowDimensions().fontScale >= 1.3;
+  const badge = (
+    <Badge
+      tone="positive"
+      icon={Check}
+      label={m.profile_email_verified_badge({}, { locale })}
+    />
+  );
   return (
     <ListGroup>
       <View accessible style={[listRowLayout.row, styles.row]}>
@@ -28,25 +34,17 @@ export function LoginEmailCard({ email }: { readonly email: string }) {
           <Icon icon={Mail} size={20} />
         </View>
         <View style={[listRowLayout.text, styles.text]}>
-          <Text
-            variant="bodyStrong"
-            style={{ paddingRight: badgeWidth + space.xs }}
-          >
-            {emailWithBreak(email)}
-          </Text>
+          {/* The badge keeps the top right; the address wraps beside it. */}
+          {badgeAbove && <View style={styles.badgeAbove}>{badge}</View>}
+          <View style={styles.titleLine}>
+            <Text variant="bodyStrong" style={styles.address}>
+              {emailWithBreak(email)}
+            </Text>
+            {!badgeAbove && badge}
+          </View>
           <Text variant="bodySmall">
             {m.profile_email_fixed({}, { locale })}
           </Text>
-        </View>
-        <View
-          style={styles.badge}
-          onLayout={(event) => setBadgeWidth(event.nativeEvent.layout.width)}
-        >
-          <Badge
-            tone="positive"
-            icon={Check}
-            label={m.profile_email_verified_badge({}, { locale })}
-          />
         </View>
       </View>
     </ListGroup>
@@ -56,5 +54,12 @@ export function LoginEmailCard({ email }: { readonly email: string }) {
 const styles = StyleSheet.create({
   row: { alignItems: "flex-start" },
   text: { paddingTop: space.xxs },
-  badge: { position: "absolute", right: space.md, top: space.md },
+  titleLine: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    marginRight: -space.xs,
+  },
+  address: { flex: 1, minWidth: 0 },
+  badgeAbove: { alignSelf: "flex-end", marginRight: -space.xs },
 });

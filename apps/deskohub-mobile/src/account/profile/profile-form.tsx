@@ -185,7 +185,6 @@ export function UnsavedChangesGuard({
     <ConfirmDialog
       visible={guard.asking}
       title={m.profile_unsaved_title({}, { locale })}
-      body={m.profile_unsaved_body({}, { locale })}
       confirmLabel={m.profile_unsaved_discard({}, { locale })}
       cancelLabel={m.profile_unsaved_keep({}, { locale })}
       destructive

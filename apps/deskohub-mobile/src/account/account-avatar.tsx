@@ -70,6 +70,8 @@ export function AccountAvatar({
         <Text
           aria-hidden
           variant={dimensions.initials}
+          // The disc keeps its size, so its initials can't grow past it.
+          maxFontSizeMultiplier={1.15}
           style={[styles.initials, { color: tones[tone].ink }]}
         >
           {initials}

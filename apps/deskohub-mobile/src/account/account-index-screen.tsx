@@ -93,7 +93,8 @@ export function AccountIndexScreen() {
           <AppBar title={title} raised actions={<SignOutButton />} />
         </>
       }
-      refreshing={account.waiting}
+      // The first load shows the skeleton alone.
+      refreshing={account.waiting && !AsyncResult.isInitial(account)}
       onRefresh={refresh}
     >
       {/* Kept mounted so assistive tech announces each change. */}
