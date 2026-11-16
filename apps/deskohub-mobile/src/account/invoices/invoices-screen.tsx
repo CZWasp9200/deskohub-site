@@ -1,4 +1,3 @@
-import type { CustomerInvoiceId } from "@deskohub/workspace-customer-api";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Match } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -68,18 +67,49 @@ export function InvoicesScreen() {
   );
 }
 
+/**
+ * The rows and the download they share: one at a time, every row held
+ * while one downloads, the last one's progress and failure above the list.
+ */
 function InvoiceRows({ rows }: { readonly rows: ReadonlyArray<InvoiceRow> }) {
-  // The download tried last says how it went, above the list.
+  const locale = useAppLocale();
+  const download = useAtomSet(invoiceDownloadAtom);
+  const state = invoiceDownloadState(useAtomValue(invoiceDownloadAtom));
   const [attempted, setAttempted] = useState<InvoiceRow | undefined>();
+  const downloading = state.kind === "downloading";
   return (
     <>
-      <DownloadOutcome row={attempted} />
+      {/* Kept mounted so assistive tech announces each change. */}
+      <LiveMessage
+        role="status"
+        message={
+          downloading && attempted !== undefined
+            ? m.invoices_downloading(
+                { number: attempted.invoiceNumber },
+                { locale }
+              )
+            : undefined
+        }
+      />
+      <Notice
+        tone="error"
+        message={
+          state.kind === "failed"
+            ? downloadFailureMessage(state.failure, locale)
+            : undefined
+        }
+      />
       <ListGroup>
         {rows.map((row) => (
           <InvoiceListRow
             key={row.id}
             row={row}
-            onDownload={() => setAttempted(row)}
+            downloading={downloading && attempted?.id === row.id}
+            held={downloading}
+            onDownload={() => {
+              setAttempted(row);
+              download({ id: row.id, invoiceNumber: row.invoiceNumber });
+            }}
           />
         ))}
       </ListGroup>
@@ -89,16 +119,19 @@ function InvoiceRows({ rows }: { readonly rows: ReadonlyArray<InvoiceRow> }) {
 
 function InvoiceListRow({
   row,
+  downloading,
+  held,
   onDownload,
 }: {
   readonly row: InvoiceRow;
+  /** This row's invoice is downloading. */
+  readonly downloading: boolean;
+  /** Some download runs, so no row starts another. */
+  readonly held: boolean;
   readonly onDownload: () => void;
 }) {
   const locale = useAppLocale();
-  const download = useAtomSet(invoiceDownloadAtom(row.id));
-  const state = invoiceDownloadState(useAtomValue(invoiceDownloadAtom(row.id)));
   const text = invoiceRowText(row, locale);
-  const downloading = state.kind === "downloading";
   return (
     <ListRow
       kind="action"
@@ -119,11 +152,8 @@ function InvoiceListRow({
           <Icon icon={Download} size={20} color={color.ink2} />
         )
       }
-      disabled={downloading}
-      onPress={() => {
-        onDownload();
-        download({ invoiceNumber: row.invoiceNumber });
-      }}
+      disabled={held}
+      onPress={onDownload}
     />
   );
 }
@@ -146,44 +176,3 @@ const downloadFailureMessage = (
         )
       ),
   });
-
-/**
- * The progress and failure of the download tried last, announced as they
- * change; the screen has no download outcome to show before the first.
- */
-function DownloadOutcome({ row }: { readonly row: InvoiceRow | undefined }) {
-  return row === undefined ? null : (
-    <AttemptedDownload id={row.id} invoiceNumber={row.invoiceNumber} />
-  );
-}
-
-function AttemptedDownload({
-  id,
-  invoiceNumber,
-}: {
-  readonly id: CustomerInvoiceId;
-  readonly invoiceNumber: string;
-}) {
-  const locale = useAppLocale();
-  const state = invoiceDownloadState(useAtomValue(invoiceDownloadAtom(id)));
-  return (
-    <>
-      <LiveMessage
-        role="status"
-        message={
-          state.kind === "downloading"
-            ? m.invoices_downloading({ number: invoiceNumber }, { locale })
-            : undefined
-        }
-      />
-      <Notice
-        tone="error"
-        message={
-          state.kind === "failed"
-            ? downloadFailureMessage(state.failure, locale)
-            : undefined
-        }
-      />
-    </>
-  );
-}

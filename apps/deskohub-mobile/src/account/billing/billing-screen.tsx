@@ -256,6 +256,9 @@ function AddressSection({
         }
         disabled={!editable}
         locale={locale}
+        ref={(node) => {
+          fields.inputs.current.set("country", node);
+        }}
       />
     </View>
   );

@@ -1,5 +1,4 @@
 import type { ComponentProps, RefObject } from "react";
-import type { TextInputInstance } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { ChoiceGroup } from "../../ui/choice-group";
@@ -138,9 +137,14 @@ export const profileFieldProblemMessage = (
         : m.profile_field_invalid({}, { locale }),
   })[problem]();
 
+/** A field a form can focus: a text input, or a picker's pressable. */
+export interface FocusableField {
+  readonly focus: () => void;
+}
+
 /** Inputs a form can focus by field, e.g. its first invalid one. */
 export type ProfileFieldRefs = RefObject<
-  Map<CompletionTextField, TextInputInstance | null>
+  Map<CompletionTextField, FocusableField | null>
 >;
 
 /**

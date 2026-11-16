@@ -27,20 +27,25 @@ const download = async (
   id: CustomerInvoiceId,
   invoiceNumber: string
 ) => {
-  const atom = invoiceDownloadAtom(id);
-  const unmount = data.registry.mount(atom);
-  data.registry.set(atom, { invoiceNumber });
-  expect(invoiceDownloadState(data.registry.get(atom))).toEqual({
+  data.registry.set(invoiceDownloadAtom, { id, invoiceNumber });
+  expect(invoiceDownloadState(data.registry.get(invoiceDownloadAtom))).toEqual({
     kind: "downloading",
   });
   await Effect.runPromise(
     Effect.result(
-      AtomRegistry.getResult(atom, { suspendOnWaiting: true })(data.registry)
+      AtomRegistry.getResult(invoiceDownloadAtom, { suspendOnWaiting: true })(
+        data.registry
+      )
     )
   );
-  const state = invoiceDownloadState(data.registry.get(atom));
-  unmount();
-  return state;
+  return invoiceDownloadState(data.registry.get(invoiceDownloadAtom));
+};
+
+/** A registry with the screen's download mounted, as while the list shows. */
+const withDownloads = () => {
+  const data = makeFakeCustomerData("linked");
+  data.registry.mount(invoiceDownloadAtom);
+  return data;
 };
 
 describe("invoiceListAtom", () => {
@@ -82,7 +87,7 @@ describe("invoiceDownloadAtom", () => {
   if (desk === undefined) throw new Error("the sample has invoices");
 
   test("hands the PDF to the share sheet under the invoice's number, then rests", async () => {
-    const data = makeFakeCustomerData("linked");
+    const data = withDownloads();
 
     const state = await download(
       data,
@@ -101,7 +106,7 @@ describe("invoiceDownloadAtom", () => {
   });
 
   test("an invoice the Workspace can't find fails the download and shares nothing", async () => {
-    const data = makeFakeCustomerData("linked");
+    const data = withDownloads();
 
     const state = await download(data, sampleInvoiceIds.office, "2026-0341");
 
@@ -113,6 +118,18 @@ describe("invoiceDownloadAtom", () => {
     });
     expect(data.device.sharedFiles).toEqual([]);
     expect(data.device.files.size).toBe(0);
+  });
+
+  test("the next download replaces the last one's failure", async () => {
+    const data = withDownloads();
+
+    expect(
+      (await download(data, sampleInvoiceIds.office, "2026-0341")).kind
+    ).toBe("failed");
+    expect(
+      await download(data, desk.invoice.id, desk.invoice.invoiceNumber)
+    ).toEqual({ kind: "idle" });
+    expect(data.device.sharedFiles).toHaveLength(1);
   });
 
   test("a failed download can be told apart from a device that can't share", () => {

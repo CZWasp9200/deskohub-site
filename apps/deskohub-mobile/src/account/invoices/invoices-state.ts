@@ -1,6 +1,6 @@
 import type { CustomerInvoiceId } from "@deskohub/workspace-customer-api";
 import { Effect, Match } from "effect";
-import { type AsyncResult, Atom } from "effect/unstable/reactivity";
+import type { AsyncResult } from "effect/unstable/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerRead } from "../../customer-api/customer-request";
@@ -26,8 +26,9 @@ export const invoiceListAtom = customerDataRuntime.atom(
   )
 );
 
-/** What a download hands over: the invoice's number names the file. */
+/** The invoice a download fetches; its number names the file. */
 export interface InvoiceDownload {
+  readonly id: CustomerInvoiceId;
   readonly invoiceNumber: string;
 }
 
@@ -35,10 +36,7 @@ export interface InvoiceDownload {
  * Downloads one invoice's PDF (GET /invoices/:id/pdf) and hands it to the
  * share sheet, a download on the web (`shareInvoicePdf`).
  */
-const downloadInvoice = (
-  id: CustomerInvoiceId,
-  { invoiceNumber }: InvoiceDownload
-) =>
+const downloadInvoice = ({ id, invoiceNumber }: InvoiceDownload) =>
   shareInvoicePdf(
     invoicePdfName(invoiceNumber),
     Effect.flatMap(Effect.service(CustomerApi), (api) =>
@@ -46,12 +44,12 @@ const downloadInvoice = (
     ).pipe(customerRead({ accountRead: false }))
   );
 
-/** Each invoice's download and its last outcome. */
-export const invoiceDownloadAtom = Atom.family((id: CustomerInvoiceId) =>
-  customerDataRuntime.fn((download: InvoiceDownload) =>
-    downloadInvoice(id, download)
-  )
-);
+/**
+ * The invoice list's download and the outcome of the last one. One at a
+ * time: the list holds every row while one downloads, so a failure always
+ * belongs to the download the screen reports.
+ */
+export const invoiceDownloadAtom = customerDataRuntime.fn(downloadInvoice);
 
 /** Where an invoice's download stands, as its row shows it. */
 export type InvoiceDownloadState =

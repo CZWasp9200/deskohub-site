@@ -1,5 +1,6 @@
 import Check from "lucide-react-native/icons/check";
-import { useState } from "react";
+import { type ComponentRef, type Ref, useState } from "react";
+import type { Pressable } from "react-native";
 import type { AppLocale } from "../i18n/app-locale";
 import { countryName, invoiceCountries } from "../i18n/country-names";
 import { BottomSheet } from "./bottom-sheet";
@@ -11,8 +12,7 @@ import { color } from "./tokens";
 /**
  * An invoice country, picked by name in the app's language from a bottom
  * sheet that ticks the chosen one. The value is the ISO 3166-1 alpha-2 code
- * the Workspace stores; an empty value shows no country. While `disabled`,
- * as during a submit, the field keeps its look and doesn't open.
+ * the Workspace stores; an empty value shows no country.
  */
 export function CountryField({
   label,
@@ -21,6 +21,7 @@ export function CountryField({
   error,
   disabled = false,
   locale,
+  ref,
 }: {
   readonly label: string;
   readonly value: string;
@@ -28,6 +29,8 @@ export function CountryField({
   readonly error?: string;
   readonly disabled?: boolean;
   readonly locale: AppLocale;
+  /** The field, which a form can focus, e.g. when it is invalid. */
+  readonly ref?: Ref<ComponentRef<typeof Pressable>>;
 }) {
   const [picking, setPicking] = useState(false);
   return (
@@ -35,8 +38,10 @@ export function CountryField({
       <SelectField
         label={label}
         value={value === "" ? undefined : countryName(value, locale)}
-        onPress={() => disabled || setPicking(true)}
+        onPress={() => setPicking(true)}
         error={error}
+        disabled={disabled}
+        ref={ref}
       />
       <BottomSheet
         visible={picking}
