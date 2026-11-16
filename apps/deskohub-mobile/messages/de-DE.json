@@ -718,5 +718,15 @@
   "onboarding_fix_one_field_create": "1 Feld korrigieren, um dein Profil zu erstellen",
   "onboarding_fix_fields_create": "{count} Felder korrigieren, um dein Profil zu erstellen",
   "onboarding_create_failed": "Profil nicht erstellt. Prüf deine Verbindung und versuch es erneut.",
-  "onboarding_done_title": "Alles bereit, {name}"
+  "onboarding_done_title": "Alles bereit, {name}",
+  "company_lookup_submit": "Firma suchen",
+  "company_lookup_busy": "Wird gesucht …",
+  "company_lookup_found": "Die Firmendaten wurden gefunden. Prüf sie unten, bevor du sie in den Entwurf übernimmst.",
+  "company_lookup_review_title": "Die Firma wurde im Firmenregister gefunden. Prüf die Daten, bevor du sie in den Entwurf übernimmst.",
+  "company_lookup_apply": "In Entwurf übernehmen",
+  "company_lookup_dismiss": "Ausblenden",
+  "company_lookup_applied": "Die Firmendaten wurden in den Entwurf der Rechnungsdaten kopiert. Tipp auf Speichern, um sie zu behalten.",
+  "company_lookup_invalid_id": "Gib eine gültige Firmennummer (IČO) ein: genau acht Ziffern mit gültiger Prüfziffer.",
+  "company_lookup_not_found": "Zu dieser Firmennummer (IČO) wurde keine Firma gefunden.",
+  "company_lookup_registry_unavailable": "Das Firmenregister ist vorübergehend nicht verfügbar. Versuch es bitte gleich noch einmal."
 }

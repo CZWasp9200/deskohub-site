@@ -718,5 +718,15 @@
   "onboarding_fix_one_field_create": "प्रोफ़ाइल बनाने के लिए 1 फ़ील्ड ठीक करें",
   "onboarding_fix_fields_create": "प्रोफ़ाइल बनाने के लिए {count} फ़ील्ड ठीक करें",
   "onboarding_create_failed": "प्रोफ़ाइल नहीं बनी। अपना कनेक्शन जाँचें और फिर से कोशिश करें।",
-  "onboarding_done_title": "सब तैयार है, {name}"
+  "onboarding_done_title": "सब तैयार है, {name}",
+  "company_lookup_submit": "कंपनी खोजें",
+  "company_lookup_busy": "खोजा जा रहा है…",
+  "company_lookup_found": "कंपनी का विवरण मिल गया। ड्राफ़्ट में लागू करने से पहले नीचे इसे जाँच लें।",
+  "company_lookup_review_title": "कंपनी रजिस्टर में कंपनी मिल गई। ड्राफ़्ट में लागू करने से पहले विवरण जाँच लें।",
+  "company_lookup_apply": "ड्राफ़्ट में लागू करें",
+  "company_lookup_dismiss": "छिपाएँ",
+  "company_lookup_applied": "कंपनी का विवरण बिलिंग ड्राफ़्ट में कॉपी कर दिया गया है। इसे रखने के लिए “सहेजें” दबाएँ।",
+  "company_lookup_invalid_id": "सही IČO दर्ज करें: ठीक आठ अंक और सही जाँच अंक।",
+  "company_lookup_not_found": "इस IČO से कोई कंपनी नहीं मिली।",
+  "company_lookup_registry_unavailable": "कंपनी रजिस्टर कुछ समय के लिए उपलब्ध नहीं है। कृपया थोड़ी देर बाद फिर से कोशिश करें।"
 }

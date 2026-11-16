@@ -718,5 +718,15 @@
   "onboarding_fix_one_field_create": "Fix 1 field to create your profile",
   "onboarding_fix_fields_create": "Fix {count} fields to create your profile",
   "onboarding_create_failed": "Your profile wasn't created. Check your connection and try again.",
-  "onboarding_done_title": "You're all set, {name}"
+  "onboarding_done_title": "You're all set, {name}",
+  "company_lookup_submit": "Look up company",
+  "company_lookup_busy": "Looking up…",
+  "company_lookup_found": "Company details were found. Review them below before applying them to the draft.",
+  "company_lookup_review_title": "Company found in the business registry. Review the details before applying them to the draft.",
+  "company_lookup_apply": "Apply to draft",
+  "company_lookup_dismiss": "Dismiss",
+  "company_lookup_applied": "Company details were copied into the billing draft. Press Save to keep them.",
+  "company_lookup_invalid_id": "Enter a valid company ID (IČO): exactly eight digits with a valid check digit.",
+  "company_lookup_not_found": "No company was found for this company ID (IČO).",
+  "company_lookup_registry_unavailable": "The business registry is temporarily unavailable. Please try again in a moment."
 }

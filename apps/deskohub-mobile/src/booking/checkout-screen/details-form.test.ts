@@ -347,6 +347,15 @@ describe("problemsAfterChange (stale errors, board 31)", () => {
     });
   });
 
+  test("an applied company lookup clears the problems of the fields it filled", () => {
+    expect(
+      problemsAfterChange(submitted, {
+        _tag: "Fields",
+        fields: ["buyer.legalName", "address.city"],
+      })
+    ).toEqual({ "address.line1": "required", phone: "invalid_phone" });
+  });
+
   test("problems are counted and brought into view in screen order", () => {
     expect(orderedProblems(submitted).map(({ field }) => field)).toEqual([
       "phone",

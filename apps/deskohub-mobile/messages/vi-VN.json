@@ -718,5 +718,15 @@
   "onboarding_fix_one_field_create": "Sửa 1 trường để tạo hồ sơ",
   "onboarding_fix_fields_create": "Sửa {count} trường để tạo hồ sơ",
   "onboarding_create_failed": "Chưa tạo được hồ sơ. Hãy kiểm tra kết nối và thử lại.",
-  "onboarding_done_title": "Mọi thứ đã sẵn sàng, {name}"
+  "onboarding_done_title": "Mọi thứ đã sẵn sàng, {name}",
+  "company_lookup_submit": "Tra cứu công ty",
+  "company_lookup_busy": "Đang tra cứu…",
+  "company_lookup_found": "Đã tìm thấy thông tin công ty. Hãy kiểm tra bên dưới trước khi áp dụng vào bản nháp.",
+  "company_lookup_review_title": "Đã tìm thấy công ty trong sổ đăng ký doanh nghiệp của Séc. Hãy kiểm tra thông tin trước khi áp dụng vào bản nháp.",
+  "company_lookup_apply": "Áp dụng vào bản nháp",
+  "company_lookup_dismiss": "Ẩn",
+  "company_lookup_applied": "Thông tin công ty đã được sao chép vào bản nháp thông tin xuất hóa đơn. Nhấn Lưu để lưu lại.",
+  "company_lookup_invalid_id": "Hãy nhập mã số doanh nghiệp (IČO) hợp lệ: đúng tám chữ số với chữ số kiểm tra hợp lệ.",
+  "company_lookup_not_found": "Không tìm thấy công ty nào với mã số doanh nghiệp (IČO) này.",
+  "company_lookup_registry_unavailable": "Sổ đăng ký doanh nghiệp của Séc tạm thời không khả dụng. Hãy thử lại sau ít phút."
 }
