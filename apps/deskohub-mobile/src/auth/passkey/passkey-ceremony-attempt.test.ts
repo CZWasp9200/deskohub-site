@@ -107,6 +107,24 @@ describe("passkeyCeremonyAttempt", () => {
     ]);
   });
 
+  test("lets its caller take over a cancelled prompt", async () => {
+    const claimed: Array<PasskeyFailure> = [];
+    const { settle, events, settled } = startSignIn((failure) => {
+      claimed.push(failure);
+      return true;
+    });
+    const cancelled = new PasskeyCancelled();
+    Deferred.doneUnsafe(settle, Exit.fail(cancelled));
+    await settled();
+    expect(claimed).toEqual([cancelled]);
+    expect(events).toEqual([
+      "state:pending",
+      "pending:true",
+      "state:idle",
+      "pending:false",
+    ]);
+  });
+
   test("releases the screen when the control leaves mid-ceremony", async () => {
     const { settle, run, events, settled } = startSignIn();
     await settled();

@@ -47,6 +47,7 @@ const stillAnimation = () => ({
 mock.module("react-native", () => ({
   // Host components stand in as their names, so a test can read the element
   // tree a component returns without a native renderer.
+  Image: "Image",
   Modal: "Modal",
   Pressable: "Pressable",
   RefreshControl: "RefreshControl",

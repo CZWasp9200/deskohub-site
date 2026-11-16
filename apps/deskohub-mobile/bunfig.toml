@@ -1,2 +1,8 @@
+# Image assets the app requires load as their file paths, as Metro's asset
+# ids stand in for them on a device.
+[loader]
+".jpg" = "file"
+".png" = "file"
+
 [test]
 preload = ["./src/testing/native-modules.preload.ts"]

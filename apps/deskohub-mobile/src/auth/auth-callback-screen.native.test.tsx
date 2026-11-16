@@ -5,7 +5,8 @@ import { act, type ReactNode } from "react";
 import { AppLocaleProvider } from "../i18n/locale-context";
 import { clientRoot } from "../testing/client-root";
 import { eventually } from "../testing/eventually";
-import { Button, LiveMessage } from "../ui/controls";
+import { Button } from "../ui/controls";
+import { EmptyState } from "../ui/empty-state";
 import { LoadingIndicator } from "../ui/loading-indicator";
 import { find, findAll } from "../ui/testing/element-tree";
 import { AuthCallbackCompletions } from "./auth-callback-completions.service";
@@ -25,6 +26,7 @@ import { PendingSignIns } from "./pending-sign-in.service";
 import { SessionWriteLock } from "./session-write-lock";
 import { nativeSignInFailureMessage } from "./sign-in-failure-message";
 import { SignInLocale } from "./sign-in-locale";
+import { signInRetryParams } from "./sign-in-retry";
 import { type FakeUser, makeFakeAuthServer } from "./testing/fake-auth-server";
 import type { AuthTaskRuntime } from "./use-auth-task";
 
@@ -79,6 +81,8 @@ mock.module("expo-router", () => ({
     canGoBack: () => history,
     back: () => navigation.push("back"),
     replace: (href: string) => navigation.push(`replace:${href}`),
+    dismissTo: (href: unknown) =>
+      navigation.push(`dismissTo:${JSON.stringify(href)}`),
   },
 }));
 
@@ -171,17 +175,20 @@ const indicatorIn = (tree: ReactNode) => find(tree, LoadingIndicator)?.props;
 /** Draws the screen and waits until its completion has finished. */
 const drawScreen = async () => {
   const tree = await mountScreen();
-  const alert = () =>
-    findAll(tree(), LiveMessage).find(({ props }) => props.role === "alert")
-      ?.props.message;
+  const failure = () => find(tree(), EmptyState)?.props;
   // The completion runs on the auth runtime; let it finish and re-render.
-  await act(() => Effect.runPromise(eventually(() => alert() !== undefined)));
+  await act(() => Effect.runPromise(eventually(() => failure() !== undefined)));
   return {
-    alert,
+    /** What the failure says happened. */
+    cause: () => failure()?.body,
+    /** Whether the failure title is announced as soon as it shows. */
+    live: () => failure()?.live,
     indicator: () => indicatorIn(tree()),
-    pressButton: () =>
+    buttons: () => findAll(tree(), Button).map(({ props }) => props),
+    /** Presses the screen's `index`th button. */
+    pressButton: (index = 0) =>
       act(async () => {
-        const button = find(tree(), Button);
+        const button = findAll(tree(), Button)[index];
         if (button === undefined) throw new Error("No button.");
         button.props.onPress();
       }),
@@ -197,9 +204,12 @@ describe("AuthCallbackScreen", () => {
 
     const screen = await drawScreen();
 
-    expect(screen.alert()).toBe(
+    expect(screen.cause()).toBe(
       nativeSignInFailureMessage(new AccountSwitchRefused(), "en-US")
     );
+    expect(screen.live()).toBe("assertive");
+    // A signed-in app only goes back: it never starts a new sign-in.
+    expect(screen.buttons()).toHaveLength(1);
   });
 
   test("returns a signed-in app to where it was after a refused callback", async () => {
@@ -248,13 +258,26 @@ describe("AuthCallbackScreen", () => {
     expect(screen.indicator()).toBeUndefined();
   });
 
-  test("sends a signed-out app back to sign-in after a refused callback", async () => {
+  test("sends a signed-out app back to the sign-in screen after a refused callback", async () => {
     runtime = launchApp().app;
     params = { error: "access_denied" };
 
     const screen = await drawScreen();
-    await screen.pressButton();
+    await screen.pressButton(1);
 
-    expect(navigation).toEqual(["replace:/sign-in"]);
+    expect(navigation).toEqual([`dismissTo:${JSON.stringify("/sign-in")}`]);
+  });
+
+  test("starts a new email sign-in from the sign-in screen after a refused callback", async () => {
+    runtime = launchApp().app;
+    params = { error: "access_denied" };
+
+    const screen = await drawScreen();
+    expect(screen.buttons()[0]?.variant).toBeUndefined();
+    await screen.pressButton(0);
+
+    expect(navigation).toEqual([
+      `dismissTo:${JSON.stringify({ pathname: "/sign-in", params: signInRetryParams })}`,
+    ]);
   });
 });

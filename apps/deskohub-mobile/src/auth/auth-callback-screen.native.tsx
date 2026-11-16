@@ -1,17 +1,26 @@
 import { Effect } from "effect";
 import { router, useLocalSearchParams } from "expo-router";
+import CircleAlert from "lucide-react-native/icons/circle-alert";
+import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { useEffect, useMemo } from "react";
+import { ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AppLocale } from "../i18n/app-locale";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
-import { Button, LiveMessage, Screen } from "../ui/controls";
+import { Button } from "../ui/controls";
+import { EmptyState } from "../ui/empty-state";
+import { FocusedStatusBar } from "../ui/focused-status-bar";
 import { LoadingIndicator } from "../ui/loading-indicator";
+import { Text } from "../ui/text";
+import { color, space } from "../ui/tokens";
 import { type AuthCallback, parseAuthCallbackParams } from "./auth-callback";
 import { nativeAuthRuntime } from "./native-auth-runtime";
 import { completeAuthCallback } from "./native-sign-in";
 import { SignInUnavailable } from "./native-sign-in-errors";
 import { nativeSignInFailureMessage } from "./sign-in-failure-message";
 import { SignInLocale } from "./sign-in-locale";
+import { signInRetryParams } from "./sign-in-retry";
 import { useAuthSession } from "./use-auth-session";
 import { useAuthTask } from "./use-auth-task";
 
@@ -28,13 +37,23 @@ const leave = () => {
   else router.replace("/");
 };
 
+/** Back to the sign-in screen under this one, or a new one. */
+const backToSignIn = () => router.dismissTo("/sign-in");
+
+/** A new email sign-in, started from the sign-in screen. */
+const startAgain = () =>
+  router.dismissTo({ pathname: "/sign-in", params: signInRetryParams });
+
 /**
  * `/auth/callback`: the magic-link App Link and the handoff return land here,
  * on a warm or a cold start. It finishes the sign-in (once, even if the auth
- * session reports the same URL) and goes back to where the customer was.
+ * session reports the same URL) on its own navy screen, and goes back to
+ * where the customer was. A failure says what happened and offers the next
+ * step.
  */
 export function AuthCallbackScreen() {
   const locale = useAppLocale();
+  const insets = useSafeAreaInsets();
   const {
     token,
     code,
@@ -72,40 +91,86 @@ export function AuthCallbackScreen() {
     if (completed && signedIn) leave();
   }, [completed, signedIn]);
 
-  return (
-    <Screen title={m.signin_title({}, { locale })}>
-      {/* The status message below says what's under way. */}
-      {state.status !== "failed" && (
+  if (state.status !== "failed") {
+    return (
+      <View
+        style={[
+          styles.completing,
+          { paddingBottom: insets.bottom, paddingTop: insets.top },
+        ]}
+      >
+        <FocusedStatusBar style="light" />
+        {/* The status below says what's under way. */}
         <LoadingIndicator size="screen" tone="brand" />
-      )}
-      <LiveMessage
-        role="status"
-        message={
-          state.status === "failed"
-            ? undefined
-            : m.callback_completing({}, { locale })
-        }
-      />
-      <LiveMessage
-        role="alert"
-        message={
-          state.status === "failed"
-            ? nativeSignInFailureMessage(state.failure, locale)
-            : undefined
-        }
-      />
-      {/* A refused callback leaves a signed-in app signed in, as when a
-          reauthentication lands on another account: it goes back to where
-          it was, not to sign-in. */}
-      {state.status === "failed" &&
-        (signedIn ? (
+        <Text
+          variant="title"
+          tone="inverse"
+          role="status"
+          aria-live="polite"
+          accessibilityLiveRegion="polite"
+          style={styles.status}
+        >
+          {m.callback_completing({}, { locale })}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={styles.failedScreen}
+      contentContainerStyle={[
+        styles.failed,
+        { paddingBottom: insets.bottom + space.lg, paddingTop: insets.top },
+      ]}
+    >
+      <FocusedStatusBar style="dark" />
+      <EmptyState
+        icon={CircleAlert}
+        tone="danger"
+        live="assertive"
+        title={m.callback_failed_title({}, { locale })}
+        body={nativeSignInFailureMessage(state.failure, locale)}
+      >
+        {/* A refused callback leaves a signed-in app signed in, as when a
+            reauthentication lands on another account: it goes back to where
+            it was, not to sign-in. */}
+        {signedIn ? (
           <Button label={m.callback_go_back({}, { locale })} onPress={leave} />
         ) : (
-          <Button
-            label={m.callback_back_to_sign_in({}, { locale })}
-            onPress={() => router.replace("/sign-in")}
-          />
-        ))}
-    </Screen>
+          <View style={styles.actions}>
+            <Button
+              label={m.callback_start_again({}, { locale })}
+              icon={RotateCcw}
+              onPress={startAgain}
+            />
+            <Button
+              variant="quiet"
+              label={m.callback_back_to_sign_in({}, { locale })}
+              onPress={backToSignIn}
+            />
+          </View>
+        )}
+      </EmptyState>
+    </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  completing: {
+    alignItems: "center",
+    backgroundColor: color.navy,
+    flex: 1,
+    gap: space.xl,
+    justifyContent: "center",
+    paddingHorizontal: space.xxl,
+  },
+  status: { textAlign: "center" },
+  failedScreen: { backgroundColor: color.paper, flex: 1 },
+  failed: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: space.xl,
+  },
+  actions: { alignSelf: "stretch", gap: space.sm, marginTop: space.lg },
+});

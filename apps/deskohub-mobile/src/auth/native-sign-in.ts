@@ -4,6 +4,7 @@ import {
   trackSignInCompleted,
   trackSignInStarted,
 } from "../analytics/events";
+import { DeviceAnalyticsConsent } from "../consent/use-analytics-consent";
 import {
   type AuthCallback,
   nativeReturnUri,
@@ -19,6 +20,7 @@ import {
   type SignInSession,
 } from "./native-auth.service";
 import {
+  handoffAnalyticsAnswer,
   type NativeHandoffRequest,
   nativeHandoffRequestTtlMs,
   nativeSignInUrl,
@@ -118,12 +120,17 @@ export const startPendingSignIn = Effect.fn("NativeSignIn.startPendingSignIn")(
       }),
     };
     yield* pendingSignIns.save(pending);
+    // The page takes the app's analytics answer instead of asking again.
+    const analytics = handoffAnalyticsAnswer(
+      (yield* DeviceAnalyticsConsent).current()
+    );
     const request: NativeHandoffRequest = {
       codeChallenge,
       state,
       returnUri: nativeReturnUri,
       reauthenticate: Option.isSome(expectedUserId),
       locale: yield* SignInLocale,
+      ...(analytics === undefined ? {} : { analytics }),
     };
     return request;
   },
