@@ -93,13 +93,22 @@ export const getPaymentPageToReopen = (
  * Whether a page `getPaymentPageToReopen` returned is offered again, given
  * what the provider's order shows: offered while the order shows no
  * activity, and, when the provider couldn't be asked, only within the
- * provisional reopening window.
+ * provisional reopening window. `now` is read after the provider answered:
+ * an answer that arrives after the abandonment cutoff opens nothing.
  */
 export const decidePaymentPageReopening = (
   attempt: ReopeningAttempt,
   now: Temporal.Instant,
   observation: PaymentPageProviderObservation
 ): "open" | PaymentPageClosure => {
+  if (
+    Temporal.Instant.compare(
+      now,
+      getPaymentAttemptAbandonmentCutoff(attempt)
+    ) >= 0
+  ) {
+    return "window_elapsed";
+  }
   if (observation === "no_activity") return "open";
   if (
     observation === "unknown" &&

@@ -1195,6 +1195,20 @@ describe("CheckoutStatusService", () => {
       }
     );
 
+    test("stops offering the stored payment page when the abandonment cutoff passes while the provider answers", async () => {
+      const provider = observePaymentPagesAs("no_activity", {
+        answersAfter: "2 seconds",
+      });
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 29, seconds: 59 }),
+        pendingPayment,
+        { provider }
+      );
+
+      expect(provider.observe).toHaveBeenCalledTimes(1);
+      expect(status).not.toHaveProperty("paymentPageReopenable");
+    });
+
     test("asks the provider about no page once the payment is past its abandonment cutoff", async () => {
       const provider = observePaymentPagesAs("no_activity");
       await getPaidStatus(paidAt.add({ minutes: 45 }), pendingPayment, {

@@ -686,7 +686,11 @@ const implementation = Effect.gen(function* () {
     const observation =
       refreshed ??
       (yield* paymentPageProviderStatus.observe({ attempt, reservation }));
-    return decidePaymentPageReopening(attempt, now, observation) === "open";
+    // The provider may answer after the abandonment cutoff passed.
+    const answeredAt = refreshed ? now : yield* currentInstant;
+    return (
+      decidePaymentPageReopening(attempt, answeredAt, observation) === "open"
+    );
   });
 
   /** Derives the customer status and its support contact prefill. */

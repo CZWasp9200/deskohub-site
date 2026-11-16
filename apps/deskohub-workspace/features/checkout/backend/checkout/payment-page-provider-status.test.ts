@@ -2,7 +2,7 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { NexiService } from "@deskohub/nexi";
+import { type NexiOrder, NexiService } from "@deskohub/nexi";
 import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import {
@@ -23,14 +23,16 @@ const observeWith = (getOrder: ReturnType<typeof mock>) =>
     )
   );
 
-const order = (overrides: object = {}) => ({
+const order = (overrides: Partial<NexiOrder> = {}) => ({
   orderId: "provider-order-id",
   operations: [],
   ...overrides,
 });
 
 describe("PaymentPageProviderStatus.observe", () => {
-  test.each<readonly [string, object, PaymentPageProviderObservation]>([
+  test.each<
+    readonly [string, Partial<NexiOrder>, PaymentPageProviderObservation]
+  >([
     ["an order without operations or amounts", {}, "no_activity"],
     [
       "an order with zero amounts",

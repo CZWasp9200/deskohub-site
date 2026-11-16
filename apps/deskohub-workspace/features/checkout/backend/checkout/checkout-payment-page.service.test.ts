@@ -2,7 +2,7 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { type Duration, Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import type { LatePaymentRecovery } from "@/db/schema";
 import {
@@ -79,6 +79,8 @@ type Harness = {
   readonly now?: Temporal.Instant;
   /** What the provider's order shows; it can't be asked by default. */
   readonly observation?: PaymentPageProviderObservation;
+  /** How long the provider takes to answer, on the test clock. */
+  readonly providerAnswersAfter?: Duration.Input;
 };
 
 /**
@@ -113,7 +115,9 @@ const createHarness = (harness: Harness = {}) => {
   const findLatePaymentRecovery = mock(() =>
     Effect.succeed(harness.latePaymentRecovery ?? null)
   );
-  const provider = observePaymentPagesAs(harness.observation ?? "unknown");
+  const provider = observePaymentPagesAs(harness.observation ?? "unknown", {
+    answersAfter: harness.providerAnswersAfter,
+  });
   const layer = CheckoutPaymentPageService.Default.pipe(
     Layer.provide(provider.layer),
     Layer.provide(
@@ -240,6 +244,21 @@ describe("CheckoutPaymentPageService.reopen", () => {
       state: "closed",
       reason: "window_elapsed",
     });
+    expect(harness.recordPaymentReturnTarget).not.toHaveBeenCalled();
+  });
+
+  test("closes the page when the abandonment cutoff passes while the provider answers", async () => {
+    const harness = createHarness({
+      observation: "no_activity",
+      now: instant("2026-06-01T10:29:59Z"),
+      providerAnswersAfter: "2 seconds",
+    });
+
+    expect(await harness.reopen()).toEqual({
+      state: "closed",
+      reason: "window_elapsed",
+    });
+    expect(harness.observeProvider).toHaveBeenCalledTimes(1);
     expect(harness.recordPaymentReturnTarget).not.toHaveBeenCalled();
   });
 

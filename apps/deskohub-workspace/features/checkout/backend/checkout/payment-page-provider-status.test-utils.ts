@@ -1,5 +1,6 @@
 import { mock } from "bun:test";
-import { Effect, Layer } from "effect";
+import { type Duration, Effect, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import {
   type PaymentPageProviderObservation,
   PaymentPageProviderStatus,
@@ -9,13 +10,19 @@ import {
  * The provider status of every payment page reads as `observation`;
  * `observe` records each lookup. `unknown` stands for a provider that can't
  * be asked, which leaves the provisional reopening window in charge.
+ * `answersAfter` advances the test clock by that much before the answer, as
+ * a slow provider would.
  */
 export const observePaymentPagesAs = (
-  observation: PaymentPageProviderObservation
+  observation: PaymentPageProviderObservation,
+  options: { readonly answersAfter?: Duration.Input } = {}
 ) => {
+  const { answersAfter } = options;
   const observe = mock(
     (_input: Parameters<PaymentPageProviderStatus["Service"]["observe"]>[0]) =>
-      Effect.succeed(observation)
+      answersAfter === undefined
+        ? Effect.succeed(observation)
+        : TestClock.adjust(answersAfter).pipe(Effect.as(observation))
   );
   return {
     observe,
