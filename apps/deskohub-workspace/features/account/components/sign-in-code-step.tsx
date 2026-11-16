@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  resendCooldownSecondsAtom,
+  SIGN_IN_EMAIL_RESEND_COOLDOWN_MS,
+} from "@deskohub/workspace-customer-api/sign-in-email";
 import { useAtomValue } from "@effect/atom-react";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { CheckCircle2, Loader2 } from "lucide-react";
@@ -10,10 +14,6 @@ import type {
 } from "@/features/account/auth-return";
 import { signInEmailFailureMessage } from "@/features/account/components/sign-in-email-failure-message";
 import { SIGN_IN_CODE_LENGTH } from "@/features/account/email-sign-in-request";
-import {
-  resendCooldownSecondsAtom,
-  SIGN_IN_CODE_RESEND_COOLDOWN_MS,
-} from "@/features/account/sign-in-code-resend-cooldown";
 import { type Locale, m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -68,7 +68,7 @@ export function SignInCodeStep({
   const resendRef = useRef<HTMLButtonElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
   const cooldownSeconds = useAtomValue(
-    resendCooldownSecondsAtom(requestedAt + SIGN_IN_CODE_RESEND_COOLDOWN_MS)
+    resendCooldownSecondsAtom(requestedAt + SIGN_IN_EMAIL_RESEND_COOLDOWN_MS)
   );
 
   // A new email replaces the code: start the entry over.

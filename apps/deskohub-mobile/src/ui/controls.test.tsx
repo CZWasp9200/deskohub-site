@@ -224,6 +224,14 @@ const field = (props: Partial<ComponentProps<typeof TextField>> = {}) => {
 };
 
 describe("TextField", () => {
+  test("the web input draws no outline of its own, so only the frame rings on focus", () => {
+    // Chromium draws an `auto` outline whatever its width.
+    expect(flat(field().input?.style)).toMatchObject({
+      outlineStyle: "none",
+      outlineWidth: 0,
+    });
+  });
+
   test("without an error the field is valid and its live region idles out of the layout", () => {
     for (const error of [undefined, ""]) {
       const { input, errorRegion } = field({ error });

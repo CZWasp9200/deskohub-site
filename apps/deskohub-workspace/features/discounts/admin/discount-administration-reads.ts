@@ -23,6 +23,7 @@ import {
 import { workspaceSiteConstants } from "@/shared/utils";
 import type { DiscountAdjustment } from "../contracts";
 import type { DiscountCodeId, VoucherId } from "../persistence-contracts";
+import { getAvailableVoucherCredit } from "../promotion-availability";
 import { toAdminCalendarSale } from "./admin-calendar-sale";
 import { toAdminDiscountGroup } from "./admin-discount-group";
 import type { DiscountAdminCustomerSearch } from "./contracts";
@@ -528,7 +529,10 @@ const toAdminVoucher = (row: AdminVoucherRow): AdminVoucher => {
     issuedCredit,
     remainingCredit: {
       ...issuedCredit,
-      value: Math.max(0, issuedCredit.value - usedValue),
+      value: Math.max(
+        0,
+        getAvailableVoucherCredit(issuedCredit, usedValue).value
+      ),
     },
     audienceSize: row.promotion.customers.length,
     audienceCustomerIds: row.promotion.customers.map(
