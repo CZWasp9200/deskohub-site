@@ -156,6 +156,7 @@ function CheckoutStateView({
           review={state}
           now={now}
           selection={request.selection}
+          overnightStay={request.overnightStay}
           send={flow.send}
           locale={locale}
         />
@@ -287,7 +288,14 @@ function DetailsWithProfile({
       onDraftChange={setDraft}
       notice={notice}
       busy={busy}
-      summary={quotedBarSummary(request.selection, request.quote, locale)}
+      summary={quotedBarSummary(
+        request.selection,
+        request.quote,
+        locale,
+        request.overnightStay === undefined
+          ? {}
+          : { overnightStay: request.overnightStay }
+      )}
       consentLocale={consentLocale}
       onOpenMarketingDocument={() =>
         void WebBrowser.openBrowserAsync(

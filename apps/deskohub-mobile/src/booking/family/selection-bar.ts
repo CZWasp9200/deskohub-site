@@ -5,6 +5,7 @@ import type {
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
 import type { BookingBarSummary } from "../ui/booking-bar";
 import { bookingSummaryOf, quotedBarSummary } from "../ui/booking-summary";
 import {
@@ -48,6 +49,11 @@ export const selectionBar = ({
     readonly amount: Money;
     /** Such as "per day". */
     readonly unit: string;
+    /**
+     * A Reserved Desk's overnight stay times, which an overnight selection's
+     * summary shows.
+     */
+    readonly overnightStay?: CoworkOvernightStay;
   };
   /** None until the selection is complete. */
   readonly selection: Option.Option<CustomerBookingSelection>;
@@ -71,9 +77,15 @@ export const selectionBar = ({
     };
   }
   const chosen = selection.value;
+  const product = {
+    name: from.title,
+    ...(from.overnightStay === undefined
+      ? {}
+      : { overnightStay: from.overnightStay }),
+  };
   const read = Option.getOrUndefined(quote);
   const unpriced = (price: BookingBarSummary["price"]): BookingBarSummary => ({
-    ...bookingSummaryOf(chosen, locale, from.title),
+    ...bookingSummaryOf(chosen, locale, product),
     price,
   });
   if (read?.kind === "failed") {
@@ -88,7 +100,7 @@ export const selectionBar = ({
   return {
     summary:
       read?.kind === "loaded" && !read.refreshing
-        ? quotedBarSummary(chosen, read.value, locale, from.title)
+        ? quotedBarSummary(chosen, read.value, locale, product)
         : unpriced({ kind: read === undefined ? "none" : "updating" }),
     action: "continue",
     disabled: !canContinue,

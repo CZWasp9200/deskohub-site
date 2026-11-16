@@ -5,6 +5,7 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { theme } from "../../theme";
 import { Text } from "../../ui/text";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
 import { formatPragueDate, formatPragueTime } from "../ui/prague-date-format";
 import {
   bookingOverviewOf,
@@ -48,7 +49,25 @@ const overviewRows = (
 ): ReadonlyArray<Row> => {
   switch (overview._tag) {
     case "Cowork":
-      return [dateRow(overview.date, locale)];
+      return [
+        dateRow(overview.date, locale),
+        ...Option.toArray(
+          Option.map(overview.overnight, ({ start, end, endDate }) => ({
+            label: m.booking_checkout_overview_time({}, { locale }),
+            value: range(
+              formatPragueTime(start, locale),
+              m.booking_checkout_overview_day_time(
+                {
+                  date: formatPragueDate(endDate, locale),
+                  time: formatPragueTime(end, locale),
+                },
+                { locale }
+              ),
+              locale
+            ),
+          }))
+        ),
+      ];
     case "MeetingRoom":
       return [
         dateRow(overview.date, locale),
@@ -81,18 +100,22 @@ const overviewRows = (
 
 /**
  * What is booked and when, above the price: the product, its date or dates,
- * a meeting room's time and early setup, and an office's seats.
+ * an overnight stay's and a meeting room's time, early setup, and an
+ * office's seats.
  */
 export function BookingOverviewView({
   selection,
   earlySetup,
+  overnightStay,
   locale,
 }: {
   readonly selection: CustomerBookingSelection;
   readonly earlySetup: boolean;
+  /** An overnight Reserved Desk's times from the catalog. */
+  readonly overnightStay?: CoworkOvernightStay | undefined;
   readonly locale: AppLocale;
 }) {
-  const overview = bookingOverviewOf(selection, earlySetup);
+  const overview = bookingOverviewOf(selection, earlySetup, overnightStay);
   return (
     <View style={styles.overview}>
       <Text role="heading" style={styles.product}>

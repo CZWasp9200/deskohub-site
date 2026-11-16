@@ -10,10 +10,13 @@ import {
   coworkAvailabilityQueries,
   coworkDraftFromSelection,
   coworkEnablement,
+  coworkOvernightStay,
   defaultCoworkDraft,
+  fitCoworkStay,
   freeCoworkTierOn,
   normalizeCoworkWorkstation,
   selectCoworkDate,
+  selectCoworkStay,
   selectCoworkTier,
   selectCoworkWorkstation,
   toCoworkSelection,
@@ -108,6 +111,7 @@ describe("defaultCoworkDraft", () => {
   test("opens on Open Space without a date, coffee or a workstation", () => {
     expect(defaultCoworkDraft(offerings)).toEqual({
       tier: "open-space",
+      stay: "day",
       date: Option.none(),
       coffee: false,
       workstation: Option.none(),
@@ -580,5 +584,93 @@ describe("freeCoworkTierOn", () => {
         "open-space"
       )
     ).toEqual(Option.none());
+  });
+});
+
+describe("overnight stay", () => {
+  const overnightStay = { startTime: "12:00", endTime: "12:00" };
+  const overnightOfferings = [
+    coworkOffering("open-space"),
+    { ...coworkOffering("reserved-desk"), overnightStay },
+  ];
+  const overnight = selectCoworkStay(reservedDesk, "overnight");
+  const stays = (queries: ReturnType<typeof coworkAvailabilityQueries>) => [
+    queries.range.stay,
+    Option.getOrThrow(queries.selection).stay,
+    Option.getOrThrow(queries.workstationRequirement).stay,
+  ];
+
+  test("is offered only while the catalog's Reserved Desk advertises it", () => {
+    expect(coworkOvernightStay(overnightOfferings)).toEqual(
+      Option.some(overnightStay)
+    );
+    expect(coworkOvernightStay(offerings)).toEqual(Option.none());
+  });
+
+  test("books an overnight Reserved Desk as a stay; a day names none", () => {
+    expect(Option.getOrThrow(toCoworkSelection(overnight)).stay).toBe(
+      "overnight"
+    );
+    expect(
+      Option.getOrThrow(toCoworkSelection(reservedDesk))
+    ).not.toHaveProperty("stay");
+  });
+
+  test("reads the overnight calendar and day; a day reads as before", () => {
+    expect(stays(coworkAvailabilityQueries(overnight, today))).toEqual([
+      "overnight",
+      "overnight",
+      "overnight",
+    ]);
+    expect(stays(coworkAvailabilityQueries(reservedDesk, today))).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  test("goes back to a day when switching to Open Space", () => {
+    const openSpace = selectCoworkTier(overnight, "open-space");
+
+    expect(openSpace.stay).toBe("day");
+    expect(Option.getOrThrow(toCoworkSelection(openSpace))).not.toHaveProperty(
+      "stay"
+    );
+    expect(
+      coworkAvailabilityQueries(openSpace, today).range
+    ).not.toHaveProperty("stay");
+  });
+
+  test("falls back to a day once the catalog stops advertising it", () => {
+    expect(fitCoworkStay(overnight, overnightOfferings)).toBe(overnight);
+    expect(fitCoworkStay(overnight, offerings).stay).toBe("day");
+    expect(fitCoworkStay(reservedDesk, offerings)).toBe(reservedDesk);
+  });
+
+  test("reopens a booked overnight stay while it is still offered", () => {
+    const booked = {
+      family: "cowork",
+      date: "2026-11-20",
+      tier: "reserved-desk",
+      stay: "overnight",
+    } as const;
+    const reopened = (catalog: ReadonlyArray<CustomerOffering>) =>
+      Option.map(
+        coworkDraftFromSelection(booked, catalog, today),
+        toCoworkSelection
+      );
+
+    expect(reopened(overnightOfferings)).toEqual(
+      Option.some(Option.some(booked))
+    );
+    expect(reopened(offerings)).toEqual(
+      Option.some(
+        Option.some({
+          family: "cowork",
+          date: "2026-11-20",
+          tier: "reserved-desk",
+        })
+      )
+    );
   });
 });

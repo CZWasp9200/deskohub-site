@@ -19,6 +19,7 @@ import {
   type BookingQueryViewError,
   toBookingQueryError,
 } from "../data/booking-query-error";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
 
 /** One booking catalog read as a selection screen shows it. */
 export type BookingRead<A> =
@@ -125,6 +126,7 @@ export const checkoutRequestOf = ({
   blockers,
   quote,
   earlySetup,
+  overnightStay,
 }: {
   readonly locale: CustomerLocale;
   readonly selection: Option.Option<CustomerBookingSelection>;
@@ -132,6 +134,8 @@ export const checkoutRequestOf = ({
   readonly quote: Option.Option<CustomerBookingQuote>;
   /** Meeting room only. */
   readonly earlySetup?: boolean;
+  /** Overnight Reserved Desk only: the stay's times from the catalog. */
+  readonly overnightStay?: CoworkOvernightStay;
 }): Option.Option<CheckoutRequest> =>
   blockers.length > 0
     ? Option.none()
@@ -144,6 +148,7 @@ export const checkoutRequestOf = ({
             advertisedPriceToken,
             quote: { summary, regularPrice },
             ...(earlySetup === undefined ? {} : { earlySetup }),
+            ...(overnightStay === undefined ? {} : { overnightStay }),
           })
         )
       );

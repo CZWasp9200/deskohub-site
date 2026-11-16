@@ -29,7 +29,7 @@ export const monitorOptionName = (option: string): string =>
     : option;
 
 /**
- * What the booked product covers: a cowork desk's day, or a meeting room's
+ * What the booked product covers: a cowork desk's day or overnight stay, or a meeting room's
  * hours with their times, or its whole day.
  */
 const productDetail = (
@@ -39,7 +39,9 @@ const productDetail = (
   const overview = bookingOverviewOf(selection, false);
   switch (overview._tag) {
     case "Cowork":
-      return m.booking_price_line_one_day({}, { locale });
+      return selection.stay === "overnight"
+        ? m.booking_cowork_stay_overnight({}, { locale })
+        : m.booking_price_line_one_day({}, { locale });
     case "MeetingRoom":
       return Option.match(overview.time, {
         onNone: () => undefined,

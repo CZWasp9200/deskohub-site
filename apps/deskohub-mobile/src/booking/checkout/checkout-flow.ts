@@ -30,6 +30,7 @@ import {
   bookingServicesLayer,
 } from "../data/booking-services-layer";
 import { RememberedReferralCode } from "../remembered-referral.service";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
 import { isSideEffect, runCheckoutCommand } from "./checkout-commands";
 import { startCheckout, step } from "./checkout-machine";
 import {
@@ -55,6 +56,11 @@ export interface CheckoutRequest {
   readonly quote: Pick<CustomerBookingQuote, "summary" | "regularPrice">;
   /** Meeting room only. */
   readonly earlySetup?: boolean;
+  /**
+   * Overnight Reserved Desk only: the stay's times from the catalog, which
+   * the booking bar shows.
+   */
+  readonly overnightStay?: CoworkOvernightStay;
 }
 
 /**
