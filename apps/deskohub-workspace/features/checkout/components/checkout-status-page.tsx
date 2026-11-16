@@ -236,6 +236,8 @@ export function CheckoutStatusPage({
   const offersNewReservation =
     checkoutStatusTraits[status.status].offersNewReservation;
   const reviewSandbox = status.status !== "not_found" && status.reviewSandbox;
+  const paymentPageReopenable =
+    status.status !== "not_found" && status.paymentPageReopenable;
 
   return (
     <CheckoutStatusFrame
@@ -287,7 +289,7 @@ export function CheckoutStatusPage({
         reserveAgainPath={reserveAgainPath}
         reopensPaymentPageFor={
           checkoutStatusTraits[status.status].offersPaymentPageReopening &&
-          status.paymentPageReopenable
+          paymentPageReopenable
             ? status.orderId
             : undefined
         }
