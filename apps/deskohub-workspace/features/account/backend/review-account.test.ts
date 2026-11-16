@@ -197,7 +197,8 @@ describe("a review account's reservation history", () => {
       Effect.runPromise
     );
 
-    expect(loaded).toBe(sandboxHistory);
+    // The sandbox's history, its entries named as every history's are.
+    expect(loaded).toEqual(sandboxHistory);
     expect(history).toHaveBeenCalledWith(accountId);
   });
 });
