@@ -2,6 +2,7 @@ import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import WifiOff from "lucide-react-native/icons/wifi-off";
 import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { Card } from "./card";
 import { Button } from "./controls";
 import { EmptyState } from "./empty-state";
 import { useLiveRegionAnnouncement } from "./live-announcement";
@@ -22,8 +23,9 @@ export function LoadingState({ label }: { readonly label: string }) {
 }
 
 /**
- * Replaces the screen's content when it couldn't load: an empty state that
- * says so, with a retry button that shows progress while the retry runs. Its
+ * Replaces the screen's content when it couldn't load: a card in the
+ * content's place (over a tab root's masthead, like the content) with an
+ * empty state that says so, and a retry button that shows progress while the retry runs. Its
  * alert region mounts empty and takes the message right after, since screen
  * readers often skip a region inserted together with its text.
  */
@@ -41,17 +43,19 @@ export function ErrorState({
   const [alert, setAlert] = useState<string>();
   useEffect(() => setAlert(message), [message]);
   return (
-    <View style={styles.centered}>
-      <EmptyState icon={WifiOff} title={alert ?? ""} live="assertive">
-        <Button
-          variant="secondary"
-          icon={RotateCcw}
-          label={retryLabel}
-          onPress={onRetry}
-          busy={retrying}
-        />
-      </EmptyState>
-    </View>
+    <Card padding="none">
+      <View style={styles.errorCard}>
+        <EmptyState icon={WifiOff} title={alert ?? ""} live="assertive">
+          <Button
+            variant="secondary"
+            icon={RotateCcw}
+            label={retryLabel}
+            onPress={onRetry}
+            busy={retrying}
+          />
+        </EmptyState>
+      </View>
+    </Card>
   );
 }
 
@@ -93,5 +97,10 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   centeredAcross: { alignItems: "center" },
+  errorCard: {
+    paddingBottom: space.xxl,
+    paddingHorizontal: space.xs,
+    paddingTop: space.sm,
+  },
   refreshing: { textAlign: "center" },
 });

@@ -77,6 +77,9 @@ mock.module("react-native", () => ({
   Linking: {
     addEventListener: () => ({ remove: () => undefined }),
   },
+  BackHandler: {
+    addEventListener: () => ({ remove: () => undefined }),
+  },
   // Animations stand still: values keep what they were set to and every
   // animation finishes at once when started.
   Animated: {
