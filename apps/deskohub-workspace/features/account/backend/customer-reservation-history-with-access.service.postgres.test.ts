@@ -187,7 +187,7 @@ const makeHistory = (input: {
           Layer.provide(
             Layer.mergeAll(
               testDatabaseLayer(),
-              WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool)
+              WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.databasePool)
             )
           )
         )
