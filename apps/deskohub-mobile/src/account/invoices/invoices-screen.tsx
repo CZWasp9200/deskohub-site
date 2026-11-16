@@ -10,7 +10,6 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { Card } from "../../ui/card";
-import { LiveMessage } from "../../ui/controls";
 import { EmptyState } from "../../ui/empty-state";
 import { Icon } from "../../ui/icon";
 import { ListGroup, ListRow } from "../../ui/list";
@@ -80,17 +79,6 @@ function InvoiceRows({ rows }: { readonly rows: ReadonlyArray<InvoiceRow> }) {
   return (
     <>
       {/* Kept mounted so assistive tech announces each change. */}
-      <LiveMessage
-        role="status"
-        message={
-          downloading && attempted !== undefined
-            ? m.invoices_downloading(
-                { number: attempted.invoiceNumber },
-                { locale }
-              )
-            : undefined
-        }
-      />
       <Notice
         tone="error"
         message={
@@ -132,22 +120,33 @@ function InvoiceListRow({
 }) {
   const locale = useAppLocale();
   const text = invoiceRowText(row, locale);
+  const downloadingLabel = m.invoices_downloading(
+    { number: row.invoiceNumber },
+    { locale }
+  );
   return (
     <ListRow
       kind="action"
       icon={Receipt}
       label={text.title}
       description={`${text.when}\n${text.amount}`}
+      // While it downloads, the row says so in place of its action.
       accessibilityLabel={listRowAccessibleLabel({
-        label: m.invoices_download_label(
-          { number: row.invoiceNumber },
-          { locale }
-        ),
+        label: downloading
+          ? downloadingLabel
+          : m.invoices_download_label(
+              { number: row.invoiceNumber },
+              { locale }
+            ),
         description: [text.title, text.when, text.amount].join(", "),
       })}
       trailing={
         downloading ? (
-          <LoadingIndicator size="inline" tone="navy" />
+          <LoadingIndicator
+            size="inline"
+            tone="navy"
+            label={downloadingLabel}
+          />
         ) : (
           <Icon icon={Download} size={20} color={color.ink2} />
         )

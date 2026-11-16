@@ -25,6 +25,7 @@ import { CheckboxRow } from "../../ui/checkbox";
 import { ChoiceList } from "../../ui/choice-list";
 import { Button, TextField } from "../../ui/controls";
 import { CountryField } from "../../ui/country-field";
+import { FieldPair } from "../../ui/field-pair";
 import { Icon } from "../../ui/icon";
 import { Notice } from "../../ui/notice";
 import { Text } from "../../ui/text";
@@ -706,9 +707,8 @@ function AddressFields({
         autoComplete="address-line1"
         autoCapitalize="words"
       />
-      {/* Wraps under each other when they no longer fit side by side. */}
-      <View style={styles.pair}>
-        <View style={styles.city}>
+      <FieldPair
+        wide={
           <Field
             {...field("address.city")}
             label={m.booking_details_city({}, { locale })}
@@ -716,8 +716,8 @@ function AddressFields({
             onChangeText={(city) => set({ city }, "address.city")}
             autoCapitalize="words"
           />
-        </View>
-        <View style={styles.postalCode}>
+        }
+        narrow={
           <Field
             {...field("address.postalCode")}
             label={m.booking_details_postal_code({}, { locale })}
@@ -727,8 +727,8 @@ function AddressFields({
             }
             autoComplete="postal-code"
           />
-        </View>
-      </View>
+        }
+      />
       <View ref={country.viewRef}>
         <CountryField
           label={m.booking_details_country({}, { locale })}
@@ -967,14 +967,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   cardName: { flexShrink: 1 },
-  pair: {
-    columnGap: space.md,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    rowGap: space.lg,
-  },
-  city: { flexBasis: 160, flexGrow: 1.4 },
-  postalCode: { flexBasis: 110, flexGrow: 1 },
   group: {
     backgroundColor: color.surface,
     borderColor: color.line,

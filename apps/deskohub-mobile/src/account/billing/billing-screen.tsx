@@ -13,6 +13,7 @@ import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { ChoiceList } from "../../ui/choice-list";
 import { CountryField } from "../../ui/country-field";
+import { FieldPair } from "../../ui/field-pair";
 import { SectionHeader } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
@@ -236,15 +237,10 @@ function AddressSection({
         {...fields}
         fields={["addressLine1", "addressLine2"]}
       />
-      {/* Wraps under each other when they no longer fit side by side. */}
-      <View style={styles.pair}>
-        <View style={styles.city}>
-          <ProfileTextFields {...fields} fields={["city"]} />
-        </View>
-        <View style={styles.zip}>
-          <ProfileTextFields {...fields} fields={["zip"]} />
-        </View>
-      </View>
+      <FieldPair
+        wide={<ProfileTextFields {...fields} fields={["city"]} />}
+        narrow={<ProfileTextFields {...fields} fields={["zip"]} />}
+      />
       <CountryField
         label={m.booking_details_country({}, { locale })}
         value={country}
@@ -267,13 +263,4 @@ function AddressSection({
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
   section: { gap: space.lg },
-  // As the checkout's address: city wider, both wrap at 200% type.
-  pair: {
-    columnGap: space.md,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    rowGap: space.lg,
-  },
-  city: { flexBasis: 160, flexGrow: 1.4 },
-  zip: { flexBasis: 110, flexGrow: 1 },
 });
