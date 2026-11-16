@@ -153,22 +153,23 @@ const styles = StyleSheet.create({
 });
 
 /**
- * The label above a field: never floating, so a long label wraps. A `note`,
- * such as "(optional)", follows it in a lighter weight.
+ * The label above a field: never floating, so a long label wraps. An
+ * optional field adds its marker, such as "(optional)", in regular grey.
  */
 export function FieldLabel({
   label,
-  note,
+  optional,
 }: {
   readonly label: string;
-  readonly note?: string;
+  readonly optional?: string;
 }) {
+  if (optional === undefined) return <Text variant="label">{label}</Text>;
   return (
     <Text variant="label">
-      {label}
-      {note !== undefined && (
-        <Text variant="bodySmall" tone="muted">{` ${note}`}</Text>
-      )}
+      {label}{" "}
+      <Text variant="bodySmall" tone="muted">
+        {optional}
+      </Text>
     </Text>
   );
 }

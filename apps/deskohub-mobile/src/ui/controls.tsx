@@ -11,8 +11,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useProvidedAppLocale } from "../i18n/locale-context";
-import { m } from "../i18n/messages";
 import {
   FieldLabel,
   FieldMessages,
@@ -345,7 +343,7 @@ const buttonPressedStyles = StyleSheet.create({
  */
 export function TextField({
   label,
-  optional = false,
+  optional,
   hint,
   error,
   readOnly = false,
@@ -359,8 +357,8 @@ export function TextField({
   ...input
 }: {
   readonly label: string;
-  /** Marks the field as one the customer may leave empty. */
-  readonly optional?: boolean;
+  /** The marker after the label of a field that may stay empty. */
+  readonly optional?: string;
   /** Help under the field, such as the format it expects. */
   readonly hint?: string;
   readonly error?: string;
@@ -389,10 +387,6 @@ export function TextField({
   | "autoFocus"
   | "editable"
 >) {
-  const locale = useProvidedAppLocale();
-  const note = optional
-    ? m.field_optional({}, locale === undefined ? {} : { locale })
-    : undefined;
   const [focused, setFocused] = useState(false);
   const hintId = useId();
   const errorId = useId();
@@ -409,11 +403,11 @@ export function TextField({
   const iconColor = fieldIconColor(state);
   return (
     <View style={fieldColumnStyle}>
-      <FieldLabel label={label} note={note} />
+      <FieldLabel label={label} optional={optional} />
       <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
         {leadingIcon && <Icon icon={leadingIcon} size={20} color={iconColor} />}
         <TextInput
-          aria-label={note === undefined ? label : `${label} ${note}`}
+          aria-label={optional === undefined ? label : `${label} ${optional}`}
           aria-disabled={disabled}
           // Native platforms read the hint; the web reads `aria-describedby`
           // and `aria-invalid`, which react-native-web maps and RN ignores.
@@ -444,8 +438,9 @@ export function TextField({
 
 /**
  * Live regions stay mounted so assistive tech announces each change; only
- * their text changes, and while idle they take no room. `status` is polite progress, `alert` an error. iOS,
- * which ignores `aria-live`, has each change announced directly.
+ * their text changes, and while idle they take no room. `status` is polite
+ * progress, `alert` an error. iOS, which ignores `aria-live`, has each
+ * change announced directly.
  */
 export function LiveMessage({
   role,
