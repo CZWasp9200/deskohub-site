@@ -745,6 +745,7 @@ describe("administration tools through the assistant API", () => {
             )
           )
         ),
+        Effect.result,
         Effect.runPromise
       );
 
@@ -757,9 +758,19 @@ describe("administration tools through the assistant API", () => {
       sendRestorationEmail: false,
     };
 
-    await callRestore(handler, input);
-    await callRestore(handler, { ...input, confirm: false });
+    // The preview reads the reservation; this one isn't found, so the call
+    // answers that refusal and changes nothing.
+    const previews = [
+      await callRestore(handler, input),
+      await callRestore(handler, { ...input, confirm: false }),
+    ];
 
+    for (const preview of previews) {
+      expect(preview).toMatchObject({
+        _tag: "Failure",
+        failure: { details: { code: "administration_failed" } },
+      });
+    }
     expect(reservationReads).toEqual([
       restoredReservationId,
       restoredReservationId,
@@ -770,12 +781,15 @@ describe("administration tools through the assistant API", () => {
     const applied = await callRestore(handler, { ...input, confirm: true });
 
     expect(applied).toMatchObject({
-      result: {
-        outcome: "applied",
+      _tag: "Success",
+      success: {
         result: {
-          outcome: "restored",
-          email: "not_requested",
-          access: "issued",
+          outcome: "applied",
+          result: {
+            outcome: "restored",
+            email: "not_requested",
+            access: "issued",
+          },
         },
       },
     });
