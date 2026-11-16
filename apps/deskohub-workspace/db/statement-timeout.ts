@@ -1,5 +1,5 @@
 import type * as PgClient from "@effect/sql-pg/PgClient";
-import { Context, Deferred, Duration, Effect, Option } from "effect";
+import { Clock, Context, Deferred, Duration, Effect, Option } from "effect";
 import { type SqlClient, SqlError } from "effect/sql";
 import { databaseTimeouts } from "./database-pool-timeouts";
 
@@ -35,6 +35,19 @@ export const statementTimedOut = (timeout: Duration.Duration) =>
   });
 
 /**
+ * The clock a run gets without one of its own. A statement waits on the
+ * database in real time, so its bound runs on this clock even where a test
+ * moves a `TestClock`.
+ */
+const liveClock = Effect.runSync(Clock.clockWith(Effect.succeed));
+
+const timedOutAfter = (timeout: Duration.Duration) =>
+  Effect.sleep(timeout).pipe(
+    Effect.provideService(Clock.Clock, liveClock),
+    Effect.andThen(Effect.fail(statementTimedOut(timeout)))
+  );
+
+/**
  * Bounds a statement on a connection it already holds. Timing out interrupts
  * it: the driver sends a CancelRequest and retires the connection unless the
  * server confirms the cancellation.
@@ -42,10 +55,7 @@ export const statementTimedOut = (timeout: Duration.Duration) =>
 export const boundStatement =
   (timeout: Duration.Duration) =>
   <A, E, R>(statement: Effect.Effect<A, E, R>) =>
-    Effect.timeoutOrElse(statement, {
-      duration: timeout,
-      orElse: () => Effect.fail(statementTimedOut(timeout)),
-    });
+    Effect.raceFirst(statement, timedOutAfter(timeout));
 
 /**
  * Bounds a statement from the moment it checks out a connection, so waiting
@@ -60,10 +70,7 @@ const boundFromCheckout =
         Effect.provideService(statement, StatementCheckout, () => {
           Deferred.doneUnsafe(checkedOut, Effect.void);
         }),
-        Deferred.await(checkedOut).pipe(
-          Effect.andThen(Effect.sleep(timeout)),
-          Effect.andThen(Effect.fail(statementTimedOut(timeout)))
-        )
+        Deferred.await(checkedOut).pipe(Effect.andThen(timedOutAfter(timeout)))
       )
     );
 

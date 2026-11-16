@@ -3,6 +3,7 @@ import * as PgClient from "@effect/sql-pg/PgClient";
 import { sql } from "drizzle-orm";
 import { Cause, Context, Effect, Exit, Fiber, Option } from "effect";
 import { SqlClient, SqlError } from "effect/sql";
+import { TestClock } from "effect/testing";
 import { openDatabasePool } from "@/shared/testing/workspace-database-pool.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { WorkspaceDatabase } from "./database.service";
@@ -121,6 +122,31 @@ describe.skipIf(!postgresDatabase)("Database statement timeout", () => {
         expect(Date.now() - started).toBeLessThan(1_500);
       }
       expect(await activeSleeps()).toBe(0);
+    } finally {
+      await pool.close();
+    }
+  });
+
+  test("bounds statements in real time, whatever a test clock reads", async () => {
+    const pool = await openProbe({ statementTimeout: "300 millis" });
+    try {
+      const db = await Effect.runPromise(makeDatabaseClient(pool));
+      const { transaction } = WorkspaceDatabase.make(db);
+      const exit = await Effect.runPromiseExit(
+        Effect.gen(function* () {
+          const outside = yield* Effect.forkChild(
+            db.execute(sql`select pg_sleep(0.1)`)
+          );
+          const inside = yield* Effect.forkChild(
+            transaction(db.execute(sql`select pg_sleep(0.1)`))
+          );
+          yield* Effect.yieldNow;
+          yield* TestClock.adjust("1 hour");
+          yield* Fiber.join(outside);
+          yield* Fiber.join(inside);
+        }).pipe(Effect.provide(TestClock.layer()))
+      );
+      expect(Exit.isSuccess(exit)).toBe(true);
     } finally {
       await pool.close();
     }
