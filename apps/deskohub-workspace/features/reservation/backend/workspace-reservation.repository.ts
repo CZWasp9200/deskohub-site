@@ -422,7 +422,9 @@ const recordReservationDraft = Effect.fnUntraced(function* (
       reservationState: "draft",
       paymentState: "not_started",
       fulfillmentState: "not_started",
-      reservationDetails: input.reservationDetails,
+      reservationDetails: yield* StoredReservationDetails.encode(
+        input.reservationDetails
+      ),
       locale: input.locale,
       reservationHoldExpiresAt: input.reservationHoldExpiresAt,
     })
@@ -794,7 +796,9 @@ export class WorkspaceReservationRepository extends Context.Service<
           const updated = yield* db
             .update(workspaceReservations)
             .set({
-              reservationDetails: input.reservationDetails,
+              reservationDetails: yield* StoredReservationDetails.encode(
+                input.reservationDetails
+              ),
               locale: input.locale,
               updatedAt: Temporal.Now.instant(),
             })
@@ -1162,7 +1166,9 @@ export class WorkspaceReservationRepository extends Context.Service<
                   reservationState: "draft",
                   paymentState: "not_started",
                   fulfillmentState: "not_started",
-                  reservationDetails: input.replacement.reservationDetails,
+                  reservationDetails: yield* StoredReservationDetails.encode(
+                    input.replacement.reservationDetails
+                  ),
                   locale: input.replacement.locale,
                   reservationHoldExpiresAt:
                     input.replacement.reservationHoldExpiresAt,
