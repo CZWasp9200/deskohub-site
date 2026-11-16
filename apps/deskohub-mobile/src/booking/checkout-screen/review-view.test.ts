@@ -395,7 +395,9 @@ test("reviewView counts the hold, not the token, down from the flow clock's tick
   const loaded = reviewWith(held());
   const view = reviewView(asReview(loaded.state), now);
   expect(view.holdSecondsLeft).toBe(300);
-  expect(view.holdExpiresAt).toBe(loaded.state.checkout.holdExpiresAt);
+  expect(view.holdExpiresAt).toBe(
+    asReview(loaded.state).checkout.holdExpiresAt
+  );
   expect(view.busy).toBe(false);
 });
 

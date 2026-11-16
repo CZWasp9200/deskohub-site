@@ -484,7 +484,7 @@ export type ClearDiscountCodeResult =
  * the referral benefit among them, are affirmed again and stacked afresh,
  * and the result is a price review the customer accepts before paying. An
  * intended code that was never applied is dropped without repricing. Neither
- * moves the hold deadline.
+ * moves the hold deadline, and both wait for a pending price review.
  *
  * A state without either code is returned unchanged: it signs nothing, so it
  * reads no reservation, like accepting a price that needs no review; payment
@@ -497,22 +497,26 @@ export const clearDiscountCodeFromPayState = Effect.fn(
     const state = yield* openPayStateForLocale(input);
 
     const { submittedCodeDiscountId } = state;
+    if (
+      submittedCodeDiscountId === undefined &&
+      state.requestedDiscountCode === undefined
+    ) {
+      const unchanged: ClearDiscountCodeResult = {
+        status: "unchanged",
+        freshPayUrl: buildCheckoutPayPathFromToken(
+          input.locale,
+          input.payStateToken
+        ),
+        freshPayStateToken: input.payStateToken,
+        expiresAt: getPayStateExpiresAt(state),
+      };
+      return unchanged;
+    }
+    // A code change waits for the pending review, as code entry does.
+    if (state.changedKeys) return priceReviewPending;
     if (submittedCodeDiscountId === undefined) {
-      if (state.requestedDiscountCode === undefined) {
-        const unchanged: ClearDiscountCodeResult = {
-          status: "unchanged",
-          freshPayUrl: buildCheckoutPayPathFromToken(
-            input.locale,
-            input.payStateToken
-          ),
-          freshPayStateToken: input.payStateToken,
-          expiresAt: getPayStateExpiresAt(state),
-        };
-        return unchanged;
-      }
       return yield* clearRequestedDiscountCode(input, state);
     }
-    if (state.changedKeys) return priceReviewPending;
     return yield* clearAppliedDiscountCode(
       input,
       state,
@@ -531,10 +535,7 @@ export const clearDiscountCodeFromPayState = Effect.fn(
     )
 );
 
-/**
- * Drops a code the customer intended but never applied. Nothing is
- * repriced, so a pending price review stays pending.
- */
+/** Drops a code the customer intended but never applied, without repricing. */
 const clearRequestedDiscountCode = Effect.fnUntraced(function* (
   input: ClearDiscountCodeInput,
   state: SignedPayState

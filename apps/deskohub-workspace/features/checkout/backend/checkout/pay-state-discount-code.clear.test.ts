@@ -568,11 +568,10 @@ describe("clearDiscountCodeFromPayState", () => {
   });
 
   describe("an intended code that was never applied", () => {
-    test("is dropped without repricing, keeping a pending review", async () => {
+    test("is dropped without repricing", async () => {
       const issuedAt = Temporal.Now.instant().subtract({ minutes: 3 });
       const payStateToken = await makePayStateToken({
         requestedDiscountCode: code("SAVE20"),
-        changedKeys: clearedKeys,
         referralCode,
         issuedAt,
       });
@@ -587,14 +586,33 @@ describe("clearDiscountCodeFromPayState", () => {
       expect(clearDiscountCode).not.toHaveBeenCalled();
       expect(requireCurrent).toHaveBeenCalledTimes(1);
       expect(fresh.requestedDiscountCode).toBeUndefined();
+      expect(fresh.changedKeys).toBeUndefined();
       expect(fresh).toMatchObject({
         quote: signed.quote,
         acceptedTotal: signed.acceptedTotal,
-        changedKeys: clearedKeys,
         referralCode,
         holdExpiresAt: payStateHoldExpiresAt,
       });
       expect(fresh.exp).toBeGreaterThan(signed.exp);
+    });
+
+    test("is refused while a price review is pending", async () => {
+      const payStateToken = await makePayStateToken({
+        requestedDiscountCode: code("SAVE20"),
+        changedKeys: clearedKeys,
+      });
+
+      const { result, requireCurrent, clearDiscountCode } = await clearSucceeds(
+        { payStateToken }
+      );
+
+      expect(result).toStrictEqual({
+        status: "unavailable",
+        reason: "price_review_pending",
+        freshPayUrl: undefined,
+      });
+      expect(requireCurrent).not.toHaveBeenCalled();
+      expect(clearDiscountCode).not.toHaveBeenCalled();
     });
 
     test("is kept while a payment is in progress", async () => {
