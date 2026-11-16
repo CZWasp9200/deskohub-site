@@ -138,7 +138,8 @@ export const handleCustomerBookingCheckout = <R>(
           Layer.mergeAll(
             CustomerReferralUpdates.fromClient(referralCode),
             releases.referral,
-            releases.office
+            releases.office,
+            releases.overnightStay
           )
         )
       );

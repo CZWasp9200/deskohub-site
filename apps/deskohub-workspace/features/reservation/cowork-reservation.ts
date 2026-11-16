@@ -17,6 +17,12 @@ import {
   type WorkspaceCoworkProductTier,
 } from "@/features/reservation/cowork-reservation-product";
 import {
+  type CoworkStay,
+  coworkStaySchema,
+  isOvernightCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
+import {
   defaultReservationBillingSelection,
   normalizedReservationBillingSelectionSchema,
   reservationBillingSelectionInputSchema,
@@ -34,12 +40,6 @@ import type {
   ReservationInterval,
   ReservationIntervalInput,
 } from "@/features/reservation/reservation-interval-domain";
-import {
-  type CoworkStay,
-  coworkStaySchema,
-  isOvernightCoworkStay,
-  overnightCoworkStayTier,
-} from "@/features/reservation/cowork-stay";
 import { coworkReservationKind } from "@/features/reservation/reservation-kind";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
@@ -104,7 +104,8 @@ const getCoworkLocalInterval = (
   stay: CoworkStay | undefined
 ) => {
   if (isOvernightCoworkStay(tier, stay)) {
-    const changeover = workspaceSiteConstants.openingHours.overnightStayChangeover;
+    const changeover =
+      workspaceSiteConstants.openingHours.overnightStayChangeover;
     return {
       startsAt: decodeLocalDateTime(`${date}T${changeover}`),
       endsAt: decodeLocalDateTime(
@@ -555,7 +556,12 @@ const getCoworkReservationStayIssues = (data: {
   readonly stay?: CoworkStay | undefined;
 }): readonly Schema.FilterIssue[] =>
   data.stay === "overnight" && data.entryTier !== overnightCoworkStayTier
-    ? [{ path: ["stay"], issue: "Only a Reserved Desk offers an overnight stay." }]
+    ? [
+        {
+          path: ["stay"],
+          issue: "Only a Reserved Desk offers an overnight stay.",
+        },
+      ]
     : [];
 
 const getCoworkReservationIssues = (

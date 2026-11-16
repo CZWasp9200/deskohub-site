@@ -159,9 +159,6 @@ export const coworkSelectionLink = defineSelectionLink({
   write: (selection: CoworkSelection) => ({
     entryTier: selection.entryTier,
     date: selection.date || undefined,
-    stay: isOvernightCoworkStay(selection.entryTier, selection.stay)
-      ? "overnight"
-      : undefined,
     ...(selection.coffee === undefined
       ? { coffee: undefined, monitorOption: undefined }
       : {
@@ -173,6 +170,9 @@ export const coworkSelectionLink = defineSelectionLink({
               ? noMonitorQueryValue
               : undefined),
         }),
+    ...(isOvernightCoworkStay(selection.entryTier, selection.stay) && {
+      stay: "overnight",
+    }),
   }),
   /** The stored offer and date, with its add-ons. */
   fromStored: (

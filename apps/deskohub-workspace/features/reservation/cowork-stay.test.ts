@@ -3,6 +3,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { Result, Schema } from "effect";
 import "@/shared/polyfills/temporal";
 import {
+  type CoworkReservationOrderInput,
   coworkCurrentReservationOrderSchema,
   getCoworkReservationDetails,
   getCoworkReservationInterval,
@@ -20,7 +21,11 @@ const normalize = Schema.decodeSync(reservationIntervalSchema);
 describe("cowork stay interval", () => {
   test("runs an overnight Reserved Desk stay from noon on the arrival date to noon the next day", () => {
     expect(
-      getCoworkReservationIntervalInput("reserved-desk", "2099-06-10", "overnight")
+      getCoworkReservationIntervalInput(
+        "reserved-desk",
+        "2099-06-10",
+        "overnight"
+      )
     ).toEqual({
       startsAt: "2099-06-10T12:00",
       endsAt: "2099-06-11T12:00",
@@ -171,7 +176,11 @@ describe("cowork order stay", () => {
   const decodeOrder = Schema.decodeUnknownResult(
     coworkCurrentReservationOrderSchema("CZ")
   );
-  const order = (fields: Record<string, unknown>) => ({
+  const order = (
+    fields: Partial<
+      Pick<CoworkReservationOrderInput, "entryTier" | "stay">
+    > = {}
+  ) => ({
     kind: "cowork",
     entryTier: "reserved-desk",
     date: "2099-06-10",
@@ -183,12 +192,17 @@ describe("cowork order stay", () => {
   });
 
   test("keeps an overnight Reserved Desk stay on the order", () => {
-    const decoded = Result.getOrThrow(decodeOrder(order({ stay: "overnight" })));
-    expect(decoded).toMatchObject({ entryTier: "reserved-desk", stay: "overnight" });
+    const decoded = Result.getOrThrow(
+      decodeOrder(order({ stay: "overnight" }))
+    );
+    expect(decoded).toMatchObject({
+      entryTier: "reserved-desk",
+      stay: "overnight",
+    });
   });
 
   test("books a day stay without a stay key, whether the stay is missing or day", () => {
-    for (const fields of [{}, { stay: "day" }]) {
+    for (const fields of [{}, { stay: "day" }] as const) {
       const decoded = Result.getOrThrow(decodeOrder(order(fields)));
       expect("stay" in decoded).toBe(false);
     }
@@ -203,7 +217,9 @@ describe("cowork order stay", () => {
   });
 
   test("carries the stay into checkout details but never into stored details", () => {
-    const decoded = Result.getOrThrow(decodeOrder(order({ stay: "overnight" })));
+    const decoded = Result.getOrThrow(
+      decodeOrder(order({ stay: "overnight" }))
+    );
     const checkoutReservation = getCoworkReservationDetails(decoded);
     expect(checkoutReservation).toMatchObject({ stay: "overnight" });
     expect(

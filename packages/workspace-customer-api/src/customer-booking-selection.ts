@@ -28,13 +28,14 @@ export type CustomerBookableCoworkTier = typeof CustomerBookableCoworkTier.Type;
  * calendar day, or overnight from the offering's overnight start time on the
  * arrival date to its end time the next date.
  */
-export const CustomerCoworkStay = Schema.Literals(["day", "overnight"]).annotate(
-  {
-    identifier: "CustomerCoworkStay",
-    description:
-      "day (the arrival date's Prague calendar day) or overnight (noon on the arrival date to noon the next date, Prague time). Reserved Desk only.",
-  }
-);
+export const CustomerCoworkStay = Schema.Literals([
+  "day",
+  "overnight",
+]).annotate({
+  identifier: "CustomerCoworkStay",
+  description:
+    "day (the arrival date's Prague calendar day) or overnight (noon on the arrival date to noon the next date, Prague time). Reserved Desk only.",
+});
 export type CustomerCoworkStay = typeof CustomerCoworkStay.Type;
 
 export const CustomerMonitorOption = Schema.Literals([

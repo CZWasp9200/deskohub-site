@@ -30,6 +30,7 @@ import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import {
   AvailabilityQueryInvalid,
   WorkspaceAvailabilityService,
@@ -175,6 +176,7 @@ const pricedCatalog = (
 
 const officeOpen: CustomerBookingCatalogLayerSet["releases"] = {
   office: OfficeReleaseGate.fromDecision(true),
+  overnightStay: OvernightStayReleaseGate.fromDecision(false),
   referral: ReferralReleaseGate.fromDecision(false),
 };
 
@@ -1090,6 +1092,7 @@ describe("overlapping requests in different release cohorts", () => {
     inventory: emptyInventory,
     releases: {
       office: releaseGateForRunOverFlags(OfficeReleaseGate, featureFlags),
+      overnightStay: OvernightStayReleaseGate.fromDecision(false),
       referral: releaseGateForRunOverFlags(ReferralReleaseGate, featureFlags),
     },
   });

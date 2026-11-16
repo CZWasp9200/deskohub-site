@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
-import { CustomerAvailabilityQuery, CustomerOffering } from "./customer-booking-catalog-api";
+import {
+  CustomerAvailabilityQuery,
+  CustomerOffering,
+} from "./customer-booking-catalog-api";
 import {
   CustomerBookingSelection,
   CustomerBookingSelectionQuery,
@@ -21,7 +24,7 @@ describe("Reserved Desk stay in the customer booking contract", () => {
   });
 
   test("accepts an overnight stay on strict selection, query, and availability requests", () => {
-    const overnight = { ...reservedDesk, stay: "overnight" };
+    const overnight = { ...reservedDesk, stay: "overnight" } as const;
     expect(
       Schema.decodeUnknownSync(CustomerBookingSelection)(overnight, strict)
     ).toEqual(overnight);
@@ -67,6 +70,8 @@ describe("Reserved Desk stay in the customer booking contract", () => {
         ...offering,
         overnightStay: { startTime: "12:00", endTime: "12:00" },
       })
-    ).toMatchObject({ overnightStay: { startTime: "12:00", endTime: "12:00" } });
+    ).toMatchObject({
+      overnightStay: { startTime: "12:00", endTime: "12:00" },
+    });
   });
 });

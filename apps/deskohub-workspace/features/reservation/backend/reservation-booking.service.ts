@@ -1,7 +1,3 @@
-import {
-  ensureCoworkStayOffered,
-  OvernightStayReleaseGate,
-} from "@/features/reservation/backend/overnight-stay-release-gate";
 import { DotyposService } from "@deskohub/dotypos";
 import { EmailRecipientDomainService } from "@deskohub/email/backend/recipient-domain.service";
 import { parsePhoneNumber } from "@deskohub/phone-number";
@@ -73,6 +69,10 @@ import {
   AgentBookingProfileRequiredError,
   BookingAgent,
 } from "@/features/reservation/backend/booking-agent";
+import {
+  ensureCoworkStayOffered,
+  OvernightStayReleaseGate,
+} from "@/features/reservation/backend/overnight-stay-release-gate";
 import {
   getAgentHoldBookedAt,
   getDotyposCustomerId,

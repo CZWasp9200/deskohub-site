@@ -47,6 +47,7 @@ import { ReferralServiceMock } from "@/features/referrals/referral.service.mock"
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { WorkspaceTableUnavailableError } from "@/features/reservation/backend/workspace-availability.service";
 import {
   type WorkspaceReservation,
@@ -567,6 +568,7 @@ describe("createCheckout", () => {
           office: Layer.unwrap(
             counted("office").pipe(Effect.map(OfficeReleaseGate.fromEvaluation))
           ),
+          overnightStay: OvernightStayReleaseGate.fromDecision(false),
         },
       }),
     });
@@ -735,6 +737,7 @@ describe("applyCheckoutDiscountCode", () => {
           releases: {
             referral: ReferralReleaseGate.fromDecision(released),
             office: OfficeReleaseGate.fromDecision(false),
+            overnightStay: OvernightStayReleaseGate.fromDecision(false),
           },
           operations: Layer.effect(
             CustomerCheckoutOperations,

@@ -1,9 +1,9 @@
 import { Context, Layer } from "effect";
 import { CheckoutService } from "@/features/checkout/backend/checkout";
 import { OfficeReleaseGateForRun } from "@/features/office/backend/office-release-gate-run";
-import { OvernightStayReleaseGateForRun } from "@/features/reservation/backend/overnight-stay-release-gate-run";
 import { ReferralReleaseGateForRun } from "@/features/referrals/referral-release-gate-run";
 import { SharedAvailabilityInventoryLive } from "@/features/reservation/backend/availability-inventory-cache.server";
+import { OvernightStayReleaseGateForRun } from "@/features/reservation/backend/overnight-stay-release-gate-run";
 import { CustomerCheckoutOperations } from "./customer-checkout-operations.service";
 
 const liveCheckoutLayers = {

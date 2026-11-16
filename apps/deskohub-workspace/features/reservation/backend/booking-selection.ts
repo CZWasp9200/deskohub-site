@@ -14,16 +14,16 @@ import type { Locale } from "@/features/i18n";
 import { loadAdvisoryOfficeSeatCapacity } from "@/features/office/backend/office-advisory-seat-capacity";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
-import {
-  type CoworkStay,
-  isOvernightCoworkStay,
-  overnightCoworkStayTier,
-} from "@/features/reservation/cowork-stay";
 import { getBookedSelection } from "@/features/reservation/booked-selection";
 import {
   getCoworkAdvertisedPriceReservation,
   isCoworkOpenSpaceDayCutoffReached,
 } from "@/features/reservation/cowork-reservation";
+import {
+  type CoworkStay,
+  isOvernightCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import { getMeetingRoomDurationAdvertisedPriceRequests } from "@/features/reservation/meeting-room-advertised-price";
 import { meetingRoomStartDateTimeSchema } from "@/features/reservation/meeting-room-reservation";
 import {
@@ -443,18 +443,19 @@ export const ensureCoworkStayOpen = ({
 }: {
   readonly stay: CoworkStay | undefined;
   readonly entryTier: WorkspaceCoworkCurrentTier | undefined;
-}) =>
-  stay !== "overnight"
-    ? Effect.void
-    : entryTier !== overnightCoworkStayTier
-      ? Effect.fail(BookingSelectionRejected.invalidField("stay"))
-      : OvernightStayReleaseGate.isOpen.pipe(
-          Effect.filterOrFail(
-            (open) => open,
-            () => BookingSelectionRejected.invalidField("stay")
-          ),
-          Effect.asVoid
-        );
+}) => {
+  if (stay !== "overnight") return Effect.void;
+  if (entryTier !== overnightCoworkStayTier) {
+    return Effect.fail(BookingSelectionRejected.invalidField("stay"));
+  }
+  return OvernightStayReleaseGate.isOpen.pipe(
+    Effect.filterOrFail(
+      (open) => open,
+      () => BookingSelectionRejected.invalidField("stay")
+    ),
+    Effect.asVoid
+  );
+};
 
 const ensureCoworkAddonsOffered = ({
   selection,

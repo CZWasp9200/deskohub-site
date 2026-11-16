@@ -1,10 +1,5 @@
 import "server-only";
 
-import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
-import {
-  getOvernightStayTimes,
-  overnightCoworkStayTier,
-} from "@/features/reservation/cowork-stay";
 import {
   type CustomerAvailability,
   type CustomerBookingOfferings,
@@ -26,14 +21,20 @@ import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quo
 import type { Locale } from "@/features/i18n";
 import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-evidence";
 import { resolveBookingQuoteSelection } from "@/features/reservation/backend/booking-selection";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { AvailabilityQueryInvalid } from "@/features/reservation/backend/workspace-availability.service";
 import {
   loadAvailability,
   loadMeetingRoomStartTimes,
   loadMeetingRoomUnavailableDates,
 } from "@/features/reservation/backend/workspace-availability-loader";
+import {
+  getOvernightStayTimes,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
+import { coworkReservationKind } from "@/features/reservation/reservation-kind";
 import {
   getMeetingRoomUnavailableDatesQuery,
   parseMeetingRoomStartTimesQuery,
@@ -41,7 +42,6 @@ import {
   type WorkspaceAvailability,
   type WorkspaceAvailabilityQuery,
 } from "@/features/reservation/workspace-availability";
-import { coworkReservationKind } from "@/features/reservation/reservation-kind";
 import { providePerRequest } from "@/shared/backend/provide-per-request";
 import { currentInstant } from "@/shared/utils/temporal";
 import {
@@ -111,8 +111,9 @@ export const handleCustomerBookingCatalog = <R>(
             ({ complete }) => complete,
             () => new SalePricesUnavailable()
           ),
-          Effect.bind("overnightStayOffered", () =>
-            OvernightStayReleaseGate.isOpen
+          Effect.bind(
+            "overnightStayOffered",
+            () => OvernightStayReleaseGate.isOpen
           ),
           Effect.map(
             (listing): CustomerBookingOfferings => ({
@@ -238,15 +239,15 @@ const ensureAvailabilityStayOffered =
   (overnightStayRelease: Layer.Layer<OvernightStayReleaseGate>) =>
   (query: WorkspaceAvailabilityQuery) =>
     query.kind === coworkReservationKind && query.stay === "overnight"
-    ? OvernightStayReleaseGate.isOpen.pipe(
-        Effect.filterOrFail(
-          (open) => open,
-          () => new CustomerBookingSelectionInvalid({ field: "stay" })
-        ),
-        Effect.asVoid,
-        providePerRequest(overnightStayRelease)
-      )
-    : Effect.void;
+      ? OvernightStayReleaseGate.isOpen.pipe(
+          Effect.filterOrFail(
+            (open) => open,
+            () => new CustomerBookingSelectionInvalid({ field: "stay" })
+          ),
+          Effect.asVoid,
+          providePerRequest(overnightStayRelease)
+        )
+      : Effect.void;
 
 /**
  * Reads the query the way the availability route does, so both accept the

@@ -94,6 +94,38 @@ describe("customer last reservation defaults", () => {
 });
 
 describe("coworkSelectionLink.write", () => {
+  test("reads an overnight stay only for a Reserved Desk", () => {
+    expect(
+      coworkSelectionLink.read(
+        new URLSearchParams("entryTier=reserved-desk&stay=overnight"),
+        { locale: "en-US" }
+      ).stay
+    ).toBe("overnight");
+    expect(
+      coworkSelectionLink.read(
+        new URLSearchParams("entryTier=open-space&stay=overnight"),
+        { locale: "en-US" }
+      ).stay
+    ).toBeUndefined();
+  });
+
+  test("names only an overnight Reserved Desk stay", () => {
+    expect(
+      coworkSelectionLink.write({
+        entryTier: "reserved-desk",
+        date: "2099-06-12",
+        stay: "overnight",
+      }).stay
+    ).toBe("overnight");
+    expect(
+      coworkSelectionLink.write({
+        entryTier: "open-space",
+        date: "2099-06-12",
+        stay: "overnight",
+      }).stay
+    ).toBeUndefined();
+  });
+
   test("names the selection in the declared order", () => {
     expect(
       Object.entries(
@@ -109,6 +141,7 @@ describe("coworkSelectionLink.write", () => {
       ["date", "2099-06-12"],
       ["coffee", "true"],
       ["monitorOption", "2x32-4k"],
+      ["stay", undefined],
     ]);
   });
 

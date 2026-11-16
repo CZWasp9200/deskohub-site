@@ -58,6 +58,7 @@ import { ReferralServiceMock } from "@/features/referrals/referral.service.mock"
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
@@ -358,6 +359,7 @@ const unusedBookingCatalog: CustomerBookingCatalogLayerSet = {
   sealedStateKeys: TestSealedStateKeys,
   releases: {
     office: OfficeReleaseGate.fromDecision(false),
+    overnightStay: OvernightStayReleaseGate.fromDecision(false),
     referral: ReferralReleaseGate.fromDecision(false),
   },
 };
@@ -368,6 +370,7 @@ const unusedBookingCheckout: CustomerBookingCheckoutLayerSet = {
   inventory: Layer.mock(AdvisoryAvailabilityInventory, {}),
   releases: {
     office: OfficeReleaseGate.fromDecision(false),
+    overnightStay: OvernightStayReleaseGate.fromDecision(false),
     referral: ReferralReleaseGate.fromDecision(false),
   },
 };

@@ -12,6 +12,7 @@ import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate
 import { ReferralService } from "@/features/referrals";
 import { ReferralReleaseGateRequest } from "@/features/referrals/referral-release-gate.server";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import {
   prepareWorkspacePayState,
   ReservationBooking,
@@ -50,7 +51,11 @@ const preparePayStateAction = defineWorkspaceAction(
             )
           ),
           Layer.provideMerge(
-            Layer.mergeAll(ReferralReleaseGateRequest, OfficeReleaseGate.Live)
+            Layer.mergeAll(
+              ReferralReleaseGateRequest,
+              OfficeReleaseGate.Live,
+              OvernightStayReleaseGate.Live
+            )
           ),
           Layer.provide(WorkspaceDatabase.Default)
         )

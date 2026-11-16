@@ -1,5 +1,4 @@
 import { Context, Data, Effect, Layer } from "effect";
-import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   CustomerAccountContactService,
@@ -23,6 +22,7 @@ import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate
 import { ReferralService } from "@/features/referrals";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import {
   prepareWorkspacePayState,
   ReservationBooking,

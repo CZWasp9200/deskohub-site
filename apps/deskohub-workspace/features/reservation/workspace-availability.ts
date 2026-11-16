@@ -15,6 +15,11 @@ import {
   type WorkspaceCoworkAvailabilityTarget,
   workspaceCoworkProductIdentitySchema,
 } from "@/features/reservation/cowork-reservation-product";
+import {
+  coworkStaySchema,
+  isOvernightCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import type { WorkspaceMeetingRoomProductTarget } from "@/features/reservation/meeting-room-reservation";
 import {
   getMeetingRoomReservationDuration,
@@ -38,11 +43,6 @@ import {
   reservationIntervalSchema,
   reservationTimestampInputSchema,
 } from "@/features/reservation/reservation-interval";
-import {
-  coworkStaySchema,
-  isOvernightCoworkStay,
-  overnightCoworkStayTier,
-} from "@/features/reservation/cowork-stay";
 import {
   coworkReservationKind,
   meetingRoomReservationKind,

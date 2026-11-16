@@ -93,7 +93,11 @@ export const evaluateAvailability = (
   // full-day Reserved Desk occupancy describe different intervals).
   const reservedDeskWorkstationRequiredDates =
     input.query.kind === coworkReservationKind
-      ? findReservedDeskWorkstationRequiredDates(inventory, input, isOfferClosed)
+      ? findReservedDeskWorkstationRequiredDates(
+          inventory,
+          input,
+          isOfferClosed
+        )
       : [];
   const unavailableDates = findUnavailableDates(
     inventory,
@@ -350,7 +354,8 @@ export const createMeetingRoomIntervalEvaluator = ({
     reservations.filter(
       ({ _tableId }) =>
         _tableId !== undefined && meetingRoomTableIds.has(_tableId)
-    )
+    ),
+    undefined
   );
   const closedDates = [...fullyOccupiedDates];
 

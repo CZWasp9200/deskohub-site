@@ -1,5 +1,4 @@
 import { Effect, Match, Schema } from "effect";
-import type { CoworkStay } from "@/features/reservation/cowork-stay";
 import {
   type WorkspaceCoworkCurrentTier,
   workspaceCoworkCurrentTiers,
@@ -7,16 +6,17 @@ import {
 import { m } from "@/features/i18n";
 import { loadAdvisoryOfficeSeatCapacity } from "@/features/office/backend/office-advisory-seat-capacity";
 import {
+  ensureCoworkStayOpen,
   ensureOfficeOpen,
   getRequestedCoworkTiers,
   isCoworkOfferOpen,
-  ensureCoworkStayOpen,
   resolveCoworkDates,
   resolveMeetingRoomSelection,
   resolveOfficeRange,
 } from "@/features/reservation/backend/booking-selection";
 import { getShareableReservationUrl } from "@/features/reservation/backend/shareable-reservation-url";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
+import type { CoworkStay } from "@/features/reservation/cowork-stay";
 import type { MeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { ReservationInterval } from "@/features/reservation/reservation-interval-domain";

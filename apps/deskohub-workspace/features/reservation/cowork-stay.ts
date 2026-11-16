@@ -58,6 +58,7 @@ export const getBookedCoworkStay = (reservation: {
  * and ends on the next date, as `HH:mm`.
  */
 export const getOvernightStayTimes = () => {
-  const changeover = workspaceSiteConstants.openingHours.overnightStayChangeover;
+  const changeover =
+    workspaceSiteConstants.openingHours.overnightStayChangeover;
   return { startTime: changeover, endTime: changeover } as const;
 };

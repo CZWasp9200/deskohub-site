@@ -1,5 +1,4 @@
 import "@/shared/testing/workspace-test-env";
-import { OvernightStayReleaseGate } from "./overnight-stay-release-gate";
 import { describe, expect, test } from "bun:test";
 import { type DotyposTable, DotyposTableSchema } from "@deskohub/dotypos";
 import { Effect, Layer, Schema } from "effect";
@@ -17,6 +16,7 @@ import {
   resolveBookingQuoteSelection,
   resolveMeetingRoomSelection,
 } from "./booking-selection";
+import { OvernightStayReleaseGate } from "./overnight-stay-release-gate";
 
 const pragueInstant = (local: string) =>
   Temporal.PlainDateTime.from(local)

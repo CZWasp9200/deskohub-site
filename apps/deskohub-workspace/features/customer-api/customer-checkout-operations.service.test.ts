@@ -10,6 +10,7 @@ import {
 } from "@/features/checkout/backend/checkout/signed-pay-state.test-utils";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import {
   CheckoutServicesUnavailable,
   CustomerCheckoutOperations,
@@ -37,7 +38,8 @@ const runOperations = <A, E>(
               Layer.mock(CustomerAuthentication, {}),
               CustomerReferralUpdates.fromClient(undefined),
               ReferralReleaseGate.fromDecision(false),
-              OfficeReleaseGate.fromDecision(false)
+              OfficeReleaseGate.fromDecision(false),
+              OvernightStayReleaseGate.fromDecision(false)
             )
           )
         )

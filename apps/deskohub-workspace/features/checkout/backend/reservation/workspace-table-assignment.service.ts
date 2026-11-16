@@ -1,4 +1,3 @@
-import type { CoworkStay } from "@/features/reservation/cowork-stay";
 import {
   type DotyposReadFailure,
   type DotyposReservationId,
@@ -15,6 +14,7 @@ import {
   getCoworkReservationIntervalInput,
 } from "@/features/reservation/cowork-reservation";
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
+import type { CoworkStay } from "@/features/reservation/cowork-stay";
 import { getMeetingRoomOccupiedInterval } from "@/features/reservation/meeting-room-early-setup";
 import type { MeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
 import {
