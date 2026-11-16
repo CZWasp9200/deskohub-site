@@ -2116,6 +2116,14 @@
             "required": false
           },
           {
+            "name": "stay",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerCoworkStay"
+            },
+            "required": false
+          },
+          {
             "name": "startsAt",
             "in": "query",
             "schema": {
@@ -2486,6 +2494,14 @@
             "in": "query",
             "schema": {
               "$ref": "#/components/schemas/CustomerMonitorOption"
+            },
+            "required": false
+          },
+          {
+            "name": "stay",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerCoworkStay"
             },
             "required": false
           },
@@ -5477,6 +5493,11 @@
         "type": "string",
         "enum": ["2x27-qhd", "2x32-qhd", "2x27-4k", "2x32-4k"]
       },
+      "CustomerCoworkStay": {
+        "type": "string",
+        "enum": ["day", "overnight"],
+        "description": "day (the arrival date's Prague calendar day) or overnight (noon on the arrival date to noon the next date, Prague time). Reserved Desk only."
+      },
       "CustomerBookingSelection": {
         "type": "object",
         "properties": {
@@ -5500,6 +5521,9 @@
           },
           "monitorOption": {
             "$ref": "#/components/schemas/CustomerMonitorOption"
+          },
+          "stay": {
+            "$ref": "#/components/schemas/CustomerCoworkStay"
           },
           "seats": {
             "type": "integer",
@@ -6169,6 +6193,19 @@
                 "items": {
                   "$ref": "#/components/schemas/CustomerOfferingAddOn"
                 }
+              },
+              "overnightStay": {
+                "type": "object",
+                "properties": {
+                  "startTime": {
+                    "$ref": "#/components/schemas/CustomerStartTime"
+                  },
+                  "endTime": {
+                    "$ref": "#/components/schemas/CustomerStartTime"
+                  }
+                },
+                "required": ["startTime", "endTime"],
+                "additionalProperties": false
               }
             },
             "required": [
