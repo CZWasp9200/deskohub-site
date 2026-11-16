@@ -188,6 +188,30 @@ describe("BookingBar", () => {
     ).toBeDefined();
   });
 
+  test("a from-price given its lines opens to them under its own total", () => {
+    const fromPrice: Price = {
+      kind: "from",
+      amount: czk(282),
+      unit: "per day",
+      itemized: {
+        breakdown: priceBreakdown(openSpaceWithCoffee.summary),
+        describeLine: describePriceLine(openSpaceWithCoffee.selection, locale),
+      },
+    };
+    const tree = elementTree(
+      BookingBar,
+      props({
+        summary: { title: "Open Space desk", price: fromPrice },
+        initiallyOpen: true,
+      }),
+      withToasts
+    );
+    expect(find(tree, PriceLines)?.props.variant).toBe("bar");
+    const host = hostTree(tree);
+    expect(chevronOf(host)?.props["aria-expanded"]).toBe(true);
+    expect(findAll(host, "Text").map(textOf)).toContain("per day");
+  });
+
   test("updating shows the indicator in an announced status, and no total", () => {
     const tree = elementTree(
       BookingBar,

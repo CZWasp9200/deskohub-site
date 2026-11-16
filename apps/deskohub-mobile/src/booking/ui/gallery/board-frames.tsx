@@ -47,6 +47,10 @@ import {
 } from "../../family/meeting-room-lengths";
 import { MeetingRoomNoneLeft } from "../../family/meeting-room-none-left";
 import { MeetingRoomStartTimes } from "../../family/meeting-room-start-times";
+import {
+  OfficeBookingScreen,
+  OfficeStayControls,
+} from "../../family/office-booking-screen";
 import { RestartNotice } from "../../family/restart-notice";
 import type { DateChoice } from "../../selection/booking-selection";
 import type { PragueDate } from "../../selection/prague-date";
@@ -973,11 +977,49 @@ function OfficeRange({
         legend={false}
       />
       <BookingSectionHeading title={sample("Days and seats")} />
-      <Placeholder
-        label="Days and seats steppers (screen ticket)"
-        height={152}
+      <OfficeStayControls
+        steppers={{
+          days: { maximum: 28, lastDate: officeRange.end },
+          seats: { maximum: Option.some(6), reached: true },
+        }}
+        draft={{ date: Option.some(officeRange.start), dayCount: 3, seats: 6 }}
+        onChange={ignore}
+        locale={locale}
       />
     </FlowScreen>
+  );
+}
+
+/**
+ * The real office screen over the sample Workspace, without signing in, so
+ * a capture reaches its live states. The gallery's route params reach it:
+ * a booked stay (`&date=…&endDate=…&seats=6`) or `&restart=hold_expired`.
+ */
+function OfficeLive({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const [initialValues] = useState(() =>
+    __DEV__
+      ? [
+          Atom.initialValue(
+            customerDataLayer,
+            (
+              require("../../../customer-api/testing/sample-data-layer") as typeof import("../../../customer-api/testing/sample-data-layer")
+            ).sampleCustomerDataLayer("linked")
+          ),
+        ]
+      : []
+  );
+  return (
+    <RegistryProvider initialValues={initialValues}>
+      <SafeAreaView edges={["top"]} style={styles.screen}>
+        <FocusedStatusBar style="dark" />
+        <AppBar
+          title={m.booking_family_office_title({}, { locale })}
+          onBack={onBack}
+        />
+        <OfficeBookingScreen />
+      </SafeAreaView>
+    </RegistryProvider>
   );
 }
 
@@ -1404,6 +1446,12 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     board: "28b",
     state: "Price opened",
     Screen: ({ onBack }) => <MeetingRoom onBack={onBack} opened />,
+  },
+  {
+    key: "office-live",
+    board: "29",
+    state: "The office screen over sample data",
+    Screen: OfficeLive,
   },
   {
     key: "office-range",
