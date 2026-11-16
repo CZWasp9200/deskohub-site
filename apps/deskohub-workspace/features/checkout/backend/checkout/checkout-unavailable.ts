@@ -2,7 +2,7 @@ import { Data, Schema } from "effect";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { SignedPayState } from "./pay-state";
 
-export const checkoutUnavailableReasonSchema = Schema.Literals([
+const checkoutUnavailableReasonSchema = Schema.Literals([
   "missing_checkout_session",
   "missing_reservation",
   "not_current",

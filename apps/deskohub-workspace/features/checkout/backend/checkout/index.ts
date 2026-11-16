@@ -43,7 +43,6 @@ export { getPayStateCheckoutView } from "./pay-state-checkout-view";
 export {
   openPayStateWithHoldExpiry,
   toPayStateHoldExpiresAt,
-  withPayStateHoldExpiry,
 } from "./pay-state-hold";
 export { acceptPayStatePriceChange } from "./pay-state-price-acceptance";
 export { PayableCheckout } from "./payable-checkout.service";
