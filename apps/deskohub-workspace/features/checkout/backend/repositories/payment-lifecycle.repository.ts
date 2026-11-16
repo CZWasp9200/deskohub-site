@@ -4,7 +4,7 @@ import type {
   NexiOrderId,
   NexiWebhookEventId,
 } from "@deskohub/nexi";
-import { and, eq, inArray, notExists } from "drizzle-orm";
+import { and, eq, inArray, notExists, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -125,6 +125,15 @@ export interface IPaymentLifecycleRepository {
   >;
 }
 
+/**
+ * A payment that settled late on one of the order's earlier attempts is
+ * being recovered or was refunded: the order admits no new payment, so a
+ * retry never charges it again while that recovery decides.
+ */
+const noLatePaymentRecovery = notExists(
+  sql`(select 1 from ${latePaymentRecoveries} where ${latePaymentRecoveries.workspaceReservationId} = ${workspaceReservations.id})`
+);
+
 export class PaymentLifecycleRepository extends Context.Service<
   PaymentLifecycleRepository,
   IPaymentLifecycleRepository
@@ -139,20 +148,6 @@ export class PaymentLifecycleRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
-      // A payment that settled late on one of the order's earlier attempts
-      // is being recovered or refunded: the order admits no new payment, so
-      // a retry never charges it again while that recovery decides.
-      const noLatePaymentRecovery = notExists(
-        db
-          .select({ paymentAttemptId: latePaymentRecoveries.paymentAttemptId })
-          .from(latePaymentRecoveries)
-          .where(
-            eq(
-              latePaymentRecoveries.workspaceReservationId,
-              workspaceReservations.id
-            )
-          )
-      );
       const accountingSnapshots = yield* AccountingDocumentSnapshots;
       const terminalTransitions = yield* PaymentTerminalTransitions;
 

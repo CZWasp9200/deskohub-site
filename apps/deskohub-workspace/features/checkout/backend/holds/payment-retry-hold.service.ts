@@ -1,7 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { DotyposService } from "@deskohub/dotypos";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Predicate } from "effect";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { WorkspaceLockSections } from "@/db/workspace-locks";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
@@ -29,7 +29,10 @@ import {
   WorkspaceTableAssignmentService,
 } from "../reservation/workspace-table-assignment.service";
 import { ReservationHoldCleanupScheduleService } from "./reservation-hold-cleanup-queue.service";
-import { UnpaidHoldRelease } from "./unpaid-hold-release.service";
+import {
+  HoldCancellationInProgress,
+  UnpaidHoldRelease,
+} from "./unpaid-hold-release.service";
 
 /**
  * How long a hold a retry keeps must still last: one about to expire is
@@ -49,13 +52,13 @@ const keptHoldMinimumRemaining = Temporal.Duration.from({ minutes: 1 });
  * - `changed`: the order changed while the retry worked on it, or Dotypos
  *   holds more than one reservation for it.
  */
-export type PaymentRetryHoldRefusal =
+type PaymentRetryHoldRefusal =
   | "not_retryable"
   | "release_refused"
   | "release_in_progress"
   | "changed";
 
-export type PaymentRetryHold =
+type PaymentRetryHold =
   /** The order's hold, kept (`kept`) or booked again (`reacquired`). */
   | {
       readonly kind: "kept" | "reacquired";
@@ -65,7 +68,7 @@ export type PaymentRetryHold =
   | { readonly kind: "spot_unavailable" }
   | { readonly kind: "refused"; readonly reason: PaymentRetryHoldRefusal };
 
-export type PaymentRetryHoldRequest = {
+type PaymentRetryHoldRequest = {
   readonly orderId: WorkspaceReservationId;
   /** The order's active attempt whose payment failed, was cancelled or expired. */
   readonly retriedAttemptId: PaymentAttemptId;
@@ -153,11 +156,13 @@ const releaseOwnHold = Effect.fnUntraced(function* (
       reservationHoldExpiresAt: order.reservationHoldExpiresAt,
     },
   });
-  if (typeof outcome === "string") {
+  if (Predicate.isString(outcome)) {
     return outcome === "already_released" ? undefined : refused("changed");
   }
+  if (outcome instanceof HoldCancellationInProgress) {
+    return refused("release_in_progress");
+  }
   if ("refused" in outcome) return refused("release_refused");
-  if ("staleAt" in outcome) return refused("release_in_progress");
   return undefined;
 });
 

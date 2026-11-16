@@ -99,7 +99,7 @@ const retriedAttemptEnded = (retriedAttemptId: PaymentAttemptId) =>
   );
 
 /** The cancellation causes an unpaid-hold release records. */
-export type UnpaidHoldReleaseCause = Extract<
+type UnpaidHoldReleaseCause = Extract<
   ReservationCancellationCause,
   "hold_expired" | "late_payment" | "payment_retry"
 >;

@@ -21,7 +21,7 @@ export const syntheticPayStateOrderId =
   workspaceReservationIdSchema.make("reservation-id");
 
 /** The attempt a synthetic order-bound state retries. */
-export const syntheticRetriedAttemptId = "retried-attempt-id";
+const syntheticRetriedAttemptId = "retried-attempt-id";
 
 /** The stored hold deadline synthetic Pay states sign. */
 export const syntheticHoldExpiresAt: Instant = instantStringSchema.make(

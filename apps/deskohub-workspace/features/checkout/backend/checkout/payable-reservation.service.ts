@@ -35,7 +35,7 @@ export class PayableReservationUnavailableError extends Data.TaggedError(
 }> {}
 
 /** The part of a Pay state that names the order it may pay. */
-export type PayableReservationRequest = Pick<
+type PayableReservationRequest = Pick<
   SignedPayStateEnvelope,
   "orderId" | "checkoutSessionId" | "binding" | "retriedAttemptId"
 >;
