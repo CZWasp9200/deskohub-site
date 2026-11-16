@@ -188,7 +188,7 @@ const encodedCarryingPayState = {
   reservation: {
     kind: "cowork",
     name: "Golden Fixture",
-    email: "golden@deskohub.test",
+    email: testEmailAddress("golden"),
     phone: "+420 777 000 000",
     billing: {
       purpose: "personal",
