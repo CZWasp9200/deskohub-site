@@ -16,6 +16,7 @@ import {
   type CheckoutStep,
   CodeStatus,
   LegalDocuments,
+  ReviewNotice,
   type ReviewState,
 } from "./checkout-state";
 
@@ -59,7 +60,10 @@ const checkout = (
   status: "ready",
   orderId: "order-1",
   payStateToken: "token-1",
-  expiresAt: "2026-11-20T09:10:00.000Z",
+  // The token outlives the hold, so a test that ends at the hold proves the
+  // machine counts the hold and not the token.
+  expiresAt: "2026-11-20T09:20:00.000Z",
+  holdExpiresAt: "2026-11-20T09:10:00.000Z",
   summary: summary(35000),
   earlyPerformanceConsent: {
     required: false,
@@ -74,7 +78,11 @@ const priceReview = {
   },
 };
 
-const expiresAtMillis = Date.parse("2026-11-20T09:10:00.000Z");
+const holdExpiresAtMillis = Date.parse("2026-11-20T09:10:00.000Z");
+
+/** Whether the hold clock's tick at `now` restarts the booking. */
+const restartsAt = (state: CheckoutState, now: number) =>
+  step(state, CheckoutEvent.HoldTimerElapsed({ now })).state._tag === "Restart";
 
 const documents: ReadonlyArray<CustomerLegalDocument> = [
   {
@@ -351,14 +359,14 @@ describe("details", () => {
     expect(
       step(
         details,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis + 1 })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis + 1 })
       ).state
     ).toEqual(details);
     const creating = run(details, continueEvent).state;
     expect(
       step(
         creating,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis + 1 })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis + 1 })
       ).state
     ).toEqual(creating);
   });
@@ -470,7 +478,7 @@ describe("unconfirmed create", () => {
     expect(
       step(
         lost.state,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis + 1 })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis + 1 })
       ).state
     ).toEqual(lost.state);
   });
@@ -483,7 +491,8 @@ describe("review", () => {
     expect(state.checkout).toMatchObject({
       orderId: "order-1",
       payStateToken: "token-1",
-      expiresAt: "2026-11-20T09:10:00.000Z",
+      holdExpiresAt: "2026-11-20T09:10:00.000Z",
+      appliedDiscountCode: Option.none(),
       priceReview: Option.none(),
     });
     expect(commandOf(result, "LoadLegalDocuments").locale).toBe("cs-CZ");
@@ -681,7 +690,7 @@ describe("review", () => {
     expect(
       step(
         reopened.state,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis + 1 })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis + 1 })
       ).state
     ).toEqual(reopened.state);
   });
@@ -817,7 +826,7 @@ describe("codes", () => {
     ).toEqual([]);
   });
 
-  test("an applied code replaces the token, summary and expiry together", () => {
+  test("an applied code replaces the token and summary; the hold's end stays", () => {
     const sent = applying();
     const result = run(
       sent.state,
@@ -826,7 +835,9 @@ describe("codes", () => {
         result: {
           ...checkout({
             payStateToken: "token-2",
-            expiresAt: "2026-11-20T09:12:00.000Z",
+            // A new token brings its own expiry; the hold's end doesn't move.
+            expiresAt: "2026-11-20T09:22:00.000Z",
+            appliedDiscountCode: { code: "SAVE10", discountId: "discount-1" },
             summary: summary(30000),
             earlyPerformanceConsent: {
               required: true,
@@ -844,10 +855,16 @@ describe("codes", () => {
     });
     expect(state.checkout).toMatchObject({
       payStateToken: "token-2",
-      expiresAt: "2026-11-20T09:12:00.000Z",
+      holdExpiresAt: "2026-11-20T09:10:00.000Z",
       summary: summary(30000),
+      appliedDiscountCode: Option.some({
+        code: "SAVE10",
+        discountId: "discount-1",
+      }),
       earlyPerformanceConsent: { required: true },
     });
+    expect(restartsAt(state, holdExpiresAtMillis - 1)).toBe(false);
+    expect(restartsAt(state, holdExpiresAtMillis)).toBe(true);
     // The tick didn't ask to start early, which this booking now needs.
     expect(state.consent).toEqual(Option.none());
     expect(canPay(state)).toBe(false);
@@ -927,7 +944,7 @@ describe("codes", () => {
     ).toEqual(Option.some("FRIEND-77" as ReferralCode));
   });
 
-  test("a rejected code with a replacement token adopts the token and keeps the summary", () => {
+  test("a rejected code with a replacement token adopts only the token: summary and hold stay", () => {
     const sent = applying();
     const result = run(
       sent.state,
@@ -935,10 +952,7 @@ describe("codes", () => {
         lastOperation(sent, "ApplyDiscountCode"),
         BookingProblem.CodeRejected({
           reason: "ineligible",
-          replacement: Option.some({
-            payStateToken: "token-2",
-            expiresAt: "2026-11-20T09:15:00.000Z",
-          }),
+          replacement: Option.some({ payStateToken: "token-2" }),
         })
       )
     );
@@ -949,10 +963,11 @@ describe("codes", () => {
     });
     expect(state.checkout).toMatchObject({
       payStateToken: "token-2",
-      expiresAt: "2026-11-20T09:15:00.000Z",
+      holdExpiresAt: "2026-11-20T09:10:00.000Z",
       summary: summary(35000),
     });
     expect(canPay(state)).toBe(true);
+    expect(restartsAt(state, holdExpiresAtMillis)).toBe(true);
   });
 
   test("a rejected code without a replacement keeps the current token", () => {
@@ -1068,16 +1083,226 @@ describe("codes", () => {
     expect(
       step(
         lost.state,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis - 1 })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis - 1 })
       ).state
     ).toEqual(lost.state);
     expect(
-      step(lost.state, CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis }))
-        .state
+      step(
+        lost.state,
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis })
+      ).state
     ).toMatchObject({
       _tag: "Restart",
       reason: "hold_expired",
     });
+  });
+});
+
+describe("clearing a code", () => {
+  const appliedDiscountCode = { code: "SAVE10", discountId: "discount-1" };
+  const withCode = (overrides: Partial<CustomerCheckout> = {}) =>
+    consented(
+      checkout({ appliedDiscountCode, summary: summary(31500), ...overrides })
+    );
+  const clearing = (overrides: Partial<CustomerCheckout> = {}) =>
+    run(withCode(overrides).state, CheckoutEvent.ClearCode());
+  /** The server's answer to a clear of a code that was in the price. */
+  const cleared = checkout({
+    status: "price_review",
+    payStateToken: "token-2",
+    expiresAt: "2026-11-20T09:24:00.000Z",
+    ...priceReview,
+  });
+
+  test("clear sends the current token and blocks Pay and other writes", () => {
+    const result = clearing();
+    expect(commandOf(result, "ClearDiscountCode").request).toEqual({
+      locale: "cs-CZ",
+      payStateToken: "token-1",
+    });
+    const state = review(result);
+    expect(canPay(state)).toBe(false);
+    expect(step(state, CheckoutEvent.Pay()).commands).toEqual([]);
+    expect(step(state, CheckoutEvent.ClearCode()).commands).toEqual([]);
+    expect(
+      run(
+        state,
+        CheckoutEvent.CodeChanged({ input: "OTHER" }),
+        CheckoutEvent.ApplyCode()
+      ).commands
+    ).toEqual([]);
+  });
+
+  test("nothing is sent without an applied code, or while a changed price waits", () => {
+    expect(
+      tags(run(consented().state, CheckoutEvent.ClearCode()))
+    ).not.toContain("ClearDiscountCode");
+    expect(
+      tags(clearing({ status: "price_review", ...priceReview }))
+    ).not.toContain("ClearDiscountCode");
+  });
+
+  test("a cleared code empties the field and replaces the checkout; Pay waits for the price", () => {
+    const sent = clearing();
+    const result = run(
+      sent.state,
+      CheckoutEvent.CodeCleared({
+        operationId: lastOperation(sent, "ClearDiscountCode"),
+        checkout: cleared,
+      })
+    );
+    const state = review(result);
+    expect(state.code).toEqual({ input: "", status: CodeStatus.Idle() });
+    expect(state.checkout).toMatchObject({
+      payStateToken: "token-2",
+      holdExpiresAt: "2026-11-20T09:10:00.000Z",
+      appliedDiscountCode: Option.none(),
+      summary: summary(35000),
+      priceReview: Option.some(priceReview.priceReview.changedKeys),
+    });
+    expect(Option.isSome(state.consent)).toBe(true);
+    expect(canPay(state)).toBe(false);
+    expect(step(state, CheckoutEvent.Pay()).commands).toEqual([]);
+    expect(restartsAt(state, holdExpiresAtMillis)).toBe(true);
+
+    const accepting = run(state, CheckoutEvent.AcceptPrice());
+    expect(
+      commandOf(accepting, "AcceptPriceChange").request.payStateToken
+    ).toBe("token-2");
+    const accepted = run(
+      accepting.state,
+      CheckoutEvent.PriceAccepted({
+        operationId: lastOperation(accepting, "AcceptPriceChange"),
+        checkout: checkout({ payStateToken: "token-3" }),
+      })
+    );
+    expect(canPay(review(accepted))).toBe(true);
+    expect(
+      commandOf(run(accepted.state, CheckoutEvent.Pay()), "SubmitCheckout")
+        .request.payStateToken
+    ).toBe("token-3");
+  });
+
+  test("a clear answered with the checkout unchanged leaves it payable", () => {
+    const sent = clearing();
+    const result = run(
+      sent.state,
+      CheckoutEvent.CodeCleared({
+        operationId: lastOperation(sent, "ClearDiscountCode"),
+        checkout: checkout(),
+      })
+    );
+    expect(review(result).code).toEqual({
+      input: "",
+      status: CodeStatus.Idle(),
+    });
+    expect(canPay(review(result))).toBe(true);
+  });
+
+  test.each(["service_unavailable", "connection"] as const)(
+    "a clear that fails as %s keeps the checkout and retries as sent",
+    (kind) => {
+      const sent = clearing();
+      const command = commandOf(sent, "ClearDiscountCode");
+      const result = run(
+        sent.state,
+        failed(command.operationId, BookingProblem.Retryable({ kind }))
+      );
+      const state = review(result);
+      expect(state.checkout).toMatchObject({
+        payStateToken: "token-1",
+        appliedDiscountCode: Option.some(appliedDiscountCode),
+        summary: summary(31500),
+      });
+      expect(state.notice).toEqual(
+        Option.some(ReviewNotice.Retryable({ kind, command }))
+      );
+      expect(canPay(state)).toBe(true);
+      const retried = run(state, CheckoutEvent.Retry());
+      expect(commandOf(retried, "ClearDiscountCode").request).toEqual(
+        command.request
+      );
+    }
+  );
+
+  test("a clear refused for a pending price keeps the code and waits for the price", () => {
+    const sent = clearing();
+    const state = review(
+      run(
+        sent.state,
+        failed(
+          lastOperation(sent, "ClearDiscountCode"),
+          BookingProblem.PriceReviewPending()
+        )
+      )
+    );
+    expect(state.checkout.appliedDiscountCode).toEqual(
+      Option.some(appliedDiscountCode)
+    );
+    expect(state.checkout.payStateToken).toBe("token-1");
+    expect(Option.isSome(state.checkout.priceReview)).toBe(true);
+    expect(canPay(state)).toBe(false);
+  });
+
+  test.each([
+    [
+      "an expired hold restarts",
+      BookingProblem.Restart({ reason: "hold_expired" }),
+      "Restart",
+    ],
+    [
+      "a payment in progress shows the status",
+      BookingProblem.ShowStatus(),
+      "Done",
+    ],
+  ] as const)("%s", (_name, problem, tag) => {
+    const sent = clearing();
+    expect(
+      step(
+        sent.state,
+        failed(lastOperation(sent, "ClearDiscountCode"), problem)
+      ).state._tag
+    ).toBe(tag);
+  });
+
+  test("a clear whose answer was lost resumes when the resend answers", () => {
+    const sent = clearing();
+    const command = commandOf(sent, "ClearDiscountCode");
+    const lost = run(
+      sent.state,
+      failed(command.operationId, BookingProblem.Unconfirmed())
+    );
+    expect(lost.state._tag).toBe("Uncertain");
+    expect(step(lost.state, CheckoutEvent.ClearCode()).commands).toEqual([]);
+    const resent = run(lost.state, CheckoutEvent.Retry());
+    const resend = commandOf(resent, "ClearDiscountCode");
+    expect(resend.request).toEqual(command.request);
+    const settled = run(
+      resent.state,
+      CheckoutEvent.CodeCleared({
+        operationId: resend.operationId,
+        checkout: cleared,
+      })
+    );
+    expect(review(settled).checkout.payStateToken).toBe("token-2");
+    expect(review(settled).code).toEqual({
+      input: "",
+      status: CodeStatus.Idle(),
+    });
+  });
+
+  test("the hold runs out while a clear runs", () => {
+    expect(restartsAt(clearing().state, holdExpiresAtMillis)).toBe(true);
+  });
+
+  test("an answer to another operation is dropped", () => {
+    const sent = clearing();
+    expect(
+      step(
+        sent.state,
+        CheckoutEvent.CodeCleared({ operationId: 999, checkout: cleared })
+      ).state
+    ).toEqual(sent.state);
   });
 });
 
@@ -1325,7 +1550,7 @@ describe("advisor regressions", () => {
     expect(
       step(
         failedSubmit.state,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis })
       ).state
     ).toEqual({
       _tag: "Done",
@@ -1391,7 +1616,7 @@ describe("advisor regressions", () => {
     expect(
       step(
         lost.state,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis - 1 })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis - 1 })
       ).state
     ).toEqual(lost.state);
   });
@@ -1507,7 +1732,7 @@ describe("review regressions", () => {
       expect(
         step(
           late.state,
-          CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis })
+          CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis })
         ).state
       ).toEqual({
         _tag: "Done",
@@ -1563,7 +1788,7 @@ describe("unconfirmed submit", () => {
     expect(
       step(
         lost.state,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis + 60_000 })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis + 60_000 })
       ).state
     ).toEqual({
       _tag: "Done",
@@ -1667,11 +1892,13 @@ describe("hold expiry", () => {
   test("restarts a held checkout once its hold runs out", () => {
     const state = consented().state;
     expect(
-      step(state, CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis - 1 }))
-        .state
+      step(
+        state,
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis - 1 })
+      ).state
     ).toEqual(state);
     expect(
-      step(state, CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis }))
+      step(state, CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis }))
         .state
     ).toMatchObject({
       _tag: "Restart",
@@ -1694,7 +1921,7 @@ describe("hold expiry", () => {
     expect(
       step(
         result.state,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis })
       ).state
     ).toMatchObject({
       _tag: "Restart",
@@ -1710,7 +1937,7 @@ describe("hold expiry", () => {
     expect(
       step(
         result.state,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis })
+        CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis })
       ).state
     ).toMatchObject({
       _tag: "Restart",
@@ -1720,7 +1947,9 @@ describe("hold expiry", () => {
 
   test("waits for a running submit, which may have executed", () => {
     const sent = paid(consented().state);
-    const tick = CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis + 1 });
+    const tick = CheckoutEvent.HoldTimerElapsed({
+      now: holdExpiresAtMillis + 1,
+    });
     expect(step(sent.state, tick).state).toEqual(sent.state);
     const notApplied = run(
       sent.state,
@@ -1735,7 +1964,13 @@ describe("hold expiry", () => {
     });
   });
 
-  test("follows the expiry of a replacement token", () => {
+  test("ends at the hold's end, not the token's expiry", () => {
+    const state = consented().state;
+    expect(restartsAt(state, holdExpiresAtMillis - 1)).toBe(false);
+    expect(restartsAt(state, holdExpiresAtMillis)).toBe(true);
+  });
+
+  test("a replacement token doesn't move the hold's end", () => {
     const sent = run(
       consented().state,
       CheckoutEvent.CodeChanged({ input: "SAVE10" }),
@@ -1747,19 +1982,13 @@ describe("hold expiry", () => {
         lastOperation(sent, "ApplyDiscountCode"),
         BookingProblem.CodeRejected({
           reason: "ineligible",
-          replacement: Option.some({
-            payStateToken: "token-2",
-            expiresAt: "2026-11-20T09:15:00.000Z",
-          }),
+          replacement: Option.some({ payStateToken: "token-2" }),
         })
       )
     );
-    expect(
-      step(
-        replaced.state,
-        CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis + 1 })
-      ).state._tag
-    ).toBe("Review");
+    expect(review(replaced).checkout.payStateToken).toBe("token-2");
+    expect(restartsAt(replaced.state, holdExpiresAtMillis - 1)).toBe(false);
+    expect(restartsAt(replaced.state, holdExpiresAtMillis)).toBe(true);
   });
 });
 
@@ -1772,7 +2001,7 @@ describe("terminal states and superseded answers", () => {
     );
     const restarted = step(
       sent.state,
-      CheckoutEvent.HoldTimerElapsed({ now: expiresAtMillis })
+      CheckoutEvent.HoldTimerElapsed({ now: holdExpiresAtMillis })
     );
     const late = step(
       restarted.state,

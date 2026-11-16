@@ -118,7 +118,13 @@ describe("bookingOverviewOf", () => {
   test("an office spans its inclusive dates with its seats", () => {
     expect(
       bookingOverviewOf(
-        toOfficeSelection({ date: "2026-11-30", dayCount: 3, seats: 2 }),
+        Option.getOrThrow(
+          toOfficeSelection({
+            date: Option.some("2026-11-30"),
+            dayCount: 3,
+            seats: 2,
+          })
+        ),
         false
       )
     ).toEqual(
@@ -133,7 +139,13 @@ describe("bookingOverviewOf", () => {
   test("a one-day office starts and ends on its date", () => {
     expect(
       bookingOverviewOf(
-        toOfficeSelection({ date: "2026-11-30", dayCount: 1, seats: 1 }),
+        Option.getOrThrow(
+          toOfficeSelection({
+            date: Option.some("2026-11-30"),
+            dayCount: 1,
+            seats: 1,
+          })
+        ),
         false
       )
     ).toMatchObject({ firstDate: "2026-11-30", lastDate: "2026-11-30" });

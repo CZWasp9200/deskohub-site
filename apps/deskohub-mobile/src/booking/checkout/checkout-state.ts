@@ -1,6 +1,7 @@
 import type {
   AcceptCustomerCheckoutPriceChange,
   ApplyCustomerCheckoutDiscountCode,
+  ClearCustomerCheckoutDiscountCode,
   CreateCustomerCheckout,
   CustomerBookingSelection,
   CustomerCheckout,
@@ -60,8 +61,16 @@ export type AcceptedLegalDocument = Pick<CustomerLegalDocument, "key" | "hash">;
 export interface HeldCheckout {
   readonly orderId: string;
   readonly payStateToken: string;
-  readonly expiresAt: string;
+  /**
+   * When the hold ends, which the countdown shows. Codes and price
+   * acceptance renew the token, never the hold.
+   */
+  readonly holdExpiresAt: string;
   readonly summary: CustomerCheckout["summary"];
+  /** The entered code the price includes; its line can remove it. */
+  readonly appliedDiscountCode: Option.Option<
+    NonNullable<CustomerCheckout["appliedDiscountCode"]>
+  >;
   /** The changed lines while the customer must accept a new price. */
   readonly priceReview: Option.Option<
     NonNullable<CustomerCheckout["priceReview"]>["changedKeys"]
@@ -116,6 +125,10 @@ export type CheckoutCommand = Data.TaggedEnum<{
     readonly request: typeof ApplyCustomerCheckoutDiscountCode.Type;
     readonly referralCode: Option.Option<ReferralCode>;
   };
+  ClearDiscountCode: {
+    readonly operationId: CheckoutOperationId;
+    readonly request: typeof ClearCustomerCheckoutDiscountCode.Type;
+  };
   AcceptPriceChange: {
     readonly operationId: CheckoutOperationId;
     readonly request: typeof AcceptCustomerCheckoutPriceChange.Type;
@@ -144,6 +157,7 @@ type Command<Tag extends CheckoutCommand["_tag"]> = Data.TaggedEnum.Value<
 >;
 export type CreateCheckoutCommand = Command<"CreateCheckout">;
 export type ApplyDiscountCodeCommand = Command<"ApplyDiscountCode">;
+export type ClearDiscountCodeCommand = Command<"ClearDiscountCode">;
 export type AcceptPriceChangeCommand = Command<"AcceptPriceChange">;
 export type SubmitCheckoutCommand = Command<"SubmitCheckout">;
 export type OpenPaymentCommand = Command<"OpenPayment">;
@@ -151,6 +165,7 @@ export type OpenPaymentCommand = Command<"OpenPayment">;
 /** The one write a held checkout runs at a time. */
 export type ReviewMutation =
   | ApplyDiscountCodeCommand
+  | ClearDiscountCodeCommand
   | AcceptPriceChangeCommand
   | SubmitCheckoutCommand;
 
@@ -260,6 +275,8 @@ export type CheckoutEvent = Data.TaggedEnum<{
   };
   CodeChanged: { readonly input: string };
   ApplyCode: Record<never, never>;
+  /** Removes the applied entered code (`HeldCheckout.appliedDiscountCode`). */
+  ClearCode: Record<never, never>;
   AcceptPrice: Record<never, never>;
   ToggleConsent: { readonly accepted: boolean };
   Pay: Record<never, never>;
@@ -281,6 +298,10 @@ export type CheckoutEvent = Data.TaggedEnum<{
   CodeApplied: {
     readonly operationId: CheckoutOperationId;
     readonly result: CustomerCheckoutDiscountCodeResult;
+  };
+  CodeCleared: {
+    readonly operationId: CheckoutOperationId;
+    readonly checkout: CustomerCheckout;
   };
   PriceAccepted: {
     readonly operationId: CheckoutOperationId;

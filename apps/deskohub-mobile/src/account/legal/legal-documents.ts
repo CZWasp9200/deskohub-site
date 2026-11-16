@@ -24,9 +24,17 @@ const legalDocumentPath: Record<LegalDocument, `/${string}`> = {
  * pointed at a preview opens that preview's documents. Without a locale the
  * site picks the reader's language; with one it opens exactly that
  * language's document, such as the version a consent is recorded against.
+ * `native=1` tells the site the app opened it, so the page leaves out the
+ * site's header, footer and consent banner.
  */
 export const legalDocumentUrl = (
   document: LegalDocument,
   siteOrigin: string,
   locale?: AppLocale
-): string => sitePageUrl(legalDocumentPath[document], siteOrigin, locale);
+): string => {
+  const url = new URL(
+    sitePageUrl(legalDocumentPath[document], siteOrigin, locale)
+  );
+  url.searchParams.set("native", "1");
+  return url.href;
+};

@@ -94,6 +94,28 @@ describe("ScrollScreen", () => {
     });
   });
 
+  test("without the overlap, content starts a step below the masthead's band", () => {
+    const tree = elementTree(ScrollScreen, {
+      masthead: createElement("Masthead"),
+      overlap: false,
+      children: createElement("Content"),
+    });
+    const provider = find(tree, "ScrollView")?.props.children;
+    if (!isValidElement<{ children: unknown }>(provider)) {
+      throw new Error("ScrollScreen renders nothing inside its ScrollView");
+    }
+    const scrolled = Children.toArray(
+      provider.props.children as ReactNode
+    ) as ReactElement<{ children: ReactNode }>[];
+    const page = Children.toArray(scrolled[1]?.props.children) as ReactElement<{
+      style: unknown;
+    }>[];
+    expect(page).toHaveLength(1);
+    expect(flatStyle(page[0]?.props.style)).toMatchObject({
+      paddingTop: space.lg,
+    });
+  });
+
   test("pull-to-refresh keeps the gesture but hides the native spinner", () => {
     const refresh = find(
       elementTree(ScrollScreen, {

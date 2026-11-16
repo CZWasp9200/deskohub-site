@@ -32,6 +32,7 @@ import {
   type PreparedCustomerQuote,
   type PriceVerdict,
   sealPayStateForUrl,
+  toPayStateHoldExpiresAt,
 } from "@/features/checkout/backend/checkout";
 import {
   deriveCheckoutAttemptKeys,
@@ -290,6 +291,8 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
     readonly reservationId: WorkspaceReservationId;
     readonly checkoutSessionId: CheckoutSessionId;
     readonly bookedAt: Temporal.Instant;
+    /** The hold deadline stored with the reservation; the Pay state signs it. */
+    readonly holdExpiresAt: Temporal.Instant;
     readonly changedKeys?: CheckoutSummaryChangedKeys;
     /**
      * The customer the quote was priced for, when the booking carries the
@@ -314,6 +317,7 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
         bookedAt: instantStringSchema.make(
           temporalInstantToIsoString(input.bookedAt)
         ),
+        holdExpiresAt: toPayStateHoldExpiresAt(input.holdExpiresAt),
         checkoutSessionId: input.checkoutSessionId,
         changedKeys: input.changedKeys,
       },
@@ -808,6 +812,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         const toHeldResult = Effect.fn("preparePayState.toHeldResult")(
           function* (held: {
             readonly reservation: WorkspaceReservation;
+            readonly holdExpiresAt: Temporal.Instant;
             readonly checkoutSessionId: CheckoutSessionId;
             readonly prepared: typeof prepared;
           }) {
@@ -821,6 +826,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
                 reservationId: held.reservation.id,
                 checkoutSessionId: held.checkoutSessionId,
                 bookedAt,
+                holdExpiresAt: held.holdExpiresAt,
                 changedKeys: held.prepared.changedKeys,
                 referralCustomer: referralCustomerFor(dotyposCustomerId),
               });
@@ -843,6 +849,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
               reservationId: held.reservation.id,
               checkoutSessionId: held.checkoutSessionId,
               bookedAt: holdBookedAt,
+              holdExpiresAt: held.holdExpiresAt,
               changedKeys: anchored.prepared.changedKeys,
               referralCustomer: referralCustomerFor(anchored.pricedFor),
               stableLink: true,
@@ -860,8 +867,17 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             "Workspace reservation with a pending payment kept for a repeated agent request",
             { reservationId: pending.reservation.id }
           );
+          const { reservationHoldExpiresAt } = pending.reservation;
+          // Payment never starts without a stored deadline; one missing
+          // leaves no hold to link to.
+          if (reservationHoldExpiresAt === null) {
+            return yield* new AgentBookingPaymentInProgressError({
+              reservationId: pending.reservation.id,
+            });
+          }
           const pendingResult = yield* toHeldResult({
             reservation: pending.reservation,
+            holdExpiresAt: reservationHoldExpiresAt,
             checkoutSessionId: pending.checkoutSessionId,
             prepared,
           });
@@ -896,6 +912,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             Effect.flatMap((reusedPrepared) =>
               toHeldResult({
                 reservation: reused.reservation,
+                holdExpiresAt: reused.reservation.reservationHoldExpiresAt,
                 checkoutSessionId: reused.checkoutSessionId,
                 prepared: reusedPrepared,
               })
@@ -944,6 +961,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
                 reservationId: created.reservationId,
                 checkoutSessionId: created.checkoutSessionId,
                 bookedAt,
+                holdExpiresAt: created.reservationHoldExpiresAt,
                 changedKeys: prepared.changedKeys,
                 referralCustomer: referralCustomerFor(dotyposCustomerId),
                 stableLink: Option.isSome(bookingAgent),

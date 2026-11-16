@@ -117,10 +117,8 @@ const cases: ReadonlyArray<readonly [string, CheckoutFailure, BookingProblem]> =
       }),
       BookingProblem.CodeRejected({
         reason: "unavailable",
-        replacement: Option.some({
-          payStateToken: "token-2",
-          expiresAt: "2026-11-20T09:15:00.000Z",
-        }),
+        // The token's expiry doesn't move the hold, so only the token counts.
+        replacement: Option.some({ payStateToken: "token-2" }),
       }),
     ],
     [

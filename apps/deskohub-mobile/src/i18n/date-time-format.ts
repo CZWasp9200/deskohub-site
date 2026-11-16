@@ -68,11 +68,14 @@ const workspaceDayFormat = new Intl.DateTimeFormat("en-US", {
 const workspaceDay = (instant: DateTime.DateTime) =>
   workspaceDayFormat.format(DateTime.toEpochMillis(instant));
 
-const isSameWorkspaceDay = (a: DateTime.DateTime, b: DateTime.DateTime) =>
-  workspaceDay(a) === workspaceDay(b);
+/** Whether two instants fall on the same Prague calendar day. */
+export const isSameWorkspaceDay = (
+  a: DateTime.DateTime,
+  b: DateTime.DateTime
+) => workspaceDay(a) === workspaceDay(b);
 
 /** Whether the instant starts a Prague day: a millisecond earlier is the day before. */
-const isWorkspaceMidnight = (instant: DateTime.DateTime) =>
+export const isWorkspaceMidnight = (instant: DateTime.DateTime) =>
   !isSameWorkspaceDay(instant, DateTime.subtract(instant, { milliseconds: 1 }));
 
 /**

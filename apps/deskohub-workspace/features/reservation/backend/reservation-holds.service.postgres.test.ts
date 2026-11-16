@@ -44,7 +44,10 @@ import {
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { agentSelectionKeySchema, type BookingAgent } from "./booking-agent";
-import { ReservationHolds } from "./reservation-holds.service";
+import {
+  type ReservationHold,
+  ReservationHolds,
+} from "./reservation-holds.service";
 import {
   WorkspaceAvailabilityService,
   WorkspaceTableUnavailableError,
@@ -100,6 +103,22 @@ const checkoutDetails = Schema.decodeUnknownSync(checkoutDetailsSchema)({
 
 const dotyposUnavailable = (operation: string) =>
   new DotyposUnavailable({ operation, reason: "server" });
+
+/**
+ * A created hold carries the deadline its reservation stores, to the
+ * millisecond a Pay state signs; Postgres keeps only microseconds of it.
+ */
+const expectStoredHoldDeadline = (
+  hold: ReservationHold,
+  reservation:
+    | { readonly reservationHoldExpiresAt: Temporal.Instant | null }
+    | undefined
+) => {
+  if (hold.kind !== "created") throw new Error("Expected a created hold");
+  expect(hold.reservationHoldExpiresAt.epochMilliseconds).toBe(
+    reservation?.reservationHoldExpiresAt?.epochMilliseconds ?? Number.NaN
+  );
+};
 
 describe.skipIf(!postgresDatabase)(
   "ReservationHolds.holdForAttempt on Postgres",
@@ -422,7 +441,9 @@ describe.skipIf(!postgresDatabase)(
           kind: "created",
           reservationId: row!.id,
           checkoutSessionId: request.checkout.sessionId,
+          reservationHoldExpiresAt: expect.any(Temporal.Instant),
         });
+        expectStoredHoldDeadline(hold, row);
         expect(row?.reservationState).toBe("held");
         expect(row?.paymentState).toBe("not_started");
         expect(row?.dotyposCustomerId).toBe(request.booking.customer);
@@ -612,6 +633,7 @@ describe.skipIf(!postgresDatabase)(
               kind: "created",
               reservationId: row!.id,
               checkoutSessionId: request.checkout.sessionId,
+              reservationHoldExpiresAt: expect.any(Temporal.Instant),
             },
             expect.objectContaining({
               _tag: expect.stringMatching(/QueryError/),
@@ -823,7 +845,9 @@ describe.skipIf(!postgresDatabase)(
           checkoutSessionId: promoteCheckoutAttemptToSessionId(
             request.checkout.attemptId
           ),
+          reservationHoldExpiresAt: expect.any(Temporal.Instant),
         });
+        expectStoredHoldDeadline(hold, replacement);
         expect(replacement?.checkoutSessionKey).not.toBe(
           ended!.checkoutSessionKey
         );
@@ -849,6 +873,26 @@ describe.skipIf(!postgresDatabase)(
         expect(await rowsOf(author)).toHaveLength(1);
         expect(holds.dotypos.createReservation).toHaveBeenCalledTimes(1);
         expect(holds.dotypos.cancelReservation).not.toHaveBeenCalled();
+      });
+
+      test("refuses to reuse an attempt's hold without a stored deadline", async () => {
+        const author = await newAuthor();
+        const holds = makeHolds();
+        const request = holdRequest({ author });
+        await holds.holdForAttempt(request);
+        const [undated] = await rowsOf(author);
+        await postgres.pool.query(
+          `update workspace_reservations
+              set reservation_hold_expires_at = null
+            where id = $1`,
+          [undated!.id]
+        );
+
+        const failure = await holds.holdFailure(request);
+
+        expect(failure._tag).toBe("CheckoutAttemptUnavailableError");
+        expect(await rowsOf(author)).toHaveLength(1);
+        expect(holds.dotypos.createReservation).toHaveBeenCalledTimes(1);
       });
 
       test("refuses a session whose current draft stays unsettled", async () => {
@@ -915,7 +959,9 @@ describe.skipIf(!postgresDatabase)(
           kind: "created",
           reservationId: replacement!.id,
           checkoutSessionId: sessionId,
+          reservationHoldExpiresAt: expect.any(Temporal.Instant),
         });
+        expectStoredHoldDeadline(hold, replacement);
         expect(holds.dotypos.getReservationStatus.mock.calls).toEqual([
           [previous.dotyposReservationId!],
         ]);
@@ -1084,7 +1130,9 @@ describe.skipIf(!postgresDatabase)(
           kind: "created",
           reservationId: replacement!.id,
           checkoutSessionId: ownSessionId,
+          reservationHoldExpiresAt: expect.any(Temporal.Instant),
         });
+        expectStoredHoldDeadline(hold, replacement);
         expect(replacement?.checkoutSessionKey).toBe(
           rotated!.checkoutSessionKey
         );
@@ -1318,7 +1366,9 @@ describe.skipIf(!postgresDatabase)(
           kind: "created",
           reservationId: replacement!.id,
           checkoutSessionId: sessionId,
+          reservationHoldExpiresAt: expect.any(Temporal.Instant),
         });
+        expectStoredHoldDeadline(hold, replacement);
         expect(replacement?.checkoutSessionKey).toBe(
           previous!.checkoutSessionKey
         );
