@@ -477,7 +477,7 @@ function* censorDrizzleQueryError(
 ): CensorSteps {
   const result: MutableLogAnnotations = {
     _tag: value._tag,
-    parameterCount: value.params.length,
+    parameterCount: value.params?.length ?? 0,
   };
   seen.set(value, result);
 

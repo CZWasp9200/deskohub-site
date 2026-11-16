@@ -1,9 +1,5 @@
 import { Effect, Layer } from "effect";
-import {
-  type HttpApi,
-  HttpApiBuilder,
-  type HttpApiGroup,
-} from "effect/http-api";
+import { HttpApi, HttpApiBuilder, type HttpApiGroup } from "effect/http-api";
 
 /** A group's handler builder, seen without its endpoint types. */
 interface UntypedHandlers {
@@ -24,14 +20,22 @@ export const unhandledHttpApiGroups = <
 >(
   api: HttpApi.HttpApi<ApiId, Groups>,
   handled: ReadonlyArray<string>
-): Layer.Layer<never> =>
-  Object.entries(api.groups)
-    .filter(([name]) => !handled.includes(name))
-    .map((entry) => unhandledGroup(api, entry))
+): Layer.Layer<never> => {
+  const groups: Array<HttpApiGroup.Top> = [];
+  HttpApi.reflect(api, {
+    onGroup: ({ group }) => {
+      groups.push(group);
+    },
+    onEndpoint: () => undefined,
+  });
+  return groups
+    .filter(({ identifier }) => !handled.includes(identifier))
+    .map((group) => unhandledGroup(api, [group.identifier, group]))
     .reduce<Layer.Layer<never>>(
       (merged, group) => Layer.merge(merged, group),
       Layer.empty
     );
+};
 
 const unhandledGroup = <
   ApiId extends string,
