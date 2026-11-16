@@ -123,6 +123,7 @@ export function ListRow({
   destructive = false,
   disabled = false,
   wrapValue = false,
+  badge,
   below,
   accessibilityLabel,
 }: {
@@ -140,6 +141,11 @@ export function ListRow({
   readonly destructive?: boolean;
   readonly disabled?: boolean;
   readonly wrapValue?: boolean;
+  /**
+   * A status beside the label, such as "Always on", wrapping under it when
+   * the line is full; the description keeps the text column's full width.
+   */
+  readonly badge?: ReactNode;
   /** Content under the label and description, in the text column. */
   readonly below?: ReactNode;
   /**
@@ -174,15 +180,22 @@ export function ListRow({
       )}
       <View style={[styles.body, wrapValue && styles.bodyBeside]}>
         <View style={listRowLayout.text}>
-          <Text
-            variant="bodyStrong"
-            tone={destructive ? "danger" : "default"}
-            style={disabled && styles.disabledText}
-          >
-            {label}
-          </Text>
+          <View style={badge === undefined ? undefined : styles.labelWithBadge}>
+            <Text
+              variant="bodyStrong"
+              tone={destructive ? "danger" : "default"}
+              style={disabled && styles.disabledText}
+              // At large text a long word breaks at a hyphen, not mid-letter.
+              android_hyphenationFrequency="normal"
+            >
+              {label}
+            </Text>
+            {badge}
+          </View>
           {description !== undefined && (
-            <Text variant="bodySmall">{description}</Text>
+            <Text variant="bodySmall" android_hyphenationFrequency="normal">
+              {description}
+            </Text>
           )}
           {below}
         </View>
@@ -203,7 +216,7 @@ export function ListRow({
   // A custom trailing node, such as a badge, is read from the row's content.
   const accessibleLabel =
     accessibilityLabel ??
-    (ownTrailing
+    (ownTrailing || badge !== undefined
       ? undefined
       : listRowAccessibleLabel({ label, value, description }));
   const rowStyle = [
@@ -286,6 +299,13 @@ const styles = StyleSheet.create({
     paddingTop: space.xs,
   },
   valueBeside: { flexShrink: 1, maxWidth: "65%", textAlign: "right" },
+  labelWithBadge: {
+    alignItems: "center",
+    columnGap: space.sm,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    rowGap: space.xxs,
+  },
   // The icon and trailing stay at the top beside taller content.
   withBelow: { alignItems: "flex-start", paddingBottom: space.lg },
   pressed: { backgroundColor: color.pressed },

@@ -6,7 +6,13 @@ import Copy from "lucide-react-native/icons/copy";
 import Info from "lucide-react-native/icons/info";
 import Share2 from "lucide-react-native/icons/share-2";
 import { useEffect, useState } from "react";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { AsyncView } from "../../customer-api/async-view";
 import type { CustomerViewError } from "../../customer-api/customer-view-error";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -159,7 +165,16 @@ function ReferralsSummary({ view }: { readonly view: ReferralsView }) {
             {m.referrals_code_caption({}, { locale })}
           </Text>
           <View style={styles.codeRow}>
-            <Text selectable numeric variant="headline" style={styles.code}>
+            {/* A code stays on one line, smaller if it has to. */}
+            <Text
+              selectable
+              numeric
+              variant="headline"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
+              style={styles.code}
+            >
               {view.code}
             </Text>
             <IconButton
@@ -273,8 +288,10 @@ function StatTile({
     readonly onToggle: () => void;
   };
 }) {
+  // At large text each tile takes the full width, so no word breaks.
+  const stacked = useWindowDimensions().fontScale >= 1.3;
   return (
-    <View style={styles.tile}>
+    <View style={[styles.tile, stacked && styles.tileStacked]}>
       <Card>
         <View style={styles.tileBody}>
           <View style={styles.tileCaption}>
@@ -333,13 +350,17 @@ function DiscountExample({
       )}
       style={styles.example}
     >
-      <Text variant="bodySmall" tone="inverse">
-        {m.referrals_example_rate({ rate: example.perInvitee }, { locale })}
+      <View style={styles.exampleLine}>
+        <Text variant="bodySmall" tone="inverse">
+          {m.referrals_example_rate({ rate: example.perInvitee }, { locale })}
+        </Text>
         <Text variant="caption" tone="inverse" style={styles.raised}>
           {count}
         </Text>
-        {` ${m.referrals_example_total({ total: example.total }, { locale })}`}
-      </Text>
+        <Text variant="bodySmall" tone="inverse">
+          {m.referrals_example_total({ total: example.total }, { locale })}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -391,6 +412,7 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
   },
   tile: { flexBasis: 140, flexGrow: 1 },
+  tileStacked: { flexBasis: "100%" },
   tileBody: { gap: space.xs },
   tileSkeleton: { gap: space.sm },
   tileCaption: {
@@ -409,7 +431,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm + space.xxs,
   },
-  raised: { fontSize: 10, lineHeight: 14 },
+  // The count sits raised after the rate, like an exponent; the sum wraps
+  // as a whole at large text.
+  exampleLine: {
+    alignItems: "flex-start",
+    columnGap: space.xs,
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  raised: { fontSize: 10, lineHeight: 12, marginLeft: -space.xxs },
   joined: { paddingTop: space.sm + space.xxs },
   steps: { gap: space.md, paddingHorizontal: space.xs },
   step: { alignItems: "flex-start", flexDirection: "row", gap: space.md },

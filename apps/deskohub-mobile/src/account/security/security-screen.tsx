@@ -239,7 +239,7 @@ export function SecurityScreen() {
                 { email: emailWithBreak(current.email) },
                 { locale }
               )}
-              trailing={
+              badge={
                 <Badge
                   tone="positive"
                   label={m.security_email_badge({}, { locale })}

@@ -665,7 +665,7 @@ const sampleReferrals: ReferralAccountOverview = {
     code: ReferralCode.make("SAMPLE-ALEX"),
     inviteeCount: 3,
     eligibleInviteeCount: 2,
-    discount: "10",
+    discount: "9.75",
     savings: [{ value: 15000, exponent: 2, currency: "CZK" }],
   },
   shareUrl: "https://workspace.deskohub.example/r/SAMPLE-ALEX",

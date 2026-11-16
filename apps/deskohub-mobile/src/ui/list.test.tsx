@@ -160,6 +160,14 @@ describe("ListRow", () => {
     expect(root.props.role).toBeUndefined();
   });
 
+  test("a badge sits beside the label and is read with the row", () => {
+    const badge = <Badge label="b" tone="positive" />;
+    const root = rowRoot({ label: "l", description: "d", badge });
+    expect(root.props.accessible).toBe(true);
+    expect(root.props["aria-label"]).toBeUndefined();
+    expect(JSON.stringify(root)).toContain('"b"');
+  });
+
   test("content below the text keeps its own elements", () => {
     const below = <Text>below</Text>;
     const root = rowRoot({ label: "l", description: "d", below });
