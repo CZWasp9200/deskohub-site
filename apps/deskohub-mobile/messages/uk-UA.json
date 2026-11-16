@@ -640,6 +640,7 @@
   "reservations_calendar_share_failed": "Не вдалося відкрити подію календаря на цьому пристрої. Спробуйте ще раз.",
   "booking_choose_date_reason": "Виберіть дату, щоб продовжити",
   "booking_price_unit_per_day": "за день",
+  "booking_price_unit_per_night": "за ніч",
   "booking_tier_price_per_day": "/ день",
   "booking_addon_price": "+ {price}",
   "booking_cowork_tier_full": "{date} усе зайнято",

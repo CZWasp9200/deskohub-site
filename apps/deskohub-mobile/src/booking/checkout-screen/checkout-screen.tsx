@@ -156,6 +156,7 @@ function CheckoutStateView({
           review={state}
           now={now}
           selection={request.selection}
+          overnightStay={request.overnightStay}
           send={flow.send}
           locale={locale}
         />

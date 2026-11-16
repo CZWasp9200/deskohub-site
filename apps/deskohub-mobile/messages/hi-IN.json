@@ -640,6 +640,7 @@
   "reservations_calendar_share_failed": "इस डिवाइस पर कैलेंडर इवेंट नहीं खुल सका। फिर से कोशिश करें।",
   "booking_choose_date_reason": "आगे बढ़ने के लिए तारीख़ चुनें",
   "booking_price_unit_per_day": "प्रति दिन",
+  "booking_price_unit_per_night": "प्रति रात",
   "booking_tier_price_per_day": "/ दिन",
   "booking_addon_price": "+ {price}",
   "booking_cowork_tier_full": "{date} को पूरी तरह बुक",

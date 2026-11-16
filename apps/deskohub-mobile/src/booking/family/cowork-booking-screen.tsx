@@ -310,7 +310,10 @@ function CoworkSelection({
           from: {
             title: chosen.name,
             amount: chosen.advertisedPrice.price,
-            unit: m.booking_price_unit_per_day({}, { locale }),
+            unit:
+              model.draft.stay === "overnight"
+                ? m.booking_price_unit_per_night({}, { locale })
+                : m.booking_price_unit_per_day({}, { locale }),
             ...overnightTimes,
           },
           selection: model.selection,
@@ -462,7 +465,10 @@ function CoworkSelection({
               locale={locale}
             />
             {overnightStay !== undefined && (
-              <View style={styles.after}>
+              <>
+                <BookingSectionHeading
+                  title={m.booking_cowork_stay_label({}, { locale })}
+                />
                 <SegmentedChoice
                   label={m.booking_cowork_stay_label({}, { locale })}
                   options={[
@@ -483,7 +489,7 @@ function CoworkSelection({
                     setDraft(selectCoworkStay(model.draft, stay));
                   }}
                 />
-              </View>
+              </>
             )}
 
             <BookingSectionHeading

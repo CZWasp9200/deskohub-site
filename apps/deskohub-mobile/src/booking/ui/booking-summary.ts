@@ -11,7 +11,6 @@ import {
   type CoworkOvernightStay,
   openSpaceClosingTime,
 } from "../selection/cowork-selection";
-import { addDays } from "../selection/prague-date";
 import type { BookingBarSummary } from "./booking-bar";
 import { formatPragueTime, formatShortPragueDate } from "./prague-date-format";
 import { priceBreakdown } from "./price-breakdown";
@@ -51,33 +50,26 @@ export const bookingSummaryOf = (
 ): BookingSummaryText => {
   const detail = (...extras: ReadonlyArray<string | undefined>) =>
     [product, ...extras.filter((extra) => extra !== undefined)].join(" · ");
-  const overview = bookingOverviewOf(selection, false);
+  const overview = bookingOverviewOf(selection, false, overnightStay);
   switch (overview._tag) {
     case "Cowork": {
       const date = formatShortPragueDate(overview.date, locale);
       if (selection.tier === "reserved-desk") {
         return {
-          title:
-            selection.stay === "overnight" && overnightStay !== undefined
-              ? m.booking_summary_reserved_desk_overnight(
-                  {
-                    arrivalDate: date,
-                    arrivalTime: formatPragueTime(
-                      overnightStay.startTime,
-                      locale
-                    ),
-                    departureDate: formatShortPragueDate(
-                      addDays(overview.date, 1),
-                      locale
-                    ),
-                    departureTime: formatPragueTime(
-                      overnightStay.endTime,
-                      locale
-                    ),
-                  },
-                  { locale }
-                )
-              : m.booking_summary_reserved_desk_day({ date }, { locale }),
+          title: Option.match(overview.overnight, {
+            onNone: () =>
+              m.booking_summary_reserved_desk_day({ date }, { locale }),
+            onSome: ({ start, end, endDate }) =>
+              m.booking_summary_reserved_desk_overnight(
+                {
+                  arrivalDate: date,
+                  arrivalTime: formatPragueTime(start, locale),
+                  departureDate: formatShortPragueDate(endDate, locale),
+                  departureTime: formatPragueTime(end, locale),
+                },
+                { locale }
+              ),
+          }),
           detail: detail(
             selection.monitorOption === undefined
               ? undefined

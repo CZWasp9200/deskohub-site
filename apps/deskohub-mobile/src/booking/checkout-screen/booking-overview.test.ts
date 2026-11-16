@@ -35,7 +35,7 @@ describe("bookingOverviewOf", () => {
       })
     );
     expect(bookingOverviewOf(selection, false)).toEqual(
-      BookingOverview.Cowork({ date: "2026-11-20" })
+      BookingOverview.Cowork({ date: "2026-11-20", overnight: Option.none() })
     );
   });
 
@@ -150,5 +150,35 @@ describe("bookingOverviewOf", () => {
         false
       )
     ).toMatchObject({ firstDate: "2026-11-30", lastDate: "2026-11-30" });
+  });
+});
+
+describe("bookingOverviewOf for an overnight stay", () => {
+  const desk = {
+    family: "cowork",
+    date: "2026-11-30",
+    tier: "reserved-desk",
+  } as const;
+  const overnightStay = { startTime: "12:00", endTime: "12:00" };
+
+  test("runs from the catalog's start on arrival to its end the next day", () => {
+    expect(
+      bookingOverviewOf({ ...desk, stay: "overnight" }, false, overnightStay)
+    ).toEqual(
+      BookingOverview.Cowork({
+        date: "2026-11-30",
+        overnight: Option.some({
+          start: "12:00",
+          end: "12:00",
+          endDate: "2026-12-01",
+        }),
+      })
+    );
+  });
+
+  test("a day names no times, even where the catalog offers a stay", () => {
+    expect(bookingOverviewOf(desk, false, overnightStay)).toEqual(
+      BookingOverview.Cowork({ date: "2026-11-30", overnight: Option.none() })
+    );
   });
 });

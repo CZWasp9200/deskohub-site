@@ -20,6 +20,7 @@ import {
   type ReviewNotice,
   type ReviewState,
 } from "../checkout/checkout-state";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
 import { Checkbox } from "../ui/checkbox";
 import { HoldCountdown } from "../ui/hold-countdown";
 import { PriceSummary } from "../ui/price-summary";
@@ -44,12 +45,15 @@ export function ReviewStep({
   review,
   now,
   selection,
+  overnightStay,
   send,
   locale,
 }: Locale & {
   readonly review: ReviewState;
   readonly now: number;
   readonly selection: CustomerBookingSelection;
+  /** An overnight Reserved Desk's times from the catalog. */
+  readonly overnightStay?: CoworkOvernightStay | undefined;
   readonly send: Send;
 }) {
   const view = reviewView(review, now);
@@ -58,6 +62,7 @@ export function ReviewStep({
       <BookingOverviewView
         selection={selection}
         earlySetup={review.flow.earlySetup === true}
+        overnightStay={overnightStay}
         locale={locale}
       />
       <HoldCountdown secondsLeft={view.holdSecondsLeft} locale={locale} />

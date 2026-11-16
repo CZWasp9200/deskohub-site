@@ -640,6 +640,7 @@
   "reservations_calendar_share_failed": "We couldn't open the calendar event on this device. Try again.",
   "booking_choose_date_reason": "Choose a date to continue",
   "booking_price_unit_per_day": "per day",
+  "booking_price_unit_per_night": "per night",
   "booking_tier_price_per_day": "/ day",
   "booking_addon_price": "+ {price}",
   "booking_cowork_tier_full": "Fully booked on {date}",

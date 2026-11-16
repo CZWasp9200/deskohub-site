@@ -640,6 +640,7 @@
   "reservations_calendar_share_failed": "Událost do kalendáře se v tomto zařízení nepodařilo otevřít. Zkus to znovu.",
   "booking_choose_date_reason": "Pro pokračování vyber datum",
   "booking_price_unit_per_day": "za den",
+  "booking_price_unit_per_night": "za noc",
   "booking_tier_price_per_day": "/ den",
   "booking_addon_price": "+ {price}",
   "booking_cowork_tier_full": "{date} plně obsazeno",

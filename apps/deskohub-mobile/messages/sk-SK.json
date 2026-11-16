@@ -640,6 +640,7 @@
   "reservations_calendar_share_failed": "Udalosť do kalendára sa v tomto zariadení nepodarilo otvoriť. Skús to znova.",
   "booking_choose_date_reason": "Na pokračovanie vyber dátum",
   "booking_price_unit_per_day": "za deň",
+  "booking_price_unit_per_night": "za noc",
   "booking_tier_price_per_day": "/ deň",
   "booking_addon_price": "+ {price}",
   "booking_cowork_tier_full": "{date} plne obsadené",

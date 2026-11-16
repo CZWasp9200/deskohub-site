@@ -640,6 +640,7 @@
   "reservations_calendar_share_failed": "Der Kalendereintrag ließ sich auf diesem Gerät nicht öffnen. Versuche es erneut.",
   "booking_choose_date_reason": "Wähle ein Datum, um fortzufahren",
   "booking_price_unit_per_day": "pro Tag",
+  "booking_price_unit_per_night": "pro Nacht",
   "booking_tier_price_per_day": "/ Tag",
   "booking_addon_price": "+ {price}",
   "booking_cowork_tier_full": "Am {date} ausgebucht",

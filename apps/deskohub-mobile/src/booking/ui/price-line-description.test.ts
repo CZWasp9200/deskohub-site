@@ -155,3 +155,21 @@ describe("describePriceLine", () => {
     }
   });
 });
+
+describe("describePriceLine for an overnight stay", () => {
+  test("reads the desk as a stay rather than one day", () => {
+    const overnight = {
+      ...reservedDeskWithWorkstation.selection,
+      stay: "overnight",
+    } as const;
+    const detail = (selection: CustomerBookingSelection) =>
+      new Map(described(reservedDeskWithWorkstation, selection)).get(
+        "product:cowork:reserved-desk"
+      )?.detail;
+
+    expect(detail(overnight)).toBeString();
+    expect(detail(overnight)).not.toBe(
+      detail(reservedDeskWithWorkstation.selection)
+    );
+  });
+});

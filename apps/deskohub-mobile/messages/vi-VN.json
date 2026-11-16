@@ -640,6 +640,7 @@
   "reservations_calendar_share_failed": "Không thể mở sự kiện lịch trên thiết bị này. Hãy thử lại.",
   "booking_choose_date_reason": "Chọn ngày để tiếp tục",
   "booking_price_unit_per_day": "mỗi ngày",
+  "booking_price_unit_per_night": "mỗi đêm",
   "booking_tier_price_per_day": "/ ngày",
   "booking_addon_price": "+ {price}",
   "booking_cowork_tier_full": "Đã kín chỗ ngày {date}",
