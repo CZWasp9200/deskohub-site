@@ -1,4 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
+import { Option } from "effect";
+import { parseWorkspaceAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import {
   getMeetingRoomStartTimesUrl,
@@ -21,6 +23,28 @@ describe("getWorkspaceAvailabilityUrl", () => {
     ).toBe(
       "/api/workspace/availability?kind=cowork&from=2099-07-30&to=2100-01-30&date=2099-07-30&entryTier=profi&monitorOption=2x32-4k"
     );
+  });
+
+  test("serializes an overnight Reserved Desk stay the availability route reads back", () => {
+    const query = {
+      kind: "cowork",
+      from: "2099-07-30",
+      to: "2099-07-30",
+      date: "2099-07-30",
+      entryTier: "reserved-desk",
+      stay: "overnight",
+    } as const;
+    const url = new URL(getWorkspaceAvailabilityUrl(query), "https://test");
+
+    expect(url.searchParams.get("stay")).toBe("overnight");
+    expect(
+      Option.getOrUndefined(
+        parseWorkspaceAvailabilityQuery(
+          url.searchParams,
+          new Date("2099-07-29T08:00:00Z")
+        )
+      )
+    ).toMatchObject(query);
   });
 
   test("serializes meeting-room interval fields", () => {

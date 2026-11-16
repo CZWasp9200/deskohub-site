@@ -5,6 +5,7 @@ import {
   formatInstantDateRange,
   formatPlainDate,
   formatPlainDateRange,
+  withPlainSpaces,
 } from "@/shared/utils/date-time-format";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
@@ -151,17 +152,20 @@ export const formatReservationDisplayTimeRange = (
 
 /**
  * A reservation that starts and ends at set times on different dates, such as
- * an overnight stay, with both dates and times.
+ * an overnight stay, with both dates and times. Plain spaces keep it hydrating
+ * when both the server and the client render it.
  */
 export const formatReservationDisplayDateTimeRange = (
   start: Temporal.Instant,
   end: Temporal.Instant,
   locale: Locale
 ) =>
-  new Intl.DateTimeFormat(
-    locale,
-    reservationDisplayDateTimeFormatOptions
-  ).formatRange(temporalInstantToDate(start), temporalInstantToDate(end));
+  withPlainSpaces(
+    new Intl.DateTimeFormat(
+      locale,
+      reservationDisplayDateTimeFormatOptions
+    ).formatRange(temporalInstantToDate(start), temporalInstantToDate(end))
+  );
 
 export const formatReservationDisplayDateTime = (
   instant: Temporal.Instant,
