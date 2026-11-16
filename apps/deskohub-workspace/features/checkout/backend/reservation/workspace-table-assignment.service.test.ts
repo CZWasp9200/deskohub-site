@@ -226,6 +226,35 @@ describe("WorkspaceTableAssignmentService", () => {
     expect(interval?.endDate.toISOString()).toBe("2099-06-10T11:00:00.000Z");
   });
 
+  test("loads occupancy for an overnight Reserved Desk's noon-to-noon interval", async () => {
+    let interval: DotyposReservationInterval | undefined;
+
+    await assignTableId(
+      {
+        kind: "cowork",
+        entryTier: "reserved-desk",
+        coffee: true,
+        date: "2099-06-10",
+        stay: "overnight",
+      },
+      [
+        makeTable({
+          id: "desk-1",
+          name: "Desk 1",
+          tags: ["cowork:reserved-desk"],
+        }),
+      ],
+      [],
+      [],
+      (value) => {
+        interval = value;
+      }
+    );
+
+    expect(interval?.startDate.toISOString()).toBe("2099-06-10T10:00:00.000Z");
+    expect(interval?.endDate.toISOString()).toBe("2099-06-11T10:00:00.000Z");
+  });
+
   test("uses the tier reservation interval as cowork occupancy input across DST", async () => {
     const captureInterval = () => {
       let interval: DotyposReservationInterval | undefined;
