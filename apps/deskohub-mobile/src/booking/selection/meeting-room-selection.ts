@@ -45,7 +45,7 @@ type MeetingRoomOffering = Extract<
 const horizonMonths = 6;
 
 /** The dates a meeting room can be booked on: today through six months. */
-export const meetingRoomDateRange = (today: PragueDate) => ({
+const meetingRoomDateRange = (today: PragueDate) => ({
   earliest: today,
   latest: addMonths(today, horizonMonths),
 });

@@ -62,7 +62,7 @@ type PublicOfferingAddOn = {
 };
 
 /** A key fact about a space: how many it holds, or what it is equipped with. */
-export type PublicOfferingFact = {
+type PublicOfferingFact = {
   readonly kind: "capacity" | "equipment";
   readonly text: string;
 };

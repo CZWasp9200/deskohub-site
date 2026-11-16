@@ -128,6 +128,32 @@ describe("openingMeetingRoomDraft", () => {
       Option.some("hour:4")
     );
   });
+
+  test("a preselection that changes only early setup opens on it", async () => {
+    const { booking, offerings } = await setup();
+    const kept = {
+      seed: bookingPreselectionKey(bookAgain),
+      draft: {
+        date: Option.some(booking.dateIn(5)),
+        duration: Option.some("hour:4" as const),
+        startTime: Option.some("09:00"),
+        earlySetup: true,
+      },
+    };
+    const withoutEarlySetup = Option.map(bookAgain, (booked) => ({
+      ...booked,
+      earlySetup: false,
+    }));
+
+    expect(
+      openingMeetingRoomDraft({
+        kept: Option.some(kept),
+        preselection: withoutEarlySetup,
+        offerings,
+        today: booking.today(),
+      }).earlySetup
+    ).toBe(false);
+  });
 });
 
 describe("meetingRoomBookingModel", () => {
