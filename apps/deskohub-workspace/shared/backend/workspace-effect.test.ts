@@ -1,5 +1,5 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
-import { Cause, Context, Deferred, Effect, Layer } from "effect";
+import { Cause, Clock, Context, Deferred, Effect, Layer } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { redirect } from "next/navigation";
 import * as nextServer from "next/server";
@@ -963,4 +963,23 @@ describe("toWorkspaceWebHandler", () => {
     );
     expect(builds).toBe(2);
   });
+});
+
+// Next.js rejects `Date.now()` while prerendering a route with request-time
+// content, and Effect 4.1's default clock reads it for span timestamps.
+test("a Workspace run's clock stamps span time without reading Date.now()", async () => {
+  const stamped = await Clock.clockWith((clock) =>
+    Effect.sync(() => {
+      const now = spyOn(Date, "now").mockImplementation(() => {
+        throw new Error("The current time was read during a prerender.");
+      });
+      try {
+        return clock.currentTimeNanosUnsafe();
+      } finally {
+        now.mockRestore();
+      }
+    })
+  ).pipe(runWorkspaceEffect("test.span-clock"));
+
+  expect(stamped > 0n).toBe(true);
 });

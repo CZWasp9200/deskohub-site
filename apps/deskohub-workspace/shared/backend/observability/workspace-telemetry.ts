@@ -11,6 +11,7 @@ import {
   createPostHogLoggerProvider,
   flushLoggerProvider,
 } from "./telemetry-sinks";
+import { WorkspaceClockLive } from "./workspace-clock";
 
 export { workspaceOTelRegistration } from "./telemetry-sinks";
 
@@ -77,6 +78,7 @@ export const WorkspaceObservabilityLive: Layer.Layer<never> = Layer.unwrap(
   Effect.sync(() => {
     const loggerProvider = workspaceLoggerProvider();
     return Layer.mergeAll(
+      WorkspaceClockLive,
       loggerProvider
         ? createWorkspaceOtelLoggerLive(loggerProvider)
         : WorkspaceLoggerLive,

@@ -1,12 +1,13 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, expect, mock, spyOn, test } from "bun:test";
-import { Effect, Exit, Logger, Option } from "effect";
+import { Effect, Exit, Layer, Logger, Option } from "effect";
 import { redirect } from "next/navigation";
 import type {
   AndroidRelease,
   MobileReleaseLookupError,
 } from "@/features/mobile-releases/backend/latest-android-release.server";
+import { WorkspaceClockLive } from "@/shared/backend/observability/workspace-clock";
 import { SharedSnapshotLoadFailure } from "@/shared/backend/shared-snapshot";
 import { findNextControlFlow } from "@/shared/backend/workspace-effect";
 
@@ -74,6 +75,7 @@ test("has nothing to offer before the first release", async () => {
 // The page runs this outside any cache scope, where a prerender fails on a
 // read of the current time, and Effect stamps every log line with
 // `Date.now()`. The shared lookup logs its failure inside its cache scope.
+// Its span is stamped by the Workspace runtime's clock, which reads none.
 test("turns a failed lookup into the fallback state without reading the current time", async () => {
   lookup = Effect.fail(
     new releaseModule.MobileReleaseLookupError({
@@ -83,7 +85,10 @@ test("turns a failed lookup into the fallback state without reading the current 
   const logged: unknown[] = [];
   const download = loadAndroidDownload.pipe(
     Effect.provide(
-      Logger.layer([Logger.make(({ message }) => logged.push(message))])
+      Layer.merge(
+        Logger.layer([Logger.make(({ message }) => logged.push(message))]),
+        WorkspaceClockLive
+      )
     )
   );
   const now = spyOn(Date, "now").mockImplementation(() => {
