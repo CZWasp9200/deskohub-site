@@ -9,10 +9,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { CustomerAgentClientId } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
-import type {
-  StoredWorkspaceReservationDetails,
-  WorkspaceReservationId,
-} from "@/features/reservation/persistence-contracts";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { instant } from "../instant";
 import { postgresUuidV7 } from "../uuid-v7";
 import { customerAccounts } from "./customer-accounts";
@@ -43,9 +40,7 @@ export const reviewAccountHolds = pgTable(
     agentClientId: text("agent_client_id").$type<CustomerAgentClientId>(),
     checkoutSessionKey: text("checkout_session_key").notNull(),
     selectionKey: text("selection_key").notNull(),
-    reservationDetails: jsonb("reservation_details")
-      .$type<StoredWorkspaceReservationDetails>()
-      .notNull(),
+    reservationDetails: jsonb("reservation_details").notNull(),
     startsAt: instant("starts_at").notNull(),
     endsAt: instant("ends_at").notNull(),
     seats: integer("seats").notNull(),

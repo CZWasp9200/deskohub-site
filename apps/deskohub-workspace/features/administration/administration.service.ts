@@ -68,6 +68,7 @@ import { decodeBookedReservation } from "@/features/reservation/backend/booked-r
 import { loadEarlySetupDetails } from "@/features/reservation/backend/early-setup-details";
 import {
   StoredReservationDetails,
+  type WithStoredReservationDetails,
   type WorkspaceReservationDetailsMalformedError,
 } from "@/features/reservation/backend/stored-reservation-details.server";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -552,26 +553,28 @@ export type AdministrationOverviewSource = {
   readonly rows: readonly AdministrationOverviewRow[];
 };
 
-type SafeReservationRow = Pick<
-  WorkspaceReservationRow,
-  | "id"
-  | "dotyposCustomerId"
-  | "dotyposReservationId"
-  | "reservationState"
-  | "paymentState"
-  | "fulfillmentState"
-  | "reservationDetails"
-  | "reservationPurpose"
-  | "reservationCreatedAt"
-  | "reservationConfirmedAt"
-  | "reservationCancelledAt"
-  | "reservationHoldExpiredAt"
-  | "paidAt"
-  | "fulfilledAt"
-  | "fulfillmentFailedAt"
-  | "failureCode"
-  | "createdAt"
-  | "updatedAt"
+type SafeReservationRow = WithStoredReservationDetails<
+  Pick<
+    WorkspaceReservationRow,
+    | "id"
+    | "dotyposCustomerId"
+    | "dotyposReservationId"
+    | "reservationState"
+    | "paymentState"
+    | "fulfillmentState"
+    | "reservationDetails"
+    | "reservationPurpose"
+    | "reservationCreatedAt"
+    | "reservationConfirmedAt"
+    | "reservationCancelledAt"
+    | "reservationHoldExpiredAt"
+    | "paidAt"
+    | "fulfilledAt"
+    | "fulfillmentFailedAt"
+    | "failureCode"
+    | "createdAt"
+    | "updatedAt"
+  >
 >;
 
 const safeReservationSelection = {
