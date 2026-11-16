@@ -91,7 +91,7 @@ export class CredentialStore extends Context.Service<
   /** `DHW_CREDENTIAL_STORE=memory` keeps a run away from the shared store. */
   static Default = Layer.unwrap(
     Effect.gen(function* () {
-      const store = yield* Config.literals(
+      const store = yield* Config.Literals(
         ["system", "memory"],
         "DHW_CREDENTIAL_STORE"
       ).pipe(Config.withDefault("system"));

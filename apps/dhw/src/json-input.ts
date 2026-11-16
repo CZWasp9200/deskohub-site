@@ -4,7 +4,8 @@ import { InvalidMutationInputError } from "./command-runtime";
 /**
  * Parses operator-supplied JSON and decodes it with the strict contract
  * options, so an unknown key fails instead of being dropped. `subject` names
- * the value in the error, such as "audience filter".
+ * the value in the error, such as "audience filter". The error names each
+ * rejected value.
  */
 export const decodeJsonInput = <S extends Schema.Top>(
   schema: S,
@@ -22,6 +23,7 @@ export const decodeJsonInput = <S extends Schema.Top>(
       Schema.decodeUnknownEffect(schema, {
         errors: "all",
         onExcessProperty: "error",
+        reportInput: true,
       })
     ),
     Effect.mapError((error) =>
