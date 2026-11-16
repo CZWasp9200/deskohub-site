@@ -7,8 +7,8 @@ import { ActionFooter } from "../../ui/action-footer";
 import { Button } from "../../ui/controls";
 import { Notice } from "../../ui/notice";
 import type { CompletionTextField } from "../profile/profile-draft";
-import type { ProfileSubmitState } from "../profile/profile-save";
 import { profileFooterView } from "../profile/profile-footer-view";
+import type { ProfileSubmitState } from "../profile/profile-save";
 import type { OnboardingStep } from "./onboarding-model";
 
 const fixFieldsMessage = (
