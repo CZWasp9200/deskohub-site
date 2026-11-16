@@ -35,15 +35,17 @@ export const statementTimedOut = (timeout: Duration.Duration) =>
   });
 
 /**
- * The clock a run gets without one of its own. A statement waits on the
- * database in real time, so its bound runs on this clock even where a test
- * moves a `TestClock`.
+ * The clock a run gets without one of its own. The database answers in real
+ * time, so statement bounds and the driver's own waits run on this clock even
+ * where a test moves a `TestClock`.
  */
-const liveClock = Effect.runSync(Clock.clockWith(Effect.succeed));
+const liveClock = Clock.Clock.defaultValue();
+
+const onLiveClock = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.provideService(effect, Clock.Clock, liveClock);
 
 const timedOutAfter = (timeout: Duration.Duration) =>
-  Effect.sleep(timeout).pipe(
-    Effect.provideService(Clock.Clock, liveClock),
+  onLiveClock(Effect.sleep(timeout)).pipe(
     Effect.andThen(Effect.fail(statementTimedOut(timeout)))
   );
 
@@ -75,7 +77,8 @@ const boundFromCheckout =
     );
 
 /**
- * The client with every Drizzle statement bounded by `timeout`. Drizzle runs
+ * The client with every Drizzle statement bounded by `timeout`, and its
+ * waits for connections on the live clock. Drizzle runs
  * each query through `unsafe(sql, params)` and reads `values`,
  * `withoutTransform` or `raw` from it, so only those are bounded. A statement
  * inside a transaction runs on the transaction's connection, which the
@@ -119,12 +122,30 @@ const boundStatements = <Client extends PgClient.PgClient>(
       get: (target, key, receiver) => {
         const value = Reflect.get(target, key, receiver);
         return boundedResults.has(key) && Effect.isEffect(value)
-          ? bound(value)
+          ? onLiveClock(bound(value))
           : value;
       },
     });
+  // Waiting for a connection, BEGIN and COMMIT run on the live clock; the
+  // transaction's body keeps the caller's.
+  const withTransaction: PgClient.PgClient["withTransaction"] = (effect) =>
+    Clock.clockWith((callerClock) =>
+      onLiveClock(
+        client.withTransaction(
+          Effect.provideService(effect, Clock.Clock, callerClock)
+        )
+      )
+    );
+  const reserve = onLiveClock(client.reserve);
+  const overrides = new Map<PropertyKey, unknown>([
+    ["unsafe", unsafe],
+    ["withTransaction", withTransaction],
+    ["reserve", reserve],
+  ]);
   return new Proxy(client, {
     get: (target, key, receiver) =>
-      key === "unsafe" ? unsafe : Reflect.get(target, key, receiver),
+      overrides.has(key)
+        ? overrides.get(key)
+        : Reflect.get(target, key, receiver),
   });
 };
