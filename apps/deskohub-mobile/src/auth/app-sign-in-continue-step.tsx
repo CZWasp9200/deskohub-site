@@ -80,6 +80,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.group,
     borderWidth: 1,
     flexDirection: "row",
+    // At a large text size the address moves under the avatar instead of
+    // breaking between its letters.
+    flexWrap: "wrap",
     gap: 14,
     minHeight: 72,
     paddingHorizontal: space.lg,
@@ -95,6 +98,6 @@ const styles = StyleSheet.create({
     width: 40,
   },
   initials: { fontSize: 15 },
-  identity: { flex: 1, gap: 2, minWidth: 0 },
+  identity: { flexBasis: 160, flexGrow: 1, flexShrink: 1, gap: 2, minWidth: 0 },
   email: { fontSize: 15 },
 });

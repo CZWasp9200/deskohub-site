@@ -115,10 +115,14 @@ function CodeBox({
 
 const digitType = typeScale.title;
 
+// The row is a size container, so at a large page zoom (a narrow row) the
+// gaps, boxes and digits shrink with it instead of the digits spilling out of
+// their boxes; at the board's widths every size stays at its design value.
 const rowStyle: CSSProperties = {
   alignItems: "center",
+  containerType: "inline-size",
   display: "flex",
-  gap: space.sm,
+  gap: `min(${space.sm}px, 2cqi)`,
   maxWidth: 336,
 };
 
@@ -131,11 +135,11 @@ const boxStyle: CSSProperties = {
   display: "flex",
   flex: "1 1 0",
   fontFamily: digitType.fontFamily,
-  fontSize: 24,
+  fontSize: "min(24px, 11cqi)",
   fontVariantNumeric: "tabular-nums",
   fontVariationSettings: digitType.fontVariationSettings,
   fontWeight: 600,
-  height: 56,
+  height: "min(56px, 26cqi)",
   justifyContent: "center",
   maxWidth: 48,
   minWidth: 0,
@@ -152,7 +156,7 @@ const separatorStyle: CSSProperties = {
 
 const caretStyle: CSSProperties = {
   backgroundColor: color.navy,
-  height: 24,
+  height: "min(24px, 11cqi)",
   position: "absolute",
   width: 1,
 };
