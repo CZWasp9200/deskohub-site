@@ -12,6 +12,7 @@ import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fu
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { WorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { waitForPostgresLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   ReservationAdministrationService,
@@ -43,8 +44,10 @@ const makeCancellation = (
   options: {
     readonly encryptionKeyFails?: boolean;
     readonly decryptionKeyFails?: boolean;
-    /** Runs just before the reservation is claimed, after the invoice preflight. */
+    /** Runs in the claim's transaction, just before the reservation is claimed. */
     readonly beforeClaim?: Effect.Effect<void>;
+    /** Runs in the claim's transaction, after the claim, before it commits. */
+    readonly afterClaim?: Effect.Effect<void>;
     /** Runs while Dotypos cancels, after the claim committed. */
     readonly duringProviderCancel?: Effect.Effect<void>;
   } = {}
@@ -80,7 +83,8 @@ const makeCancellation = (
         input: Parameters<typeof real.claimAdministrationCancellation>[0]
       ) =>
         (options.beforeClaim ?? Effect.void).pipe(
-          Effect.andThen(real.claimAdministrationCancellation(input))
+          Effect.andThen(real.claimAdministrationCancellation(input)),
+          Effect.tap(() => options.afterClaim ?? Effect.void)
         ),
     }))
   ).pipe(
@@ -254,18 +258,52 @@ describe.skipIf(!testDatabase)(
       );
     });
 
-    test("an invoice issued after the preflight is still cancelled with the reservation", async () => {
+    test("an invoice issued just before the claim refuses a cancellation confirmed without it", async () => {
       const paid = await kit.createPaidReservation();
       let issuedId: string | undefined;
-      const { cancel } = makeCancellation({
-        beforeClaim: paid.issueInvoice().pipe(
+      const { cancelFailure, cancelReservation } = makeCancellation({
+        // Issued and committed on its own connection once the operator's
+        // reservation read is done, as a concurrent fulfillment would.
+        beforeClaim: Effect.promise(() =>
+          Effect.runPromise(paid.issueInvoice())
+        ).pipe(
           Effect.flatMap(({ invoice }) =>
             Effect.sync(() => {
               issuedId = invoice.id;
             })
-          ),
-          Effect.orDie
+          )
         ),
+      });
+
+      const failure = await cancelFailure(
+        await cancellationInput(paid.reservation.id, {
+          invoice: false,
+          customerNotice: false,
+        })
+      );
+
+      expect(failure).toMatchObject({
+        code: "not_cancellable",
+        reason: "confirmation_stale",
+      });
+      expect(cancelReservation).not.toHaveBeenCalled();
+      expect(await readState(paid.reservation.id, issuedId)).toEqual({
+        reservation: "confirmed",
+        cancellations: [],
+      });
+    });
+
+    test("an invoice issued while the claim is being checked waits for it and is refused", async () => {
+      const paid = await kit.createPaidReservation();
+      let issuance: Promise<unknown> | undefined;
+      const { cancel } = makeCancellation({
+        afterClaim: Effect.promise(async () => {
+          issuance = Effect.runPromise(Effect.flip(paid.issueInvoice()));
+          await waitForPostgresLockWaiter(testDatabase!.pool, {
+            condition: "locktype = 'transactionid'",
+            description: "the invoice issuance waiting for the claim",
+          });
+        }),
       });
 
       const result = await cancel(
@@ -275,11 +313,17 @@ describe.skipIf(!testDatabase)(
         })
       );
 
-      expect(result.invoice?.invoiceId).toBe(issuedId!);
-      expect(await readState(paid.reservation.id, issuedId)).toMatchObject({
-        reservation: "cancelled",
-        cancellations: [{ cause: "reservation_cancellation" }],
+      expect(result).toMatchObject({ outcome: "cancelled", invoice: null });
+      expect(await issuance).toMatchObject({
+        _tag: "InvoiceEligibilityError",
+        reason: "reservation_cancelled",
       });
+      expect(
+        await kit.query(
+          "select id from invoices where workspace_reservation_id = $1",
+          [paid.reservation.id]
+        )
+      ).toEqual([]);
     });
 
     test("issuance refuses once the reservation's cancellation is claimed", async () => {

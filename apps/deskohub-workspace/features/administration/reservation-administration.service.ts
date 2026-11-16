@@ -1,6 +1,7 @@
 import { DotyposService } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { isDatabaseQueryError } from "@/db/sql-constraint";
 import { CustomerEmailLocaleService } from "@/features/account";
 import {
   InvoiceCancellationService,
@@ -254,9 +255,9 @@ export class ReservationAdministrationService extends Context.Service<
       });
 
       /**
-       * Reads what the cancellation will do to the reservation's invoice
-       * before anything is claimed. An unreadable invoice stops it before
-       * the provider call; consequences the operator did not see refuse it.
+       * Reads what the cancellation will do to the reservation's invoice. An
+       * unreadable invoice stops it; consequences the operator did not see
+       * refuse it. Runs in the claim's transaction, after the claim.
        */
       const checkInvoiceConsequences = Effect.fnUntraced(function* (
         input: ReservationCancellationInput
@@ -292,6 +293,42 @@ export class ReservationAdministrationService extends Context.Service<
               "The reservation's invoice changed since the cancellation was confirmed. Refresh and review the consequences again.",
           });
         }
+      });
+
+      /**
+       * Claims the reservation and checks its invoice consequences in one
+       * transaction, before the provider call. The claim's row lock makes
+       * invoice issuance wait, and issuance refuses a cancelling reservation,
+       * so the invoice the check reads is the one the completion cancels: an
+       * invoice issued before the claim is seen by the check, one issued after
+       * it is refused. A failed check rolls the claim back.
+       */
+      const claimWithInvoiceConsequences = Effect.fnUntraced(function* (
+        input: ReservationCancellationInput,
+        current: WorkspaceReservation,
+        forcedPendingPayment: boolean
+      ) {
+        return yield* transaction(
+          Effect.gen(function* () {
+            const claimed = yield* claimCancellation(
+              input,
+              current,
+              forcedPendingPayment
+            );
+            yield* checkInvoiceConsequences(input);
+            return claimed;
+          })
+        ).pipe(
+          Effect.mapError((cause) =>
+            isDatabaseQueryError(cause)
+              ? cancellationFailed(
+                  "claim_failed",
+                  "The reservation could not be claimed for cancellation.",
+                  cause
+                )
+              : cause
+          )
+        );
       });
 
       const deliverInvoiceNotices = (
@@ -375,8 +412,7 @@ export class ReservationAdministrationService extends Context.Service<
               forcedPendingPayment
             );
             if (refusal) return yield* refusal;
-            yield* checkInvoiceConsequences(input);
-            const claimed = yield* claimCancellation(
+            const claimed = yield* claimWithInvoiceConsequences(
               input,
               current,
               forcedPendingPayment
