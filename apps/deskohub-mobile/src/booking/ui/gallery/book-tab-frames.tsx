@@ -1,9 +1,13 @@
-import type { CustomerReservationFamily } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerOffering,
+  CustomerReservationFamily,
+} from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { ReactNode } from "react";
 import { CustomerViewError } from "../../../customer-api/customer-view-error";
 import { useAppLocale } from "../../../i18n/locale-context";
 import { m } from "../../../i18n/messages";
+import { useSample } from "../../../ui/gallery/gallery-kit";
 import { Masthead } from "../../../ui/masthead";
 import { ScrollScreen } from "../../../ui/scroll-screen";
 import type { BookingRead } from "../../family/booking-family-view";
@@ -43,9 +47,22 @@ function CardsWithout({
   readonly off: ReadonlyArray<CustomerReservationFamily>;
 }) {
   const locale = useAppLocale();
-  const offerings = sampleOfferings(locale, "2026-11-10").offerings.filter(
-    ({ family }) => !off.includes(family)
-  );
+  const sample = useSample();
+  const offerings = sampleOfferings(locale, "2026-11-10")
+    .offerings.filter(({ family }) => !off.includes(family))
+    .map(
+      (offering): CustomerOffering =>
+        offering.family === "meeting-room"
+          ? {
+              ...offering,
+              name: sample(offering.name),
+              facts: offering.facts.map((fact) => ({
+                ...fact,
+                text: sample(fact.text),
+              })),
+            }
+          : { ...offering, name: sample(offering.name) }
+    );
   return (
     <BookTab
       read={{
@@ -64,10 +81,16 @@ function CardsWithout({
 }
 
 /**
- * Boards 25 and 25b: the Book tab's states its sample-data mode can't reach,
- * loading, failed, and spaces switched off as the catalog omits them.
+ * Boards 25 and 25b: the Book tab's cards over the sample catalog, with
+ * spaces switched off as the catalog omits them, loading and failed.
  */
 export const bookTabFrames: ReadonlyArray<BoardFrame> = [
+  {
+    key: "book-tab",
+    board: "25",
+    state: "Book tab",
+    Screen: () => <CardsWithout off={[]} />,
+  },
   {
     key: "book-tab-loading",
     board: "25",

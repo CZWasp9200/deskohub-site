@@ -349,9 +349,9 @@ const styles = StyleSheet.create({
     paddingTop: space.md,
     rowGap: space.xs,
   },
-  // The name keeps at least half the row; a price that no longer fits
-  // beside it moves under it.
-  fullName: { flexGrow: 1, flexShrink: 1, gap: space.xxs, minWidth: "50%" },
+  // The name keeps at least 40% of the row; a price that no longer fits
+  // beside it, with long names or large text, moves under it.
+  fullName: { flexGrow: 1, flexShrink: 1, gap: space.xxs, minWidth: "40%" },
   fullTitle: { fontSize: 18 },
   price: { alignItems: "flex-start" },
   from: { fontSize: 10, lineHeight: 11, marginBottom: -2 },
