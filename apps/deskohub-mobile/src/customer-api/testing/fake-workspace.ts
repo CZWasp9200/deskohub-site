@@ -17,6 +17,7 @@ import {
   type CustomerInvoicesApi,
   CustomerMarketingPreferencesRejected,
   type CustomerOrderStatus,
+  CustomerPaymentPageClosed,
   type CustomerProfile,
   type CustomerProfileSave,
   CustomerRateLimited,
@@ -637,6 +638,17 @@ const serverLayer = (workspace: FakeWorkspace) => {
             found.invoice === undefined
               ? Effect.fail(new CustomerInvoiceNotIssued())
               : Effect.succeed(found.invoice)
+          )
+        )
+        // The sample orders have no payment still open on the provider's
+        // page, as the Workspace answers an order that is paid or whose
+        // payment ended.
+        .handle("reopenPaymentPage", ({ params }) =>
+          Effect.andThen(
+            order(params.orderId),
+            Effect.fail(
+              new CustomerPaymentPageClosed({ reason: "no_active_attempt" })
+            )
           )
         )
   );

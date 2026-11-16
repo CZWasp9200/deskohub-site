@@ -894,6 +894,8 @@
   "checkoutStatusBookAgain": "Rezervovať znova",
   "checkoutStatusTryAgain": "Skúsiť znova",
   "checkoutStatusBackHome": "Späť domov",
+  "checkoutStatusOpenPaymentPage": "Otvoriť platobnú stránku",
+  "checkoutStatusOpenPaymentPageError": "Platobnú stránku sa nepodarilo otvoriť. Skús to, prosím, znova.",
   "reservationEmailTierLabel": "Vstup",
   "reservationEmailReservationLabel": "Rezervácia",
   "reservationEmailDateLabel": "Dátum rezervácie",
