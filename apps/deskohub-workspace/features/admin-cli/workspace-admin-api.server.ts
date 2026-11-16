@@ -1,7 +1,6 @@
 import {
   AdministrationAuthentication,
   type AdministrationChannel,
-  AdministrationDiscountMutationResult,
   AdministrationReservationAccessGrant,
   CliAuthenticationRateLimited,
   CliBearerAuthentication,
@@ -48,7 +47,7 @@ import {
   AdministratorRoster,
   LegacyAdministratorBackfill,
 } from "@/features/administrators";
-import { refreshCalendarDiscountSourceAfterMutation } from "@/features/discounts/admin/calendar-discount-source-maintenance.server";
+import { AccountRoleGrants } from "@/features/administrators/backend/account-role-grants.service";
 import {
   type AdminCustomerProfile,
   type AdminDiscountCode,
@@ -61,7 +60,10 @@ import {
   DiscountAdministration,
 } from "@/features/discounts/admin/discount-administration.service";
 import { toAdminDotyposCustomer } from "@/features/discounts/admin/discount-administration-reads";
-import { executeDiscountAdminMutation } from "@/features/discounts/admin/execute-discount-admin-mutation";
+import {
+  DiscountRequestLedger,
+  makeDiscountOperations,
+} from "@/features/discounts/admin/discount-operations.service";
 import { CampaignOperations } from "@/features/email-campaigns/backend/campaign-operations.service";
 import { ReservationProductDetailsBackfill } from "@/features/reservation/backend/reservation-product-details-backfill.service";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
@@ -78,7 +80,6 @@ import {
   mapServiceFailure,
 } from "./administration-api-failure";
 import {
-  discountMutationRecovery,
   reservationAccessRecovery,
   standaloneAccessCodeRecovery,
   standaloneAccessCodeStoredResult,
@@ -88,12 +89,14 @@ import {
   StoredResult,
 } from "./administration-request-ledger.service";
 import { AdminCliAdministratorsApiHandlers } from "./administrators-api.server";
+import { invokeAsCliCaller } from "./cli-administration-operations.server";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
 import {
   CliClientCompatibilityLive,
   minimumDhwVersions,
 } from "./cli-client-version";
+import { cliDiscountRequestLedger } from "./cli-discount-request-ledger";
 import { AdminCliAutomationsApiHandlers } from "./email-automations-api.server";
 import { AdminCliCampaignsApiHandlers } from "./email-campaigns-api.server";
 
@@ -152,6 +155,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
     const reservationAccess = yield* ReservationAccessAdministration;
     const authentication = yield* CliAuthentication;
     const discounts = yield* DiscountAdministration;
+    const discountOperations = yield* makeDiscountOperations;
     const customerDirectory = yield* AdministrationCustomerDirectory;
     const invoices = yield* InvoiceAdministrationService;
     const standaloneAccessCodes = yield* StandaloneAccessCodeAdministration;
@@ -485,19 +489,15 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         })
       )
       .handle("mutateDiscounts", ({ payload }) =>
-        ledger.applyOnceWithEffects({
-          requestId: payload.requestId,
-          mutation: payload.mutation,
-          stored: StoredResult.unchanged(AdministrationDiscountMutationResult),
-          apply: executeDiscountAdminMutation(payload.mutation).pipe(
-            Effect.provideService(DiscountAdministration, discounts),
-            mapAdministrationApiFailure(mapDiscountMutationFailure)
-          ),
-          afterSettled: refreshCalendarDiscountSourceAfterMutation(
-            payload.mutation
-          ),
-          recovery: discountMutationRecovery,
-        })
+        invokeAsCliCaller(
+          discountOperations.invoke("mutateDiscounts", payload.mutation),
+          DiscountRequestLedger,
+          (caller) =>
+            cliDiscountRequestLedger(ledger, caller, payload.requestId)
+        ).pipe(
+          // The endpoint decoded the payload with the port's strict schema.
+          Effect.catchTag("CliInputInvalid", (invalid) => Effect.die(invalid))
+        )
       )
       .handle(
         "renameSession",
@@ -598,26 +598,6 @@ export const CliSessionAdministrationAuthenticationLive = Layer.effect(
     } satisfies AdministrationAuthentication["Service"];
   })
 );
-
-const mapDiscountMutationFailure = (
-  cause: Effect.Error<ReturnType<typeof executeDiscountAdminMutation>>
-) =>
-  Match.value(cause).pipe(
-    Match.tag(
-      "DiscountAdminNotFoundError",
-      ({ message }) => new CliResourceNotFound({ message })
-    ),
-    Match.tag(
-      "DiscountAdminAudienceError",
-      ({ message }) => new CliMutationRejected({ message })
-    ),
-    Match.tag(
-      "DiscountAdminConflictError",
-      "DiscountAdminServiceDatesError",
-      ({ message }) => new CliMutationRejected({ message })
-    ),
-    Match.orElse(makeServiceUnavailable)
-  );
 
 type InvoiceAdministration = typeof InvoiceAdministrationService.Service;
 
@@ -911,6 +891,7 @@ export const provideWorkspaceAdminApiServices = <A, E, R>(
     Layer.provide(LegacyAdministratorBackfill.Live),
     Layer.provide(ReservationAccessAdministration.Live),
     Layer.provide(DiscountAdministration.Live),
+    Layer.provide(AccountRoleGrants.Live),
     Layer.provide(AdministrationCustomerDirectory.Live),
     Layer.provide(InvoiceAdministrationService.Live),
     Layer.provide(StandaloneAccessCodeAdministration.Live),

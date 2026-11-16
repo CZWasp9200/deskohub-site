@@ -48,9 +48,6 @@ const { AccountRoleGrants } = await import(
   "@/features/administrators/backend/account-role-grants.service"
 );
 const { m } = await import("@/features/administration/i18n");
-const { getDiscountAdminMutationErrorMessage } = await import(
-  "./mutation-error-message"
-);
 const { calendarDiscountSourceTag } = await import(
   "../calendar-discount-source.server"
 );
@@ -171,7 +168,10 @@ describe("mutateDiscountAdmin", () => {
     const result = await mutateDiscountAdmin(customerCode);
 
     expect(result).toEqual({
-      serverError: getDiscountAdminMutationErrorMessage(missing, "en-US"),
+      serverError: m.discountsErrorDotyposCustomerMissing(
+        {},
+        { locale: "en-US" }
+      ),
     });
     expect(revalidatedPaths).toEqual([]);
     expect(sinceMutation()).toEqual(["inside:mutate"]);

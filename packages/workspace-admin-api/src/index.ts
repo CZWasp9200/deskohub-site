@@ -43,6 +43,10 @@ export {
   query,
 } from "./administration-operation-port";
 export {
+  type DiscountOperations,
+  discountOperations,
+} from "./discount-operations";
+export {
   AdminCliAdministratorsApi,
   AdministrationAccountEmail,
   type AdministrationAccountEmail as AdministrationAccountEmailType,

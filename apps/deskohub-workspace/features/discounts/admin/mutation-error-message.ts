@@ -1,79 +1,52 @@
-import { Match } from "effect";
+import type { AdministrationOperationError } from "@deskohub/workspace-admin-api";
+import type { Layer } from "effect";
 import { m } from "@/features/administration/i18n";
+import type { AdministratorUnauthorizedError } from "@/features/administrators/server/administrator-authorization.server";
 import type { Locale } from "@/features/i18n";
-import {
-  DiscountAdminAudienceError,
-  DiscountAdminConflictError,
-  DiscountAdminNotFoundError,
-  DiscountAdminServiceDatesError,
-} from "./discount-administration.service";
+import type { DiscountOperationFailureCode } from "./discount-operation-errors";
+import type { DiscountOperations } from "./discount-operations.service";
+
+const failureCopy = {
+  "discount-not-found": m.discountsErrorDiscountMissing,
+  "discount-code-not-found": m.discountsErrorCodeMissing,
+  "voucher-not-found": m.discountsErrorVoucherMissing,
+  "dotypos-customer-not-found": m.discountsErrorDotyposCustomerMissing,
+  "dotypos-discount-group-not-found":
+    m.discountsErrorDotyposDiscountGroupMissing,
+  "code-audience-membership-not-found":
+    m.discountsErrorCodeAudienceMembershipMissing,
+  "voucher-audience-membership-not-found":
+    m.discountsErrorVoucherAudienceMembershipMissing,
+  "code-final-audience-customer": m.discountsErrorCodeFinalCustomer,
+  "voucher-final-audience-customer": m.discountsErrorVoucherFinalCustomer,
+  "promotion-code-taken": m.discountsErrorPromotionCodeTaken,
+  "discount-referenced": m.discountsErrorDiscountReferenced,
+  "discount-code-claimed": m.discountsErrorCodeClaimed,
+  "voucher-claimed": m.discountsErrorVoucherClaimed,
+  "voucher-credit-below-usage": m.discountsErrorVoucherCreditBelowUsage,
+  "voucher-currency-locked": m.discountsErrorVoucherCurrencyLocked,
+  "service-dates-invalid": m.discountsErrorServiceDatesInvalid,
+} satisfies Record<
+  DiscountOperationFailureCode,
+  typeof m.discountsErrorSaveFailed
+>;
+
+const isFailureCode = (code: string): code is DiscountOperationFailureCode =>
+  Object.hasOwn(failureCopy, code);
 
 /**
- * The operator-facing message for a failed discount mutation. The service
- * messages stay English for the administration API, so the screen reads the
- * error's structured data instead.
+ * The operator-facing message for a failed discount mutation, from the port
+ * error's stable code. The port's messages stay English for the
+ * administration API; any failure without a known code, such as an
+ * unavailable dependency, gets the generic message.
  */
-export const getDiscountAdminMutationErrorMessage = (
-  cause: unknown,
+export const getDiscountMutationFailureMessage = (
+  failure:
+    | AdministrationOperationError
+    | AdministratorUnauthorizedError
+    | Layer.Error<typeof DiscountOperations.Live>,
   locale: Locale
 ): string =>
-  Match.value(cause).pipe(
-    Match.when(Match.instanceOf(DiscountAdminNotFoundError), ({ resource }) =>
-      Match.value(resource.kind).pipe(
-        Match.when("discount", () => m.discountsErrorDiscountMissing),
-        Match.when("discount code", () => m.discountsErrorCodeMissing),
-        Match.when("voucher", () => m.discountsErrorVoucherMissing),
-        Match.when(
-          "Dotypos customer",
-          () => m.discountsErrorDotyposCustomerMissing
-        ),
-        Match.when(
-          "Dotypos discount group",
-          () => m.discountsErrorDotyposDiscountGroupMissing
-        ),
-        Match.when(
-          "code audience membership",
-          () => m.discountsErrorCodeAudienceMembershipMissing
-        ),
-        Match.when(
-          "voucher audience membership",
-          () => m.discountsErrorVoucherAudienceMembershipMissing
-        ),
-        Match.exhaustive
-      )({}, { locale })
-    ),
-    Match.when(
-      Match.instanceOf(DiscountAdminAudienceError),
-      ({ promotionKind }) =>
-        (promotionKind === "voucher"
-          ? m.discountsErrorVoucherFinalCustomer
-          : m.discountsErrorCodeFinalCustomer)({}, { locale })
-    ),
-    Match.when(Match.instanceOf(DiscountAdminConflictError), ({ reason }) =>
-      Match.value(reason).pipe(
-        Match.when(
-          "promotion-code-taken",
-          () => m.discountsErrorPromotionCodeTaken
-        ),
-        Match.when(
-          "discount-referenced",
-          () => m.discountsErrorDiscountReferenced
-        ),
-        Match.when("discount-code-claimed", () => m.discountsErrorCodeClaimed),
-        Match.when("voucher-claimed", () => m.discountsErrorVoucherClaimed),
-        Match.when(
-          "voucher-credit-below-usage",
-          () => m.discountsErrorVoucherCreditBelowUsage
-        ),
-        Match.when(
-          "voucher-currency-locked",
-          () => m.discountsErrorVoucherCurrencyLocked
-        ),
-        Match.exhaustive
-      )({}, { locale })
-    ),
-    Match.when(Match.instanceOf(DiscountAdminServiceDatesError), () =>
-      m.discountsErrorServiceDatesInvalid({}, { locale })
-    ),
-    Match.orElse(() => m.discountsErrorSaveFailed({}, { locale }))
-  );
+  ("code" in failure && isFailureCode(failure.code)
+    ? failureCopy[failure.code]
+    : m.discountsErrorSaveFailed)({}, { locale });
