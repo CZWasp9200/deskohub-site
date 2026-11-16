@@ -110,11 +110,11 @@ describe("TabBar", () => {
       backgroundColor: color.actionTint,
     });
     expect(
-      find<{ color: string }>(content(reservations), Icon)?.props.color
+      find<Parameters<typeof Icon>[0]>(content(reservations), Icon)?.props.color
     ).toBe(color.action);
-    expect(find<{ color: string }>(content(account), Icon)?.props.color).toBe(
-      color.ink2
-    );
+    expect(
+      find<Parameters<typeof Icon>[0]>(content(account), Icon)?.props.color
+    ).toBe(color.ink2);
   });
 
   test("the raised tab is a large orange circle reaching above the bar", () => {

@@ -51,8 +51,8 @@ export function TabBar({
         const item = items[route.name];
         if (item === undefined) return null;
         const focused = index === state.index;
-        const { options } = descriptors[route.key] ?? { options: {} };
-        const label = options.tabBarAccessibilityLabel ?? options.title;
+        const options = descriptors[route.key]?.options;
+        const label = options?.tabBarAccessibilityLabel ?? options?.title;
         const onPress = () => {
           const event = emitter.emit({
             type: "tabPress",
