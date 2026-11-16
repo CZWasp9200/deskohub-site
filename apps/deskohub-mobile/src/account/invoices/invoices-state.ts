@@ -1,6 +1,9 @@
-import type { CustomerInvoiceId } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerInvoiceId,
+  CustomerLocale,
+} from "@deskohub/workspace-customer-api";
 import { Effect, Match } from "effect";
-import type { AsyncResult } from "effect/unstable/reactivity";
+import { type AsyncResult, Atom } from "effect/unstable/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerRead } from "../../customer-api/customer-request";
@@ -15,14 +18,16 @@ import {
 
 /**
  * The account's issued invoices (GET /invoices) as the list shows them,
- * read each time the screen opens.
+ * each product named in `locale`, read each time the screen opens.
  */
-export const invoiceListAtom = customerDataRuntime.atom(
-  Effect.flatMap(Effect.service(CustomerApi), (api) =>
-    api.invoices.listInvoices()
-  ).pipe(
-    customerRead({ accountRead: false }),
-    Effect.map(({ invoices }) => invoiceListOf(invoices))
+export const invoiceListAtom = Atom.family((locale: CustomerLocale) =>
+  customerDataRuntime.atom(
+    Effect.flatMap(Effect.service(CustomerApi), (api) =>
+      api.invoices.listInvoices({ query: { locale } })
+    ).pipe(
+      customerRead({ accountRead: false }),
+      Effect.map(({ invoices }) => invoiceListOf(invoices))
+    )
   )
 );
 

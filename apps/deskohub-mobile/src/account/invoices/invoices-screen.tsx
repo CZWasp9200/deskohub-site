@@ -34,8 +34,8 @@ import {
  */
 export function InvoicesScreen() {
   const locale = useAppLocale();
-  const list = useAtomValue(invoiceListAtom);
-  const refresh = useAtomRefresh(invoiceListAtom);
+  const list = useAtomValue(invoiceListAtom(locale));
+  const refresh = useAtomRefresh(invoiceListAtom(locale));
   return (
     <ScrollScreen
       // The first load shows the skeleton alone.
