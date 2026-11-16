@@ -77,8 +77,8 @@ const boundFromCheckout =
     );
 
 /**
- * The client with every Drizzle statement bounded by `timeout`, and its
- * waits for connections on the live clock. Drizzle runs
+ * The client with every Drizzle statement bounded by `timeout`, its Temporal
+ * parameters bound as text, and its waits for connections on the live clock. Drizzle runs
  * each query through `unsafe(sql, params)` and reads `values`,
  * `withoutTransform` or `raw` from it, so only those are bounded. A statement
  * inside a transaction runs on the transaction's connection, which the
@@ -104,6 +104,26 @@ const statementTimeouts = new WeakMap<object, Duration.Duration>();
 export const statementTimeoutOf = (client: Pick<SqlClient.Base, "reserve">) =>
   statementTimeouts.get(client) ?? databaseTimeouts.statement;
 
+/**
+ * A Temporal value a raw `sql` template binds directly, outside any column's
+ * encoder, goes as its ISO text, which the server types from the
+ * parameter's context, as the previous driver sent it. The native driver
+ * refuses objects it cannot type.
+ */
+type StatementParameter = NonNullable<
+  Parameters<PgClient.PgClient["unsafe"]>[1]
+>[number];
+
+const bindableParameter = (value: StatementParameter): StatementParameter =>
+  value instanceof Temporal.Instant ||
+  value instanceof Temporal.ZonedDateTime ||
+  value instanceof Temporal.PlainDate ||
+  value instanceof Temporal.PlainDateTime ||
+  value instanceof Temporal.PlainTime ||
+  value instanceof Temporal.Duration
+    ? value.toString()
+    : value;
+
 const boundStatements = <Client extends PgClient.PgClient>(
   client: Client,
   timeout: Duration.Duration
@@ -118,7 +138,7 @@ const boundStatements = <Client extends PgClient.PgClient>(
     "raw",
   ]);
   const unsafe = (sql: string, params?: ReadonlyArray<unknown>) =>
-    new Proxy(client.unsafe(sql, params), {
+    new Proxy(client.unsafe(sql, params?.map(bindableParameter)), {
       get: (target, key, receiver) => {
         const value = Reflect.get(target, key, receiver);
         return boundedResults.has(key) && Effect.isEffect(value)

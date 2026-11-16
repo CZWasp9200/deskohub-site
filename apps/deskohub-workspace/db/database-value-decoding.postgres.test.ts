@@ -162,6 +162,16 @@ describe.skipIf(!suiteDatabase)(
       });
     });
 
+    test("binds a Temporal instant in a raw template as its timestamp", async () => {
+      const rows = await run(
+        db
+          .select({ id: probe.id })
+          .from(probe)
+          .where(sql`${probe.at} > ${earlier}`)
+      );
+      expect(rows).toEqual([{ id: "later" }]);
+    });
+
     test("matches a text column against a bound text[] parameter", async () => {
       const rows = await run(
         db
