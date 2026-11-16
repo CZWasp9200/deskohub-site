@@ -35,11 +35,9 @@ import { isEarlyPerformanceRequestRequired } from "@/features/legal/early-perfor
 import { getPaymentSubmitLegalEvidence } from "@/features/legal/payment-submit-evidence";
 import {
   reservationLogFields,
-  type WorkspaceReservation,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCoworkReservationIntervalInput } from "@/features/reservation/cowork-reservation";
-import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { hasOfficeReservationEnded } from "@/features/reservation/office-reservation";
 import {
   getStoredWorkspaceReservationDetails,
@@ -74,20 +72,21 @@ import {
   CheckoutPricingService,
   type PaymentPriceAffirmation,
 } from "./checkout-pricing.service";
+import { CheckoutUnavailableError } from "./checkout-unavailable";
 import {
   type FreshPayState,
   PayState,
   type PayStateReissue,
+  type PayStateTokenError,
   type PayStateWithHoldExpiry,
   type SignedPayState,
   toFreshPayState,
 } from "./pay-state";
-import { withPayStateHoldExpiry } from "./pay-state-hold";
 import {
+  type OpenCheckout,
+  PayableCheckout,
   type PayableReservation,
-  PayableReservationService,
-  type PayableReservationUnavailableError,
-} from "./payable-reservation.service";
+} from "./payable-checkout.service";
 import type { PriceVerdict } from "./price-verdict";
 import { getReservationStatusPath } from "./reservation-status-url";
 import {
@@ -95,10 +94,6 @@ import {
   isReusableAttemptState,
 } from "./reusable-payment-attempt";
 import { appendVercelPreviewProtectionBypass } from "./vercel-preview-protection-bypass";
-
-const decodeDotyposCustomerId = Schema.decodeUnknownEffect(
-  dotyposCustomerIdSchema
-);
 
 export class CheckoutError extends Data.TaggedError("CheckoutError")<{
   readonly code:
@@ -238,7 +233,7 @@ export class CheckoutService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(CustomerAccountSections.Live),
     Layer.provide(ReservationFulfillment.Live),
-    Layer.provide(PayableReservationService.Default),
+    Layer.provide(PayableCheckout.Default),
     Layer.provide(LegalEvidenceEventRepository.Default),
     Layer.provide(CheckoutAnalytics.Live),
     Layer.provide(PaymentLifecycleRepository.Live),
@@ -322,24 +317,13 @@ const getNotificationUrl: Effect.Effect<string, CheckoutError> = Effect.gen(
 
 const toNexiAmount = Schema.encodeEffect(NexiAmountFromWorkspaceMoney);
 
-const openFinalPayState: (
-  payStateToken: string,
-  locale: Locale
-) => Effect.Effect<SignedPayState, CheckoutError, SealedStateKeys> = Effect.fn(
-  "openFinalPayState"
-)(function* (payStateToken, locale) {
-  return yield* PayState.open(payStateToken, { locale }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new CheckoutError({
-          code: "checkout_failed",
-          message:
-            "Pay state is invalid or expired. Please review checkout again.",
-          cause,
-        })
-    )
-  );
-});
+/** A Pay state that doesn't open for the submitting page's locale. */
+const toInvalidPayStateError = (cause: PayStateTokenError) =>
+  new CheckoutError({
+    code: "checkout_failed",
+    message: "Pay state is invalid or expired. Please review checkout again.",
+    cause,
+  });
 
 const reissuePriceReviewPayState: (
   state: PayStateWithHoldExpiry,
@@ -414,7 +398,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
       const paidFulfillment = yield* ReservationFulfillment;
       const checkoutAnalytics = yield* CheckoutAnalytics;
       const pricing = yield* CheckoutPricingService;
-      const payableReservations = yield* PayableReservationService;
+      const payableCheckout = yield* PayableCheckout;
       const accountSections = yield* CustomerAccountSections;
       const provideSealedStateKeys = Effect.provideService(
         SealedStateKeys,
@@ -463,16 +447,11 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           )
       );
 
-      const revalidatePayableReservation = Effect.fn(
-        "checkout.revalidatePayableReservation"
-      )(function* (input: {
-        readonly workspaceReservationId: WorkspaceReservationId;
-        readonly checkoutSessionId?: CheckoutSessionId;
-      }) {
-        yield* payableReservations.requireCurrent({
-          orderId: input.workspaceReservationId,
-          checkoutSessionId: input.checkoutSessionId,
-        });
+      /** Payment starts only on an order still payable right before it. */
+      const reconfirmPayableCheckout = Effect.fn(
+        "checkout.reconfirmPayableCheckout"
+      )(function* (checkout: OpenCheckout) {
+        yield* payableCheckout.reconfirm(checkout.state);
         yield* Effect.logDebug("Checkout payable reservation revalidated");
       });
 
@@ -488,6 +467,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           readonly accountingSnapshot: AccountingDocumentSnapshot;
           readonly reservation: SignedPayState["reservation"];
           readonly returnTarget: PaymentReturnTarget | undefined;
+          readonly checkout: OpenCheckout;
         }) {
           yield* Effect.annotateLogsScoped({
             reservationId: input.workspaceReservationId,
@@ -500,7 +480,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           });
           yield* Effect.logInfo("Checkout provider session start requested");
 
-          yield* revalidatePayableReservation(input);
+          yield* reconfirmPayableCheckout(input.checkout);
 
           const providerOrderId = generateNexiOrderId();
           const nexiCurrency = getNexiCurrencyOverride();
@@ -645,14 +625,14 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         "checkout.completeInternalPayment"
       )(function* (input: {
         readonly workspaceReservationId: WorkspaceReservationId;
-        readonly checkoutSessionId?: CheckoutSessionId;
         readonly locale: Locale;
         readonly total: Money;
         readonly commitment: DiscountCommitment;
         readonly accountingSnapshot: AccountingDocumentSnapshot;
         readonly reservation: SignedPayState["reservation"];
+        readonly checkout: OpenCheckout;
       }) {
-        yield* revalidatePayableReservation(input);
+        yield* reconfirmPayableCheckout(input.checkout);
 
         yield* ensureReservationHasNotEnded(input.reservation);
 
@@ -724,76 +704,55 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
       });
 
       /**
-       * The payable reservation for the signed order, or `null` when it can no
-       * longer be paid, as when payment or hold cleanup already moved it on.
+       * An order that can't be paid again is either already paid, which the
+       * resubmitted Pay state recovers, or still moving.
        */
-      const loadPayableReservation = Effect.fnUntraced(function* (
-        state: SignedPayState
-      ) {
-        const reservation = yield* payableReservations
-          .requireCurrent({
-            orderId: state.orderId,
-            checkoutSessionId: state.checkoutSessionId,
-          })
-          .pipe(
-            Effect.catchTag(
-              "PayableReservationUnavailableError",
-              (cause: PayableReservationUnavailableError) =>
-                Effect.logInfo(
-                  "Hosted payment checkout reservation is unavailable",
-                  { orderId: state.orderId, reason: cause.reason }
-                ).pipe(Effect.as(null))
-            )
-          );
-        yield* Effect.annotateLogsScoped(reservationLogFields(reservation));
-        return reservation;
-      });
-
-      /** An order that can't be paid again is either already paid or still moving. */
       const recoverUnpayableOrder = Effect.fnUntraced(function* (input: {
-        readonly orderId: WorkspaceReservationId;
+        readonly unavailable: CheckoutUnavailableError;
         readonly locale: Locale;
       }) {
-        const completedReservation = yield* reservations.findById(
-          input.orderId
+        const { unavailable } = input;
+        yield* Effect.logInfo(
+          "Hosted payment checkout reservation is unavailable",
+          { orderId: unavailable.orderId, reason: unavailable.reason }
         );
-        if (completedReservation?.paymentState === "paid") {
+        if (unavailable.paidOrderId !== undefined) {
           yield* Effect.logInfo(
             "Hosted payment checkout recovered completed reservation"
           );
           return yield* getCompletedCheckoutResult({
-            orderId: completedReservation.id,
+            orderId: unavailable.paidOrderId,
             locale: input.locale,
           });
         }
 
         yield* Effect.logWarning(
-          "Hosted payment checkout returned in_progress: reservation missing"
+          "Hosted payment checkout returned in_progress: reservation unavailable"
         );
 
         return { status: "in_progress" as const };
       });
 
       type ReservationProgressInput = {
-        readonly reservation: WorkspaceReservation;
+        readonly reservation: PayableReservation;
         readonly state: SignedPayState;
         readonly locale: Locale;
         readonly returnTarget: PaymentReturnTarget | undefined;
       };
 
       /**
-       * The result a paid, released, or expired hold, or an existing provider
-       * session, already decides; `undefined` when a new payment may start.
+       * The result a paid order or an existing provider session already
+       * decides; `undefined` when a new payment may start.
        */
       const findReservationProgressResult = Effect.fnUntraced(function* (
         input: ReservationProgressInput
       ) {
-        const holdResult = yield* findHoldStateResult(input);
-        if (holdResult) return holdResult;
+        const paidResult = yield* findPaidOrderResult(input);
+        if (paidResult) return paidResult;
         return yield* findActiveAttemptResult(input);
       });
 
-      const findHoldStateResult = Effect.fnUntraced(function* ({
+      const findPaidOrderResult = Effect.fnUntraced(function* ({
         reservation,
         locale,
       }: ReservationProgressInput) {
@@ -811,28 +770,6 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         yield* Effect.annotateLogsScoped({
           correlationId: reservation.correlationId,
         });
-
-        if (reservation.reservationState !== "held") {
-          yield* Effect.logInfo(
-            "Hosted payment checkout returned in_progress: reservation not held"
-          );
-
-          return { status: "in_progress" as const };
-        }
-
-        if (
-          reservation.reservationHoldExpiresAt &&
-          Temporal.Instant.compare(
-            reservation.reservationHoldExpiresAt,
-            Temporal.Now.instant()
-          ) <= 0
-        ) {
-          yield* Effect.logInfo(
-            "Hosted payment checkout returned in_progress: reservation hold expired"
-          );
-
-          return { status: "in_progress" as const };
-        }
         return undefined;
       });
 
@@ -890,19 +827,17 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
       /** A signed state still awaiting the customer's review of a price change. */
       const getPendingPricingReviewResult = Effect.fnUntraced(
         function* (input: {
-          readonly state: SignedPayState;
+          readonly checkout: OpenCheckout;
           readonly changedKeys: CheckoutSummaryChangedKeys;
-          readonly reservation: PayableReservation;
         }) {
-          const { state } = input;
+          const { state } = input.checkout;
           yield* Effect.logInfo(
             "Hosted payment checkout returned existing pricing_changed review"
           );
 
-          const priceReviewPayState = yield* reissuePriceReviewPayState(
-            withPayStateHoldExpiry(state, input.reservation),
-            { kind: "review_pending" }
-          ).pipe(provideSealedStateKeys);
+          const priceReviewPayState = yield* reissuePriceReviewPayState(state, {
+            kind: "review_pending",
+          }).pipe(provideSealedStateKeys);
           return {
             status: "pricing_changed" as const,
             changedKeys: input.changedKeys,
@@ -914,23 +849,12 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
 
       /** Re-prices the signed order for the reservation's stored customer. */
       const affirmSignedPricing = Effect.fnUntraced(function* (input: {
-        readonly state: SignedPayState;
+        readonly checkout: OpenCheckout;
         readonly locale: Locale;
-        readonly reservation: WorkspaceReservation;
       }) {
-        const { state, locale } = input;
-        const dotyposCustomerId = yield* decodeDotyposCustomerId(
-          input.reservation.dotyposCustomerId
-        ).pipe(
-          Effect.mapError(
-            (cause) =>
-              new CheckoutError({
-                code: "checkout_failed",
-                message: "Reservation customer identity is invalid.",
-                cause,
-              })
-          )
-        );
+        const { locale } = input;
+        const { state } = input.checkout;
+        const { dotyposCustomerId } = input.checkout.reservation;
         const verdict = yield* pricing.affirmForPayment({
           ...state,
           bookedAt: PayState.bookedAt(state),
@@ -952,11 +876,11 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
        * price changed; `undefined` when it still holds.
        */
       const findRepricedResult = Effect.fnUntraced(function* (input: {
-        readonly state: SignedPayState;
-        readonly reservation: PayableReservation;
+        readonly checkout: OpenCheckout;
         readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
       }) {
-        const { state, verdict } = input;
+        const { verdict } = input;
+        const { state } = input.checkout;
         if (verdict.status === "affirmed") return undefined;
         const { changedKeys } = verdict;
         const prepared = verdict.priced;
@@ -973,10 +897,10 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           "Hosted payment checkout returned pricing_changed"
         );
 
-        const priceReviewPayState = yield* reissuePriceReviewPayState(
-          withPayStateHoldExpiry(state, input.reservation),
-          { kind: "repriced", verdict }
-        ).pipe(provideSealedStateKeys);
+        const priceReviewPayState = yield* reissuePriceReviewPayState(state, {
+          kind: "repriced",
+          verdict,
+        }).pipe(provideSealedStateKeys);
         return {
           status: "pricing_changed" as const,
           changedKeys,
@@ -1010,26 +934,32 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
               });
             }
 
-            const state = yield* openFinalPayState(
-              input.payStateToken,
-              locale
-            ).pipe(provideSealedStateKeys);
+            const checkout = yield* payableCheckout
+              .open({ payStateToken: input.payStateToken, page: { locale } })
+              .pipe(
+                Effect.catchTags({
+                  PayStateTokenError: (cause) =>
+                    Effect.fail(toInvalidPayStateError(cause)),
+                  CheckoutUnavailableError: (unavailable) =>
+                    Effect.succeed(unavailable),
+                })
+              );
+            if (checkout instanceof CheckoutUnavailableError) {
+              return yield* recoverUnpayableOrder({
+                unavailable: checkout,
+                locale,
+              });
+            }
+            const { state, reservation } = checkout;
             yield* Effect.annotateLogsScoped({
               orderId: state.orderId,
               checkoutSessionId: state.checkoutSessionId,
               reservationKind: state.reservation.kind,
+              ...reservationLogFields(reservation),
             });
             yield* Effect.logInfo("Hosted payment checkout pay state opened");
 
             const data = state.reservation;
-            const reservation = yield* loadPayableReservation(state);
-
-            if (!reservation) {
-              return yield* recoverUnpayableOrder({
-                orderId: state.orderId,
-                locale,
-              });
-            }
 
             const progressResult = yield* findReservationProgressResult({
               reservation,
@@ -1043,21 +973,18 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
 
             if (state.changedKeys) {
               return yield* getPendingPricingReviewResult({
-                state,
+                checkout,
                 changedKeys: state.changedKeys,
-                reservation,
               });
             }
 
             const { dotyposCustomerId, verdict } = yield* affirmSignedPricing({
-              state,
+              checkout,
               locale,
-              reservation,
             });
 
             const repricedResult = yield* findRepricedResult({
-              state,
-              reservation,
+              checkout,
               verdict,
             });
             if (repricedResult) return repricedResult;
@@ -1130,14 +1057,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                     "Hosted payment checkout legal evidence recorded"
                   );
 
-                  const dotyposReservationId = reservation.dotyposReservationId;
-                  if (!dotyposReservationId) {
-                    return yield* new CheckoutError({
-                      code: "checkout_failed",
-                      message:
-                        "Held reservation is missing its Dotypos reservation ID.",
-                    });
-                  }
+                  const { dotyposReservationId } = reservation;
 
                   yield* dotypos.updateReservation({
                     reservationId: dotyposReservationId,
@@ -1164,12 +1084,12 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                     expectedPrice.value === 0
                       ? completeInternalPayment({
                           workspaceReservationId: reservation.id,
-                          checkoutSessionId: state.checkoutSessionId,
                           locale,
                           total: expectedPrice,
                           commitment: prepared.commitment,
                           accountingSnapshot,
                           reservation: state.reservation,
+                          checkout,
                         })
                       : startProviderSession({
                           workspaceReservationId: reservation.id,
@@ -1192,6 +1112,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                           accountingSnapshot,
                           reservation: state.reservation,
                           returnTarget: input.returnTarget,
+                          checkout,
                         });
 
                   return yield* startPayment.pipe(
@@ -1234,17 +1155,14 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                           }),
                         });
                         const priceReviewPayState =
-                          yield* reissuePriceReviewPayState(
-                            withPayStateHoldExpiry(state, reservation),
-                            {
-                              kind: "repriced",
-                              verdict: {
-                                status: "pricing_changed",
-                                priced: refreshed,
-                                changedKeys,
-                              },
-                            }
-                          ).pipe(provideSealedStateKeys);
+                          yield* reissuePriceReviewPayState(checkout.state, {
+                            kind: "repriced",
+                            verdict: {
+                              status: "pricing_changed",
+                              priced: refreshed,
+                              changedKeys,
+                            },
+                          }).pipe(provideSealedStateKeys);
 
                         return {
                           status: "pricing_changed" as const,

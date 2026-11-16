@@ -1,17 +1,12 @@
-import { Effect, Match, Option, Schema } from "effect";
+import { Effect, Match, Option } from "effect";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import {
   type CanonicalPromotionCode,
   type DiscountId,
-  DiscountProviderError,
   normalizeSubmittedPromotionCode,
 } from "@/features/discounts";
 import { ReferralService } from "@/features/referrals";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
-import {
-  type DotyposCustomerId,
-  dotyposCustomerIdSchema,
-} from "@/features/reservation/dotypos-customer";
 import { getCalendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
 import type { DeploymentEnvironment } from "@/shared/deployment/deployment-stage";
 import { buildCheckoutPayPath } from "./checkout-pay-url";
@@ -20,6 +15,10 @@ import {
   type CheckoutReferralResult,
   CheckoutReferralService,
 } from "./checkout-referral.service";
+import type {
+  CheckoutUnavailableError,
+  CheckoutUnavailableReason,
+} from "./checkout-unavailable";
 import {
   type FreshPayState,
   type NoFreshPayState,
@@ -33,15 +32,8 @@ import type {
   ApplyDiscountCodeInput,
   ClearDiscountCodeInput,
 } from "./pay-state-discount-code-input";
-import {
-  loadPayStateHoldExpiry,
-  withPayStateHoldExpiry,
-} from "./pay-state-hold";
-import {
-  type PayableReservation,
-  PayableReservationService,
-  type PayableReservationUnavailableError,
-} from "./payable-reservation.service";
+import { loadPayStateHoldExpiry } from "./pay-state-hold";
+import { type OpenCheckout, PayableCheckout } from "./payable-checkout.service";
 import type { PriceVerdict } from "./price-verdict";
 
 /**
@@ -68,7 +60,7 @@ export type DiscountCodeChangeUnavailable =
       readonly reason: "checkout";
       readonly checkoutReason:
         | "payment_in_progress"
-        | PayableReservationUnavailableError["reason"];
+        | CheckoutUnavailableReason;
     };
 
 /**
@@ -154,58 +146,39 @@ const priceReviewPending = unavailableBecause({
 });
 
 /**
- * The order's reservation while it is payable and no payment attempt has
- * started; none once a payment is in progress. A reservation that can't be
- * paid fails.
+ * The opened checkout while its order is payable and no payment attempt has
+ * started; none once a payment is in progress. An order that can't be paid
+ * fails.
  */
 const requirePayableBeforePayment = Effect.fnUntraced(function* (
   state: SignedPayState
 ) {
-  const payableReservations = yield* PayableReservationService;
-  const reservation = yield* payableReservations.requireCurrent({
-    orderId: state.orderId,
-    checkoutSessionId: state.checkoutSessionId,
-  });
-  return reservation.activePaymentAttemptId
-    ? Option.none<PayableReservation>()
-    : Option.some(reservation);
+  const payableCheckout = yield* PayableCheckout;
+  const checkout = yield* payableCheckout.reconfirm(state);
+  return checkout.reservation.activePaymentAttemptId
+    ? Option.none<OpenCheckout>()
+    : Option.some(checkout);
 });
 
 /**
  * Prices a Pay state's order for a code change between two live guards that
- * its reservation is payable and no payment attempt has started, so a
- * payment that starts meanwhile discards the price. None when a payment is in
- * progress; the reservation is the first guard's.
+ * its order is payable and no payment attempt has started, so a payment that
+ * starts meanwhile discards the price. None when a payment is in progress;
+ * the checkout is the first guard's.
  */
 const priceBetweenPayableGuards = <A, E, R>(
   state: SignedPayState,
-  price: (input: {
-    readonly reservation: PayableReservation;
-    readonly dotyposCustomerId: DotyposCustomerId;
-  }) => Effect.Effect<A, E, R>
+  price: (checkout: OpenCheckout) => Effect.Effect<A, E, R>
 ) =>
   Effect.gen(function* () {
-    const reservation = yield* requirePayableBeforePayment(state);
-    if (Option.isNone(reservation)) return Option.none();
+    const checkout = yield* requirePayableBeforePayment(state);
+    if (Option.isNone(checkout)) return Option.none();
 
-    const dotyposCustomerId = yield* Schema.decodeEffect(
-      dotyposCustomerIdSchema
-    )(reservation.value.dotyposCustomerId).pipe(
-      Effect.mapError(
-        DiscountProviderError.fromCause({
-          reason: "provider_failure",
-          message: "Stored customer identity is invalid.",
-        })
-      )
-    );
-    const priced = yield* price({
-      reservation: reservation.value,
-      dotyposCustomerId,
-    });
+    const priced = yield* price(checkout.value);
     const current = yield* requirePayableBeforePayment(state);
     if (Option.isNone(current)) return Option.none();
 
-    return Option.some({ reservation: reservation.value, priced });
+    return Option.some({ checkout: checkout.value, priced });
   });
 
 /**
@@ -217,9 +190,7 @@ const codeChangeUnavailable = {
   DiscountAffirmationUnavailableError: () =>
     Effect.succeed(providerUnavailable),
   DiscountProviderError: () => Effect.succeed(providerUnavailable),
-  PayableReservationUnavailableError: (
-    error: PayableReservationUnavailableError
-  ) =>
+  CheckoutUnavailableError: (error: CheckoutUnavailableError) =>
     Effect.succeed(
       unavailableBecause({
         status: "unavailable",
@@ -323,48 +294,47 @@ const applyPromotionCode = Effect.fnUntraced(function* (
   const pricing = yield* CheckoutPricingService;
   const { input, state, submittedCode } = entry;
 
-  const guarded = yield* priceBetweenPayableGuards(
-    state,
-    ({ reservation, dotyposCustomerId }) =>
-      pricing
-        .applyDiscountCode({
-          ...state,
-          bookedAt: PayState.bookedAt(state),
-          dotyposCustomerId,
-          locale: input.locale,
-          submittedCode,
-        })
-        .pipe(
-          // A recoverable invalid-code failure keeps the attempted code as
-          // signed requested intent on the correction route instead of the
-          // old state.
-          Effect.catchTag("PromotionCodeUnavailableError", () =>
-            issueRejectedCodePayState(
-              { ...entry, state: withPayStateHoldExpiry(state, reservation) },
-              "unavailable"
-            ).pipe(
-              Effect.map(
-                (freshPayState): DiscountCodeUnavailable & FreshPayState => ({
-                  status: "unavailable",
-                  reason: "code",
-                  ...freshPayState,
-                })
-              )
+  const guarded = yield* priceBetweenPayableGuards(state, (checkout) =>
+    pricing
+      .applyDiscountCode({
+        ...state,
+        bookedAt: PayState.bookedAt(state),
+        dotyposCustomerId: checkout.reservation.dotyposCustomerId,
+        locale: input.locale,
+        submittedCode,
+      })
+      .pipe(
+        // A recoverable invalid-code failure keeps the attempted code as
+        // signed requested intent on the correction route instead of the
+        // old state.
+        Effect.catchTag("PromotionCodeUnavailableError", () =>
+          issueRejectedCodePayState(
+            { ...entry, state: checkout.state },
+            "unavailable"
+          ).pipe(
+            Effect.map(
+              (freshPayState): DiscountCodeUnavailable & FreshPayState => ({
+                status: "unavailable",
+                reason: "code",
+                ...freshPayState,
+              })
             )
           )
         )
+      )
   );
   if (Option.isNone(guarded)) return paymentInProgress;
-  const { reservation, priced: result } = guarded.value;
+  const { checkout, priced: result } = guarded.value;
 
   if (result.status === "unavailable") {
     return result;
   }
 
-  const freshPayState = yield* PayState.reissue(
-    withPayStateHoldExpiry(state, reservation),
-    { kind: "code_entered", code: submittedCode, verdict: result }
-  ).pipe(Effect.map(toFreshPayState));
+  const freshPayState = yield* PayState.reissue(checkout.state, {
+    kind: "code_entered",
+    code: submittedCode,
+    verdict: result,
+  }).pipe(Effect.map(toFreshPayState));
   const priced: ApplyDiscountCodeResult = Match.value(result).pipe(
     Match.discriminatorsExhaustive("status")({
       affirmed: () => ({ status: "applied" as const, ...freshPayState }),
@@ -493,13 +463,12 @@ export const clearDiscountCodeFromPayState = Effect.fn(
 const clearRequestedDiscountCode = Effect.fnUntraced(function* (
   state: SignedPayState
 ) {
-  const reservation = yield* requirePayableBeforePayment(state);
-  if (Option.isNone(reservation)) return paymentInProgress;
+  const checkout = yield* requirePayableBeforePayment(state);
+  if (Option.isNone(checkout)) return paymentInProgress;
 
-  const freshPayState = yield* PayState.reissue(
-    withPayStateHoldExpiry(state, reservation.value),
-    { kind: "requested_code_cleared" }
-  );
+  const freshPayState = yield* PayState.reissue(checkout.value.state, {
+    kind: "requested_code_cleared",
+  });
   const cleared: ClearDiscountCodeResult = {
     status: "cleared",
     ...toFreshPayState(freshPayState),
@@ -519,20 +488,18 @@ const clearAppliedDiscountCode = Effect.fnUntraced(function* (
 ) {
   const pricing = yield* CheckoutPricingService;
 
-  const guarded = yield* priceBetweenPayableGuards(
-    state,
-    ({ dotyposCustomerId }) =>
-      pricing.clearDiscountCode({
-        ...state,
-        submittedCodeDiscountId,
-        bookedAt: PayState.bookedAt(state),
-        dotyposCustomerId,
-        locale: input.locale,
-      })
+  const guarded = yield* priceBetweenPayableGuards(state, (checkout) =>
+    pricing.clearDiscountCode({
+      ...state,
+      submittedCodeDiscountId,
+      bookedAt: PayState.bookedAt(state),
+      dotyposCustomerId: checkout.reservation.dotyposCustomerId,
+      locale: input.locale,
+    })
   );
   if (Option.isNone(guarded)) return paymentInProgress;
   const {
-    reservation,
+    checkout,
     priced: { changedKeys, ...repriced },
   } = guarded.value;
   const verdict: PriceVerdict<SignedPayStatePricing> =
@@ -540,10 +507,10 @@ const clearAppliedDiscountCode = Effect.fnUntraced(function* (
       ? { status: "pricing_changed", priced: repriced, changedKeys }
       : { status: "affirmed", priced: repriced };
 
-  const freshPayState = yield* PayState.reissue(
-    withPayStateHoldExpiry(state, reservation),
-    { kind: "code_cleared", verdict }
-  );
+  const freshPayState = yield* PayState.reissue(checkout.state, {
+    kind: "code_cleared",
+    verdict,
+  });
   const cleared: ClearDiscountCodeResult = {
     status: "cleared",
     ...toFreshPayState(freshPayState),

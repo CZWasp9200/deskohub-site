@@ -10,7 +10,7 @@ import {
   acceptPayStatePriceChange,
   CheckoutReferralService,
   openPayStateWithHoldExpiry,
-  PayableReservationService,
+  PayableCheckout,
   requirePayStateAuthor,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
@@ -157,7 +157,7 @@ export class CustomerCheckoutOperations extends Context.Service<
         Layer.provideMerge(
           Layer.mergeAll(
             CheckoutPricingService.Live,
-            PayableReservationService.Live,
+            PayableCheckout.Live,
             WorkspaceReservationRepository.Live,
             ReferralService.Live,
             CheckoutReferralService.Live,
@@ -171,7 +171,7 @@ export class CustomerCheckoutOperations extends Context.Service<
       /** What removing an entered code reprices and signs with. */
       const discountCodeRemoval = Layer.mergeAll(
         CheckoutPricingService.Live,
-        PayableReservationService.Live,
+        PayableCheckout.Live,
         WorkspaceReservationRepository.Live,
         SealedStateKeys.Default
       ).pipe(Layer.provideMerge(releases.referral));
