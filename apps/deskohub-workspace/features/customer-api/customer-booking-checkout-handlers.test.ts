@@ -25,8 +25,8 @@ import {
   PayStateIssueError,
   PayStateTokenError,
 } from "@/features/checkout/backend/checkout";
+import { CheckoutUnavailableError } from "@/features/checkout/backend/checkout/checkout-unavailable";
 import { sealPayState } from "@/features/checkout/backend/checkout/pay-state";
-import { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
 import {
   sealSyntheticPayStateToken,
   syntheticChangedKeys,
@@ -1256,9 +1256,10 @@ describe("acceptCheckoutPriceChange", () => {
         operations: operationsWith({
           acceptPriceChange: () =>
             Effect.fail(
-              new PayableReservationUnavailableError({
+              new CheckoutUnavailableError({
                 orderId: syntheticPayStateOrderId,
                 reason: "missing_reservation",
+                restartKind: "cowork",
               })
             ),
         }),

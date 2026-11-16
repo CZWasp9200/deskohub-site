@@ -341,7 +341,7 @@ export const sealPayState = Effect.fn("payState.seal")(
  * The page a Pay state continues on: the page's locale and, on a reservation
  * page, its reservation kind. The Pay page accepts every kind.
  */
-type PayStatePage = {
+export type PayStatePage = {
   readonly locale: string;
   readonly reservationKind?: SignedPayState["reservation"]["kind"];
 };
@@ -349,8 +349,8 @@ type PayStatePage = {
 /**
  * Whether an opened Pay state continues on a page: it was issued for the
  * page's locale and, on a reservation page, for that page's reservation kind.
- * The pages and the proxy share this check, so a URL keeps its issued locale
- * exactly when its page will accept it.
+ * The pages and the proxy share this check through `open`, so a URL keeps
+ * its issued locale exactly when its page will accept it.
  */
 const continuesOn = (
   state: Pick<SignedPayState, "locale" | "reservation">,
@@ -604,7 +604,6 @@ export const PayState = {
    * state read this way.
    */
   restartKind: getRestartKind,
-  continuesOn,
   /**
    * Signs and seals a new order's first Pay state; its Pay URL names the
    * order. Sealing failures stay `PayStateTokenError`s.

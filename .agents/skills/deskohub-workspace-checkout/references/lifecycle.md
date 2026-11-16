@@ -27,7 +27,8 @@ Paths are under `apps/deskohub-workspace/`.
 | Tables, columns, and check constraints | `db/schema/*.ts` |
 | Reservation submission | `features/reservation/backend/reservation-booking.service.ts`, Server Action bridge `features/reservation/actions/prepare-pay-state.ts` |
 | Pay submit | `features/reservation/actions/submit-reservation.ts`, `features/checkout/backend/checkout/checkout.service.ts` |
-| Supersession | `features/checkout/backend/checkout/reservation-supersession.service.ts` |
+| Payable checkout (open a Pay state, confirm its order is payable, reconfirm before payment) | `features/checkout/backend/checkout/payable-checkout.service.ts` (`PayableCheckout`) |
+| Replacement occupancy exclusion (a supersedable current hold) | `features/reservation/backend/workspace-availability-loader.ts`, rule `features/reservation/backend/reservation-supersession.ts` |
 | Lookup keys | `features/checkout/backend/checkout/checkout-lookup-keys.server.ts` |
 | Status page | `features/checkout/backend/checkout/checkout-status.service.ts` |
 | Nexi webhook | `app/api/webhooks/nexi/route.ts`, `features/checkout/backend/payment/nexi-webhook.service.ts` |
@@ -153,7 +154,7 @@ Resubmitting the reservation form from checkout never reuses or mutates a Dotypo
 - Otherwise, serialize per session: claim the previous unpaid row, require live Dotypos status `NEW`, cancel it, mark the local row cancelled, and create a new local row and Dotypos reservation under the claimed row's session key. A Dotypos `CANCELLED` reservation may be finalized locally; any other status must not be deleted.
 - If the previous row has pending or paid payment, isn't `NEW`, or its cancellation fails (log it), leave it to its own lifecycle and rotate the submission into a fresh checkout session.
 - Every row keeps its own cleanup deadline and scheduled cleanup task. Never refresh or transfer a task.
-- Reject stale Pay state unless its exact local reservation is still current for the session and live Dotypos still reports it pending. Repeat that live check immediately before creating a provider payment session.
+- Reject stale Pay state unless its exact local reservation is still current for the session, held before its deadline, and live Dotypos still reports it pending; the deadline is checked again after the Dotypos read. `PayableCheckout.open` and `reconfirm` own that check, and `CheckoutUnavailableError` carries the refusal reason, the restart kind, and a paid order's id for resubmit recovery. Callers own the ordering: call `reconfirm` again immediately before signing a price or creating a provider payment session.
 - Never supersede a session's current reservation that another account authored; rotate the submission into a fresh session instead.
 
 ## Agent bookings

@@ -15,6 +15,7 @@ import {
   CheckoutPricingServiceMock,
   paymentPricingFrom,
 } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
+import { CheckoutUnavailableError } from "@/features/checkout/backend/checkout/checkout-unavailable";
 import {
   buildSignedPayState,
   PayState,
@@ -24,7 +25,7 @@ import {
   type SignedPayState,
   sealPayState,
 } from "@/features/checkout/backend/checkout/pay-state";
-import { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
+import { PayableCheckoutMock } from "@/features/checkout/backend/checkout/payable-checkout.service.mock";
 import { withoutPayStateHoldExpiry } from "@/features/checkout/backend/checkout/signed-pay-state.test-utils";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
@@ -150,8 +151,6 @@ type SubmissionInput = {
   readonly codeKind?: "referral" | "other";
   /** Replaces the code-kind lookup's result. */
   readonly lookupCodeKind?: ReturnType<typeof mock>;
-  /** The Dotypos customer the payable reservation stores. */
-  readonly dotyposCustomerId?: string;
   /** Replaces the mocked code-kind lookup. */
   readonly referralService?: Layer.Layer<ReferralServiceTag>;
   readonly payStateToken?: string;
@@ -159,10 +158,10 @@ type SubmissionInput = {
   readonly activePaymentAttemptIdAfterPricing?: string;
   /** The order's payment state while it has an active attempt. */
   readonly activeAttemptPaymentState?: "pending" | "failed";
-  readonly payableReservationUnavailableAt?: 1 | 2;
+  readonly checkoutUnavailableAt?: 1 | 2;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
-  /** How long each live payable-reservation guard takes. */
-  readonly requireCurrentDuration?: Duration.Input;
+  /** How long each live payable-checkout guard takes. */
+  readonly confirmDuration?: Duration.Input;
   readonly rememberedReferralCode?: string;
   readonly rememberedReferralWritable?: boolean;
   /** Replaces the pricing stub, for example with real pricing. */
@@ -182,12 +181,10 @@ type SubmissionInput = {
 const prepareSubmission = async (input?: SubmissionInput) => {
   const [
     { applyDiscountCodeToPayState },
-    { PayableReservationService },
     { CheckoutReferralService },
     { ReferralService },
   ] = await Promise.all([
     import("./pay-state-discount-code"),
-    import("@/features/checkout/backend/checkout/payable-reservation.service"),
     import("@/features/checkout/backend/checkout"),
     import("@/features/referrals"),
   ]);
@@ -201,7 +198,7 @@ const prepareSubmission = async (input?: SubmissionInput) => {
         : (input?.activePaymentAttemptId ?? null);
     return {
       id: "reservation-id",
-      dotyposCustomerId: input?.dotyposCustomerId ?? "customer-id",
+      dotyposCustomerId: "customer-id",
       reservationHoldExpiresAt: storedHoldExpiresAt,
       activePaymentAttemptId,
       // Admitting an attempt makes the order's payment pending; a retried
@@ -215,16 +212,16 @@ const prepareSubmission = async (input?: SubmissionInput) => {
   const findReservation = mock(() =>
     Effect.succeed(getReservation() as WorkspaceReservation)
   );
-  const requireCurrent = mock(() =>
-    Effect.sleep(input?.requireCurrentDuration ?? 0).pipe(
+  const confirm = mock((state: SignedPayState) =>
+    Effect.sleep(input?.confirmDuration ?? 0).pipe(
       Effect.andThen(() => {
         payableReservationReadCount += 1;
-        return input?.payableReservationUnavailableAt ===
-          payableReservationReadCount
+        return input?.checkoutUnavailableAt === payableReservationReadCount
           ? Effect.fail(
-              new PayableReservationUnavailableError({
-                orderId: "reservation-id",
+              new CheckoutUnavailableError({
+                orderId: state.orderId,
                 reason: "not_current",
+                restartKind: state.reservation.kind,
               })
             )
           : Effect.succeed(getReservation() as never);
@@ -264,7 +261,7 @@ const prepareSubmission = async (input?: SubmissionInput) => {
     Effect.provide(
       Layer.mergeAll(
         input?.pricing ?? CheckoutPricingServiceMock({ applyDiscountCode }),
-        Layer.succeed(PayableReservationService, { requireCurrent }),
+        PayableCheckoutMock(confirm).pipe(Layer.provide(TestSealedStateKeys)),
         Layer.mock(WorkspaceReservationRepository, {
           findById: findReservation,
         }),
@@ -284,7 +281,12 @@ const prepareSubmission = async (input?: SubmissionInput) => {
                       input.referralAcceptance.affirmForPayment as never
                     )
                   ),
-                  Layer.succeed(PayableReservationService, { requireCurrent }),
+                  PayableCheckoutMock(confirm).pipe(
+                    Layer.provide(
+                      input.referralAcceptance.sealedStateKeys ??
+                        TestSealedStateKeys
+                    )
+                  ),
                   input.referralAcceptance.sealedStateKeys ??
                     TestSealedStateKeys
                 )
@@ -312,7 +314,7 @@ const prepareSubmission = async (input?: SubmissionInput) => {
     findReservation,
     lookupCodeKind,
     effect,
-    requireCurrent,
+    confirm,
     payStateToken,
     rememberedReferralCookie,
   };
@@ -448,7 +450,7 @@ describe("applyDiscountCodeToPayState", () => {
       expect.objectContaining({ code: "RFL12345", locale: "en-US" })
     );
     expect(referral.applyDiscountCode).not.toHaveBeenCalled();
-    expect(referral.requireCurrent).not.toHaveBeenCalled();
+    expect(referral.confirm).not.toHaveBeenCalled();
     expect(referral.result.status).toBe("accepted");
     if (referral.result.status !== "accepted") {
       throw new Error("Expected accepted referral result");
@@ -498,7 +500,7 @@ describe("applyDiscountCodeToPayState", () => {
 
       expect(scenario.result.status).toBe(status);
       expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
-      expect(scenario.requireCurrent).not.toHaveBeenCalled();
+      expect(scenario.confirm).not.toHaveBeenCalled();
       const freshPayUrl =
         "freshPayUrl" in scenario.result
           ? scenario.result.freshPayUrl
@@ -598,7 +600,7 @@ describe("applyDiscountCodeToPayState", () => {
       reason: "code",
       freshPayUrl: undefined,
     });
-    expect(scenario.requireCurrent).not.toHaveBeenCalled();
+    expect(scenario.confirm).not.toHaveBeenCalled();
     expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
   });
 
@@ -709,7 +711,7 @@ describe("applyDiscountCodeToPayState", () => {
         return {
           listEvents,
           input: {
-            requireCurrentDuration: liveGuardDuration,
+            confirmDuration: liveGuardDuration,
             pricing: CheckoutPricingService.Default.pipe(
               Layer.provide(
                 calendarSaleDiscountServiceLayer({
@@ -850,12 +852,12 @@ describe("applyDiscountCodeToPayState", () => {
       checkoutReason: "payment_in_progress",
     });
     expect(scenario.applyDiscountCode).toHaveBeenCalledTimes(1);
-    expect(scenario.requireCurrent).toHaveBeenCalledTimes(2);
+    expect(scenario.confirm).toHaveBeenCalledTimes(2);
   });
 
   test("does not reprice a reservation that is no longer payable", async () => {
     const scenario = await runSubmission({
-      payableReservationUnavailableAt: 1,
+      checkoutUnavailableAt: 1,
     });
 
     expect(scenario.result).toEqual({
@@ -864,12 +866,12 @@ describe("applyDiscountCodeToPayState", () => {
       checkoutReason: "not_current",
     });
     expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
-    expect(scenario.requireCurrent).toHaveBeenCalledTimes(1);
+    expect(scenario.confirm).toHaveBeenCalledTimes(1);
   });
 
   test("discards repricing when the reservation stops being payable", async () => {
     const scenario = await runSubmission({
-      payableReservationUnavailableAt: 2,
+      checkoutUnavailableAt: 2,
     });
 
     expect(scenario.result).toEqual({
@@ -878,11 +880,11 @@ describe("applyDiscountCodeToPayState", () => {
       checkoutReason: "not_current",
     });
     expect(scenario.applyDiscountCode).toHaveBeenCalledTimes(1);
-    expect(scenario.requireCurrent).toHaveBeenCalledTimes(2);
+    expect(scenario.confirm).toHaveBeenCalledTimes(2);
   });
 
   test("fails a pay state signed for another language without checking the code", async () => {
-    const { effect, lookupCodeKind, requireCurrent } = await prepareSubmission({
+    const { effect, lookupCodeKind, confirm } = await prepareSubmission({
       payStateToken: await makePayStateToken({ locale: "cs-CZ" }),
     });
 
@@ -891,7 +893,7 @@ describe("applyDiscountCodeToPayState", () => {
     expect(error).toBeInstanceOf(PayStateTokenError);
     expect(error).toMatchObject({ code: "invalid-token" });
     expect(lookupCodeKind).not.toHaveBeenCalled();
-    expect(requireCurrent).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   test.each([
@@ -941,7 +943,7 @@ describe("applyDiscountCodeToPayState", () => {
 
     expect(scenario.result).toBe(changed);
     expect(scenario.rememberedReferralCookie.value).toBe("RFLSHARED");
-    expect(scenario.requireCurrent).not.toHaveBeenCalled();
+    expect(scenario.confirm).not.toHaveBeenCalled();
   });
 
   test("keeps a referral code in the box as unavailable when pricing changed without a replacement", async () => {
@@ -984,18 +986,6 @@ describe("applyDiscountCodeToPayState", () => {
       freshPayUrl: undefined,
     });
     expect(scenario.acceptCode).not.toHaveBeenCalled();
-    expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
-  });
-
-  test("returns unavailable without pricing when the stored customer identity is invalid", async () => {
-    const scenario = await runSubmission({ dotyposCustomerId: "" });
-
-    expect(scenario.result).toStrictEqual({
-      status: "unavailable",
-      reason: "provider",
-      freshPayUrl: undefined,
-    });
-    expect(scenario.requireCurrent).toHaveBeenCalledTimes(1);
     expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
   });
 
@@ -1295,7 +1285,7 @@ describe("applyDiscountCodeToPayState", () => {
       freshPayUrl: undefined,
     });
     expect(affirmForPayment).toHaveBeenCalledTimes(1);
-    expect(scenario.requireCurrent).toHaveBeenCalledTimes(2);
+    expect(scenario.confirm).toHaveBeenCalledTimes(2);
   });
 
   test("reports a referral whose replacement checkout can't be sealed as a provider failure, never a price change", async () => {

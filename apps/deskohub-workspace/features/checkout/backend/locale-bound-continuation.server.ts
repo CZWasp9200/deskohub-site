@@ -20,18 +20,11 @@ export const continuesInIssuedLocale = Effect.fn(
   "LocaleBoundContinuation.verify"
 )(function* (continuation: LocaleBoundContinuation) {
   if (continuation.kind === "pay-state") {
-    const state = yield* PayState.open(continuation.token).pipe(
-      Effect.provide(SealedStateKeys.Default),
-      Effect.option
-    );
-    return Option.match(state, {
-      onNone: () => false,
-      onSome: (opened) =>
-        PayState.continuesOn(opened, {
-          locale: continuation.locale,
-          reservationKind: continuation.reservationKind,
-        }),
-    });
+    const state = yield* PayState.open(continuation.token, {
+      locale: continuation.locale,
+      reservationKind: continuation.reservationKind,
+    }).pipe(Effect.provide(SealedStateKeys.Default), Effect.option);
+    return Option.isSome(state);
   }
 
   const token = Option.getOrUndefined(

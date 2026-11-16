@@ -1,4 +1,5 @@
 import type { CustomerBookingSelection } from "@deskohub/workspace-customer-api";
+import { Option } from "effect";
 import type { ImperativeRouter } from "expo-router";
 import {
   bookFamilyHref,
@@ -6,6 +7,7 @@ import {
   reservationsHref,
 } from "../booking-routes";
 import type { CheckoutFlowView } from "../checkout/checkout-flow";
+import type { ReviewState } from "../checkout/checkout-state";
 
 /**
  * Where a finished checkout leaves to, and how:
@@ -44,6 +46,22 @@ export const checkoutDestination = (
       return undefined;
   }
 };
+
+/**
+ * The review a hold ran out on, kept on screen under the hold-ended dialog
+ * (board 33): the customer checks the date again or leaves, instead of
+ * being moved without a word. Only a hold that ran out while its review
+ * was shown waits; any other restart leaves at once.
+ */
+export const holdEndedReview = (
+  view: CheckoutFlowView,
+  lastReview: Option.Option<ReviewState>
+): Option.Option<ReviewState> =>
+  view._tag === "Running" &&
+  view.state._tag === "Restart" &&
+  view.state.reason === "hold_expired"
+    ? lastReview
+    : Option.none();
 
 /** A destination's href, which identifies it across renders. */
 export type CheckoutDestinationHref = CheckoutDestination["href"];

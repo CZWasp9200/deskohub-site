@@ -3,7 +3,7 @@
 import { Effect, Layer } from "effect";
 import { RedirectType, redirect } from "next/navigation";
 import { env } from "@/env";
-import { PayableReservationService } from "@/features/checkout/backend/checkout";
+import { PayableCheckout } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import {
   type ClearDiscountCodeResult,
@@ -51,7 +51,7 @@ const clearDiscountCodeOnSite = Effect.fn("checkout.clearDiscountCodeOnSite")(
         Effect.provide(
           Layer.mergeAll(
             CheckoutPricingService.Live,
-            PayableReservationService.Live,
+            PayableCheckout.Live,
             WorkspaceReservationRepository.Live,
             SealedStateKeys.Default
           ).pipe(Layer.provideMerge(ReferralReleaseGateRequest))
