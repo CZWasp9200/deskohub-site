@@ -651,6 +651,6 @@
   "booking_space_per_hour": "/ год",
   "booking_space_per_length": "/ {length}",
   "booking_space_always_open": "Доступно цілодобово",
-  "booking_space_office_seats": "1–{count} місць · цілодобово",
-  "booking_spaces_load_failed": "Не вдалося завантажити простори"
+  "booking_space_office_seats": "Місця: 1–{count} · цілодобово",
+  "booking_spaces_load_failed": "Не вдалося завантажити варіанти бронювання"
 }

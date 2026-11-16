@@ -81,7 +81,7 @@ const unitWords = (unit: SpaceUnit, locale: AppLocale) => {
   }
 };
 
-/** The card read as one button: name, price with its unit, then the facts. */
+/** The card read as one link: name, price with its unit, then the facts. */
 const cardLabel = (card: SpaceCard, locale: AppLocale) =>
   [
     spaceName(card, locale),
@@ -162,7 +162,8 @@ function CardShell({
 }) {
   return (
     <Pressable
-      role="button"
+      // It opens the space's booking, as a list row that navigates does.
+      role="link"
       accessibilityLabel={cardLabel(card, locale)}
       onPress={() => onOpen(card.family)}
       style={({ pressed }) => [

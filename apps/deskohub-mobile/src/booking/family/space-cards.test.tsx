@@ -35,12 +35,12 @@ const render = (
 };
 
 describe("SpaceCards", () => {
-  test("shows a button per space, each opening its space", () => {
+  test("shows a link per space, each opening its space", () => {
     const { buttons, onOpen } = render(["office", "meeting-room", "cowork"]);
 
     expect(buttons).toHaveLength(3);
     for (const button of buttons) {
-      expect(button.props.role).toBe("button");
+      expect(button.props.role).toBe("link");
       expect(button.props.accessibilityLabel).toEqual(expect.any(String));
       (button.props.onPress as () => void)();
     }

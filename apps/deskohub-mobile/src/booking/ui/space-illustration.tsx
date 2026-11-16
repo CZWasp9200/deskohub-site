@@ -24,7 +24,7 @@ interface SpaceDrawing {
 }
 
 /** The tint every space drawing sits on. */
-export const spaceDrawingTint = "#EEF2FA";
+const spaceDrawingTint = "#EEF2FA";
 
 /** An enlarged drawing's height, relative to its box (owner, 2026-11-15). */
 const enlargement = 1.4;
@@ -53,7 +53,7 @@ const spaceDrawings: Record<CustomerReservationFamily, SpaceDrawing> = {
 };
 
 /** Where an enlarged drawing sits in a box of `height`. */
-export const enlargedDrawingFrame = (height: number, bottomCrop: number) => {
+const enlargedDrawingFrame = (height: number, bottomCrop: number) => {
   const drawingHeight = height * enlargement;
   return {
     height: drawingHeight,

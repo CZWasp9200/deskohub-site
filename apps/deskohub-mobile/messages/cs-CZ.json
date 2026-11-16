@@ -651,6 +651,6 @@
   "booking_space_per_hour": "/ hod",
   "booking_space_per_length": "/ {length}",
   "booking_space_always_open": "Dostupné nonstop",
-  "booking_space_office_seats": "1–{count} míst · nonstop",
+  "booking_space_office_seats": "Místa: 1–{count} · nonstop",
   "booking_spaces_load_failed": "Prostory se nepodařilo načíst"
 }
