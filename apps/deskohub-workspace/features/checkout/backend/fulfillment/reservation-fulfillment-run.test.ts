@@ -163,7 +163,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: processInvoice,
+                issueAfterFulfillment: processInvoice,
               })
             )
           )
@@ -198,7 +198,7 @@ describe("ReservationFulfillment.run", () => {
       expect.objectContaining({ id: "reservation-id" })
     );
     expect(processInvoice).toHaveBeenCalledWith({
-      paymentAttemptId: "payment-attempt-id",
+      reservationId: "reservation-id",
     });
   });
 
@@ -298,7 +298,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: processInvoice,
+                issueAfterFulfillment: processInvoice,
               })
             )
           )
@@ -413,7 +413,7 @@ describe("ReservationFulfillment.run", () => {
                 }),
                 recordCheckoutAnalytics().layer,
                 Layer.mock(ReservationInvoiceService, {
-                  processByPaymentAttemptId: mock(() => Effect.void),
+                  issueAfterFulfillment: mock(() => Effect.void),
                 })
               )
             )
@@ -538,7 +538,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: processInvoice,
+                issueAfterFulfillment: processInvoice,
               })
             )
           )
@@ -562,7 +562,7 @@ describe("ReservationFulfillment.run", () => {
       expect.objectContaining({ id: "reservation-id" })
     );
     expect(processInvoice).toHaveBeenCalledWith({
-      paymentAttemptId: "payment-attempt-id",
+      reservationId: "reservation-id",
     });
   });
 
@@ -668,7 +668,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() => Effect.void),
+                issueAfterFulfillment: mock(() => Effect.void),
               })
             )
           )
@@ -775,7 +775,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() =>
+                issueAfterFulfillment: mock(() =>
                   Effect.die("invoice processing should not start")
                 ),
               })
@@ -833,7 +833,7 @@ describe("ReservationFulfillment.run", () => {
               Layer.mock(WorkspaceCheckoutAccessCodeService, {}),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: processInvoice,
+                issueAfterFulfillment: processInvoice,
               })
             )
           )
@@ -922,7 +922,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() =>
+                issueAfterFulfillment: mock(() =>
                   Effect.die("invoice processing should not start")
                 ),
               })
@@ -1046,7 +1046,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() => Effect.void),
+                issueAfterFulfillment: mock(() => Effect.void),
               })
             )
           )
@@ -1156,7 +1156,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() =>
+                issueAfterFulfillment: mock(() =>
                   Effect.die("invoice processing should not start")
                 ),
               })
@@ -1255,7 +1255,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() =>
+                issueAfterFulfillment: mock(() =>
                   Effect.die("invoice processing should not start")
                 ),
               })
@@ -1344,7 +1344,7 @@ describe("ReservationFulfillment.run", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() =>
+                issueAfterFulfillment: mock(() =>
                   Effect.die("invoice processing should not start")
                 ),
               })
