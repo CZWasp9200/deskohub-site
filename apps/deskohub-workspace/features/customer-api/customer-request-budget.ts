@@ -114,6 +114,7 @@ export const customerRequestBudgetClasses = {
     // miss.
     getAvailability: "catalog-read",
     getMeetingRoomStartTimes: "catalog-read",
+    getMeetingRoomUnavailableDates: "catalog-read",
     // An office quote checks the seats against the shared table snapshot.
     getQuote: "catalog-read",
     // The published documents' versions.
