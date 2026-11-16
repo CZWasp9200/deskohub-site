@@ -97,6 +97,8 @@ export const customerRequestBudgetClasses = {
     getReservationAccess: "account-read",
     // Authorizing the invoice can resolve the account's Dotypos customer.
     getReservationInvoice: "dotypos-read",
+    // Authorizes like the invoice, then records the page's return target.
+    reopenPaymentPage: "dotypos-mutation",
     // The space's address is the site's own constant.
     getEstablishment: "workspace-only",
   },
