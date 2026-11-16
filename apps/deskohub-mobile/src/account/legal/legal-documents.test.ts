@@ -26,4 +26,10 @@ describe("legalDocumentUrl", () => {
       "http://10.0.2.2:3000/terms-and-conditions"
     );
   });
+
+  test("with a locale, opens exactly that language's document, as the site's /<locale>/<document> path", () => {
+    expect(
+      legalDocumentUrl("marketing", "https://workspace.deskohub.cz", "de-DE")
+    ).toBe("https://workspace.deskohub.cz/de-DE/marketing-communications");
+  });
 });

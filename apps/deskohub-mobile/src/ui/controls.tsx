@@ -374,6 +374,7 @@ const buttonPressedStyles = StyleSheet.create({
  */
 export function TextField({
   label,
+  optional,
   hint,
   error,
   readOnly = false,
@@ -387,6 +388,8 @@ export function TextField({
   ...input
 }: {
   readonly label: string;
+  /** The marker after the label of a field that may stay empty. */
+  readonly optional?: string;
   /** Help under the field, such as the format it expects. */
   readonly hint?: string;
   readonly error?: string;
@@ -431,11 +434,11 @@ export function TextField({
   const iconColor = fieldIconColor(state);
   return (
     <View style={fieldColumnStyle}>
-      <FieldLabel label={label} />
+      <FieldLabel label={label} optional={optional} />
       <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
         {leadingIcon && <Icon icon={leadingIcon} size={20} color={iconColor} />}
         <TextInput
-          aria-label={label}
+          aria-label={optional === undefined ? label : `${label} ${optional}`}
           aria-disabled={disabled}
           // Native platforms read the hint; the web reads `aria-describedby`
           // and `aria-invalid`, which react-native-web maps and RN ignores.

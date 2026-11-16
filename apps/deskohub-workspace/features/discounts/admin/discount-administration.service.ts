@@ -30,7 +30,7 @@ import {
   findViolatedConstraint,
   isDatabaseQueryError,
 } from "@/db/sql-constraint";
-import type { AdministrationCustomerName } from "@/features/administration/customer-name";
+import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DiscountGroupListing } from "@/features/discounts/discount-groups";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
@@ -68,7 +68,6 @@ import type {
   CreateDiscountAdminInput,
   CreateManagedDiscountCodeAdminInput,
   CreateVoucherAdminInput,
-  DiscountAdminCustomerSearch,
   UpdateDiscountAdminInput,
   UpdateDiscountCodeAdminInput,
   UpdateVoucherAdminInput,
@@ -197,6 +196,10 @@ type AdminCustomerCode = AdminDiscountCode & {
 
 export type AdminCustomerProfile = {
   readonly customer: AdminDotyposCustomer;
+} & AdminCustomerDiscountSections;
+
+/** What the customer detail's discount sections show of one customer. */
+export type AdminCustomerDiscountSections = {
   readonly discountGroups: readonly AdminDiscountGroup[];
   readonly codes: readonly AdminCustomerCode[];
   readonly claims: readonly AdminDiscountCodeClaim[];
@@ -211,11 +214,6 @@ type AdminCustomerCodeCreation = {
 
 type AdminCustomerVoucherCreation = {
   readonly customer: AdminDotyposCustomer;
-};
-
-export type AdminCustomerSearchResult = {
-  readonly kind: "matched" | "not-found" | "ambiguous";
-  readonly customers: readonly AdminDotyposCustomer[];
 };
 
 export type AdminCalendarSale = {
@@ -389,9 +387,6 @@ export interface IDiscountAdministration {
     AdminDiscountCodeDetail,
     EffectDrizzleQueryError | SqlError | DiscountAdminNotFoundError
   >;
-  readonly searchCustomers: (
-    input: DiscountAdminCustomerSearch
-  ) => Effect.Effect<AdminCustomerSearchResult, DotyposReadFailure>;
   /** Every Dotypos discount group, for choosing one by name. */
   readonly listDiscountGroups: () => Effect.Effect<
     readonly DiscountGroupListing[],
@@ -406,11 +401,11 @@ export interface IDiscountAdministration {
     | DotyposReadFailure
     | DiscountAdminNotFoundError
   >;
-  readonly loadCustomerBreadcrumbLabel: (input: {
+  readonly loadCustomerDiscountSections: (input: {
     readonly customerId: DotyposCustomerId;
   }) => Effect.Effect<
-    AdministrationCustomerName,
-    DotyposReadFailure | DiscountAdminNotFoundError
+    AdminCustomerDiscountSections,
+    EffectDrizzleQueryError | SqlError | DotyposReadFailure
   >;
   readonly loadCustomerCodeCreation: (input: {
     readonly customerId: DotyposCustomerId;
@@ -1211,6 +1206,9 @@ export class DiscountAdministration extends Context.Service<
         updateVoucher: withDiscountAdminConflict(updateVoucher),
       } satisfies IDiscountAdministration;
     })
+  ).pipe(
+    // The directory has one implementation: tests substitute `DotyposService` beneath it.
+    Layer.provide(AdministrationCustomerDirectory.Default)
   );
 
   static Live = this.Default.pipe(

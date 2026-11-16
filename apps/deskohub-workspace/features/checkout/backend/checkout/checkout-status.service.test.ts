@@ -997,6 +997,8 @@ describe("CheckoutStatusService", () => {
                       makePaymentAttempt({
                         state: "pending",
                         providerOrderCreatedAt: paidAt,
+                        providerRedirectUrl: "https://sandbox.example/hpp/page",
+                        securityToken: "security-token",
                       })
                     )
                   ),
@@ -1108,6 +1110,28 @@ describe("CheckoutStatusService", () => {
       );
 
       expect(status).toMatchObject({ status: "pending" });
+    });
+
+    test("offers the stored payment page again just inside its reopening window", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 5, seconds: 59 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({
+        status: "pending",
+        paymentPageReopenable: true,
+      });
+    });
+
+    test("stops offering the stored payment page once its reopening window ends, while the payment stays pending", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 6 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({ status: "pending" });
+      expect(status).not.toHaveProperty("paymentPageReopenable");
     });
 
     test("offers support for a payment still unconfirmed after the abandonment cutoff", async () => {
