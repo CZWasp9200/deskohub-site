@@ -2,7 +2,7 @@ import type { PostHogFeatureFlagSnapshot } from "@deskohub/analytics-posthog/fea
 
 /** Generated from PostHog feature flag definitions. Do not edit manually. */
 export const postHogFeatureFlagSnapshot = {
-  generatedAt: "2026-11-09T17:55:21.737Z",
+  generatedAt: "2026-11-16T22:31:05.344Z",
   constantValues: {
     "account_avatars": null,
     "calendar_sales": true,
