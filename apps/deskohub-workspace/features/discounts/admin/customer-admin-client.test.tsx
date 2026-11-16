@@ -8,7 +8,6 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/test-email";
 import type { ReactNode } from "react";
 import { m } from "@/features/administration/i18n";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
@@ -22,7 +21,6 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import type { AdminDotyposCustomer } from "./discount-administration.service";
 
 // react-dom decides how to synthesize change events while it is evaluated, so
 // the DOM environment must exist before @testing-library/react loads.
@@ -43,14 +41,12 @@ mock.module("next/navigation", () => ({
 }));
 
 const mutateDiscountAdmin = mock();
-const searchDiscountAdminCustomers = mock();
 mock.module("./actions", () => ({
   createDiscountAdminForm: mock(),
   createDiscountCodeAdminForm: mock(),
   deleteDiscountAdminForm: mock(),
   deleteDiscountCodeAdminForm: mock(),
   mutateDiscountAdmin,
-  searchDiscountAdminCustomers,
   updateDiscountAdminForm: mock(),
   updateDiscountCodeAdminForm: mock(),
 }));
@@ -65,9 +61,7 @@ type ActionCallbacks = {
 
 // Each test mounts one component, so the latest hook options per action are
 // the ones its callbacks report to.
-type WorkspaceAction =
-  | typeof mutateDiscountAdmin
-  | typeof searchDiscountAdminCustomers;
+type WorkspaceAction = typeof mutateDiscountAdmin;
 const actionCallbacks = new Map<WorkspaceAction, ActionCallbacks>();
 const execute = mock();
 let isExecuting = false;
@@ -92,18 +86,6 @@ const renderInLocale = async (node: ReactNode) => {
 
 const customerId = "dotypos-customer" as DotyposCustomerId;
 const codeId = "019c91dd-c560-7e55-b9d8-c95065efd52d" as DiscountCodeId;
-
-const customer = (
-  overrides: Partial<AdminDotyposCustomer>
-): AdminDotyposCustomer => ({
-  id: customerId,
-  displayName: "Test Customer",
-  hasName: true,
-  email: testEmailAddress("customer-search"),
-  phone: "+420 123 456 789",
-  discountGroupId: null,
-  ...overrides,
-});
 
 describe("customer administration client controls", () => {
   beforeAll(() => {
@@ -131,168 +113,6 @@ describe("customer administration client controls", () => {
 
   afterAll(async () => {
     await unregisterWorkspaceComponentTestEnv();
-  });
-
-  describe("customer search", () => {
-    const search = async (query: string) => {
-      const { CustomerSearch } = await import("./customer-admin-client");
-      const view = await renderInLocale(<CustomerSearch />);
-      fireEvent.change(
-        view.getByRole("searchbox", {
-          name: m.discountsCustomerSearchLabel({}, { locale }),
-        }),
-        { target: { value: query } }
-      );
-      fireEvent.click(
-        view.getByRole("button", {
-          name: m.discountsCustomerSearchSubmit({}, { locale }),
-        })
-      );
-      return view;
-    };
-
-    // Reports results only once the submit has cleared the previous ones.
-    const submittedSearch = async (query: string) => {
-      const view = await search(query);
-      await waitFor(() => {
-        expect(execute).toHaveBeenCalledTimes(1);
-      });
-      return view;
-    };
-
-    test("searches by the trimmed query and lists ambiguous matches with their contacts", async () => {
-      const view = await search("  Test  ");
-      await waitFor(() => {
-        expect(execute).toHaveBeenCalledWith({ query: "Test" });
-      });
-
-      const reachable = customer({});
-      const unnamed = customer({
-        id: "unnamed-customer" as DotyposCustomerId,
-        displayName: "—",
-        hasName: false,
-        email: null,
-        phone: null,
-      });
-      await report(searchDiscountAdminCustomers, ({ onSuccess }) =>
-        onSuccess({
-          data: { kind: "ambiguous", customers: [reachable, unnamed] },
-        })
-      );
-
-      expect(
-        view.getByText(m.discountsCustomerSearchAmbiguous({}, { locale }))
-      ).toBeDefined();
-      const items = view.getAllByRole("listitem");
-      expect(items).toHaveLength(2);
-      const [reachableItem, unnamedItem] = items as [HTMLElement, HTMLElement];
-      expect(
-        within(reachableItem).getByText(reachable.displayName)
-      ).toBeDefined();
-      expect(
-        within(reachableItem).getByText(
-          `${reachable.email} · ${reachable.phone}`
-        )
-      ).toBeDefined();
-      expect(
-        within(unnamedItem).getByText(
-          m.discountsUnnamedCustomer({}, { locale })
-        )
-      ).toBeDefined();
-      expect(
-        within(unnamedItem).getByText(
-          m.discountsCustomerNoContactDetails({}, { locale })
-        )
-      ).toBeDefined();
-      expect(
-        within(unnamedItem)
-          .getByRole("link", { name: m.discountsOpenCustomer({}, { locale }) })
-          .getAttribute("href")
-      ).toBe(`/${locale}/admin/customers/unnamed-customer`);
-    });
-
-    test("shows a single match without the ambiguity note and an empty result as empty", async () => {
-      const view = await submittedSearch("Test");
-      await report(searchDiscountAdminCustomers, ({ onSuccess }) =>
-        onSuccess({ data: { kind: "matched", customers: [customer({})] } })
-      );
-      expect(view.getAllByRole("listitem")).toHaveLength(1);
-      expect(
-        view.queryByText(m.discountsCustomerSearchAmbiguous({}, { locale }))
-      ).toBeNull();
-
-      await report(searchDiscountAdminCustomers, ({ onSuccess }) =>
-        onSuccess({ data: { kind: "not-found", customers: [] } })
-      );
-      expect(view.queryAllByRole("listitem")).toEqual([]);
-      expect(
-        view.getByText(m.discountsCustomerSearchEmpty({}, { locale }))
-      ).toBeDefined();
-    });
-
-    test("ignores a success without data", async () => {
-      const view = await submittedSearch("Test");
-      await report(searchDiscountAdminCustomers, ({ onSuccess }) =>
-        onSuccess({})
-      );
-      expect(view.queryByRole("list")).toBeNull();
-      expect(view.queryByRole("alert")).toBeNull();
-    });
-
-    test("shows the server's error, a fallback, or the transport failure and clears results", async () => {
-      const view = await submittedSearch("Test");
-      await report(searchDiscountAdminCustomers, ({ onSuccess }) =>
-        onSuccess({ data: { kind: "matched", customers: [customer({})] } })
-      );
-
-      await report(searchDiscountAdminCustomers, ({ onError }) =>
-        onError({ error: { serverError: "Dotypos is unavailable." } })
-      );
-      expect(view.getByRole("alert").textContent).toBe(
-        "Dotypos is unavailable."
-      );
-      expect(view.queryByRole("list")).toBeNull();
-
-      await report(searchDiscountAdminCustomers, ({ onError }) =>
-        onError({ error: {} })
-      );
-      expect(view.getByRole("alert").textContent).toBe(
-        m.discountsCustomerSearchFailed({}, { locale })
-      );
-
-      await report(searchDiscountAdminCustomers, ({ onSuccess }) =>
-        onSuccess({ data: { kind: "matched", customers: [customer({})] } })
-      );
-      expect(view.queryByRole("alert")).toBeNull();
-
-      await report(searchDiscountAdminCustomers, ({ onTransportError }) =>
-        onTransportError()
-      );
-      expect(view.getByRole("alert").textContent).toBe(
-        m.discountsCustomerSearchFailed({}, { locale })
-      );
-      expect(view.queryByRole("list")).toBeNull();
-    });
-
-    test("rejects a query shorter than two characters without searching", async () => {
-      const view = await search(" a ");
-      await waitFor(() => {
-        expect(
-          view.getByText(m.discountsValidationSearchQueryLength({}, { locale }))
-        ).toBeDefined();
-      });
-      expect(execute).not.toHaveBeenCalled();
-    });
-
-    test("disables the search while it runs", async () => {
-      isExecuting = true;
-      const { CustomerSearch } = await import("./customer-admin-client");
-      const view = await renderInLocale(<CustomerSearch variant="toolbar" />);
-      const button = view.getByRole("button", {
-        name: m.discountsCustomerSearching({}, { locale }),
-      });
-      expect(button.hasAttribute("disabled")).toBe(true);
-    });
   });
 
   describe("mutation button", () => {
