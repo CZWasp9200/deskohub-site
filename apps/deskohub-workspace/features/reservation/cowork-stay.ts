@@ -4,6 +4,7 @@ import {
   isOvernightStayInterval,
   type ReservationInterval,
 } from "@/features/reservation/reservation-interval-domain";
+import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 
 /**
  * How long a Reserved Desk reservation holds its desk from the arrival date:
@@ -51,3 +52,12 @@ export const getBookedCoworkStay = (reservation: {
   isOvernightStayInterval(reservation.interval)
     ? "overnight"
     : defaultCoworkStay;
+
+/**
+ * The Prague wall-clock times an overnight stay starts on its arrival date
+ * and ends on the next date, as `HH:mm`.
+ */
+export const getOvernightStayTimes = () => {
+  const changeover = workspaceSiteConstants.openingHours.overnightStayChangeover;
+  return { startTime: changeover, endTime: changeover } as const;
+};

@@ -8,6 +8,7 @@ import {
   getCoworkReservationInterval,
   getCoworkReservationIntervalInput,
 } from "./cowork-reservation";
+import { getStoredCoworkReservationDetails } from "./cowork-reservation-product";
 import { coworkStaySchema, getBookedCoworkStay } from "./cowork-stay";
 import {
   coworkReservationIntervalSchema,
@@ -201,8 +202,12 @@ describe("cowork order stay", () => {
     ).toBe(true);
   });
 
-  test("never stores the stay in reservation details", () => {
+  test("carries the stay into checkout details but never into stored details", () => {
     const decoded = Result.getOrThrow(decodeOrder(order({ stay: "overnight" })));
-    expect("stay" in getCoworkReservationDetails(decoded)).toBe(false);
+    const checkoutReservation = getCoworkReservationDetails(decoded);
+    expect(checkoutReservation).toMatchObject({ stay: "overnight" });
+    expect(
+      "stay" in getStoredCoworkReservationDetails(checkoutReservation)
+    ).toBe(false);
   });
 });

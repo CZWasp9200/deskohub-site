@@ -1,4 +1,5 @@
 import { Effect, Match, Schema } from "effect";
+import type { CoworkStay } from "@/features/reservation/cowork-stay";
 import {
   type WorkspaceCoworkCurrentTier,
   workspaceCoworkCurrentTiers,
@@ -9,6 +10,7 @@ import {
   ensureOfficeOpen,
   getRequestedCoworkTiers,
   isCoworkOfferOpen,
+  ensureCoworkStayOpen,
   resolveCoworkDates,
   resolveMeetingRoomSelection,
   resolveOfficeRange,
@@ -45,7 +47,10 @@ import {
   type CheckAvailabilityResult,
   checkAvailabilityResultSchema,
 } from "./check-availability.schema";
-import { reservationSelectionFields } from "./reservation-selection";
+import {
+  coworkStayArgument,
+  reservationSelectionFields,
+} from "./reservation-selection";
 
 const inputSchema = Schema.Struct({
   ...reservationSelectionFields,
@@ -55,6 +60,7 @@ const inputSchema = Schema.Struct({
         "Cowork only: open-space or reserved-desk. Both when omitted.",
     })
   ),
+  stay: Schema.optionalKey(coworkStayArgument),
   locale: agentToolLocaleField,
 });
 
@@ -126,6 +132,11 @@ const checkSelectionAvailability = (selection: AvailabilitySelection) =>
 const checkCowork = Effect.fn("agentTools.checkCoworkAvailability")(
   (selection: AvailabilitySelection) =>
     Effect.succeed(selection).pipe(
+      Effect.tap(({ input }) =>
+        ensureCoworkStayOpen({ stay: input.stay, entryTier: input.tier }).pipe(
+          Effect.mapError(AgentToolError.rejectedSelection)
+        )
+      ),
       Effect.let("today", ({ now }) => getCurrentWorkspaceDate(now)),
       Effect.bind("dates", ({ input, today }) =>
         resolveCoworkDates({
@@ -137,6 +148,7 @@ const checkCowork = Effect.fn("agentTools.checkCoworkAvailability")(
       Effect.bind("tierAvailability", ({ input, today }) =>
         loadCoworkTierAvailability({
           tiers: getRequestedCoworkTiers(input.tier),
+          stay: input.stay,
           today,
         })
       ),
@@ -151,6 +163,7 @@ const checkCowork = Effect.fn("agentTools.checkCoworkAvailability")(
               kind: "cowork",
               entryTier: input.tier ?? "open-space",
               date: input.date,
+              ...(input.stay === "overnight" && { stay: input.stay }),
             },
           }) satisfies AvailabilityResult
       )
@@ -166,15 +179,18 @@ type CoworkTierAvailability = {
 // cached snapshots instead of filling one per requested range.
 const loadCoworkTierAvailability = ({
   tiers,
+  stay,
   today,
 }: {
   readonly tiers: ReadonlyArray<WorkspaceCoworkCurrentTier>;
+  readonly stay: CoworkStay | undefined;
   readonly today: Temporal.PlainDate;
 }) =>
   Effect.all(
     tiers.flatMap((entryTier) => {
       const { range } = getCoworkAvailabilityQueries({
         entryTier,
+        stay,
         today: today.toString(),
       });
       return range

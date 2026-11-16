@@ -6,11 +6,13 @@ import {
   CustomerBookingDateOutOfRange,
   CustomerBookingSelectionInvalid,
   CustomerBookingSelectionQuery,
+  CustomerCoworkStay,
   CustomerMeetingRoomDuration,
   CustomerMonitorOption,
   CustomerOfferingUnavailable,
   CustomerPlainDate,
   CustomerReservationFamily,
+  CustomerStartTime,
 } from "./customer-booking-selection";
 import { CustomerCheckoutSummary } from "./customer-checkout-summary";
 import { CustomerLocale } from "./customer-locale";
@@ -79,10 +81,21 @@ export const CustomerOffering = Schema.Union([
      * Optional while servers that don't send it are still deployed.
      */
     summary: Schema.optionalKey(Schema.String),
-    /** Per Prague calendar day. */
+    /** Per Prague calendar day, or per overnight stay. */
     price: Money,
     advertisedPrice: CustomerAdvertisedPrice,
     addOns: Schema.Array(CustomerOfferingAddOn),
+    /**
+     * Present only while the offering can be booked as an overnight stay
+     * (`stay: "overnight"`): it starts at `startTime` on the arrival date and
+     * ends at `endTime` on the next date, Prague time, at the same price.
+     */
+    overnightStay: Schema.optionalKey(
+      Schema.Struct({
+        startTime: CustomerStartTime,
+        endTime: CustomerStartTime,
+      })
+    ),
   }),
   Schema.Struct({
     family: Schema.Literal("meeting-room"),
@@ -157,6 +170,11 @@ export const CustomerAvailabilityQuery = Schema.Struct({
   entryTier: Schema.optionalKey(CustomerBookableCoworkTier),
   /** Cowork only. */
   monitorOption: Schema.optionalKey(CustomerMonitorOption),
+  /**
+   * Cowork Reserved Desk only: the stay to check. An overnight stay keeps
+   * the dates as arrival dates. Defaults to a day stay.
+   */
+  stay: Schema.optionalKey(CustomerCoworkStay),
   /** Meeting room: one booking's interval. Office: the first day. */
   startsAt: Schema.optionalKey(reservationTimestamp),
   /** Meeting room: one booking's interval. Office: the end of the last day. */

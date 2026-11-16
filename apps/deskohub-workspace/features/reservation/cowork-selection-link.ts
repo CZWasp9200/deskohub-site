@@ -13,6 +13,11 @@ import {
 } from "@/features/reservation/cowork-reservation";
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
 import {
+  coworkStaySchema,
+  isOvernightCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
+import {
   decodeReservationCheckoutCustomer,
   getTrimmedSearchParam,
 } from "@/features/reservation/reservation-checkout-query";
@@ -33,6 +38,7 @@ const queryDateSchema = Schema.toStandardSchemaV1(
     Schema.makeFilter(isTodayOrFutureWorkspaceDate)
   )
 );
+const queryStaySchema = Schema.toStandardSchemaV1(coworkStaySchema);
 const queryTierSchema = Schema.toStandardSchemaV1(
   Schema.Literals(workspaceCoworkCurrentTiers)
 );
@@ -48,7 +54,7 @@ const queryMonitorOptionSchema = Schema.toStandardSchemaV1(
  * customer's last reservation of the tier to fill.
  */
 type CoworkSelection = Pick<CoworkReservationInput, "entryTier"> &
-  Partial<Pick<CoworkReservationInput, "date">> &
+  Partial<Pick<CoworkReservationInput, "date" | "stay">> &
   (
     | Pick<CoworkReservationInput, "coffee" | "monitorOption">
     | { readonly coffee?: undefined; readonly monitorOption?: undefined }
@@ -79,6 +85,11 @@ const decodeCoworkQuery = (
     getTrimmedSearchParam(searchParams, "monitorOption")
   );
 
+  const stay = decodeStandardSchema(
+    queryStaySchema,
+    getTrimmedSearchParam(searchParams, "stay")
+  );
+
   return {
     ...(entryTier !== undefined && { entryTier }),
     ...(date !== undefined && { date }),
@@ -87,6 +98,7 @@ const decodeCoworkQuery = (
       monitorOption:
         monitorOption === noMonitorQueryValue ? undefined : monitorOption,
     }),
+    ...(stay !== undefined && { stay }),
     ...decodeReservationCheckoutCustomer(
       searchParams,
       defaultPhoneRegion(locale)
@@ -100,7 +112,7 @@ const decodeCoworkQuery = (
  */
 export const coworkSelectionLink = defineSelectionLink({
   kind: "cowork",
-  params: ["entryTier", "date", "coffee", "monitorOption"],
+  params: ["entryTier", "date", "coffee", "monitorOption", "stay"],
   // Older links named the tier `tier`.
   legacyParams: ["tier"],
   /**
@@ -140,11 +152,16 @@ export const coworkSelectionLink = defineSelectionLink({
       ...(product.workstationAddon === "unavailable" && {
         monitorOption: undefined,
       }),
+      // Only a Reserved Desk offers an overnight stay.
+      ...(values.entryTier !== overnightCoworkStayTier && { stay: undefined }),
     };
   },
   write: (selection: CoworkSelection) => ({
     entryTier: selection.entryTier,
     date: selection.date || undefined,
+    stay: isOvernightCoworkStay(selection.entryTier, selection.stay)
+      ? "overnight"
+      : undefined,
     ...(selection.coffee === undefined
       ? { coffee: undefined, monitorOption: undefined }
       : {

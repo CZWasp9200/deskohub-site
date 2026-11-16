@@ -1,4 +1,5 @@
 import { Context, Data, Effect, Layer } from "effect";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   CustomerAccountContactService,
@@ -132,6 +133,10 @@ export class CustomerCheckoutOperations extends Context.Service<
           yield* ReferralReleaseGate
         ),
         office: Layer.succeed(OfficeReleaseGate, yield* OfficeReleaseGate),
+        overnightStay: Layer.succeed(
+          OvernightStayReleaseGate,
+          yield* OvernightStayReleaseGate
+        ),
       };
       const { remembered } = yield* CustomerReferralUpdates;
 
@@ -148,7 +153,13 @@ export class CustomerCheckoutOperations extends Context.Service<
             ).pipe(Layer.provide(authentication))
           )
         ),
-        Layer.provideMerge(Layer.mergeAll(releases.referral, releases.office)),
+        Layer.provideMerge(
+          Layer.mergeAll(
+            releases.referral,
+            releases.office,
+            releases.overnightStay
+          )
+        ),
         Layer.provide(WorkspaceDatabase.Default)
       );
 

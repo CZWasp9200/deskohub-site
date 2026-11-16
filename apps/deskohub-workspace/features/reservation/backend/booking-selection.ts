@@ -13,6 +13,12 @@ import {
 import type { Locale } from "@/features/i18n";
 import { loadAdvisoryOfficeSeatCapacity } from "@/features/office/backend/office-advisory-seat-capacity";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
+import {
+  type CoworkStay,
+  isOvernightCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import { getBookedSelection } from "@/features/reservation/booked-selection";
 import {
   getCoworkAdvertisedPriceReservation,
@@ -65,6 +71,8 @@ export type BookingSelectionInput = {
   /** Office only. Defaults to 1. */
   readonly seats?: number;
   readonly tier?: WorkspaceCoworkCurrentTier;
+  /** Reserved Desk only: the stay. Defaults to a day stay. */
+  readonly stay?: CoworkStay;
   readonly coffee?: boolean;
   readonly monitorOption?: WorkspaceProductMonitorOption;
 };
@@ -115,6 +123,8 @@ export type SelectedReservation =
       readonly entryTier: WorkspaceCoworkCurrentTier;
       readonly coffee: boolean;
       readonly monitorOption?: WorkspaceProductMonitorOption;
+      /** Present only for an overnight Reserved Desk stay. */
+      readonly stay?: "overnight";
     }
   | {
       readonly kind: "meeting-room";
@@ -363,6 +373,9 @@ const getCoworkQuoteSelection = Effect.fn(
       resolveCoworkDates({ date: selection.date, today })
     ),
     Effect.tap(ensureCoworkOfferOpen),
+    Effect.tap(({ selection, entryTier }) =>
+      ensureCoworkStayOpen({ stay: selection.stay, entryTier })
+    ),
     Effect.let("coffeeAddon", ({ entryTier }) =>
       getCoworkTierCoffeeAddon(entryTier)
     ),
@@ -420,6 +433,29 @@ const ensureCoworkOfferOpen = ({
     Effect.asVoid
   );
 
+/**
+ * An overnight stay needs a Reserved Desk and an open overnight-stay gate;
+ * either failure rejects the `stay` field. A day stay never reads the gate.
+ */
+export const ensureCoworkStayOpen = ({
+  stay,
+  entryTier,
+}: {
+  readonly stay: CoworkStay | undefined;
+  readonly entryTier: WorkspaceCoworkCurrentTier | undefined;
+}) =>
+  stay !== "overnight"
+    ? Effect.void
+    : entryTier !== overnightCoworkStayTier
+      ? Effect.fail(BookingSelectionRejected.invalidField("stay"))
+      : OvernightStayReleaseGate.isOpen.pipe(
+          Effect.filterOrFail(
+            (open) => open,
+            () => BookingSelectionRejected.invalidField("stay")
+          ),
+          Effect.asVoid
+        );
+
 const ensureCoworkAddonsOffered = ({
   selection,
   entryTier,
@@ -457,6 +493,9 @@ const toCoworkOffer = ({
   coffee: coffeeAddon === "included" || (selection.coffee ?? false),
   ...(selection.monitorOption !== undefined && {
     monitorOption: selection.monitorOption,
+  }),
+  ...(isOvernightCoworkStay(entryTier, selection.stay) && {
+    stay: "overnight" as const,
   }),
 });
 
@@ -690,6 +729,7 @@ const getCoworkRebooking = ({
   date,
   coffee,
   monitorOption,
+  stay,
 }: Extract<ReservationSelection, { readonly kind: "cowork" }>) =>
   Option.all({
     tier: Option.liftPredicate(entryTier, isWorkspaceCoworkCurrentProductTier),
@@ -707,6 +747,7 @@ const getCoworkRebooking = ({
             getCoworkTierWorkstationAddon(tier) !== "unavailable" && {
               monitorOption,
             }),
+          ...(isOvernightCoworkStay(tier, stay) && { stay }),
         },
       })
     )

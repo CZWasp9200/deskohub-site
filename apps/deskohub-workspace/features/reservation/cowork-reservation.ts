@@ -324,6 +324,11 @@ const reservedDeskCoworkReservationDetailsSchema = Schema.Struct({
   kind: Schema.Literal(coworkReservationKind),
   ...normalizedReservedDeskCoworkReservationProductSchema.fields,
   date: coworkReservationDetailsDateSchema,
+  /**
+   * Present only for an overnight stay. Checkout details carry it into hold
+   * creation; stored details never do.
+   */
+  stay: Schema.optionalKey(Schema.Literal("overnight")),
 });
 
 const basicCoworkReservationDetailsSchema = Schema.Struct({
@@ -498,6 +503,9 @@ export const getCoworkReservationDetails = (
           date: reservedDeskReservation.date,
           coffee: true,
           monitorOption: reservedDeskReservation.monitorOption,
+          ...(reservedDeskReservation.stay && {
+            stay: reservedDeskReservation.stay,
+          }),
         }),
       basic: (basicReservation) =>
         basicCoworkReservationDetailsSchema.make({

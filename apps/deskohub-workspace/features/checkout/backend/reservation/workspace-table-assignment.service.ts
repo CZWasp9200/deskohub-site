@@ -1,3 +1,4 @@
+import type { CoworkStay } from "@/features/reservation/cowork-stay";
 import {
   type DotyposReadFailure,
   type DotyposReservationId,
@@ -46,7 +47,10 @@ import {
 } from "./workspace-table-selection";
 
 type CoworkTableAssignmentReservation = StoredCoworkReservationDetails &
-  Pick<CoworkReservationDetails, "date">;
+  Pick<CoworkReservationDetails, "date"> & {
+    /** The booked Reserved Desk stay; absence is a day stay. */
+    readonly stay?: CoworkStay;
+  };
 
 export type WorkspaceTableAssignmentReservation =
   | CoworkTableAssignmentReservation
@@ -103,8 +107,8 @@ export const getWorkspaceReservationInterval = (
   getReservationIntervalNormalization(
     Match.value(reservation).pipe(
       Match.discriminatorsExhaustive("kind")({
-        cowork: ({ entryTier, date }) =>
-          getCoworkReservationIntervalInput(entryTier, date),
+        cowork: ({ entryTier, date, stay }) =>
+          getCoworkReservationIntervalInput(entryTier, date, stay),
         "meeting-room": getMeetingRoomOccupiedInterval,
         office: getOfficeReservationIntervalInput,
       })
@@ -332,10 +336,11 @@ const getReservationOccupancyInput = (
     Match.discriminatorsExhaustive("kind")({
       // Occupancy must use the tier's authoritative reservation interval
       // (Open Space Prague 00:00-17:00 exclusive, every other tier Prague
-      // midnight to next midnight), not the whole calendar day.
-      cowork: ({ entryTier, date }) =>
+      // midnight to next midnight, an overnight Reserved Desk stay noon to
+      // noon), not the whole calendar day.
+      cowork: ({ entryTier, date, stay }) =>
         getReservationIntervalNormalization(
-          getCoworkReservationIntervalInput(entryTier, date)
+          getCoworkReservationIntervalInput(entryTier, date, stay)
         ).pipe(
           Effect.mapError(
             (cause) =>

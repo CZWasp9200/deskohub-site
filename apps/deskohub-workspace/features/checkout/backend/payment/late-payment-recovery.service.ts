@@ -5,7 +5,7 @@ import {
   type DotyposReservationId,
   DotyposService,
 } from "@deskohub/dotypos";
-import { Context, Data, Effect, Layer, Predicate } from "effect";
+import { Context, Data, Effect, Layer, Option, Predicate } from "effect";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import type { LatePaymentRecovery } from "@/db/schema";
 import { WorkspaceLockSections } from "@/db/workspace-locks";
@@ -14,12 +14,18 @@ import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accou
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
 import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
+import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { CoworkReservationDetails } from "@/features/reservation/cowork-reservation";
+import {
+  type CoworkStay,
+  getBookedCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import { getMeetingRoomEarlySetupField } from "@/features/reservation/meeting-room-early-setup";
 import type { MeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
 import type { OfficeReservationDetails } from "@/features/reservation/office-reservation";
@@ -115,7 +121,9 @@ const isOfficeSnapshot = (
 
 const reconstructReservation = (
   row: WorkspaceReservation,
-  snapshot: AccountingDocumentSnapshot
+  snapshot: AccountingDocumentSnapshot,
+  /** The original reservation's stay, derived from its Dotypos bounds. */
+  coworkStay: CoworkStay | undefined
 ): RecreatedReservation | null => {
   if (row.reservationDetails.kind !== snapshot.reservation.kind) return null;
 
@@ -124,6 +132,7 @@ const reconstructReservation = (
     const reservation: CoworkReservationDetails = {
       ...row.reservationDetails,
       date: snapshot.reservation.date,
+      ...(coworkStay === "overnight" && { stay: coworkStay }),
     };
     return {
       reservation,
@@ -339,14 +348,41 @@ export class LatePaymentRecoveryService extends Context.Service<
         );
       });
 
+      // Workspace stores no stay, so a Reserved Desk recreation reads it from
+      // the original Dotypos reservation's bounds.
+      const findOriginalCoworkStay = Effect.fnUntraced(function* (input: {
+        readonly reservation: WorkspaceReservation;
+        readonly originalDotyposReservationId: DotyposReservationId;
+      }) {
+        const details = input.reservation.reservationDetails;
+        if (
+          details.kind !== "cowork" ||
+          details.entryTier !== overnightCoworkStayTier
+        ) {
+          return undefined;
+        }
+        const original = yield* dotypos.getReservationWithoutCustomer(
+          input.originalDotyposReservationId
+        );
+        return Option.match(decodeBookedReservation(original).interval, {
+          onNone: () => undefined,
+          onSome: (interval) =>
+            getBookedCoworkStay({ tier: details.entryTier, interval }),
+        });
+      });
+
       const findRecreatedReservation = Effect.fnUntraced(function* (input: {
         readonly paymentAttemptId: PaymentAttemptId;
         readonly reservation: WorkspaceReservation;
+        readonly originalDotyposReservationId: DotyposReservationId;
       }) {
         const snapshot = yield* snapshots.find(input.paymentAttemptId);
-        return snapshot
-          ? reconstructReservation(input.reservation, snapshot)
-          : null;
+        if (!snapshot) return null;
+        return reconstructReservation(
+          input.reservation,
+          snapshot,
+          yield* findOriginalCoworkStay(input)
+        );
       });
 
       // Replacements an earlier run of this recovery created in Dotypos name
@@ -496,6 +532,7 @@ export class LatePaymentRecoveryService extends Context.Service<
       )(function* (input: {
         readonly paymentAttemptId: PaymentAttemptId;
         readonly reservation: WorkspaceReservation;
+        readonly originalDotyposReservationId: DotyposReservationId;
         readonly newerReservation: boolean;
       }) {
         const recreated = yield* findRecreatedReservation(input);
@@ -669,6 +706,7 @@ export class LatePaymentRecoveryService extends Context.Service<
         return yield* recreateReservation({
           paymentAttemptId: claimed.paymentAttemptId,
           reservation: released,
+          originalDotyposReservationId: claimed.originalDotyposReservationId,
           newerReservation,
         });
       });

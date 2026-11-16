@@ -12,6 +12,7 @@ export const postHogFeatureFlagSnapshot = {
     "login_passkeys": true,
     "meeting_room_page": true,
     "office_page": false,
+    "overnight_stays": false,
     "referrals": false,
     "seating_map": false,
     "webmcp_site_tools": false,

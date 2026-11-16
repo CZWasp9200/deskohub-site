@@ -337,6 +337,8 @@ const answerPreparationFailure =
           ),
         OfficeReservationsDisabledError: () =>
           Effect.fail(new CustomerOfferingUnavailable({ family: "office" })),
+        OvernightStayUnavailableError: () =>
+          Effect.fail(new CustomerBookingSelectionInvalid({ field: "stay" })),
         ReservationIntervalValidationError: () =>
           Effect.fail(new CustomerBookingSelectionInvalid({})),
         UndeliverableContactEmailError: () =>
