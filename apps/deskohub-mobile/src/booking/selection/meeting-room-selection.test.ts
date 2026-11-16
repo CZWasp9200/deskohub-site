@@ -62,6 +62,7 @@ const hourlyStarts: CustomerMeetingRoomStartTimes = {
     start("2026-11-07T11:00", "2026-11-07T10:00:00Z", "2026-11-07T11:00:00Z"),
     start("2026-11-07T23:00", "2026-11-07T22:00:00Z", "2026-11-07T23:00:00Z"),
   ],
+  unavailableStartTimes: [],
 };
 
 const availability = (
@@ -297,6 +298,7 @@ describe("availability queries", () => {
           "2026-10-25T23:00:00Z"
         ),
       ],
+      unavailableStartTimes: [],
     };
 
     expect(

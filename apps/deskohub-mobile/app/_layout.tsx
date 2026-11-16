@@ -55,6 +55,7 @@ export default function RootLayout() {
                 <Stack.Screen name="account-deleted" />
                 <Stack.Screen name="dev/effect-smoke" />
                 <Stack.Screen name="dev/design-system" />
+                <Stack.Screen name="dev/booking-components" />
                 <Stack.Screen name="dev/reservations" />
               </Stack>
             )}

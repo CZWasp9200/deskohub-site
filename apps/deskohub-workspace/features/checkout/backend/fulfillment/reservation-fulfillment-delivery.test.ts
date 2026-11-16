@@ -69,7 +69,7 @@ const recordDelivery = (input: {
   readonly ledger: Partial<IFulfillmentLedger>;
   readonly report: ReservationAccessDeliveryReport;
   readonly analytics?: ReturnType<typeof recordCheckoutAnalytics>;
-  readonly processInvoice?: ReservationInvoices["Service"]["processByPaymentAttemptId"];
+  readonly processInvoice?: ReservationInvoices["Service"]["issueAfterFulfillment"];
 }) =>
   Effect.gen(function* () {
     const fulfillment = yield* ReservationFulfillment;
@@ -82,7 +82,7 @@ const recordDelivery = (input: {
             Layer.mock(FulfillmentLedger, input.ledger),
             (input.analytics ?? recordCheckoutAnalytics()).layer,
             Layer.mock(ReservationInvoiceService, {
-              processByPaymentAttemptId:
+              issueAfterFulfillment:
                 input.processInvoice ?? (() => Effect.void),
             }),
             // Delivery reports never run fulfillment.
@@ -153,7 +153,7 @@ describe("ReservationFulfillment.recordDelivery", () => {
       )
     ).toBe(0);
     expect(processInvoice).toHaveBeenCalledWith({
-      paymentAttemptId: "payment-attempt-id",
+      reservationId: "reservation-id",
     });
   });
 
@@ -186,7 +186,7 @@ describe("ReservationFulfillment.recordDelivery", () => {
       cause: invoiceFailure,
     });
     expect(processInvoice).toHaveBeenCalledWith({
-      paymentAttemptId: "payment-attempt-id",
+      reservationId: "reservation-id",
     });
     expect(markFulfilled).not.toHaveBeenCalled();
     expect(analytics.messages).toEqual([]);
