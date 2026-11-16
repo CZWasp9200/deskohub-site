@@ -28,6 +28,14 @@ export interface BillingFormView {
   readonly fields: ReadonlyArray<ProfileTextField>;
 }
 
+/** The sections a billing choice shows: the company's, then the address. */
+export const billingSectionsOf = (
+  kind: BillingChoice
+): Pick<BillingFormView, "company" | "address"> => ({
+  company: kind === "business",
+  address: kind !== "none",
+});
+
 /**
  * The Billing details screen for the saved profile and the draft. The
  * draft keeps every billing field whichever choice shows, so company
@@ -38,8 +46,7 @@ export const billingFormView = (
   saved: CustomerProfile,
   draft: ProfileDraft
 ): BillingFormView => ({
-  company: draft.billingKind === "business",
-  address: draft.billingKind !== "none",
+  ...billingSectionsOf(draft.billingKind),
   removesSavedBilling:
     draft.billingKind === "none" && (saved.billing ?? null) !== null,
   fields: billingFieldsOf(draft.billingKind),

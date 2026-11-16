@@ -5,6 +5,10 @@ import {
   accountSectionHref,
   accountSectionOrder,
 } from "../account/account-gating";
+import {
+  onboardingBillingHref,
+  onboardingHref,
+} from "../account/onboarding/onboarding-routes";
 import { screenPathPattern } from "../analytics/screen-path";
 import {
   bookCheckoutHref,
@@ -14,6 +18,7 @@ import {
   reservationsHref,
 } from "../booking/booking-routes";
 import { appLinkRoute } from "./app-link";
+import { startTabHref } from "./start-tab";
 
 const appDir = join(import.meta.dir, "../../app");
 
@@ -60,7 +65,6 @@ describe("app route tree", () => {
         "/account-deleted",
         "/account/assistants",
         "/account/billing",
-        "/account/complete",
         "/account/danger",
         "/account/invoices",
         "/account/language",
@@ -79,6 +83,9 @@ describe("app route tree", () => {
         "/dev/design-system",
         "/dev/effect-smoke",
         "/dev/reservations",
+        "/onboarding",
+        "/onboarding/billing",
+        "/onboarding/done",
         "/reservations",
         "/reservations/[orderId]",
         "/reservations/[orderId]/access",
@@ -107,6 +114,39 @@ describe("app route tree", () => {
       "(account)/book/office",
       "(account)/book/profile",
     ]);
+  });
+
+  test("onboarding opens above the tabs, over the tab that asked for it", () => {
+    const paths = screens().map((segments) => segments.join("/"));
+    expect(
+      paths.filter((path) => path.startsWith("(account)/onboarding/")).sort()
+    ).toEqual([
+      "(account)/onboarding/billing",
+      "(account)/onboarding/done",
+      "(account)/onboarding/index",
+    ]);
+    expect(layouts()).toContain("(account)/onboarding");
+    expect(
+      paths.filter(
+        (path) =>
+          path.startsWith("(account)/(tabs)/") && path.includes("complete")
+      )
+    ).toEqual([]);
+  });
+
+  test("onboarding's links and finish actions name a screen", () => {
+    for (const href of [
+      accountSectionHref.complete,
+      onboardingHref,
+      onboardingBillingHref,
+      startTabHref.book,
+      startTabHref.reservations,
+    ]) {
+      expect({ href, resolves: resolves(href) }).toEqual({
+        href,
+        resolves: true,
+      });
+    }
   });
 
   test("the start-tab redirect sits in the signed-in group, where the account's data is", () => {

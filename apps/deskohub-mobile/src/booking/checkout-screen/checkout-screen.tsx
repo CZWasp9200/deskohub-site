@@ -10,6 +10,7 @@ import {
 import * as WebBrowser from "expo-web-browser";
 import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
+import { accountSectionHref } from "../../account/account-gating";
 import { initialsOf } from "../../account/account-root-model";
 import { legalDocumentUrl } from "../../account/legal/legal-documents";
 import { apiOrigin } from "../../auth/auth-client";
@@ -402,7 +403,7 @@ function BlockedNotice({
         message={m.booking_checkout_blocked_profile_missing({}, { locale })}
         action={{
           label: m.booking_checkout_complete_profile({}, { locale }),
-          onPress: () => router.push("/account/complete"),
+          onPress: () => router.push(accountSectionHref.complete),
           disabled: false,
         }}
         locale={locale}

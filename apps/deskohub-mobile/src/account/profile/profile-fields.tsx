@@ -1,10 +1,8 @@
 import type { ComponentProps, RefObject } from "react";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
-import { ChoiceGroup } from "../../ui/choice-group";
 import { TextField } from "../../ui/controls";
 import type {
-  BillingChoice,
   CompletionDraft,
   CompletionTextField,
   ProfileDraftInvalid,
@@ -18,6 +16,7 @@ type InputProps = Pick<
   | "keyboardType"
   | "autoCapitalize"
   | "maxLength"
+  | "placeholder"
 >;
 
 // Lengths are the contract's limits, so typing stops where saving would fail.
@@ -49,6 +48,9 @@ const fieldInput: Record<
   phone: {
     label: (locale) => m.profile_phone_label({}, { locale }),
     optional: true,
+    hint: (locale) => m.profile_phone_hint({}, { locale }),
+    // A sample in the format the hint asks for, not a real number.
+    placeholder: "+420 777 123 456",
     autoComplete: "tel",
     textContentType: "telephoneNumber",
     keyboardType: "phone-pad",
@@ -56,6 +58,7 @@ const fieldInput: Record<
   },
   referralCode: {
     label: (locale) => m.profile_referral_code_label({}, { locale }),
+    hint: (locale) => m.profile_referral_code_hint({}, { locale }),
     autoComplete: "off",
     autoCapitalize: "characters",
     maxLength: 64,
@@ -194,43 +197,4 @@ export function ProfileTextFields<F extends CompletionTextField>({
       />
     );
   });
-}
-
-const billingChoices: ReadonlyArray<BillingChoice> = [
-  "none",
-  "personal",
-  "business",
-];
-
-const billingChoiceLabel = (choice: BillingChoice, locale: AppLocale) =>
-  ({
-    none: m.profile_billing_none,
-    personal: m.profile_billing_personal,
-    business: m.profile_billing_business,
-  })[choice]({}, { locale });
-
-/** Whether to keep billing details, and of which kind. */
-export function BillingChoiceField({
-  value,
-  onChange,
-  disabled,
-  locale,
-}: {
-  readonly value: BillingChoice;
-  readonly onChange: (choice: BillingChoice) => void;
-  readonly disabled: boolean;
-  readonly locale: AppLocale;
-}) {
-  return (
-    <ChoiceGroup
-      label={m.profile_billing_kind_label({}, { locale })}
-      options={billingChoices.map((choice) => ({
-        value: choice,
-        label: billingChoiceLabel(choice, locale),
-      }))}
-      value={value}
-      onChange={onChange}
-      disabled={disabled}
-    />
-  );
 }
