@@ -19,6 +19,7 @@ import { CustomerAgentConnections } from "@/features/account/backend/auth/custom
 import { CustomerPasskeys } from "@/features/account/backend/auth/customer-passkeys.service";
 import { CustomerRequestOrigins } from "@/features/account/backend/auth/customer-request-origins.service";
 import { CustomerAccountDeletionEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
+import { CompanyLookupService } from "@/features/account/backend/company-lookup.service";
 import {
   CurrentCustomerAccount,
   requireVerifiedIdentity,
@@ -235,6 +236,7 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
   localePreference: Layer.mock(CustomerLocalePreference, {}),
   dataExport: Layer.mock(AccountDataExportService, {}),
   invoices: Layer.mock(CustomerInvoiceService, {}),
+  companyLookup: Layer.mock(CompanyLookupService, {}),
 };
 
 const unusedReservationServices: CustomerReservationServiceLayers = {

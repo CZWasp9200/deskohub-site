@@ -20,7 +20,8 @@ import { budgetKeyDigest } from "@/shared/backend/request-budget/request-budget-
 
 /**
  * What an endpoint costs beyond its general request budget:
- * `workspace-only` reads only the Workspace database and Better Auth;
+ * `workspace-only` reads only the Workspace database and Better Auth, or
+ * also calls a public provider whose allowance no site budget tracks;
  * `catalog-read` reads the booking catalog's shared snapshots;
  * `account-read`, `dotypos-read` and `dotypos-mutation` may call Dotypos,
  * whose allowance the whole site shares, and spend that kind's budget.
@@ -105,6 +106,12 @@ export const customerRequestBudgetClasses = {
     // the app reads them when the customer opens or downloads an invoice.
     listInvoices: "dotypos-read",
     getInvoicePdf: "dotypos-read",
+  },
+  companies: {
+    // One request to the public business registry (ARES), which needs no
+    // account resolution and no Dotypos call; the general budget bounds it,
+    // as the website's lookup has no budget of its own.
+    lookupCompany: "workspace-only",
   },
   booking: {
     // The office's seat maximum reads the shared table snapshot, which
