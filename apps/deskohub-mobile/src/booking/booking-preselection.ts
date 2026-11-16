@@ -62,11 +62,15 @@ export const bookingPreselectionOf = (
   );
 };
 
-/** Tells preselections apart; empty when the screen opened without one. */
+/**
+ * Tells preselections apart, early setup included; empty when the screen
+ * opened without one.
+ */
 export const bookingPreselectionKey = (
   preselection: Option.Option<CustomerBookedSelection>
 ) =>
   Option.match(preselection, {
     onNone: () => "",
-    onSome: ({ selection }) => JSON.stringify(selection),
+    onSome: ({ selection, earlySetup }) =>
+      JSON.stringify([selection, earlySetup ?? null]),
   });

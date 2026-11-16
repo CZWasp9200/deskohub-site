@@ -140,6 +140,18 @@ export const meetingRoomStartTimesAtom = Atom.family(
       .pipe(Atom.setIdleTTL(catalogIdleTTL.availability))
 );
 
+/**
+ * The meeting-room calendar over the booking range: the days with no free
+ * start of any length, and per length the days without a free start of it.
+ */
+export const meetingRoomUnavailableDatesAtom = customerDataRuntime
+  .atom(
+    Effect.flatMap(bookingApi, (booking) =>
+      booking.getMeetingRoomUnavailableDates({ query: {}, headers: {} })
+    ).pipe(catalogRead)
+  )
+  .pipe(Atom.setIdleTTL(catalogIdleTTL.availability));
+
 /** One selection priced in one language; equal when their keys are. */
 export class BookingQuoteRequest implements Equal.Equal {
   readonly key: string;
