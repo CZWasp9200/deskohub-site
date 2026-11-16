@@ -1,8 +1,10 @@
+import { Option } from "effect";
 import type { CustomerReservationSummary } from "@/features/account/contracts";
 import {
   type CoworkStay,
   getBookedCoworkStay,
 } from "@/features/reservation/cowork-stay";
+import { parseInstant } from "@/shared/utils/temporal";
 
 /**
  * A cowork history entry's stay, read from its booked time, since nothing
@@ -15,12 +17,14 @@ export const getReservationSummaryStay = ({
 }: Pick<CustomerReservationSummary, "endsAt" | "product" | "startsAt">):
   | CoworkStay
   | undefined =>
-  product.kind === "cowork" && startsAt && endsAt
-    ? getBookedCoworkStay({
-        tier: product.tier,
-        interval: {
-          startsAt: Temporal.Instant.from(startsAt),
-          endsAt: Temporal.Instant.from(endsAt),
-        },
-      })
+  product.kind === "cowork"
+    ? Option.all({
+        startsAt: Option.flatMap(Option.fromNullishOr(startsAt), parseInstant),
+        endsAt: Option.flatMap(Option.fromNullishOr(endsAt), parseInstant),
+      }).pipe(
+        Option.map((interval) =>
+          getBookedCoworkStay({ tier: product.tier, interval })
+        ),
+        Option.getOrUndefined
+      )
     : undefined;

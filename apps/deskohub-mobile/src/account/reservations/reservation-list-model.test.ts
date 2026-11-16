@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, Option } from "effect";
+import { formatInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
 import { shortDate } from "./booking-ticket-text";
 import {
@@ -131,8 +132,22 @@ describe("reservationRowView", () => {
       "en-US"
     );
 
-    expect(overnight.detail).toContain(
-      shortDate(DateTime.makeUnsafe("2026-11-18T11:00:00Z"), "en-US")
+    const start = DateTime.makeUnsafe("2026-11-17T11:00:00Z");
+    const end = DateTime.makeUnsafe("2026-11-18T11:00:00Z");
+    expect(overnight.detail).toBe(
+      m.reservations_time_range(
+        {
+          start: formatInstant(start, "en-US", "time"),
+          end: m.reservations_date_time(
+            {
+              date: shortDate(end, "en-US"),
+              time: formatInstant(end, "en-US", "time"),
+            },
+            { locale: "en-US" }
+          ),
+        },
+        { locale: "en-US" }
+      )
     );
     expect(overnight.detail).not.toBe(days.detail);
     expect(days.detail).toBe(

@@ -233,7 +233,16 @@ describe("listReservations", () => {
             },
           ],
           past: [],
-          unavailable: [{ ...undated, product: reservedDesk }],
+          unavailable: [
+            { ...undated, product: reservedDesk },
+            {
+              ...undated,
+              id: "dotypos-unreadable",
+              product: reservedDesk,
+              startsAt: "2099-07-01T10:00:00Z",
+              endsAt: "not-a-date",
+            },
+          ],
         },
       }),
     });
@@ -258,7 +267,10 @@ describe("listReservations", () => {
       stay: "overnight",
     });
     // Without a readable time, no stay is told.
-    expect(history.unavailable[0]?.product).toEqual(reservedDesk);
+    expect(history.unavailable.map(({ product }) => product)).toEqual([
+      reservedDesk,
+      reservedDesk,
+    ]);
   });
 
   test("lists only the reservations an account without a Dotypos customer authored", async () => {

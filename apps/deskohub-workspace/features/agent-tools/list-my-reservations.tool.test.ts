@@ -177,7 +177,16 @@ describe("list_my_reservations", () => {
           },
         ],
         past: [],
-        unavailable: [],
+        unavailable: [
+          {
+            id: "dotypos-unreadable",
+            product: { kind: "cowork", tier: "reserved-desk" },
+            startsAt: "2099-07-01T10:00:00Z",
+            endsAt: "not-a-date",
+            seats: null,
+            status: "requires-attention",
+          },
+        ],
       },
     };
 
@@ -185,6 +194,10 @@ describe("list_my_reservations", () => {
 
     expect(result._tag === "Success" && result.success.current).toEqual([
       expect.objectContaining({ tier: "reserved-desk", stay: "overnight" }),
+    ]);
+    // An unreadable time tells no stay, and the rest of the list still answers.
+    expect(result._tag === "Success" && result.success.unavailable).toEqual([
+      expect.not.objectContaining({ stay: expect.anything() }),
     ]);
   });
 
