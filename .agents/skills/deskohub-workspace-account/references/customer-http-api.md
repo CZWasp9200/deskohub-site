@@ -12,9 +12,9 @@ The app's client and data layer are in the `deskohub-mobile` skill
   Next, Node, React, Better Auth, or `@/` imports; `import-boundary.test.ts`
   enforces it). `workspace-customer-api.ts` composes the `account`,
   `reservations`, `booking`, and `invoices` groups into
-  `WorkspaceCustomerApi`; each group has its own file
+  `WorkspaceCustomerApi`, with `companies`; each group has its own file
   (`customer-reservations-api.ts`, `customer-booking-api.ts`,
-  `customer-invoices-api.ts`).
+  `customer-invoices-api.ts`, `customer-companies-api.ts`).
   `./client` holds the typed client factories, `./referral-code` the
   browser-safe `ReferralCode` brand.
 - Adapter: `features/customer-api/`. `customer-api.server.ts` builds the
@@ -70,7 +70,9 @@ The app's client and data layer are in the `deskohub-mobile` skill
    `catalog-read` (120 per 10 minutes): they read the shared snapshots, which
    call Dotypos only on a miss, and a booking compares several dates before it
    checks out, so they keep off the account read budget. `workspace-only` reads or writes only the Workspace database
-   and Better Auth, as the account's language save (`updateLocale`) does. Account reads count as Dotypos-backed: they read Dotypos live,
+   and Better Auth, as the account's language save (`updateLocale`) does, or
+   also calls a public provider no site budget tracks, as the company lookup
+   asks the ARES registry; it spends only the general budget. Account reads count as Dotypos-backed: they read Dotypos live,
    with no response cache. If the
    endpoint changes the Dotypos call rate, recheck the budget numbers against
    the site's shared 150 requests per 30 minutes. Per-account budgets bound one account's share;
@@ -183,6 +185,23 @@ downloadable with its `cancellation` (the credit note's number), as on the
 account page; hiding it in the Admin UI changes nothing here. An order's own
 invoice stays `getReservationInvoice`, authorized by the order, which serves
 only the live invoice.
+
+## Company lookup
+
+The `companies` group (`GET /companies/:companyId`, `workspace-only`) adapts
+`CompanyLookupService`
+(`features/account/backend/company-lookup.service.ts`), the port the
+website's `lookupAresBusiness` action also adapts: it refuses a session
+awaiting deletion with `requireActive` and never resolves the account (a
+resolution can reactivate and claim a Dotypos profile), then makes one ARES
+request through `@deskohub/ares`, which checks the IČO format and check digit
+first, and maps the company onto the business billing fields
+(`ares-business-draft.ts`). The handler only maps its outcomes: found answers
+`CustomerCompanyDetails` with the fields present, an invalid ID 400
+`CustomerCompanyIdInvalid`, an unknown company 404 `CustomerCompanyNotFound`,
+a registry that didn't answer 503 `CustomerCompanyRegistryUnavailable`, a
+deletion 409 `deletion-pending`. The action words the same outcomes in the
+locale.
 
 ## Booking checkout
 
