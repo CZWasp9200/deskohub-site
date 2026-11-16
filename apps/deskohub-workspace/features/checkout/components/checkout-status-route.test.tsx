@@ -374,7 +374,7 @@ describe("CheckoutStatusRoute", () => {
       .filter((line) => line.includes("Checkout status load failed"));
     for (const spy of logged) spy.mockRestore();
     expect(failureLogs).toHaveLength(1);
-    expect(failureLogs[0]).toContain("level=ERROR");
+    expect(failureLogs[0]).toContain("level=Error");
     expect(failureLogs[0]).toContain(orderId);
     expect(failureLogs[0]).toContain("operation=checkout.status.load");
 
