@@ -195,3 +195,15 @@ describe("DetailsStep errors (board 31)", () => {
     expect(bar.reasonTone).toBe("plain");
   });
 });
+
+describe("DetailsStep booking as", () => {
+  test("the full email sits on one line, shrinking to fit rather than wrapping", () => {
+    const email = props().profile.self.email;
+    const texts = findAll(hostTree(scrollOf(screenOf())), "Text").filter(
+      (text) => text.props.children === email
+    );
+    expect(texts).toHaveLength(1);
+    expect(texts[0]?.props.numberOfLines).toBe(1);
+    expect(texts[0]?.props.adjustsFontSizeToFit).toBe(true);
+  });
+});

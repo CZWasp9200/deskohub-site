@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -404,9 +405,7 @@ function SelfSection({
               )}
             </View>
           )}
-          <Text variant="bodySmall" tone="default">
-            {self.email}
-          </Text>
+          <OneLineEmail email={self.email} />
           {Option.isSome(self.phone) && (
             <Text variant="bodySmall">{self.phone.value}</Text>
           )}
@@ -442,6 +441,34 @@ function SelfSection({
         </View>
       )}
     </>
+  );
+}
+
+/**
+ * The login email whole, on one line (the owner's rule for addresses, so
+ * where the booking goes reads at a glance): natively it shrinks to fit the
+ * card; the web, which can't shrink text to fit, scrolls it sideways.
+ */
+function OneLineEmail({ email }: { readonly email: string }) {
+  if (Platform.OS === "web") {
+    return (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <Text variant="bodySmall" tone="default" numberOfLines={1}>
+          {email}
+        </Text>
+      </ScrollView>
+    );
+  }
+  return (
+    <Text
+      variant="bodySmall"
+      tone="default"
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.5}
+    >
+      {email}
+    </Text>
   );
 }
 
