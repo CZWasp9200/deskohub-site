@@ -40,6 +40,9 @@ type Price = NonNullable<BarProps["summary"]>["price"];
 
 const locale = "en-US" as const;
 
+// The unit a screen passes for its from-price; the bar shows it as given.
+const unit = "unit";
+
 const quoted: Price = {
   kind: "quoted",
   breakdown: priceBreakdown(openSpaceWithCoffee.summary),
@@ -176,13 +179,13 @@ describe("BookingBar", () => {
           kind: "from",
           amount: czk(232),
           was: czk(290),
-          unit: "per day",
+          unit,
         },
       },
       initiallyOpen: true,
     });
     expect(chevronOf(tree)).toBeUndefined();
-    expect(findAll(tree, "Text").map(textOf)).toContain("per day");
+    expect(findAll(tree, "Text").map(textOf)).toContain(unit);
     expect(
       findAll(tree, "Pressable").find((press) => press.props.disabled === true)
     ).toBeDefined();
@@ -192,7 +195,7 @@ describe("BookingBar", () => {
     const fromPrice: Price = {
       kind: "from",
       amount: czk(282),
-      unit: "per day",
+      unit,
       itemized: {
         breakdown: priceBreakdown(openSpaceWithCoffee.summary),
         describeLine: describePriceLine(openSpaceWithCoffee.selection, locale),
@@ -209,7 +212,7 @@ describe("BookingBar", () => {
     expect(find(tree, PriceLines)?.props.variant).toBe("bar");
     const host = hostTree(tree);
     expect(chevronOf(host)?.props["aria-expanded"]).toBe(true);
-    expect(findAll(host, "Text").map(textOf)).toContain("per day");
+    expect(findAll(host, "Text").map(textOf)).toContain(unit);
   });
 
   test("updating shows the indicator in an announced status, and no total", () => {
