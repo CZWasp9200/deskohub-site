@@ -2,7 +2,7 @@ import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-ap
 import { useAtomMount, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { Stack, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
@@ -15,14 +15,17 @@ import { theme } from "../../theme";
 import { BodyText, Button } from "../../ui/controls";
 import { ListGroup, ListRow, SectionHeader } from "../../ui/list";
 import { listRowAccessibleLabel } from "../../ui/list-row-presentation";
+import { Masthead } from "../../ui/masthead";
 import { Notice } from "../../ui/notice";
-import { ScrollScreen } from "../../ui/scroll-screen";
+import { MastheadClearance, ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import {
   type AccountNotice,
   type ReservationsAccess,
   reservationsAccess,
+  tabGate,
 } from "../account-gating";
+import { TabGateCard } from "../tab-gate-card";
 import { bookingEntryEnabled } from "./booking-entry";
 import {
   type ReservationGroups,
@@ -62,21 +65,10 @@ const useOpenReservation = () => {
     router.push({ pathname: "/reservations/[orderId]", params: { orderId } });
 };
 
-function BookHeaderAction() {
+/** The tab root's masthead. */
+function ReservationsMasthead() {
   const locale = useAppLocale();
-  const router = useRouter();
-  return (
-    <Pressable
-      role="link"
-      hitSlop={theme.spacing.sm}
-      onPress={() => router.push("/book")}
-      style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}
-    >
-      <Text style={styles.headerActionLabel}>
-        {m.reservations_book({}, { locale })}
-      </Text>
-    </Pressable>
-  );
+  return <Masthead title={m.account_section_reservations({}, { locale })} />;
 }
 
 /**
@@ -91,13 +83,6 @@ export function ReservationsListScreen() {
   const account = useAtomValue(accountAtom);
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerRight: bookingEntryEnabled
-            ? () => <BookHeaderAction />
-            : undefined,
-        }}
-      />
       {Option.match(
         Option.map(AsyncResult.value(account), reservationsAccess),
         {
@@ -117,27 +102,23 @@ export function ReservationsListScreen() {
 /** When the account may not see reservations. */
 function ReservationsGate({ access }: { readonly access: ReservationsAccess }) {
   const locale = useAppLocale();
-  const router = useRouter();
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
-  const shownNotice = gateNoticeOf(access);
+  // A gate card says it all; other states keep their notice.
+  const gate = tabGate("reservations", access);
+  const shownNotice = gate === undefined ? gateNoticeOf(access) : undefined;
   const notice =
     shownNotice === undefined ? undefined : gateNotice[shownNotice](locale);
   return (
-    <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      masthead={<ReservationsMasthead />}
+      refreshing={account.waiting}
+      onRefresh={refresh}
+    >
       {/* Kept mounted so assistive tech announces each change. */}
       <Notice tone="info" message={notice} />
       <AsyncView result={account} onRetry={refresh}>
-        {() =>
-          access.kind === "completion-required" && (
-            <ListGroup>
-              <ListRow
-                label={m.account_section_complete({}, { locale })}
-                onPress={() => router.push("/account/complete")}
-              />
-            </ListGroup>
-          )
-        }
+        {() => gate !== undefined && <TabGateCard gate={gate} />}
       </AsyncView>
     </ScrollScreen>
   );
@@ -176,7 +157,11 @@ function ReservationsListView<E extends CustomerRequestFailure>({
     (shown) => shown.savedAt
   );
   return (
-    <ScrollScreen refreshing={list.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      masthead={<ReservationsMasthead />}
+      refreshing={list.waiting}
+      onRefresh={refresh}
+    >
       {/* Kept mounted so assistive tech announces each change. */}
       <Notice
         tone="info"
@@ -206,6 +191,7 @@ function ReservationGroupsView({
   if (groups.empty) {
     return (
       <View style={styles.empty}>
+        <MastheadClearance />
         <BodyText>{m.reservations_empty({}, { locale })}</BodyText>
         {bookingEntryEnabled && (
           <Button
@@ -218,6 +204,7 @@ function ReservationGroupsView({
   }
   return (
     <>
+      <MastheadClearance />
       {Option.isSome(groups.featured) && (
         <>
           <SectionHeader title={m.reservations_current_title({}, { locale })} />
@@ -327,16 +314,6 @@ function FeaturedReservation({ row }: { readonly row: ReservationListRow }) {
 }
 
 const styles = StyleSheet.create({
-  headerAction: {
-    justifyContent: "center",
-    minHeight: theme.touchTarget,
-    paddingHorizontal: theme.spacing.sm,
-  },
-  headerActionLabel: {
-    color: theme.colors.accent,
-    ...theme.type.body,
-    fontWeight: "600",
-  },
   pressed: { opacity: 0.7 },
   empty: { gap: theme.spacing.md, paddingVertical: theme.spacing.lg },
   featured: {

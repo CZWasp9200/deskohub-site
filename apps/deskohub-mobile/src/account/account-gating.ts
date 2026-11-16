@@ -120,6 +120,25 @@ export const reservationsAccess = (
     })
   );
 
+/**
+ * The card a tab root shows in place of its content: Book and Reservations
+ * ask for the profile first, and Book says it is blocked while the
+ * account's deletion runs. Other states keep the tab's own notice.
+ */
+export type TabGate = "profile" | "deletion";
+
+export const tabGate = (
+  tab: "book" | "reservations",
+  access: ReservationsAccess
+): TabGate | undefined => {
+  if (access.kind === "completion-required") return "profile";
+  return tab === "book" &&
+    access.kind === "unavailable" &&
+    access.notice === "deletion-pending"
+    ? "deletion"
+    : undefined;
+};
+
 /** A history row opens its status screen only when it names an order. */
 export const opensReservationStatus = (
   reservation: Pick<CustomerReservationSummary, "orderId">

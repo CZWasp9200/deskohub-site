@@ -29,6 +29,10 @@ import {
   ReservationInvoicePdfService,
 } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import {
+  CheckoutPaymentPageService,
+  type PaymentPageReopening,
+} from "@/features/checkout/backend/checkout/checkout-payment-page.service";
+import {
   CheckoutStatusService,
   type CheckoutStatusViewModel,
 } from "@/features/checkout/backend/checkout/checkout-status.service";
@@ -635,6 +639,148 @@ describe("getReservationStatus", () => {
     await response.catch(() => undefined);
 
     expect(refreshes).toEqual(["finished"]);
+  });
+});
+
+describe("reopenPaymentPage", () => {
+  const reopenPaymentPage: CustomerApiCall = {
+    method: "POST",
+    path: `/reservations/${orderId}/payment-page`,
+    body: {},
+  };
+
+  const paymentPageServices = (
+    reopen: CheckoutPaymentPageService["Service"]["reopen"]
+  ): Partial<CustomerReservationServiceLayers> => ({
+    authorization: ownOrderAuthorization(true),
+    paymentPage: () => Layer.mock(CheckoutPaymentPageService, { reopen }),
+  });
+
+  const answering = (reopening: PaymentPageReopening) =>
+    paymentPageServices(() => Effect.succeed(reopening));
+
+  testCustomerEndpointGuards(reopenPaymentPage);
+
+  test("answers the payment page the order's unpaid payment opened", async () => {
+    const reopen = mock(() =>
+      Effect.succeed<PaymentPageReopening>({
+        state: "opened",
+        providerRedirectUrl: "https://sandbox.example/hpp/order-page",
+      })
+    );
+    const api = makeCustomerApiTestServer({
+      reservations: paymentPageServices(reopen),
+    });
+
+    const response = await api.handle(customerApiRequest(reopenPaymentPage));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      url: "https://sandbox.example/hpp/order-page",
+    });
+    // The session alone authorizes it: no access cookie or link token.
+    expect(reopen).toHaveBeenCalledWith({ orderId, locale: "en-US" });
+  });
+
+  test("returns the reopened page's payment where the app asks", async () => {
+    const reopen = mock(() =>
+      Effect.succeed<PaymentPageReopening>({ state: "not_found" })
+    );
+    const api = makeCustomerApiTestServer({
+      reservations: paymentPageServices(reopen),
+    });
+
+    await api.handle(
+      customerApiRequest({
+        ...reopenPaymentPage,
+        body: { returnTarget: "native-app" },
+      })
+    );
+
+    expect(reopen).toHaveBeenCalledWith({
+      orderId,
+      locale: "en-US",
+      returnTarget: "native-app",
+    });
+  });
+
+  test("hands the payment page service the authorization read through the session", async () => {
+    const authorizations: boolean[] = [];
+    const api = makeCustomerApiTestServer({
+      reservations: {
+        authorization: ownOrderAuthorization(true),
+        paymentPage: (authorization) =>
+          Layer.effect(
+            CheckoutPaymentPageService,
+            Effect.map(ReservationAuthorizationService, (authorizer) => ({
+              reopen: (input) =>
+                authorizer
+                  .isAuthorized({ ...input, permission: "open-payment-page" })
+                  .pipe(
+                    Effect.tap((authorized) =>
+                      Effect.sync(() => authorizations.push(authorized))
+                    ),
+                    Effect.as<PaymentPageReopening>({ state: "not_found" })
+                  ),
+            }))
+          ).pipe(Layer.provide(authorization)),
+      },
+    });
+
+    await api.handle(customerApiRequest(reopenPaymentPage));
+
+    expect(authorizations).toEqual([true]);
+  });
+
+  test("answers someone else's order, or one that doesn't exist, as not found", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: answering({ state: "not_found" }),
+    });
+
+    const response = await api.handle(customerApiRequest(reopenPaymentPage));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerReservationNotFound",
+    });
+  });
+
+  test.each([
+    "paid",
+    "late_payment",
+    "released",
+    "no_active_attempt",
+    "window_elapsed",
+  ] as const)(
+    "answers an order whose page closed as %s with that reason",
+    async (reason) => {
+      const api = makeCustomerApiTestServer({
+        reservations: answering({ state: "closed", reason }),
+      });
+
+      const response = await api.handle(customerApiRequest(reopenPaymentPage));
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        _tag: "CustomerPaymentPageClosed",
+        reason,
+      });
+    }
+  );
+
+  test("answers unavailable when the order can't be read", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: paymentPageServices(() =>
+        Effect.fail(new Error("read failed") as never)
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(reopenPaymentPage));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
   });
 });
 

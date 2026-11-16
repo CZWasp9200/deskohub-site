@@ -36,10 +36,7 @@ import {
   type CheckoutState,
   type DetailsState,
 } from "../checkout/checkout-state";
-import type { BookingBarSummary } from "../ui/booking-bar";
-import { bookingSummaryOf } from "../ui/booking-summary";
-import { priceBreakdown } from "../ui/price-breakdown";
-import { describePriceLine } from "../ui/price-line-description";
+import { quotedBarSummary } from "../ui/booking-summary";
 import { retryMessage } from "./checkout-copy";
 import { checkoutDestination, leaveCheckout } from "./checkout-navigation";
 import {
@@ -255,25 +252,6 @@ function DetailsForAccount({
   );
 }
 
-/** The booking bar's summary of the quoted selection, before any hold. */
-export const quotedBarSummary = (
-  request: CheckoutRequest,
-  locale: AppLocale
-): BookingBarSummary => {
-  const { title, detail } = bookingSummaryOf(request.selection, locale);
-  const { summary, regularPrice } = request.quote;
-  return {
-    title,
-    detail,
-    price: {
-      kind: "quoted",
-      breakdown: priceBreakdown(summary),
-      describeLine: describePriceLine(request.selection, locale),
-      ...(regularPrice.value > summary.total.value && { was: regularPrice }),
-    },
-  };
-};
-
 function DetailsWithProfile({
   profile,
   initials,
@@ -309,7 +287,7 @@ function DetailsWithProfile({
       onDraftChange={setDraft}
       notice={notice}
       busy={busy}
-      summary={quotedBarSummary(request, locale)}
+      summary={quotedBarSummary(request.selection, request.quote, locale)}
       consentLocale={consentLocale}
       onOpenMarketingDocument={() =>
         void WebBrowser.openBrowserAsync(

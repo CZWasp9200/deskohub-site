@@ -16,6 +16,8 @@ import {
   offersAccessCode,
   opensReservationStatus,
   reservationsAccess,
+  type TabGate,
+  tabGate,
 } from "./account-gating";
 
 const accountOf = (kind: SampleAccountKind): CustomerAccountState =>
@@ -105,6 +107,27 @@ describe("reservationsAccess", () => {
   test.each(cases)("%s account", (kind, access) => {
     expect(reservationsAccess(accountOf(kind))).toEqual(access);
   });
+});
+
+describe("tabGate", () => {
+  // biome-ignore format: the case table stays one row per line on purpose.
+  const cases: ReadonlyArray<readonly [SampleAccountKind, TabGate | undefined, TabGate | undefined]> = [
+    ["linked", undefined, undefined],
+    ["review-account", undefined, undefined],
+    ["completion-required", "profile", "profile"],
+    ["support-required", undefined, undefined],
+    ["authenticated-unavailable", undefined, undefined],
+    ["deletion-pending", "deletion", undefined],
+  ];
+
+  test.each(cases)(
+    "%s account: Book %p, Reservations %p",
+    (kind, book, reservations) => {
+      const access = reservationsAccess(accountOf(kind));
+      expect(tabGate("book", access)).toBe(book);
+      expect(tabGate("reservations", access)).toBe(reservations);
+    }
+  );
 });
 
 describe("reservation links", () => {

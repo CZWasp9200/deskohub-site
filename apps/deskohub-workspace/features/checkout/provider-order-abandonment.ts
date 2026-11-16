@@ -21,6 +21,19 @@ export const getProviderOrderAbandonmentCutoff = (
     minutes: providerOrderAbandonmentTimeoutMinutes,
   });
 
+/**
+ * When a payment attempt's local abandonment window ends. An attempt stored
+ * without its provider order's creation time counts from its own creation,
+ * which came first.
+ */
+export const getPaymentAttemptAbandonmentCutoff = (attempt: {
+  readonly providerOrderCreatedAt: Temporal.Instant | null;
+  readonly createdAt: Temporal.Instant;
+}) =>
+  getProviderOrderAbandonmentCutoff(
+    attempt.providerOrderCreatedAt ?? attempt.createdAt
+  );
+
 type ProviderOrderAbandonmentInput = {
   readonly checkedAt: Temporal.Instant | undefined;
   readonly providerOrderCreatedAt: Temporal.Instant | null;

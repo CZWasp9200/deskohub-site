@@ -19,6 +19,17 @@ export const formatPragueDate = (
     new Date(`${date}T12:00:00Z`)
   );
 
+/** A day as the booking boards write it in a line: "Thu 26 Nov". */
+export const formatShortPragueDate = (
+  date: PragueDate,
+  locale: CustomerLocale
+): string =>
+  formatPragueDate(date, locale, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+
 /**
  * A Prague time of day, HH:mm, as the customer reads it, such as "9:00" or
  * "9:00 AM". The time is formatted on a fixed day in UTC, so no time zone

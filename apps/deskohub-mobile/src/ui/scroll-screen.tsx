@@ -36,6 +36,15 @@ const hiddenSpinner = "transparent";
 const mastheadOverlap = 40;
 
 /**
+ * Starts a tab root's content below the masthead's navy overlap, for content
+ * that doesn't open with a card (such as a section header), whose text would
+ * otherwise sit on the navy band.
+ */
+export function MastheadClearance() {
+  return <View aria-hidden style={styles.clearance} />;
+}
+
+/**
  * A scrolling screen under a navigation header (or its own `masthead`) and
  * above the tab bar, which own the top and bottom insets. Content sits on
  * the screen gutter. A `masthead` scrolls with the content, and the first
@@ -161,6 +170,8 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
+  // The overlap less the gap the content's column adds after it.
+  clearance: { height: mastheadOverlap - space.md },
   refresh: {
     alignItems: "center",
     left: 0,

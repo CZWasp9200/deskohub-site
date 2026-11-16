@@ -3,7 +3,8 @@ import { useRouter } from "expo-router";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
-import { ListGroup, ListRow, SectionHeader } from "../../ui/list";
+import { ListGroup, ListRow } from "../../ui/list";
+import { Masthead } from "../../ui/masthead";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { bookFamilyHref } from "../booking-routes";
 import { bookingFamilyChoices } from "./booking-family-chooser";
@@ -12,12 +13,15 @@ import { BookingGate } from "./booking-gate";
 import { BookingOfferingsView } from "./booking-offerings-view";
 
 /**
- * The booking entry: the families to book with today's advertised "from"
- * prices, for an account that can book.
+ * The Book tab's root: under its masthead, the families to book with
+ * today's advertised "from" prices, for an account that can book.
  */
 export function BookingFamilyChooserScreen() {
+  const locale = useAppLocale();
   return (
-    <ScrollScreen>
+    <ScrollScreen
+      masthead={<Masthead title={m.booking_stack_title({}, { locale })} />}
+    >
       <BookingGate>
         <BookingOfferingsView>
           {(catalog) => <BookingFamilyChoices catalog={catalog} />}
@@ -36,7 +40,6 @@ function BookingFamilyChoices({
   const router = useRouter();
   return (
     <>
-      <SectionHeader title={m.booking_family_heading({}, { locale })} />
       <ListGroup>
         {bookingFamilyChoices(catalog.offerings).map(
           ({ family, fromPrice }) => (

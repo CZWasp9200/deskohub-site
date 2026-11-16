@@ -6,6 +6,7 @@ import {
   expect,
   jest,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import { cleanup, render, waitFor } from "@testing-library/react";
@@ -13,7 +14,10 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import { CheckoutPaymentWindowCoordinator } from "./checkout-payment-window";
+import {
+  CheckoutPaymentWindowCoordinator,
+  openCheckoutPaymentWindow,
+} from "./checkout-payment-window";
 
 type LockRequestCallback = (lock: Lock | null) => Promise<void> | void;
 
@@ -150,5 +154,64 @@ describe("CheckoutPaymentWindowCoordinator", () => {
     render(<CheckoutPaymentWindowCoordinator />);
 
     expect(closeCurrentWindow).not.toHaveBeenCalled();
+  });
+});
+
+describe("openCheckoutPaymentWindow", () => {
+  const gatewayUrl = "https://payments.example.test/checkout";
+  const statusPath = "/en-US/reservation/status/reservation-window";
+  const statusOwnerKey = `deskohub:checkout-status-owner:${statusPath}`;
+
+  beforeAll(() => {
+    registerWorkspaceComponentTestEnv();
+  });
+
+  afterEach(() => {
+    sessionStorage.removeItem(statusOwnerKey);
+    jest.restoreAllMocks();
+  });
+
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
+  });
+
+  test("opens the gateway in a detached tab and claims the status page's return", () => {
+    const paymentWindow = { opener: window };
+    const openWindow = spyOn(window, "open").mockImplementation(
+      () => paymentWindow as Window
+    );
+
+    expect(
+      openCheckoutPaymentWindow(
+        gatewayUrl,
+        `https://deskohub.local${statusPath}`
+      )
+    ).toBe(true);
+
+    expect(openWindow).toHaveBeenCalledWith(gatewayUrl, "_blank");
+    expect(paymentWindow.opener).toBeNull();
+    expect(sessionStorage.getItem(statusOwnerKey)).toBe("true");
+  });
+
+  test("leaves the return to a status page that already holds it", () => {
+    const paymentWindow = { opener: window };
+    spyOn(window, "open").mockImplementation(() => paymentWindow as Window);
+
+    expect(openCheckoutPaymentWindow(gatewayUrl)).toBe(true);
+
+    expect(paymentWindow.opener).toBeNull();
+    expect(
+      Object.keys(sessionStorage).filter((key) =>
+        key.startsWith("deskohub:checkout-status-owner:")
+      )
+    ).toEqual([]);
+  });
+
+  test("reports a blocked tab without claiming the return", () => {
+    spyOn(window, "open").mockReturnValue(null);
+
+    expect(openCheckoutPaymentWindow(gatewayUrl, statusPath)).toBe(false);
+
+    expect(sessionStorage.getItem(statusOwnerKey)).toBeNull();
   });
 });
