@@ -15,6 +15,13 @@ export interface WorkspaceOpeningHours {
   readonly openSpaceUsableUntil: string;
 }
 
+/**
+ * Whether the company is registered for VAT. The website footer, invoices and
+ * the app's price totals state it from the one setting below.
+ */
+export const vatStatuses = ["not-vat-payer", "vat-payer"] as const;
+export type VatStatus = (typeof vatStatuses)[number];
+
 export const workspaceSiteConstants = {
   brand: {
     name: "Deskohub Workspace",
@@ -49,7 +56,8 @@ export const workspaceSiteConstants = {
     identificationNumber: "24531596",
     taxIdentificationNumber: "CZ24531596",
     establishmentId: "1016069146",
-    vatStatus: "not-vat-payer",
+    /** The company's VAT status; `"vat-payer"` once it registers for VAT. */
+    vatStatus: "not-vat-payer" as VatStatus,
     commercialRegister: {
       court: "Městský soud v Praze",
       section: "C",

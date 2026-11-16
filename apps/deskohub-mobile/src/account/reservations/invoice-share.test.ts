@@ -24,10 +24,9 @@ import { sampleOrderIds } from "../../customer-api/testing/sample-fixtures";
 import { eventually } from "../../testing/eventually";
 import {
   InvoiceShareFailure,
-  invoiceFileName,
   invoiceShareFailureOf,
-  shareInvoice,
-} from "./invoice-share";
+} from "../invoices/invoice-pdf-share";
+import { invoiceFileName, shareInvoice } from "./invoice-share";
 
 // A share sheet that sees the file while it is open, then succeeds or fails.
 const observingShareSheet = (device: FakeDevice, fails: boolean) => {

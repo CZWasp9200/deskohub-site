@@ -62,6 +62,7 @@ describe("app route tree", () => {
         "/account/billing",
         "/account/complete",
         "/account/danger",
+        "/account/invoices",
         "/account/language",
         "/account/legal",
         "/account/profile",
@@ -178,8 +179,10 @@ describe("app route tree", () => {
     }
   });
 
-  test("every Account section links to a screen", () => {
+  test("every Account section with a screen links to it", () => {
     for (const section of accountSectionOrder) {
+      // Payment methods has no screen yet; its row only shows.
+      if (section === "payment-methods") continue;
       const href = accountSectionHref[section];
       expect({ section, resolves: resolves(href) }).toEqual({
         section,

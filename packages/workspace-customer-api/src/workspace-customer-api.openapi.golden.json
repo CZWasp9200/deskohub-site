@@ -5811,6 +5811,17 @@
               }
             ]
           },
+          "paymentPageReopenable": {
+            "anyOf": [
+              {
+                "type": "boolean",
+                "enum": [true]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "startsAt": {
             "anyOf": [
               {
@@ -6449,6 +6460,11 @@
         "required": ["key", "amount"],
         "additionalProperties": false
       },
+      "CustomerVatStatus": {
+        "type": "string",
+        "enum": ["not-vat-payer", "vat-payer"],
+        "description": "Whether the seller is registered for VAT: a VAT payer's totals carry a tax note."
+      },
       "CustomerCheckoutSummary": {
         "type": "object",
         "properties": {
@@ -6477,9 +6493,12 @@
           },
           "total": {
             "$ref": "#/components/schemas/Money"
+          },
+          "vatStatus": {
+            "$ref": "#/components/schemas/CustomerVatStatus"
           }
         },
-        "required": ["sections", "total"],
+        "required": ["sections", "total", "vatStatus"],
         "additionalProperties": false
       },
       "CustomerBookingQuote": {

@@ -4,6 +4,7 @@ import type {
   CustomerAuthRejected,
   CustomerAvatarRejected,
   CustomerFeatureUnavailable,
+  CustomerInvoiceNotFound,
   CustomerInvoiceNotIssued,
   CustomerMarketingPreferencesRejected,
   CustomerRateLimited,
@@ -32,6 +33,7 @@ export type CustomerRequestFailure =
   | CustomerReservationNotFound
   | CustomerAccessCodeUnavailable
   | CustomerInvoiceNotIssued
+  | CustomerInvoiceNotFound
   | CustomerAuthRejected
   | CustomerRequestTimedOut
   | CustomerWriteUnconfirmed
@@ -106,6 +108,7 @@ export const toCustomerViewError = (
       CustomerAccessCodeUnavailable: () =>
         CustomerViewError.AccessCodeUnavailable(),
       CustomerInvoiceNotIssued: () => CustomerViewError.InvoiceNotIssued(),
+      CustomerInvoiceNotFound: () => CustomerViewError.NotFound(),
       CustomerAuthRejected: ({ reason, code }) =>
         CustomerViewError.AuthRejected({ reason, code }),
       CustomerRequestTimedOut: () => CustomerViewError.TimedOut(),

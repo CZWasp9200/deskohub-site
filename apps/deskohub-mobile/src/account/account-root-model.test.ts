@@ -34,11 +34,44 @@ describe("accountRootModel", () => {
 
     expect(model.completionCard).toBe(false);
     expect(layout(model)).toEqual([
-      ["first", ["profile", "security", "assistants", "billing", "language"]],
+      [
+        "first",
+        [
+          "profile",
+          "security",
+          "assistants",
+          "billing",
+          "invoices",
+          "language",
+        ],
+      ],
       ["rewards", ["referrals"]],
       ["privacy", ["legal"]],
       ["danger", ["danger"]],
     ]);
+  });
+
+  test("payment methods sits between billing and invoices only while released", () => {
+    const firstRows = (paymentMethods: boolean) =>
+      layout(accountRootModel(linked(), { paymentMethods }))[0]?.[1];
+
+    expect(firstRows(true)).toEqual([
+      "profile",
+      "security",
+      "assistants",
+      "billing",
+      "payment-methods",
+      "invoices",
+      "language",
+    ]);
+    expect(firstRows(false)).toEqual(
+      layout(accountRootModel(linked()))[0]?.[1]
+    );
+    expect(firstRows(false)).not.toContain("payment-methods");
+    // Neither row says anything about its section yet.
+    const model = accountRootModel(linked(), { paymentMethods: true });
+    expect(subtitleOf(model, "payment-methods")).toBeUndefined();
+    expect(subtitleOf(model, "invoices")).toBeUndefined();
   });
 
   test("before the profile exists: the card, then the reachable sections under Your account", () => {

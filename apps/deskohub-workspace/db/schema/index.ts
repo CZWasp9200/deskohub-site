@@ -132,6 +132,7 @@ export {
 } from "./standalone-access-code-attempt-events";
 export {
   type WebhookEvent,
+  type WebhookEventState,
   webhookEventStates,
   webhookEvents,
   webhookProviders,

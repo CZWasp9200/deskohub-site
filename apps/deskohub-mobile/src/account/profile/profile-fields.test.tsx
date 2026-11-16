@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Option } from "effect";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
-import type { TextInputInstance } from "react-native";
 import { CustomerViewError } from "../../customer-api/customer-view-error";
 import { sampleProfile } from "../../customer-api/testing/sample-fixtures";
 import { elementTree } from "../../ui/testing/element-tree";
@@ -11,7 +10,7 @@ import {
   type ProfileDraftInvalid,
   profileDraftOf,
 } from "./profile-draft";
-import { ProfileTextFields } from "./profile-fields";
+import { type FocusableField, ProfileTextFields } from "./profile-fields";
 import {
   type ProfileSubmitState,
   ProfileSubmitState as SubmitState,
@@ -40,7 +39,7 @@ const fields = (invalid?: ProfileDraftInvalid<CompletionTextField>) =>
           invalid,
           onChange: () => undefined,
           inputs: {
-            current: new Map<CompletionTextField, TextInputInstance | null>(),
+            current: new Map<CompletionTextField, FocusableField | null>(),
           },
           editable: true,
           locale: "en-US",

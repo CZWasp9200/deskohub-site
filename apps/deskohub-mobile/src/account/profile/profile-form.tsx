@@ -12,7 +12,6 @@ import {
   useRoute,
 } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import type { TextInputInstance } from "react-native";
 import { useSettledResultReset } from "../../customer-api/settled-result-reset";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
@@ -23,7 +22,7 @@ import type {
   ProfileDraft,
   ProfileTextField,
 } from "./profile-draft";
-import type { ProfileFieldRefs } from "./profile-fields";
+import type { FocusableField, ProfileFieldRefs } from "./profile-fields";
 import {
   currentDraft,
   type EditedProfile,
@@ -63,6 +62,8 @@ export function useProfileForm(account: {
     draft,
     state,
     unsaved: hasUnsavedChanges(edits, edited),
+    /** Changes several fields at once, as an applied company lookup does. */
+    change,
     setField: (field: ProfileTextField, value: string) =>
       change({ [field]: value }),
     setBillingKind: (billingKind: BillingChoice) => change({ billingKind }),
@@ -81,7 +82,7 @@ export function useFocusFirstInvalid<F extends CompletionTextField>(
   fields: ReadonlyArray<F>
 ) {
   const inputs: ProfileFieldRefs = useRef(
-    new Map<CompletionTextField, TextInputInstance | null>()
+    new Map<CompletionTextField, FocusableField | null>()
   );
   const focused = useIsFocused();
   const refusal = state._tag === "Invalid" ? state : undefined;

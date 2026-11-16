@@ -45,7 +45,7 @@ For failed `/fe/build/` responses, the failure `network.har` keeps only provider
 The `restart-sandbox-rejected-payment` step:
 
 1. Logs the diagnostic code and the code-only Nexi failure lines.
-2. Retires the rejected attempt with `retireRejectedPaymentAttemptForE2E`: marks the attempt and reservation payment state `failed` and releases its discount-code, voucher, and referral invitation claims, keeping the hold so cleanup is unchanged.
+2. Retires the rejected attempt with `retireRejectedAttempt` (`e2e/checkout/lifecycle-fixtures.ts`), which runs the app's terminal transition, `PaymentTerminalTransitions.markTerminal`, with state `failed` and failure code `workspace_e2e_nexi_sandbox_rejected`. The attempt and reservation payment fail and the attempt's discount-code, voucher, and referral invitation claims are released; the hold stays, so cleanup is unchanged. When the app already cancelled or expired the attempt, the transition refuses with `PaymentLifecycleStateError` and the step accepts the checkout row if it shows the same attempt in an unpaid terminal state on a held reservation. Any other failure, such as a redeemed claim, fails the case.
 3. Closes the hosted popup within `browserAction`, activates the checkout page, and waits `nexiSandboxRetryDelayMs`.
 4. Reopens the saved checkout pay page URL, whose `payState` value is registered for redaction.
 
