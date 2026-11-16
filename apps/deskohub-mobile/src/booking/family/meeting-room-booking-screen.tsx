@@ -318,7 +318,7 @@ function MeetingRoomSelection({
     chosenDuration === undefined ? undefined : lengthOf(chosenDuration);
   const bar = selectionBar({
     from: {
-      title: chosenDate === undefined ? name : shortDate(chosenDate),
+      title: name,
       amount: hourOffering.advertisedPrice.price,
       unit:
         hourOffering.duration === "hour:1"
@@ -342,10 +342,15 @@ function MeetingRoomSelection({
     lengthLabel,
     locale,
   });
+  // Until the selection is complete the bar names the chosen date, and a
+  // chosen length's own price.
+  const incomplete = Option.isNone(model.selection);
   const summary: BookingBarSummary = {
     ...bar.summary,
+    ...(incomplete &&
+      chosenDate !== undefined && { title: shortDate(chosenDate) }),
     ...(detail !== undefined && { detail }),
-    ...(Option.isNone(model.selection) &&
+    ...(incomplete &&
       chosenDate !== undefined &&
       chosenOffering !== undefined && {
         price: { kind: "from", amount: chosenOffering.advertisedPrice.price },
