@@ -5,6 +5,7 @@ import {
   administrationOperationDeclaration,
   administrationOperationVariantOf,
   CurrentAdministrationCaller,
+  WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
 import {
   Cause,
@@ -107,7 +108,11 @@ const recordedOperation = (
   HttpServerRequest.HttpServerRequest
 > => {
   const reference: AdministrationOperationReference = `${group.identifier}.${endpoint.identifier}`;
-  const annotations = Context.merge(group.annotations, endpoint.annotations);
+  // Merged as HttpApiBuilder merges them for the endpoint it serves.
+  const annotations = Context.merge(
+    Context.merge(WorkspaceAdminApi.annotations, group.annotations),
+    endpoint.annotations
+  );
   const declaration = administrationOperationDeclaration(annotations);
   if (Option.isNone(declaration)) {
     return Effect.succeed(Option.none());
