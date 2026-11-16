@@ -31,8 +31,8 @@ import { CheckboxRow } from "../../ui/checkbox";
 import { Button, LiveMessage } from "../../ui/controls";
 import { Dialog } from "../../ui/dialog";
 import { discColors, EmptyState } from "../../ui/empty-state";
-import { Icon } from "../../ui/icon";
-import { ListGroup, ListRow } from "../../ui/list";
+import { Icon, type IconComponent } from "../../ui/icon";
+import { ListGroup } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
@@ -195,6 +195,28 @@ export function DangerZoneScreen() {
   );
 }
 
+/** A statement of what deleting does: a small icon tile and plain text. */
+function FactRow({
+  icon,
+  text,
+}: {
+  readonly icon: IconComponent;
+  readonly text: string;
+}) {
+  return (
+    <View style={styles.fact}>
+      <View style={styles.factIconBox}>
+        <View style={styles.factIcon}>
+          <Icon icon={icon} size={18} color={color.navy} />
+        </View>
+      </View>
+      <Text variant="lead" style={styles.factText}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
 function DangerDisc() {
   return (
     <View
@@ -267,20 +289,17 @@ function DeleteScreenContent({
             </Text>
           </View>
           <ListGroup>
-            <ListRow
+            <FactRow
               icon={LogOut}
-              label={m.danger_consequence_sessions({}, { locale })}
-              trailing="none"
+              text={m.danger_consequence_sessions({}, { locale })}
             />
-            <ListRow
+            <FactRow
               icon={Receipt}
-              label={m.danger_consequence_records({}, { locale })}
-              trailing="none"
+              text={m.danger_consequence_records({}, { locale })}
             />
-            <ListRow
+            <FactRow
               icon={KeyRound}
-              label={m.danger_consequence_access({}, { locale })}
-              trailing="none"
+              text={m.danger_consequence_access({}, { locale })}
             />
           </ListGroup>
           {confirmation}
@@ -302,7 +321,7 @@ function ContactCard({
     <Card>
       <EmptyState icon={Trash2} title={title}>
         <Button
-          variant="text"
+          variant="quiet"
           icon={Mail}
           label={m.account_contact_us({}, { locale })}
           onPress={openContactPage}
@@ -336,7 +355,7 @@ function DeleteScreenFooter({
       />
       {offersContact(view) && (
         <Button
-          variant="text"
+          variant="quiet"
           icon={Mail}
           label={m.account_contact_us({}, { locale })}
           onPress={openContactPage}
@@ -516,4 +535,23 @@ const styles = StyleSheet.create({
     width: 56,
   },
   badge: { flexDirection: "row" },
+  fact: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 14,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+  },
+  // The 32 tile centred where a list row's 40 tile sits, so the text starts
+  // where the group's dividers do.
+  factIconBox: { alignItems: "center", width: 40 },
+  factIcon: {
+    alignItems: "center",
+    backgroundColor: color.sunken,
+    borderRadius: 10,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  factText: { color: color.navy, flexShrink: 1, paddingTop: 5 },
 });
