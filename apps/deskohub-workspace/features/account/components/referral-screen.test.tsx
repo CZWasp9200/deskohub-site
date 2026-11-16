@@ -38,6 +38,7 @@ const referrals = {
   },
   shareUrl,
   discountPerInvitee: "5",
+  invitationDiscount: "15",
 } as const;
 const originalClipboard = Object.getOwnPropertyDescriptor(
   navigator,

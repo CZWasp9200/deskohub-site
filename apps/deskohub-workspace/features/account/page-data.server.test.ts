@@ -200,6 +200,7 @@ const accountReferrals = {
     Effect.runSync(getWorkspaceRuntimeCallbackOrigin)
   ),
   discountPerInvitee: "5",
+  invitationDiscount: "15",
 };
 
 type StoredSignupIntent = {

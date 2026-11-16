@@ -128,6 +128,17 @@ describe("Button", () => {
     expect(find(button({ icon: Mail }), "Svg")).toBeDefined();
   });
 
+  test("iconPlacement end draws the icon after the label", () => {
+    const iconFirst = (placement: "start" | "end") => {
+      const json = JSON.stringify(
+        button({ icon: Mail, iconPlacement: placement })
+      );
+      return json.indexOf('"Svg"') < json.indexOf('"label"');
+    };
+    expect(iconFirst("start")).toBe(true);
+    expect(iconFirst("end")).toBe(false);
+  });
+
   test("disabled is neutral grey and says why, above the button and as its hint", () => {
     const tree = button({ disabled: true, disabledReason: "why" });
     const pressable = pressableOf(tree);

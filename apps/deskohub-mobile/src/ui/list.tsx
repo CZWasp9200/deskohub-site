@@ -107,7 +107,9 @@ export type ListRowTrailing = "chevron" | "external" | "none" | ReactNode;
  * is cut.
  *
  * The row reads as one label, value and description. A custom `trailing`
- * node is read as part of the row, after its text.
+ * node is read as part of the row, after its text. Content `below` the
+ * text, such as what an item may do and its own button, keeps its own
+ * elements, so a row with it is not read as one.
  */
 export function ListRow({
   label,
@@ -121,6 +123,7 @@ export function ListRow({
   destructive = false,
   disabled = false,
   wrapValue = false,
+  below,
   accessibilityLabel,
 }: {
   readonly label: string;
@@ -137,6 +140,8 @@ export function ListRow({
   readonly destructive?: boolean;
   readonly disabled?: boolean;
   readonly wrapValue?: boolean;
+  /** Content under the label and description, in the text column. */
+  readonly below?: ReactNode;
   /**
    * What the row reads instead of its text, for an action row whose
    * trailing icon says what it does, such as a download.
@@ -179,6 +184,7 @@ export function ListRow({
           {description !== undefined && (
             <Text variant="bodySmall">{description}</Text>
           )}
+          {below}
         </View>
         {value !== undefined && (
           <Text
@@ -203,8 +209,12 @@ export function ListRow({
   const rowStyle = [
     listRowLayout.row,
     description !== undefined && listRowLayout.withDescription,
+    below !== undefined && styles.withBelow,
   ];
 
+  if (onPress === undefined && below !== undefined) {
+    return <View style={rowStyle}>{content}</View>;
+  }
   if (onPress === undefined) {
     return (
       <View accessible aria-label={accessibleLabel} style={rowStyle}>
@@ -276,6 +286,8 @@ const styles = StyleSheet.create({
     paddingTop: space.xs,
   },
   valueBeside: { flexShrink: 1, maxWidth: "65%", textAlign: "right" },
+  // The icon and trailing stay at the top beside taller content.
+  withBelow: { alignItems: "flex-start", paddingBottom: space.lg },
   pressed: { backgroundColor: color.pressed },
   disabledText: { color: color.disabledInk },
 });

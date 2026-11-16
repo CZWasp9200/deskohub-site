@@ -3936,6 +3936,16 @@
                 "type": "null"
               }
             ]
+          },
+          "invitationDiscount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["summary", "shareUrl"],

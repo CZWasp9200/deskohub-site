@@ -3,6 +3,7 @@ import type { LinkedCustomerAccount } from "@/features/account/customer-account"
 import { ReferralService } from "@/features/referrals";
 import { getReferralShareUrl } from "@/features/referrals/client";
 import type { ReferralAccountOverview } from "@/features/referrals/contracts";
+import { referralInvitationDiscountBasisPoints } from "@/features/referrals/program";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { formatReferrerDiscountPercentage } from "@/features/referrals/referrer-discount";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
@@ -11,7 +12,7 @@ import { requireLinkedCustomerAccount } from "./linked-customer-account";
 
 /**
  * The linked account's referral summary, absolute share link and the
- * programme's discount per eligible invitee.
+ * programme's discounts per eligible invitee and for the invitee.
  */
 export const accountReferralOverview = (account: LinkedCustomerAccount) =>
   Effect.flatMap(ReferralService, (service) =>
@@ -27,6 +28,9 @@ export const accountReferralOverview = (account: LinkedCustomerAccount) =>
             summary,
             shareUrl: getReferralShareUrl(summary.code, origin),
             discountPerInvitee: formatReferrerDiscountPercentage(1),
+            invitationDiscount: String(
+              referralInvitationDiscountBasisPoints / 100
+            ),
           })
         )
       )

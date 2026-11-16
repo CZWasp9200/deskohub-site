@@ -44,7 +44,7 @@ export type ReferralAccountSummary = {
 
 /**
  * The account referral summary with the customer's absolute share link and
- * the programme's discount per eligible invitee.
+ * the programme's discounts: per eligible invitee and for the invitee.
  */
 export type ReferralAccountOverview = {
   readonly summary: ReferralAccountSummary;
@@ -54,6 +54,11 @@ export type ReferralAccountOverview = {
    * percentage in canonical decimal form, like `summary.discount`.
    */
   readonly discountPerInvitee: string;
+  /**
+   * The discount an invited customer gets on their first booking, as an
+   * exact percentage in the same form.
+   */
+  readonly invitationDiscount: string;
 };
 
 /** A verdict that the code can't refer this customer now. */

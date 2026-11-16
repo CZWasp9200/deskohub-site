@@ -1,14 +1,20 @@
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/unstable/reactivity";
+import Bot from "lucide-react-native/icons/bot";
+import ExternalLink from "lucide-react-native/icons/external-link";
 import { useState } from "react";
+import { apiOrigin } from "../../auth/auth-client";
 import { AsyncView } from "../../customer-api/async-view";
 import type { CustomerViewError } from "../../customer-api/customer-view-error";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { openSitePage } from "../../routing/open-site-page";
+import { sitePageUrl } from "../../routing/site-page";
 import { ConfirmDialog } from "../../ui/confirm-dialog";
-import { BodyText, LiveMessage } from "../../ui/controls";
-import { ListGroup, ListRow } from "../../ui/list";
+import { Button, LiveMessage } from "../../ui/controls";
+import { EmptyState } from "../../ui/empty-state";
+import { ListGroup } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { AssistantConnectionRow } from "./assistant-connection-row";
@@ -28,10 +34,17 @@ const listErrorMessage = (locale: AppLocale) => (error: CustomerViewError) =>
     ? m.assistants_unavailable({}, { locale })
     : undefined;
 
+// The site's help page with the steps for each assistant.
+const openConnectingHelp = () =>
+  void openSitePage(sitePageUrl("/ai-assistants", apiOrigin)).catch(
+    () => undefined
+  );
+
 /**
  * Connected assistants: the AI assistants the customer let use their
  * account, what each may do, and a way to disconnect one. It needs only the
- * session, so it works without a linked Dotypos profile.
+ * session, so it works without a linked Dotypos profile. The disconnect
+ * dialog states what disconnecting does, so the screen has no intro line.
  */
 export function AssistantsScreen() {
   const locale = useAppLocale();
@@ -52,7 +65,6 @@ export function AssistantsScreen() {
 
   return (
     <ScrollScreen refreshing={connections.waiting} onRefresh={refresh}>
-      <BodyText>{m.assistants_intro({}, { locale })}</BodyText>
       {/* Kept mounted so assistive tech announces each change. */}
       <LiveMessage
         role="status"
@@ -78,12 +90,21 @@ export function AssistantsScreen() {
         {(current) => {
           const rows = assistantRows(current, disconnected, locale);
           return rows.length === 0 ? (
-            <ListGroup>
-              <ListRow
-                label={m.assistants_empty_title({}, { locale })}
-                description={m.assistants_empty_body({}, { locale })}
+            <EmptyState
+              icon={Bot}
+              dashed
+              title={m.assistants_empty_title({}, { locale })}
+              body={m.assistants_empty_connect({}, { locale })}
+            >
+              <Button
+                variant="text"
+                width="content"
+                icon={ExternalLink}
+                iconPlacement="end"
+                label={m.assistants_how_connecting_works({}, { locale })}
+                onPress={openConnectingHelp}
               />
-            </ListGroup>
+            </EmptyState>
           ) : (
             <ListGroup>
               {rows.map((row) => (
