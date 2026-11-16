@@ -570,15 +570,10 @@
   "referrals_summary_unavailable": "Інформація про запрошення тимчасово недоступна.",
   "booking_stack_title": "Бронювання",
   "booking_stack_checkout_title": "Завершення бронювання",
-  "booking_family_heading": "Що ви хочете забронювати?",
   "booking_family_cowork_title": "Місце в коворкінгу",
-  "booking_family_cowork_description": "Місце за спільним столом до 17:00 або стіл лише для вас на цілий день із цілодобовим доступом.",
   "booking_family_meeting_room_title": "Переговорна кімната",
-  "booking_family_meeting_room_description": "До 10 людей, з телевізором, проєкційним екраном, проєктором і технікою для гібридних зустрічей. Можна забронювати на годину, 4 години або цілий день.",
   "booking_family_office_title": "Приватний офіс",
-  "booking_family_office_description": "Приватний офіс для вашої команди на один або кілька днів.",
   "booking_family_from_price": "Від {price}",
-  "booking_opening_hours": "Години роботи: {hours}",
   "booking_completion_required": "Перш ніж бронювати, заповніть профіль.",
   "booking_gate_deletion_title": "Ваш обліковий запис видаляється",
   "booking_gate_deletion_body": "Поки це триває, ви не можете робити нові бронювання. Напишіть нам, якщо це помилка.",
@@ -651,5 +646,11 @@
   "booking_office_seats_up_to": "До {count}",
   "booking_office_seats_maximum": "Максимум {count}",
   "booking_office_reason_date": "Виберіть перший день, щоб продовжити",
-  "booking_price_unit_per_day_one_seat": "за день, 1 місце"
+  "booking_price_unit_per_day_one_seat": "за день, 1 місце",
+  "booking_space_from": "від",
+  "booking_space_per_hour": "/ год",
+  "booking_space_per_length": "/ {length}",
+  "booking_space_always_open": "Доступно цілодобово",
+  "booking_space_office_seats": "1–{count} місць · цілодобово",
+  "booking_spaces_load_failed": "Не вдалося завантажити простори"
 }

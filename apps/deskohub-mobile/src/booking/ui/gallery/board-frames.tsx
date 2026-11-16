@@ -80,6 +80,7 @@ import {
   type PriceFixture,
   reservedDeskWithWorkstation,
 } from "../testing/price-fixtures";
+import { bookTabFrames } from "./book-tab-frames";
 
 /**
  * The booking boards' proposed frames (boards 26–35) rebuilt from the shared
@@ -1350,6 +1351,7 @@ function PayBusy({ onBack }: { readonly onBack: () => void }) {
 
 /** Every proposed frame this ticket's pieces appear in, in board order. */
 export const boardFrames: ReadonlyArray<BoardFrame> = [
+  ...bookTabFrames,
   {
     key: "cowork-live",
     board: "26",
