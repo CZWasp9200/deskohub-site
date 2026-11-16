@@ -70,6 +70,8 @@ import { InvoiceArchiveError } from "@/features/accounting/invoice-archive";
 import { InvoiceCancellationError } from "@/features/accounting/invoice-cancellation";
 import { ManualInvoiceValidationError } from "@/features/accounting/manual-invoice";
 import { AdministrationService } from "@/features/administration/administration.service";
+import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
+import { UnusedAdministrationCustomerDirectory } from "@/features/administration/customer-directory.test-utils";
 import {
   ReservationAccessAdministration,
   ReservationAccessAdministrationError,
@@ -243,6 +245,7 @@ type AdministrationClient = Effect.Success<typeof administrationClient>;
 type AdministrationApiServiceLayers = {
   /** The `dhw` version the client sends, for endpoints with a minimum. */
   readonly administration?: Layer.Layer<AdministrationService>;
+  readonly customers?: Layer.Layer<AdministrationCustomerDirectory>;
   readonly discounts?: Layer.Layer<DiscountAdministration>;
   readonly invoices?: Layer.Layer<InvoiceAdministrationService>;
   readonly reservations?: Layer.Layer<ReservationAdministrationService>;
@@ -262,6 +265,7 @@ const callAdministrationApi = <A, E>(
     Effect.provide(services.reservations ?? UnusedReservationAdministration),
     Effect.provide(UnusedReservationProductDetailsBackfill),
     Effect.provide(services.discounts ?? UnusedDiscountAdministration),
+    Effect.provide(services.customers ?? UnusedAdministrationCustomerDirectory),
     Effect.provide(SessionAdministratorAuthentication),
     Effect.provide(services.administration ?? UnusedAdministrationService),
     Effect.provide(UnusedReservationAccessAdministration),
@@ -437,6 +441,54 @@ describe("Workspace Admin API", () => {
     });
   });
 
+  test("searches customers with the discount group and without deleted customers", async () => {
+    const queries: string[] = [];
+    const customers = AdministrationCustomerDirectory.Default.pipe(
+      Layer.provide(
+        Layer.mock(DotyposService, {
+          searchCustomers: (query) => {
+            queries.push(query);
+            return Effect.succeed([
+              {
+                id: "deleted-customer",
+                firstName: "Synthetic",
+                deleted: true,
+              },
+              {
+                id: "company-customer",
+                companyName: " Synthetic Company ",
+                firstName: "Synthetic",
+                email: ` ${testEmailAddress("customer-search")} `,
+                phone: " +420 000 000 000 ",
+                _discountGroupId: "discount-group",
+                deleted: false,
+              },
+            ] as never);
+          },
+        })
+      )
+    );
+
+    const result = await callAdministrationApi(
+      (client) => client.searchCustomers({ query: { query: "synthetic" } }),
+      { customers }
+    );
+
+    expect(queries).toEqual(["synthetic"]);
+    expect(result).toEqual({
+      kind: "matched",
+      customers: [
+        {
+          id: "company-customer",
+          displayName: "Synthetic Company",
+          email: testEmailAddress("customer-search"),
+          phone: "+420 000 000 000",
+          discountGroupId: "discount-group",
+        },
+      ],
+    });
+  });
+
   test("serves each instance's own caller when instances share a memo map", async () => {
     const instances = ["first", "second"] as const;
     type Instance = (typeof instances)[number];
@@ -496,6 +548,7 @@ describe("Workspace Admin API", () => {
       UnusedReservationProductDetailsBackfill,
       UnusedReservationAccessAdministration,
       UnusedDiscountAdministration,
+      UnusedAdministrationCustomerDirectory,
       UnusedInvoiceAdministration,
       UnusedStandaloneAccessCodeAdministration,
       DiscardedAdministrationActionLog,
@@ -627,6 +680,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(backfill),
       Effect.provide(UnusedDiscountAdministration),
+      Effect.provide(UnusedAdministrationCustomerDirectory),
       Effect.provide(SessionAdministratorAuthentication),
       Effect.provide(Layer.succeed(AdministrationService, {} as never)),
       Effect.provide(UnusedReservationAccessAdministration),
@@ -719,6 +773,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedDiscountAdministration),
+      Effect.provide(UnusedAdministrationCustomerDirectory),
       Effect.provide(SessionAdministratorAuthentication),
       Effect.provide(failingAdministration),
       Effect.provide(UnusedReservationAccessAdministration),
@@ -872,6 +927,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedReservationAccessAdministration),
       Effect.provide(UnusedDiscountAdministration),
+      Effect.provide(UnusedAdministrationCustomerDirectory),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(SessionAdministratorAuthentication),
       Effect.provide(CliClientCompatibilityLive),
@@ -1032,6 +1088,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedDiscountAdministration),
+      Effect.provide(UnusedAdministrationCustomerDirectory),
       Effect.provide(SessionAdministratorAuthentication),
       Effect.provide(
         Layer.succeed(
@@ -1168,6 +1225,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedReservationAccessAdministration),
       Effect.provide(UnusedDiscountAdministration),
+      Effect.provide(UnusedAdministrationCustomerDirectory),
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(ClaimEveryCliMutation),
@@ -1294,6 +1352,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedReservationAccessAdministration),
       Effect.provide(UnusedDiscountAdministration),
+      Effect.provide(UnusedAdministrationCustomerDirectory),
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(ClaimEveryCliMutation),
@@ -1350,6 +1409,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(discounts),
+      Effect.provide(UnusedAdministrationCustomerDirectory),
       Effect.provide(SessionAdministratorAuthentication),
       Effect.provide(
         Layer.succeed(
@@ -2070,6 +2130,7 @@ describe("customer and reservation administration endpoints", () => {
             UnusedReservationProductDetailsBackfill,
             UnusedReservationAccessAdministration,
             UnusedDiscountAdministration,
+            UnusedAdministrationCustomerDirectory,
             UnusedInvoiceAdministration,
             UnusedStandaloneAccessCodeAdministration
           )
@@ -2244,6 +2305,7 @@ describe("standalone access-code CLI endpoint", () => {
       Effect.provide(UnusedReservationAdministration),
       Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedDiscountAdministration),
+      Effect.provide(UnusedAdministrationCustomerDirectory),
       Effect.provide(authentication),
       Effect.provide(
         Layer.succeed(

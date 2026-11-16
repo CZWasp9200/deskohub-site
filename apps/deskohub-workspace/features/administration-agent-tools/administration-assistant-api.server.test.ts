@@ -42,6 +42,7 @@ import {
   makeWorkspaceAdminApiLayer,
 } from "@/features/admin-cli/workspace-admin-api.server";
 import { AdministrationService } from "@/features/administration/administration.service";
+import { UnusedAdministrationCustomerDirectory } from "@/features/administration/customer-directory.test-utils";
 import { ReservationAccessAdministration } from "@/features/administration/reservation-access-administration.service";
 import { ReservationAdministrationService } from "@/features/administration/reservation-administration.service";
 import {
@@ -347,6 +348,7 @@ const makeInstanceServices = ({
     }),
     Layer.succeed(ReservationAccessAdministration, {} as never),
     Layer.succeed(DiscountAdministration, {} as never),
+    UnusedAdministrationCustomerDirectory,
     invoices,
     Layer.succeed(StandaloneAccessCodeAdministration, {} as never),
     NodeHttpServer.layerHttpServices
