@@ -1,5 +1,5 @@
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Effect, Layer, Match, Option } from "effect";
+import { Context, Effect, Layer, Match, Option, Result } from "effect";
 import {
   getWorkspaceProductKey,
   type WorkspaceProductIdentity,
@@ -8,7 +8,7 @@ import { workspaceProductTargetMatches } from "@/features/discounts/product-targ
 import { m } from "@/features/i18n";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import { staffLocale } from "@/shared/backend/staff-locale";
-import { moneyWithValue, sameMoneyUnit } from "@/shared/money/money";
+import { sameMoneyUnit } from "@/shared/money/money";
 import { currentInstant } from "@/shared/utils/temporal";
 import type { CanonicalPromotionCode, DiscountQuoteInput } from "./contracts";
 import type { DiscountDefinition } from "./discount-definition";
@@ -22,9 +22,13 @@ import {
 } from "./errors";
 import { deriveOpaqueDiscountId } from "./opaque-discount-id";
 import {
-  type DiscountCodeAvailability,
+  evaluatePromotionAvailability,
+  getAvailableVoucherCredit,
+  type PromotionAvailabilityFacts,
+  type PromotionAvailabilityStage,
+} from "./promotion-availability";
+import {
   type DiscountCodeConfiguration,
-  type DiscountCodePreviewAvailability,
   getPromotionTiming,
   type PromotionCodeConfigurationError,
   type SubmittedPromotionConfiguration,
@@ -32,7 +36,6 @@ import {
 } from "./promotion-code";
 import { PromotionCodeRepository } from "./promotion-code.repository";
 import type { DiscountCandidate } from "./provider";
-import { isFirstServiceDateEligible } from "./service-date-eligibility";
 
 export type PromotionCodeProviderInput = Pick<
   DiscountQuoteInput,
@@ -115,10 +118,18 @@ export class PromotionCodeProvider extends Context.Service<
                       availability,
                       configuration,
                     })),
-                    Effect.tap(validateCustomerAllowed),
-                    Effect.tap(validateUsageAvailable),
-                    Effect.tap(validateCustomerUsageAvailable),
-                    Effect.tap(validateDiscountCodeServiceDate),
+                    Effect.tap((input) =>
+                      requirePromotionAvailable(
+                        input.configuration,
+                        "pricingDiscountCode",
+                        {
+                          audience: input.availability,
+                          discountCode: input.configuration,
+                          firstServiceDate: input.firstServiceDate,
+                          uses: input.availability,
+                        }
+                      )
+                    ),
                     Effect.bind("definition", loadDiscountDefinition),
                     Effect.tap(validateDiscountCodeProduct),
                     Effect.tap(validateFixedAdjustmentCompatibility),
@@ -138,8 +149,17 @@ export class PromotionCodeProvider extends Context.Service<
                       availability,
                       configuration,
                     })),
-                    Effect.tap(validateCustomerNotReserved),
-                    Effect.tap(validateCustomerAllowed),
+                    Effect.tap((input) =>
+                      requirePromotionAvailable(
+                        input.configuration,
+                        "pricingVoucher",
+                        {
+                          audience: input.availability,
+                          voucher: input.configuration,
+                          voucherUses: input.availability,
+                        }
+                      )
+                    ),
                     Effect.flatMap(toVoucherCandidate)
                   ),
             })
@@ -169,8 +189,17 @@ export class PromotionCodeProvider extends Context.Service<
                       availability,
                       configuration,
                     })),
-                    Effect.tap(validateUsageAvailable),
-                    Effect.tap(validateDiscountCodeServiceDate),
+                    Effect.tap((input) =>
+                      requirePromotionAvailable(
+                        input.configuration,
+                        "pricingDiscountCodePreview",
+                        {
+                          discountCode: input.configuration,
+                          firstServiceDate: input.firstServiceDate,
+                          uses: input.availability,
+                        }
+                      )
+                    ),
                     Effect.bind("definition", loadDiscountDefinition),
                     Effect.tap(validateDiscountCodeProduct),
                     Effect.tap(validateFixedAdjustmentCompatibility),
@@ -191,9 +220,7 @@ export class PromotionCodeProvider extends Context.Service<
           Effect.succeed(input).pipe(
             Effect.bind("at", () => currentInstant),
             Effect.bind("configuration", loadCodeConfiguration),
-            Effect.tap(validatePromotionEnabled),
-            Effect.tap(validatePromotionStarted),
-            Effect.tap(validateDiscountCodeUnexpired),
+            Effect.tap(requirePromotionScheduled),
             Effect.flatMap(resolveConfiguredCode)
           )
       );
@@ -207,9 +234,7 @@ export class PromotionCodeProvider extends Context.Service<
           Effect.succeed(input).pipe(
             Effect.bind("at", () => currentInstant),
             Effect.bind("configuration", loadCodeConfiguration),
-            Effect.tap(validatePromotionEnabled),
-            Effect.tap(validatePromotionStarted),
-            Effect.tap(validateDiscountCodeUnexpired),
+            Effect.tap(requirePromotionScheduled),
             Effect.flatMap(previewConfiguredCode)
           )
       );
@@ -273,78 +298,25 @@ const requirePromotionConfiguration = (
     onSome: Effect.succeed,
   });
 
-const validatePromotionEnabled = (input: {
-  readonly configuration: SubmittedPromotionConfiguration;
-}) =>
-  input.configuration.enabled
-    ? Effect.void
-    : unavailable(input.configuration, "inactive");
-
-const validatePromotionStarted = (input: {
+/** The promotion is on and inside its validity window at `at`. */
+const requirePromotionScheduled = (input: {
   readonly at: Temporal.Instant;
   readonly configuration: SubmittedPromotionConfiguration;
 }) =>
-  input.configuration.validFrom === null ||
-  Temporal.Instant.compare(input.at, input.configuration.validFrom) >= 0
-    ? Effect.void
-    : unavailable(input.configuration, "not_started");
+  requirePromotionAvailable(input.configuration, "pricingSchedule", {
+    at: input.at,
+    promotion: input.configuration,
+  });
 
-const validateDiscountCodeUnexpired = (input: {
-  readonly at: Temporal.Instant;
-  readonly configuration: SubmittedPromotionConfiguration;
-}) =>
-  input.configuration.validUntil === null ||
-  Temporal.Instant.compare(input.at, input.configuration.validUntil) < 0
-    ? Effect.void
-    : unavailable(input.configuration, "expired");
-
-const validateCustomerNotReserved = (input: {
-  readonly availability: { readonly customerHasReserved: boolean };
-  readonly configuration: SubmittedPromotionConfiguration;
-}) =>
-  input.availability.customerHasReserved
-    ? unavailable(input.configuration, "claim_conflict")
-    : Effect.void;
-
-const validateUsageAvailable = (input: {
-  readonly availability:
-    | DiscountCodeAvailability
-    | DiscountCodePreviewAvailability;
-  readonly configuration: DiscountCodeConfiguration;
-}) =>
-  input.configuration.maxUses !== null &&
-  input.availability.activeUseCount >= input.configuration.maxUses
-    ? unavailable(input.configuration, "usage_limit_reached")
-    : Effect.void;
-
-const validateCustomerUsageAvailable = (input: {
-  readonly availability: DiscountCodeAvailability;
-  readonly configuration: DiscountCodeConfiguration;
-}) =>
-  input.configuration.maxUsesPerCustomer !== null &&
-  input.availability.customerActiveUseCount >=
-    input.configuration.maxUsesPerCustomer
-    ? unavailable(input.configuration, "usage_limit_reached")
-    : Effect.void;
-
-const validateCustomerAllowed = (input: {
-  readonly availability: {
-    readonly allowlistSize: number;
-    readonly customerAllowed: boolean;
-  };
-  readonly configuration: SubmittedPromotionConfiguration;
-}) =>
-  input.availability.allowlistSize > 0 && !input.availability.customerAllowed
-    ? unavailable(input.configuration, "customer_ineligible")
-    : Effect.void;
-
-const validateDiscountCodeServiceDate = (input: {
-  readonly configuration: DiscountCodeConfiguration;
-  readonly firstServiceDate: PromotionCodeProviderInput["firstServiceDate"];
-}) =>
-  isFirstServiceDateEligible(input.configuration, input.firstServiceDate)
-    ? Effect.void
-    : unavailable(input.configuration, "service_date_ineligible");
+const requirePromotionAvailable = <Stage extends PromotionAvailabilityStage>(
+  configuration: SubmittedPromotionConfiguration,
+  stage: Stage,
+  facts: PromotionAvailabilityFacts<Stage>
+) =>
+  Result.match(evaluatePromotionAvailability(stage, facts), {
+    onSuccess: () => Effect.void,
+    onFailure: ({ reason }) => unavailable(configuration, reason),
+  });
 
 const validateDiscountCodeProduct = (input: {
   readonly configuration: DiscountCodeConfiguration;
@@ -443,17 +415,11 @@ const toVoucherCandidate = (input: {
   readonly discountableSubtotal: DiscountQuoteInput["discountableSubtotal"];
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: PromotionCodeProviderInput["locale"];
-}): Effect.Effect<
-  DiscountCandidate,
-  PromotionCodeUnavailableError | DiscountProviderError
-> => {
-  const availableAmount = moneyWithValue(
-    input.configuration.amount.value - input.availability.usedValue,
-    input.configuration.amount
+}): Effect.Effect<DiscountCandidate, DiscountProviderError> => {
+  const availableAmount = getAvailableVoucherCredit(
+    input.configuration.amount,
+    input.availability.usedValue
   );
-  if (availableAmount.value <= 0) {
-    return unavailable(input.configuration, "usage_limit_reached");
-  }
   if (!sameMoneyUnit(availableAmount, input.discountableSubtotal)) {
     return Effect.fail(
       new DiscountProviderError({

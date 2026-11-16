@@ -214,7 +214,7 @@ describe("PaymentLifecycleRepository", () => {
       // Code without total or per-customer limits.
       [[null, null]],
       // The same customer redeemed the code once more since the release.
-      [[1]],
+      [[1, 1]],
       [],
     ]);
 
@@ -247,7 +247,7 @@ describe("PaymentLifecycleRepository", () => {
       // One use per customer.
       [[null, 1]],
       // The customer already holds another active use.
-      [[1]],
+      [[1, 1]],
       [],
     ]);
 
@@ -388,7 +388,7 @@ describe("PaymentLifecycleRepository", () => {
 
   test("refuses to re-redeem a released claim whose voucher no longer exists", async () => {
     const { result, statements } = await redeemOnRecording(
-      [[], [["application-1", "voucher-1", "released"]], []],
+      [[], [["application-1", "customer-1", "voucher-1", "released"]], []],
       () => redeemCodeClaim("attempt-1" as never, redeemedAt, true)
     );
 
@@ -407,7 +407,7 @@ describe("PaymentLifecycleRepository", () => {
     const { result } = await redeemOnRecording(
       [
         [],
-        [["application-1", "voucher-1", "released"]],
+        [["application-1", "customer-1", "voucher-1", "released"]],
         [
           [
             "voucher-1",
@@ -421,7 +421,7 @@ describe("PaymentLifecycleRepository", () => {
           ],
         ],
         [],
-        [[0]],
+        [[false, 0]],
       ],
       () => redeemCodeClaim("attempt-1" as never, redeemedAt, true)
     );
