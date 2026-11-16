@@ -8,11 +8,8 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
-import {
-  buildCheckoutPayPathFromToken,
-  getPayStateExpiresAt,
-} from "./checkout-pay-url";
-import { openPayState } from "./pay-state";
+import { buildCheckoutPayPath } from "./checkout-pay-url";
+import { PayState } from "./pay-state";
 import { acceptPayStatePriceChange } from "./pay-state-price-acceptance";
 import {
   sealSyntheticPayStateToken,
@@ -49,12 +46,12 @@ describe("acceptPayStatePriceChange", () => {
     const payStateToken = await sealSyntheticPayStateToken({
       changedKeys: syntheticChangedKeys,
     });
-    const reviewed = await run(openPayState(payStateToken));
+    const reviewed = await run(PayState.open(payStateToken));
 
     const accepted = await run(
       acceptPayStatePriceChange({ payStateToken, locale: "en-US" })
     );
-    const continued = await run(openPayState(accepted.payStateToken));
+    const continued = await run(PayState.open(accepted.payStateToken));
 
     expect(accepted.status).toBe("accepted");
     expect(accepted.payStateToken).not.toBe(payStateToken);
@@ -63,9 +60,9 @@ describe("acceptPayStatePriceChange", () => {
     expect(continued.orderId).toBe(reviewed.orderId);
     expect(continued.acceptedTotal).toEqual(reviewed.acceptedTotal);
     expect(accepted.payUrl).toBe(
-      buildCheckoutPayPathFromToken("en-US", accepted.payStateToken)
+      buildCheckoutPayPath("en-US", accepted.payStateToken)
     );
-    expect(accepted.expiresAt).toBe(getPayStateExpiresAt(continued));
+    expect(accepted.expiresAt).toBe(PayState.expiresAt(continued));
   });
 
   test("keeps the hold deadline while the continuation gets a fresh expiry", async () => {
@@ -73,12 +70,12 @@ describe("acceptPayStatePriceChange", () => {
       changedKeys: syntheticChangedKeys,
       issuedAt: Temporal.Now.instant().subtract({ minutes: 3 }),
     });
-    const reviewed = await run(openPayState(payStateToken));
+    const reviewed = await run(PayState.open(payStateToken));
 
     const accepted = await run(
       acceptPayStatePriceChange({ payStateToken, locale: "en-US" })
     );
-    const continued = await run(openPayState(accepted.payStateToken));
+    const continued = await run(PayState.open(accepted.payStateToken));
 
     expect(continued.exp).toBeGreaterThan(reviewed.exp);
     expect(continued.holdExpiresAt).toBe(syntheticHoldExpiresAt);
@@ -93,14 +90,14 @@ describe("acceptPayStatePriceChange", () => {
     const accepted = await run(
       acceptPayStatePriceChange({ payStateToken, locale: "en-US" })
     );
-    const continued = await run(openPayState(accepted.payStateToken));
+    const continued = await run(PayState.open(accepted.payStateToken));
 
     expect(continued.holdExpiresAt).toBe("2099-07-01T10:09:30.000Z");
   });
 
   test("returns a state without a price review unchanged", async () => {
     const payStateToken = await sealSyntheticPayStateToken();
-    const opened = await run(openPayState(payStateToken));
+    const opened = await run(PayState.open(payStateToken));
 
     const accepted = await run(
       acceptPayStatePriceChange({ payStateToken, locale: "en-US" })
@@ -109,8 +106,8 @@ describe("acceptPayStatePriceChange", () => {
     expect(accepted).toEqual({
       status: "already_accepted",
       payStateToken,
-      payUrl: buildCheckoutPayPathFromToken("en-US", payStateToken),
-      expiresAt: getPayStateExpiresAt(opened),
+      payUrl: buildCheckoutPayPath("en-US", payStateToken),
+      expiresAt: PayState.expiresAt(opened),
     });
   });
 

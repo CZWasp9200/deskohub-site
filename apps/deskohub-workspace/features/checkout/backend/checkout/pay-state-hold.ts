@@ -6,7 +6,7 @@ import {
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
 import {
-  openPayState,
+  PayState,
   type PayStateWithHoldExpiry,
   type SignedPayState,
 } from "./pay-state";
@@ -78,5 +78,5 @@ export const loadPayStateHoldExpiry = Effect.fn("payState.loadHoldExpiry")(
 /** Opens a Pay state token with its hold deadline. */
 export const openPayStateWithHoldExpiry = Effect.fn("payState.openHeld")(
   (token: string) =>
-    openPayState(token).pipe(Effect.flatMap(loadPayStateHoldExpiry))
+    PayState.open(token).pipe(Effect.flatMap(loadPayStateHoldExpiry))
 );

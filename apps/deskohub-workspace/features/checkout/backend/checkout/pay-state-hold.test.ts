@@ -8,7 +8,7 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
-import { openPayState } from "./pay-state";
+import { PayState } from "./pay-state";
 import {
   getPayStateHoldExpiresAt,
   loadPayStateHoldExpiry,
@@ -42,7 +42,7 @@ const withReservations = (
 
 const openToken = (token: string) =>
   Effect.runPromise(
-    openPayState(token).pipe(Effect.provide(TestSealedStateKeys))
+    PayState.open(token).pipe(Effect.provide(TestSealedStateKeys))
   );
 
 describe("getPayStateHoldExpiresAt", () => {
@@ -76,7 +76,7 @@ describe("loadPayStateHoldExpiry", () => {
     const token = await sealSyntheticPayStateToken();
 
     const held = await Effect.runPromise(
-      openPayState(token).pipe(
+      PayState.open(token).pipe(
         Effect.flatMap(loadPayStateHoldExpiry),
         withReservations(findById)
       )

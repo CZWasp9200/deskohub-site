@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Effect, Match, Option, Schema } from "effect";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import {
@@ -15,28 +14,26 @@ import {
 } from "@/features/reservation/dotypos-customer";
 import { getCalendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
 import type { DeploymentEnvironment } from "@/shared/deployment/deployment-stage";
-import {
-  buildCheckoutPayPathFromToken,
-  type FreshPayState,
-  getPayStateExpiresAt,
-  issueFreshPayState,
-  type NoFreshPayState,
-  toFreshPayState,
-} from "./checkout-pay-url";
+import { buildCheckoutPayPath } from "./checkout-pay-url";
 import { CheckoutPricingService } from "./checkout-pricing.service";
 import {
   type CheckoutReferralResult,
   CheckoutReferralService,
 } from "./checkout-referral.service";
-import { openPayStateForLocale } from "./open-pay-state-for-locale";
-import type { PayStateWithHoldExpiry, SignedPayState } from "./pay-state";
-import { getSignedPayStateBookedAt } from "./pay-state.server";
+import {
+  type FreshPayState,
+  type NoFreshPayState,
+  PayState,
+  type PayStateWithHoldExpiry,
+  type SignedPayState,
+  type SignedPayStatePricing,
+  toFreshPayState,
+} from "./pay-state";
 import type {
   ApplyDiscountCodeInput,
   ClearDiscountCodeInput,
 } from "./pay-state-discount-code-input";
 import {
-  getPayStateHoldExpiresAt,
   loadPayStateHoldExpiry,
   withPayStateHoldExpiry,
 } from "./pay-state-hold";
@@ -45,6 +42,7 @@ import {
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
+import type { PriceVerdict } from "./price-verdict";
 
 /**
  * Entering or removing a discount code affirms the displayed discounts,
@@ -120,27 +118,16 @@ type DiscountCodeEntry = {
  */
 const issueRejectedCodePayState = (
   {
-    input,
     state,
     submittedCode,
   }: DiscountCodeEntry & { readonly state: PayStateWithHoldExpiry },
-  discountCodeError: DiscountCodeRejection
+  rejection: DiscountCodeRejection
 ) =>
-  issueFreshPayState(
-    {
-      ...state,
-      locale: input.locale,
-      orderId: state.orderId,
-      checkoutSessionId: state.checkoutSessionId,
-      requestedDiscountCode: submittedCode,
-    },
-    {},
-    {
-      discountCodeError,
-      discountCodeErrorId: randomUUID(),
-      orderId: state.orderId,
-    }
-  ).pipe(Effect.map(toFreshPayState));
+  PayState.reissue(state, {
+    kind: "code_rejected",
+    code: submittedCode,
+    rejection,
+  }).pipe(Effect.map(toFreshPayState));
 
 /** Unavailable results without a replacement Pay state. */
 const unavailableBecause = <Cause extends DiscountCodeUnavailable>(
@@ -342,7 +329,7 @@ const applyPromotionCode = Effect.fnUntraced(function* (
       pricing
         .applyDiscountCode({
           ...state,
-          bookedAt: getSignedPayStateBookedAt(state),
+          bookedAt: PayState.bookedAt(state),
           dotyposCustomerId,
           locale: input.locale,
           submittedCode,
@@ -374,51 +361,17 @@ const applyPromotionCode = Effect.fnUntraced(function* (
     return result;
   }
 
-  const priced: ApplyDiscountCodeResult = yield* Match.value(result).pipe(
+  const freshPayState = yield* PayState.reissue(
+    withPayStateHoldExpiry(state, reservation),
+    { kind: "code_entered", code: submittedCode, verdict: result }
+  ).pipe(Effect.map(toFreshPayState));
+  const priced: ApplyDiscountCodeResult = Match.value(result).pipe(
     Match.discriminatorsExhaustive("status")({
-      affirmed: (applied) =>
-        issueFreshPayState(
-          {
-            ...applied.priced,
-            locale: input.locale,
-            orderId: state.orderId,
-            bookedAt: state.bookedAt,
-            holdExpiresAt: getPayStateHoldExpiresAt(state, reservation),
-            checkoutSessionId: state.checkoutSessionId,
-            submittedCode,
-            submittedCodeDiscountId: applied.priced.submittedCodeDiscountId,
-            requestedDiscountCode: submittedCode,
-            referralCode: state.referralCode,
-          },
-          {},
-          { orderId: state.orderId }
-        ).pipe(
-          Effect.map((freshPayState) => ({
-            status: "applied" as const,
-            ...toFreshPayState(freshPayState),
-          }))
-        ),
-      pricing_changed: (changed) =>
-        issueFreshPayState(
-          {
-            ...changed.priced,
-            locale: input.locale,
-            orderId: state.orderId,
-            bookedAt: state.bookedAt,
-            holdExpiresAt: getPayStateHoldExpiresAt(state, reservation),
-            checkoutSessionId: state.checkoutSessionId,
-            changedKeys: changed.changedKeys,
-            requestedDiscountCode: submittedCode,
-            referralCode: state.referralCode,
-          },
-          {},
-          { orderId: state.orderId }
-        ).pipe(
-          Effect.map((freshPayState) => ({
-            status: "pricing_changed" as const,
-            ...toFreshPayState(freshPayState),
-          }))
-        ),
+      affirmed: () => ({ status: "applied" as const, ...freshPayState }),
+      pricing_changed: () => ({
+        status: "pricing_changed" as const,
+        ...freshPayState,
+      }),
     })
   );
   return priced;
@@ -430,7 +383,9 @@ export const applyDiscountCodeToPayState = Effect.fn(
   function* (input: ApplyDiscountCodeInput) {
     const referrals = yield* ReferralService;
 
-    const state = yield* openPayStateForLocale(input);
+    const state = yield* PayState.open(input.payStateToken, {
+      locale: input.locale,
+    });
 
     if (state.changedKeys) return priceReviewPending;
     if (state.submittedCode) {
@@ -494,7 +449,9 @@ export const clearDiscountCodeFromPayState = Effect.fn(
   "checkout.clearDiscountCodeFromPayState"
 )(
   function* (input: ClearDiscountCodeInput) {
-    const state = yield* openPayStateForLocale(input);
+    const state = yield* PayState.open(input.payStateToken, {
+      locale: input.locale,
+    });
 
     const { submittedCodeDiscountId } = state;
     if (
@@ -503,19 +460,16 @@ export const clearDiscountCodeFromPayState = Effect.fn(
     ) {
       const unchanged: ClearDiscountCodeResult = {
         status: "unchanged",
-        freshPayUrl: buildCheckoutPayPathFromToken(
-          input.locale,
-          input.payStateToken
-        ),
+        freshPayUrl: buildCheckoutPayPath(input.locale, input.payStateToken),
         freshPayStateToken: input.payStateToken,
-        expiresAt: getPayStateExpiresAt(state),
+        expiresAt: PayState.expiresAt(state),
       };
       return unchanged;
     }
     // A code change waits for the pending review, as code entry does.
     if (state.changedKeys) return priceReviewPending;
     if (submittedCodeDiscountId === undefined) {
-      return yield* clearRequestedDiscountCode(input, state);
+      return yield* clearRequestedDiscountCode(state);
     }
     return yield* clearAppliedDiscountCode(
       input,
@@ -537,20 +491,14 @@ export const clearDiscountCodeFromPayState = Effect.fn(
 
 /** Drops a code the customer intended but never applied, without repricing. */
 const clearRequestedDiscountCode = Effect.fnUntraced(function* (
-  input: ClearDiscountCodeInput,
   state: SignedPayState
 ) {
   const reservation = yield* requirePayableBeforePayment(state);
   if (Option.isNone(reservation)) return paymentInProgress;
 
-  const freshPayState = yield* issueFreshPayState(
-    {
-      ...withPayStateHoldExpiry(state, reservation.value),
-      locale: input.locale,
-      requestedDiscountCode: undefined,
-    },
-    {},
-    { orderId: state.orderId }
+  const freshPayState = yield* PayState.reissue(
+    withPayStateHoldExpiry(state, reservation.value),
+    { kind: "requested_code_cleared" }
   );
   const cleared: ClearDiscountCodeResult = {
     status: "cleared",
@@ -577,31 +525,24 @@ const clearAppliedDiscountCode = Effect.fnUntraced(function* (
       pricing.clearDiscountCode({
         ...state,
         submittedCodeDiscountId,
-        bookedAt: getSignedPayStateBookedAt(state),
+        bookedAt: PayState.bookedAt(state),
         dotyposCustomerId,
         locale: input.locale,
       })
   );
   if (Option.isNone(guarded)) return paymentInProgress;
-  const { reservation, priced } = guarded.value;
-  const { changedKeys } = priced;
+  const {
+    reservation,
+    priced: { changedKeys, ...repriced },
+  } = guarded.value;
+  const verdict: PriceVerdict<SignedPayStatePricing> =
+    changedKeys.sectionKeys.length > 0 || changedKeys.itemKeys.length > 0
+      ? { status: "pricing_changed", priced: repriced, changedKeys }
+      : { status: "affirmed", priced: repriced };
 
-  const freshPayState = yield* issueFreshPayState(
-    {
-      ...priced,
-      locale: input.locale,
-      orderId: state.orderId,
-      bookedAt: state.bookedAt,
-      holdExpiresAt: getPayStateHoldExpiresAt(state, reservation),
-      checkoutSessionId: state.checkoutSessionId,
-      referralCode: state.referralCode,
-      changedKeys:
-        changedKeys.sectionKeys.length > 0 || changedKeys.itemKeys.length > 0
-          ? changedKeys
-          : undefined,
-    },
-    {},
-    { orderId: state.orderId }
+  const freshPayState = yield* PayState.reissue(
+    withPayStateHoldExpiry(state, reservation),
+    { kind: "code_cleared", verdict }
   );
   const cleared: ClearDiscountCodeResult = {
     status: "cleared",

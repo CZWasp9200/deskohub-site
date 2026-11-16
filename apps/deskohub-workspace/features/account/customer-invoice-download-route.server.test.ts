@@ -36,6 +36,7 @@ const summary: CustomerInvoiceSummary = {
   total: { amount: "450.50", currency: "CZK" },
   paymentStatus: "due",
   dueDate: plainDateStringSchema.make("2026-09-01"),
+  reservation: null,
 };
 
 type Outcome = "own" | "not-found" | "unavailable" | "load-failed";

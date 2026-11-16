@@ -707,6 +707,7 @@
   "booking_review_pay_reason_agreement": "Щоб оплатити, позначте згоду",
   "booking_review_last_minute_title": "На оплату лишилося менше хвилини",
   "booking_review_last_minute_body": "Якщо час мине, ми звільнимо місце, але ваш вибір збережемо.",
+  "invoices_row_product_seats": "{product}, кількість місць: {count}",
   "onboarding_step": "Крок {current} з {total}",
   "onboarding_about_you_title": "Про вас",
   "onboarding_about_you_intro": "Ці дані ми вказуємо у ваших бронюваннях і рахунках-фактурах.",

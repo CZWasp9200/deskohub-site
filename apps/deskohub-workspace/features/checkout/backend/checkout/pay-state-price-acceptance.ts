@@ -1,12 +1,7 @@
 import { Effect } from "effect";
 import type { Locale } from "@/features/i18n";
-import {
-  buildCheckoutPayPathFromToken,
-  getPayStateExpiresAt,
-  type IssuedPayState,
-  issuePayStateContinuation,
-} from "./checkout-pay-url";
-import { openPayStateForLocale } from "./open-pay-state-for-locale";
+import { buildCheckoutPayPath } from "./checkout-pay-url";
+import { type IssuedPayState, PayState } from "./pay-state";
 import { loadPayStateHoldExpiry } from "./pay-state-hold";
 
 type PayStatePriceAcceptance = IssuedPayState & {
@@ -26,19 +21,19 @@ export const acceptPayStatePriceChange = Effect.fn(
   readonly payStateToken: string;
   readonly locale: Locale;
 }) {
-  const state = yield* openPayStateForLocale(input).pipe(
-    Effect.flatMap(loadPayStateHoldExpiry)
-  );
+  const state = yield* PayState.open(input.payStateToken, {
+    locale: input.locale,
+  }).pipe(Effect.flatMap(loadPayStateHoldExpiry));
   if (state.changedKeys === undefined) {
     const unchanged: PayStatePriceAcceptance = {
       status: "already_accepted",
       payStateToken: input.payStateToken,
-      payUrl: buildCheckoutPayPathFromToken(input.locale, input.payStateToken),
-      expiresAt: getPayStateExpiresAt(state),
+      payUrl: buildCheckoutPayPath(input.locale, input.payStateToken),
+      expiresAt: PayState.expiresAt(state),
     };
     return unchanged;
   }
-  const continuation = yield* issuePayStateContinuation(state);
+  const continuation = yield* PayState.reissue(state, { kind: "reviewed" });
   const accepted: PayStatePriceAcceptance = {
     status: "accepted",
     ...continuation,
