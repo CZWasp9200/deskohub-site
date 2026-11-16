@@ -493,7 +493,7 @@
   "reservationReservedDeskTitle": "Закріплене місце на день",
   "reservationReservedDeskDescription": "Ваше власне закріплене місце на весь календарний день із цілодобовим доступом за кодом і кавою в ціні. За потреби додайте робочу станцію з моніторами.",
   "reservationReservedDeskBulletDesk": "Ваш власний стіл для безперервної роботи.",
-  "reservationReservedDeskPerkAccess": "Цілодобовий доступ у день бронювання",
+  "reservationReservedDeskPerkAccess": "Цілодобовий доступ протягом усього бронювання",
   "reservationReservedDeskPerkCoffee": "Кава в ціні",
   "reservationReservedDeskPerkMonitor": "Можна додати монітори й док-станцію",
   "reservationWorkstationLabel": "Робоча станція з моніторами",

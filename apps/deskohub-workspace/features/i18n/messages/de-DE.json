@@ -491,7 +491,7 @@
   "reservationReservedDeskTitle": "Reservierter Platz",
   "reservationReservedDeskDescription": "Dein eigener reservierter Platz für den ganzen Kalendertag, mit 24/7-Zugang per Code und Kaffee inklusive. Bei Bedarf fügst du eine Workstation mit Monitoren hinzu.",
   "reservationReservedDeskBulletDesk": "Dein eigener Schreibtisch für ungestörten Flow.",
-  "reservationReservedDeskPerkAccess": "24/7-Zugang am Tag deiner Reservierung",
+  "reservationReservedDeskPerkAccess": "24/7-Zugang während deiner gesamten Reservierung",
   "reservationReservedDeskPerkCoffee": "Kaffee inklusive",
   "reservationReservedDeskPerkMonitor": "Optional mit Monitoren und Dock",
   "reservationWorkstationLabel": "Workstation mit Monitoren",
