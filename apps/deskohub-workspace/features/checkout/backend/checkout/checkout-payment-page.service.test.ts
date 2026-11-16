@@ -23,6 +23,8 @@ import {
   CheckoutPaymentPageService,
   type PaymentPageReopeningInput,
 } from "./checkout-payment-page.service";
+import type { PaymentPageProviderObservation } from "./payment-page-provider-status";
+import { observePaymentPagesAs } from "./payment-page-provider-status.test-utils";
 
 const instant = (value: string) => Temporal.Instant.from(value);
 
@@ -75,6 +77,8 @@ type Harness = {
   readonly attempt?: PaymentAttempt | null;
   readonly latePaymentRecovery?: LatePaymentRecovery | null;
   readonly now?: Temporal.Instant;
+  /** What the provider's order shows; it can't be asked by default. */
+  readonly observation?: PaymentPageProviderObservation;
 };
 
 /**
@@ -109,7 +113,9 @@ const createHarness = (harness: Harness = {}) => {
   const findLatePaymentRecovery = mock(() =>
     Effect.succeed(harness.latePaymentRecovery ?? null)
   );
+  const provider = observePaymentPagesAs(harness.observation ?? "unknown");
   const layer = CheckoutPaymentPageService.Default.pipe(
+    Layer.provide(provider.layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.succeed(ReservationAuthorizationService, {
@@ -140,6 +146,7 @@ const createHarness = (harness: Harness = {}) => {
     );
 
   return {
+    observeProvider: provider.observe,
     findAttempt,
     findLatePaymentRecovery,
     findReservation,
@@ -207,13 +214,68 @@ describe("CheckoutPaymentPageService.reopen", () => {
     });
   });
 
-  test("opens the page until just before its reopening window ends", async () => {
+  test("opens the page past the provisional window while the provider's order shows no activity", async () => {
+    const harness = createHarness({
+      observation: "no_activity",
+      now: instant("2026-06-01T10:20:00Z"),
+    });
+
+    expect(await harness.reopen()).toEqual({
+      state: "opened",
+      providerRedirectUrl,
+    });
+    expect(harness.observeProvider).toHaveBeenCalledWith({
+      attempt: makeAttempt(),
+      reservation: makeReservation(),
+    });
+  });
+
+  test("closes the page once the provider's order shows activity, even inside the provisional window", async () => {
+    const harness = createHarness({
+      observation: "activity",
+      now: instant("2026-06-01T10:01:00Z"),
+    });
+
+    expect(await harness.reopen()).toEqual({
+      state: "closed",
+      reason: "window_elapsed",
+    });
+    expect(harness.recordPaymentReturnTarget).not.toHaveBeenCalled();
+  });
+
+  test("closes the page at the abandonment cutoff without asking the provider", async () => {
+    const harness = createHarness({
+      observation: "no_activity",
+      now: instant("2026-06-01T10:30:00Z"),
+    });
+
+    expect(await harness.reopen()).toEqual({
+      state: "closed",
+      reason: "window_elapsed",
+    });
+    expect(harness.observeProvider).not.toHaveBeenCalled();
+  });
+
+  test("asks the provider about no attempt without a stored page", async () => {
+    const harness = createHarness({
+      observation: "no_activity",
+      attempt: makeAttempt({ state: "failed" }),
+    });
+
+    expect(await harness.reopen()).toEqual({
+      state: "closed",
+      reason: "no_active_attempt",
+    });
+    expect(harness.observeProvider).not.toHaveBeenCalled();
+  });
+
+  test("opens the page until just before its reopening window ends while the provider can't be asked", async () => {
     const harness = createHarness({ now: instant("2026-06-01T10:05:59Z") });
 
     expect((await harness.reopen()).state).toBe("opened");
   });
 
-  test("closes the page once its reopening window ends, well inside the abandonment window", async () => {
+  test("closes the page once its reopening window ends while the provider can't be asked, well inside the abandonment window", async () => {
     const harness = createHarness({ now: instant("2026-06-01T10:06:00Z") });
 
     expect(await harness.reopen()).toEqual({
