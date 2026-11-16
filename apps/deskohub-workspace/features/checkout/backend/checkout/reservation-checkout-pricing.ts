@@ -1,6 +1,7 @@
 import { Effect, Match, Option } from "effect";
 import {
   type CheckoutSummary,
+  type CheckoutSummaryChangedKeys,
   getCheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
 import type { ReservationQuotePayment } from "@/features/checkout/reservation-quote-schema";
