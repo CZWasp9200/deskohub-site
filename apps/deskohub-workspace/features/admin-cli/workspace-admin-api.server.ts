@@ -203,6 +203,15 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
           })
           .pipe(mapAdministrationApiFailure(mapReservationCancellationFailure))
       )
+      .handle("restoreReservation", ({ params, payload }) =>
+        reservationAdministration
+          .restore({
+            acknowledgeRefundedPayment: payload.acknowledgeRefundedPayment,
+            reservationId: params.reservationId,
+            sendRestorationEmail: payload.sendRestorationEmail,
+          })
+          .pipe(mapAdministrationApiFailure(mapReservationRestorationFailure))
+      )
       .handle("backfillReservationProductDetails", ({ payload }) =>
         productDetailsBackfill.runBatch(payload).pipe(mapServiceFailure)
       )
@@ -711,6 +720,19 @@ const mapReservationCancellationFailure = (
     return new CliResourceNotFound({ message: cause.message });
   }
   if (cause.code === "not_cancellable") {
+    return new CliMutationRejected({ message: cause.message });
+  }
+  return makeServiceUnavailable();
+};
+
+/** A refusal over a refund keeps its message, which names the refunded amount. */
+const mapReservationRestorationFailure = (
+  cause: ReservationAdministrationError
+) => {
+  if (cause.code === "not_found") {
+    return new CliResourceNotFound({ message: cause.message });
+  }
+  if (cause.code === "not_restorable") {
     return new CliMutationRejected({ message: cause.message });
   }
   return makeServiceUnavailable();

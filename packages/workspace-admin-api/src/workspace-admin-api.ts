@@ -1714,6 +1714,26 @@ export const AdministrationReservationCancellationResult = Schema.Struct({
 export type AdministrationReservationCancellationResult =
   typeof AdministrationReservationCancellationResult.Type;
 
+export const AdministrationReservationRestorationInput = Schema.Struct({
+  /** Restore although Nexi already refunded some or all of the payment. */
+  acknowledgeRefundedPayment: Schema.Boolean,
+  /** Send the restoration email; honoured only when the cancellation email was recorded. */
+  sendRestorationEmail: Schema.Boolean,
+}).annotate({
+  parseOptions: { errors: "all", onExcessProperty: "error" },
+});
+export type AdministrationReservationRestorationInput =
+  typeof AdministrationReservationRestorationInput.Type;
+
+export const AdministrationReservationRestorationResult = Schema.Struct({
+  outcome: Schema.Literals(["restored", "already_confirmed"]),
+  email: Schema.Literals(["not_requested", "sent", "failed", "not_available"]),
+  /** `failed` keeps the restore; retrying access recovers the grant. */
+  access: Schema.Literals(["issued", "failed", "not_needed"]),
+});
+export type AdministrationReservationRestorationResult =
+  typeof AdministrationReservationRestorationResult.Type;
+
 export const AdministrationReservationProductDetailsBackfillInput =
   Schema.Struct({
     /** Report what would change without writing. */
@@ -2660,6 +2680,28 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
         params: { reservationId: AdministrationWorkspaceReservationId },
         payload: AdministrationReservationCancellationInput,
         success: AdministrationReservationCancellationResult,
+        error: [
+          CliMutationRejected.schema,
+          CliResourceNotFound.schema,
+          CliServiceUnavailable.schema,
+        ],
+      }
+    ).annotate(
+      AdministrationOperationBehavior,
+      destructiveOperation({
+        idempotent: false,
+        preview: readPreview("administration.getReservation"),
+      })
+    )
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "restoreReservation",
+      "/reservations/:reservationId/restoration",
+      {
+        params: { reservationId: AdministrationWorkspaceReservationId },
+        payload: AdministrationReservationRestorationInput,
+        success: AdministrationReservationRestorationResult,
         error: [
           CliMutationRejected.schema,
           CliResourceNotFound.schema,
