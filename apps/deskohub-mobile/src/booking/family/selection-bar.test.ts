@@ -95,4 +95,36 @@ describe("selectionBar", () => {
       failed(BookingCatalogViewError.SelectionInvalid({ field: undefined }))
     ).toMatchObject({ action: "continue", disabled: true });
   });
+
+  test("names the product by the catalog's name before and after a date", () => {
+    const catalogName = "Catalog desk name";
+    const named = { ...from, title: catalogName };
+
+    const dated = selectionBar({
+      from: named,
+      selection: Option.some(selection),
+      quote: Option.some({ kind: "loading" }),
+      blocked: Option.none(),
+      canContinue: false,
+      locale: "en-US",
+    });
+    const quoted = selectionBar({
+      from: named,
+      selection: Option.some(selection),
+      quote: Option.some({ kind: "loaded", value: quote, refreshing: false }),
+      blocked: Option.none(),
+      canContinue: true,
+      locale: "en-US",
+    });
+
+    expect(dated.summary.detail?.startsWith(catalogName)).toBe(true);
+    expect(quoted.summary.detail?.startsWith(catalogName)).toBe(true);
+    if (quoted.summary.price.kind !== "quoted") throw new Error("not quoted");
+    const { breakdown, describeLine } = quoted.summary.price;
+    const product = breakdown.lines.find(
+      (line) => line._tag === "Charge" && line.subject._tag === "Product"
+    );
+    if (product === undefined) throw new Error("no product line");
+    expect(describeLine(product).label).toBe(catalogName);
+  });
 });

@@ -39,7 +39,10 @@ export const selectionBar = ({
   canContinue,
   locale,
 }: {
-  /** Before the selection is complete: the product's name and price. */
+  /**
+   * Before the selection is complete: the product's name and price. The
+   * name is the catalog's, and names the product in the summaries after.
+   */
   readonly from: {
     readonly title: string;
     readonly amount: Money;
@@ -70,7 +73,7 @@ export const selectionBar = ({
   const chosen = selection.value;
   const read = Option.getOrUndefined(quote);
   const unpriced = (price: BookingBarSummary["price"]): BookingBarSummary => ({
-    ...bookingSummaryOf(chosen, locale),
+    ...bookingSummaryOf(chosen, locale, from.title),
     price,
   });
   if (read?.kind === "failed") {
@@ -85,7 +88,7 @@ export const selectionBar = ({
   return {
     summary:
       read?.kind === "loaded" && !read.refreshing
-        ? quotedBarSummary(chosen, read.value, locale)
+        ? quotedBarSummary(chosen, read.value, locale, from.title)
         : unpriced({ kind: read === undefined ? "none" : "updating" }),
     action: "continue",
     disabled: !canContinue,

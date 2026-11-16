@@ -28,9 +28,10 @@ export interface BookingSummaryText {
  */
 export const bookingSummaryOf = (
   selection: CustomerBookingSelection,
-  locale: AppLocale
+  locale: AppLocale,
+  /** The catalog's name for the product, where the screen has it. */
+  product: string = productLabel(selection, locale)
 ): BookingSummaryText => {
-  const product = productLabel(selection, locale);
   const detail = (...extras: ReadonlyArray<string | undefined>) =>
     [product, ...extras.filter((extra) => extra !== undefined)].join(" · ");
   const overview = bookingOverviewOf(selection, false);
@@ -123,13 +124,15 @@ export const quotedBarSummary = (
     summary,
     regularPrice,
   }: Pick<CustomerBookingQuote, "summary" | "regularPrice">,
-  locale: AppLocale
+  locale: AppLocale,
+  /** The catalog's name for the product, where the screen has it. */
+  productName?: string
 ): BookingBarSummary => ({
-  ...bookingSummaryOf(selection, locale),
+  ...bookingSummaryOf(selection, locale, productName),
   price: {
     kind: "quoted",
     breakdown: priceBreakdown(summary),
-    describeLine: describePriceLine(selection, locale),
+    describeLine: describePriceLine(selection, locale, productName),
     ...(regularPrice.value > summary.total.value && { was: regularPrice }),
   },
 });

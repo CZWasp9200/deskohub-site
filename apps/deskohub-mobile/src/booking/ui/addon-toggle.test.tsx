@@ -71,8 +71,12 @@ describe("AddonOptions", () => {
       false,
       false,
     ]);
-    const style = options[0]?.style as (state: { pressed: boolean }) => unknown;
-    expect(flatStyle(style({ pressed: false })).flexBasis).toBe("45%");
+    // Another test file may replace Pressable, which then resolves a
+    // style function itself; read the style either way.
+    const style = options[0]?.style;
+    const resolved =
+      typeof style === "function" ? style({ pressed: false }) : style;
+    expect(flatStyle(resolved).flexBasis).toBe("45%");
   });
 
   test("an option taken that day can't be chosen", () => {
