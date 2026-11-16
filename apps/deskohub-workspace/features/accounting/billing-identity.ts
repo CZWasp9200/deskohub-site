@@ -70,7 +70,6 @@ export const businessInvoiceBuyerSchema = Schema.Struct({
   vatId: Schema.optional(vatRegistrationIdSchema),
   address: invoiceBuyerAddressSchema,
 });
-export type BusinessInvoiceBuyer = typeof businessInvoiceBuyerSchema.Type;
 
 export const invoiceBuyerSchema = Schema.Union([
   personalInvoiceBuyerSchema,
