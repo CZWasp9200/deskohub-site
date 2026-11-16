@@ -3829,6 +3829,16 @@
           },
           "shareUrl": {
             "type": "string"
+          },
+          "discountPerInvitee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["summary", "shareUrl"],
@@ -5791,6 +5801,17 @@
             "$ref": "#/components/schemas/CustomerOrderFulfillmentStatus"
           },
           "reviewSandbox": {
+            "anyOf": [
+              {
+                "type": "boolean",
+                "enum": [true]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paymentPageReopenable": {
             "anyOf": [
               {
                 "type": "boolean",

@@ -214,6 +214,7 @@ describe("loadAccountState", () => {
       referrals: {
         summary,
         shareUrl: expect.stringContaining(summary.code),
+        discountPerInvitee: "5",
       },
     });
     expect(state).not.toHaveProperty("history");

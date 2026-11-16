@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { Tabs } from "expo-router";
+import { getFocusedRouteNameFromRoute } from "expo-router/react-navigation";
 import CalendarCheck from "lucide-react-native/icons/calendar-check";
 import CalendarPlus from "lucide-react-native/icons/calendar-plus";
 import CircleUser from "lucide-react-native/icons/circle-user";
@@ -10,6 +11,7 @@ import { useAppLocale } from "../../../src/i18n/locale-context";
 import { m } from "../../../src/i18n/messages";
 import { useBackToStartTab } from "../../../src/routing/back-to-start-tab";
 import { startTabAtom } from "../../../src/routing/start-tab";
+import { tabBarHidden } from "../../../src/routing/tab-bar-visibility";
 import { tabScreenOptions } from "../../../src/ui/navigation";
 import { TabBar, type TabBarItem } from "../../../src/ui/tab-bar";
 
@@ -42,7 +44,21 @@ export default function AccountTabsLayout() {
     <Tabs
       backBehavior="none"
       screenOptions={tabScreenOptions}
-      tabBar={(props) => <TabBar {...props} items={items} />}
+      tabBar={(props) => {
+        // A form with its own sticky footer, such as the profile, hides the
+        // bar while it shows (see `tabBarHidden`).
+        const tab = props.state.routes[props.state.index];
+        return (
+          <TabBar
+            {...props}
+            items={items}
+            hidden={
+              tab !== undefined &&
+              tabBarHidden(tab.name, getFocusedRouteNameFromRoute(tab))
+            }
+          />
+        );
+      }}
     >
       <Tabs.Screen
         name="account"

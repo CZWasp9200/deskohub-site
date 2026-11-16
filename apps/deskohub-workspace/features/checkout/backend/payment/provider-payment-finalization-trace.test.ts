@@ -1138,7 +1138,7 @@ describe("ProviderPaymentFinalizationService.finalizePendingProviderPayment trac
     `);
   });
 
-  test("returns pending for an empty provider order outside hold cleanup", async () => {
+  test("waits for the payment of an empty provider order outside hold cleanup", async () => {
     const { outcome, trace } = await finalize(
       verifyingCollaborators({
         nexi: {
@@ -1149,7 +1149,7 @@ describe("ProviderPaymentFinalizationService.finalizePendingProviderPayment trac
       })
     );
 
-    expect(outcome).toBe("pending");
+    expect(outcome).toBe("awaiting_payment");
     expect(trace).toMatchInlineSnapshot(`
       [
         "span providerPaymentFinalization.finalizePendingProviderPayment",
@@ -1163,8 +1163,8 @@ describe("ProviderPaymentFinalizationService.finalizePendingProviderPayment trac
         "call nexi.verifyPaymentOutcome(orderId=provider-order-id, correlationId=correlation-id, amount=35000, currency=EUR, securityToken=security-token, deadline=undefined)",
         "Info Payment finalization provider verification completed {abandonmentCheckedAt,activePaymentAttemptId,currency,dotyposReservationId,fulfillmentState,orderId,paymentAttemptId,paymentAttemptState,paymentState,providerOrderId,providerOrderStatus,reservationId,reservationState,verificationDeadlineMillis,verificationMismatches,verificationStatus,webhookEventId} in providerPaymentFinalization.finalizePendingProviderPayment",
         "Debug Payment finalization provider metadata resolved {abandonmentCheckedAt,activePaymentAttemptId,currency,dotyposReservationId,fulfillmentState,orderId,paymentAttemptId,paymentAttemptState,paymentState,providerOperationId,providerOrderId,providerOrderStatus,providerStatus,reservationId,reservationState,verificationDeadlineMillis,verificationMismatches,verificationStatus,webhookEventId} in providerPaymentFinalization.finalizePendingProviderPayment",
-        "Info Payment finalization returned pending {abandonmentCheckedAt,activePaymentAttemptId,currency,dotyposReservationId,fulfillmentState,orderId,paymentAttemptId,paymentAttemptState,paymentState,providerOperationId,providerOrderId,providerOrderStatus,providerStatus,reservationId,reservationState,verificationDeadlineMillis,verificationMismatches,verificationStatus,webhookEventId} in providerPaymentFinalization.finalizePendingProviderPayment",
-        "Info Provider payment finalization completed (result=pending) {abandonmentCheckedAt,orderId,paymentAttemptId,verificationDeadlineMillis,webhookEventId} in providerPaymentFinalization.finalizePendingProviderPayment",
+        "Info Payment finalization returned awaiting_payment {abandonmentCheckedAt,activePaymentAttemptId,currency,dotyposReservationId,fulfillmentState,orderId,paymentAttemptId,paymentAttemptState,paymentState,providerOperationId,providerOrderId,providerOrderStatus,providerStatus,reservationId,reservationState,verificationDeadlineMillis,verificationMismatches,verificationStatus,webhookEventId} in providerPaymentFinalization.finalizePendingProviderPayment",
+        "Info Provider payment finalization completed (result=awaiting_payment) {abandonmentCheckedAt,orderId,paymentAttemptId,verificationDeadlineMillis,webhookEventId} in providerPaymentFinalization.finalizePendingProviderPayment",
       ]
     `);
   });

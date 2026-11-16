@@ -26,6 +26,7 @@ import { PaymentLifecycleRepository } from "../repositories/payment-lifecycle.re
 import { PaymentLifecycleStateError } from "../repositories/payment-lifecycle-state";
 import { CheckoutStatusService } from "./checkout-status.service";
 import { loadCheckoutStatusPage } from "./checkout-status-page.server";
+import { observePaymentPagesAs } from "./payment-page-provider-status.test-utils";
 
 mock.module("server-only", () => ({}));
 
@@ -126,6 +127,7 @@ const loadStatusPageOnTestClock = (options: {
   }).pipe(
     Effect.provide(
       CheckoutStatusService.Default.pipe(
+        Layer.provide(observePaymentPagesAs("unknown").layer),
         Layer.provide(
           Layer.mergeAll(
             ProviderPaymentFinalizationService.Default,

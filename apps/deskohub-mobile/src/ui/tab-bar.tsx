@@ -25,7 +25,8 @@ export const tabBarHeight = 56;
  * tinted pill. Each tab's name (its screen `title`, or
  * `tabBarAccessibilityLabel`) is its accessible label. Presses emit
  * `tabPress` and `tabLongPress` as the default bar does, so a tab's stack
- * still returns to its root when its open tab is pressed again.
+ * still returns to its root when its open tab is pressed again. A `hidden`
+ * bar draws nothing and leaves toasts the whole bottom.
  */
 export function TabBar({
   state,
@@ -34,15 +35,19 @@ export function TabBar({
   navigateToTab,
   insets,
   items,
+  hidden = false,
 }: Pick<
   BottomTabBarProps,
   "state" | "descriptors" | "emitter" | "navigateToTab" | "insets"
 > & {
   readonly items: Readonly<Record<string, TabBarItem>>;
+  /** The open screen has its own footer: the bar takes no room at all. */
+  readonly hidden?: boolean;
 }) {
   const height = tabBarHeight + insets.bottom;
   const onHeightChange = use(BottomTabBarHeightCallbackContext);
-  useToastObstruction(height);
+  useToastObstruction(hidden ? 0 : height);
+  if (hidden) return null;
   return (
     <View
       role="tablist"

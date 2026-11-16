@@ -288,6 +288,14 @@ export const CustomerOrderState = Schema.Struct({
   fulfillmentStatus: CustomerOrderFulfillmentStatus,
   /** Marks a review account's sample or simulated hold. */
   reviewSandbox: Schema.optional(Schema.Literal(true)),
+  /**
+   * Marks a pending order whose payment page can be opened again
+   * (`reopenPaymentPage`): the payment provider's order still shows no
+   * activity, or, when it can't be asked, the page is inside its provisional
+   * reopening window. The answer can change at any moment; reopening checks
+   * again.
+   */
+  paymentPageReopenable: Schema.optional(Schema.Literal(true)),
   startsAt: Schema.optional(isoInstant),
   endsAt: Schema.optional(isoInstant),
   /**

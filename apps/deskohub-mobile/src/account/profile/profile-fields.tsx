@@ -24,7 +24,11 @@ type InputProps = Pick<
 // Lengths are the contract's limits, so typing stops where saving would fail.
 const fieldInput: Record<
   CompletionTextField,
-  InputProps & { readonly label: (locale: AppLocale) => string }
+  InputProps & {
+    readonly label: (locale: AppLocale) => string;
+    /** The customer may leave it empty; its label says so. */
+    readonly optional?: true;
+  }
 > = {
   firstName: {
     label: (locale) => m.profile_first_name_label({}, { locale }),
@@ -35,6 +39,7 @@ const fieldInput: Record<
   },
   lastName: {
     label: (locale) => m.profile_last_name_label({}, { locale }),
+    optional: true,
     autoComplete: "family-name",
     textContentType: "familyName",
     autoCapitalize: "words",
@@ -42,6 +47,7 @@ const fieldInput: Record<
   },
   phone: {
     label: (locale) => m.profile_phone_label({}, { locale }),
+    optional: true,
     autoComplete: "tel",
     textContentType: "telephoneNumber",
     keyboardType: "phone-pad",
@@ -152,7 +158,7 @@ export function ProfileTextFields<F extends CompletionTextField>({
   readonly locale: AppLocale;
 }) {
   return fields.map((field) => {
-    const { label, ...input } = fieldInput[field];
+    const { label, optional, ...input } = fieldInput[field];
     const problem = invalid?.fields[field];
     return (
       <TextField
@@ -161,6 +167,9 @@ export function ProfileTextFields<F extends CompletionTextField>({
           inputs.current.set(field, node);
         }}
         label={label(locale)}
+        {...(optional && {
+          optional: m.booking_details_optional_field({}, { locale }),
+        })}
         value={draft[field]}
         onChangeText={(value) => onChange(field, value)}
         editable={editable}
