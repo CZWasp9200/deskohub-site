@@ -37,6 +37,7 @@ import {
   ReservationTimeline,
 } from "./components";
 import { loadFixtureReservation, loadFixtureReservations } from "./fixtures";
+import { m } from "./i18n";
 import { ReservationOrderList } from "./payment-components";
 import { OperationTable, OrderTable } from "./payment-tables";
 import { ReservationAccessAdministration } from "./reservation-access-administration";
@@ -96,6 +97,43 @@ describe("administration reservation components", () => {
       kind: "retry-failed",
       reservationId: detail.reservation.id,
     });
+  });
+
+  test("offers retrying access only while no credential exists", () => {
+    const detail = loadFixtureReservation("0198-admin-fixture-attention");
+    if (!detail?.accessGrant) throw new Error("Missing access grant fixture");
+    const { accessGrant } = detail;
+    workspaceUseAction.mockReturnValue({
+      execute: mock(),
+      isExecuting: false,
+    } as never);
+    const offersRetry = (state: typeof accessGrant.state) => {
+      const view = render(
+        <ReservationAccessAdministration
+          grant={{ ...accessGrant, state }}
+          reservationId={detail.reservation.id}
+        />
+      );
+      const offered =
+        view.queryByRole("button", {
+          name: m.administrationReservationAccessRetry({}, { locale: "en-US" }),
+        }) !== null;
+      cleanup();
+      return offered;
+    };
+
+    expect(
+      (
+        [
+          "pending",
+          "failed",
+          "provisioning",
+          "issued",
+          "expired",
+          "uncertain",
+        ] as const
+      ).filter(offersRetry)
+    ).toEqual(["pending", "failed"]);
   });
 
   test("requires explicit manual provider reconciliation for uncertain access", async () => {

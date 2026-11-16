@@ -89,6 +89,8 @@ Operator cancellation is its own guarded workflow, separate from unpaid-hold cle
 
 An operator can restore a cancelled reservation through `ReservationAdministrationService.restore`; the [checkout lifecycle](../../deskohub-workspace-checkout/references/lifecycle.md#administrator-restore) owns its policy, ordering and recovery, and the detail view's restore fields are under [Restore fields on the reservation detail](#restore-fields-on-the-reservation-detail). Refusals carry a `reason`; `refund_acknowledgement_required` also carries `refundedPayment` (amount and coverage) for the operator to acknowledge. A restore moves the reservation's `required` refunds to `not_required`, so they leave the refund work queue. Localize from `reason` and `refundedPayment`, never from the English `message`.
 
+The detail page restores through the `administration.restore-reservation` Server Action (`actions.ts`). Its schema is the contract's `AdministrationReservationRestorationInput` fields plus `reservationId`; spreading the fields drops the contract's strict parse options, so the struct restates them. `publicFailure` words a `ReservationAdministrationError` with `getReservationRestorationErrorMessage(reason, locale, refundedPayment)`. `ReservationRestoration` sits beside `ReservationCancellation` and gets `restoration` only while `canRestore`; it keeps its outcome notices after the refresh hides the dialog.
+
 The payment-attempt refund state is the single refund work queue, shared with late-payment recovery. Surface it through `RefundAttention` (backed by `countReservationsNeedingRefund`, in its own Suspense boundary on Overview and Reservations) and the `needs_refund` status filter that the API and `dhw` share. Check every attempt, not only the latest. When Nexi reports a refund, the attempt becomes `refunded` and leaves the queue.
 
 Derive every payment summary's status from `getAdministrationPaymentStatus` and render amounts through `PaymentAmount`. Add the "Refund recorded" timeline item from the stored refund only when live Nexi details are unavailable, so a refund never appears twice. Customer revenue sums paid attempts minus recorded refunds.
@@ -104,7 +106,7 @@ The detail (`AdministrationService.loadReservation`, contract `AdministrationRes
 
 ## Reservation access recovery
 
-- Retry automatically only from `failed`, a definitive provider rejection.
+- Offer Retry without confirmation only from `failed`, a definitive provider rejection, and from `pending`, which has no credential yet, as after a restore whose issuance failed or never ran.
 - For `uncertain`, direct the operator to the Igloohome app over Bluetooth at the lock to find the access name the detail view shows and remove it or verify it's absent. Require explicit confirmation before changing `uncertain` to `failed` and retrying. Without confirmation, don't retry; let the possible credential expire.
 - Treat a `provisioning` claim older than one minute as ambiguous, with the same workflow. Offer no recovery for a fresh claim.
 
