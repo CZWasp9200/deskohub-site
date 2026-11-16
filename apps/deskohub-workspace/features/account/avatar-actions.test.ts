@@ -84,12 +84,16 @@ const Standing = Context.Service<
   { readonly resolve: typeof resolve }
 >()("@test/AvatarActionsStanding");
 Object.assign(Standing, {
-  Live: Layer.succeed(Standing, {
-    get resolve() {
-      resolverCalls += 1;
-      return resolve;
-    },
-  }),
+  // The standing over the authentication the action provides.
+  ForProvidedAuthentication: Layer.effect(
+    Standing,
+    Effect.map(Authentication, () => ({
+      get resolve() {
+        resolverCalls += 1;
+        return resolve;
+      },
+    }))
+  ),
 });
 mock.module("@/features/account/backend/current-customer-account", () => ({
   CurrentCustomerAccount: Standing,

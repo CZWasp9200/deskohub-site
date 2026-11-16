@@ -15,8 +15,14 @@ import {
   CustomerAccountLinkRequired,
   type CustomerAccountState,
   type CustomerAnalyticsConsentSync,
+  CustomerDataExportUnavailable,
 } from "./customer-account-api";
 import { CustomerAuthRejected } from "./customer-auth-api";
+import {
+  CustomerInvoiceId,
+  type CustomerInvoiceList,
+  CustomerInvoiceNotFound,
+} from "./customer-invoices-api";
 import { CustomerLocale } from "./customer-locale";
 import {
   CustomerInvoiceNotIssued,
@@ -252,6 +258,98 @@ describe("makeWorkspaceCustomerApiClient", () => {
     expect(requests.map((request) => request.url)).toEqual([
       `${baseUrl}/api/customer/reservations/${orderId}/invoice`,
       `${baseUrl}/api/customer/reservations/${orderId}/invoice`,
+    ]);
+  });
+
+  test("decodes the invoice list, and an invoice PDF as its bytes or not found", async () => {
+    const invoiceId = CustomerInvoiceId.make(
+      "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb24"
+    );
+    const list: CustomerInvoiceList = {
+      invoices: [
+        {
+          id: invoiceId,
+          invoiceNumber: "WS-FV-2026-000042",
+          issuedOn: "2026-08-10",
+          total: { amount: "258.80", currency: "CZK" },
+          orderId: CustomerReservationOrderId.make(
+            "019edbcf-5026-7ecc-821b-eda46998eaaa"
+          ),
+        },
+        {
+          id: CustomerInvoiceId.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb23"),
+          invoiceNumber: "WS-FV-2026-000041",
+          issuedOn: "2026-08-01",
+          total: { amount: "-12.5", currency: "EUR" },
+        },
+      ],
+    };
+    const pdf = new TextEncoder().encode("%PDF-1.7\n%%EOF\n");
+    const responses = [
+      () => json(list),
+      () =>
+        new Response(pdf, {
+          headers: {
+            "content-type": "application/pdf",
+            "content-disposition":
+              'attachment; filename="WS-FV-2026-000042.pdf"',
+          },
+        }),
+      () => json({ _tag: "CustomerInvoiceNotFound" }, 404),
+    ];
+    const { client, requests } = recordingClient(() =>
+      responses[requests.length - 1]!()
+    );
+    const download = Effect.flatMap(
+      makeWorkspaceCustomerApiClient({ baseUrl }),
+      (api) => api.invoices.getInvoicePdf({ params: { invoiceId } })
+    );
+
+    expect(
+      await run(
+        Effect.flatMap(makeWorkspaceCustomerApiClient({ baseUrl }), (api) =>
+          api.invoices.listInvoices()
+        ),
+        client
+      )
+    ).toEqual(Result.succeed(list));
+    expect(await run(download, client)).toEqual(Result.succeed(pdf));
+    expect(await run(download, client)).toEqual(
+      Result.fail(new CustomerInvoiceNotFound())
+    );
+    expect(requests.map((request) => request.url)).toEqual([
+      `${baseUrl}/api/customer/invoices`,
+      `${baseUrl}/api/customer/invoices/${invoiceId}/pdf`,
+      `${baseUrl}/api/customer/invoices/${invoiceId}/pdf`,
+    ]);
+  });
+
+  test("decodes the data archive as its bytes, and a refusal as its tagged error", async () => {
+    // A ZIP's local file header signature.
+    const archive = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+    const { client, requests } = recordingClient(() =>
+      requests.length === 1
+        ? new Response(archive, {
+            headers: {
+              "content-type": "application/zip",
+              "content-disposition":
+                'attachment; filename="deskohub-account-data-2026-11-15.zip"',
+            },
+          })
+        : json({ _tag: "CustomerDataExportUnavailable" }, 404)
+    );
+    const download = Effect.flatMap(
+      makeWorkspaceCustomerApiClient({ baseUrl }),
+      (api) => api.account.getDataExport()
+    );
+
+    expect(await run(download, client)).toEqual(Result.succeed(archive));
+    expect(await run(download, client)).toEqual(
+      Result.fail(new CustomerDataExportUnavailable())
+    );
+    expect(requests.map((request) => request.url)).toEqual([
+      `${baseUrl}/api/customer/account/data-export`,
+      `${baseUrl}/api/customer/account/data-export`,
     ]);
   });
 

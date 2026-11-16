@@ -19,7 +19,16 @@ import { EmailRecipientDomainServiceMock } from "@deskohub/email/backend/recipie
 import { testEmailAddress } from "@deskohub/test-email";
 import { eq } from "drizzle-orm";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Duration, Effect, Fiber, Layer, Option, Schema } from "effect";
+import {
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  References,
+  Schema,
+} from "effect";
 import { TestClock } from "effect/testing";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
@@ -41,7 +50,10 @@ import {
   customerAccountUnavailable,
 } from "@/features/account/customer-account";
 import type { ICheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
-import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
+import {
+  CheckoutPricingServiceMock,
+  customerQuotePricingFrom,
+} from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import { WorkspaceTableAssignmentServiceMock } from "@/features/checkout/backend/reservation/workspace-table-assignment.service.mock";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import { getWorkspaceMeetingRoomPriceForDuration } from "@/features/checkout/product-catalog";
@@ -91,6 +103,11 @@ import { NoReviewAccounts } from "@/features/review-accounts/backend/review-acco
 import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
 import { customerAgentNames } from "@/shared/bot-protection/customer-agents";
 import { savedConsentCookie } from "@/shared/testing/consent-cookie.test-utils";
+import {
+  captureLogAnnotationsWithExit,
+  expectScalarLogAnnotations,
+  type LogRowAnnotations,
+} from "@/shared/testing/log-annotations.test-utils";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
@@ -373,6 +390,14 @@ type AdvertisementAffirmationCall = Parameters<
   ICheckoutPricingService["affirmAdvertisement"]
 >[0];
 
+type CustomerQuoteCall = Parameters<
+  ICheckoutPricingService["quoteForCustomer"]
+>[0];
+
+/** The customer quote of the advertisement's affirmed discounts alone. */
+const quoteAdvertisedDiscounts = ({ advertisement }: CustomerQuoteCall) =>
+  buildQuoteFromAdvertisement(advertisement.priced.discountQuote);
+
 /**
  * The pricing service's verdict on a snapshot whose discounts re-evaluate to
  * `discountQuote`: the price changed when the re-evaluated quote's
@@ -575,6 +600,8 @@ const runReusableReservationScenario = async (input: {
    * operation without BotID or an agent.
    */
   readonly serverCaller?: boolean;
+  /** Records every row's log annotations, Debug rows included. */
+  readonly captureLogAnnotations?: boolean;
 }) => {
   const holdsProvided = input.holdForAttempt !== undefined;
   const prepareFromReservationForm = await loadReservationFormPreparation(
@@ -656,18 +683,8 @@ const runReusableReservationScenario = async (input: {
     );
   const quoteForCustomer =
     input.quoteForCustomer ??
-    mock(({ affirmedAdvertisement }) =>
-      Effect.succeed(buildQuoteFromAdvertisement(affirmedAdvertisement))
-    );
-  const quoteForCustomerResult = (
-    pricingInput: Parameters<typeof quoteForCustomer>[0]
-  ) =>
-    quoteForCustomer(pricingInput).pipe(
-      Effect.map((quote) => ({
-        kind: pricingInput.reservation.kind,
-        reservation: pricingInput.reservation,
-        quote,
-      }))
+    mock((quoteCall: CustomerQuoteCall) =>
+      Effect.succeed(quoteAdvertisedDiscounts(quoteCall))
     );
   const findOrCreateCustomer =
     input.findOrCreateCustomer ??
@@ -750,7 +767,7 @@ const runReusableReservationScenario = async (input: {
     ),
     CheckoutPricingServiceMock({
       affirmAdvertisement: affirmAdvertisement as never,
-      quoteForCustomer: quoteForCustomerResult as never,
+      ...customerQuotePricingFrom(quoteForCustomer as never),
     }),
     EmailRecipientDomainServiceMock({ check: checkContactEmailDomain }),
     Layer.mock(WorkspaceAvailabilityService, {
@@ -850,14 +867,29 @@ const runReusableReservationScenario = async (input: {
         TestClock.setTime(Date.now()).pipe(Effect.andThen(bookingPreparation))
       )
     : bookingPreparation;
-  const result = await (input.now
-    ? withInstant(input.now, timedPreparation)
-    : timedPreparation
-  ).pipe(Effect.result, Effect.runPromise);
+  const preparation = (
+    input.now ? withInstant(input.now, timedPreparation) : timedPreparation
+  ).pipe(Effect.result);
+  const { result, logAnnotations } = await (input.captureLogAnnotations
+    ? captureLogAnnotationsWithExit(
+        Effect.provideService(preparation, References.MinimumLogLevel, "Debug")
+      ).pipe(
+        Effect.flatMap(({ rows, exit }) =>
+          Exit.isSuccess(exit)
+            ? Effect.succeed({ result: exit.value, logAnnotations: rows })
+            : Effect.failCause(exit.cause)
+        )
+      )
+    : Effect.map(preparation, (result) => ({
+        result,
+        logAnnotations: [] as readonly LogRowAnnotations[],
+      }))
+  ).pipe(Effect.runPromise);
 
   return {
     result: result._tag === "Success" ? result.success : undefined,
     error: result._tag === "Failure" ? (result.failure as unknown) : undefined,
+    logAnnotations,
     guardEvents: accountAuthority.events,
     enqueueCleanup,
     updateReservationDetails,
@@ -1422,22 +1454,12 @@ describe("prepareWorkspacePayState", () => {
           return advertisementVerdict(affirmation);
         })
     );
-    const quoteForCustomer = mock(({ affirmedAdvertisement }) =>
+    const quoteForCustomer = mock((quoteCall: CustomerQuoteCall) =>
       Effect.sync(() => {
         eventOrder.push("quote");
-        return buildQuoteFromAdvertisement(affirmedAdvertisement);
+        return quoteAdvertisedDiscounts(quoteCall);
       })
     );
-    const quoteForCustomerResult = (
-      pricingInput: Parameters<typeof quoteForCustomer>[0]
-    ) =>
-      quoteForCustomer(pricingInput).pipe(
-        Effect.map((quote) => ({
-          kind: pricingInput.reservation.kind,
-          reservation: pricingInput.reservation,
-          quote,
-        }))
-      );
     const { layer: accountAuthorityLayer } = await accountAuthorityFixture();
     const testLayer = Layer.mergeAll(
       TestSealedStateKeys,
@@ -1445,7 +1467,7 @@ describe("prepareWorkspacePayState", () => {
       inertRememberedReferral(),
       CheckoutPricingServiceMock({
         affirmAdvertisement: affirmAdvertisement as never,
-        quoteForCustomer: quoteForCustomerResult as never,
+        ...customerQuotePricingFrom(quoteForCustomer),
       }),
       BotProtectionServiceMock({ verifyHuman }),
       EmailRecipientDomainServiceMock({
@@ -1550,7 +1572,7 @@ describe("prepareWorkspacePayState", () => {
       "@/features/checkout/backend/checkout"
     );
     const scenario = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
+      holdForAttempt: reuseHold(makeReusableReservation()),
     });
 
     if (scenario.result?.status !== "ready") {
@@ -1561,8 +1583,20 @@ describe("prepareWorkspacePayState", () => {
         Effect.provide(TestSealedStateKeys)
       )
     );
-    expect(scenario.createDraft).not.toHaveBeenCalled();
     expect(state.holdExpiresAt).toBe("2030-07-01T12:00:00.000Z");
+  });
+
+  test("annotates the booking's rows with its quote fingerprint, never the quote", async () => {
+    const scenario = await runReusableReservationScenario({
+      holdForAttempt: reuseHold(makeReusableReservation()),
+      captureLogAnnotations: true,
+    });
+
+    expect(scenario.result?.status).toBe("ready");
+    expectScalarLogAnnotations(scenario.logAnnotations);
+    expect(scenario.logAnnotations).toContainEqual(
+      expect.objectContaining({ quoteFingerprint: expect.any(String) })
+    );
   });
 
   test("quotes a hold another request created for the customer it holds", async () => {
@@ -1610,10 +1644,10 @@ describe("prepareWorkspacePayState", () => {
         })
       ),
       serverCaller: true,
-      quoteForCustomer: mock(({ affirmedAdvertisement, dotyposCustomerId }) =>
-        dotyposCustomerId === "conflict-customer-id"
+      quoteForCustomer: mock((quoteCall: CustomerQuoteCall) =>
+        quoteCall.dotyposCustomerId === "conflict-customer-id"
           ? Effect.fail(repricingFailure)
-          : Effect.succeed(buildQuoteFromAdvertisement(affirmedAdvertisement))
+          : Effect.succeed(quoteAdvertisedDiscounts(quoteCall))
       ),
     });
 
@@ -3244,7 +3278,8 @@ describe("prepareWorkspacePayState", () => {
 
       expect(scenario.result?.status).toBe("ready");
       expect(
-        scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
+        scenario.quoteForCustomer.mock.calls[0]?.[0].advertisement.priced
+          .reservation
       ).toMatchObject({
         name: "Grace Hopper",
         email: testEmailAddressForGrace,
@@ -3484,15 +3519,11 @@ describe("prepareWorkspacePayState", () => {
             linkedAccount: linkedAccount(),
             rememberedReferralCode: "RFL12345",
             evaluateCheckoutReferral,
-            quoteForCustomer: mock(
-              ({ affirmedAdvertisement, referralCode }) => {
-                order.push("quote");
-                quotedReferralCodes.push(referralCode);
-                return Effect.succeed(
-                  buildQuoteFromAdvertisement(affirmedAdvertisement)
-                );
-              }
-            ),
+            quoteForCustomer: mock((quoteCall: CustomerQuoteCall) => {
+              order.push("quote");
+              quotedReferralCodes.push(quoteCall.referralCode);
+              return Effect.succeed(quoteAdvertisedDiscounts(quoteCall));
+            }),
           });
 
           expect(scenario.result?.status).toBe("ready");
@@ -3942,7 +3973,8 @@ describe("prepareWorkspacePayState", () => {
         dotyposCustomerId: "customer-id",
       });
       expect(
-        scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
+        scenario.quoteForCustomer.mock.calls[0]?.[0].advertisement.priced
+          .reservation
       ).toMatchObject({ name: reservation.name, email: reservation.email });
     });
   });

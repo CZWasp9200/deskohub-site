@@ -10,8 +10,11 @@ import {
   CustomerAuthApi as CustomerAuthHttpApi,
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
+  CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
+  CustomerInvoiceNotFound,
   CustomerInvoiceNotIssued,
+  type CustomerInvoicesApi,
   CustomerMarketingPreferencesRejected,
   type CustomerOrderStatus,
   type CustomerProfile,
@@ -54,6 +57,7 @@ import { fakeBookingGroup } from "../../booking/testing/fake-booking-api";
 import {
   type FakeWorkspaceData,
   type SampleAccountKind,
+  sampleEstablishment,
   sampleWorkspaceData,
 } from "./sample-fixtures";
 
@@ -83,6 +87,7 @@ export type FakeRequestOutcome =
 type EndpointName = HttpApiEndpoint.Name<
   | HttpApiGroup.Endpoints<typeof CustomerAccountApi>
   | HttpApiGroup.Endpoints<typeof CustomerReservationsApi>
+  | HttpApiGroup.Endpoints<typeof CustomerInvoicesApi>
   | HttpApiGroup.Endpoints<typeof CustomerAuthEndpoints>
 >;
 
@@ -328,6 +333,15 @@ const accountView = (data: FakeWorkspaceData): CustomerAccountState => ({
     : { assistants: [...data.assistants] }),
 });
 
+/** A ZIP archive with no entries: its end-of-central-directory record. */
+const emptyZipArchive = Uint8Array.of(
+  0x50,
+  0x4b,
+  0x05,
+  0x06,
+  ...new Array<number>(18).fill(0)
+);
+
 const serverLayer = (workspace: FakeWorkspace) => {
   const linkedAccount = Effect.suspend(() => {
     const { account } = workspace.data;
@@ -571,6 +585,15 @@ const serverLayer = (workspace: FakeWorkspace) => {
             update((data) => ({ ...data, account: current }))
           )
         )
+        // The server serves the archive to the sessions whose account is
+        // linked; this one is an empty ZIP.
+        .handle("getDataExport", () =>
+          Effect.suspend(() =>
+            workspace.data.account.kind === "linked"
+              ? Effect.succeed(emptyZipArchive)
+              : Effect.fail(new CustomerDataExportUnavailable())
+          )
+        )
         .handle("requestDeletion", () =>
           Effect.sync(() => {
             const status = workspace.deletionOutcome;
@@ -598,6 +621,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
                 );
           })
         )
+        .handle("getEstablishment", () => Effect.succeed(sampleEstablishment))
         .handle("getReservationStatus", ({ params }) =>
           Effect.map(order(params.orderId), (found) => found.state)
         )
@@ -613,6 +637,24 @@ const serverLayer = (workspace: FakeWorkspace) => {
             found.invoice === undefined
               ? Effect.fail(new CustomerInvoiceNotIssued())
               : Effect.succeed(found.invoice)
+          )
+        )
+  );
+
+  // The sample data issues no invoices yet: the list is empty and every
+  // invoice is not found, as the Workspace answers an account without any.
+  const invoices = HttpApiBuilder.group(
+    WorkspaceCustomerApi,
+    "invoices",
+    (handlers) =>
+      handlers
+        .handle("listInvoices", () =>
+          Effect.as(linkedAccount, { invoices: [] })
+        )
+        .handle("getInvoicePdf", () =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.fail(new CustomerInvoiceNotFound())
           )
         )
   );
@@ -769,7 +811,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
 
   return Layer.mergeAll(
     HttpApiBuilder.layer(WorkspaceCustomerApi).pipe(
-      Layer.provide(Layer.mergeAll(account, reservations, booking)),
+      Layer.provide(Layer.mergeAll(account, reservations, invoices, booking)),
       Layer.provide(customerMiddleware)
     ),
     HttpApiBuilder.layer(CustomerAuthHttpApi).pipe(Layer.provide(auth))

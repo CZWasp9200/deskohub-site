@@ -89,6 +89,24 @@ const checkoutSessionId = "checkout-session-id";
 const submittedCodeDiscountId =
   Schema.decodeUnknownSync(discountIdSchema)("code-discount");
 
+/** Code entry's verdict when the displayed price holds and the code applies. */
+const codeApplied = () => ({
+  status: "affirmed" as const,
+  priced: {
+    kind: "cowork" as const,
+    reservation,
+    quote,
+    submittedCodeDiscountId,
+  },
+});
+
+/** Code entry's verdict when the displayed price changed. */
+const codePriceChanged = (changedKeys: CheckoutSummaryChangedKeys) => ({
+  status: "pricing_changed" as const,
+  priced: { kind: "cowork" as const, reservation, quote },
+  changedKeys,
+});
+
 const makePayStateToken = async (input?: {
   readonly requestedDiscountCode?: CanonicalPromotionCode;
   readonly locale?: Locale;
@@ -205,16 +223,7 @@ const prepareSubmission = async (input?: SubmissionInput) => {
     )
   );
   const applyDiscountCode =
-    input?.applyDiscountCode ??
-    mock(() =>
-      Effect.succeed({
-        kind: "cowork" as const,
-        reservation,
-        status: "applied" as const,
-        submittedCodeDiscountId,
-        quote,
-      })
-    );
+    input?.applyDiscountCode ?? mock(() => Effect.succeed(codeApplied()));
   const lookupCodeKind =
     input?.lookupCodeKind ??
     mock(() => Effect.succeed({ kind: input?.codeKind ?? "other" } as const));
@@ -365,21 +374,7 @@ describe("applyDiscountCodeToPayState", () => {
         rememberedReferralCode: "RFLSHARED",
         applyDiscountCode: mock(() =>
           Effect.succeed(
-            status === "applied"
-              ? {
-                  kind: "cowork" as const,
-                  reservation,
-                  status,
-                  submittedCodeDiscountId,
-                  quote,
-                }
-              : {
-                  kind: "cowork" as const,
-                  reservation,
-                  status,
-                  quote,
-                  changedKeys,
-                }
+            status === "applied" ? codeApplied() : codePriceChanged(changedKeys)
           )
         ),
       });
@@ -800,13 +795,7 @@ describe("applyDiscountCodeToPayState", () => {
       itemKeys: ["product:cowork:basic", "total:final"],
     };
     const applyDiscountCode = mock(() =>
-      Effect.succeed({
-        kind: "cowork" as const,
-        reservation,
-        status: "pricing_changed" as const,
-        quote,
-        changedKeys,
-      })
+      Effect.succeed(codePriceChanged(changedKeys))
     );
     const scenario = await runSubmission({ applyDiscountCode });
 
@@ -1013,20 +1002,8 @@ describe("applyDiscountCodeToPayState", () => {
       const applyDiscountCode = mock(() =>
         Effect.succeed(
           status === "applied"
-            ? {
-                kind: "cowork" as const,
-                reservation,
-                status,
-                submittedCodeDiscountId,
-                quote,
-              }
-            : {
-                kind: "cowork" as const,
-                reservation,
-                status,
-                quote,
-                changedKeys: { sectionKeys: ["total"], itemKeys: [] },
-              }
+            ? codeApplied()
+            : codePriceChanged({ sectionKeys: ["total"], itemKeys: [] })
         )
       );
       const scenario = await runSubmission({ applyDiscountCode });

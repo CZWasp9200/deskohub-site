@@ -23,7 +23,8 @@ import {
   CustomerDiscountCodeRejected,
   CustomerLegalDocumentsChanged,
   type CustomerLocale,
-  type CustomerMeetingRoomDuration,
+  CustomerMeetingRoomDuration,
+  type CustomerMeetingRoomUnavailableDates,
   type CustomerMonitorOption,
   CustomerOfferingUnavailable,
   CustomerQuoteExpired,
@@ -54,6 +55,7 @@ import {
 import { selectionKey } from "../selection/booking-selection";
 import {
   addDays,
+  addMonths,
   type PragueDate,
   pragueDateTimeAt,
   pragueMidnight,
@@ -487,6 +489,15 @@ export const fakeBookingGroup = (workspace: FakeWorkspace) => {
               Effect.sync(() =>
                 meetingRoomStartTimes(booking, query.date, query.duration)
               )
+            )
+          )
+        )
+      )
+      .handle("getMeetingRoomUnavailableDates", ({ query, request }) =>
+        received("getMeetingRoomUnavailableDates", query, request.headers).pipe(
+          Effect.andThen(
+            answer("getMeetingRoomUnavailableDates", () =>
+              meetingRoomUnavailableDates(booking, query)
             )
           )
         )
@@ -1263,26 +1274,62 @@ const meetingRoomStartTimes = (
   duration: CustomerMeetingRoomDuration
 ) => {
   const { hours, length } = meetingRoomSlots[duration];
+  const slots = hours.map((hour) => {
+    const time = `${hour.toString().padStart(2, "0")}:00`;
+    const startsAt = pragueInstant(date, time);
+    return {
+      hour,
+      startDateTime: `${date}T${time}`,
+      startsAt,
+      endsAt: new Date(Date.parse(startsAt) + length * 3_600_000).toISOString(),
+    };
+  });
+  const taken = booking.unavailableDates.includes(date);
   return {
     date,
     duration,
-    startTimes: booking.unavailableDates.includes(date)
+    startTimes: taken
       ? []
-      : hours.map((hour) => {
-          const time = `${hour.toString().padStart(2, "0")}:00`;
-          const startsAt = pragueInstant(date, time);
-          return {
-            startDateTime: `${date}T${time}`,
-            startsAt,
-            endsAt: new Date(
-              Date.parse(startsAt) + length * 3_600_000
-            ).toISOString(),
-            // No room to set up before opening, nor before the 12:00 slot.
-            earlySetupAvailable: hour !== 8 && hour !== 12,
-          };
-        }),
+      : slots.map(({ hour, ...slot }) => ({
+          ...slot,
+          // No room to set up before opening, nor before the 12:00 slot.
+          earlySetupAvailable: hour !== 8 && hour !== 12,
+        })),
+    unavailableStartTimes: taken
+      ? slots.map(({ hour: _hour, ...slot }) => slot)
+      : [],
   };
 };
+
+/** The fake's unavailable dates in the range, the same for every duration. */
+const meetingRoomUnavailableDates = (
+  booking: FakeBookingApi,
+  query: { readonly from?: string; readonly to?: string }
+): Effect.Effect<
+  CustomerMeetingRoomUnavailableDates,
+  CustomerBookingSelectionInvalid
+> =>
+  Effect.suspend(() => {
+    const today = booking.today();
+    const from = query.from ?? today;
+    const to = query.to ?? addMonths(today, 6);
+    // The service lists at most the six-month calendar from `from`.
+    if (to < from || to > addMonths(from, 6)) {
+      return Effect.fail(new CustomerBookingSelectionInvalid({ field: "to" }));
+    }
+    const unavailableDates = booking.unavailableDates.filter(
+      (date) => date >= from && date <= to
+    );
+    return Effect.succeed({
+      from,
+      to,
+      unavailableDates,
+      durations: CustomerMeetingRoomDuration.literals.map((duration) => ({
+        duration,
+        unavailableDates,
+      })),
+    });
+  });
 
 /** The start hours each duration is offered at, and its length in hours. */
 const meetingRoomSlots: Record<

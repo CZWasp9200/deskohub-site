@@ -16,7 +16,7 @@ import {
   testPeekedStandings,
 } from "@/features/account/backend/current-customer-account.test-utils";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
-import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
+import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import {
   CustomerAccountAccessError,
   customerAccountUnavailable,
@@ -42,6 +42,13 @@ import {
   ReservationAuthorizationUnavailableError,
 } from "@/features/reservation/backend/reservation-authorization.service";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+import type { PlainDate } from "@/shared/utils/temporal";
+import {
+  workspaceFormattedAddress,
+  workspaceGoogleDirectionsUrl,
+  workspaceGoogleMapUrl,
+} from "@/shared/utils/workspace-location-map";
 import {
   type CustomerApiCall,
   customerApiRequest,
@@ -56,29 +63,27 @@ const orderId = workspaceReservationIdSchema.make(
 
 /**
  * Authorization that lets the session's own account see `orderId`, read
- * through the authentication the handler hands it.
+ * through the authentication the handler provides.
  */
 const ownOrderAuthorization = (
   authorized: boolean
-): CustomerReservationServiceLayers["authorization"] => {
-  return (authentication) =>
-    Layer.effect(
-      ReservationAuthorizationService,
-      Effect.map(CustomerAuthentication, (session) => {
-        const isAuthorized = (input: ReservationAuthorizationInput) =>
-          session.currentUser.pipe(
-            Effect.map(
-              (user) =>
-                authorized &&
-                input.orderId === orderId &&
-                user?.accountId === testCustomerSession.accountId
-            ),
-            Effect.orElseSucceed(() => false)
-          );
-        return { isAuthorized, authorize: isAuthorized };
-      })
-    ).pipe(Layer.provide(authentication));
-};
+): CustomerReservationServiceLayers["authorization"] =>
+  Layer.effect(
+    ReservationAuthorizationService,
+    Effect.map(CustomerAuthentication, (session) => {
+      const isAuthorized = (input: ReservationAuthorizationInput) =>
+        session.currentUser.pipe(
+          Effect.map(
+            (user) =>
+              authorized &&
+              input.orderId === orderId &&
+              user?.accountId === testCustomerSession.accountId
+          ),
+          Effect.orElseSucceed(() => false)
+        );
+      return { isAuthorized, authorize: isAuthorized };
+    })
+  );
 
 describe("listReservations", () => {
   const listReservations: CustomerApiCall = {
@@ -138,9 +143,9 @@ describe("listReservations", () => {
         })
     );
     const reservations: Partial<CustomerReservationServiceLayers> = {
-      currentAccount: () =>
-        peeking(options.standing ?? testPeekedStandings.linked),
-      history: Layer.mock(CustomerReservationHistoryService, { load }),
+      currentAccount: peeking(options.standing ?? testPeekedStandings.linked),
+      history: () =>
+        Layer.mock(CustomerReservationHistoryWithAccessService, { load }),
     };
     return { load, reservations };
   };
@@ -190,8 +195,8 @@ describe("listReservations", () => {
         },
       ],
     });
-    // Names included, as the account page shows them.
-    expect(load).toHaveBeenCalledWith(testLinkedAccount);
+    // Names included, as the account page shows them, in the default locale.
+    expect(load).toHaveBeenCalledWith(testLinkedAccount, { locale: "en-US" });
   });
 
   test("lists only the reservations an account without a Dotypos customer authored", async () => {
@@ -203,9 +208,180 @@ describe("listReservations", () => {
     const response = await api.handle(customerApiRequest(listReservations));
 
     expect(response.status).toBe(200);
-    expect(load).toHaveBeenCalledWith({
-      accountId: testCustomerSession.accountId,
+    expect(load).toHaveBeenCalledWith(
+      { accountId: testCustomerSession.accountId },
+      { locale: "en-US" }
+    );
+  });
+
+  test("carries each booking's name, access window, booked selection and today's door code", async () => {
+    const { reservations } = historyServices({
+      history: Effect.succeed({
+        kind: "available",
+        groups: {
+          current: [
+            {
+              ...ownReservation,
+              productName: "Open Space",
+              accessStartsAt: "2099-07-01T06:00:00.000Z",
+              accessEndsAt: "2099-07-01T22:00:00.000Z",
+              bookedSelection: {
+                selection: {
+                  family: "cowork",
+                  date: "2099-07-01" as PlainDate,
+                  tier: "open-space",
+                  coffee: true,
+                },
+              },
+              todayAccess: {
+                code: "fixture-access",
+                accessStartsAt: "2099-07-01T06:00:00.000Z",
+                accessEndsAt: "2099-07-01T22:00:00.000Z",
+              },
+            },
+            {
+              ...bookedForOther,
+              id: "meeting-room-order",
+              productName: "Meeting room",
+              bookedSelection: {
+                selection: {
+                  family: "meeting-room",
+                  date: "2099-07-02" as PlainDate,
+                  startTime: "09:00",
+                  duration: "hour:1",
+                },
+                earlySetup: true,
+              },
+            },
+          ],
+          past: [],
+          unavailable: [],
+        },
+      }),
     });
+    const api = makeCustomerApiTestServer({ reservations });
+
+    const response = await api.handle(customerApiRequest(listReservations));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.current[0]).toEqual({
+      id: orderId,
+      orderId,
+      product: { kind: "cowork", tier: "open-space" },
+      productName: "Open Space",
+      startsAt: "2099-07-01T06:00:00Z",
+      endsAt: "2099-07-01T22:00:00Z",
+      seats: 1,
+      status: "confirmed",
+      accessStartsAt: "2099-07-01T06:00:00.000Z",
+      accessEndsAt: "2099-07-01T22:00:00.000Z",
+      bookedSelection: {
+        selection: {
+          family: "cowork",
+          date: "2099-07-01",
+          tier: "open-space",
+          coffee: true,
+        },
+      },
+      todayAccess: {
+        code: "fixture-access",
+        accessStartsAt: "2099-07-01T06:00:00.000Z",
+        accessEndsAt: "2099-07-01T22:00:00.000Z",
+      },
+    });
+    expect(body.current[1]).toMatchObject({
+      productName: "Meeting room",
+      bookedSelection: {
+        selection: {
+          family: "meeting-room",
+          date: "2099-07-02",
+          startTime: "09:00",
+          duration: "hour:1",
+        },
+        earlySetup: true,
+      },
+    });
+    expect(body.current[1]).not.toHaveProperty("todayAccess");
+  });
+
+  test("names the products in the locale the client asks for", async () => {
+    const { load, reservations } = historyServices();
+    const api = makeCustomerApiTestServer({ reservations });
+
+    const response = await api.handle(
+      customerApiRequest({
+        ...listReservations,
+        path: "/reservations?locale=cs-CZ",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(load).toHaveBeenCalledWith(testLinkedAccount, { locale: "cs-CZ" });
+  });
+
+  test("refuses a locale the site doesn't offer", async () => {
+    const { load, reservations } = historyServices();
+    const api = makeCustomerApiTestServer({ reservations });
+
+    const response = await api.handle(
+      customerApiRequest({
+        ...listReservations,
+        path: "/reservations?locale=xx-XX",
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test("builds the history's door codes from the authorization of the session's account", async () => {
+    // The history sees the session's own order only through the
+    // authorization the handler hands it.
+    const history = mock(
+      (
+        authorization: Parameters<
+          CustomerReservationServiceLayers["history"]
+        >[0]
+      ) =>
+        Layer.effect(
+          CustomerReservationHistoryWithAccessService,
+          Effect.map(ReservationAuthorizationService, (authorizations) => ({
+            load: () =>
+              authorizations
+                .isAuthorized({
+                  orderId,
+                  locale: "en-US",
+                  permission: "view-access-code",
+                })
+                .pipe(
+                  Effect.map(
+                    (authorized): CustomerReservationHistory => ({
+                      kind: "available",
+                      groups: {
+                        current: authorized ? [ownReservation] : [],
+                        past: [],
+                        unavailable: [],
+                      },
+                    })
+                  )
+                ),
+          }))
+        ).pipe(Layer.provide(authorization))
+    );
+    const api = makeCustomerApiTestServer({
+      reservations: {
+        currentAccount: peeking(testPeekedStandings.linked),
+        authorization: ownOrderAuthorization(true),
+        history,
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(listReservations));
+
+    expect(response.status).toBe(200);
+    expect(history).toHaveBeenCalledTimes(1);
+    expect((await response.json()).current).toHaveLength(1);
   });
 
   test("tells an account whose deletion is pending why it has no history", async () => {
@@ -320,6 +496,41 @@ describe("getReservationStatus", () => {
     expect(refreshStatus).toHaveBeenCalledWith({
       orderId,
       returnOutcome: "unknown",
+    });
+  });
+
+  test("answers the order's booked selection beside its status", async () => {
+    const refreshStatus = mock(() =>
+      Effect.succeed({
+        ...fulfilledOrder,
+        bookedSelection: {
+          selection: {
+            family: "meeting-room",
+            date: "2026-06-20" as PlainDate,
+            startTime: "10:15",
+            duration: "hour:1",
+          },
+          earlySetup: true,
+        },
+      } as CheckoutStatusViewModel)
+    );
+    const api = makeCustomerApiTestServer({
+      reservations: statusServices(refreshStatus),
+    });
+
+    const response = await api.handle(customerApiRequest(getReservationStatus));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      bookedSelection: {
+        selection: {
+          family: "meeting-room",
+          date: "2026-06-20",
+          startTime: "10:15",
+          duration: "hour:1",
+        },
+        earlySetup: true,
+      },
     });
   });
 
@@ -717,6 +928,31 @@ describe("getReservationInvoice", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
       _tag: "CustomerServiceUnavailable",
+    });
+  });
+});
+
+describe("getEstablishment", () => {
+  const getEstablishment: CustomerApiCall = {
+    method: "GET",
+    path: "/reservations/establishment",
+  };
+
+  testCustomerEndpointGuards(getEstablishment);
+
+  test("answers where the space is from the site's location", async () => {
+    const api = makeCustomerApiTestServer();
+
+    const response = await api.handle(customerApiRequest(getEstablishment));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      name: workspaceSiteConstants.brand.name,
+      formattedAddress: workspaceFormattedAddress,
+      address: workspaceSiteConstants.location.address,
+      coordinates: workspaceSiteConstants.location.coordinates,
+      directionsUrl: workspaceGoogleDirectionsUrl,
+      mapUrl: workspaceGoogleMapUrl,
     });
   });
 });

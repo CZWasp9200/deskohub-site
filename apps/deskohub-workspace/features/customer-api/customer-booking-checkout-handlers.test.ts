@@ -15,6 +15,7 @@ import {
   peeking,
   testPeekedStandings,
 } from "@/features/account/backend/current-customer-account.test-utils";
+import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import {
   CheckoutError,
   CheckoutService,
@@ -1175,6 +1176,53 @@ describe("acceptCheckoutPriceChange", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(expectedReadyCheckout);
+  });
+
+  test("builds the operations over the authentication the request is read through", async () => {
+    const accepted = {
+      acceptPriceChange: () =>
+        Effect.succeed({
+          status: "accepted" as const,
+          payStateToken: readyToken,
+          payUrl: "/en-US/checkout/pay?payState=accepted",
+          expiresAt: "2099-07-01T10:13:00.000Z",
+        }),
+    };
+    // Operations that read the session once more when they accept a price,
+    // through the authentication they were built over.
+    const sessionReading = Layer.effect(
+      CustomerCheckoutOperations,
+      Effect.gen(function* () {
+        const authentication = yield* CustomerAuthentication;
+        const operations = yield* Effect.provide(
+          CustomerCheckoutOperations,
+          operationsWith(accepted)
+        );
+        return CustomerCheckoutOperations.of({
+          ...operations,
+          acceptPriceChange: (input) =>
+            authentication.currentUser.pipe(
+              Effect.orDie,
+              Effect.andThen(operations.acceptPriceChange(input))
+            ),
+        });
+      })
+    );
+    const quiet = makeCustomerApiTestServer({
+      bookingCheckout: { operations: operationsWith(accepted) },
+    });
+    const reading = makeCustomerApiTestServer({
+      bookingCheckout: { operations: sessionReading },
+    });
+
+    const quietResponse = await quiet.handle(customerApiRequest(acceptPrice));
+    const readingResponse = await reading.handle(
+      customerApiRequest(acceptPrice)
+    );
+
+    expect(quietResponse.status).toBe(200);
+    expect(readingResponse.status).toBe(200);
+    expect(reading.records.sessionReads).toBe(quiet.records.sessionReads + 1);
   });
 
   test("answers an expired checkout state as expired", async () => {

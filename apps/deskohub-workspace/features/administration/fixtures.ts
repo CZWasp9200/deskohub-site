@@ -352,7 +352,6 @@ export const loadFixtureReservation = (
     reservation,
     operatorNotice: null,
     canCancel: true,
-    requiresProviderCredentialRemoval: false,
     timeline: [
       {
         id: "fixture-checkout",

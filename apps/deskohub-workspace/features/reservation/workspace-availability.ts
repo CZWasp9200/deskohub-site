@@ -48,6 +48,7 @@ import {
   instantStringSchema,
   isPlainDateString,
   localDateTimeSchema,
+  type PlainDate,
   plainDateStringSchema,
 } from "@/shared/utils/temporal";
 
@@ -168,11 +169,48 @@ const meetingRoomStartTimesResponseSchema = Schema.Struct({
       earlySetupAvailable: Schema.Boolean,
     })
   ),
+  /**
+   * Starts the form accepts that the room isn't free for, in chronological
+   * order, each with the interval it would book. Starts already past are in
+   * neither list.
+   */
+  unavailableStartTimes: Schema.Array(
+    Schema.Struct({
+      startDateTime: localDateTimeSchema,
+      startsAt: instantStringSchema,
+      endsAt: instantStringSchema,
+    })
+  ),
 });
 
-/** Every free meeting-room start on one Prague date for one duration. */
+/**
+ * Every meeting-room start on one Prague date for one duration, free and
+ * taken.
+ */
 export type MeetingRoomStartTimes =
   typeof meetingRoomStartTimesResponseSchema.Type;
+
+/** An inclusive range of Prague dates for the meeting-room calendar. */
+export type MeetingRoomUnavailableDatesQuery = {
+  readonly from: string;
+  readonly to: string;
+};
+
+/**
+ * The meeting-room calendar for a date range: the dates without a free start
+ * of any length, and for each purchasable length the dates without a free
+ * start of it.
+ */
+export type MeetingRoomUnavailableDates = {
+  readonly from: PlainDate;
+  readonly to: PlainDate;
+  readonly unavailableDates: readonly PlainDate[];
+  /** One entry per purchasable length, in catalog order. */
+  readonly durations: ReadonlyArray<{
+    readonly duration: MeetingRoomReservationDurationKey;
+    readonly unavailableDates: readonly PlainDate[];
+  }>;
+};
 
 export type WorkspaceAvailabilityNotice =
   typeof workspaceAvailabilityNoticeSchema.Type;
@@ -209,6 +247,23 @@ export const getWorkspaceAvailabilityRange = (today: string) => ({
   from: today,
   to: Temporal.PlainDate.from(today).add({ months: 6 }).toString(),
 });
+
+/**
+ * The meeting-room calendar query for a requested range. A bound the request
+ * leaves out comes from the calendar range from the workspace's current date.
+ */
+export const getMeetingRoomUnavailableDatesQuery = ({
+  from,
+  to,
+  today,
+}: {
+  readonly from?: string;
+  readonly to?: string;
+  readonly today: string;
+}): MeetingRoomUnavailableDatesQuery => {
+  const range = getWorkspaceAvailabilityRange(today);
+  return { from: from ?? range.from, to: to ?? range.to };
+};
 
 type CoworkAvailabilityQueries = {
   /** The selected tier's calendar range. */

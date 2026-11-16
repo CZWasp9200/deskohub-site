@@ -218,21 +218,9 @@ export class ReservationFulfillment extends Context.Service<
 
       const processReservationInvoice = Effect.fn(
         "workspacePaidFulfillment.processReservationInvoice"
-      )(function* (
-        reservation: Pick<WorkspaceReservation, "activePaymentAttemptId" | "id">
-      ) {
-        if (!reservation.activePaymentAttemptId) {
-          yield* Effect.logWarning(
-            "Reservation invoice processing skipped: payment attempt missing",
-            { orderId: reservation.id }
-          );
-          return;
-        }
-
+      )(function* (reservation: Pick<WorkspaceReservation, "id">) {
         yield* reservationInvoices
-          .processByPaymentAttemptId({
-            paymentAttemptId: reservation.activePaymentAttemptId,
-          })
+          .issueAfterFulfillment({ reservationId: reservation.id })
           .pipe(
             Effect.tapError((cause) =>
               Effect.logFatal("Reservation invoice processing failed", {
@@ -298,21 +286,9 @@ export class ReservationFulfillment extends Context.Service<
       // recorded; the provider's retry of the report retries the invoice.
       const processDeliveredReservationInvoice = Effect.fn(
         "resendWebhook.processReservationInvoice"
-      )(function* (
-        reservation: Pick<WorkspaceReservation, "activePaymentAttemptId" | "id">
-      ) {
-        if (!reservation.activePaymentAttemptId) {
-          yield* Effect.logWarning(
-            "Reservation invoice processing skipped: payment attempt missing",
-            { workspaceReservationId: reservation.id }
-          );
-          return;
-        }
-
+      )(function* (reservation: Pick<WorkspaceReservation, "id">) {
         yield* reservationInvoices
-          .processByPaymentAttemptId({
-            paymentAttemptId: reservation.activePaymentAttemptId,
-          })
+          .issueAfterFulfillment({ reservationId: reservation.id })
           .pipe(
             Effect.mapError(
               (cause) =>
@@ -886,7 +862,6 @@ export class ReservationFulfillment extends Context.Service<
         run: Effect.fn("workspacePaidFulfillment.fulfillPaidOrder")(
           function* (orderId) {
             const input = { orderId };
-            yield* Effect.annotateLogsScoped({ input });
             yield* Effect.logInfo("Paid fulfillment started");
 
             yield* Effect.logDebug(

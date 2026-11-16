@@ -34,6 +34,7 @@ import {
 } from "effect";
 import type { HttpApiBuilder } from "effect/unstable/httpapi";
 import { env } from "@/env";
+import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import {
   CheckoutService,
   getPaymentReturnDestination,
@@ -111,6 +112,12 @@ export const handleCustomerBookingCheckout = <R>(
   Effect.gen(function* () {
     const { operations, checkout, inventory, releases } =
       yield* CustomerBookingCheckoutLayers;
+    // The authentication the session middleware read the request through,
+    // which the operations read the session through.
+    const authentication = Layer.succeed(
+      CustomerAuthentication,
+      yield* CustomerAuthentication
+    );
 
     /**
      * One request's services: its release gates, decided once and shared
@@ -121,7 +128,11 @@ export const handleCustomerBookingCheckout = <R>(
       referralCode: string | undefined,
       services: Layer.Layer<A, E, R>
     ) =>
-      Layer.mergeAll(operations, inventory, services).pipe(
+      Layer.mergeAll(
+        operations.pipe(Layer.provide(authentication)),
+        inventory,
+        services
+      ).pipe(
         Layer.provideMerge(
           Layer.mergeAll(
             CustomerReferralUpdates.fromClient(referralCode),
