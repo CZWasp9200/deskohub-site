@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
+import { makeRecordingAdvisoryLock } from "@/db/postgres-advisory-lock.test-utils";
 import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import {
   makeCoworkInvoiceDocument,
@@ -177,6 +178,7 @@ const makeRecoveryHarness = (options: {
   } as never;
   const layer = LatePaymentRecoveryService.Default.pipe(
     Layer.provide(UnpaidHoldRelease.Default),
+    Layer.provide(makeRecordingAdvisoryLock().layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(LatePaymentRecoveryRepository, {

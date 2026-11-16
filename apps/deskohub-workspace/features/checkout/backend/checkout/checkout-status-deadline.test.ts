@@ -22,12 +22,11 @@ import { getNexiCurrencyOverride } from "../payment/nexi-currency";
 import { ProviderPaymentFinalizationService } from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
 import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
-import {
-  PaymentLifecycleRepository,
-  PaymentLifecycleStateError,
-} from "../repositories/payment-lifecycle.repository";
+import { PaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
+import { PaymentLifecycleStateError } from "../repositories/payment-lifecycle-state";
 import { CheckoutStatusService } from "./checkout-status.service";
 import { loadCheckoutStatusPage } from "./checkout-status-page.server";
+import { observePaymentPagesAs } from "./payment-page-provider-status.test-utils";
 
 mock.module("server-only", () => ({}));
 
@@ -128,6 +127,7 @@ const loadStatusPageOnTestClock = (options: {
   }).pipe(
     Effect.provide(
       CheckoutStatusService.Default.pipe(
+        Layer.provide(observePaymentPagesAs("unknown").layer),
         Layer.provide(
           Layer.mergeAll(
             ProviderPaymentFinalizationService.Default,

@@ -6,6 +6,8 @@ import {
   type CustomerAgentConnection,
   type CustomerCompanyDetails,
   type CustomerEstablishment,
+  type CustomerInvoice,
+  CustomerInvoiceId,
   type CustomerMarketingPreferences,
   type CustomerOrderFulfillmentStatus,
   type CustomerOrderPaymentStatus,
@@ -38,11 +40,19 @@ export interface SampleOrder {
   readonly invoice?: Uint8Array;
 }
 
+/** An issued invoice and its PDF; a PDF the Workspace can't find is absent. */
+export interface SampleInvoice {
+  readonly invoice: CustomerInvoice;
+  readonly pdf?: Uint8Array;
+}
+
 export interface FakeWorkspaceData {
   readonly accountId: CustomerAccountId;
   readonly account: CustomerAccountState;
   readonly history: CustomerReservationHistory;
   readonly orders: ReadonlyMap<string, SampleOrder>;
+  /** The account's issued invoices, newest issue first. */
+  readonly invoices: ReadonlyArray<SampleInvoice>;
   readonly passkeys: ReadonlyArray<AccountPasskey>;
   readonly assistants: ReadonlyArray<CustomerAgentConnection>;
   readonly marketing: CustomerMarketingPreferences;
@@ -615,6 +625,7 @@ const sampleReferrals: ReferralAccountOverview = {
     savings: [{ value: 15000, exponent: 2, currency: "CZK" }],
   },
   shareUrl: "https://workspace.deskohub.example/r/SAMPLE-ALEX",
+  discountPerInvitee: "5",
 };
 
 const sampleAccount = (
@@ -687,6 +698,45 @@ const asReviewSandbox = (
   ),
 });
 
+export const sampleInvoiceIds = {
+  desk: CustomerInvoiceId.make("sample-invoice-desk"),
+  meetingRoom: CustomerInvoiceId.make("sample-invoice-meeting-room"),
+  /** Listed, but its PDF can't be found: the download fails. */
+  office: CustomerInvoiceId.make("sample-invoice-office"),
+} as const;
+
+/** The issued invoices of the linked sample account, newest first. */
+export const sampleInvoices = (): ReadonlyArray<SampleInvoice> => [
+  {
+    invoice: {
+      id: sampleInvoiceIds.desk,
+      invoiceNumber: "2026-0412",
+      issuedOn: "2026-11-26",
+      total: { amount: "258.80", currency: "CZK" },
+      orderId: sampleOrderIds.fulfilled,
+    },
+    pdf: sampleInvoicePdf(),
+  },
+  {
+    invoice: {
+      id: sampleInvoiceIds.meetingRoom,
+      invoiceNumber: "2026-0377",
+      issuedOn: "2026-11-02",
+      total: { amount: "280", currency: "CZK" },
+      orderId: sampleOrderIds.past,
+    },
+    pdf: sampleInvoicePdf(),
+  },
+  {
+    invoice: {
+      id: sampleInvoiceIds.office,
+      invoiceNumber: "2026-0341",
+      issuedOn: "2026-10-15",
+      total: { amount: "7260", currency: "CZK" },
+    },
+  },
+];
+
 /** A complete synthetic Workspace for one account in the given state. */
 export const sampleWorkspaceData = (
   kind: SampleAccountKind,
@@ -697,6 +747,7 @@ export const sampleWorkspaceData = (
   ...(kind === "review-account"
     ? asReviewSandbox(sampleHistory(now), sampleOrders(now))
     : { history: sampleHistory(now), orders: sampleOrders(now) }),
+  invoices: kind === "linked" ? sampleInvoices() : [],
   passkeys: samplePasskeys(now),
   assistants: sampleAssistants(now),
   marketing: { status: "active", context: "sample-marketing-context-1" },

@@ -26,11 +26,11 @@ const accountOf = (kind: SampleAccountKind): CustomerAccountState =>
 describe("accountIndexModel", () => {
   // biome-ignore format: the case table stays one row per line on purpose.
   const cases: ReadonlyArray<readonly [SampleAccountKind, ReadonlyArray<AccountSection>, AccountNotice | undefined]> = [
-    ["linked", ["referrals", "profile", "language", "security", "assistants", "billing", "legal", "danger"], undefined],
-    ["completion-required", ["complete", "language", "security", "assistants", "legal", "danger"], "completion-required"],
-    ["support-required", ["language", "security", "assistants", "legal", "danger"], "support-required"],
-    ["authenticated-unavailable", ["language", "security", "assistants", "legal", "danger"], "unavailable"],
-    ["review-account", ["language", "security", "assistants", "legal"], undefined],
+    ["linked", ["profile", "security", "assistants", "billing", "invoices", "language", "referrals", "legal", "danger"], undefined],
+    ["completion-required", ["complete", "security", "assistants", "language", "legal", "danger"], "completion-required"],
+    ["support-required", ["security", "assistants", "language", "legal", "danger"], "support-required"],
+    ["authenticated-unavailable", ["security", "assistants", "language", "legal", "danger"], "unavailable"],
+    ["review-account", ["security", "assistants", "language", "legal"], undefined],
     ["deletion-pending", ["security", "legal", "danger"], "deletion-pending"],
   ];
 
@@ -49,6 +49,18 @@ describe("accountIndexModel", () => {
     expect(
       accountIndexModel({ ...linked, referralsEnabled: false }).sections
     ).not.toContain("referrals");
+  });
+
+  test("shows payment methods only to a linked account while released", () => {
+    const shown = (kind: SampleAccountKind, paymentMethods: boolean) =>
+      accountIndexModel(accountOf(kind), { paymentMethods }).sections.includes(
+        "payment-methods"
+      );
+
+    expect(shown("linked", true)).toBe(true);
+    expect(shown("linked", false)).toBe(false);
+    expect(shown("completion-required", true)).toBe(false);
+    expect(shown("review-account", true)).toBe(false);
   });
 
   test("hides sign-in & security while passkeys aren't released", () => {
@@ -84,9 +96,9 @@ describe("accountIndexModel", () => {
 
     expect(accountIndexModel(result.success).sections).toEqual([
       "complete",
-      "language",
       "security",
       "assistants",
+      "language",
       "legal",
       "danger",
     ]);

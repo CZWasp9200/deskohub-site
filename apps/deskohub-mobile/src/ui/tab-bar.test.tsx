@@ -44,6 +44,7 @@ const render = ({
   events = [] as Array<{ type: string; target?: string }>,
   navigated = [] as string[],
   prevent = false,
+  hidden = false,
 } = {}) => {
   const props = {
     state: { index, routes },
@@ -62,6 +63,7 @@ const render = ({
     navigateToTab: (key: string) => navigated.push(key),
     insets: { top: 0, right: 0, bottom: 24, left: 0 },
     items: shown,
+    hidden,
   } as unknown as TabBarProps;
   return elementTree(TabBar, props, (node) => (
     <ToastProvider>{node}</ToastProvider>
@@ -82,6 +84,10 @@ const content = (tab: TabProps, pressed = false) =>
   tab.children({ pressed }) as ReactElement<{ style: unknown }>;
 
 describe("TabBar", () => {
+  test("a hidden bar draws nothing", () => {
+    expect(render({ hidden: true })).toBeNull();
+  });
+
   test("lists the tabs in the navigator's order, each named by its title", () => {
     const tree = render();
     expect(tree.props.role).toBe("tablist");

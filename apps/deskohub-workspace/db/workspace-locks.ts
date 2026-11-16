@@ -1,6 +1,7 @@
 import { Effect, Order } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceTransaction } from "./database.service";
 import type { DatabaseQueryError } from "./sql-constraint";
 import {
@@ -138,6 +139,21 @@ export const WorkspaceLockSections = {
       name: "signInEmail",
       rank: 0,
       pair: ["sign-in-email", addressDigest],
+    }),
+  /**
+   * Serializes the workflows that change an order's hold or settle its
+   * payments outside a checkout: hold cleanup and late-payment recovery. Each
+   * holds it across its provider calls, so one never sees the other's
+   * half-done release. It ranks below every transaction lock those workflows
+   * take (the referral locks first), so none of them needs a bounded wait;
+   * a workflow that also needs the customer account section enters that
+   * inside this one.
+   */
+  reservationOrder: (orderId: WorkspaceReservationId) =>
+    holdSection({
+      name: "reservationOrder",
+      rank: 5,
+      pair: ["reservation-order", orderId],
     }),
   customerAccount: (accountId: CustomerAccountId) =>
     holdSection({

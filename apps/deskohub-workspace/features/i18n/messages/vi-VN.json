@@ -627,7 +627,7 @@
   "reservationLegalConsentAnd": "và",
   "reservationLegalConsentPrivacyLink": "Chính sách bảo vệ dữ liệu cá nhân",
   "reservationPrivacyNote": "Chúng tôi dùng thông tin của bạn để xử lý đặt chỗ, gửi xác nhận và phòng chống lạm dụng. Xem thêm trong <privacyPolicy>Chính sách bảo vệ dữ liệu cá nhân</privacyPolicy>.",
-  "reservationMarketingConsent": "Tôi đồng ý để Desktechub s.r.o. dùng email của tôi để thỉnh thoảng gửi tin tức, lời mời tham gia sự kiện và ưu đãi của Deskohub Workspace. Việc đồng ý là tự nguyện và tôi có thể rút lại sự đồng ý bất cứ lúc nào. Xem chi tiết trong tài liệu <marketingConsent>Đồng ý nhận thông tin tiếp thị</marketingConsent>.",
+  "reservationMarketingConsent": "Gửi cho tôi email về tin tức, sự kiện và ưu đãi của Deskohub Workspace. Có thể hủy đăng ký bất cứ lúc nào. Xem chi tiết trong tài liệu <marketingConsent>Đồng ý nhận thông tin tiếp thị</marketingConsent>.",
   "reservationSuccessMessage": "Yêu cầu đặt chỗ đã được gửi. Chúng tôi sẽ sớm xác nhận bước tiếp theo.",
   "reservationErrorMessage": "Không thể bắt đầu thanh toán. Hãy kiểm tra lại thông tin và thử lại.",
   "reservationAdvertisedPriceLoading": "Đang cập nhật giá cho lựa chọn của bạn...",

@@ -1,8 +1,10 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import { Schema } from "effect";
 import { discountIdSchema } from "@/features/discounts/contracts";
+import { m } from "@/features/i18n";
 import { workspaceSiteConstants } from "@/shared/utils";
 import type { InvoiceDocument } from "./invoice";
 import {
@@ -133,7 +135,9 @@ describe("invoice presentation", () => {
         "DIČ: CZ12345678",
       ],
     });
-    expect(presentation.nonVatStatement).toBe("Nejsme plátci DPH.");
+    expect(presentation.vatStatement).toBe(
+      m.invoiceNonVatPayerStatement({}, { locale: "cs-CZ" })
+    );
   });
 
   test("shows immutable discounts before the final paid total", () => {
@@ -250,5 +254,31 @@ describe("invoice presentation", () => {
 
     expect(presentation.buyer.details).toContain("not-a-region");
     expect(presentation.supplier.details).toContain("Czechia");
+  });
+
+  describe.each(supportedLocales)("the %s VAT statement", (locale) => {
+    const documents = [
+      makeCoworkInvoiceDocument(locale),
+      makeTestManualInvoiceDocument(locale),
+    ];
+
+    test("states that the supplier is not a VAT payer, as issued", () => {
+      for (const document of documents) {
+        expect(document.supplier.vatStatus).toBe("not-vat-payer");
+        expect(getInvoicePresentation(document).vatStatement).toBe(
+          m.invoiceNonVatPayerStatement({}, { locale })
+        );
+      }
+    });
+
+    test("states nothing on an invoice issued as a VAT payer", () => {
+      for (const document of documents) {
+        const presentation = getInvoicePresentation({
+          ...document,
+          supplier: { ...document.supplier, vatStatus: "vat-payer" },
+        });
+        expect(presentation.vatStatement).toBeUndefined();
+      }
+    });
   });
 });

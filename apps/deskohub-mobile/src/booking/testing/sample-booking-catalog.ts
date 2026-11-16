@@ -298,6 +298,7 @@ export const sampleSummary = ({
       { key: "total", items: [{ key: "total:final", amount: total }], total },
     ],
     total,
+    vatStatus: "not-vat-payer",
   };
 };
 
