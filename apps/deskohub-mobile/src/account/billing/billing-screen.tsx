@@ -8,29 +8,13 @@ import { useEffect } from "react";
 import { KeyboardAvoidingView, StyleSheet, View } from "react-native";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
-import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { ChoiceList } from "../../ui/choice-list";
-import { CountryField } from "../../ui/country-field";
-import { FieldPair } from "../../ui/field-pair";
 import { SectionHeader } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { useToast } from "../../ui/toast";
 import { color, space } from "../../ui/tokens";
-import type {
-  BillingChoice,
-  CompletionTextField,
-  ProfileDraft,
-  ProfileDraftInvalid,
-  ProfileTextField,
-} from "../profile/profile-draft";
-import {
-  type ProfileFieldRefs,
-  ProfileTextFields,
-  profileFieldProblemMessage,
-} from "../profile/profile-fields";
 import {
   invalidOf,
   UnsavedChangesGuard,
@@ -39,8 +23,13 @@ import {
 } from "../profile/profile-form";
 import { ProfileFormFooter } from "../profile/profile-form-footer";
 import { ReturnToAccountRoot } from "../return-to-account-root";
-import { BillingCompanyLookup } from "./billing-company-lookup";
-import { billingChoiceOrder, billingFormView } from "./billing-form-model";
+import { billingFormView } from "./billing-form-model";
+import {
+  BillingAddressSection,
+  BillingChoices,
+  BillingCompanySection,
+  type BillingFieldProps,
+} from "./billing-sections";
 
 type LinkedAccount = Extract<CustomerAccountState, { kind: "linked" }>;
 
@@ -75,20 +64,6 @@ export function BillingScreen() {
     </ScrollScreen>
   );
 }
-
-const choiceLabel = (choice: BillingChoice, locale: AppLocale) =>
-  ({
-    none: m.profile_billing_none,
-    personal: m.profile_billing_personal,
-    business: m.profile_billing_business,
-  })[choice]({}, { locale });
-
-const choiceDescription = (choice: BillingChoice, locale: AppLocale) =>
-  ({
-    none: m.billing_none_description,
-    personal: m.billing_personal_description,
-    business: m.billing_business_description,
-  })[choice]({}, { locale });
 
 function BillingForm({
   account,
@@ -143,16 +118,11 @@ function BillingForm({
                   first
                   title={m.billing_invoices_go_to({}, { locale })}
                 />
-                <ChoiceList
-                  label={m.billing_invoices_go_to({}, { locale })}
-                  choices={billingChoiceOrder.map((choice) => ({
-                    value: choice,
-                    label: choiceLabel(choice, locale),
-                    description: choiceDescription(choice, locale),
-                  }))}
+                <BillingChoices
                   selected={form.draft.billingKind}
                   onSelect={form.setBillingKind}
                   disabled={saving}
+                  locale={locale}
                 />
                 {/* Kept mounted so assistive tech announces it. */}
                 <Notice
@@ -165,30 +135,9 @@ function BillingForm({
                 />
               </View>
               {view.company && (
-                <View style={styles.section}>
-                  <SectionHeader
-                    title={m.billing_company_section({}, { locale })}
-                  />
-                  <ProfileTextFields
-                    {...fields}
-                    fields={["companyName", "companyId"]}
-                  />
-                  <BillingCompanyLookup
-                    draft={form.draft}
-                    onApply={form.change}
-                    disabled={saving}
-                    locale={locale}
-                  />
-                  <ProfileTextFields {...fields} fields={["vatId"]} />
-                </View>
+                <BillingCompanySection {...fields} onApply={form.change} />
               )}
-              {view.address && (
-                <AddressSection
-                  {...fields}
-                  country={form.draft.country}
-                  onCountry={(code) => form.setField("country", code)}
-                />
-              )}
+              {view.address && <BillingAddressSection {...fields} />}
             </>
           )}
         </AsyncView>
@@ -206,57 +155,6 @@ function BillingForm({
         locale={locale}
       />
     </KeyboardAvoidingView>
-  );
-}
-
-/** The props every `ProfileTextFields` of the billing form shares. */
-interface BillingFieldProps {
-  readonly draft: ProfileDraft;
-  readonly invalid: ProfileDraftInvalid<CompletionTextField> | undefined;
-  readonly onChange: (field: ProfileTextField, value: string) => void;
-  readonly inputs: ProfileFieldRefs;
-  readonly editable: boolean;
-  readonly locale: AppLocale;
-}
-
-/** Street and apartment, then city and postal code side by side, then the country. */
-function AddressSection({
-  country,
-  onCountry,
-  ...fields
-}: BillingFieldProps & {
-  readonly country: string;
-  readonly onCountry: (code: string) => void;
-}) {
-  const { locale, invalid, editable } = fields;
-  const problem = invalid?.fields.country;
-  return (
-    <View style={styles.section}>
-      <SectionHeader title={m.billing_address_section({}, { locale })} />
-      <ProfileTextFields
-        {...fields}
-        fields={["addressLine1", "addressLine2"]}
-      />
-      <FieldPair
-        wide={<ProfileTextFields {...fields} fields={["city"]} />}
-        narrow={<ProfileTextFields {...fields} fields={["zip"]} />}
-      />
-      <CountryField
-        label={m.booking_details_country({}, { locale })}
-        value={country}
-        onChange={onCountry}
-        error={
-          problem === undefined
-            ? undefined
-            : profileFieldProblemMessage("country", problem, locale)
-        }
-        disabled={!editable}
-        locale={locale}
-        ref={(node) => {
-          fields.inputs.current.set("country", node);
-        }}
-      />
-    </View>
   );
 }
 
