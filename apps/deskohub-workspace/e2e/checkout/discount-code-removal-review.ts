@@ -54,25 +54,40 @@ export const getDiscountCodeRemovalReviewArtifactPath = (
     `${target}-${viewport}.png`
   );
 
+type PayPageOwnership = {
+  readonly baseUrl: string;
+  readonly orderId: WorkspaceReservationId;
+  /**
+   * The Pay state already seen on this order's Pay page. A refused code change
+   * redirects with the same Pay state and no order id.
+   */
+  readonly payState?: string;
+};
+
 /** Whether `actualUrl` is this order's Pay page on the target deployment. */
 export const isOwnedPayPageUrl = ({
   actualUrl,
   baseUrl,
   orderId,
-}: {
-  readonly actualUrl: string;
-  readonly baseUrl: string;
-  readonly orderId: WorkspaceReservationId;
-}) => {
+  payState,
+}: PayPageOwnership & { readonly actualUrl: string }) => {
   const actual = URL.parse(actualUrl);
   const base = URL.parse(baseUrl);
+  if (
+    actual === null ||
+    base === null ||
+    actual.origin !== base.origin ||
+    actual.pathname !== "/en-US/checkout/pay"
+  )
+    return false;
+  const orderIds = actual.searchParams.getAll("orderId");
+  if (orderIds.length > 0)
+    return orderIds.length === 1 && orderIds[0] === orderId;
+  const payStates = actual.searchParams.getAll("payState");
   return (
-    actual !== null &&
-    base !== null &&
-    actual.origin === base.origin &&
-    actual.pathname === "/en-US/checkout/pay" &&
-    actual.searchParams.getAll("orderId").length === 1 &&
-    actual.searchParams.get("orderId") === orderId
+    payState !== undefined &&
+    payStates.length === 1 &&
+    payStates[0] === payState
   );
 };
 
@@ -82,10 +97,7 @@ const removeControl = (page: Page) =>
 const capture = async (
   page: Page,
   target: DiscountCodeRemovalReviewTarget,
-  ownership: {
-    readonly baseUrl: string;
-    readonly orderId: WorkspaceReservationId;
-  }
+  ownership: PayPageOwnership
 ) => {
   const originalViewport = page.viewportSize();
   try {
@@ -117,13 +129,7 @@ const capture = async (
   }
 };
 
-const assertOwned = (
-  actualUrl: string,
-  ownership: {
-    readonly baseUrl: string;
-    readonly orderId: WorkspaceReservationId;
-  }
-) => {
+const assertOwned = (actualUrl: string, ownership: PayPageOwnership) => {
   if (!isOwnedPayPageUrl({ actualUrl, ...ownership })) {
     throw new Error("discount-code review is outside its order's Pay page");
   }
@@ -236,11 +242,16 @@ export const reviewDiscountCodeRemoval = Effect.fn(
     }
   );
 
+  const appliedPayState =
+    new URL(appliedUrl).searchParams.get("payState") ?? undefined;
   yield* withHoldEnded(
     orderId,
     session.use("capture refused discount code removal", async (page) => {
       await submitRemoval(page, timeout);
-      await capture(page, "checkout-discount-code-removal-refused", ownership);
+      await capture(page, "checkout-discount-code-removal-refused", {
+        ...ownership,
+        payState: appliedPayState,
+      });
     })
   );
 

@@ -41,3 +41,20 @@ test("captures only this order's Pay page on the target deployment", () => {
     expect(accepts(candidate)).toBe(false);
   }
 });
+
+test("accepts a refused redirect only when it carries the Pay state already seen on this order's Pay page", () => {
+  const refused = `${baseUrl}/en-US/checkout/pay?payState=token&discountCodeError=unavailable`;
+  const accepts = (actualUrl: string, payState?: string) =>
+    isOwnedPayPageUrl({ actualUrl, baseUrl, orderId, payState });
+
+  expect(accepts(refused, "token")).toBe(true);
+  for (const [candidate, payState] of [
+    [refused, undefined],
+    [refused, "another-token"],
+    [`${refused}&payState=token`, "token"],
+    [refused.replace(baseUrl, "https://example.com"), "token"],
+    [`${refused}&orderId=workspace-reservation-456`, "token"],
+  ] as const) {
+    expect(accepts(candidate, payState)).toBe(false);
+  }
+});
