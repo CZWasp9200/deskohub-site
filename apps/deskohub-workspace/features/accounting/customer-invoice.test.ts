@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { serializeCsv } from "@/shared/utils/csv";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import { correctiveDocumentNumberSchema } from "./corrective-document";
@@ -25,13 +26,26 @@ const date = plainDateStringSchema.make;
 const invoiceId = invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb31");
 const issuedAt = Temporal.Instant.from("2026-08-20T10:00:00Z");
 
+const reservationId = workspaceReservationIdSchema.make(
+  "019edbcf-5026-7ecc-821b-eda46998eaaa"
+);
+
 const summarize = (
   document: InvoiceDocument,
   today = date("2026-08-25"),
-  cancellation: InvoiceCancellationFact | null = null
+  invoice: {
+    readonly workspaceReservationId?: string | null;
+    readonly cancellation?: InvoiceCancellationFact | null;
+  } = {}
 ) =>
   getCustomerInvoiceSummary(
-    { id: invoiceId, issuedAt, document, cancellation },
+    {
+      id: invoiceId,
+      workspaceReservationId: invoice.workspaceReservationId ?? null,
+      issuedAt,
+      document,
+      cancellation: invoice.cancellation ?? null,
+    },
     today
   );
 
@@ -52,9 +66,14 @@ describe("customer invoice summary", () => {
   test("reads a reservation invoice as paid at its quoted total", () => {
     const document = makeCoworkInvoiceDocument("en-US");
 
-    expect(summarize(document)).toEqual({
+    expect(
+      summarize(document, date("2026-08-25"), {
+        workspaceReservationId: reservationId,
+      })
+    ).toEqual({
       id: invoiceId,
       invoiceNumber: document.invoiceNumber,
+      workspaceReservationId: reservationId,
       issuedOn: date("2026-08-20"),
       total: getInvoiceTotal(document),
       paymentStatus: "paid",
@@ -64,7 +83,7 @@ describe("customer invoice summary", () => {
   });
 
   test("marks a cancelled invoice cancelled in place of its payment status, with its corrective document", () => {
-    const summary = summarize(dueManual, date("2026-09-02"), cancellation);
+    const summary = summarize(dueManual, date("2026-09-02"), { cancellation });
 
     expect(summary.cancellation).toEqual({ correctiveDocumentNumber });
     expect(summary.paymentStatus).toBe("overdue");
@@ -76,11 +95,20 @@ describe("customer invoice summary", () => {
     expect(getCustomerInvoiceStatus(summarize(dueManual))).toBe("issued");
   });
 
-  test("keeps the exact total of a manual invoice", () => {
-    expect(summarize(dueManual).total).toEqual({
+  test("keeps the exact total of a manual invoice, which invoices no reservation", () => {
+    const summary = summarize(dueManual);
+
+    expect(summary.total).toEqual({
       amount: dueManual.total,
       currency: dueManual.currency,
     });
+    expect(summary.workspaceReservationId).toBeNull();
+  });
+
+  test("writes a large manual total as plain decimal text", () => {
+    const large = makeTestManualInvoiceDocument("en-US", "10000000000000000");
+
+    expect(summarize(large).total.amount).toBe("10000000000000000");
   });
 
   test.each([
@@ -121,6 +149,7 @@ describe("customer invoice summary", () => {
     const summary = getCustomerInvoiceSummary(
       {
         id: invoiceId,
+        workspaceReservationId: null,
         issuedAt: Temporal.Instant.from("2026-08-31T22:30:00Z"),
         document: dueManual,
       },
@@ -157,7 +186,7 @@ describe("customer invoice CSV", () => {
   const summaries: readonly CustomerInvoiceSummary[] = [
     summarize(dueManual, date("2026-09-02")),
     summarize(makeCoworkInvoiceDocument("en-US")),
-    summarize(makeCoworkInvoiceDocument("en-US"), undefined, cancellation),
+    summarize(makeCoworkInvoiceDocument("en-US"), undefined, { cancellation }),
   ];
   const records = (locale: "en-US" | "cs-CZ") =>
     serializeCsv(getCustomerInvoiceCsvColumns(locale), summaries)

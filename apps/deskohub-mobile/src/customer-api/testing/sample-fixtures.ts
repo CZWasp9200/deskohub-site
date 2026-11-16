@@ -4,6 +4,7 @@ import {
   CustomerAccountId,
   type CustomerAccountState,
   type CustomerAgentConnection,
+  type CustomerEstablishment,
   type CustomerMarketingPreferences,
   type CustomerOrderState,
   type CustomerProfile,
@@ -65,6 +66,23 @@ export const sampleProfile: CustomerProfile = {
 
 /** The code a completion-required sample customer was invited with. */
 export const sampleInvitationCode = ReferralCode.make("SAMPLE-FRIEND");
+
+/** A made-up space the reservation screens can place and link to a map. */
+export const sampleEstablishment: CustomerEstablishment = {
+  name: "Sample Workspace",
+  formattedAddress: "Ukázková 1, 100 00 Praha 10 - Vzorov",
+  address: {
+    street: "Ukázková 1",
+    cityDistrict: "Vzorov",
+    city: "Praha 10",
+    postalCode: "100 00",
+    country: "CZ",
+  },
+  coordinates: { lat: 50.0755, lng: 14.4378 },
+  directionsUrl:
+    "https://www.google.com/maps/dir/?api=1&destination=50.0755,14.4378",
+  mapUrl: "https://www.google.com/maps/search/?api=1&query=50.0755,14.4378",
+};
 
 export const sampleOrderIds = {
   fulfilled: CustomerReservationOrderId.make("sample-order-fulfilled"),

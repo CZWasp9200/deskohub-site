@@ -136,8 +136,6 @@ const liveDetail = (
 
 const reservationDetail = {
   canCancel: true,
-  requiresProviderCredentialRemoval: true,
-  accessGrant: { updatedAt: "2026-09-28T10:00:00.000Z" },
   reservation: {
     type: "cowork",
     date: "2026-09-30",
@@ -188,8 +186,6 @@ describe("previewAdministrationInvoiceCancellation", () => {
       customerNotice: "owed",
       reservation: {
         reservationId,
-        accessGrantUpdatedAt: "2026-09-28T10:00:00.000Z",
-        requiresProviderCredentialRemoval: true,
       },
     });
   });
@@ -289,8 +285,6 @@ describe("cancelAdministrationInvoice", () => {
         cancelResult({ reservationId, outcome: "cancelled", email: "sent" }),
     };
     const reservation = {
-      accessGrantUpdatedAt: "2026-09-28T10:00:00.000Z",
-      providerCredentialRemoved: true,
       sendCancellationEmail: false,
     };
 
@@ -375,8 +369,6 @@ describe("cancelAdministrationInvoice", () => {
       invoiceId,
       confirmedCustomerNotice: false,
       reservation: {
-        accessGrantUpdatedAt: null,
-        providerCredentialRemoved: false,
         sendCancellationEmail: true,
       },
     });

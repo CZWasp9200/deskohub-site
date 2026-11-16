@@ -16,7 +16,7 @@ import type { InvoiceEmailDeliveryAudience } from "@/features/accounting/invoice
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { InvoiceCancellationRepository } from "./invoice-cancellation.repository";
 import { makeInvoiceCancellationTestKit } from "./invoice-cancellation.test-utils";
 import {
@@ -87,9 +87,8 @@ const makeMailbox = () => {
 };
 
 // Manual invoices carry their recipient, so the snapshot reader stays unused.
-const unusedSnapshots = Layer.succeed(AccountingDocumentSnapshotRepository, {
-  findByPaymentAttemptId: () =>
-    Effect.die("manual invoices have no source snapshot"),
+const unusedSnapshots = Layer.succeed(AccountingDocumentSnapshots, {
+  find: () => Effect.die("manual invoices have no source snapshot"),
 } as never);
 
 const noticesLayer = (mailbox: ReturnType<typeof makeMailbox>) =>

@@ -15,8 +15,6 @@ const reservation = {
     customerId: "customer-d1",
     status: { label: "Confirmed" },
   },
-  accessGrant: { updatedAt: "2026-11-15T09:00:00Z" },
-  requiresProviderCredentialRemoval: false,
 } as unknown as AdministrationReservationDetailType;
 
 describe("planInvoiceCancellation", () => {
@@ -37,8 +35,8 @@ describe("planInvoiceCancellation", () => {
   test("confirms exactly the consequences its prompt shows", () => {
     for (const plan of plans) {
       for (const flags of [
-        { providerCredentialRemoved: false, sendCancellationEmail: false },
-        { providerCredentialRemoved: true, sendCancellationEmail: true },
+        { sendCancellationEmail: false },
+        { sendCancellationEmail: true },
       ]) {
         const planned = planInvoiceCancellation({
           invoiceNumber: "WS-FV-2026-000009",
@@ -64,14 +62,7 @@ describe("planInvoiceCancellation", () => {
           showsReservation
         );
         expect(planned.input.reservation).toEqual(
-          showsReservation
-            ? {
-                accessGrantUpdatedAt: flags.providerCredentialRemoved
-                  ? "2026-11-15T09:00:00Z"
-                  : null,
-                ...flags,
-              }
-            : undefined
+          showsReservation ? flags : undefined
         );
       }
     }

@@ -82,11 +82,9 @@ const reservationId = "01980000-0000-7000-8000-00000000abcd";
 const livePreview = ({
   sent,
   reservation,
-  pin = false,
 }: {
   readonly sent: boolean;
   readonly reservation: boolean;
-  readonly pin?: boolean;
 }): InvoiceCancellationPreview => ({
   state: "live",
   invoiceNumber,
@@ -95,8 +93,6 @@ const livePreview = ({
     ? {
         reservationId: reservationId as never,
         label: "Open space, 30 Sept 2026",
-        accessGrantUpdatedAt: "2026-09-28T10:00:00.000Z",
-        requiresProviderCredentialRemoval: pin,
       }
     : null,
 });
@@ -110,10 +106,6 @@ const reservationWarning = m.accountingInvoiceCancelReservationWarning(
   { locale }
 );
 const reservationEffects = m.administrationReservationCancellationDescription(
-  {},
-  { locale }
-);
-const pinCheckbox = m.administrationReservationCancellationPinRemoved(
   {},
   { locale }
 );
@@ -184,7 +176,9 @@ describe("InvoiceCancellation", () => {
       expect(
         dialog.queryByRole("checkbox", { name: emailCheckbox }) !== null
       ).toBe(reservation);
-      expect(dialog.queryByRole("checkbox", { name: pinCheckbox })).toBeNull();
+      expect(dialog.queryAllByRole("checkbox")).toHaveLength(
+        reservation ? 1 : 0
+      );
 
       await submit(dialog);
 
@@ -194,8 +188,6 @@ describe("InvoiceCancellation", () => {
         confirmedCustomerNotice: sent,
         ...(reservation && {
           reservation: {
-            accessGrantUpdatedAt: "2026-09-28T10:00:00.000Z",
-            providerCredentialRemoved: false,
             sendCancellationEmail: true,
           },
         }),
@@ -204,30 +196,23 @@ describe("InvoiceCancellation", () => {
   );
 
   test.each([{ sent: false }, { sent: true }])(
-    "requires the door PIN removal before cancelling the reservation with the invoice (sent $sent)",
+    "submits the operator's email choice with the reservation confirmation (sent $sent)",
     async ({ sent }) => {
       const { view } = renderCancellation();
       const dialog = await openWith(
         view,
-        livePreview({ sent, reservation: true, pin: true })
+        livePreview({ sent, reservation: true })
       );
       const submitButton = dialog.getByRole("button", { name: submitLabel });
-      expect(submitButton.hasAttribute("disabled")).toBe(true);
-
-      await submit(dialog);
-      expect(executeCancel).not.toHaveBeenCalled();
-
-      fireEvent.click(dialog.getByRole("checkbox", { name: pinCheckbox }));
-      fireEvent.click(dialog.getByRole("checkbox", { name: emailCheckbox }));
       expect(submitButton.hasAttribute("disabled")).toBe(false);
+
+      fireEvent.click(dialog.getByRole("checkbox", { name: emailCheckbox }));
       await submit(dialog);
 
       expect(executeCancel.mock.calls[0]?.[0]).toEqual({
         invoiceId,
         confirmedCustomerNotice: sent,
         reservation: {
-          accessGrantUpdatedAt: "2026-09-28T10:00:00.000Z",
-          providerCredentialRemoved: true,
           sendCancellationEmail: false,
         },
       });
@@ -284,53 +269,6 @@ describe("InvoiceCancellation", () => {
     // The same mounted region keeps the refusal while the warnings change.
     expect(dialog.getByRole("alert")).toBe(alert);
     expect(alert.textContent).toBe(refusal);
-  });
-
-  test("asks for the door PIN removal again when the re-read plan names a newer access grant", async () => {
-    const { view } = renderCancellation();
-    const dialog = await openWith(
-      view,
-      livePreview({ sent: false, reservation: true, pin: true })
-    );
-    fireEvent.click(dialog.getByRole("checkbox", { name: pinCheckbox }));
-    expect(
-      dialog
-        .getByRole("checkbox", { name: pinCheckbox })
-        .getAttribute("aria-checked")
-    ).toBe("true");
-
-    await act(async () => {
-      cancelCallbacks?.onError({
-        error: {
-          serverError: m.accountingInvoiceCancelErrorConfirmationStale(
-            {},
-            { locale }
-          ),
-        },
-      });
-    });
-    const preview = livePreview({ sent: false, reservation: true, pin: true });
-    await act(async () => {
-      previewCallbacks?.onSuccess({
-        data: {
-          ...preview,
-          reservation: preview.state === "live" &&
-            preview.reservation && {
-              ...preview.reservation,
-              accessGrantUpdatedAt: "2026-09-29T08:00:00.000Z",
-            },
-        },
-      });
-    });
-
-    expect(
-      dialog
-        .getByRole("checkbox", { name: pinCheckbox })
-        .getAttribute("aria-checked")
-    ).toBe("false");
-    expect(
-      dialog.getByRole("button", { name: submitLabel }).hasAttribute("disabled")
-    ).toBe(true);
   });
 
   test("closes and reports the outcome once the invoice is cancelled", async () => {

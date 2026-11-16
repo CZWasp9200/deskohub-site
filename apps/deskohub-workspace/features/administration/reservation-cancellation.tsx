@@ -27,7 +27,6 @@ import {
   ReservationCancellationEffects,
   type ReservationCancellationForm,
   type ReservationCancellationFormValues,
-  useAwaitsProviderCredentialRemoval,
   useReservationCancellationForm,
 } from "./reservation-cancellation-consequences";
 
@@ -39,16 +38,12 @@ type ReservationCancellationInvoice = Pick<
 
 export function ReservationCancellation({
   canCancel,
-  accessGrantUpdatedAt,
   invoice,
-  requiresProviderCredentialRemoval,
   reservationId,
 }: {
   readonly canCancel: boolean;
-  readonly accessGrantUpdatedAt: string | null;
   /** The reservation's latest invoice; `null` without one. */
   readonly invoice: ReservationCancellationInvoice | null;
-  readonly requiresProviderCredentialRemoval: boolean;
   readonly reservationId: AdministrationWorkspaceReservationIdType;
 }) {
   const router = useRouter();
@@ -56,11 +51,7 @@ export function ReservationCancellation({
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const form = useReservationCancellationForm({
-    accessGrantUpdatedAt,
-    locale,
-    requiresProviderCredentialRemoval,
-  });
+  const form = useReservationCancellationForm();
   const liveInvoice = invoice?.state === "live" ? invoice : null;
   const { execute, isExecuting } = useWorkspaceAction(
     cancelAdministrationReservation,
@@ -112,20 +103,17 @@ export function ReservationCancellation({
           onSubmit={(values) => {
             setError(null);
             execute({
-              accessGrantUpdatedAt,
               // What the dialog warned about, so the server refuses a
               // cancellation whose invoice consequences changed since.
               confirmedConsequences: {
                 invoice: liveInvoice !== null,
                 customerNotice: liveInvoice?.customerNotice === "owed",
               },
-              providerCredentialRemoved: values.providerCredentialRemoved,
               reservationId,
               sendCancellationEmail: values.sendCancellationEmail,
             });
           }}
           open={open}
-          requiresProviderCredentialRemoval={requiresProviderCredentialRemoval}
         />
       )}
       {message && (
@@ -138,8 +126,8 @@ export function ReservationCancellation({
 }
 
 /**
- * Asks the operator to confirm the cancellation, warns that the live invoice
- * is cancelled with it, and asks for the door PIN removal when it's needed.
+ * Asks the operator to confirm the cancellation, and warns that the live
+ * invoice is cancelled with it.
  */
 function ReservationCancellationDialog({
   error,
@@ -150,7 +138,6 @@ function ReservationCancellationDialog({
   onOpenChange,
   onSubmit,
   open,
-  requiresProviderCredentialRemoval,
 }: {
   readonly error: string | null;
   readonly form: ReservationCancellationForm;
@@ -160,12 +147,7 @@ function ReservationCancellationDialog({
   readonly onOpenChange: (open: boolean) => void;
   readonly onSubmit: (values: ReservationCancellationFormValues) => void;
   readonly open: boolean;
-  readonly requiresProviderCredentialRemoval: boolean;
 }) {
-  const awaitsProviderCredentialRemoval = useAwaitsProviderCredentialRemoval(
-    form,
-    requiresProviderCredentialRemoval
-  );
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogTrigger asChild>
@@ -213,13 +195,7 @@ function ReservationCancellationDialog({
                 </div>
               </AdministrationAlert>
             )}
-            <ReservationCancellationConsequences
-              form={form}
-              locale={locale}
-              requiresProviderCredentialRemoval={
-                requiresProviderCredentialRemoval
-              }
-            />
+            <ReservationCancellationConsequences form={form} locale={locale} />
             <div role="alert">
               {error && (
                 <AdministrationAlert status="error">
@@ -238,7 +214,7 @@ function ReservationCancellationDialog({
                 </Button>
               </DialogClose>
               <Button
-                disabled={isExecuting || awaitsProviderCredentialRemoval}
+                disabled={isExecuting}
                 tone="burned-orange-ink"
                 type="submit"
               >

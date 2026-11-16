@@ -24,6 +24,7 @@ import {
   CliAuthenticationChallenge,
   CliAuthenticationCode,
   CliBearerAuthentication,
+  CliClientCompatibility,
   CliMutationInProgress,
   CliMutationRejected,
   CliMutationRequestId,
@@ -36,7 +37,8 @@ import {
   CliStandaloneAccessCodeReconciled,
   CurrentAdministrationCaller,
   CurrentCliSession,
-  invoicesMinimumDhwVersion,
+  dhwVersionHeader,
+  reservationsMinimumDhwVersion,
   toAdministrationActorName,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
@@ -115,7 +117,6 @@ import {
 import { AdministrationRequestLedger } from "./administration-request-ledger.service";
 import {
   ClaimEveryCliMutation,
-  cliClientVersion,
   DiscardedAdministrationActionLog,
   recordingRequestLedger,
   UnrecordedAdministrationActions,
@@ -225,6 +226,15 @@ const ActorAuthorizedCliRequest = Layer.mergeAll(
       }),
   })
 );
+/**
+ * Lets every operation through: the in-memory client can't send the `dhw`
+ * version, and `cli-client-version.server.test.ts` covers the version check.
+ */
+const UncheckedCliClientVersion = Layer.succeed(
+  CliClientCompatibility,
+  (httpEffect) => httpEffect
+);
+
 const administrationClient = HttpApiTest.groups(WorkspaceAdminApi, [
   "administration",
 ]).pipe(Effect.map((client) => client.administration));
@@ -232,7 +242,6 @@ type AdministrationClient = Effect.Success<typeof administrationClient>;
 
 type AdministrationApiServiceLayers = {
   /** The `dhw` version the client sends, for endpoints with a minimum. */
-  readonly clientVersion?: string;
   readonly administration?: Layer.Layer<AdministrationService>;
   readonly discounts?: Layer.Layer<DiscountAdministration>;
   readonly invoices?: Layer.Layer<InvoiceAdministrationService>;
@@ -256,12 +265,7 @@ const callAdministrationApi = <A, E>(
     Effect.provide(SessionAdministratorAuthentication),
     Effect.provide(services.administration ?? UnusedAdministrationService),
     Effect.provide(UnusedReservationAccessAdministration),
-    Effect.provide(CliClientCompatibilityLive),
-    Effect.provide(
-      services.clientVersion === undefined
-        ? Layer.empty
-        : cliClientVersion(services.clientVersion)
-    ),
+    Effect.provide(UncheckedCliClientVersion),
     Effect.provide(UnrecordedAdministrationActions),
     Effect.provide(NodeHttpServer.layerHttpServices),
     Effect.scoped,
@@ -1478,7 +1482,7 @@ describe("invoice cancellation and archive endpoints", () => {
           client.listInvoices({ query: { includeArchived: false } }),
           client.listInvoices({ query: {} }),
         ]),
-      { invoices, clientVersion: invoicesMinimumDhwVersion }
+      { invoices }
     );
 
     expect(queries).toEqual([
@@ -1509,8 +1513,6 @@ describe("invoice cancellation and archive endpoints", () => {
       },
     });
     const reservation = {
-      accessGrantUpdatedAt: "2026-11-15T09:00:00Z",
-      providerCredentialRemoved: true,
       sendCancellationEmail: false,
     };
 
@@ -1886,8 +1888,6 @@ describe("customer and reservation administration endpoints", () => {
             .cancelReservation({
               params: { reservationId },
               payload: {
-                accessGrantUpdatedAt: null,
-                providerCredentialRemoved: false,
                 sendCancellationEmail: true,
               },
             })
@@ -1898,13 +1898,11 @@ describe("customer and reservation administration endpoints", () => {
 
     expect(cancellations).toHaveLength(3);
     expect(cancellations[0]).toEqual({
-      accessGrantUpdatedAt: null,
       actor: {
         source: "dhw-cli",
         administrator: cliAdministrator,
       },
       force: false,
-      providerCredentialRemoved: false,
       reservationId,
       sendCancellationEmail: true,
     });
@@ -2088,10 +2086,9 @@ describe("customer and reservation administration endpoints", () => {
             headers: {
               authorization: `Bearer ${cohort}`,
               "content-type": "application/json",
+              [dhwVersionHeader]: reservationsMinimumDhwVersion,
             },
             body: JSON.stringify({
-              accessGrantUpdatedAt: null,
-              providerCredentialRemoved: false,
               sendCancellationEmail: true,
             }),
           }

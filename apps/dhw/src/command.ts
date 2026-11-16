@@ -331,25 +331,12 @@ const reservationsCancelCommand = Command.make(
         "Cancel a pending payment locally before cancelling the reservation"
       )
     ),
-    providerCredentialRemoved: Flag.boolean(
-      "confirm-access-credential-removed"
-    ).pipe(
-      Flag.withDescription(
-        "Confirm any active door PIN was removed in Igloohome"
-      )
-    ),
     sendCancellationEmail: Flag.boolean("send-cancellation-email").pipe(
       Flag.withDescription("Email the customer after cancellation")
     ),
     yes: confirmationFlag,
   },
-  ({
-    force,
-    providerCredentialRemoved,
-    reservationId,
-    sendCancellationEmail,
-    yes,
-  }) =>
+  ({ force, reservationId, sendCancellationEmail, yes }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const decodedReservationId = yield* Schema.decodeUnknownEffect(
@@ -383,12 +370,8 @@ const reservationsCancelCommand = Command.make(
           accessToken,
           decodedReservationId,
           {
-            accessGrantUpdatedAt: providerCredentialRemoved
-              ? (detail.accessGrant?.updatedAt ?? null)
-              : null,
             confirmedConsequences: invoiceConsequences.confirmedConsequences,
             force,
-            providerCredentialRemoved,
             sendCancellationEmail,
           }
         );
@@ -1011,13 +994,6 @@ const invoicesCancelCommand = Command.make(
     invoiceId: Argument.string("invoice-id").pipe(
       Argument.withSchema(AdministrationInvoiceId)
     ),
-    providerCredentialRemoved: Flag.boolean(
-      "confirm-access-credential-removed"
-    ).pipe(
-      Flag.withDescription(
-        "Confirm the reservation's active door PIN was removed in Igloohome"
-      )
-    ),
     sendCancellationEmail: Flag.boolean("send-cancellation-email").pipe(
       Flag.withDescription(
         "Email the customer that the invoice's reservation was cancelled"
@@ -1025,7 +1001,7 @@ const invoicesCancelCommand = Command.make(
     ),
     yes: confirmationFlag,
   },
-  ({ invoiceId, providerCredentialRemoved, sendCancellationEmail, yes }) =>
+  ({ invoiceId, sendCancellationEmail, yes }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const invoice = yield* api.getInvoice(accessToken, invoiceId);
@@ -1072,7 +1048,7 @@ const invoicesCancelCommand = Command.make(
           invoiceNumber: invoice.invoiceNumber,
           plan,
           reservation,
-          flags: { providerCredentialRemoved, sendCancellationEmail },
+          flags: { sendCancellationEmail },
         });
         const confirmed = yield* confirmChangeShowingConsequences(
           "administration.cancelInvoice",

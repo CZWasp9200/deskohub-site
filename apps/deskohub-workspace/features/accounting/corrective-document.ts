@@ -75,7 +75,7 @@ const correctiveDocumentSettlements = ["refund_due", "nothing_due"] as const;
  * data, and negates every amount. Like the invoice document it is versionless
  * and decoded strictly.
  */
-const correctiveDocumentSchema = Schema.Struct({
+export const correctiveDocumentSchema = Schema.Struct({
   documentKind: Schema.Literal("invoice-cancellation"),
   documentNumber: correctiveDocumentNumberSchema,
   issuedAt: instantStringSchema,

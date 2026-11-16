@@ -13,7 +13,7 @@ import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers
 import { createReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { ReservationAccessToken } from "@/features/reservation/reservation-access-token";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { InvoiceRepository } from "./invoice.repository";
 import { ReservationInvoiceService } from "./reservation-invoice.service";
 
@@ -587,7 +587,7 @@ const runProcessing = (harness: ReturnType<typeof makeHarness>) =>
         Layer.provide(
           Layer.mergeAll(
             Layer.mock(
-              AccountingDocumentSnapshotRepository,
+              AccountingDocumentSnapshots,
               harness.accountingSnapshots
             ),
             Layer.mock(DotyposService, harness.dotypos),
@@ -668,7 +668,7 @@ const runWithHarness = <A, E>(
         Layer.provide(
           Layer.mergeAll(
             Layer.mock(
-              AccountingDocumentSnapshotRepository,
+              AccountingDocumentSnapshots,
               harness.accountingSnapshots
             ),
             Layer.mock(DotyposService, harness.dotypos),
@@ -746,7 +746,7 @@ const makeHarness = (
 
   return {
     accountingSnapshots: {
-      findByPaymentAttemptId: findSnapshot,
+      find: findSnapshot,
     },
     invoices: {
       findLiveByPaymentAttemptId: findInvoice,

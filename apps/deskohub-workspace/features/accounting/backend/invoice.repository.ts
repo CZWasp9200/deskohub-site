@@ -45,25 +45,21 @@ import {
   paymentAttemptIdSchema,
 } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
-import { censorLogValue } from "@/shared/backend/logging/censorship";
 import type { ReadLimitExceededError } from "@/shared/backend/read-limit";
-import {
-  AccountingDocumentSnapshotRepository,
-  type AccountingDocumentSnapshotStorageError,
-} from "./accounting-document-snapshot.repository";
-import {
-  type AccountingSnapshotKey,
-  AccountingSnapshotKeyService,
-} from "./accounting-snapshot-key.service";
-import { encryptAccountingSnapshot } from "./accounting-snapshot-sql";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { allocateAnnualNumber } from "./document-numbering";
 import { isFulfilledReservation } from "./invoice-eligibility";
 import {
   asReservationInvoice,
-  InvoiceStorageError,
   isChainTail,
   makeInvoiceReads,
+  sealedInvoiceDocuments,
 } from "./invoice-reads";
+import {
+  type AccountingRecordReference,
+  type AccountingRecordSealer,
+  AccountingRecordUnavailable,
+} from "./sealed-accounting-json";
 
 class InvoiceEligibilityError extends Data.TaggedError(
   "InvoiceEligibilityError"
@@ -143,10 +139,9 @@ export interface ManualInvoiceIssuance extends InvoiceIssuance {
 }
 
 export type InvoiceRepositoryError =
-  | AccountingDocumentSnapshotStorageError
+  | AccountingRecordUnavailable
   | EffectDrizzleQueryError
   | InvoiceEligibilityError
-  | InvoiceStorageError
   | ManualInvoiceConflictError
   | ManualInvoiceValidationError
   | SqlError;
@@ -160,35 +155,35 @@ export interface IInvoiceRepository {
     invoiceId: string
   ) => Effect.Effect<
     Invoice | null,
-    EffectDrizzleQueryError | InvoiceStorageError
+    EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /** The payment attempt's live invoice: the one not cancelled. */
   readonly findLiveByPaymentAttemptId: (
     paymentAttemptId: string
   ) => Effect.Effect<
     ReservationInvoice | null,
-    EffectDrizzleQueryError | InvoiceStorageError
+    EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /** The payment attempt's most recently issued invoice, cancelled or not. */
   readonly findLatestByPaymentAttemptId: (
     paymentAttemptId: string
   ) => Effect.Effect<
     ReservationInvoice | null,
-    EffectDrizzleQueryError | InvoiceStorageError
+    EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /** The reservation's live invoice; the database allows at most one. */
   readonly findLiveByReservationId: (
     reservationId: WorkspaceReservationId
   ) => Effect.Effect<
     ReservationInvoice | null,
-    EffectDrizzleQueryError | InvoiceStorageError
+    EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /** The tail of the reservation's replacement chain, cancelled or not. */
   readonly findLatestByReservationId: (
     reservationId: WorkspaceReservationId
   ) => Effect.Effect<
     ReservationInvoice | null,
-    EffectDrizzleQueryError | InvoiceStorageError
+    EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /**
    * Issues the reservation invoice of the payment attempt. A retry returns
@@ -219,7 +214,7 @@ export interface IInvoiceRepository {
     invoiceId: string
   ) => Effect.Effect<
     Invoice | null,
-    EffectDrizzleQueryError | InvoiceStorageError
+    EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /**
    * Decrypts the Dotypos customer's invoices, newest issue first, and no
@@ -229,7 +224,7 @@ export interface IInvoiceRepository {
     dotyposCustomerId: DotyposCustomerId
   ) => Effect.Effect<
     readonly Invoice[],
-    EffectDrizzleQueryError | InvoiceStorageError
+    EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /**
    * The Dotypos customer's invoice metadata, oldest issue first, scoped by
@@ -242,12 +237,14 @@ export interface IInvoiceRepository {
     readonly limit: number;
   }) => Effect.Effect<
     readonly InvoiceMetadata[],
-    EffectDrizzleQueryError | ReadLimitExceededError | InvoiceStorageError
+    | EffectDrizzleQueryError
+    | ReadLimitExceededError
+    | AccountingRecordUnavailable
   >;
   /** Decrypts every invoice. */
   readonly list: () => Effect.Effect<
     readonly Invoice[],
-    EffectDrizzleQueryError | InvoiceStorageError
+    EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   /** Decrypts every manual invoice to read who issued it, and through what. */
   readonly listManualInvoiceProvenance: () => Effect.Effect<
@@ -255,7 +252,7 @@ export interface IInvoiceRepository {
       readonly invoiceId: InvoiceId;
       readonly provenance: ManualInvoiceProvenance;
     }[],
-    EffectDrizzleQueryError | InvoiceStorageError
+    EffectDrizzleQueryError | AccountingRecordUnavailable
   >;
   readonly getSuggestedVariableSymbol: () => Effect.Effect<
     string,
@@ -264,17 +261,12 @@ export interface IInvoiceRepository {
 }
 
 interface InvoiceNumbering {
-  readonly key: AccountingSnapshotKey;
+  readonly sealer: AccountingRecordSealer<InvoiceDocument>;
   readonly issuedAt: Temporal.Instant;
   readonly numberingYear: number;
   readonly numberingSequence: number;
   readonly invoiceNumber: InvoiceNumber;
 }
-
-const invoiceStorage = Layer.merge(
-  WorkspaceDatabase.Default,
-  AccountingSnapshotKeyService.Default
-);
 
 export class InvoiceRepository extends Context.Service<
   InvoiceRepository,
@@ -284,8 +276,8 @@ export class InvoiceRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
-      const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
-      const keys = yield* AccountingSnapshotKeyService;
+      const accountingSnapshots = yield* AccountingDocumentSnapshots;
+      const sealedDocuments = yield* sealedInvoiceDocuments;
       const reads = yield* makeInvoiceReads;
       const { findById, findLiveByPaymentAttemptId } = reads;
 
@@ -295,27 +287,17 @@ export class InvoiceRepository extends Context.Service<
        * transaction, so a rollback returns the number.
        */
       const allocateInvoiceNumber = Effect.fnUntraced(function* (
-        invoiceId: string
+        reference: AccountingRecordReference
       ) {
-        const key = yield* keys.getActive.pipe(
-          Effect.mapError(
-            (cause) =>
-              new InvoiceStorageError({
-                operation: "encrypt",
-                paymentAttemptId: invoiceId,
-                message: "Invoice encryption key is unavailable.",
-                cause: censorLogValue(cause),
-              })
-          )
-        );
+        const sealer = yield* sealedDocuments.sealer(reference);
         const allocated = yield* allocateAnnualNumber(
           invoiceNumberCounters
         ).pipe(
           Effect.catchTag("DocumentNumberAllocationError", ({ message }) =>
             Effect.fail(
-              new InvoiceStorageError({
+              new AccountingRecordUnavailable({
                 operation: "load",
-                paymentAttemptId: invoiceId,
+                reference,
                 message,
               })
             )
@@ -323,7 +305,7 @@ export class InvoiceRepository extends Context.Service<
         );
 
         return {
-          key,
+          sealer,
           issuedAt: allocated.issuedAt,
           numberingYear: allocated.numberingYear,
           numberingSequence: allocated.numberingSequence,
@@ -335,7 +317,7 @@ export class InvoiceRepository extends Context.Service<
       });
 
       const insertEncryptedInvoice = (input: {
-        readonly invoiceId: string;
+        readonly reference: AccountingRecordReference;
         readonly source: Pick<
           typeof invoices.$inferInsert,
           | "id"
@@ -347,33 +329,23 @@ export class InvoiceRepository extends Context.Service<
         readonly numbering: InvoiceNumbering;
         readonly document: InvoiceDocument;
       }) =>
-        db
-          .insert(invoices)
-          .values({
-            ...input.source,
-            invoiceNumber: input.numbering.invoiceNumber,
-            numberingYear: input.numbering.numberingYear,
-            numberingSequence: input.numbering.numberingSequence,
-            keyId: input.numbering.key.id,
-            encryptedDocument: encryptAccountingSnapshot(
-              JSON.stringify(input.document),
-              input.numbering.key.secret
-            ),
-            issuedAt: input.numbering.issuedAt,
-          })
-          .returning({ id: invoices.id })
-          .pipe(
-            Effect.withTracerEnabled(false),
-            Effect.mapError(
-              (cause) =>
-                new InvoiceStorageError({
-                  operation: "encrypt",
-                  paymentAttemptId: input.invoiceId,
-                  message: "Invoice could not be encrypted.",
-                  cause: censorLogValue(cause),
-                })
-            )
-          );
+        input.numbering.sealer.seal({
+          reference: input.reference,
+          value: input.document,
+          insert: (sealed) =>
+            db
+              .insert(invoices)
+              .values({
+                ...input.source,
+                invoiceNumber: input.numbering.invoiceNumber,
+                numberingYear: input.numbering.numberingYear,
+                numberingSequence: input.numbering.numberingSequence,
+                keyId: sealed.keyId,
+                encryptedDocument: sealed.ciphertext,
+                issuedAt: input.numbering.issuedAt,
+              })
+              .returning({ id: invoices.id }),
+        });
 
       const issue = Effect.fn("InvoiceRepository.issue")(function* (input: {
         readonly paymentAttemptId: string;
@@ -391,8 +363,7 @@ export class InvoiceRepository extends Context.Service<
           return { invoice: alreadyIssued, changed: false };
         }
 
-        const source =
-          yield* accountingSnapshots.findByPaymentAttemptId(paymentAttemptId);
+        const source = yield* accountingSnapshots.find(paymentAttemptId);
         if (!source) {
           return yield* new InvoiceEligibilityError({
             paymentAttemptId,
@@ -511,7 +482,11 @@ export class InvoiceRepository extends Context.Service<
               );
             }
 
-            const numbering = yield* allocateInvoiceNumber(paymentAttemptId);
+            const reference = {
+              type: "paymentAttemptId",
+              id: paymentAttemptId,
+            } satisfies AccountingRecordReference;
+            const numbering = yield* allocateInvoiceNumber(reference);
             const document = yield* Schema.decodeUnknownEffect(
               invoiceDocumentSchema,
               { onExcessProperty: "error" }
@@ -529,16 +504,16 @@ export class InvoiceRepository extends Context.Service<
             ).pipe(
               Effect.mapError(
                 () =>
-                  new InvoiceStorageError({
+                  new AccountingRecordUnavailable({
                     operation: "validate",
-                    paymentAttemptId,
+                    reference,
                     message: "Invoice schema is invalid.",
                   })
               )
             );
 
             const [inserted] = yield* insertEncryptedInvoice({
-              invoiceId: paymentAttemptId,
+              reference,
               source: {
                 workspaceReservationId: locked.reservationId,
                 paymentAttemptId,
@@ -552,9 +527,9 @@ export class InvoiceRepository extends Context.Service<
               document,
             });
             if (!inserted) {
-              return yield* new InvoiceStorageError({
+              return yield* new AccountingRecordUnavailable({
                 operation: "load",
-                paymentAttemptId,
+                reference,
                 message: "Issued invoice returned no row.",
               });
             }
@@ -567,9 +542,9 @@ export class InvoiceRepository extends Context.Service<
           Effect.map(asReservationInvoice)
         );
         if (!invoice) {
-          return yield* new InvoiceStorageError({
+          return yield* new AccountingRecordUnavailable({
             operation: "load",
-            paymentAttemptId,
+            reference: { type: "paymentAttemptId", id: paymentAttemptId },
             message: "Issued invoice could not be loaded.",
           });
         }
@@ -632,16 +607,18 @@ export class InvoiceRepository extends Context.Service<
               .limit(1);
             if (existing) return { changed: false } as const;
 
-            const numbering = yield* allocateInvoiceNumber(
-              normalized.invoiceId
-            );
+            const reference = {
+              type: "invoiceId",
+              id: normalized.invoiceId,
+            } satisfies AccountingRecordReference;
+            const numbering = yield* allocateInvoiceNumber(reference);
             const document = makeManualInvoiceDocument({
               normalized,
               invoiceNumber: numbering.invoiceNumber,
               issuedAt: numbering.issuedAt,
             });
             yield* insertEncryptedInvoice({
-              invoiceId: normalized.invoiceId,
+              reference,
               source: {
                 id: normalized.invoiceId,
                 workspaceReservationId: null,
@@ -662,9 +639,9 @@ export class InvoiceRepository extends Context.Service<
 
         const invoice = yield* findById(normalized.invoiceId);
         if (!invoice) {
-          return yield* new InvoiceStorageError({
+          return yield* new AccountingRecordUnavailable({
             operation: "load",
-            paymentAttemptId: normalized.invoiceId,
+            reference: { type: "invoiceId", id: normalized.invoiceId },
             message: "Issued invoice could not be loaded.",
           });
         }
@@ -711,17 +688,6 @@ export class InvoiceRepository extends Context.Service<
         getSuggestedVariableSymbol,
       } satisfies IInvoiceRepository;
     })
-  );
-
-  static Live = this.Default.pipe(
-    Layer.provide(
-      Layer.merge(
-        invoiceStorage,
-        AccountingDocumentSnapshotRepository.Default.pipe(
-          Layer.provide(invoiceStorage)
-        )
-      )
-    )
   );
 }
 

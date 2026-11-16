@@ -31,6 +31,10 @@ import { checkoutDetailsSchema } from "@/features/checkout/schemas/checkout-deta
 import { reservationOrderIssuanceSchema } from "@/features/reservation/reservation-order";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import {
+  captureDatabaseQueryRowsWithExit,
+  expectScalarDatabaseQueryAnnotations,
+} from "@/shared/testing/workspace-database-query-log.test-utils";
+import {
   syntheticDotyposCustomerId,
   workspaceFixtures,
 } from "@/shared/testing/workspace-fixtures.test-utils";
@@ -423,16 +427,14 @@ describe.skipIf(!postgresDatabase)(
         expect(row?.paymentState).toBe("not_started");
         expect(row?.dotyposCustomerId).toBe(request.booking.customer);
         expect(row?.checkoutAttemptKey).toBe(storedAttemptKey(request));
-        expect(holds.ensureAvailable.mock.calls).toEqual([
-          [
-            {
-              kind: "cowork",
-              date: "2099-06-10",
-              entryTier: "open-space",
-              monitorOption: undefined,
-            },
-          ],
-        ]);
+        expect(holds.ensureAvailable).toHaveBeenCalledTimes(1);
+        expect(holds.ensureAvailable).toHaveBeenCalledWith(
+          expect.objectContaining({
+            kind: "cowork",
+            date: "2099-06-10",
+            entryTier: "open-space",
+          })
+        );
         expect(holds.dotypos.createReservation).toHaveBeenCalledTimes(1);
         expect(holds.dotypos.createReservation.mock.calls[0]).toEqual([
           expect.objectContaining({
@@ -455,6 +457,31 @@ describe.skipIf(!postgresDatabase)(
         // Postgres keeps microseconds; the cleanup gets the instant as made.
         expect(cleanup.reservationHoldExpiresAt.epochMilliseconds).toBe(
           expiresAt
+        );
+      });
+
+      test("annotates its query rows with the hold's ids and states, never its records", async () => {
+        const author = await newAuthor();
+        const holds = makeHolds();
+        const request = holdRequest({ author });
+
+        const { rows, exit } = await holds
+          .hold(request)
+          .pipe(captureDatabaseQueryRowsWithExit, Effect.runPromise);
+
+        expect(exit._tag).toBe("Success");
+        expectScalarDatabaseQueryAnnotations(rows);
+        const [reservationRow] = await rowsOf(author);
+        expect(rows).toContainEqual(
+          expect.objectContaining({
+            reservationId: reservationRow!.id,
+            reservationState: expect.any(String),
+            checkoutSessionKey: reservationRow!.checkoutSessionKey,
+            checkoutAttemptKey: reservationRow!.checkoutAttemptKey,
+            reservationKind: "cowork",
+            discountCount: expect.any(Number),
+            dotyposReservationId: holds.dotypos.createdHolds[0],
+          })
         );
       });
 
@@ -530,6 +557,29 @@ describe.skipIf(!postgresDatabase)(
         const [row] = await rowsOf(author);
         expect(row?.locale).toBe([request, rival][loser]?.booking.locale);
         expect(holds.reservationsStarted()).toEqual([row!.id, row!.id]);
+      });
+
+      test("annotates the reused hold's query rows with its ids after losing the claim", async () => {
+        const author = await newAuthor();
+        const request = holdRequest({ author });
+        const holds = makeRacingHolds();
+
+        const { rows, exit } = await Effect.all(
+          [holds.hold(request), holds.hold(request)],
+          { concurrency: "unbounded" }
+        ).pipe(captureDatabaseQueryRowsWithExit, Effect.runPromise);
+
+        expect(exit._tag).toBe("Success");
+        expectScalarDatabaseQueryAnnotations(rows);
+        const [reservationRow] = await rowsOf(author);
+        expect(rows).toContainEqual(
+          expect.objectContaining({
+            claimConflictReservationFound: true,
+            reservationId: reservationRow!.id,
+            reservationState: "held",
+            dotyposReservationId: holds.dotypos.createdHolds[0],
+          })
+        );
       });
 
       test("fails without capturing a start when refreshing the hold it reuses after losing the claim fails", async () => {

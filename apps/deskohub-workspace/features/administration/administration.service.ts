@@ -468,7 +468,6 @@ export type AdministrationReservationDetail = {
   /** Absent when the reservation is authorless or the customer booked it. */
   readonly author: AdministrationReservationAuthor | null;
   readonly canCancel: boolean;
-  readonly requiresProviderCredentialRemoval: boolean;
   /** The reservation's latest invoice; `null` without one. */
   readonly invoice: ReservationInvoiceStanding | null;
   readonly reservation: AdministrationReservationSummary;
@@ -1042,19 +1041,6 @@ const toAccessGrantDetail = (
   createdAt: grant.createdAt.toString(),
   updatedAt: grant.updatedAt.toString(),
 });
-
-/**
- * Whether cancelling must remove a credential Igloohome may hold: a grant
- * issued, uncertain, or provisioning whose access hasn't ended.
- */
-const requiresProviderCredentialRemoval = (
-  grant: Pick<StoredReservationAccessGrant, "endsAt" | "state"> | null
-) =>
-  Boolean(
-    grant &&
-      ["issued", "uncertain", "provisioning"].includes(grant.state) &&
-      Temporal.Instant.compare(grant.endsAt, Temporal.Now.instant()) > 0
-  );
 
 const getDateRangeBounds = (startDate: string, endDate: string) => {
   const start = Temporal.PlainDate.from(startDate).toZonedDateTime({
@@ -2349,8 +2335,6 @@ export class AdministrationService extends Context.Service<
             customerId: row.dotyposCustomerId,
           },
           canCancel: canCancelReservation(row),
-          requiresProviderCredentialRemoval:
-            requiresProviderCredentialRemoval(accessGrant),
           invoice: yield* readReservationInvoiceStanding(db, row.id),
         } satisfies AdministrationReservationDetail;
       });

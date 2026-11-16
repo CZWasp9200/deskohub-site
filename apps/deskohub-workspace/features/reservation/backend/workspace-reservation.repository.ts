@@ -33,7 +33,6 @@ import type {
   WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
 import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
-import { reservationAccessProvisioningStaleAfterMilliseconds } from "@/features/reservation-access";
 import { recordCustomerEvent } from "@/shared/backend/customer-events/customer-event-outbox";
 import {
   type ReadLimitExceededError,
@@ -236,13 +235,11 @@ export interface IWorkspaceReservationRepository {
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
   >;
   readonly claimAdministrationCancellation: (input: {
-    readonly accessGrantUpdatedAt: string | null;
     readonly id: WorkspaceReservationId;
     readonly pendingPaymentCancellation?: {
       readonly paymentAttemptId: PaymentAttemptId;
       readonly failureCode: string;
     };
-    readonly providerCredentialRemoved: boolean;
     readonly staleCancellingBefore: Temporal.Instant;
   }) => Effect.Effect<
     WorkspaceReservation | null,
@@ -442,9 +439,6 @@ const lockAccessGrantOfReservation = Effect.fnUntraced(function* (
     .select({
       id: reservationAccessGrants.id,
       state: reservationAccessGrants.state,
-      accessEndsAt: reservationAccessGrants.accessEndsAt,
-      provisioningStartedAt: reservationAccessGrants.provisioningStartedAt,
-      updatedAt: reservationAccessGrants.updatedAt,
     })
     .from(reservationAccessGrants)
     .where(eq(reservationAccessGrants.workspaceReservationId, reservationId))
@@ -455,41 +449,6 @@ const lockAccessGrantOfReservation = Effect.fnUntraced(function* (
 type LockedAccessGrant = Effect.Success<
   ReturnType<typeof lockAccessGrantOfReservation>
 >[number];
-
-/** A credential whose access hasn't ended may still open the door. */
-const mayAccessCredentialBeLive = (
-  grant: LockedAccessGrant | undefined,
-  now: Temporal.Instant
-): grant is LockedAccessGrant =>
-  grant !== undefined &&
-  isLiveAccessGrantState(grant.state) &&
-  Temporal.Instant.compare(grant.accessEndsAt, now) > 0;
-
-/** Provisioning that started recently enough may still issue a credential. */
-const isProvisioningLive = (grant: LockedAccessGrant, now: Temporal.Instant) =>
-  grant.state === "provisioning" &&
-  grant.provisioningStartedAt !== null &&
-  Temporal.Instant.compare(
-    grant.provisioningStartedAt,
-    now.subtract({
-      milliseconds: reservationAccessProvisioningStaleAfterMilliseconds,
-    })
-  ) > 0;
-
-/**
- * An administrator may cancel a reservation with a possibly live credential
- * only after the provider removed it from the grant revision they saw and no
- * provisioning is still running.
- */
-const refusesAdministrationCancellation = (
-  grant: LockedAccessGrant | undefined,
-  input: AdministrationCancellationClaim,
-  now: Temporal.Instant
-) =>
-  mayAccessCredentialBeLive(grant, now) &&
-  (!input.providerCredentialRemoved ||
-    input.accessGrantUpdatedAt !== grant.updatedAt.toString() ||
-    isProvisioningLive(grant, now));
 
 /**
  * Moves the reservation to `cancelling` from a cancellable state or a stale
@@ -1045,10 +1004,6 @@ export class WorkspaceReservationRepository extends Context.Service<
             Effect.gen(function* () {
               const now = Temporal.Now.instant();
               const [grant] = yield* lockAccessGrantOfReservation(input.id);
-              if (refusesAdministrationCancellation(grant, input, now)) {
-                return null;
-              }
-
               const [claimed] = yield* recordAdministrationCancellationClaim(
                 input,
                 now

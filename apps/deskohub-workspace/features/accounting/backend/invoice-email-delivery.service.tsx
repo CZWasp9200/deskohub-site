@@ -1,7 +1,7 @@
 import type { EmailRecipient } from "@deskohub/email";
 import { Context, Effect, Layer } from "effect";
 import { internalWorkspaceEmailRecipientFor } from "@/shared/backend/email/workspace-email-recipients";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { type Invoice, InvoiceRepository } from "./invoice.repository";
 import { InvoiceCancellationNotices } from "./invoice-cancellation-notices";
 import { renderInvoiceDeliveryEmail } from "./invoice-delivery-email";
@@ -54,7 +54,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
+      const accountingSnapshots = yield* AccountingDocumentSnapshots;
       const deliveries = yield* InvoiceEmailDeliveryRepository;
       const invoices = yield* InvoiceRepository;
       const notices = yield* InvoiceCancellationNotices;
@@ -175,7 +175,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           invoice,
           recipient: yield* resolveInvoiceEmailRecipient(invoice).pipe(
             Effect.provideService(
-              AccountingDocumentSnapshotRepository,
+              AccountingDocumentSnapshots,
               accountingSnapshots
             )
           ),

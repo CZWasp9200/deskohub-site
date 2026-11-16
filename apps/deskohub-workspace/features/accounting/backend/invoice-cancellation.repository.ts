@@ -17,6 +17,7 @@ import {
 import type { DatabaseQueryError } from "@/db/sql-constraint";
 import {
   type CorrectiveDocument,
+  correctiveDocumentSchema,
   decodeCorrectiveDocument,
   formatCorrectiveDocumentNumber,
   makeCorrectiveDocument,
@@ -35,14 +36,21 @@ import type {
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { AdministrationActor } from "@/features/administrators/administration-source";
 import { censorLogValue } from "@/shared/backend/logging/censorship";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
-import {
-  decryptAccountingSnapshot,
-  encryptAccountingSnapshot,
-} from "./accounting-snapshot-sql";
 import { isStaleDeliveryClaim } from "./delivery-claim-lease";
 import { allocateAnnualNumber } from "./document-numbering";
 import { makeInvoiceReads } from "./invoice-reads";
+import { sealedAccountingJson } from "./sealed-accounting-json";
+
+/** Corrective documents, sealed beside their numbering. */
+const sealedCorrectiveDocuments = sealedAccountingJson({
+  label: "Corrective document",
+  table: correctiveDocuments,
+  keyId: correctiveDocuments.keyId,
+  ciphertext: correctiveDocuments.encryptedDocument,
+  plaintext: { cancelledInvoiceId: correctiveDocuments.cancelledInvoiceId },
+  encode: (document: CorrectiveDocument) => document,
+  schema: correctiveDocumentSchema,
+});
 
 /** A cancellation notice this worker may send: its audience and attempt. */
 export interface InvoiceNoticeClaim {
@@ -128,7 +136,7 @@ export class InvoiceCancellationRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
-      const keys = yield* AccountingSnapshotKeyService;
+      const sealedDocuments = yield* sealedCorrectiveDocuments;
       const reads = yield* makeInvoiceReads;
 
       const findMany = Effect.fn("InvoiceCancellationRepository.findMany")(
@@ -319,16 +327,19 @@ export class InvoiceCancellationRepository extends Context.Service<
             );
           }
 
-          const key = yield* keys.getActive.pipe(
-            Effect.mapError((cause) =>
-              cancellationError(
-                invoiceId,
-                "persistence_failed",
-                "The corrective document encryption key is unavailable.",
-                cause
+          const reference = { type: "invoiceId", id: invoiceId } as const;
+          const sealer = yield* sealedDocuments
+            .sealer(reference)
+            .pipe(
+              Effect.mapError((cause) =>
+                cancellationError(
+                  invoiceId,
+                  "persistence_failed",
+                  "The corrective document encryption key is unavailable.",
+                  cause
+                )
               )
-            )
-          );
+            );
           const allocated = yield* allocateAnnualNumber(
             correctiveDocumentNumberCounters
           ).pipe(
@@ -368,21 +379,31 @@ export class InvoiceCancellationRepository extends Context.Service<
             actorAccountEmail: input.actor.administrator.email,
             source: input.actor.source,
           });
-          yield* db
-            .insert(correctiveDocuments)
-            .values({
-              cancelledInvoiceId: invoiceId,
-              documentNumber,
-              numberingYear: allocated.numberingYear,
-              numberingSequence: allocated.numberingSequence,
-              keyId: key.id,
-              encryptedDocument: encryptAccountingSnapshot(
-                JSON.stringify(document),
-                key.secret
-              ),
-              issuedAt: allocated.issuedAt,
+          yield* sealer
+            .seal({
+              reference,
+              value: document,
+              insert: (sealed) =>
+                db.insert(correctiveDocuments).values({
+                  cancelledInvoiceId: invoiceId,
+                  documentNumber,
+                  numberingYear: allocated.numberingYear,
+                  numberingSequence: allocated.numberingSequence,
+                  keyId: sealed.keyId,
+                  encryptedDocument: sealed.ciphertext,
+                  issuedAt: allocated.issuedAt,
+                }),
             })
-            .pipe(Effect.withTracerEnabled(false));
+            .pipe(
+              Effect.mapError((cause) =>
+                cancellationError(
+                  invoiceId,
+                  "persistence_failed",
+                  "The corrective document could not be encrypted.",
+                  cause
+                )
+              )
+            );
 
           const owedAudiences = invoiceEmailDeliveryAudiences.filter(
             (audience) => audience === "internal" || sentToCustomer
@@ -422,61 +443,22 @@ export class InvoiceCancellationRepository extends Context.Service<
       const loadCorrectiveDocument = Effect.fn(
         "InvoiceCancellationRepository.loadCorrectiveDocument"
       )(function* (invoiceId: InvoiceId) {
-        const unavailable = (message: string, cause?: unknown) =>
-          cancellationError(invoiceId, "document_unavailable", message, cause);
-        const [metadata] = yield* db
-          .select({ keyId: correctiveDocuments.keyId })
-          .from(correctiveDocuments)
-          .where(eq(correctiveDocuments.cancelledInvoiceId, invoiceId))
-          .limit(1)
+        const opened = yield* sealedDocuments
+          .open({
+            reference: { type: "invoiceId", id: invoiceId },
+            where: eq(correctiveDocuments.cancelledInvoiceId, invoiceId),
+          })
           .pipe(
             Effect.mapError((cause) =>
-              unavailable("The corrective document could not be loaded.", cause)
-            )
-          );
-        if (!metadata) return null;
-
-        const key = yield* keys
-          .getById(metadata.keyId)
-          .pipe(
-            Effect.mapError((cause) =>
-              unavailable(
-                "The corrective document decryption key is unavailable.",
+              cancellationError(
+                invoiceId,
+                "document_unavailable",
+                "The corrective document could not be read.",
                 cause
               )
             )
           );
-        const [row] = yield* db
-          .select({
-            documentJson: decryptAccountingSnapshot(
-              correctiveDocuments.encryptedDocument,
-              key.secret
-            ),
-          })
-          .from(correctiveDocuments)
-          .where(eq(correctiveDocuments.cancelledInvoiceId, invoiceId))
-          .limit(1)
-          .pipe(
-            Effect.withTracerEnabled(false),
-            Effect.mapError((cause) =>
-              unavailable(
-                "The corrective document could not be decrypted.",
-                censorLogValue(cause)
-              )
-            )
-          );
-        if (!row) {
-          return yield* unavailable("The corrective document disappeared.");
-        }
-        const encoded = yield* Effect.try({
-          try: () => JSON.parse(row.documentJson) as unknown,
-          catch: () => unavailable("The corrective document JSON is invalid."),
-        });
-        return yield* decodeCorrectiveDocument(encoded).pipe(
-          Effect.mapError(() =>
-            unavailable("The corrective document schema is invalid.")
-          )
-        );
+        return opened?.value ?? null;
       });
 
       const isCustomerNoticeOwed = Effect.fnUntraced(function* (
@@ -629,15 +611,6 @@ export class InvoiceCancellationRepository extends Context.Service<
         }),
       } satisfies IInvoiceCancellationRepository;
     })
-  );
-
-  static Live = this.Default.pipe(
-    Layer.provide(
-      Layer.merge(
-        WorkspaceDatabase.Default,
-        AccountingSnapshotKeyService.Default
-      )
-    )
   );
 }
 

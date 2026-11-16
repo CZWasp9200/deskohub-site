@@ -1,7 +1,7 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { and, asc, desc, eq, isNull, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { Data, Effect, Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   accountingDocumentSnapshots,
@@ -12,8 +12,8 @@ import {
 } from "@/db/schema";
 import type { CorrectiveDocumentNumber } from "@/features/accounting/corrective-document";
 import {
-  decodeInvoiceDocument,
   type InvoiceDocument,
+  invoiceDocumentSchema,
   isManualInvoiceDocument,
 } from "@/features/accounting/invoice";
 import type {
@@ -24,30 +24,44 @@ import {
   type InvoiceId,
   invoiceIdSchema,
 } from "@/features/accounting/manual-invoice";
-import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
+import {
+  type PaymentAttemptId,
+  paymentAttemptIdSchema,
+} from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
-import { censorLogValue } from "@/shared/backend/logging/censorship";
 import {
   readLimitSentinel,
   requireWithinReadLimit,
 } from "@/shared/backend/read-limit";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
-import { decryptAccountingSnapshot } from "./accounting-snapshot-sql";
 import type {
   Invoice,
   InvoiceMetadata,
   ReservationInvoice,
 } from "./invoice.repository";
 import { isVisibleToCustomer } from "./invoice-visibility-sql";
+import {
+  type AccountingRecordReference,
+  AccountingRecordUnavailable,
+  sealedAccountingJson,
+} from "./sealed-accounting-json";
 
-export class InvoiceStorageError extends Data.TaggedError(
-  "InvoiceStorageError"
-)<{
-  readonly operation: "decrypt" | "encrypt" | "load" | "parse" | "validate";
-  readonly paymentAttemptId: string;
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+/** Issued invoice documents, sealed beside their numbering and sources. */
+export const sealedInvoiceDocuments = sealedAccountingJson({
+  label: "Invoice",
+  table: invoices,
+  keyId: invoices.keyId,
+  ciphertext: invoices.encryptedDocument,
+  plaintext: {
+    id: invoices.id,
+    workspaceReservationId: invoices.workspaceReservationId,
+    paymentAttemptId: invoices.paymentAttemptId,
+    dotyposCustomerId: invoices.dotyposCustomerId,
+    invoiceNumber: invoices.invoiceNumber,
+    issuedAt: invoices.issuedAt,
+  },
+  encode: (document: InvoiceDocument) => document,
+  schema: invoiceDocumentSchema,
+});
 
 /**
  * Reads and decrypts stored invoices for `InvoiceRepository`. The listings
@@ -60,54 +74,28 @@ export class InvoiceStorageError extends Data.TaggedError(
  */
 export const makeInvoiceReads = Effect.gen(function* () {
   const { db } = yield* WorkspaceDatabase;
-  const keys = yield* AccountingSnapshotKeyService;
+  const sealedDocuments = yield* sealedInvoiceDocuments;
 
   /**
-   * Reads the key of the first matching invoice, then decrypts that row in a
-   * statement that applies the selector again. `moved` when the row stopped
-   * matching in between, as when a live invoice is cancelled.
+   * Reads the standing of the first invoice the selector matches, then opens
+   * that row's document while the selector still matches it. `moved` when the
+   * row stopped matching in between, as when a live invoice is cancelled.
    */
   const loadMatchingInvoice = Effect.fn(
     "InvoiceRepository.loadMatchingInvoice"
-  )(function* (input: { readonly where: SQL; readonly lookupId: string }) {
-    const [metadata] = yield* db
-      .select({ id: invoices.id, keyId: invoices.keyId })
-      .from(invoices)
-      .where(input.where)
-      .limit(1);
-
-    if (!metadata) return null;
-
-    const key = yield* keys.getById(metadata.keyId).pipe(
-      Effect.mapError(
-        (cause) =>
-          new InvoiceStorageError({
-            operation: "decrypt",
-            paymentAttemptId: input.lookupId,
-            message: "Invoice decryption key is unavailable.",
-            cause: censorLogValue(cause),
-          })
-      )
-    );
-
-    const [row] = yield* db
+  )(function* (input: {
+    readonly where: SQL;
+    readonly reference: AccountingRecordReference;
+  }) {
+    const [standing] = yield* db
       .select({
         id: invoices.id,
-        workspaceReservationId: invoices.workspaceReservationId,
-        paymentAttemptId: invoices.paymentAttemptId,
-        dotyposCustomerId: invoices.dotyposCustomerId,
-        invoiceNumber: invoices.invoiceNumber,
-        issuedAt: invoices.issuedAt,
         replacesInvoiceId: invoices.replacesInvoiceId,
         replacedByInvoiceId: successor.id,
         cancelledAt: invoiceCancellations.cancelledAt,
         cancellationCause: invoiceCancellations.cause,
         correctiveDocumentNumber: correctiveDocuments.documentNumber,
         archivedAt: invoiceArchives.archivedAt,
-        documentJson: decryptAccountingSnapshot(
-          invoices.encryptedDocument,
-          key.secret
-        ),
       })
       .from(invoices)
       .leftJoin(
@@ -120,47 +108,29 @@ export const makeInvoiceReads = Effect.gen(function* () {
       )
       .leftJoin(invoiceArchives, eq(invoiceArchives.invoiceId, invoices.id))
       .leftJoin(successor, eq(successor.replacesInvoiceId, invoices.id))
-      // The row whose key was read, while it still matches: by now the
-      // selector could match another row, encrypted under another key, or
-      // none. One statement reads the row, its cancellation and its links.
-      .where(and(eq(invoices.id, metadata.id), input.where))
-      .limit(1)
+      .where(input.where)
+      .limit(1);
+
+    if (!standing) return null;
+
+    // The row whose standing was read, while it still matches: by now the
+    // selector could match another row, encrypted under another key, or none.
+    const opened = yield* sealedDocuments
+      .open({
+        reference: input.reference,
+        // `and` of defined conditions is never undefined.
+        where: and(eq(invoices.id, standing.id), input.where)!,
+      })
       .pipe(
-        Effect.withTracerEnabled(false),
-        Effect.mapError(
-          (cause) =>
-            new InvoiceStorageError({
-              operation: "decrypt",
-              paymentAttemptId: input.lookupId,
-              message: "Invoice could not be decrypted.",
-              cause: censorLogValue(cause),
-            })
+        Effect.catchTag("AccountingRecordUnavailable", (cause) =>
+          cause.operation === "load" ? Effect.succeed(null) : Effect.fail(cause)
         )
       );
 
     // Invoices are never deleted, so the row stopped matching.
-    if (!row) return "moved" as const;
+    if (!opened) return "moved" as const;
 
-    const encoded = yield* Effect.try({
-      try: () => JSON.parse(row.documentJson) as unknown,
-      catch: () =>
-        new InvoiceStorageError({
-          operation: "parse",
-          paymentAttemptId: input.lookupId,
-          message: "Invoice JSON is invalid.",
-        }),
-    });
-    const document = yield* decodeInvoiceDocument(encoded).pipe(
-      Effect.mapError(
-        () =>
-          new InvoiceStorageError({
-            operation: "parse",
-            paymentAttemptId: input.lookupId,
-            message: "Invoice schema is invalid.",
-          })
-      )
-    );
-
+    const { value: document, plaintext: row } = opened;
     yield* validateStoredInvoice({ row, document });
 
     return {
@@ -171,11 +141,11 @@ export const makeInvoiceReads = Effect.gen(function* () {
       invoiceNumber: document.invoiceNumber,
       issuedAt: row.issuedAt,
       document,
-      cancellation: yield* toCancellationFact(row, input.lookupId),
-      archivedAt: row.archivedAt,
-      replacesInvoiceId: row.replacesInvoiceId,
-      replacedByInvoiceId: row.replacedByInvoiceId
-        ? invoiceIdSchema.make(row.replacedByInvoiceId)
+      cancellation: yield* toCancellationFact(standing, input.reference),
+      archivedAt: standing.archivedAt,
+      replacesInvoiceId: standing.replacesInvoiceId,
+      replacedByInvoiceId: standing.replacedByInvoiceId
+        ? invoiceIdSchema.make(standing.replacedByInvoiceId)
         : null,
     } satisfies Invoice;
   });
@@ -186,7 +156,10 @@ export const makeInvoiceReads = Effect.gen(function* () {
    * matching while it loads is looked up once more, then reads as `null`.
    */
   const loadInvoice = Effect.fn("InvoiceRepository.loadInvoice")(
-    function* (input: { readonly where: SQL; readonly lookupId: string }) {
+    function* (input: {
+      readonly where: SQL;
+      readonly reference: AccountingRecordReference;
+    }) {
       const first = yield* loadMatchingInvoice(input);
       if (first !== "moved") return first;
       const second = yield* loadMatchingInvoice(input);
@@ -195,11 +168,13 @@ export const makeInvoiceReads = Effect.gen(function* () {
   );
 
   const findById = Effect.fn("InvoiceRepository.findById")(
-    (invoiceId: string) =>
-      loadInvoice({
-        where: eq(invoices.id, invoiceIdSchema.make(invoiceId)),
-        lookupId: invoiceId,
-      })
+    (invoiceId: string) => {
+      const id = invoiceIdSchema.make(invoiceId);
+      return loadInvoice({
+        where: eq(invoices.id, id),
+        reference: { type: "invoiceId", id },
+      });
+    }
   );
 
   /**
@@ -208,18 +183,13 @@ export const makeInvoiceReads = Effect.gen(function* () {
    */
   const findLiveByPaymentAttemptId = Effect.fn(
     "InvoiceRepository.findLiveByPaymentAttemptId"
-  )((paymentAttemptId: string) =>
-    loadInvoice({
-      where: and(
-        eq(
-          invoices.paymentAttemptId,
-          paymentAttemptIdSchema.make(paymentAttemptId)
-        ),
-        isUncancelled
-      )!,
-      lookupId: paymentAttemptId,
-    }).pipe(Effect.map(asReservationInvoice))
-  );
+  )((paymentAttemptId: string) => {
+    const id = paymentAttemptIdSchema.make(paymentAttemptId);
+    return loadInvoice({
+      where: and(eq(invoices.paymentAttemptId, id), isUncancelled)!,
+      reference: { type: "paymentAttemptId", id },
+    }).pipe(Effect.map(asReservationInvoice));
+  });
 
   /**
    * The payment attempt's latest invoice in its replacement chain, cancelled
@@ -227,18 +197,13 @@ export const makeInvoiceReads = Effect.gen(function* () {
    */
   const findLatestByPaymentAttemptId = Effect.fn(
     "InvoiceRepository.findLatestByPaymentAttemptId"
-  )((paymentAttemptId: string) =>
-    loadInvoice({
-      where: and(
-        eq(
-          invoices.paymentAttemptId,
-          paymentAttemptIdSchema.make(paymentAttemptId)
-        ),
-        isAttemptChainTail
-      )!,
-      lookupId: paymentAttemptId,
-    }).pipe(Effect.map(asReservationInvoice))
-  );
+  )((paymentAttemptId: string) => {
+    const id = paymentAttemptIdSchema.make(paymentAttemptId);
+    return loadInvoice({
+      where: and(eq(invoices.paymentAttemptId, id), isAttemptChainTail)!,
+      reference: { type: "paymentAttemptId", id },
+    }).pipe(Effect.map(asReservationInvoice));
+  });
 
   /** The reservation's invoice that is not cancelled; at most one exists. */
   const findLiveByReservationId = Effect.fn(
@@ -249,7 +214,7 @@ export const makeInvoiceReads = Effect.gen(function* () {
         eq(invoices.workspaceReservationId, reservationId),
         isUncancelled
       )!,
-      lookupId: reservationId,
+      reference: { type: "workspaceReservationId", id: reservationId },
     }).pipe(Effect.map(asReservationInvoice))
   );
 
@@ -265,7 +230,7 @@ export const makeInvoiceReads = Effect.gen(function* () {
         eq(invoices.workspaceReservationId, reservationId),
         isChainTail
       )!,
-      lookupId: reservationId,
+      reference: { type: "workspaceReservationId", id: reservationId },
     }).pipe(Effect.map(asReservationInvoice))
   );
 
@@ -317,7 +282,7 @@ export const makeInvoiceReads = Effect.gen(function* () {
         eq(invoices.dotyposCustomerId, dotyposCustomerId),
         isVisibleToCustomer()
       )!,
-      lookupId: invoiceId,
+      reference: { type: "invoiceId", id: invoiceId },
     });
 
   /** The customer's issued invoices, newest issue first. */
@@ -355,6 +320,7 @@ export const makeInvoiceReads = Effect.gen(function* () {
   }) {
     const rows = yield* db
       .select({
+        invoiceId: invoices.id,
         invoiceNumber: invoices.invoiceNumber,
         issuedAt: invoices.issuedAt,
         numberingYear: invoices.numberingYear,
@@ -391,14 +357,15 @@ export const makeInvoiceReads = Effect.gen(function* () {
     return yield* Effect.forEach(
       bounded,
       ({
+        invoiceId,
         cancelledAt,
         cancellationCause,
         correctiveDocumentNumber,
         ...row
-      }): Effect.Effect<InvoiceMetadata, InvoiceStorageError> =>
+      }): Effect.Effect<InvoiceMetadata, AccountingRecordUnavailable> =>
         toCancellationFact(
           { cancelledAt, cancellationCause, correctiveDocumentNumber },
-          row.invoiceNumber
+          { type: "invoiceId", id: invoiceIdSchema.make(invoiceId) }
         ).pipe(Effect.map((cancellation) => ({ ...row, cancellation })))
     );
   });
@@ -462,16 +429,16 @@ const toCancellationFact = Effect.fn("InvoiceRepository.toCancellationFact")(
       readonly cancellationCause: InvoiceCancellationCause | null;
       readonly correctiveDocumentNumber: CorrectiveDocumentNumber | null;
     },
-    lookupId: string
+    reference: AccountingRecordReference
   ) {
     if (row.cancelledAt === null) return null;
     if (
       row.cancellationCause === null ||
       row.correctiveDocumentNumber === null
     ) {
-      return yield* new InvoiceStorageError({
+      return yield* new AccountingRecordUnavailable({
         operation: "validate",
-        paymentAttemptId: lookupId,
+        reference,
         message: "Invoice cancellation has no corrective document.",
       });
     }
@@ -492,7 +459,7 @@ export const asReservationInvoice = (invoice: Invoice | null) =>
 interface StoredInvoiceRow {
   readonly id: string;
   readonly workspaceReservationId: string | null;
-  readonly paymentAttemptId: string | null;
+  readonly paymentAttemptId: PaymentAttemptId | null;
   readonly dotyposCustomerId: string;
   readonly invoiceNumber: string;
   readonly issuedAt: Temporal.Instant;
@@ -519,13 +486,20 @@ const matchesInvoiceSource = ({ document, row }: StoredInvoice) =>
     : document.workspaceReservationId === row.workspaceReservationId &&
       document.paymentAttemptId === row.paymentAttemptId;
 
+const storedInvoiceReference = (
+  row: StoredInvoiceRow
+): AccountingRecordReference =>
+  row.paymentAttemptId === null
+    ? { type: "invoiceId", id: invoiceIdSchema.make(row.id) }
+    : { type: "paymentAttemptId", id: row.paymentAttemptId };
+
 const validateStoredInvoice = Effect.fn(
   "InvoiceRepository.validateStoredInvoice"
 )(function* (input: StoredInvoice) {
   if (!matchesInvoiceIdentity(input) || !matchesInvoiceSource(input)) {
-    return yield* new InvoiceStorageError({
+    return yield* new AccountingRecordUnavailable({
       operation: "validate",
-      paymentAttemptId: input.row.paymentAttemptId ?? input.row.id,
+      reference: storedInvoiceReference(input.row),
       message: "Invoice metadata does not match its encrypted document.",
     });
   }

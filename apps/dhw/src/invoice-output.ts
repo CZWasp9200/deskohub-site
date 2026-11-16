@@ -20,7 +20,6 @@ export type InvoiceCancellationConsequence =
   | "reservation_cancellation";
 
 export type InvoiceCancellationFlags = {
-  readonly providerCredentialRemoved: boolean;
   readonly sendCancellationEmail: boolean;
 };
 
@@ -66,13 +65,6 @@ export const planInvoiceCancellation = ({
       flags.sendCancellationEmail
         ? "The customer will be emailed that the reservation was cancelled."
         : "The customer won't be emailed that the reservation was cancelled.",
-      ...(reservation!.requiresProviderCredentialRemoval
-        ? [
-            flags.providerCredentialRemoved
-              ? "You confirmed its door PIN was removed in Igloohome."
-              : "Its door PIN must be removed in Igloohome first; confirm with --confirm-access-credential-removed.",
-          ]
-        : []),
     ].join("\n");
   };
 
@@ -82,10 +74,6 @@ export const planInvoiceCancellation = ({
       confirmedCustomerNotice: consequences.includes("customer_notice"),
       ...(consequences.includes("reservation_cancellation") && {
         reservation: {
-          accessGrantUpdatedAt: flags.providerCredentialRemoved
-            ? (reservation?.accessGrant?.updatedAt ?? null)
-            : null,
-          providerCredentialRemoved: flags.providerCredentialRemoved,
           sendCancellationEmail: flags.sendCancellationEmail,
         },
       }),

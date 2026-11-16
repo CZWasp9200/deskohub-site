@@ -16,6 +16,7 @@ import {
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import type { AdministrationActor } from "@/features/administrators/administration-source";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { AccountingStorage } from "./accounting-storage";
 import { type Invoice, InvoiceRepository } from "./invoice.repository";
 import {
   type InvoiceCancellationRecording,
@@ -176,7 +177,7 @@ export class InvoiceCancellationService extends Context.Service<
       const readFailed =
         (invoiceId: InvoiceId | null) =>
         (cause: { readonly _tag: string }): InvoiceCancellationError =>
-          cause._tag === "InvoiceStorageError"
+          cause._tag === "AccountingRecordUnavailable"
             ? new InvoiceCancellationError({
                 code: "document_unavailable",
                 invoiceId,
@@ -378,9 +379,8 @@ export class InvoiceCancellationService extends Context.Service<
     Layer.provide(
       Layer.mergeAll(
         WorkspaceDatabase.Default,
-        InvoiceRepository.Live,
+        AccountingStorage.Live,
         InvoiceEmailDeliveryRepository.Live,
-        InvoiceCancellationRepository.Live,
         InvoiceCancellationNotices.Live
       )
     )

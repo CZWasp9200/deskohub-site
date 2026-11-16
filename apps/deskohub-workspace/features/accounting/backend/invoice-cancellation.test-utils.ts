@@ -9,7 +9,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
 import type { QueryResultRow } from "pg";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { accountingDocumentSnapshots, paymentAttempts } from "@/db/schema";
+import { paymentAttempts } from "@/db/schema";
 import {
   accountingSnapshotKeyIdSchema,
   makeAccountingDocumentSnapshot,
@@ -26,13 +26,14 @@ import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import type { WorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import type { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
+import { recordAccountingDocumentSnapshot } from "./accounting-document-snapshots.test-utils";
 import {
   type AccountingSnapshotKey,
   AccountingSnapshotKeyService,
   type IAccountingSnapshotKeyService,
 } from "./accounting-snapshot-key.service";
-import { encryptAccountingSnapshot } from "./accounting-snapshot-sql";
+import { testAccountingStorage } from "./accounting-storage.test-utils";
 import { InvoiceRepository } from "./invoice.repository";
 import { InvoiceArchiveRepository } from "./invoice-archive.repository";
 import { InvoiceCancellationRepository } from "./invoice-cancellation.repository";
@@ -66,28 +67,16 @@ export const makeInvoiceCancellationTestKit = (
       getById: () => Effect.succeed(testKey),
     }
   ) => {
-    const base = Layer.merge(
-      database.layer,
-      Layer.succeed(
-        AccountingSnapshotKeyService,
-        AccountingSnapshotKeyService.of(keys)
-      )
+    const keyLayer = Layer.succeed(
+      AccountingSnapshotKeyService,
+      AccountingSnapshotKeyService.of(keys)
     );
+    const base = Layer.merge(database.layer, keyLayer);
     return Layer.mergeAll(
       base,
       InvoiceArchiveRepository.Default.pipe(Layer.provide(base)),
-      InvoiceCancellationRepository.Default.pipe(Layer.provide(base)),
       InvoiceEmailDeliveryRepository.Default.pipe(Layer.provide(base)),
-      InvoiceRepository.Default.pipe(
-        Layer.provide(
-          Layer.merge(
-            base,
-            AccountingDocumentSnapshotRepository.Default.pipe(
-              Layer.provide(base)
-            )
-          )
-        )
-      )
+      testAccountingStorage(database.layer, keyLayer)
     );
   };
 
@@ -95,6 +84,7 @@ export const makeInvoiceCancellationTestKit = (
     effect: Effect.Effect<
       A,
       E,
+      | AccountingDocumentSnapshots
       | InvoiceArchiveRepository
       | InvoiceCancellationRepository
       | InvoiceEmailDeliveryRepository
@@ -207,14 +197,9 @@ export const makeInvoiceCancellationTestKit = (
               amountExponent: source.quote.payment.expectedPrice.exponent,
               currency: source.quote.payment.expectedPrice.currency,
             });
-            yield* db.insert(accountingDocumentSnapshots).values({
+            yield* recordAccountingDocumentSnapshot({
               paymentAttemptId,
-              workspaceReservationId: created.id,
-              keyId: testKey.id,
-              encryptedSnapshot: encryptAccountingSnapshot(
-                JSON.stringify(source),
-                testKey.secret
-              ),
+              snapshot: source,
             });
             return created;
           })

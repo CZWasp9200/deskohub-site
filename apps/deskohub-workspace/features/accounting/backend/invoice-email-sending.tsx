@@ -5,12 +5,11 @@ import type {
 } from "@deskohub/email";
 import {
   EmailConfigTag,
-  EmailServiceError,
+  type EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Data, Effect, Layer } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
 import { env } from "@/env";
 import { isManualInvoiceDocument } from "@/features/accounting/invoice";
 import type { InvoiceEmailDeliveryFailureCode } from "@/features/accounting/invoice-email-delivery";
@@ -18,10 +17,10 @@ import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers
 import { WorkspaceEmailLayer } from "@/shared/backend/config/email.config";
 import { workspaceEmailRecipient } from "@/shared/backend/email/workspace-email-recipients";
 import { censorLogValue } from "@/shared/backend/logging/censorship";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
+import { AccountingStorage } from "./accounting-storage";
 import type { CorrectiveDocumentPdfRenderingError } from "./corrective-document-pdf";
-import { type Invoice, InvoiceRepository } from "./invoice.repository";
+import type { Invoice } from "./invoice.repository";
 import type { InvoicePdfRenderingError } from "./invoice-pdf";
 
 export class InvoiceEmailDeliveryError extends Data.TaggedError(
@@ -80,10 +79,10 @@ export const resolveInvoiceEmailRecipient = Effect.fn(
     });
   }
   const paymentAttemptId = invoice.paymentAttemptId;
-  const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
+  const accountingSnapshots = yield* AccountingDocumentSnapshots;
 
   const source = yield* accountingSnapshots
-    .findByPaymentAttemptId(paymentAttemptIdSchema.make(paymentAttemptId))
+    .find(paymentAttemptIdSchema.make(paymentAttemptId))
     .pipe(
       Effect.mapError((cause) =>
         deliveryError({
@@ -227,10 +226,6 @@ export const makeClaimedInvoiceEmailSender = Effect.gen(function* () {
     };
 
     const sendResult = yield* emailService.send(message).pipe(
-      Effect.filterOrFail(
-        (result) => result.status !== "failed",
-        () => new EmailServiceError("Email provider rejected delivery.")
-      ),
       Effect.catch((cause) =>
         fail(
           deliveryError({
@@ -275,16 +270,5 @@ export const settleDelivery = <A,>(
  * their source snapshots for the recipient, and the email service.
  */
 export function invoiceEmailDependencies() {
-  const accountingStorage = Layer.merge(
-    WorkspaceDatabase.Default,
-    AccountingSnapshotKeyService.Default
-  );
-  const accountingSnapshots = AccountingDocumentSnapshotRepository.Default.pipe(
-    Layer.provide(accountingStorage)
-  );
-  const invoices = InvoiceRepository.Default.pipe(
-    Layer.provide(Layer.merge(accountingStorage, accountingSnapshots))
-  );
-
-  return Layer.mergeAll(accountingSnapshots, invoices, WorkspaceEmailLayer);
+  return Layer.merge(AccountingStorage.Live, WorkspaceEmailLayer);
 }

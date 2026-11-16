@@ -667,8 +667,6 @@ describe("InvoiceAdministrationService cancellation", () => {
     };
   };
   const reservationConfirmation = {
-    accessGrantUpdatedAt: null,
-    providerCredentialRemoved: false,
     sendCancellationEmail: true,
   };
 

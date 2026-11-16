@@ -14,19 +14,16 @@ import {
   type CustomerAccountAccessError,
   customerAccountIdSchema,
 } from "../customer-account";
+import { CurrentCustomerAccount } from "./current-customer-account";
 import { CustomerAccountContactService } from "./customer-account-contact.service";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import {
-  type CustomerAccountResolutionDependencies,
-  resolveCustomerAccount,
-} from "./customer-account-resolver.service";
 import { CustomerAccountSections } from "./customer-account-sections";
 import { makeCustomerAccountSections } from "./customer-account-sections.test-utils";
 import { CustomerAuthentication } from "./customer-authentication.service";
-import { testSessionProfile } from "./customer-authentication.test-utils";
 import { CustomerDotyposAdapter } from "./customer-dotypos-adapter.service";
 import { CustomerProfileService } from "./customer-profile.service";
 import { CustomerReservationHistoryService } from "./customer-reservation-history.service";
+import { resolveHeldCustomerAccountLink } from "./held-customer-account-link";
 import { ReservationAuthorDirectory } from "./reservation-author-directory.service";
 
 const accountId = customerAccountIdSchema.make("review-account");
@@ -62,16 +59,9 @@ const expectReviewRefusal = (
 };
 
 describe("a review account's Dotypos link", () => {
-  test("is never resolved, and resolution never looks the email up", async () => {
+  test("is never resolved, and held resolution never looks the email up", async () => {
     const calls: string[] = [];
-    const dependencies: CustomerAccountResolutionDependencies = {
-      currentUser: () =>
-        Effect.succeed({
-          accountId,
-          email,
-          deletionRequested: false,
-          ...testSessionProfile,
-        }),
+    const steps = {
       findLink: () => Effect.succeed(null),
       isReviewAccount: () => Effect.succeed(true),
       classify: () => {
@@ -80,17 +70,18 @@ describe("a review account's Dotypos link", () => {
       },
       claimLink: () => Effect.die("claim must not be called"),
       reactivate: () => Effect.die("reactivate must not be called"),
-      withActiveAccount: Effect.runSync(
-        Effect.service(CustomerAccountSections).pipe(
-          Effect.provide(heldSections())
-        )
-      ).withActiveAccount,
     };
-
-    const outcome = await resolveCustomerAccount(dependencies).pipe(
-      Effect.result,
-      Effect.runPromise
+    const { withActiveAccount } = Effect.runSync(
+      Effect.service(CustomerAccountSections).pipe(
+        Effect.provide(heldSections())
+      )
     );
+
+    const outcome = await withActiveAccount(
+      accountId,
+      resolveHeldCustomerAccountLink(steps),
+      { recheck: "session" }
+    ).pipe(Effect.result, Effect.runPromise);
 
     expectReviewRefusal(outcome);
     expect(calls).toEqual([]);
@@ -134,16 +125,26 @@ describe("a review account's booking contact", () => {
         CustomerAccountContactService.Default.pipe(
           Layer.provide(
             Layer.mergeAll(
-              Layer.succeed(CustomerAuthentication, {
-                currentUser: Effect.succeed({
-                  accountId,
-                  email,
-                  deletionRequested: false,
-                }),
-              } as never),
-              activeLinks,
-              Layer.mock(CustomerProfileService, {}),
-              reviewAccounts(review)
+              // The real standing over the review marker; it never enters
+              // the account section or reaches Dotypos.
+              CurrentCustomerAccount.Default.pipe(
+                Layer.provide(
+                  Layer.mergeAll(
+                    Layer.succeed(CustomerAuthentication, {
+                      currentUser: Effect.succeed({
+                        accountId,
+                        email,
+                        deletionRequested: false,
+                      }),
+                    } as never),
+                    activeLinks,
+                    Layer.mock(CustomerAccountSections, {}),
+                    unreachableDotypos,
+                    reviewAccounts(review)
+                  )
+                )
+              ),
+              Layer.mock(CustomerProfileService, {})
             )
           )
         )
@@ -196,7 +197,8 @@ describe("a review account's reservation history", () => {
       Effect.runPromise
     );
 
-    expect(loaded).toBe(sandboxHistory);
+    // The sandbox's history, its entries named as every history's are.
+    expect(loaded).toEqual(sandboxHistory);
     expect(history).toHaveBeenCalledWith(accountId);
   });
 });

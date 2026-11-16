@@ -11,7 +11,6 @@ import {
   ReservationCancellationConsequences,
   ReservationCancellationEffects,
   type ReservationCancellationFormValues,
-  useAwaitsProviderCredentialRemoval,
   useReservationCancellationForm,
 } from "@/features/administration/reservation-cancellation-consequences";
 import type { Locale } from "@/features/i18n";
@@ -178,9 +177,6 @@ export function InvoiceCancellation({
                 confirmedCustomerNotice: preview.customerNotice === "owed",
                 ...(preview.reservation && {
                   reservation: {
-                    accessGrantUpdatedAt:
-                      preview.reservation.accessGrantUpdatedAt,
-                    providerCredentialRemoved: values.providerCredentialRemoved,
                     sendCancellationEmail: values.sendCancellationEmail,
                   },
                 }),
@@ -249,17 +245,7 @@ function InvoiceCancellationForm({
   readonly onSubmit: (values: ReservationCancellationFormValues) => void;
   readonly preview: LiveInvoiceCancellationPreview;
 }) {
-  const requiresProviderCredentialRemoval =
-    preview.reservation?.requiresProviderCredentialRemoval ?? false;
-  const form = useReservationCancellationForm({
-    accessGrantUpdatedAt: preview.reservation?.accessGrantUpdatedAt ?? null,
-    locale,
-    requiresProviderCredentialRemoval,
-  });
-  const awaitsProviderCredentialRemoval = useAwaitsProviderCredentialRemoval(
-    form,
-    requiresProviderCredentialRemoval
-  );
+  const form = useReservationCancellationForm();
   return (
     <Form {...form}>
       <form
@@ -293,13 +279,7 @@ function InvoiceCancellationForm({
                 </p>
               </div>
             </AdministrationAlert>
-            <ReservationCancellationConsequences
-              form={form}
-              locale={locale}
-              requiresProviderCredentialRemoval={
-                requiresProviderCredentialRemoval
-              }
-            />
+            <ReservationCancellationConsequences form={form} locale={locale} />
           </>
         )}
         <DialogFooter>
@@ -308,11 +288,7 @@ function InvoiceCancellationForm({
               {m.accountingInvoiceCancelKeep({}, { locale })}
             </Button>
           </DialogClose>
-          <Button
-            disabled={isExecuting || awaitsProviderCredentialRemoval}
-            tone="burned-orange-ink"
-            type="submit"
-          >
+          <Button disabled={isExecuting} tone="burned-orange-ink" type="submit">
             {isExecuting
               ? m.accountingInvoiceCancelSubmitting({}, { locale })
               : m.accountingInvoiceCancelSubmit({}, { locale })}

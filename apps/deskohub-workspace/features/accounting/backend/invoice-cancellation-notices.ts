@@ -3,7 +3,7 @@ import type { InvoiceNoticeSummary } from "@/features/accounting/invoice-cancell
 import type { InvoiceId } from "@/features/accounting/manual-invoice";
 import { internalWorkspaceEmailRecipientFor } from "@/shared/backend/email/workspace-email-recipients";
 import { censorLogValue } from "@/shared/backend/logging/censorship";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
 import { renderCorrectiveDocumentPdfFile } from "./corrective-document-pdf";
 import { InvoiceRepository } from "./invoice.repository";
 import {
@@ -57,7 +57,7 @@ export class InvoiceCancellationNotices extends Context.Service<
     Effect.gen(function* () {
       const cancellations = yield* InvoiceCancellationRepository;
       const invoices = yield* InvoiceRepository;
-      const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
+      const accountingSnapshots = yield* AccountingDocumentSnapshots;
       const send = yield* makeClaimedInvoiceEmailSender;
 
       const loadNotice = Effect.fn("InvoiceCancellationNotices.loadNotice")(
@@ -95,7 +95,7 @@ export class InvoiceCancellationNotices extends Context.Service<
           }
           const recipient = yield* resolveInvoiceEmailRecipient(invoice).pipe(
             Effect.provideService(
-              AccountingDocumentSnapshotRepository,
+              AccountingDocumentSnapshots,
               accountingSnapshots
             )
           );
@@ -279,14 +279,7 @@ export class InvoiceCancellationNotices extends Context.Service<
     })
   );
 
-  static Live = this.Default.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        InvoiceCancellationRepository.Live,
-        invoiceEmailDependencies()
-      )
-    )
-  );
+  static Live = this.Default.pipe(Layer.provide(invoiceEmailDependencies()));
 }
 
 const invoiceCancellationNoticeEmailCategory =

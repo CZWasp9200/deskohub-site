@@ -448,7 +448,6 @@ describe("dhw mutation commands", () => {
         "reservations",
         "cancel",
         reservationId,
-        "--confirm-access-credential-removed",
         "--force",
         "--send-cancellation-email",
         "--yes",
@@ -460,10 +459,8 @@ describe("dhw mutation commands", () => {
       {
         id: reservationId,
         input: {
-          accessGrantUpdatedAt: "2026-08-10T10:00:00.000Z",
           confirmedConsequences: { invoice: false, customerNotice: false },
           force: true,
-          providerCredentialRemoved: true,
           sendCancellationEmail: true,
         },
       },
@@ -1776,8 +1773,6 @@ describe("dhw invoices cancellation and archive", () => {
       customerId: "customer-c1",
       status: { label: "Confirmed" },
     },
-    accessGrant: { updatedAt: "2026-11-15T09:00:00Z" },
-    requiresProviderCredentialRemoval: true,
     invoice: null,
   } as never;
   const cancelled = {
@@ -1817,7 +1812,6 @@ describe("dhw invoices cancellation and archive", () => {
           "invoices",
           "cancel",
           invoiceId,
-          "--confirm-access-credential-removed",
           "--send-cancellation-email",
           "--yes",
         ],
@@ -1834,8 +1828,6 @@ describe("dhw invoices cancellation and archive", () => {
         input: {
           confirmedCustomerNotice: true,
           reservation: {
-            accessGrantUpdatedAt: "2026-11-15T09:00:00Z",
-            providerCredentialRemoved: true,
             sendCancellationEmail: true,
           },
         },

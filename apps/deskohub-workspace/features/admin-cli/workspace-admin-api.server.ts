@@ -208,7 +208,6 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
           const { actor, channel } = yield* CurrentAdministrationCaller;
           return yield* reservationAdministration
             .cancel({
-              accessGrantUpdatedAt: payload.accessGrantUpdatedAt,
               actor: {
                 source: provenanceSourceOf(channel),
                 administrator: actor,
@@ -217,7 +216,6 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
                 confirmedConsequences: payload.confirmedConsequences,
               }),
               force: payload.force ?? false,
-              providerCredentialRemoved: payload.providerCredentialRemoved,
               reservationId: params.reservationId,
               sendCancellationEmail: payload.sendCancellationEmail,
             })

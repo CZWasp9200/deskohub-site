@@ -1,8 +1,9 @@
 # Account data export
 
-The self-service archive behind `GET /[locale]/account/data-export`. What the
-archive promises customers lives in `docs/account-data-export.md`; this file
-covers how it is built.
+The self-service archive behind `GET /[locale]/account/data-export` (the
+website) and `GET /api/customer/account/data-export` (the customer HTTP API,
+for the app). What the archive promises customers lives in
+`docs/account-data-export.md`; this file covers how it is built.
 
 ## Modules
 
@@ -21,12 +22,22 @@ covers how it is built.
   `makeAccountDataExportGet`, used by the route file under
   `app/[locale]/(site)/(full-header)/account/data-export/route.ts`, which only
   exports `GET`.
+- The customer API's `getDataExport` handler in
+  `features/customer-api/customer-account-handlers.ts`.
+
+Both adapters call `AccountDataExportService.download` and only map its
+outcome to HTTP. Authorization, limits, the archive, and its file name are
+the service's. A new adapter builds the service with
+`AccountDataExportService.withAuthentication` (the customer API provides
+`ForProvidedAuthentication` over the session its middleware read); `Live` is
+the browser session's. Neither adapter adds a gate, a limit, or a refusal of
+its own: the export has no release gate.
 
 ## Authorization
 
 `download` re-authorizes from the authoritative session the way
-`CustomerInvoiceService` does: `CustomerAccountResolver.resolve`, then
-`CustomerAuthentication.currentUser` through `requireVerifiedIdentity` (the
+`CustomerInvoiceService` does: `requireLinkedCustomerAccount`, then
+`CurrentCustomerAccount.requireActive` read again after resolution (the
 identity section comes from this session, so its account must be the resolved
 one), then `requireAccountActivity`. `isCustomerAccountAccessDenial` sorts the
 `CustomerAccountAccessError`: a refusal (signed out, unverified, unlinked,
@@ -35,7 +46,7 @@ review account, deletion pending or done) is
 with code `account.authority`.
 
 That authorization is `authorizeAccountDataExport`, an Effect over
-`AccountDataExportAuthority` (resolver, session, account link;
+`AccountDataExportAuthority` (the account standing and the account link;
 `accountDataExportAuthorityLive` in production). `download` runs it with the
 service's own dependencies, and `/account/legal` offers the download through
 `getAccountDataExportAvailability`
@@ -129,6 +140,18 @@ service can't be built. Responses, all private (`markPrivateResponse`:
   service that can't be built (`catchRecoverableCause`, logging only
   `account.data-export`). A client disconnect stays an interruption.
 
+## Customer API
+
+`getDataExport` answers 200 `application/zip` with the same attachment name
+(`answerFileDownload`, `features/customer-api/customer-file-download.ts`),
+private and uncached like every customer API response; 404
+`CustomerDataExportUnavailable` for every refusal; and 503
+`CustomerServiceUnavailable` for a load failure of either kind or a service
+that can't be built. It spends the `dotypos-read` budget. It is a GET, so the
+read stops when the app disconnects. The app shows its download row for the
+`linked` account state, the sessions the service serves, and treats a 404 as
+unavailable.
+
 ## Tests
 
 - `account-data-export.service.test.ts` and
@@ -145,6 +168,10 @@ service can't be built. Responses, all private (`markPrivateResponse`:
   passes / limit + 1 fails for every bounded read.
 - A new section or field updates the projection-key assertions in the
   Postgres suite.
+- `getDataExport` in `features/customer-api/customer-account-handlers.test.ts`
+  runs the real service over the same fakes through the customer API: the
+  archive, the request's session, every refusal in
+  `accountDataExportRefusals`, load failures, and an unbuildable service.
 
 ## Residual risks
 

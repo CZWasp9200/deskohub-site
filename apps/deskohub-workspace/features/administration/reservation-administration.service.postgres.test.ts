@@ -158,10 +158,8 @@ const cancellationInput = async (
   reservationId: WorkspaceReservationId,
   confirmedConsequences?: ReservationCancellationInput["confirmedConsequences"]
 ): Promise<ReservationCancellationInput> => ({
-  accessGrantUpdatedAt: null,
   actor: await kit.makeActor(`reservation-cancel-${reservationId}`),
   ...(confirmedConsequences && { confirmedConsequences }),
-  providerCredentialRemoved: false,
   reservationId,
   sendCancellationEmail: false,
 });

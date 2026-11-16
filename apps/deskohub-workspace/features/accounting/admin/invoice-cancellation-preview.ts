@@ -11,13 +11,11 @@ import {
   InvoiceAdministrationService,
 } from "./invoice-administration.service";
 
-/** The reservation cancelled with the invoice, and what its cancellation asks. */
+/** The reservation cancelled with the invoice. */
 type InvoiceCancellationReservation = {
   readonly reservationId: AdministrationWorkspaceReservationIdType;
   /** The reservation's product and date, worded for the operator. */
   readonly label: string;
-  readonly accessGrantUpdatedAt: string | null;
-  readonly requiresProviderCredentialRemoval: boolean;
 };
 
 /**
@@ -85,7 +83,5 @@ const readCancelledReservation = Effect.fn(
     label: date
       ? m.accountingInvoiceCancelReservationLabel({ product, date }, { locale })
       : product,
-    accessGrantUpdatedAt: detail.accessGrant?.updatedAt ?? null,
-    requiresProviderCredentialRemoval: detail.requiresProviderCredentialRemoval,
   } satisfies InvoiceCancellationReservation;
 });

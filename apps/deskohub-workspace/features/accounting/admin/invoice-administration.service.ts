@@ -93,7 +93,7 @@ import {
   plainDateStringSchema,
   temporalInstantToPlainDate,
 } from "@/shared/utils/temporal";
-import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
+import { AccountingStorage } from "../backend/accounting-storage";
 import { renderCorrectiveDocumentPdfFile } from "../backend/corrective-document-pdf";
 import { type Invoice, InvoiceRepository } from "../backend/invoice.repository";
 import { InvoiceArchiveRepository } from "../backend/invoice-archive.repository";
@@ -253,8 +253,6 @@ type InvoiceAdministrationCancelInput = {
    * invoice bills a live reservation: both are cancelled together.
    */
   readonly reservation?: {
-    readonly accessGrantUpdatedAt: string | null;
-    readonly providerCredentialRemoved: boolean;
     readonly sendCancellationEmail: boolean;
   };
 };
@@ -1165,22 +1163,14 @@ export const sortInvoiceAdministrationItems = (
 };
 
 function getDependencies() {
-  const storage = Layer.merge(
-    WorkspaceDatabase.Default,
-    AccountingSnapshotKeyService.Default
-  );
-  const creationRequests = ManualInvoiceCreationRequests.Default.pipe(
-    Layer.provide(storage)
-  );
   return Layer.mergeAll(
     WorkspaceDatabase.Default,
-    InvoiceRepository.Live,
+    AccountingStorage.Live,
     InvoiceEmailDeliveryRepository.Live,
-    InvoiceCancellationRepository.Live,
     InvoiceArchiveRepository.Live,
     InvoiceCancellationService.Live,
     ReservationAdministrationService.Live,
-    creationRequests,
+    ManualInvoiceCreationRequests.Live,
     InvoiceEmailDeliveryService.Live,
     WorkspaceDotyposLayer
   );

@@ -10,7 +10,7 @@ import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { accountingDocumentSnapshots, paymentAttempts } from "@/db/schema";
+import { paymentAttempts } from "@/db/schema";
 import {
   accountingSnapshotKeyIdSchema,
   makeAccountingDocumentSnapshot,
@@ -31,12 +31,13 @@ import type { WorkspaceReservationId } from "@/features/reservation/persistence-
 import { extractPdfText } from "@/shared/testing/pdf-text.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { createWorkspacePostgresSuiteDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import type { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
+import { recordAccountingDocumentSnapshot } from "./accounting-document-snapshots.test-utils";
 import {
   type AccountingSnapshotKey,
   AccountingSnapshotKeyService,
 } from "./accounting-snapshot-key.service";
-import { encryptAccountingSnapshot } from "./accounting-snapshot-sql";
+import { AccountingStorage } from "./accounting-storage";
 import { InvoiceRepository } from "./invoice.repository";
 import { InvoiceCancellationRepository } from "./invoice-cancellation.repository";
 import { ReservationInvoicePdfService } from "./reservation-invoice-pdf.service";
@@ -88,6 +89,7 @@ describe.skipIf(!postgres)(
       effect: Effect.Effect<
         A,
         E,
+        | AccountingDocumentSnapshots
         | WorkspaceDatabase
         | InvoiceRepository
         | InvoiceCancellationRepository
@@ -108,10 +110,7 @@ describe.skipIf(!postgres)(
         effect.pipe(
           Effect.provide(
             Layer.mergeAll(
-              InvoiceRepository.Default.pipe(
-                Layer.provide(AccountingDocumentSnapshotRepository.Default)
-              ),
-              InvoiceCancellationRepository.Default,
+              AccountingStorage.Default,
               WorkspaceReservationRepository.Default
             ).pipe(Layer.provideMerge(storage))
           )
@@ -165,14 +164,9 @@ describe.skipIf(!postgres)(
                 amountExponent: source.quote.payment.expectedPrice.exponent,
                 currency: source.quote.payment.expectedPrice.currency,
               });
-              yield* db.insert(accountingDocumentSnapshots).values({
+              yield* recordAccountingDocumentSnapshot({
                 paymentAttemptId,
-                workspaceReservationId: reservation.id,
-                keyId: testKey.id,
-                encryptedSnapshot: encryptAccountingSnapshot(
-                  JSON.stringify(source),
-                  testKey.secret
-                ),
+                snapshot: source,
               });
               return reservation.id;
             })

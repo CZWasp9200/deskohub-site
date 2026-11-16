@@ -1073,14 +1073,12 @@ export type AdministrationInvoiceRetryResult =
 /**
  * Cancels an invoice. `confirmedCustomerNotice` confirms the notice the plan
  * showed. An invoice billing a live reservation also needs `reservation`: the
- * fields a reservation cancellation takes, and both are cancelled together.
+ * choice a reservation cancellation takes, and both are cancelled together.
  */
 export const AdministrationInvoiceCancellationInput = Schema.Struct({
   confirmedCustomerNotice: Schema.Boolean,
   reservation: Schema.optionalKey(
     Schema.Struct({
-      accessGrantUpdatedAt: Schema.NullOr(Schema.String),
-      providerCredentialRemoved: Schema.Boolean,
       sendCancellationEmail: Schema.Boolean,
     })
   ),
@@ -1780,7 +1778,6 @@ export const AdministrationReservationDetail = Schema.Struct({
     customerId: AdministrationDotyposCustomerId,
   }),
   canCancel: Schema.Boolean,
-  requiresProviderCredentialRemoval: Schema.Boolean,
   /**
    * The reservation's latest invoice; null without one, and from servers
    * that predate invoice cancellation.
@@ -1802,9 +1799,7 @@ export type AdministrationReservationDetail =
   typeof AdministrationReservationDetail.Type;
 
 export const AdministrationReservationCancellationInput = Schema.Struct({
-  accessGrantUpdatedAt: Schema.NullOr(Schema.String),
   force: Schema.optionalKey(Schema.Boolean),
-  providerCredentialRemoved: Schema.Boolean,
   sendCancellationEmail: Schema.Boolean,
   /**
    * The invoice consequences the operator confirmed. When given, the server
@@ -2755,6 +2750,15 @@ export const AdminCliApi = HttpApiGroup.make("cli")
  */
 export const invoicesMinimumDhwVersion = DhwVersion.make("1.25.0");
 
+/**
+ * The first `dhw` that decodes the reservation detail and sends the
+ * cancellation input in their current shape. Released binaries before it
+ * decode a different detail and send a different input, and declared no
+ * `CliInputInvalid` on either operation, so an older one is refused with a
+ * `CliServiceUnavailable` it prints.
+ */
+export const reservationsMinimumDhwVersion = DhwVersion.make("1.36.1");
+
 export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
   .add(
     HttpApiEndpoint.get("getOverview", "/overview", {
@@ -2779,7 +2783,9 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
       params: { reservationId: AdministrationWorkspaceReservationId },
       success: AdministrationReservationDetail,
       error: CliResourceNotFound.schema,
-    }).annotate(AdministrationOperationBehavior, readOperation)
+    })
+      .annotate(AdministrationOperationBehavior, readOperation)
+      .pipe(requiresDhw(reservationsMinimumDhwVersion, "CliServiceUnavailable"))
   )
   .add(
     HttpApiEndpoint.post(
@@ -2795,13 +2801,15 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
           CliServiceUnavailable.schema,
         ],
       }
-    ).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({
-        idempotent: false,
-        preview: readPreview("administration.getReservation"),
-      })
     )
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: false,
+          preview: readPreview("administration.getReservation"),
+        })
+      )
+      .pipe(requiresDhw(reservationsMinimumDhwVersion, "CliServiceUnavailable"))
   )
   .add(
     HttpApiEndpoint.post(
