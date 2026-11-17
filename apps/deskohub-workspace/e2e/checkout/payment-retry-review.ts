@@ -14,7 +14,7 @@ import { workspaceDir } from "../runtime";
  * The review screenshot opt-in, decoded once through the E2E environment:
  * the payment retry case captures its pages only when it is on.
  */
-export const paymentRetryReviewEnabled = reviewScreenshotsEnabled(
+const paymentRetryReviewEnabled = reviewScreenshotsEnabled(
   makeReviewScreenshotEnvironment()
 );
 
