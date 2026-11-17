@@ -1,5 +1,6 @@
 import type {
   CustomerAvailability,
+  CustomerBookableDates,
   CustomerBookedSelection,
   CustomerBookingSelection,
   CustomerOffering,
@@ -52,11 +53,12 @@ export interface KeptOfficeDraft {
 export const openingOfficeDraft = ({
   kept,
   preselection,
-  today,
+  bookableDates,
 }: {
   readonly kept: Option.Option<KeptOfficeDraft>;
   readonly preselection: Option.Option<CustomerBookedSelection>;
-  readonly today: PragueDate;
+  /** The office offering's bookable dates. */
+  readonly bookableDates: CustomerBookableDates;
 }): OfficeDraft => {
   const seed = bookingPreselectionKey(preselection);
   return Option.filter(
@@ -66,7 +68,7 @@ export const openingOfficeDraft = ({
     Option.map(({ draft }) => draft),
     Option.orElse(() =>
       Option.flatMap(preselection, ({ selection }) =>
-        officeDraftFromSelection(selection, today)
+        officeDraftFromSelection(selection, bookableDates)
       )
     ),
     Option.getOrElse(() => emptyOfficeDraft)
@@ -106,17 +108,15 @@ export type OfficeBookingModel = {
 
 export const officeBookingModel = ({
   draft,
-  now,
   offering,
   availability,
 }: {
   readonly draft: OfficeDraft;
-  readonly now: Date;
   readonly offering: OfficeOffering;
-  /** Settled read of `officeAvailabilityQuery(today)`. */
+  /** Settled read of `officeAvailabilityQuery(offering.bookableDates)`. */
   readonly availability: Option.Option<CustomerAvailability>;
 }): OfficeBookingModel => {
-  const context = { now, offering, availability };
+  const context = { offering, availability };
   const fitted = clampOfficeDraft(draft, officeEnablement(draft, context));
   const enablement = officeEnablement(fitted, context);
   const selection = toOfficeSelection(fitted);

@@ -6,7 +6,7 @@ import type {
   Money,
 } from "@deskohub/workspace-customer-api";
 import type { OfficeOffering } from "../../selection/office-selection";
-import { czk } from "../../testing/sample-booking-catalog";
+import { czk, sampleBookableDates } from "../../testing/sample-booking-catalog";
 
 /**
  * Synthetic pricing responses for tests and the booking gallery, shaped as
@@ -134,13 +134,17 @@ const officeSelection: CustomerBookingSelection = {
   seats: 6,
 };
 
-/** The office line's parts: access for 3 days, and one seat for 3 days. */
+/**
+ * The office line's parts: access for 3 days, one seat for 3 days, and the 6
+ * seats for 3 days.
+ */
 const officeParts = {
   key: "product:office:6:3",
   dayCount: 3,
   seats: 6,
   accessAmount: czk(1590),
   seatAmount: czk(945),
+  seatsAmount: czk(5670),
   dailyAccessRate: czk(530),
   dailySeatRate: czk(315),
 } as const;
@@ -190,6 +194,7 @@ export const officeOnSale: OfficeOffering = {
   seatPrice: czk(315),
   maximumSeats: 6,
   maximumDurationHours: 672,
+  bookableDates: sampleBookableDates("2026-11-17", "office"),
   advertisedPrice: {
     price: czk(760.5),
     discount: czk(84.5),

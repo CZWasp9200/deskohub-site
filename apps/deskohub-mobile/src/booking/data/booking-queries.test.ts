@@ -36,6 +36,7 @@ import {
   catalogIdleTTL,
   legalDocumentsAtom,
   meetingRoomStartTimesAtom,
+  offeringsRolloverRetryDelay,
   quoteRefreshInterval,
 } from "./booking-queries";
 import { toBookingQueryError } from "./booking-query-error";
@@ -334,6 +335,70 @@ describe("bookingQuoteAtom early setup", () => {
       startsAt: expect.any(String),
     });
     expect(await earlySetupOf(false)).toBeUndefined();
+  });
+});
+
+describe("bookingOfferingsAtom rollover", () => {
+  // A minute before Prague midnight (CET) ends 17 November 2026.
+  const beforeMidnight = new Date("2026-11-17T22:59:00Z");
+  const afterMidnight = new Date("2026-11-17T23:00:30Z");
+
+  /** A mounted offerings read on a test clock a minute before midnight. */
+  const mountedBeforeMidnight = async () => {
+    const harness = withTestClock();
+    harness.booking.now = () => beforeMidnight;
+    const atom = bookingOfferingsAtom("en-US");
+    harness.registry.mount(atom);
+    await settle(harness.registry, atom);
+    // The test clock starts at the epoch, and the mounted read keeps its
+    // runtime; move the clock to the instant the server answered at.
+    await harness.adjust(Duration.millis(beforeMidnight.getTime()));
+    await flush();
+    const offeringsCalls = () =>
+      harness.booking.endpoints.filter(
+        (endpoint) => endpoint === "listOfferings"
+      ).length;
+    return { ...harness, atom, offeringsCalls };
+  };
+
+  test("reads the offerings again once the Prague date passes their advertisedOn", async () => {
+    const harness = await mountedBeforeMidnight();
+
+    await harness.adjust(Duration.seconds(59));
+    await flush();
+    expect(harness.offeringsCalls()).toBe(1);
+
+    harness.booking.now = () => afterMidnight;
+    await harness.adjust(Duration.seconds(1));
+    await flush();
+    const next = await settle(harness.registry, harness.atom);
+
+    expect(harness.offeringsCalls()).toBe(2);
+    expect(next._tag === "Success" && next.success.advertisedOn).toBe(
+      "2026-11-18"
+    );
+  });
+
+  test("asks a server still answering for the day before again after a pause, not in a loop", async () => {
+    const harness = await mountedBeforeMidnight();
+
+    // The server's clock lags: it still answers for 17 November.
+    await harness.adjust(Duration.minutes(1));
+    await flush();
+    await settle(harness.registry, harness.atom);
+    expect(harness.offeringsCalls()).toBe(2);
+
+    await harness.adjust(
+      Duration.millis(Duration.toMillis(offeringsRolloverRetryDelay) - 1)
+    );
+    await flush();
+    expect(harness.offeringsCalls()).toBe(2);
+
+    harness.booking.now = () => afterMidnight;
+    await harness.adjust(Duration.millis(1));
+    await flush();
+    await settle(harness.registry, harness.atom);
+    expect(harness.offeringsCalls()).toBe(3);
   });
 });
 

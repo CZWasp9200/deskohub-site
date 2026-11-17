@@ -1,6 +1,7 @@
 import type {
   CustomerAvailability,
   CustomerBookableCoworkTier,
+  CustomerBookableDates,
   CustomerBookingSelection,
   CustomerCoworkStay,
   CustomerMonitorOption,
@@ -8,7 +9,7 @@ import type {
 } from "@deskohub/workspace-customer-api";
 import { Array as Arr, Data, Option } from "effect";
 import type { AvailabilityQuery, DateChoice } from "./booking-selection";
-import { addMonths, type PragueDate, pragueDateTimeAt } from "./prague-date";
+import { type PragueDate, pragueDateTimeAt } from "./prague-date";
 
 /**
  * Where a Reserved Desk's workstation came from: the customer chose it, or
@@ -48,7 +49,6 @@ export type CoworkOvernightStay = NonNullable<CoworkOffering["overnightStay"]>;
 const openSpaceClosingHour = 17;
 /** When Open Space access ends, Prague HH:mm. */
 export const openSpaceClosingTime = `${openSpaceClosingHour}:00`;
-const horizonMonths = 6;
 
 /** The cowork tiers the catalog offers, in catalog order. */
 export const coworkOfferings = (offerings: ReadonlyArray<CustomerOffering>) =>
@@ -95,8 +95,7 @@ export const defaultCoworkDraft = (
  */
 export const coworkDraftFromSelection = (
   selection: CustomerBookingSelection,
-  offerings: ReadonlyArray<CustomerOffering>,
-  today: PragueDate
+  offerings: ReadonlyArray<CustomerOffering>
 ): Option.Option<CoworkDraft> => {
   const { tier } = selection;
   const offering = coworkOfferings(offerings).find(
@@ -105,7 +104,7 @@ export const coworkDraftFromSelection = (
   if (selection.family !== "cowork" || tier === undefined || !offering) {
     return Option.none();
   }
-  const { earliest, latest } = coworkDateRange(today);
+  const { earliest, latest } = offering.bookableDates;
   const offeredWorkstations =
     offering.addOns.find(({ id }) => id === "workstation")?.options ?? [];
   return Option.some(
@@ -217,7 +216,7 @@ export const toCoworkSelection = (
 
 /** The availability queries a cowork screen reads for its draft. */
 export type CoworkAvailabilityQueries = {
-  /** The tier's six-month calendar. */
+  /** The tier's calendar over its bookable dates. */
   readonly range: AvailabilityQuery;
   /** The drafted offer on its date alone, once it has one. */
   readonly selection: Option.Option<AvailabilityQuery>;
@@ -225,17 +224,31 @@ export type CoworkAvailabilityQueries = {
   readonly workstationRequirement: Option.Option<AvailabilityQuery>;
 };
 
-/** The calendar a cowork draft may pick from: today through six months. */
-const coworkDateRange = (today: PragueDate) => ({
-  earliest: today,
-  latest: addMonths(today, horizonMonths),
-});
+/** The cowork offerings, one per tier; none while the catalog offers no tier. */
+export const offeredCoworkTiers = (
+  offerings: ReadonlyArray<CustomerOffering>
+): Option.Option<Arr.NonEmptyReadonlyArray<CoworkOffering>> => {
+  const tiers = coworkOfferings(offerings);
+  return Arr.isReadonlyArrayNonEmpty(tiers)
+    ? Option.some(tiers)
+    : Option.none();
+};
+
+/**
+ * The dates a cowork draft may pick from: its tier's offering's bookable
+ * dates, else the first tier's while the catalog no longer offers the
+ * drafted one.
+ */
+export const coworkBookableDates = (
+  tiers: Arr.NonEmptyReadonlyArray<CoworkOffering>,
+  tier: CustomerBookableCoworkTier
+): CustomerBookableDates =>
+  (tiers.find((offering) => offering.tier === tier) ?? tiers[0]).bookableDates;
 
 export const coworkAvailabilityQueries = (
   draft: CoworkDraft,
-  today: PragueDate
+  { earliest, latest }: CustomerBookableDates
 ): CoworkAvailabilityQueries => {
-  const { earliest, latest } = coworkDateRange(today);
   const selectedDate = Option.map(draft.date, coworkDayQuery(draft));
   const isReservedDesk = draft.tier === "reserved-desk";
   return {
@@ -356,12 +369,14 @@ export const coworkEnablement = (
   context: {
     readonly now: Date;
     readonly offerings: ReadonlyArray<CustomerOffering>;
+    /** The drafted tier's bookable dates (`coworkBookableDates`). */
+    readonly bookableDates: CustomerBookableDates;
     readonly availability: CoworkAvailability;
   }
 ): CoworkEnablement => {
   const { range, selection, workstationRequirement } = context.availability;
   const today = pragueDateTimeAt(context.now).date;
-  const { earliest, latest } = coworkDateRange(today);
+  const { earliest, latest } = context.bookableDates;
   const isReservedDesk = draft.tier === "reserved-desk";
 
   const workstations = Arr.findFirst(
