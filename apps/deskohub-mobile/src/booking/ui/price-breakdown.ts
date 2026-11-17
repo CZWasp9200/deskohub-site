@@ -1,6 +1,7 @@
 import type {
   CustomerCheckoutSummary,
   CustomerCheckoutSummaryItem,
+  CustomerMonitorOption,
   CustomerVatStatus,
   Money,
 } from "@deskohub/workspace-customer-api";
@@ -18,14 +19,17 @@ export type PriceLineSubject =
       readonly dayCount: number;
     }
   | { readonly _tag: "Coffee" }
-  | { readonly _tag: "Workstation" }
-  | { readonly _tag: "Monitor"; readonly option: string }
+  /** The monitor workstation, with the monitor setup it is configured with. */
+  | {
+      readonly _tag: "Workstation";
+      readonly monitorOption?: CustomerMonitorOption;
+    }
   | { readonly _tag: "Other"; readonly key: string };
 
-/** The subjects a summary item's key names on its own. */
+/** The subjects a summary item names on its own. */
 export type SummaryItemSubject = Extract<
   PriceLineSubject,
-  { readonly _tag: "Product" | "Coffee" | "Workstation" | "Monitor" | "Other" }
+  { readonly _tag: "Product" | "Coffee" | "Workstation" | "Other" }
 >;
 
 /** One line of an itemized price. */
@@ -56,16 +60,24 @@ export interface PriceBreakdown {
 }
 
 /**
- * What a summary item's key names: `product:<product key>`, `addon:coffee`,
- * `addon:workstation`, `monitor:<option>`, anything else as itself.
+ * What a summary item names: `product:<product key>`, `addon:coffee`,
+ * `addon:workstation` with its monitor setup, anything else as itself.
  */
-export const summaryItemSubject = (key: string): SummaryItemSubject => {
+export const summaryItemSubject = ({
+  key,
+  monitorOption,
+}: Pick<
+  CustomerCheckoutSummaryItem,
+  "key" | "monitorOption"
+>): SummaryItemSubject => {
   const [prefix, ...rest] = key.split(":");
-  const name = rest.join(":");
-  if (prefix === "product") return { _tag: "Product", product: name };
+  if (prefix === "product") return { _tag: "Product", product: rest.join(":") };
   if (key === "addon:coffee") return { _tag: "Coffee" };
-  if (key === "addon:workstation") return { _tag: "Workstation" };
-  if (prefix === "monitor") return { _tag: "Monitor", option: name };
+  if (key === "addon:workstation") {
+    return monitorOption === undefined
+      ? { _tag: "Workstation" }
+      : { _tag: "Workstation", monitorOption };
+  }
   return { _tag: "Other", key };
 };
 
@@ -108,7 +120,7 @@ const itemLines = (item: CustomerCheckoutSummaryItem): PriceLine[] => [
     {
       _tag: "Charge",
       key: item.key,
-      subject: summaryItemSubject(item.key),
+      subject: summaryItemSubject(item),
       amount: item.originalAmount ?? item.amount,
     },
   ]),

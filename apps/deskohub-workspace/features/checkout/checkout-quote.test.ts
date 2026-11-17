@@ -112,20 +112,48 @@ describe("cowork reservation quotes", () => {
     ]);
   });
 
-  test("lists the reserved-desk workstation and monitor in the summary", () => {
+  test("lists the reserved-desk workstation once, carrying its monitor setup", () => {
     const withWorkstation = buildCoworkReservationQuote({
       entryTier: "reserved-desk",
       coffee: true,
       monitorOption: "2x27-qhd",
     });
 
-    expect(
-      withWorkstation.summary.sections[0]?.items.map((item) => item.key)
-    ).toEqual([
-      "product:cowork:reserved-desk",
-      "addon:workstation",
-      "monitor:2x27-qhd",
+    expect(withWorkstation.summary.sections[0]?.items.slice(1)).toEqual([
+      {
+        key: "addon:workstation",
+        amount: withWorkstation.items[1]!.amount,
+        monitorOption: "2x27-qhd",
+      },
     ]);
+  });
+
+  test("lists no workstation for a reserved desk without one", () => {
+    const withoutWorkstation = buildCoworkReservationQuote({
+      entryTier: "reserved-desk",
+      coffee: true,
+      monitorOption: "",
+    });
+
+    expect(
+      withoutWorkstation.summary.sections[0]?.items.map((item) => item.key)
+    ).toEqual(["product:cowork:reserved-desk"]);
+  });
+
+  test("reports the workstation line changed when only its monitor setup changes", () => {
+    const summaryWith = (monitorOption: WorkspaceProductMonitorOption) =>
+      buildCoworkReservationQuote({
+        entryTier: "reserved-desk",
+        coffee: true,
+        monitorOption,
+      }).summary;
+
+    expect(
+      getCheckoutSummaryChangedKeys(
+        summaryWith("2x27-qhd"),
+        summaryWith("2x32-4k")
+      )
+    ).toEqual({ sectionKeys: [], itemKeys: ["addon:workstation"] });
   });
 
   test("keeps the fingerprint stable across every catalog configuration and split by workstation presence", () => {

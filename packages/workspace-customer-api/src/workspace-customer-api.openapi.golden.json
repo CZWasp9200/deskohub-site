@@ -6278,6 +6278,9 @@
           },
           "seatAmount": {
             "$ref": "#/components/schemas/Money"
+          },
+          "monitorOption": {
+            "$ref": "#/components/schemas/CustomerMonitorOption"
           }
         },
         "required": ["key", "amount"],

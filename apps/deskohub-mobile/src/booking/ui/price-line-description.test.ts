@@ -7,6 +7,7 @@ import { type PriceLine, priceBreakdown } from "./price-breakdown";
 import {
   describeOfficePriceLine,
   describePriceLine,
+  monitorOptionName,
   type PriceLineDescription,
 } from "./price-line-description";
 import {
@@ -51,19 +52,21 @@ describe("describePriceLine", () => {
     ]);
   });
 
-  test("names a workstation and the chosen monitor setup", () => {
-    const lines = new Map(described(reservedDeskWithWorkstation));
-    expect(lines.get("product:cowork:reserved-desk")?.label).toBe(
+  test("names the workstation once, with its monitor setup under it", () => {
+    const lines = described(reservedDeskWithWorkstation);
+    expect(lines.map(([key]) => key)).toEqual([
+      "product:cowork:reserved-desk",
+      "product:cowork:reserved-desk:discount:calendar-sale-2026-11",
+      "addon:workstation",
+    ]);
+    const lineMap = new Map(lines);
+    expect(lineMap.get("product:cowork:reserved-desk")?.label).toBe(
       productLabel(reservedDeskWithWorkstation.selection, locale)
     );
-    expect(lines.get("addon:workstation")).toEqual({
+    expect(lineMap.get("addon:workstation")).toEqual({
       label: m.booking_checkout_line_workstation({}, { locale }),
+      detail: monitorOptionName("2x27-qhd"),
     });
-    const monitor = lines.get("monitor:2x27-qhd");
-    expect(monitor?.label).toBe(
-      m.booking_checkout_line_workstation({}, { locale })
-    );
-    expect(monitor?.detail).toContain("27");
   });
 
   test("gives a meeting room's hours with their start and end", () => {
