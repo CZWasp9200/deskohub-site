@@ -10,6 +10,7 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { customerDataLayer } from "../../../customer-api/customer-data-runtime";
 import type { AppLocale } from "../../../i18n/app-locale";
+import { homeCountry } from "../../../i18n/country-names";
 import { useAppLocale } from "../../../i18n/locale-context";
 import { m } from "../../../i18n/messages";
 import { AppBar } from "../../../ui/app-bar";
@@ -1019,10 +1020,11 @@ const detailsDraftFor = (
   state: DetailsFrameState,
   sample: (text: string) => string
 ): DetailsDraft => {
-  const start = initialDetailsDraft({
-    address: Option.none(),
-    company: Option.none(),
-  });
+  // The boards show a customer in Czechia.
+  const start = initialDetailsDraft(
+    { address: Option.none(), company: Option.none() },
+    homeCountry
+  );
   switch (state) {
     case "self":
     case "holding":

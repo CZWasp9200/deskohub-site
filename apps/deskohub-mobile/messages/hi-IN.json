@@ -29,6 +29,8 @@
   "booking_details_city": "शहर",
   "booking_details_postal_code": "पोस्टल कोड",
   "booking_details_country": "देश",
+  "booking_details_country_search": "देश खोजें",
+  "booking_details_country_no_match": "खोज से मेल खाता कोई देश नहीं है।",
   "booking_details_news_heading": "Deskohub की ख़बरें",
   "booking_details_optional": "वैकल्पिक",
   "booking_details_marketing_consent": "मुझे Deskohub Workspace की ख़बरें, इवेंट और ऑफ़र ईमेल पर भेजें। कभी भी अनसब्सक्राइब कर सकते हैं।",

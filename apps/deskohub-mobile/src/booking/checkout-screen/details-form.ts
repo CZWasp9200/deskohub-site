@@ -5,7 +5,7 @@ import type {
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { CompanyDetailsField } from "../../company-lookup/company-lookup-model";
-import { defaultCountry, invoiceCountryCodes } from "../../i18n/country-names";
+import { invoiceCountryCodes } from "../../i18n/country-names";
 import type { CheckoutDetails } from "../checkout/checkout-state";
 
 /**
@@ -83,12 +83,12 @@ const nonBlank = (value: string | null | undefined): Option.Option<string> =>
 const savedPhone = (phone: string | null) =>
   nonBlank(phone).pipe(Option.filter(isPhoneNumber));
 
-const emptyAddress: AddressDraft = {
+const emptyAddress = (country: string): AddressDraft => ({
   line1: "",
   city: "",
   postalCode: "",
-  country: defaultCountry,
-};
+  country,
+});
 
 const text = (value: string | null) =>
   Option.getOrElse(nonBlank(value), () => "");
@@ -103,10 +103,8 @@ const savedAddressDraft = (billing: CustomerProfileBilling): AddressDraft => ({
   line1: text(billing.addressLine1),
   city: text(billing.city),
   postalCode: text(billing.zip),
-  country: Option.getOrElse(
-    savedCountry(billing.country),
-    () => defaultCountry
-  ),
+  // Blank without a saved invoice country: `initialDetailsDraft` fills it.
+  country: Option.getOrElse(savedCountry(billing.country), () => ""),
 });
 
 const noSavedBilling: SavedBilling = {
@@ -219,20 +217,30 @@ export interface DetailsDraft {
 /**
  * The form a booking starts with: no invoice, as on the site; a saved
  * address is offered, not chosen. The company form starts from the saved
- * business details.
+ * business details. An address without a country starts in `country`, the
+ * device's country (`detectedCountry`).
  */
-export const initialDetailsDraft = (saved: SavedBilling): DetailsDraft => ({
+export const initialDetailsDraft = (
+  saved: SavedBilling,
+  country: string
+): DetailsDraft => ({
   bookingFor: "self",
   self: { name: "", phone: "" },
   someoneElse: { name: "", email: "", phone: "" },
   billing: "none",
-  personalAddress: emptyAddress,
-  company: Option.getOrElse(saved.company, () => ({
-    legalName: "",
-    companyId: "",
-    vatId: "",
-    address: emptyAddress,
-  })),
+  personalAddress: emptyAddress(country),
+  company: Option.match(saved.company, {
+    onNone: () => ({
+      legalName: "",
+      companyId: "",
+      vatId: "",
+      address: emptyAddress(country),
+    }),
+    onSome: (company) =>
+      company.address.country === ""
+        ? { ...company, address: { ...company.address, country } }
+        : company,
+  }),
   marketingConsent: false,
 });
 

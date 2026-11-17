@@ -29,6 +29,8 @@
   "booking_details_city": "Mesto",
   "booking_details_postal_code": "PSČ",
   "booking_details_country": "Krajina",
+  "booking_details_country_search": "Hľadať krajinu",
+  "booking_details_country_no_match": "Hľadaniu nezodpovedá žiadna krajina.",
   "booking_details_news_heading": "Novinky z Deskohubu",
   "booking_details_optional": "Nepovinné",
   "booking_details_marketing_consent": "Posielajte mi e-mailom novinky, podujatia a ponuky Deskohub Workspace. Odhlásiť sa môžem kedykoľvek.",

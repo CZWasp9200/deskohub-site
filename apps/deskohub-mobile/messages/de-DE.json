@@ -29,6 +29,8 @@
   "booking_details_city": "Stadt",
   "booking_details_postal_code": "PLZ",
   "booking_details_country": "Land",
+  "booking_details_country_search": "Länder suchen",
+  "booking_details_country_no_match": "Kein Land passt zu deiner Suche.",
   "booking_details_news_heading": "Neuigkeiten von Deskohub",
   "booking_details_optional": "Optional",
   "booking_details_marketing_consent": "Schickt mir Neuigkeiten, Veranstaltungen und Angebote von Deskohub Workspace per E-Mail. Abmelden kann ich mich jederzeit.",

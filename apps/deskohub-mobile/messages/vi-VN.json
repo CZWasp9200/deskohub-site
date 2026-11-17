@@ -29,6 +29,8 @@
   "booking_details_city": "Thành phố",
   "booking_details_postal_code": "Mã bưu chính",
   "booking_details_country": "Quốc gia",
+  "booking_details_country_search": "Tìm quốc gia",
+  "booking_details_country_no_match": "Không có quốc gia nào khớp với tìm kiếm.",
   "booking_details_news_heading": "Tin tức từ Deskohub",
   "booking_details_optional": "Không bắt buộc",
   "booking_details_marketing_consent": "Gửi cho tôi email về tin tức, sự kiện và ưu đãi của Deskohub Workspace. Có thể hủy đăng ký bất cứ lúc nào.",
