@@ -25,29 +25,35 @@ export function AgentBookingBanner({ locale }: { locale: Locale }) {
         </span>
       </p>
       <AgentBookingPicker locale={locale}>
-        <Button
-          aria-label={m.agentBookingChooseAssistant({}, { locale })}
-          className="sm:hidden"
-          shape="pill"
-          size="icon-lg"
-          tone="burned-orange"
-          type="button"
-        >
-          <ChevronRight aria-hidden className="size-4.5" />
-        </Button>
-      </AgentBookingPicker>
-      <AgentBookingPicker locale={locale}>
-        <Button
-          caps
-          className="max-sm:hidden"
-          shape="pill"
-          size="lg"
-          tone="burned-orange"
-          type="button"
-        >
-          {m.agentBookingChooseAssistant({}, { locale })}
-          <ChevronRight aria-hidden className="size-4.5" />
-        </Button>
+        {(opener) => (
+          <>
+            <Button
+              // biome-ignore lint/plugin: the picker's opener props are its state, ARIA and click handler, never a className.
+              {...opener}
+              aria-label={m.agentBookingChooseAssistant({}, { locale })}
+              className="sm:hidden"
+              shape="pill"
+              size="icon-lg"
+              tone="burned-orange"
+              type="button"
+            >
+              <ChevronRight aria-hidden className="size-4.5" />
+            </Button>
+            <Button
+              // biome-ignore lint/plugin: the picker's opener props are its state, ARIA and click handler, never a className.
+              {...opener}
+              caps
+              className="max-sm:hidden"
+              shape="pill"
+              size="lg"
+              tone="burned-orange"
+              type="button"
+            >
+              {m.agentBookingChooseAssistant({}, { locale })}
+              <ChevronRight aria-hidden className="size-4.5" />
+            </Button>
+          </>
+        )}
       </AgentBookingPicker>
     </div>
   );

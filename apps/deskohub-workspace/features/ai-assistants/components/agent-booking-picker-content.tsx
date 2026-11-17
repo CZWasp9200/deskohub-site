@@ -2,7 +2,6 @@
 
 import { Check, Copy } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
 import { customerMcpServerUrl } from "@/features/account/customer-agent-routes";
 import { getLocalizedPagePath, type Locale, m } from "@/features/i18n";
 import {
@@ -27,7 +26,6 @@ import { AssistantMark } from "./assistant-marks";
  */
 export function AgentBookingPickerContent({ locale }: { locale: Locale }) {
   const instruction = getAgentBookingInstruction(locale);
-  const [announcement, setAnnouncement] = useState("");
 
   return (
     <>
@@ -68,7 +66,6 @@ export function AgentBookingPickerContent({ locale }: { locale: Locale }) {
             copied: m.agentBookingInstructionCopied({}, { locale }),
             failed: m.agentBookingCopyFailed({}, { locale }),
           }}
-          onCopied={setAnnouncement}
           text={instruction}
         />
         <CopyPill
@@ -77,7 +74,6 @@ export function AgentBookingPickerContent({ locale }: { locale: Locale }) {
             copied: m.agentBookingMcpServerUrlCopied({}, { locale }),
             failed: m.agentBookingCopyFailed({}, { locale }),
           }}
-          onCopied={setAnnouncement}
           text={customerMcpServerUrl}
         />
         <Link
@@ -87,9 +83,6 @@ export function AgentBookingPickerContent({ locale }: { locale: Locale }) {
           {m.agentBookingHowItWorks({}, { locale })}
         </Link>
       </div>
-      <p className="sr-only" role="status">
-        {announcement}
-      </p>
     </>
   );
 }
@@ -98,54 +91,59 @@ const copyStatuses = ["idle", "copied", "failed"] as const;
 
 /**
  * Copies `text` and shows the outcome in place for a moment. Every label
- * takes the same cell, so the pill keeps the width of its longest one.
+ * takes the same cell, so the pill keeps the width of its longest one. Its
+ * status region empties when the outcome resets, so copying again is
+ * announced again.
  */
 function CopyPill({
   labels,
-  onCopied,
   text,
 }: {
   labels: Readonly<Record<ClipboardCopyStatus, string>>;
-  onCopied: (announcement: string) => void;
   text: string;
 }) {
   const { status, copy } = useClipboardCopy();
   const StatusIcon = status === "copied" ? Check : Copy;
 
   return (
-    <Button
-      caps
-      onClick={async () => onCopied(labels[await copy(text)])}
-      shape="pill"
-      size="sm"
-      tone={
-        (
-          {
-            idle: "tinted",
-            copied: "tinted-success",
-            failed: "danger",
-          } as const
-        )[status]
-      }
-      type="button"
-      variant="ghost"
-      wrap
-    >
-      <StatusIcon aria-hidden className="size-4 shrink-0" />
-      <span className="grid">
-        {copyStatuses.map((labelStatus) => (
-          <span
-            aria-hidden={labelStatus !== status}
-            className={cn(
-              "col-start-1 row-start-1",
-              labelStatus !== status && "invisible"
-            )}
-            key={labelStatus}
-          >
-            {labels[labelStatus]}
-          </span>
-        ))}
+    <>
+      <Button
+        caps
+        onClick={() => copy(text)}
+        shape="pill"
+        size="sm"
+        tone={
+          (
+            {
+              idle: "tinted",
+              copied: "tinted-success",
+              failed: "danger",
+            } as const
+          )[status]
+        }
+        type="button"
+        variant="ghost"
+        wrap
+      >
+        <StatusIcon aria-hidden className="size-4 shrink-0" />
+        <span className="grid">
+          {copyStatuses.map((labelStatus) => (
+            <span
+              aria-hidden={labelStatus !== status}
+              className={cn(
+                "col-start-1 row-start-1",
+                labelStatus !== status && "invisible"
+              )}
+              key={labelStatus}
+            >
+              {labels[labelStatus]}
+            </span>
+          ))}
+        </span>
+      </Button>
+      <span className="sr-only" role="status">
+        {status === "idle" ? "" : labels[status]}
       </span>
-    </Button>
+    </>
   );
 }

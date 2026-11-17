@@ -73,48 +73,75 @@ function SheetContent({
   style,
   ...props
 }: SheetContentProps) {
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <SheetPanel
+        className={className}
+        locale={locale}
+        onSwipeDismiss={onSwipeDismiss}
+        ref={ref}
+        side={side}
+        style={style}
+        {...props}
+      >
+        {children}
+      </SheetPanel>
+    </SheetPortal>
+  );
+}
+
+/**
+ * The sheet itself. The portal mounts it only while the sheet is open, so a
+ * swipe's state starts fresh on every opening.
+ */
+function SheetPanel({
+  side = "right",
+  className,
+  children,
+  locale = baseLocale,
+  onSwipeDismiss,
+  ref,
+  style,
+  ...props
+}: SheetContentProps) {
   const swipe = useSwipeDownDismiss(onSwipeDismiss);
   const swipeable = side === "bottom" && onSwipeDismiss !== undefined;
 
   return (
-    <SheetPortal>
-      <SheetOverlay />
-      <SheetPrimitive.Content
-        ref={ref}
-        className={cn(
-          sheetVariants({ side }),
-          swipeable && swipe.dismissing && "data-[state=closed]:animate-none",
-          className
-        )}
-        style={swipeable ? { ...style, ...swipe.style } : style}
-        {...props}
-      >
-        {swipeable && (
-          <div
-            aria-hidden
-            className="-mt-6 mb-2 flex cursor-grab touch-none justify-center pt-2.5 pb-3 active:cursor-grabbing"
-            {...swipe.handle}
-          >
-            <span className="h-1.25 w-10 rounded-full bg-navy-blue/15" />
-          </div>
-        )}
-        {children}
-        <Button
-          asChild
-          className="absolute right-3 top-3"
-          size="icon-sm"
-          tone="muted"
-          variant="ghost"
+    <SheetPrimitive.Content
+      ref={ref}
+      className={cn(
+        sheetVariants({ side }),
+        swipeable && swipe.dismissing && "data-[state=closed]:animate-none",
+        className
+      )}
+      style={swipeable ? { ...style, ...swipe.style } : style}
+      {...props}
+    >
+      {swipeable && (
+        <div
+          aria-hidden
+          className="-mt-6 mb-2 flex cursor-grab touch-none justify-center pt-2.5 pb-3 active:cursor-grabbing"
+          {...swipe.handle}
         >
-          <SheetPrimitive.Close>
-            <X aria-hidden className="size-4" />
-            <span className="sr-only">
-              {m.closeDialogLabel({}, { locale })}
-            </span>
-          </SheetPrimitive.Close>
-        </Button>
-      </SheetPrimitive.Content>
-    </SheetPortal>
+          <span className="h-1.25 w-10 rounded-full bg-navy-blue/15" />
+        </div>
+      )}
+      {children}
+      <Button
+        asChild
+        className="absolute right-3 top-3"
+        size="icon-sm"
+        tone="muted"
+        variant="ghost"
+      >
+        <SheetPrimitive.Close>
+          <X aria-hidden className="size-4" />
+          <span className="sr-only">{m.closeDialogLabel({}, { locale })}</span>
+        </SheetPrimitive.Close>
+      </Button>
+    </SheetPrimitive.Content>
   );
 }
 
@@ -135,6 +162,9 @@ function useSwipeDownDismiss(onDismiss: (() => void) | undefined) {
   const [dragging, setDragging] = React.useState(false);
   const [dismissing, setDismissing] = React.useState(false);
   const start = React.useRef<{ y: number; time: number } | null>(null);
+  const slideOut = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  React.useEffect(() => () => clearTimeout(slideOut.current), []);
 
   const end = () => {
     start.current = null;
@@ -170,7 +200,7 @@ function useSwipeDownDismiss(onDismiss: (() => void) | undefined) {
             velocity >= swipeDismissVelocity);
         if (!dismissed) return setOffset(0);
         setDismissing(true);
-        setTimeout(() => onDismiss?.(), swipeSlideOutMs);
+        slideOut.current = setTimeout(() => onDismiss?.(), swipeSlideOutMs);
       },
       onPointerCancel: () => {
         end();

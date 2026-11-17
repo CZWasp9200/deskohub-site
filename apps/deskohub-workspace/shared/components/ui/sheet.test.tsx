@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
@@ -106,4 +106,42 @@ test("a sheet without a swipe handler has no grab handle", () => {
   expect(
     view.getByRole("dialog").querySelector("[class*='cursor-grab']")
   ).toBeNull();
+});
+
+test("a sheet swiped closed opens in place the next time", async () => {
+  const { useState } = await import("react");
+  function ControlledSheet() {
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        <button onClick={() => setOpen(true)} type="button">
+          Open
+        </button>
+        <Sheet onOpenChange={setOpen} open={open}>
+          <SheetContent
+            locale="cs-CZ"
+            onSwipeDismiss={() => setOpen(false)}
+            side="bottom"
+          >
+            <SheetTitle>Menu</SheetTitle>
+            <SheetDescription>Navigace webu.</SheetDescription>
+          </SheetContent>
+        </Sheet>
+      </>
+    );
+  }
+  const view = render(<ControlledSheet />);
+  const handle = view
+    .getByRole("dialog")
+    .querySelector<HTMLElement>("[class*='cursor-grab']");
+  if (!handle) throw new Error("The sheet has no grab handle.");
+
+  swipe(handle, 160);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 260));
+  });
+  expect(view.queryByRole("dialog")).toBeNull();
+
+  fireEvent.click(view.getByRole("button", { name: "Open" }));
+  expect(view.getByRole("dialog").style.transform).not.toContain("100%");
 });

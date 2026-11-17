@@ -15,6 +15,7 @@ const { customerMcpServerUrl } = await import(
 const { agentBookingAssistants, getAgentBookingInstruction, getAssistantName } =
   await import("../agent-booking-assistants");
 const { AgentBookingHeroLink } = await import("./agent-booking-hero-link");
+const { AgentBookingBanner } = await import("./agent-booking-banner");
 
 const locale = "cs-CZ";
 let phone = false;
@@ -35,6 +36,9 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 afterAll(unregisterWorkspaceComponentTestEnv);
+
+const statusTexts = (view: ReturnType<typeof render>) =>
+  view.getAllByRole("status").map((region) => region.textContent);
 
 const openPicker = async () => {
   const view = render(<AgentBookingHeroLink locale={locale} />);
@@ -87,7 +91,7 @@ test("copies the instruction and the MCP server URL and reports each copy", asyn
   expect(writeText).toHaveBeenLastCalledWith(
     getAgentBookingInstruction(locale)
   );
-  expect(view.getByRole("status").textContent).toBe(
+  expect(statusTexts(view)).toContain(
     m.agentBookingInstructionCopied({}, { locale })
   );
 
@@ -99,7 +103,7 @@ test("copies the instruction and the MCP server URL and reports each copy", asyn
     );
   });
   expect(writeText).toHaveBeenLastCalledWith(customerMcpServerUrl);
-  expect(view.getByRole("status").textContent).toBe(
+  expect(statusTexts(view)).toContain(
     m.agentBookingMcpServerUrlCopied({}, { locale })
   );
 });
@@ -118,9 +122,7 @@ test("reports a copy the browser refuses", async () => {
     );
   });
 
-  expect(view.getByRole("status").textContent).toBe(
-    m.agentBookingCopyFailed({}, { locale })
-  );
+  expect(statusTexts(view)).toContain(m.agentBookingCopyFailed({}, { locale }));
 });
 
 test("closes on Escape and returns focus to the opener", async () => {
@@ -131,4 +133,21 @@ test("closes on Escape and returns focus to the opener", async () => {
 
   expect(view.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(opener);
+});
+
+test("returns focus to the banner's other opener when a resize hid the one used", async () => {
+  const view = render(<AgentBookingBanner locale={locale} />);
+  const [phoneOpener, wideOpener] = view.getAllByRole("button", {
+    name: m.agentBookingChooseAssistant({}, { locale }),
+  });
+  if (!phoneOpener || !wideOpener)
+    throw new Error("The banner has two openers.");
+
+  fireEvent.click(wideOpener);
+  await flushWorkspaceComponentWork();
+  wideOpener.style.display = "none";
+  fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
+  await flushWorkspaceComponentWork();
+
+  expect(document.activeElement).toBe(phoneOpener);
 });
