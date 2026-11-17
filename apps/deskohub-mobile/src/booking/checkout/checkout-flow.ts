@@ -3,6 +3,7 @@ import type {
   CustomerBookingSelection,
   CustomerCheckout,
   CustomerLocale,
+  CustomerOffering,
 } from "@deskohub/workspace-customer-api";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
@@ -31,7 +32,10 @@ import {
   bookingServicesLayer,
 } from "../data/booking-services-layer";
 import { RememberedReferralCode } from "../remembered-referral.service";
-import type { CoworkOvernightStay } from "../selection/cowork-selection";
+import {
+  type CoworkOvernightStay,
+  coworkOvernightStay,
+} from "../selection/cowork-selection";
 import { isSideEffect, runCheckoutCommand } from "./checkout-commands";
 import { startCheckout, startPaymentRetry, step } from "./checkout-machine";
 import {
@@ -85,6 +89,22 @@ export interface PaymentRetryRequest {
   /** What the order cost before, which a changed price is shown against. */
   readonly previousTotal: CustomerCheckout["summary"]["total"];
 }
+
+/**
+ * The overnight stay's times the checkout shows: a new booking's own, or,
+ * for an order paid again, which carries none, the catalog's while it has
+ * loaded.
+ */
+export const checkoutOvernightStay = (
+  request: CheckoutRequest,
+  offerings: Option.Option<ReadonlyArray<CustomerOffering>>
+): CoworkOvernightStay | undefined =>
+  request._tag === "Booking"
+    ? request.overnightStay
+    : offerings.pipe(
+        Option.flatMap(coworkOvernightStay),
+        Option.getOrUndefined
+      );
 
 /**
  * The checkout the customer is about to start. A family screen sets it and

@@ -36,6 +36,7 @@ import {
   type BookingRequest,
   type CheckoutController,
   type CheckoutRequest,
+  checkoutOvernightStay,
   checkoutRequestAtom,
   useCheckoutFlow,
 } from "../checkout/checkout-flow";
@@ -46,7 +47,6 @@ import {
   type ReviewState,
 } from "../checkout/checkout-state";
 import { bookingOfferingsAtom } from "../data/booking-queries";
-import { coworkOvernightStay } from "../selection/cowork-selection";
 import { quotedBarSummary } from "../ui/booking-summary";
 import { HoldChip, HoldEndedDialog } from "../ui/hold-timer";
 import { retryMessage } from "./checkout-copy";
@@ -311,16 +311,11 @@ function ReviewForAccount({
       return access._tag === "Unavailable" ? Option.none() : access.self.name;
     })
   );
-  const offerings = useAtomValue(bookingOfferingsAtom(locale));
-  // A retried order brings no catalog times, so its overnight stay reads
-  // them from the catalog the family screens share.
-  const overnightStay =
-    request._tag === "Booking"
-      ? request.overnightStay
-      : AsyncResult.value(offerings).pipe(
-          Option.flatMap((catalog) => coworkOvernightStay(catalog.offerings)),
-          Option.getOrUndefined
-        );
+  const catalog = useAtomValue(bookingOfferingsAtom(locale));
+  const overnightStay = checkoutOvernightStay(
+    request,
+    Option.map(AsyncResult.value(catalog), ({ offerings }) => offerings)
+  );
   const backToSelection = (restart?: CheckoutRestartReason) =>
     leaveCheckout(router, {
       _tag: "FamilyScreen",

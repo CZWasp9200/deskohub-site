@@ -13,7 +13,7 @@ import {
   viewErrorOf,
 } from "../../customer-api/customer-view-error";
 import type { CheckoutRestartReason } from "../checkout/booking-problem";
-import type { CheckoutRequest } from "../checkout/checkout-flow";
+import type { BookingRequest } from "../checkout/checkout-flow";
 import {
   type BookingQueryFailure,
   type BookingQueryViewError,
@@ -136,7 +136,7 @@ export const checkoutRequestOf = ({
   readonly earlySetup?: boolean;
   /** Overnight Reserved Desk only: the stay's times from the catalog. */
   readonly overnightStay?: CoworkOvernightStay;
-}): Option.Option<CheckoutRequest> =>
+}): Option.Option<BookingRequest> =>
   blockers.length > 0
     ? Option.none()
     : Option.flatMap(selection, (current) =>
