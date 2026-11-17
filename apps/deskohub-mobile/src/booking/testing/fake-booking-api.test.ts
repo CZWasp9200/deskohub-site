@@ -12,13 +12,17 @@ import { CustomerApi } from "../../customer-api/customer-api.service";
 import { fakeCustomerApiLayer } from "../../customer-api/testing/fake-customer-data";
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
 import {
+  bookedTimes,
   type FakeBookingApi,
   fakeBooking,
   fakeBookingCodes,
   fakeHoldDuration,
   fakePayStateDuration,
 } from "./fake-booking-api";
-import { sampleLegalDocuments } from "./sample-booking-catalog";
+import {
+  sampleLegalDocuments,
+  sampleOvernightStay,
+} from "./sample-booking-catalog";
 
 const harness = (
   kind: Parameters<typeof FakeWorkspace.forKind>[0] = "linked"
@@ -203,6 +207,33 @@ describe("fake booking catalog", () => {
     for (const document of result.success.documents) {
       expect(document.hash).toMatch(/^[0-9a-f]{64}$/);
     }
+  });
+});
+
+describe("fake booking reservations", () => {
+  test("an overnight stay runs from its start to its end the next day", () => {
+    const { startsAt, endsAt } = bookedTimes({
+      family: "cowork",
+      date: "2026-11-23",
+      tier: "reserved-desk",
+      stay: "overnight",
+    });
+    const day = bookedTimes({
+      family: "cowork",
+      date: "2026-11-23",
+      tier: "reserved-desk",
+    });
+    // Prague is UTC+1 in November.
+    const utc = (date: string, time: string) => {
+      const [hours = 0, minutes = 0] = time.split(":").map(Number);
+      return new Date(
+        Date.UTC(2026, 10, Number(date.slice(8)), hours - 1, minutes)
+      ).toISOString();
+    };
+    expect(startsAt).toBe(utc("2026-11-23", sampleOvernightStay.startTime));
+    expect(endsAt).toBe(utc("2026-11-24", sampleOvernightStay.endTime));
+    expect(day.startsAt).toBe(utc("2026-11-23", "00:00"));
+    expect(day.endsAt).toBe(utc("2026-11-24", "00:00"));
   });
 });
 
