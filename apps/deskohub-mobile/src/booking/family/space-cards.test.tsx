@@ -1,5 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { CustomerReservationFamily } from "@deskohub/workspace-customer-api";
+import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import {
   elementTree,
   findAll,
@@ -68,6 +70,31 @@ describe("SpaceCards", () => {
     for (const family of ["office", "meeting-room"] as const) {
       const name = catalog.find((each) => each.family === family)?.name;
       expect(texts).toContain(name ?? "");
+    }
+  });
+});
+
+describe("SpaceCards prices", () => {
+  test("each card shows its from-price with the unit it is charged in", () => {
+    const families = ["office", "meeting-room", "cowork"] as const;
+    const { tree } = render(families);
+    const texts = findAll(tree, "Text").map((text) => textOf(text));
+    const cards = spaceCards(
+      catalog.filter(({ family }) => families.includes(family))
+    );
+    expect(cards).toHaveLength(families.length);
+    for (const card of cards) {
+      expect(texts).toContain(formatMoney(card.fromPrice, "en-US"));
+    }
+    const units = cards.map((card) => card.unit.kind);
+    expect(units).toContain("day");
+    expect(texts).toContain(
+      m.booking_tier_price_per_day({}, { locale: "en-US" })
+    );
+    if (units.includes("hour")) {
+      expect(texts).toContain(
+        m.booking_space_per_hour({}, { locale: "en-US" })
+      );
     }
   });
 });

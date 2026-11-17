@@ -471,7 +471,9 @@ export function TextField({
             </Text>
           ) : (
             <TextInput
-              aria-label={optional === undefined ? label : `${label} ${optional}`}
+              aria-label={
+                optional === undefined ? label : `${label} ${optional}`
+              }
               aria-disabled={disabled}
               // Native platforms read the hint; the web reads `aria-describedby`
               // and `aria-invalid`, which react-native-web maps and RN ignores.

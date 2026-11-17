@@ -40,18 +40,19 @@ export const invoiceCountryCodes: ReadonlyArray<string> = Object.keys(
  * the bundled list has only a long official one: the app's home country,
  * which most customers pick, reads "Czechia", not "Czech Republic".
  */
-const shortNames: Readonly<Record<string, Readonly<Record<AppLocale, string>>>> =
-  {
-    CZ: {
-      "en-US": "Czechia",
-      "cs-CZ": "Česko",
-      "de-DE": "Tschechien",
-      "sk-SK": "Česko",
-      "uk-UA": "Чехія",
-      "vi-VN": "Séc",
-      "hi-IN": "चेकिया",
-    },
-  };
+const shortNames: Readonly<
+  Record<string, Readonly<Record<AppLocale, string>>>
+> = {
+  CZ: {
+    "en-US": "Czechia",
+    "cs-CZ": "Česko",
+    "de-DE": "Tschechien",
+    "sk-SK": "Česko",
+    "uk-UA": "Чехія",
+    "vi-VN": "Séc",
+    "hi-IN": "चेकिया",
+  },
+};
 
 /**
  * A country's name from the bundled list, for engines without

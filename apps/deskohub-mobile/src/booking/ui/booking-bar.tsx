@@ -249,9 +249,7 @@ export function BookingBar({
               <View style={styles.what}>
                 <Text style={styles.title}>{summary.title}</Text>
                 {summary.detail !== undefined && summary.detail !== "" && (
-                  <Text style={styles.detail}>
-                    {summary.detail}
-                  </Text>
+                  <Text style={styles.detail}>{summary.detail}</Text>
                 )}
               </View>
               <BarPrice price={summary.price} locale={locale} />
