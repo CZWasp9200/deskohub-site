@@ -18,6 +18,7 @@ import {
 } from "../selection/cowork-selection";
 import { pragueToday } from "../selection/prague-date";
 import { fakeBooking } from "../testing/fake-booking-api";
+import { withReservedDeskOvernightStay } from "../testing/sample-booking-catalog";
 import { checkoutRequestOf } from "./booking-family-view";
 import { coworkBookingModel, openingCoworkDraft } from "./cowork-booking-model";
 import { settledValue } from "./testing/settled-value";
@@ -265,16 +266,15 @@ describe("overnight stay", () => {
   };
   const stayCatalog = async () => {
     const { registry, draft } = await setup();
-    const { offerings } = await settledValue(
+    const { offerings: sampled } = await settledValue(
       registry,
       bookingOfferingsAtom("en-US")
     );
-    const withOvernight = offerings.map((offering) =>
-      offering.family === "cowork" && offering.tier === "reserved-desk"
-        ? { ...offering, overnightStay }
-        : offering
-    );
-    return { offerings, withOvernight, draft };
+    return {
+      offerings: withReservedDeskOvernightStay(sampled, undefined),
+      withOvernight: withReservedDeskOvernightStay(sampled, overnightStay),
+      draft,
+    };
   };
 
   test("offers the switch only for a Reserved Desk whose offering advertises it", async () => {

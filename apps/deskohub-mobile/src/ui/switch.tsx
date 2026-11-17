@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, type IconComponent } from "./icon";
 import { listRowLayout } from "./list-row-layout";
 import { LoadingIndicator } from "./loading-indicator";
+import { Text } from "./text";
 import { ToggleRow } from "./toggle-row";
 import { color, radius, space } from "./tokens";
 
@@ -11,25 +12,36 @@ import { color, radius, space } from "./tokens";
  * The switch's track and thumb, drawn only. Off: a grey track with a small
  * thumb at the start; on: an orange track with a white thumb at the end
  * holding a check. While `busy` the thumb grows and the loading indicator
- * takes the check's place.
+ * takes the check's place. With an `icon` the thumb is large in both states
+ * and holds the icon instead of the check, white off and orange on.
  */
 export function SwitchTrack({
   value,
   busy = false,
   disabled = false,
+  icon,
 }: {
   readonly value: boolean;
   readonly busy?: boolean;
   readonly disabled?: boolean;
+  /** A glyph the thumb always shows, such as the overnight stay's moon. */
+  readonly icon?: IconComponent;
 }) {
-  const look = switchLook({ value, busy, disabled });
+  const look = switchLook({ value, busy, disabled, icon: icon !== undefined });
+  const glyph = icon ?? (value ? Check : undefined);
   return (
     <View aria-hidden style={[styles.track, styles[look.track]]}>
       <View style={[styles.thumb, styles[look.thumb]]}>
         {busy ? (
           <LoadingIndicator size="inline" tone={{ color: look.glyph }} />
         ) : (
-          value && <Icon icon={Check} size={16} color={look.glyph} />
+          glyph && (
+            <Icon
+              icon={glyph}
+              size={icon === undefined ? 16 : 14}
+              color={look.glyph}
+            />
+          )
         )}
       </View>
     </View>
@@ -41,10 +53,13 @@ export const switchLook = ({
   value,
   busy,
   disabled,
+  icon = false,
 }: {
   readonly value: boolean;
   readonly busy: boolean;
   readonly disabled: boolean;
+  /** Whether the thumb holds an icon, which keeps it large when off. */
+  readonly icon?: boolean;
 }) => {
   if (disabled) {
     return value
@@ -55,19 +70,19 @@ export const switchLook = ({
         } as const)
       : ({
           track: "disabledOffTrack",
-          thumb: "disabledThumbOff",
+          thumb: icon ? "disabledLargeThumbOff" : "disabledThumbOff",
           glyph: color.disabledInk,
         } as const);
   }
   return value
     ? ({
         track: "onTrack",
-        thumb: busy ? "busyThumbOn" : "thumbOn",
+        thumb: "thumbOn",
         glyph: color.action,
       } as const)
     : ({
         track: "offTrack",
-        thumb: busy ? "busyThumbOff" : "thumbOff",
+        thumb: busy || icon ? "largeThumbOff" : "thumbOff",
         glyph: color.white,
       } as const);
 };
@@ -75,6 +90,8 @@ export const switchLook = ({
 /**
  * A standalone switch, 52 × 32 with a 48 dp target. In a list, use
  * `SwitchRow`, whose whole row toggles. While `busy` it ignores presses.
+ * A `label` draws before the track, grey off and orange on, and presses
+ * with it.
  */
 export function Switch({
   value,
@@ -82,12 +99,18 @@ export function Switch({
   busy = false,
   disabled = false,
   accessibilityLabel,
+  label,
+  icon,
 }: {
   readonly value: boolean;
   readonly onValueChange: (value: boolean) => void;
   readonly busy?: boolean;
   readonly disabled?: boolean;
   readonly accessibilityLabel: string;
+  /** Visible text before the track, such as a section heading's "Overnight". */
+  readonly label?: string;
+  /** A glyph the thumb always shows; see `SwitchTrack`. */
+  readonly icon?: IconComponent;
 }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -103,9 +126,27 @@ export function Switch({
       onBlur={() => setFocused(false)}
       // The track is 32 tall; its target stays 48.
       hitSlop={{ top: space.sm, bottom: space.sm }}
-      style={[styles.standalone, focused && styles.focused]}
+      style={[
+        styles.standalone,
+        label !== undefined && styles.labelled,
+        focused && styles.focused,
+      ]}
     >
-      <SwitchTrack value={value} busy={busy} disabled={disabled} />
+      {label !== undefined && (
+        <Text
+          variant="bodySmall"
+          tone={value && !disabled ? "action" : "muted"}
+          style={styles.label}
+        >
+          {label}
+        </Text>
+      )}
+      <SwitchTrack
+        value={value}
+        busy={busy}
+        disabled={disabled}
+        {...(icon === undefined ? {} : { icon })}
+      />
     </Pressable>
   );
 }
@@ -181,7 +222,16 @@ const thumb = (size: number, left: number, backgroundColor: string) => ({
 });
 
 const styles = StyleSheet.create({
-  standalone: { alignSelf: "flex-start", borderRadius: radius.pill },
+  standalone: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: space.sm,
+  },
+  // Beside a heading the label wraps rather than push the track out.
+  labelled: { flexShrink: 1 },
+  label: { flexShrink: 1 },
   focused: {
     outlineColor: color.action,
     outlineOffset: 2,
@@ -190,6 +240,7 @@ const styles = StyleSheet.create({
   },
   track: {
     borderRadius: radius.pill,
+    flexShrink: 0,
     borderWidth: ring,
     height: trackHeight,
     width: trackWidth,
@@ -212,8 +263,8 @@ const styles = StyleSheet.create({
   },
   thumbOff: thumb(smallThumb, smallInset, color.field),
   thumbOn: thumb(largeThumb, largeEnd, color.white),
-  busyThumbOff: thumb(largeThumb, largeInset, color.field),
-  busyThumbOn: thumb(largeThumb, largeEnd, color.white),
+  largeThumbOff: thumb(largeThumb, largeInset, color.field),
   disabledThumbOff: thumb(smallThumb, smallInset, color.outline),
+  disabledLargeThumbOff: thumb(largeThumb, largeInset, color.outline),
   disabledThumbOn: thumb(largeThumb, largeEnd, color.white),
 });
