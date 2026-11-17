@@ -1,6 +1,5 @@
 import {
   AdministrationAuthentication,
-  type AdministrationChannel,
   AdministrationReservationAccessGrant,
   CliAuthenticationRateLimited,
   CliBearerAuthentication,
@@ -29,6 +28,7 @@ import {
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/invoice-administration-identifier";
 import { AdministrationService } from "@/features/administration/administration.service";
+import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
 import {
   getAdministrationOperationFilters,
@@ -410,31 +410,25 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "previewInvoice",
         Effect.fn(function* ({ payload }) {
-          const { actor, channel } = yield* CurrentAdministrationCaller;
+          const { actor, source } = yield* currentAdministrationProvenance;
           return yield* invoices
-            .preview(payload, {
-              source: provenanceSourceOf(channel),
-              administrator: actor,
-            })
+            .preview(payload, { source, administrator: actor })
             .pipe(mapAdministrationApiFailure(mapInvoicePreviewFailure));
         })
       )
       .handle(
         "createInvoice",
         Effect.fn(function* ({ payload }) {
-          const { actor, channel } = yield* CurrentAdministrationCaller;
+          const { actor, source } = yield* currentAdministrationProvenance;
           return yield* invoices
-            .create(payload, {
-              source: provenanceSourceOf(channel),
-              administrator: actor,
-            })
+            .create(payload, { source, administrator: actor })
             .pipe(mapAdministrationApiFailure(mapInvoiceMutationFailure));
         })
       )
       .handle(
         "createStandaloneAccessCode",
         Effect.fn(function* ({ payload }) {
-          const caller = yield* CurrentAdministrationCaller;
+          const provenance = yield* currentAdministrationProvenance;
           const requestId = Schema.decodeUnknownSync(CliMutationRequestId)(
             payload.attemptId
           );
@@ -452,8 +446,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
             apply: standaloneAccessCodes
               .create({
                 attemptId: payload.attemptId,
-                actor: caller.actor,
-                source: provenanceSourceOf(caller.channel),
+                ...provenance,
                 request: payload.input,
                 providerCredentialRemovedAttemptId:
                   payload.providerCredentialRemovedAttemptId,
@@ -804,19 +797,6 @@ const toCliVoucherDetail = (detail: AdminVoucherDetail) => ({
   voucher: toCliVoucher(detail.voucher),
   claims: detail.claims.map(toCliVoucherClaim),
 });
-
-/**
- * The provenance source invoices and access-code events record for an
- * administration channel.
- */
-const provenanceSourceOf = (channel: AdministrationChannel) =>
-  Match.value(channel).pipe(
-    Match.tagsExhaustive({
-      AdminUi: () => "admin-ui" as const,
-      CliSession: () => "dhw-cli" as const,
-      AssistantConnection: () => "assistant" as const,
-    })
-  );
 
 const noStore = HttpRouter.middleware(
   (effect) =>
