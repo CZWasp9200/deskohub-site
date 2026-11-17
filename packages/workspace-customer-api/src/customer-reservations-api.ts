@@ -423,6 +423,53 @@ export const RetryCustomerPayment = Schema.Struct({
 });
 
 /**
+ * What the order is for and the invoice it needs, as the review shows it:
+ * the city of a personal invoice, or the name of the company a business
+ * invoice is for.
+ */
+export const CustomerPaymentRetryBilling = Schema.Union([
+  Schema.Struct({
+    purpose: Schema.Literal("personal"),
+    invoice: Schema.Literal("none"),
+  }),
+  Schema.Struct({
+    purpose: Schema.Literal("personal"),
+    invoice: Schema.Literal("requested"),
+    city: Schema.String,
+  }),
+  Schema.Struct({
+    purpose: Schema.Literal("business"),
+    invoice: Schema.Literal("required"),
+    legalName: Schema.String,
+  }),
+]).annotate({ identifier: "CustomerPaymentRetryBilling" });
+export type CustomerPaymentRetryBilling =
+  typeof CustomerPaymentRetryBilling.Type;
+
+/**
+ * Who the order is for and the invoice it needs, kept as it was booked, for
+ * the review to show. `self`: the account's own profile is the contact;
+ * `someone-else`: `contact` is the customer the account booked for.
+ */
+export const CustomerPaymentRetryDetails = Schema.Struct({
+  bookingFor: Schema.Literals(["self", "someone-else"]),
+  contact: Schema.Struct({ name: Schema.String, email: Schema.String }),
+  billing: CustomerPaymentRetryBilling,
+}).annotate({ identifier: "CustomerPaymentRetryDetails" });
+export type CustomerPaymentRetryDetails =
+  typeof CustomerPaymentRetryDetails.Type;
+
+/**
+ * The order's checkout to pay again, with the details it keeps. They can't
+ * be changed here: booking again is the way to change them.
+ */
+export const CustomerPaymentRetry = Schema.Struct({
+  ...CustomerCheckout.fields,
+  details: CustomerPaymentRetryDetails,
+}).annotate({ identifier: "CustomerPaymentRetry" });
+export type CustomerPaymentRetry = typeof CustomerPaymentRetry.Type;
+
+/**
  * The payment provider's page of the order's unpaid payment, opened again
  * for a customer who left it. It is the page the payment already opened:
  * opening it starts no new payment.
@@ -482,15 +529,16 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
   )
   .add(
     /**
-     * The same order's checkout again, with its details kept: the terms are
-     * confirmed again and `submitCheckout` starts the new payment. A changed
-     * price comes back as `price_review` to accept first. It never starts a
-     * payment and never books a second spot.
+     * The same order's checkout again, with its details kept and returned
+     * in `details`: the terms are confirmed again and `submitCheckout`
+     * starts the new payment. A changed price comes back as `price_review`
+     * to accept first. It never starts a payment and never books a second
+     * spot.
      */
     HttpApiEndpoint.post("retryPayment", "/:orderId/payment-retry", {
       params: OrderParams,
       payload: RetryCustomerPayment,
-      success: CustomerCheckout,
+      success: CustomerPaymentRetry,
       error: [
         CustomerReservationNotFound.schema,
         CustomerPaymentRetryRefused.schema,

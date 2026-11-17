@@ -259,6 +259,36 @@ test.skipIf(!chromiumAvailable)(
         reservedDesk
       )
     ).toBe(false);
+
+    // Another radio group on the form is never read as the monitor choice.
+    const otherGroup =
+      '<input checked name="otherChoice" type="radio" value="other" />';
+    expect(
+      await isPrefilledOn(
+        cowork(openSpace, coffeeSwitch(true), otherGroup),
+        openSpace
+      )
+    ).toBe(true);
+    expect(
+      await isPrefilledOn(
+        cowork(
+          reservedDesk,
+          workstationSwitch(true),
+          otherGroup + monitor("2x27-qhd")
+        ),
+        reservedDesk
+      )
+    ).toBe(true);
+    expect(
+      await isPrefilledOn(
+        cowork(
+          reservedDesk,
+          workstationSwitch(true),
+          otherGroup + monitor("2x27-qhd", false)
+        ),
+        reservedDesk
+      )
+    ).toBe(false);
   }
 );
 

@@ -1,6 +1,7 @@
 import type {
   CustomerCheckout,
   CustomerPaymentPageClosedReason,
+  CustomerPaymentRetryDetails,
   CustomerPaymentRetryRefusedReason,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
@@ -50,8 +51,14 @@ export const PaymentPageOutcome = Data.taggedEnum<PaymentPageOutcome>();
 
 /** How asking to pay a failed, cancelled or expired order again ended. */
 export type PaymentRetryOutcome = Data.TaggedEnum<{
-  /** The same order's checkout, details kept: confirm the terms and pay. */
-  Checkout: { readonly checkout: CustomerCheckout };
+  /**
+   * The same order's checkout and the details it keeps: confirm the terms
+   * and pay.
+   */
+  Checkout: {
+    readonly checkout: CustomerCheckout;
+    readonly details: CustomerPaymentRetryDetails;
+  };
   /** The earlier payment may still settle: check again later, never book again. */
   CheckLater: Record<never, never>;
   /** This order can't be paid any more: book the same selection again. */
@@ -131,7 +138,9 @@ export const retryPayment = (
         .retryPayment({ params: { orderId }, payload: { locale } })
         .pipe(customerWrite)
     ),
-    Effect.map((checkout) => PaymentRetryOutcome.Checkout({ checkout })),
+    Effect.map(({ details, ...checkout }) =>
+      PaymentRetryOutcome.Checkout({ checkout, details })
+    ),
     Effect.catchTags({
       CustomerPaymentRetryRefused: ({ reason }) =>
         Effect.succeed(paymentRetryRefusal(reason)),

@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { DateTime, Option } from "effect";
 import { formatInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
-import { shortDate } from "./booking-ticket-text";
+import { historyBadgeKind, shortDate } from "./booking-ticket-text";
+import { dateTileParts } from "./booking-time";
 import {
   nextReservationView,
   type ReservationListRow,
@@ -216,6 +217,40 @@ describe("nextReservationView", () => {
         ).access
       ).toEqual({ _tag: "AfterPayment" });
     }
+  });
+});
+
+describe("a failed order", () => {
+  // The history answers a hold whose payment ended unpaid as cancelled, at
+  // its booked time, whether that time is still ahead or not.
+  test("lists as not booked on its booked day and opens its ticket", () => {
+    const orderId = "order-failed" as ReservationListRow["orderId"];
+    const failed = row("failed", {
+      orderId,
+      status: "cancelled",
+      startsAt: "2026-11-14T09:00:00Z",
+      endsAt: "2026-11-14T11:00:00Z",
+    });
+
+    const groups = reservationGroups(
+      { current: [row("next")], past: [failed], unavailable: [] },
+      now
+    );
+    const view = reservationRowView(failed, "past", "en-US");
+
+    expect(ids(groups.past)).toEqual(["failed"]);
+    expect(historyBadgeKind(failed.status)).toBe("not-booked");
+    expect(view.date).toEqual(
+      Option.some(
+        dateTileParts(DateTime.makeUnsafe("2026-11-14T09:00:00Z"), "en-US")
+      )
+    );
+    expect(view.detail).not.toBe(
+      m.reservations_value_unavailable({}, { locale: "en-US" })
+    );
+    expect(reservationStatusTarget(failed)).toEqual(
+      Option.fromNullishOr(orderId)
+    );
   });
 });
 

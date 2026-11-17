@@ -1,6 +1,6 @@
 import type { CustomerLocale } from "@deskohub/workspace-customer-api";
 import { deviceHour12 } from "../../i18n/device-clock";
-import type { PragueDate } from "../selection/prague-date";
+import { type PragueDate, pragueDateTimeAt } from "../selection/prague-date";
 
 /**
  * A Prague calendar date as the customer reads it, such as "Friday 13
@@ -56,4 +56,16 @@ export const formatPragueTime = (
     ...deviceClockOptions(deviceHour12()),
     timeZone: "UTC",
   }).format(new Date(`1970-01-01T${time}:00Z`));
+};
+
+/** The Prague time of day at `instant`, written as {@link formatPragueTime} writes it. */
+export const formatPragueTimeAt = (
+  instant: Date,
+  locale: CustomerLocale
+): string => {
+  const { hour, minute } = pragueDateTimeAt(instant);
+  return formatPragueTime(
+    `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+    locale
+  );
 };

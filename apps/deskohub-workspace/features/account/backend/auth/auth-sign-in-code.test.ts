@@ -610,6 +610,8 @@ describe.skipIf(!testDatabase)(
         locale: "cs-CZ",
         signInCode: true,
         nextSignInEmailAt: expect.any(String),
+        // A browser sign-in email is no app sign-in attempt.
+        signInAttempt: false,
       });
 
       const { text } = await Effect.runPromise(

@@ -9,6 +9,7 @@ import {
   type BookingSelectionInput,
   BookingSelectionRejected,
   type BookingSelectionRejection,
+  type QuoteSelection,
 } from "@/features/reservation/backend/booking-selection";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import {
@@ -61,10 +62,11 @@ const toSelectionRejectionAnswer = (reason: BookingSelectionRejection) =>
 
 /**
  * Answers a selection the booking pages wouldn't accept with its public
- * error, and every other failure, such as a price that can't be quoted, as
- * unavailable: a Calendar sale that can't be read is retried, never answered
- * as a changed price. Every endpoint that resolves a booking selection ends
- * in it.
+ * error, keeps a field the contract itself refuses (such as early setup for
+ * another family), and answers every other failure, such as a price that
+ * can't be quoted, as unavailable: a Calendar sale that can't be read is
+ * retried, never answered as a changed price. Every endpoint that resolves a
+ * booking selection ends in it.
  */
 export const answerBookingSelectionFailure =
   (operation: string) =>
@@ -76,10 +78,38 @@ export const answerBookingSelectionFailure =
         ): Effect.Effect<
           never,
           | ReturnType<typeof toSelectionRejectionAnswer>
-          | CustomerSessionApiFailure<Exclude<E, BookingSelectionRejected>>
-        > =>
-          failure instanceof BookingSelectionRejected
-            ? Effect.fail(toSelectionRejectionAnswer(failure.reason))
-            : Effect.fail(failure).pipe(answerSessionApiFailure(operation))
+          | Extract<E, CustomerBookingSelectionInvalid>
+          | CustomerSessionApiFailure<
+              Exclude<
+                E,
+                BookingSelectionRejected | CustomerBookingSelectionInvalid
+              >
+            >
+        > => {
+          if (failure instanceof BookingSelectionRejected)
+            return Effect.fail(toSelectionRejectionAnswer(failure.reason));
+          if (failure instanceof CustomerBookingSelectionInvalid)
+            return Effect.fail(
+              failure as Extract<E, CustomerBookingSelectionInvalid>
+            );
+          return Effect.fail(failure).pipe(answerSessionApiFailure(operation));
+        }
       )
     );
+
+/**
+ * Adds the early setup a meeting-room booking asked for, at no cost, as
+ * `start_reservation` does. Other families offer none.
+ */
+export const withEarlySetup = (
+  selection: QuoteSelection,
+  earlySetup: boolean | undefined
+): Effect.Effect<
+  QuoteSelection["reservation"],
+  CustomerBookingSelectionInvalid
+> => {
+  if (earlySetup !== true) return Effect.succeed(selection.reservation);
+  return selection.reservation.kind === "meeting-room"
+    ? Effect.succeed({ ...selection.reservation, earlySetup: true })
+    : Effect.fail(new CustomerBookingSelectionInvalid({ field: "earlySetup" }));
+};
