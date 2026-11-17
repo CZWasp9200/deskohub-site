@@ -770,5 +770,6 @@
   "booking_gate_support_title": "We need to check your account",
   "booking_gate_support_body": "You can't book until we've checked it.",
   "booking_gate_unavailable_title": "Your account didn't load",
-  "booking_gate_unavailable_body": "Nothing in your account changed. Try again in a moment."
+  "booking_gate_unavailable_body": "Nothing in your account changed. Try again in a moment.",
+  "reservations_load_failed_title": "Couldn't load reservations"
 }

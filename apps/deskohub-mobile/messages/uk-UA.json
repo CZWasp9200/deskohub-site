@@ -770,5 +770,6 @@
   "booking_gate_support_title": "Нам потрібно перевірити ваш обліковий запис",
   "booking_gate_support_body": "Ви не зможете бронювати, доки ми його не перевіримо.",
   "booking_gate_unavailable_title": "Ваш обліковий запис не завантажився",
-  "booking_gate_unavailable_body": "У вашому обліковому записі нічого не змінилося. Спробуйте ще раз за мить."
+  "booking_gate_unavailable_body": "У вашому обліковому записі нічого не змінилося. Спробуйте ще раз за мить.",
+  "reservations_load_failed_title": "Не вдалося завантажити бронювання"
 }

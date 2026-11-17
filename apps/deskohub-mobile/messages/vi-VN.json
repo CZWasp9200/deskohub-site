@@ -770,5 +770,6 @@
   "booking_gate_support_title": "Chúng tôi cần kiểm tra tài khoản của bạn",
   "booking_gate_support_body": "Bạn chưa thể đặt chỗ cho đến khi chúng tôi kiểm tra xong.",
   "booking_gate_unavailable_title": "Không tải được tài khoản của bạn",
-  "booking_gate_unavailable_body": "Tài khoản của bạn không có gì thay đổi. Hãy thử lại sau giây lát."
+  "booking_gate_unavailable_body": "Tài khoản của bạn không có gì thay đổi. Hãy thử lại sau giây lát.",
+  "reservations_load_failed_title": "Không tải được đặt chỗ"
 }

@@ -770,5 +770,6 @@
   "booking_gate_support_title": "Wir müssen dein Konto prüfen",
   "booking_gate_support_body": "Du kannst erst buchen, wenn wir es geprüft haben.",
   "booking_gate_unavailable_title": "Dein Konto wurde nicht geladen",
-  "booking_gate_unavailable_body": "An deinem Konto hat sich nichts geändert. Versuch es gleich noch einmal."
+  "booking_gate_unavailable_body": "An deinem Konto hat sich nichts geändert. Versuch es gleich noch einmal.",
+  "reservations_load_failed_title": "Reservierungen konnten nicht geladen werden"
 }

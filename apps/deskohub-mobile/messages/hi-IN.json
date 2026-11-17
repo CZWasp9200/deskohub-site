@@ -770,5 +770,6 @@
   "booking_gate_support_title": "हमें आपका खाता जाँचना होगा",
   "booking_gate_support_body": "जब तक हम इसे जाँच नहीं लेते, आप बुकिंग नहीं कर सकते।",
   "booking_gate_unavailable_title": "आपका खाता लोड नहीं हुआ",
-  "booking_gate_unavailable_body": "आपके खाते में कुछ नहीं बदला है। थोड़ी देर में फिर कोशिश करें।"
+  "booking_gate_unavailable_body": "आपके खाते में कुछ नहीं बदला है। थोड़ी देर में फिर कोशिश करें।",
+  "reservations_load_failed_title": "बुकिंग लोड नहीं हो सकीं"
 }

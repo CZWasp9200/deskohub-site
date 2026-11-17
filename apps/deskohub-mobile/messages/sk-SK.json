@@ -770,5 +770,6 @@
   "booking_gate_support_title": "Musíme skontrolovať tvoj účet",
   "booking_gate_support_body": "Kým ho neskontrolujeme, nemôžeš rezervovať.",
   "booking_gate_unavailable_title": "Tvoj účet sa nenačítal",
-  "booking_gate_unavailable_body": "V tvojom účte sa nič nezmenilo. Skús to o chvíľu znova."
+  "booking_gate_unavailable_body": "V tvojom účte sa nič nezmenilo. Skús to o chvíľu znova.",
+  "reservations_load_failed_title": "Rezervácie sa nepodarilo načítať"
 }
