@@ -516,8 +516,6 @@
   "booking_gate_deletion_title": "Your account is being deleted",
   "booking_gate_deletion_body": "You can't make new bookings while this runs. Write to us if this is a mistake.",
   "booking_cowork_tier_heading": "Desk type",
-  "booking_cowork_stay_label": "Length of stay",
-  "booking_cowork_stay_day": "Day",
   "booking_cowork_stay_overnight": "Overnight",
   "booking_date_heading": "Date",
   "booking_calendar_previous_month": "Previous month",
