@@ -8,8 +8,7 @@ import type {
   PreloadedAdvertisedPrice,
 } from "@/features/checkout/advertised-price";
 import {
-  openPayState,
-  payStateContinuesOn,
+  PayState,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
@@ -196,8 +195,9 @@ type ReservationPageDefinition<
   ? { readonly loadPageData?: undefined }
   : {
       /**
-       * Loads data that depends on neither the visitor nor the restored
-       * reservation, alongside them. A rejection fails the page.
+       * Loads data that depends on neither the customer's account nor the
+       * restored reservation, such as a release gate, alongside them. A
+       * rejection fails the page.
        */
       readonly loadPageData: () => Promise<PageData>;
     });
@@ -216,17 +216,12 @@ export const loadRestoredReservation = Effect.fn(
   if (!token) return undefined;
 
   const payState = Option.getOrUndefined(
-    yield* openPayState(token).pipe(
+    yield* PayState.open(token, { locale, reservationKind: kind }).pipe(
       Effect.provide(SealedStateKeys.Default),
       Effect.option
     )
   );
-  if (
-    !payState ||
-    !payStateContinuesOn(payState, { locale, reservationKind: kind })
-  ) {
-    return undefined;
-  }
+  if (!payState) return undefined;
 
   return {
     checkoutSessionId: payState.checkoutSessionId,

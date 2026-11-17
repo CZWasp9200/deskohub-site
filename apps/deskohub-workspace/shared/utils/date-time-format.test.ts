@@ -4,6 +4,7 @@ import "@/shared/polyfills/temporal";
 import {
   formatInstantDate,
   formatInstantDateTime,
+  formatInstantDateTimeRange,
   formatNumericPlainDate,
   formatNumericPlainDatePattern,
   formatPlainDate,
@@ -18,6 +19,39 @@ describe("date-time formatting", () => {
     expect(withPlainSpaces("11:00\u202FAM\u2009–\u200912:00\u202FPM")).toBe(
       "11:00 AM – 12:00 PM"
     );
+  });
+
+  test("formats a range across dates with both ends' times in plain spaces", () => {
+    const start = Temporal.Instant.from("2099-07-30T10:00:00Z");
+    const end = Temporal.Instant.from("2099-07-31T10:00:00Z");
+    const range = formatInstantDateTimeRange({
+      start,
+      end,
+      locale: "en-US",
+      timeZone: "Europe/Prague",
+    });
+
+    expect(range).not.toMatch(/[\u202F\u2009]/);
+    for (const instant of [start, end]) {
+      expect(range).toContain(
+        withPlainSpaces(
+          formatInstantDateTime({
+            instant,
+            locale: "en-US",
+            timeZone: "Europe/Prague",
+          })
+        )
+      );
+    }
+    expect(
+      formatInstantDateTimeRange({
+        start,
+        end,
+        locale: "en-US",
+        hourCycle: "h23",
+        timeZone: "Europe/Prague",
+      })
+    ).not.toMatch(/AM|PM/);
   });
 
   test("formats an instant in the requested time zone", () => {

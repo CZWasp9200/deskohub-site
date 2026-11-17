@@ -43,6 +43,8 @@ mock.module(
                 .includes(key);
             })
           ),
+        decision: () =>
+          Effect.die("account state is never stored; it reads isOpen"),
         evaluateFlags: () => Effect.die("not used by release gates"),
         constantValue: () => Effect.succeed(Option.none()),
       } as never),
@@ -58,9 +60,6 @@ const { CustomerPasskeys } = await import(
 );
 const { CurrentCustomerAccount } = await import(
   "@/features/account/backend/current-customer-account"
-);
-const { CustomerAccountResolver } = await import(
-  "@/features/account/backend/customer-account-resolver.service"
 );
 const { CustomerAuthentication } = await import(
   "@/features/account/backend/customer-authentication.service"
@@ -118,7 +117,6 @@ const services = {
       }))
     ) as never,
   }),
-  resolver: Layer.mock(CustomerAccountResolver, {}),
   profile: Layer.mock(CustomerProfileService, {
     load: () =>
       Effect.succeed({

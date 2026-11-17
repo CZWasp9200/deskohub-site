@@ -9,7 +9,9 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { customerSignInLocaleHeader } from "@deskohub/workspace-customer-api/customer-locale";
-import { Effect, Exit, Option } from "effect";
+import { parseJSON } from "better-auth/client";
+import { DateTime, Effect, Exit, Fiber, Option } from "effect";
+import { TestClock } from "effect/testing";
 import { analytics } from "../analytics/analytics";
 
 type SessionRead = () => Promise<{
@@ -33,9 +35,21 @@ const recordLocale = (fetchOptions: FetchOptions | undefined) => {
 };
 /** What the server answers a sign-in email request with. */
 let emailSent: unknown = { status: true, signInCode: true };
+/** The error the server answers a sign-in email request with instead. */
+let emailRefused: Readonly<Record<string, unknown>> | null = null;
+/** Holds the sign-in email answer until the test releases it. */
+let emailAnswerHeld: Promise<void> = Promise.resolve();
+/** Settles once the page asked the server for a sign-in email. */
+let emailRequested: () => void = () => undefined;
 
 /** The return URIs the page asked the server to mint a handoff for. */
 let mintedFor: Array<string> = [];
+
+/**
+ * An answer body as Better Auth's client hands it over: parsed by its own
+ * JSON parser, which revives ISO 8601 strings into `Date`s.
+ */
+const asClientReads = <A>(body: A): A => parseJSON<A>(JSON.stringify(body));
 
 mock.module("./auth-client.web", () => ({
   authClient: {
@@ -52,7 +66,13 @@ mock.module("./auth-client.web", () => ({
     },
     getSession: () => readSession(),
     signIn: {
-      magicLink: async () => ({ data: emailSent, error: null }),
+      magicLink: async () => {
+        emailRequested();
+        await emailAnswerHeld;
+        return emailRefused === null
+          ? { data: asClientReads(emailSent), error: null }
+          : { data: null, error: asClientReads(emailRefused) };
+      },
       emailOtp: async ({
         fetchOptions,
       }: {
@@ -111,11 +131,14 @@ const {
   reauthenticationExpectation,
   sendSignInEmail,
   signInEmailField,
+  appAccountEmail,
 } = await import("./web-sign-in");
 const {
   clearReauthenticatingUser,
   loadReauthentication,
   loadReauthenticatingUser,
+  saveReauthenticatingUser,
+  takeCompletedReauthentication,
 } = await import("./web-reauthentication-store");
 
 /** A browser `localStorage`, or one that refuses access. */
@@ -154,6 +177,9 @@ beforeEach(() => {
   signOuts = 0;
   linkAccount = "bob";
   emailSent = { status: true, signInCode: true };
+  emailRefused = null;
+  emailAnswerHeld = Promise.resolve();
+  emailRequested = () => undefined;
   readSession = async () => ({ data: { user: { id: "ada" } }, error: null });
 });
 
@@ -260,6 +286,25 @@ describe("signInEmailField", () => {
     }
   });
 
+  test("locks the app's reauthentication to the account the app named", () => {
+    const other = { id: "bob", email: testEmailAddress("bob") };
+    for (const pageSession of [
+      undefined,
+      { user: undefined },
+      { user: other },
+    ]) {
+      for (const reauthenticating of [true, false]) {
+        expect(
+          signInEmailField({
+            reauthenticating,
+            pageSession,
+            appAccountEmail: user.email,
+          })
+        ).toEqual({ kind: "locked", email: user.email });
+      }
+    }
+  });
+
   test("leaves the address free with no account to keep", () => {
     expect(
       signInEmailField({
@@ -270,6 +315,31 @@ describe("signInEmailField", () => {
     expect(
       signInEmailField({ reauthenticating: false, pageSession: { user } })
     ).toEqual({ kind: "free" });
+  });
+});
+
+describe("appAccountEmail", () => {
+  const request = {
+    codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+    state: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+    returnUri: "deskohub://auth/callback",
+    reauthenticate: true,
+    loginHint: testEmailAddress("ada"),
+  };
+
+  test("is the account an app reauthentication names", () => {
+    expect(appAccountEmail(Option.some(request))).toBe(request.loginHint);
+  });
+
+  test("is absent without an app reauthentication naming one", () => {
+    const { loginHint: _, ...withoutHint } = request;
+    for (const nativeRequest of [
+      Option.none(),
+      Option.some(withoutHint),
+      Option.some({ ...request, reauthenticate: false }),
+    ]) {
+      expect(appAccountEmail(nativeRequest)).toBeUndefined();
+    }
   });
 });
 
@@ -398,6 +468,7 @@ describe("prepareReauthenticationEmail", () => {
       Option.some({
         userId: "ada",
         returnPath: Option.some("/account/passkeys"),
+        purpose: undefined,
       })
     );
     clearReauthenticatingUser();
@@ -553,6 +624,34 @@ describe("completeWebPasskeySignIn", () => {
     expect(signOuts).toBe(0);
     expect(loadReauthenticatingUser(Date.now())).toEqual(Option.none());
   });
+  test("a confirmed reauthentication for a purpose lets its screen continue once", async () => {
+    useStorage(true);
+    saveReauthenticatingUser(
+      {
+        userId: "ada",
+        returnPath: "/account/danger",
+        purpose: "delete-account",
+      },
+      Date.now()
+    );
+    // The sign-in page stores the account again before its email.
+    await Effect.runPromise(
+      prepareReauthenticationEmail(
+        { kind: "account", userId: "ada" },
+        "/account/danger"
+      )
+    );
+    expect(
+      await reasonOfPasskey({ kind: "account", userId: "ada" })
+    ).toBeUndefined();
+    const take = () =>
+      takeCompletedReauthentication(
+        { userId: "ada", purpose: "delete-account" },
+        Date.now()
+      );
+    expect(take()).toBe(true);
+    expect(take()).toBe(false);
+  });
 });
 
 describe("prepareNativeHandoffEmail", () => {
@@ -665,26 +764,158 @@ describe("the app's locale", () => {
 
 describe("sendSignInEmail", () => {
   const email = testEmailAddress("ada");
-  const send = () => Effect.runPromise(sendSignInEmail(email, "en-US"));
+  const now = Date.UTC(2026, 10, 15, 20, 0, 0);
+  const nextAt = "2026-11-15T20:41:07.123Z";
+  const send = () =>
+    TestClock.setTime(now).pipe(
+      Effect.andThen(sendSignInEmail(email, "en-US")),
+      Effect.provide(TestClock.layer()),
+      Effect.runPromise
+    );
+  /** The parts of a sent email the page reads, the instant as epoch ms. */
+  const sent = async () => {
+    const result = await send();
+    return {
+      ...result,
+      nextSignInEmailAt: Option.map(
+        result.nextSignInEmailAt,
+        DateTime.toEpochMillis
+      ),
+    };
+  };
+  const refusal = async () => {
+    const exit = await Effect.runPromiseExit(sendSignInEmail(email, "en-US"));
+    const failure = Option.getOrUndefined(Exit.findErrorOption(exit));
+    return {
+      reason: failure?.reason,
+      nextSignInEmailAt:
+        failure?.nextSignInEmailAt === undefined
+          ? undefined
+          : DateTime.toEpochMillis(failure.nextSignInEmailAt),
+      carriesInstant:
+        failure !== undefined && Object.hasOwn(failure, "nextSignInEmailAt"),
+    };
+  };
 
-  test("reports a code when the server issued one", async () => {
-    expect(await send()).toEqual({ email, signInCode: true });
+  test("reports a code and the server's next send when it issued one", async () => {
+    emailSent = { status: true, signInCode: true, nextSignInEmailAt: nextAt };
+    expect(await sent()).toEqual({
+      email,
+      signInCode: true,
+      sentAt: now,
+      nextSignInEmailAt: Option.some(Date.parse(nextAt)),
+    });
+  });
+
+  test("stamps the send when the server answers, not when it was asked", async () => {
+    const answer = Promise.withResolvers<void>();
+    const requested = Promise.withResolvers<void>();
+    emailAnswerHeld = answer.promise;
+    emailRequested = requested.resolve;
+    const result = await Effect.gen(function* () {
+      yield* TestClock.setTime(now);
+      const sending = yield* Effect.forkChild(sendSignInEmail(email, "en-US"));
+      yield* Effect.promise(() => requested.promise);
+      yield* TestClock.adjust("5 seconds");
+      answer.resolve();
+      return yield* Fiber.join(sending);
+    }).pipe(Effect.provide(TestClock.layer()), Effect.runPromise);
+    expect(result.sentAt).toBe(now + 5000);
+  });
+
+  test("tolerates an answer without the server's next send", async () => {
+    expect(await sent()).toEqual({
+      email,
+      signInCode: true,
+      sentAt: now,
+      nextSignInEmailAt: Option.none(),
+    });
+  });
+
+  test("ignores an invalid next send", async () => {
+    // An out-of-range ISO string is no case here: Better Auth's client rolls
+    // it over into a valid Date before the page sees it (the decoder's own
+    // test covers it as a string).
+    for (const nextSignInEmailAt of ["soon", 60, null]) {
+      emailSent = { status: true, signInCode: true, nextSignInEmailAt };
+      expect((await sent()).nextSignInEmailAt).toEqual(Option.none());
+    }
   });
 
   test("reports a link-only email when the server issued no code", async () => {
     emailSent = { status: true, signInCode: false };
-    expect(await send()).toEqual({ email, signInCode: false });
+    expect(await sent()).toEqual({
+      email,
+      signInCode: false,
+      sentAt: now,
+      nextSignInEmailAt: Option.none(),
+    });
   });
 
   test("treats an answer without the decision as link-only", async () => {
     emailSent = { status: true };
-    expect(await send()).toEqual({ email, signInCode: false });
+    expect((await send()).signInCode).toBe(false);
     emailSent = null;
-    expect(await send()).toEqual({ email, signInCode: false });
+    expect(await sent()).toEqual({
+      email,
+      signInCode: false,
+      sentAt: now,
+      nextSignInEmailAt: Option.none(),
+    });
   });
 
   test("takes only a literal yes as a code", async () => {
     emailSent = { status: true, signInCode: "true" };
-    expect(await send()).toEqual({ email, signInCode: false });
+    expect((await send()).signInCode).toBe(false);
+  });
+
+  test("keeps the server's next send from an address-limit refusal", async () => {
+    emailRefused = {
+      status: 429,
+      code: "SIGN_IN_EMAIL_LIMIT_REACHED",
+      message: "limit",
+      nextSignInEmailAt: nextAt,
+    };
+    expect(await refusal()).toEqual({
+      reason: "address-limit",
+      nextSignInEmailAt: Date.parse(nextAt),
+      carriesInstant: true,
+    });
+  });
+
+  test("leaves the instant out of an address-limit refusal without a valid one", async () => {
+    for (const answer of [
+      { status: 429, code: "SIGN_IN_EMAIL_LIMIT_REACHED" },
+      {
+        status: 429,
+        code: "SIGN_IN_EMAIL_LIMIT_REACHED",
+        nextSignInEmailAt: "soon",
+      },
+    ]) {
+      emailRefused = answer;
+      expect(await refusal()).toEqual({
+        reason: "address-limit",
+        nextSignInEmailAt: undefined,
+        carriesInstant: false,
+      });
+    }
+  });
+
+  test("leaves the instant out of other refusals", async () => {
+    for (const [answer, reason] of [
+      [{ status: 429, nextSignInEmailAt: nextAt }, "rate-limited"],
+      [
+        { status: 403, code: "BOT_DETECTED", nextSignInEmailAt: nextAt },
+        "automated",
+      ],
+      [{ status: 400, code: "INVALID_EMAIL" }, "failed"],
+    ] as const) {
+      emailRefused = answer;
+      expect(await refusal()).toEqual({
+        reason,
+        nextSignInEmailAt: undefined,
+        carriesInstant: false,
+      });
+    }
   });
 });

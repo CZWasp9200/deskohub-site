@@ -3,6 +3,7 @@ import type { Locale } from "@/features/i18n";
 import {
   formatInstantDate,
   formatInstantDateRange,
+  formatInstantDateTimeRange,
   formatPlainDate,
   formatPlainDateRange,
 } from "@/shared/utils/date-time-format";
@@ -21,6 +22,23 @@ export const getWorkspaceDate = (instant: Temporal.Instant) =>
 
 export const getCurrentWorkspaceDate = (now = Temporal.Now.instant()) =>
   getWorkspaceDate(now);
+
+/**
+ * Whether an interval holds some moment between `now` and the end of the
+ * workspace date (Prague) `now` falls on: it starts by that date and hasn't
+ * ended. An interval ending at `now` has ended.
+ */
+export const isOpenOnCurrentWorkspaceDate = (
+  interval: {
+    readonly startsAt: Temporal.Instant;
+    readonly endsAt: Temporal.Instant;
+  },
+  now: Temporal.Instant
+) =>
+  Temporal.PlainDate.compare(
+    getWorkspaceDate(interval.startsAt),
+    getWorkspaceDate(now)
+  ) <= 0 && Temporal.Instant.compare(interval.endsAt, now) > 0;
 
 export const isTodayOrFutureWorkspaceDate = (date: string) =>
   date >= getCurrentWorkspaceDate().toString();
@@ -131,6 +149,24 @@ export const formatReservationDisplayTimeRange = (
     locale,
     reservationDisplayTimeFormatOptions
   ).formatRange(temporalInstantToDate(start), temporalInstantToDate(end));
+
+/**
+ * A reservation that starts and ends at set times on different dates, such as
+ * an overnight stay, with both dates and times.
+ */
+export const formatReservationDisplayDateTimeRange = (
+  start: Temporal.Instant,
+  end: Temporal.Instant,
+  locale: Locale
+) =>
+  formatInstantDateTimeRange({
+    start,
+    end,
+    locale,
+    dateStyle: reservationDisplayDateTimeFormatOptions.dateStyle,
+    timeStyle: reservationDisplayDateTimeFormatOptions.timeStyle,
+    timeZone: workspaceSiteConstants.location.timeZone,
+  });
 
 export const formatReservationDisplayDateTime = (
   instant: Temporal.Instant,

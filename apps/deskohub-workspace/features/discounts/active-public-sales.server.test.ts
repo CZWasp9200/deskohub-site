@@ -1,7 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { PostHogFeatureFlagEvaluationError } from "@deskohub/posthog/feature-flags/node";
+import { PostHogFeatureFlagEvaluationError } from "@deskohub/analytics-posthog/feature-flags/node";
 import { Context, Effect, Layer, Logger } from "effect";
 import {
   type IWorkspaceFeatureFlagService,
@@ -69,6 +69,7 @@ const installFeatureFlags = (
           evaluateFlags,
           isEnabled: () => Effect.die("isEnabled should not be called"),
           constantValue: () => Effect.die("constantValue should not be called"),
+          decision: () => Effect.die("decision should not be called"),
         })
       )
     ),

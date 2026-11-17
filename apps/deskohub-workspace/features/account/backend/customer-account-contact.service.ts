@@ -75,26 +75,41 @@ const toContactPhone = (stored: string) => {
   });
 };
 
-/** A linked profile as the reservation contact its account books with. */
-const toContact = (
-  account: CurrentLinkedAccount,
-  profile: CustomerProfile
-): CustomerAccountContact | null => {
+/**
+ * A stored Dotypos customer's name and phone as a reservation contact books
+ * them: null when the name can't book a reservation; the phone only when it
+ * holds a valid number.
+ */
+export const readStoredBookingContact = (stored: {
+  readonly firstName?: string | null;
+  readonly lastName?: string | null;
+  readonly phone?: string | null;
+}): { readonly name: string; readonly phone: string | null } | null => {
   const name = decodeContactField(
     reservationCustomerNameSchema,
-    [profile.firstName, profile.lastName]
+    [stored.firstName, stored.lastName]
       .map((part) => part?.trim())
       .filter(Boolean)
       .join(" ")
   );
   if (!name) return null;
+  return { name, phone: stored.phone ? toContactPhone(stored.phone) : null };
+};
+
+/** A linked profile as the reservation contact its account books with. */
+const toContact = (
+  account: CurrentLinkedAccount,
+  profile: CustomerProfile
+): CustomerAccountContact | null => {
+  const stored = readStoredBookingContact(profile);
+  if (!stored) return null;
 
   return {
     accountId: account.accountId,
     dotyposCustomerId: account.dotyposCustomerId,
-    name,
+    name: stored.name,
     email: account.email,
-    phone: profile.phone ? toContactPhone(profile.phone) : null,
+    phone: stored.phone,
   } satisfies CustomerAccountContact;
 };
 
@@ -217,20 +232,21 @@ export class CustomerAccountContactService extends Context.Service<
   );
 
   /**
-   * The service reading the customer through this authentication, such as
-   * an agent's access token instead of the browser session.
+   * The service reading the customer through the `CustomerAuthentication`
+   * the caller provides, over the same standing and profile service those
+   * services build.
    */
-  static withAuthentication = <E, R>(
-    authentication: Layer.Layer<CustomerAuthentication, E, R>
-  ) =>
-    this.Default.pipe(
-      Layer.provide(
-        Layer.mergeAll(
-          CurrentCustomerAccount.withAuthentication(authentication),
-          CustomerProfileService.withAuthentication(authentication)
-        )
+  static ForProvidedAuthentication = this.Default.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        CurrentCustomerAccount.ForProvidedAuthentication,
+        CustomerProfileService.ForProvidedAuthentication
       )
-    );
+    )
+  );
 
-  static Live = this.withAuthentication(CustomerAuthentication.Default);
+  /** The service reading the browser session. */
+  static Live = this.ForProvidedAuthentication.pipe(
+    Layer.provide(CustomerAuthentication.Default)
+  );
 }

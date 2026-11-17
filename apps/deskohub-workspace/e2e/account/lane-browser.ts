@@ -23,6 +23,7 @@ import type {
 import { switchLocale } from "../cases/locale";
 import type { WorkspaceE2EConfig } from "../config";
 import { type WorkspaceE2EError, withoutWorkspaceE2ETimeout } from "../errors";
+import { pollUntil } from "../polling";
 import {
   waitForNoRememberedReferralCode,
   waitForRememberedReferralCode,
@@ -152,6 +153,16 @@ export type WorkspaceE2EAccountLaneBrowser = WorkspaceE2EAccountBrowser & {
   readonly readSessionMatches: (
     email: string
   ) => Effect.Effect<boolean, WorkspaceE2EError>;
+  /**
+   * Waits until the session the page's origin holds belongs to the email:
+   * right after a magic-link sign-in the session endpoint can still answer
+   * with the session it had before. Fails when it doesn't within the UI
+   * transition bound.
+   */
+  readonly waitForSessionOf: (
+    description: string,
+    email: string
+  ) => Effect.Effect<void, WorkspaceE2EError>;
   /** Whether native validation blocks the sign-in form's email. */
   readonly readSignInEmailBlocked: Effect.Effect<boolean, WorkspaceE2EError>;
   /** Clicks the accepted step's button that starts another sign-in. */
@@ -802,6 +813,18 @@ export const makeWorkspaceE2EAccountLaneBrowser = ({
       ),
     readSessionMatches: (email) =>
       evaluate("read the browser session's account", isSessionOf, email),
+    waitForSessionOf: (description, email) =>
+      pollUntil(
+        evaluate("read the browser session's account", isSessionOf, email).pipe(
+          Effect.map((matches) => (matches ? true : undefined))
+        ),
+        {
+          label: description,
+          initialIntervalMs: 100,
+          intervalMs: 1_000,
+          timeoutMs: uiTransition,
+        }
+      ).pipe(Effect.asVoid),
     readSignInEmailBlocked: evaluate(
       "assert native validation blocked the invalid email",
       isInputValidationBlocked,

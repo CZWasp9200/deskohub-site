@@ -3,13 +3,19 @@ import { describe, expect, mock, test } from "bun:test";
 import { DotyposUnavailable } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
+import { CheckoutUnavailableError } from "@/features/checkout/backend/checkout/checkout-unavailable";
 import {
   buildSignedPayState,
+  type SignedPayState,
   sealPayState,
 } from "@/features/checkout/backend/checkout/pay-state";
-import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
+import type {
+  PayableCheckout,
+  PayableCheckoutReadError,
+  PayableReservation,
+} from "@/features/checkout/backend/checkout/payable-checkout.service";
+import { PayableCheckoutMock } from "@/features/checkout/backend/checkout/payable-checkout.service.mock";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
-import type { SupersedableReservation } from "@/features/reservation/backend/reservation-supersession";
 import { normalizedCoworkReservationOrderSchema } from "@/features/reservation/cowork-reservation";
 import type {
   WorkspaceAvailability,
@@ -75,11 +81,26 @@ const getAvailability = mock<IWorkspaceAvailabilityService["getAvailability"]>(
     return Effect.succeed(availabilityFor(input.query));
   }
 );
-const findCurrent = mock(
-  (_input: { readonly orderId: string; readonly checkoutSessionId?: string }) =>
-    Effect.succeed({
-      dotyposReservationId: "dotypos-reservation-1",
-    } as SupersedableReservation)
+/** The replaced Pay state's current hold, payable and not yet paid. */
+const currentHold = (
+  overrides: Partial<PayableReservation> = {}
+): PayableReservation =>
+  ({
+    id: "reservation-id",
+    reservationState: "held",
+    paymentState: "not_started",
+    dotyposReservationId: "dotypos-reservation-1",
+    reservationHoldExpiresAt: Temporal.Instant.from("2099-06-01T10:10:00Z"),
+    ...overrides,
+  }) as PayableReservation;
+
+const confirm = mock(
+  (
+    _state: SignedPayState
+  ): Effect.Effect<
+    PayableReservation,
+    CheckoutUnavailableError | PayableCheckoutReadError
+  > => Effect.succeed(currentHold())
 );
 
 const testLayer = Layer.mergeAll(
@@ -87,19 +108,15 @@ const testLayer = Layer.mergeAll(
     getAvailability,
     ensureAvailable: () => Effect.void,
   }),
-  Layer.succeed(ReservationSupersessionService, { findCurrent }),
+  PayableCheckoutMock(confirm).pipe(Layer.provide(TestSealedStateKeys)),
   TestSealedStateKeys
 );
 
 const run = <A, E>(
-  effect: Effect.Effect<
-    A,
-    E,
-    WorkspaceAvailabilityService | ReservationSupersessionService
-  >
+  effect: Effect.Effect<A, E, WorkspaceAvailabilityService | PayableCheckout>
 ) => {
   getAvailability.mockClear();
-  findCurrent.mockClear();
+  confirm.mockClear();
   return Effect.runPromise(effect.pipe(Effect.provide(testLayer)));
 };
 
@@ -129,6 +146,9 @@ const replacementToken = await Effect.runPromise(
       bookedAt: Schema.decodeUnknownSync(instantStringSchema)(
         "2099-06-01T10:00:00Z"
       ),
+      holdExpiresAt: Schema.decodeUnknownSync(instantStringSchema)(
+        "2099-06-01T10:10:00Z"
+      ),
       checkoutSessionId: "session-id",
     });
     return yield* sealPayState(state);
@@ -141,25 +161,80 @@ describe("loadAvailability", () => {
   test("excludes the verified current hold of a same-kind replacement", async () => {
     await run(loadAvailability({ query: coworkQuery, replacementToken }));
 
-    expect(findCurrent.mock.calls).toEqual([
-      [{ orderId: "reservation-id", checkoutSessionId: "session-id" }],
+    expect(confirm.mock.calls).toEqual([
+      [
+        expect.objectContaining({
+          orderId: "reservation-id",
+          checkoutSessionId: "session-id",
+        }),
+      ],
     ]);
     expect(getAvailability.mock.calls).toEqual([
       [{ query: coworkQuery, occupancyExclusion: exclusion }],
     ]);
   });
 
+  test.each(["not_started", "failed", "cancelled", "expired"] as const)(
+    "excludes a current unpaid hold in %s payment state",
+    async (paymentState) => {
+      confirm.mockImplementationOnce(() =>
+        Effect.succeed(currentHold({ paymentState }))
+      );
+
+      await run(loadAvailability({ query: coworkQuery, replacementToken }));
+
+      expect(getAvailability.mock.calls).toEqual([
+        [{ query: coworkQuery, occupancyExclusion: exclusion }],
+      ]);
+    }
+  );
+
+  test.each(["pending", "paid"] as const)(
+    "excludes nothing for a current hold in %s payment state",
+    async (paymentState) => {
+      confirm.mockImplementationOnce(() =>
+        Effect.succeed(currentHold({ paymentState }))
+      );
+
+      await run(loadAvailability({ query: coworkQuery, replacementToken }));
+
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(getAvailability.mock.calls).toEqual([
+        [{ query: coworkQuery, occupancyExclusion: undefined }],
+      ]);
+    }
+  );
+
+  test("excludes nothing for a replacement whose checkout is no longer payable", async () => {
+    confirm.mockImplementationOnce((state) =>
+      Effect.fail(
+        new CheckoutUnavailableError({
+          orderId: state.orderId,
+          reason: "not_current",
+          restartKind: state.reservation.kind,
+        })
+      )
+    );
+
+    await run(loadAvailability({ query: coworkQuery, replacementToken }));
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(getAvailability.mock.calls).toEqual([
+      [{ query: coworkQuery, occupancyExclusion: undefined }],
+    ]);
+  });
+
   test("ignores a replacement for another reservation kind", async () => {
     await run(loadAvailability({ query: officeQuery, replacementToken }));
 
-    expect(findCurrent).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
     expect(getAvailability.mock.calls).toEqual([
       [{ query: officeQuery, occupancyExclusion: undefined }],
     ]);
   });
 
   test("loads ordinary availability while the replacement lookup is unavailable", async () => {
-    findCurrent.mockImplementationOnce(() =>
+    confirm.mockImplementationOnce(() =>
       Effect.fail(
         new DotyposUnavailable({
           operation: "getReservation",
@@ -180,7 +255,7 @@ describe("loadAvailability", () => {
       loadAvailability({ query: coworkQuery, replacementToken: "forged" })
     );
 
-    expect(findCurrent).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
     expect(getAvailability.mock.calls).toEqual([
       [{ query: coworkQuery, occupancyExclusion: undefined }],
     ]);
@@ -197,7 +272,7 @@ describe("preloadAvailability", () => {
       })
     );
 
-    expect(findCurrent).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledTimes(1);
     expect(getAvailability.mock.calls.map(([input]) => input)).toEqual([
       { query: coworkQuery, occupancyExclusion: exclusion },
       { query: failingQuery, occupancyExclusion: exclusion },
@@ -214,7 +289,7 @@ describe("preloadAvailability", () => {
   });
 
   test("leaves every query to the client while the replacement lookup is unavailable", async () => {
-    findCurrent.mockImplementationOnce(() =>
+    confirm.mockImplementationOnce(() =>
       Effect.fail(
         new DotyposUnavailable({
           operation: "getReservation",
@@ -227,7 +302,7 @@ describe("preloadAvailability", () => {
       preloadAvailability({ queries: [coworkQuery], replacementToken })
     );
 
-    expect(findCurrent).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledTimes(1);
     expect(preloaded).toEqual([]);
     expect(getAvailability).not.toHaveBeenCalled();
   });
@@ -237,7 +312,7 @@ describe("preloadAvailability", () => {
       preloadAvailability({ queries: [officeQuery] })
     );
 
-    expect(findCurrent).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
     expect(preloaded.map(({ query }) => query)).toEqual([officeQuery]);
   });
 });

@@ -5,6 +5,16 @@ import {
   HttpApiSchema,
 } from "effect/unstable/httpapi";
 import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
+import {
+  CustomerCheckout,
+  CustomerCheckoutReturnTarget,
+} from "./customer-booking-checkout-api";
+import {
+  CustomerBookingSelection,
+  CustomerCoworkStay,
+} from "./customer-booking-selection";
+import { CustomerLocale } from "./customer-locale";
+import { customerInputParseOptions } from "./customer-profile";
 import { CustomerServiceUnavailable } from "./customer-session";
 import { responseHeaders } from "./openapi-response-headers";
 
@@ -39,6 +49,69 @@ export class CustomerAccessCodeUnavailable extends Schema.TaggedErrorClass<Custo
 export class CustomerInvoiceNotIssued extends Schema.TaggedErrorClass<CustomerInvoiceNotIssued>()(
   "CustomerInvoiceNotIssued",
   {}
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+/**
+ * Why the order has no payment page to open again: it is `paid`, a
+ * `late_payment` of it is being checked, its hold was `released`, it has
+ * `no_active_attempt` whose page is still open (it ended or never opened
+ * one), or the page's `window_elapsed`. The order's status shows what to do
+ * next.
+ */
+export const CustomerPaymentPageClosedReason = Schema.Literals([
+  "paid",
+  "late_payment",
+  "released",
+  "no_active_attempt",
+  "window_elapsed",
+]).annotate({ identifier: "CustomerPaymentPageClosedReason" });
+export type CustomerPaymentPageClosedReason =
+  typeof CustomerPaymentPageClosedReason.Type;
+
+/**
+ * The order's payment page can't be opened again, for `reason`. Asking again
+ * can succeed only once a new payment opens a page.
+ */
+export class CustomerPaymentPageClosed extends Schema.TaggedErrorClass<CustomerPaymentPageClosed>()(
+  "CustomerPaymentPageClosed",
+  { reason: CustomerPaymentPageClosedReason }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+/**
+ * Why the order's payment can't be tried again in place. The order is
+ * `paid`; its `payment_in_progress` may still complete; a `late_payment` of
+ * it is being checked; a newer booking `superseded` it; its reservation was
+ * cancelled (`reservation_cancelled`) or has ended (`reservation_ended`);
+ * its details can't be rebuilt (`details_unavailable`) or need a person to
+ * look at them (`needs_review`); the reserved spot was taken meanwhile
+ * (`spot_unavailable`); or the provider shows the earlier payment may still
+ * settle (`payment_settling`: check the order's status again later, don't
+ * book again). For every reason but `payment_settling`, booking the same
+ * selection again is the way on.
+ */
+export const CustomerPaymentRetryRefusedReason = Schema.Literals([
+  "paid",
+  "payment_in_progress",
+  "late_payment",
+  "superseded",
+  "reservation_cancelled",
+  "reservation_ended",
+  "details_unavailable",
+  "needs_review",
+  "spot_unavailable",
+  "payment_settling",
+]).annotate({ identifier: "CustomerPaymentRetryRefusedReason" });
+export type CustomerPaymentRetryRefusedReason =
+  typeof CustomerPaymentRetryRefusedReason.Type;
+
+/** The order's payment can't be tried again in place, for `reason`. */
+export class CustomerPaymentRetryRefused extends Schema.TaggedErrorClass<CustomerPaymentRetryRefused>()(
+  "CustomerPaymentRetryRefused",
+  { reason: CustomerPaymentRetryRefusedReason }
 ) {
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
@@ -78,7 +151,16 @@ export type CustomerCoworkTier = typeof CustomerCoworkTier.Type;
 
 /** What a reservation in the history books; `other` for any other product. */
 export const CustomerReservationProduct = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("cowork"), tier: CustomerCoworkTier }),
+  Schema.Struct({
+    kind: Schema.Literal("cowork"),
+    tier: CustomerCoworkTier,
+    /**
+     * The stay its booked time shows: overnight for a Reserved Desk held from
+     * noon to noon the next date. Absent when its time can't be read; read an
+     * absent stay as a day.
+     */
+    stay: Schema.optionalKey(CustomerCoworkStay),
+  }),
   Schema.Struct({ kind: Schema.Literal("meeting-room") }),
   Schema.Struct({ kind: Schema.Literal("office") }),
   Schema.Struct({ kind: Schema.Literal("other") }),
@@ -112,6 +194,26 @@ export const CustomerReservationStatus = Schema.Literals([
 ]).annotate({ identifier: "CustomerReservationStatus" });
 export type CustomerReservationStatus = typeof CustomerReservationStatus.Type;
 
+/**
+ * The door code of a paid, confirmed order, and when the lock accepts it.
+ */
+export const CustomerReservationAccess = Schema.Struct({
+  code: Schema.NonEmptyString,
+  accessStartsAt: isoInstant,
+  accessEndsAt: isoInstant,
+}).annotate({ identifier: "CustomerReservationAccess" });
+export type CustomerReservationAccess = typeof CustomerReservationAccess.Type;
+
+/**
+ * What booking a reservation again sends to `createCheckout`: its selection,
+ * and `earlySetup` beside it for a meeting room booked with early setup.
+ */
+export const CustomerBookedSelection = Schema.Struct({
+  selection: CustomerBookingSelection,
+  earlySetup: Schema.optionalKey(Schema.Boolean),
+}).annotate({ identifier: "CustomerBookedSelection" });
+export type CustomerBookedSelection = typeof CustomerBookedSelection.Type;
+
 /** A reservation as the account page's history lists it. */
 export const CustomerReservationSummary = Schema.Struct({
   /** Unique within the history; only for telling entries apart. */
@@ -137,6 +239,30 @@ export const CustomerReservationSummary = Schema.Struct({
   /** Null when the provider's seat count can't be read. */
   seats: Schema.NullOr(Schema.Int),
   status: CustomerReservationStatus,
+  /**
+   * The catalog name of `product` in the request's locale, as the website
+   * names it.
+   */
+  productName: Schema.optional(Schema.String),
+  /**
+   * When the order's door code works: the span the reservation system holds,
+   * early setup included. Absent for a reservation not booked on the website
+   * or whose time can't be read.
+   */
+  accessStartsAt: Schema.optional(isoInstant),
+  accessEndsAt: Schema.optional(isoInstant),
+  /**
+   * What booking it again sends, so a client can preselect it. Absent when
+   * its product can no longer be booked, such as a retired cowork tier.
+   */
+  bookedSelection: Schema.optional(CustomerBookedSelection),
+  /**
+   * The door code of a confirmed booking whose access starts by today in
+   * Prague and hasn't ended. Absent otherwise, for a review account, or
+   * while the code can't be shown now: the order's access endpoint then
+   * answers why.
+   */
+  todayAccess: Schema.optional(CustomerReservationAccess),
 }).annotate({ identifier: "CustomerReservationSummary" });
 export type CustomerReservationSummary = typeof CustomerReservationSummary.Type;
 
@@ -212,6 +338,14 @@ export const CustomerOrderState = Schema.Struct({
   fulfillmentStatus: CustomerOrderFulfillmentStatus,
   /** Marks a review account's sample or simulated hold. */
   reviewSandbox: Schema.optional(Schema.Literal(true)),
+  /**
+   * Marks a pending order whose payment page can be opened again
+   * (`reopenPaymentPage`): the payment provider's order still shows no
+   * activity, or, when it can't be asked, the page is inside its provisional
+   * reopening window. The answer can change at any moment; reopening checks
+   * again.
+   */
+  paymentPageReopenable: Schema.optional(Schema.Literal(true)),
   startsAt: Schema.optional(isoInstant),
   endsAt: Schema.optional(isoInstant),
   /**
@@ -220,18 +354,13 @@ export const CustomerOrderState = Schema.Struct({
    */
   setupStartsAt: Schema.optional(isoInstant),
   total: Schema.optional(Money),
+  /**
+   * What booking the order again sends, while its time and total are known
+   * and its product can still be booked.
+   */
+  bookedSelection: Schema.optional(CustomerBookedSelection),
 }).annotate({ identifier: "CustomerOrderState" });
 export type CustomerOrderState = typeof CustomerOrderState.Type;
-
-/**
- * The door code of a paid, confirmed order, and when the lock accepts it.
- */
-export const CustomerReservationAccess = Schema.Struct({
-  code: Schema.NonEmptyString,
-  accessStartsAt: isoInstant,
-  accessEndsAt: isoInstant,
-}).annotate({ identifier: "CustomerReservationAccess" });
-export type CustomerReservationAccess = typeof CustomerReservationAccess.Type;
 
 /**
  * An order's issued invoice as a PDF document, served as an attachment
@@ -244,19 +373,79 @@ export const CustomerInvoicePdf = Schema.Uint8Array.pipe(
   description: "The issued invoice as a PDF document.",
 });
 
+/** Where the booked space is: its address, position, and map links. */
+export const CustomerEstablishment = Schema.Struct({
+  name: Schema.String,
+  /** The whole address on one line. */
+  formattedAddress: Schema.String,
+  address: Schema.Struct({
+    street: Schema.String,
+    cityDistrict: Schema.String,
+    city: Schema.String,
+    postalCode: Schema.String,
+    /** ISO 3166-1 alpha-2 country code. */
+    country: Schema.String,
+  }),
+  coordinates: Schema.Struct({ lat: Schema.Number, lng: Schema.Number }),
+  /** Google Maps directions to the space. */
+  directionsUrl: Schema.String,
+  /** Google Maps centred on the space. */
+  mapUrl: Schema.String,
+}).annotate({ identifier: "CustomerEstablishment" });
+export type CustomerEstablishment = typeof CustomerEstablishment.Type;
+
 // Endpoints
 
 const OrderParams = { orderId: CustomerReservationOrderId } as const;
 
 /**
- * The signed-in customer's reservations: the history, and the status, door
- * code and invoice of an order the account booked or whose customer it is.
+ * Where the reopened page's payment returns the customer. Like a checkout
+ * submission, the last request that hands out the order's payment page
+ * decides.
+ */
+export const ReopenCustomerPaymentPage = Schema.Struct({
+  /** Absent: the payment returns to the Workspace site's status page. */
+  returnTarget: Schema.optionalKey(CustomerCheckoutReturnTarget),
+}).annotate({
+  identifier: "ReopenCustomerPaymentPage",
+  parseOptions: customerInputParseOptions,
+});
+
+/**
+ * Pays an order again after its payment failed, was cancelled or expired:
+ * the checkout continues in `locale`, the language the app shows it in.
+ */
+export const RetryCustomerPayment = Schema.Struct({
+  locale: CustomerLocale,
+}).annotate({
+  identifier: "RetryCustomerPayment",
+  parseOptions: customerInputParseOptions,
+});
+
+/**
+ * The payment provider's page of the order's unpaid payment, opened again
+ * for a customer who left it. It is the page the payment already opened:
+ * opening it starts no new payment.
+ */
+export const CustomerPaymentPage = Schema.Struct({
+  url: Schema.NonEmptyString.annotate({
+    description: "The payment provider's page to open in a browser.",
+  }),
+}).annotate({ identifier: "CustomerPaymentPage" });
+export type CustomerPaymentPage = typeof CustomerPaymentPage.Type;
+
+/**
+ * The signed-in customer's reservations: the history, where the space is,
+ * the status, door code and invoice of an order the account booked or whose
+ * customer it is, and the payment page of one it hasn't paid yet.
  * The status and door code reads refresh the order, as the website's pages
  * do, and the door code and invoice only the order's customer sees.
  */
 export const CustomerReservationsApi = HttpApiGroup.make("reservations")
   .add(
     HttpApiEndpoint.get("listReservations", "/", {
+      /** The language of `productName`; the default locale when absent. */
+      query: Schema.Struct({ locale: Schema.optionalKey(CustomerLocale) }),
       success: CustomerReservationHistory,
       error: [
         CustomerAccountLinkRequired.schema,
@@ -265,11 +454,46 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
     })
   )
   .add(
+    HttpApiEndpoint.get("getEstablishment", "/establishment", {
+      success: CustomerEstablishment,
+    })
+  )
+  .add(
     HttpApiEndpoint.get("getReservationStatus", "/:orderId/status", {
       params: OrderParams,
       success: CustomerOrderState,
       error: [
         CustomerReservationNotFound.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    })
+  )
+  .add(
+    HttpApiEndpoint.post("reopenPaymentPage", "/:orderId/payment-page", {
+      params: OrderParams,
+      payload: ReopenCustomerPaymentPage,
+      success: CustomerPaymentPage,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerPaymentPageClosed.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    })
+  )
+  .add(
+    /**
+     * The same order's checkout again, with its details kept: the terms are
+     * confirmed again and `submitCheckout` starts the new payment. A changed
+     * price comes back as `price_review` to accept first. It never starts a
+     * payment and never books a second spot.
+     */
+    HttpApiEndpoint.post("retryPayment", "/:orderId/payment-retry", {
+      params: OrderParams,
+      payload: RetryCustomerPayment,
+      success: CustomerCheckout,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerPaymentRetryRefused.schema,
         CustomerServiceUnavailable.schema,
       ],
     })

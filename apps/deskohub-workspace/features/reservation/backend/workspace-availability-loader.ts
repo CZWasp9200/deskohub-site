@@ -1,9 +1,12 @@
 import { Effect, Exit, Layer } from "effect";
-import { openPayState } from "@/features/checkout/backend/checkout/pay-state";
+import { PayState } from "@/features/checkout/backend/checkout/pay-state";
+import { PayableCheckout } from "@/features/checkout/backend/checkout/payable-checkout.service";
 import { recoverReplacementPayState } from "@/features/checkout/backend/checkout/replacement-pay-state";
-import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
+import { isReservationSupersedable } from "@/features/reservation/backend/reservation-supersession";
+import { meetingRoomReservationKind } from "@/features/reservation/reservation-kind";
 import type {
   MeetingRoomStartTimesQuery,
+  MeetingRoomUnavailableDatesQuery,
   PreloadedWorkspaceAvailability,
   WorkspaceAvailabilityQuery,
 } from "@/features/reservation/workspace-availability";
@@ -15,15 +18,16 @@ import { recoverReplacementOccupancyExclusion } from "./workspace-availability-r
 /** The services availability loads with replacement exclusion depend on. */
 export const WorkspaceAvailabilityLoaderLive = Layer.mergeAll(
   WorkspaceAvailabilityService.Live,
-  ReservationSupersessionService.Live,
+  PayableCheckout.Live,
   SealedStateKeys.Default
 );
 
 /**
  * The occupancy a replacement may ignore: only the verified current hold of
- * the signed Pay state being replaced, and only for the same reservation kind.
- * An invalid or foreign replacement excludes nothing; the effect fails only
- * when the current hold cannot be looked up.
+ * the signed Pay state being replaced, only for the same reservation kind, and
+ * only while that hold is still payable and no payment is pending or done. An
+ * invalid or foreign replacement excludes nothing; the effect fails only when
+ * the current hold cannot be looked up.
  */
 const verifyReplacementOccupancyExclusion = Effect.fn(
   "workspaceAvailability.verifyReplacementOccupancyExclusion"
@@ -37,22 +41,18 @@ const verifyReplacementOccupancyExclusion = Effect.fn(
   const token = replacementToken?.trim();
   if (!token) return undefined;
 
-  const state = yield* openPayState(token).pipe(recoverReplacementPayState);
+  const state = yield* PayState.open(token).pipe(recoverReplacementPayState);
   if (!state || state.reservation.kind !== kind) return undefined;
 
-  const supersessions = yield* ReservationSupersessionService;
-  return yield* supersessions
-    .findCurrent({
-      orderId: state.orderId,
-      checkoutSessionId: state.checkoutSessionId,
-    })
-    .pipe(
-      Effect.map((reservation) =>
-        reservation
-          ? { dotyposReservationId: reservation.dotyposReservationId }
-          : undefined
-      )
-    );
+  const payableCheckout = yield* PayableCheckout;
+  return yield* payableCheckout.reconfirm(state).pipe(
+    Effect.map(({ reservation }) =>
+      isReservationSupersedable(reservation)
+        ? { dotyposReservationId: reservation.dotyposReservationId }
+        : undefined
+    ),
+    Effect.catchTag("CheckoutUnavailableError", () => Effect.succeed(undefined))
+  );
 });
 
 /**
@@ -96,6 +96,30 @@ export const loadMeetingRoomStartTimes = Effect.fn(
   }).pipe(recoverReplacementOccupancyExclusion);
   const service = yield* WorkspaceAvailabilityService;
   return yield* service.getMeetingRoomStartTimes({ query, occupancyExclusion });
+});
+
+/**
+ * Advisory meeting-room calendar for a date range, excluding a verified
+ * replacement like `loadAvailability`.
+ */
+export const loadMeetingRoomUnavailableDates = Effect.fn(
+  "workspaceAvailability.loadMeetingRoomUnavailableDates"
+)(function* ({
+  query,
+  replacementToken,
+}: {
+  readonly query: MeetingRoomUnavailableDatesQuery;
+  readonly replacementToken?: string;
+}) {
+  const occupancyExclusion = yield* verifyReplacementOccupancyExclusion({
+    kind: meetingRoomReservationKind,
+    replacementToken,
+  }).pipe(recoverReplacementOccupancyExclusion);
+  const service = yield* WorkspaceAvailabilityService;
+  return yield* service.getMeetingRoomUnavailableDates({
+    query,
+    occupancyExclusion,
+  });
 });
 
 type AvailabilityPreload = {

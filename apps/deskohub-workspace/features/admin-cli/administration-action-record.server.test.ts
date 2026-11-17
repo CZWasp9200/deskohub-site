@@ -19,6 +19,7 @@ import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { StandaloneAccessCodeAdministration } from "@/features/access-codes";
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { AdministrationService } from "@/features/administration/administration.service";
+import { UnusedAdministrationCustomerDirectory } from "@/features/administration/customer-directory.test-utils";
 import { ReservationAccessAdministration } from "@/features/administration/reservation-access-administration.service";
 import { ReservationAdministrationService } from "@/features/administration/reservation-administration.service";
 import {
@@ -38,6 +39,7 @@ import { AdministrationActionRecordLive } from "./administration-action-record.s
 import { AdministrationRequestLedger } from "./administration-request-ledger.service";
 import {
   cliSessionAdministrator,
+  GrantedAdministrator,
   UnusedCliSessionAuthentication,
 } from "./cli-api.test-utils";
 import { CliAuthentication } from "./cli-authentication.service";
@@ -165,6 +167,8 @@ const serve = ({
           Layer.succeed(LegacyAdministratorBackfill, {} as never),
           Layer.succeed(ReservationAccessAdministration, {} as never),
           Layer.succeed(DiscountAdministration, {} as never),
+          GrantedAdministrator,
+          UnusedAdministrationCustomerDirectory,
           Layer.succeed(CampaignOperations, {} as never),
           NodeHttpServer.layerHttpServices
         )

@@ -213,7 +213,14 @@ export const defineSignedInAgentTool = <
         onSome: (signedIn) =>
           CustomerAgentCallServices.pipe(
             Effect.flatMap(({ forCaller }) =>
-              run.pipe(Effect.provide(forCaller(signedIn).pipe(Layer.orDie)))
+              run.pipe(
+                // Built in the call's own memo map: the route's services may
+                // hold account services built over the browser session, which
+                // a token caller must never reuse.
+                Effect.provide(forCaller(signedIn).pipe(Layer.orDie), {
+                  local: true,
+                })
+              )
             )
           ),
       })

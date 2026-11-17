@@ -7,7 +7,7 @@ import {
   isRecoverableCause,
 } from "@/shared/backend/workspace-effect";
 import {
-  type CustomerAccountAccessError,
+  CustomerAccountAccessError,
   type CustomerAccountId,
   type CustomerAccountSupportReason,
   customerAccountUnavailable,
@@ -17,17 +17,42 @@ import {
   mapCustomerAccountFailure,
 } from "../customer-account";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import {
-  type CustomerAccountLinkResolution,
-  requireVerifiedIdentity,
-  resolveHeldCustomerAccountLink,
-} from "./customer-account-resolver.service";
 import { CustomerAccountSections } from "./customer-account-sections";
 import {
   type CustomerAccountSession,
   CustomerAuthentication,
 } from "./customer-authentication.service";
 import { CustomerDotyposAdapter } from "./customer-dotypos-adapter.service";
+import {
+  type CustomerAccountLinkResolution,
+  resolveHeldCustomerAccountLink,
+} from "./held-customer-account-link";
+
+/**
+ * The session's identity when it is signed in and its account isn't awaiting
+ * deletion: no session fails `unauthenticated`, a deletion marker
+ * `link-required` with `deletion-requested`. `requireActive` is this over the
+ * session read; standing fakes in tests reuse it so their `requireActive`
+ * refuses exactly as the module does.
+ */
+export const requireVerifiedIdentity = (
+  user: CustomerAccountSession | null
+): Effect.Effect<CustomerAccountSession, CustomerAccountAccessError> => {
+  if (!user) {
+    return Effect.fail(
+      new CustomerAccountAccessError({ reason: "unauthenticated" })
+    );
+  }
+  if (user.deletionRequested) {
+    return Effect.fail(
+      new CustomerAccountAccessError({
+        reason: "link-required",
+        linkReason: "deletion-requested",
+      })
+    );
+  }
+  return Effect.succeed(user);
+};
 
 /**
  * What the app-directory review marker read found for a signed-in account:
@@ -412,13 +437,8 @@ export class CurrentCustomerAccount extends Context.Service<
     )
   );
 
-  /**
-   * The standing reading the session through this authentication, such as
-   * an agent's access token instead of the browser session.
-   */
-  static withAuthentication = <E, R>(
-    authentication: Layer.Layer<CustomerAuthentication, E, R>
-  ) => this.ForProvidedAuthentication.pipe(Layer.provide(authentication));
-
-  static Live = this.withAuthentication(CustomerAuthentication.Default);
+  /** The standing reading the browser session. */
+  static Live = this.ForProvidedAuthentication.pipe(
+    Layer.provide(CustomerAuthentication.Default)
+  );
 }

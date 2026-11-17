@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { PostHogFeatureFlagEvaluationError } from "@deskohub/analytics-posthog/feature-flags/node";
 import {
   type DotyposCustomerId,
   DotyposCustomerIdSchema,
@@ -8,7 +9,6 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
-import { PostHogFeatureFlagEvaluationError } from "@deskohub/posthog/feature-flags/node";
 import { testEmailAddress } from "@deskohub/test-email";
 import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Predicate, Schema } from "effect";
@@ -22,6 +22,7 @@ import {
   discountCodes,
   discountProductTargets,
   discounts,
+  latePaymentRecoveries,
   paymentAttempts,
   promotionCodes,
   referralAttributions,
@@ -40,6 +41,8 @@ import {
   accountingDocumentSnapshotSchema,
   makeAccountingDocumentSnapshot,
 } from "@/features/accounting/accounting-document-snapshot";
+import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { makeCoworkInvoiceDocument } from "@/features/accounting/invoice.test-utils";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { LatePaymentRecoveryRepository } from "@/features/checkout/backend/repositories/late-payment-recovery.repository";
@@ -81,6 +84,7 @@ import type { WorkspaceReservationId } from "@/features/reservation/persistence-
 import type { Money } from "@/shared/money/money";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
+  holdPostgresTransaction,
   waitForAdvisoryLockWaiter,
   waitForPostgresLockWaiter,
 } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
@@ -138,7 +142,17 @@ const makeRepository = async (
       return yield* PaymentLifecycleRepository;
     }).pipe(
       Effect.provide(
-        PaymentLifecycleRepository.Default.pipe(Layer.provide(databaseLayer))
+        PaymentLifecycleRepository.Default.pipe(
+          Layer.provide(
+            Layer.merge(
+              databaseLayer,
+              testAccountingStorage(
+                databaseLayer,
+                AccountingSnapshotKeyService.Default
+              )
+            )
+          )
+        )
       )
     )
   );
@@ -623,6 +637,77 @@ const admit = (
     locale: input.locale,
     accountingSnapshot: input.snapshot,
   });
+
+describe.skipIf(!testDatabase)(
+  "PaymentLifecycleRepository admission after a late payment on disposable Postgres",
+  () => {
+    test("admits no new payment for an order whose earlier attempt settled late, and still admits one without", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const recovering = await createHeldReservation(dotyposCustomerId);
+      const ordinary = await createHeldReservation(dotyposCustomerId);
+      const earlierAttemptId = `attempt-${uniqueId()}` as never;
+      await Effect.runPromise(
+        testDatabase!.db.insert(paymentAttempts).values({
+          id: earlierAttemptId,
+          workspaceReservationId: recovering.id,
+          provider: "nexi",
+          providerOrderId: NexiOrderIdSchema.make(`order-${uniqueId()}`),
+          state: "expired",
+          failureCode: "provider_order_abandoned",
+          amountValue: 29_000,
+          amountExponent: 2,
+          currency: "CZK",
+        })
+      );
+      await Effect.runPromise(
+        testDatabase!.db.insert(latePaymentRecoveries).values({
+          paymentAttemptId: earlierAttemptId,
+          workspaceReservationId: recovering.id,
+          state: "pending",
+          originalDotyposReservationId: DotyposReservationIdSchema.make(
+            `dotypos-original-${uniqueId()}`
+          ),
+          verifiedPaidAt: Temporal.Now.instant(),
+        })
+      );
+
+      const refused = await Effect.runPromise(
+        Effect.result(
+          admit(
+            repository,
+            recovering,
+            makeOrdinaryAdmission(recovering, dotyposCustomerId)
+          )
+        )
+      );
+      const admitted = await Effect.runPromise(
+        admit(
+          repository,
+          ordinary,
+          makeOrdinaryAdmission(ordinary, dotyposCustomerId)
+        )
+      );
+
+      expect(refused._tag).toBe("Failure");
+      expect(admitted.state).toBe("created");
+      const [unchanged] = await Effect.runPromise(
+        testDatabase!.db
+          .select({
+            activePaymentAttemptId:
+              workspaceReservations.activePaymentAttemptId,
+            paymentState: workspaceReservations.paymentState,
+          })
+          .from(workspaceReservations)
+          .where(eq(workspaceReservations.id, recovering.id))
+      );
+      expect(unchanged).toEqual({
+        activePaymentAttemptId: null,
+        paymentState: recovering.paymentState,
+      });
+    });
+  }
+);
 
 describe.skipIf(!testDatabase)(
   "PaymentLifecycleRepository first-use admission on disposable Postgres",
@@ -2541,7 +2626,19 @@ describe.skipIf(!testDatabase)(
         Effect.gen(function* () {
           return yield* operation(yield* PaymentLifecycleRepository);
         }).pipe(
-          Effect.provide(PaymentLifecycleRepository.Default),
+          Effect.provide(
+            PaymentLifecycleRepository.Default.pipe(
+              Layer.provide(
+                Layer.merge(
+                  testDatabase.layer,
+                  testAccountingStorage(
+                    testDatabase.layer,
+                    AccountingSnapshotKeyService.Default
+                  )
+                )
+              )
+            )
+          ),
           Effect.provide(testDatabase.layer),
           Effect.provide(referralFeatureFlag(true)),
           Effect.result
@@ -3047,6 +3144,40 @@ const setCodeServiceDates = (
     [codeId, serviceDateFrom, serviceDateUntil]
   );
 
+/**
+ * Admits while another transaction holds the allowlist table, so an allowlist
+ * read would block. Reports whether admission tried to read it.
+ */
+const admitWithAllowlistUnreadable = async (
+  repository: IPaymentLifecycleRepository,
+  reservation: Reservation,
+  admission: ReturnType<typeof makeCodeAdmission>
+) => {
+  const allowlist = await holdPostgresTransaction(
+    testDatabase!.pool,
+    "lock table promotion_code_customers in access exclusive mode",
+    []
+  );
+  const result = Effect.runPromise(
+    Effect.result(admit(repository, reservation, admission))
+  );
+  try {
+    const readAllowlist = await Promise.race([
+      result.then(() => false),
+      waitForPostgresLockWaiter(testDatabase!.pool, {
+        condition: "relation = 'promotion_code_customers'::regclass",
+        description: "an allowlist read",
+      }).then(
+        () => true,
+        () => false
+      ),
+    ]);
+    return { readAllowlist, result };
+  } finally {
+    await allowlist.commit();
+  }
+};
+
 const getCandidateCodeId = (candidate: DiscountCandidate) => {
   if (candidate.claim?.kind !== "discount_code") {
     throw new Error("Expected a discount-code candidate.");
@@ -3134,6 +3265,76 @@ describe.skipIf(!testDatabase)(
         expect(attempts.rows).toEqual([]);
       } finally {
         await promotion.cleanup();
+      }
+    });
+
+    test("refuses a code outside its service dates before reading the allowlist", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const promotion = await createOrdinaryDiscountCode(dotyposCustomerId);
+      try {
+        const reservation = await createHeldReservation(dotyposCustomerId);
+        const admission = makeCodeAdmission({
+          reservation,
+          dotyposCustomerId,
+          candidate: promotion.candidate,
+          firstServiceDate: reservationStartDate,
+        });
+        await setCodeServiceDates(
+          getCandidateCodeId(promotion.candidate),
+          "2099-01-02",
+          "2099-01-31"
+        );
+
+        const { readAllowlist, result } = await admitWithAllowlistUnreadable(
+          repository,
+          reservation,
+          admission
+        );
+
+        expect(readAllowlist).toBe(false);
+        expect(await result).toMatchObject({
+          _tag: "Failure",
+          failure: {
+            _tag: "DiscountClaimError",
+            reason: "service_date_ineligible",
+          },
+        });
+      } finally {
+        await promotion.cleanup();
+      }
+    });
+
+    test("refuses an expired voucher before reading the allowlist", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const voucher = await createVoucher(dotyposCustomerId);
+      try {
+        const reservation = await createHeldReservation(dotyposCustomerId);
+        const admission = makeCodeAdmission({
+          reservation,
+          dotyposCustomerId,
+          candidate: voucher.candidate,
+          firstServiceDate: reservationStartDate,
+        });
+        await testDatabase!.pool.query(
+          "update promotion_codes set valid_until = now() - interval '1 hour' where id = (select promotion_code_id from vouchers where id = $1)",
+          [voucher.candidate.provenance.providerReference]
+        );
+
+        const { readAllowlist, result } = await admitWithAllowlistUnreadable(
+          repository,
+          reservation,
+          admission
+        );
+
+        expect(readAllowlist).toBe(false);
+        expect(await result).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "DiscountClaimError", reason: "expired" },
+        });
+      } finally {
+        await voucher.cleanup();
       }
     });
 

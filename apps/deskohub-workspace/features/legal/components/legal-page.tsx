@@ -3,6 +3,7 @@ import { m } from "@/features/i18n";
 import { DocumentPage } from "@/shared/components/document-page";
 import { getLegalDocument } from "../content";
 import type { LegalDocumentKey } from "../legal-document-summaries";
+import { LegalDocumentSections } from "./legal-document-sections";
 
 type LegalPageProps = {
   locale: Locale;
@@ -30,17 +31,7 @@ export function LegalPage({ locale, documentKey }: LegalPageProps) {
         </>
       }
     >
-      {document.sections.map((section) => (
-        <section key={section.heading} className="space-y-3">
-          <h2 className="text-2xl leading-tight">{section.heading}</h2>
-          <div className="space-y-3 text-base leading-7 text-navy-blue/78">
-            {section.body.map((paragraph, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: Authored paragraphs are ordered and may repeat verbatim.
-              <p key={`${section.heading}-${index}`}>{paragraph}</p>
-            ))}
-          </div>
-        </section>
-      ))}
+      <LegalDocumentSections sections={document.sections} variant="page" />
     </DocumentPage>
   );
 }

@@ -3,16 +3,18 @@ import { Option } from "effect";
 import type { Href, ImperativeRouter } from "expo-router";
 import {
   bookFamilyHref,
+  orderStatusHref,
   paymentStatusHref,
   reservationsHref,
 } from "../booking-routes";
 import type { CheckoutFlowView } from "../checkout/checkout-flow";
 import { startCheckout } from "../checkout/checkout-machine";
-import { CheckoutState } from "../checkout/checkout-state";
+import { CheckoutState, type ReviewState } from "../checkout/checkout-state";
 import {
   type CheckoutDestination,
   type CheckoutDestinationHref,
   checkoutDestination,
+  holdEndedReview,
   leaveCheckout,
   navigationDecision,
 } from "./checkout-navigation";
@@ -40,6 +42,23 @@ describe("checkoutDestination", () => {
       _tag: "FamilyScreen",
       href: bookFamilyHref("meeting-room", "hold_expired"),
     });
+  });
+
+  test("a payment retry that has to start over goes back to its order's ticket, never to a new booking", () => {
+    expect(
+      checkoutDestination(
+        running(CheckoutState.Restart({ reason: "hold_expired" })),
+        "cowork",
+        "order/1"
+      )
+    ).toEqual({ _tag: "Status", href: orderStatusHref("order/1") });
+    expect(
+      checkoutDestination(
+        running(CheckoutState.Done({ orderId: "order/1" })),
+        "cowork",
+        "order/1"
+      )
+    ).toEqual({ _tag: "Status", href: paymentStatusHref("order/1") });
   });
 
   test("every other state stays on the checkout", () => {
@@ -85,6 +104,44 @@ const replay = (
   }
   return navigations;
 };
+
+describe("holdEndedReview", () => {
+  // Only passed through: the review's contents don't matter here.
+  const review = { _tag: "Review" } as unknown as ReviewState;
+
+  test("a hold that ran out on a shown review keeps it for the customer's choice", () => {
+    expect(
+      holdEndedReview(
+        running(CheckoutState.Restart({ reason: "hold_expired" })),
+        Option.some(review)
+      )
+    ).toEqual(Option.some(review));
+  });
+
+  test("any other restart, an unseen review, or a running checkout leaves as before", () => {
+    expect(
+      holdEndedReview(
+        running(CheckoutState.Restart({ reason: "availability_changed" })),
+        Option.some(review)
+      )
+    ).toEqual(Option.none());
+    expect(
+      holdEndedReview(
+        running(CheckoutState.Restart({ reason: "hold_expired" })),
+        Option.none()
+      )
+    ).toEqual(Option.none());
+    expect(
+      holdEndedReview(
+        running(CheckoutState.Done({ orderId: "order-1" })),
+        Option.some(review)
+      )
+    ).toEqual(Option.none());
+    expect(holdEndedReview({ _tag: "Starting" }, Option.some(review))).toEqual(
+      Option.none()
+    );
+  });
+});
 
 describe("navigationDecision", () => {
   const status: CheckoutDestination = {

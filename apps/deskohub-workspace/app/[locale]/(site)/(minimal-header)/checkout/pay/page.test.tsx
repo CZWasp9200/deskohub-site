@@ -1,8 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import type { ReactNode } from "react";
 import { prerender } from "react-dom/static";
+import { CheckoutUnavailableError } from "@/features/checkout/backend/checkout/checkout-unavailable";
+import type { PayableReservation } from "@/features/checkout/backend/checkout/payable-checkout.service";
+import { PayableCheckoutMock } from "@/features/checkout/backend/checkout/payable-checkout.service.mock";
 import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
 import type { Locale } from "@/features/i18n";
@@ -41,28 +44,34 @@ mock.module("next/server", () => ({
 
 /** Whether the held reservation behind the Pay state can still be paid. */
 let reservationPayable = true;
-const payableReservationModule = await import(
-  "@/features/checkout/backend/checkout/payable-reservation.service"
+const payableCheckoutModule = await import(
+  "@/features/checkout/backend/checkout/payable-checkout.service"
 );
-class PayableReservationService extends Context.Service<
-  PayableReservationService,
-  {
-    readonly requireCurrent: () => Effect.Effect<
-      { readonly dotyposCustomerId: string },
-      Error
-    >;
-  }
->()("PayableReservationService") {
-  static Live = Layer.succeed(this, {
-    requireCurrent: () =>
-      reservationPayable
-        ? Effect.succeed({ dotyposCustomerId: "1001" })
-        : Effect.fail(new Error("The reservation is no longer held.")),
-  });
+class PayableCheckout extends payableCheckoutModule.PayableCheckout {
+  static override Live = PayableCheckoutMock((state) =>
+    reservationPayable
+      ? Effect.succeed({
+          id: state.orderId,
+          reservationState: "held",
+          paymentState: "not_started",
+          dotyposCustomerId: "1001",
+          dotyposReservationId: "dotypos-reservation-id",
+          reservationHoldExpiresAt: Temporal.Instant.from(
+            "2099-06-01T10:08:00.000Z"
+          ),
+        } as PayableReservation)
+      : Effect.fail(
+          new CheckoutUnavailableError({
+            orderId: state.orderId,
+            reason: "not_held",
+            restartKind: state.reservation.kind,
+          })
+        )
+  ).pipe(Layer.provide(SealedStateKeys.Default));
 }
 mock.module(
-  "@/features/checkout/backend/checkout/payable-reservation.service",
-  () => ({ ...payableReservationModule, PayableReservationService })
+  "@/features/checkout/backend/checkout/payable-checkout.service",
+  () => ({ ...payableCheckoutModule, PayableCheckout })
 );
 
 let discountCodeEntryEnabled = true;
@@ -193,6 +202,7 @@ const sealCoworkPayState = ({
         quote,
         orderId: workspaceReservationIdSchema.make("reservation-id"),
         bookedAt: instantStringSchema.make("2026-06-01T09:58:00.000Z"),
+        holdExpiresAt: instantStringSchema.make("2099-06-01T10:08:00.000Z"),
         checkoutSessionId: checkoutSessionIdSchema.make("session-id"),
       });
       return yield* sealPayState({

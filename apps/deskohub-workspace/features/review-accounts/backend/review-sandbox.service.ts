@@ -21,6 +21,11 @@ import { payStateDefaultTtlMilliseconds } from "@/features/checkout/backend/chec
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { Locale } from "@/features/i18n";
 import {
+  StoredReservationDetails,
+  type WithStoredReservationDetails,
+  type WorkspaceReservationDetailsMalformedError,
+} from "@/features/reservation/backend/stored-reservation-details.server";
+import {
   getCoworkReservationInterval,
   type NormalizedCoworkReservationOrder,
 } from "@/features/reservation/cowork-reservation";
@@ -113,7 +118,7 @@ interface IReviewSandbox {
     readonly returnOutcome: CheckoutStatusReturnOutcome;
   }) => Effect.Effect<
     Option.Option<CheckoutStatusViewModel>,
-    ReviewSandboxError
+    ReviewSandboxError | WorkspaceReservationDetailsMalformedError
   >;
   /** Whether the order is one of the account's samples or holds. */
   readonly isOrderOf: (input: {
@@ -179,6 +184,7 @@ export class ReviewSandbox extends Context.Service<
                 )
               );
             const bookedAt = toStoredInstant(input.request.bookedAt);
+            const selection = getSandboxSelection(input.request.reservation);
             const [hold] = yield* db
               .insert(reviewAccountHolds)
               .values({
@@ -186,7 +192,10 @@ export class ReviewSandbox extends Context.Service<
                 agentClientId: input.request.agentClientId ?? null,
                 checkoutSessionKey: input.checkoutSessionKey,
                 selectionKey: input.selectionKey,
-                ...getSandboxSelection(input.request.reservation),
+                ...selection,
+                reservationDetails: yield* StoredReservationDetails.encode(
+                  selection.reservationDetails
+                ),
                 totalValue: input.request.total.value,
                 totalExponent: input.request.total.exponent,
                 currency: input.request.total.currency,
@@ -248,7 +257,17 @@ export class ReviewSandbox extends Context.Service<
         return toReviewSandboxHistory(
           [
             ...getReviewSampleReservations(accountId, now),
-            ...holds.map((hold) => toSandboxReservation(hold, now)),
+            // Like a recorded history, it shows less, not fails: a hold
+            // whose document is malformed is left out.
+            ...holds.flatMap((hold) =>
+              Option.toArray(
+                Option.map(
+                  StoredReservationDetails.project(hold.reservationDetails),
+                  (reservationDetails) =>
+                    toSandboxReservation({ ...hold, reservationDetails }, now)
+                )
+              )
+            ),
           ],
           now
         );
@@ -289,10 +308,16 @@ export class ReviewSandbox extends Context.Service<
         readonly returnOutcome: CheckoutStatusReturnOutcome;
       }) {
         const now = yield* currentInstant;
+        // Like a recorded reservation's status, a hold whose document is
+        // malformed fails the lookup with the hold's order ID.
         const reservation = isReviewSampleOrderId(input.orderId)
           ? yield* findSample(input.orderId, now)
-          : Option.map(yield* findHold(input.orderId), (hold) =>
-              toSandboxReservation(hold, now)
+          : yield* Effect.transposeOption(
+              Option.map(yield* findHold(input.orderId), (hold) =>
+                StoredReservationDetails.decodeRow(hold).pipe(
+                  Effect.map((decoded) => toSandboxReservation(decoded, now))
+                )
+              )
             );
         return Option.map(reservation, (found) =>
           toReviewSandboxStatus(found, input.returnOutcome)
@@ -337,8 +362,12 @@ const digest = (kind: string, ...parts: readonly string[]) =>
 const getSandboxSelection = (reservation: ReviewSandboxOrder) => {
   const { interval, seats } = Match.value(reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
-      cowork: ({ entryTier, date }) => ({
-        interval: getCoworkReservationInterval(entryTier, date),
+      cowork: (cowork) => ({
+        interval: getCoworkReservationInterval(
+          cowork.entryTier,
+          cowork.date,
+          "stay" in cowork ? cowork.stay : undefined
+        ),
         seats: 1,
       }),
       "meeting-room": ({ startsAt, endsAt }) => ({
@@ -360,7 +389,7 @@ const getSandboxSelection = (reservation: ReviewSandboxOrder) => {
 };
 
 const toSandboxReservation = (
-  hold: ReviewAccountHold,
+  hold: WithStoredReservationDetails<ReviewAccountHold>,
   now: Temporal.Instant
 ): ReviewSandboxReservation => ({
   orderId: hold.id,
@@ -377,7 +406,7 @@ const toSandboxReservation = (
 });
 
 const getHoldState = (
-  hold: ReviewAccountHold,
+  hold: Pick<ReviewAccountHold, "cancelledAt" | "expiresAt">,
   now: Temporal.Instant
 ): ReviewSandboxReservation["state"] => {
   if (hold.cancelledAt) return "cancelled";

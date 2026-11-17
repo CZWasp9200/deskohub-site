@@ -12,6 +12,8 @@ import {
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 import { analytics } from "../analytics/analytics";
+import type { StoredConsent } from "../consent/analytics-consent";
+import { makeFakeDeviceConsent } from "../consent/testing/fake-device-consent";
 import {
   nativeReturnUri,
   parseAuthCallbackUrl,
@@ -62,7 +64,8 @@ type WebPage = (url: string) => Promise<AuthSessionResult>;
 const launchApp = (
   server: FakeAuthServer,
   store: MemorySecureStore,
-  webPage: WebPage = async () => AuthSessionResult.Closed()
+  webPage: WebPage = async () => AuthSessionResult.Closed(),
+  consent: StoredConsent = { kind: "undecided" }
 ) => {
   const sessionWriteLock = Semaphore.makeUnsafe(1);
   const options = {
@@ -89,7 +92,8 @@ const launchApp = (
       AuthCallbackCompletions.Default,
       browser,
       Layer.succeed(SignInLocale, "cs-CZ"),
-      Layer.succeed(SessionWriteLock, sessionWriteLock)
+      Layer.succeed(SessionWriteLock, sessionWriteLock),
+      makeFakeDeviceConsent({ stored: consent, accountId: "none" }).layer
     )
   );
   return { client, runtime, opened };
@@ -443,6 +447,64 @@ describe("native email sign-in through the auth session", () => {
     // The page, its email and a new account follow the app's language, not
     // the browser's.
     expect(signInUrl.searchParams.getAll("locale")).toEqual(["cs-CZ"]);
+  });
+
+  const openedSearch = async (consent: StoredConsent) => {
+    const server = makeFakeAuthServer(origin);
+    const app = launchApp(
+      server,
+      makeMemorySecureStore(),
+      webSignInAs(server, ada),
+      consent
+    );
+    await app.runtime.runPromise(signInWithEmail(Option.none()));
+    return new URL(app.opened[0] ?? "").searchParams;
+  };
+  const decidedAt = "2026-11-10T09:30:00.123Z";
+
+  test("carries a stored grant to the page, dated as stored", async () => {
+    const search = await openedSearch({
+      kind: "decided",
+      categories: ["necessary", "analytics"],
+      decidedAt,
+    });
+
+    expect(readNativeHandoffRequest(search, origin)).toEqual(
+      Option.some(
+        expect.objectContaining({ analytics: { granted: true, decidedAt } })
+      )
+    );
+  });
+
+  test("carries a stored refusal to the page", async () => {
+    const search = await openedSearch({
+      kind: "decided",
+      categories: ["necessary", "marketing"],
+      decidedAt,
+    });
+
+    expect(readNativeHandoffRequest(search, origin)).toEqual(
+      Option.some(
+        expect.objectContaining({ analytics: { granted: false, decidedAt } })
+      )
+    );
+  });
+
+  test("carries no answer while the app has no valid one", async () => {
+    for (const consent of [
+      { kind: "undecided" },
+      { kind: "decided", categories: ["necessary", "analytics"] },
+      {
+        kind: "decided",
+        categories: ["necessary", "analytics"],
+        decidedAt: "yesterday",
+      },
+    ] satisfies ReadonlyArray<StoredConsent>) {
+      const search = await openedSearch(consent);
+
+      expect(search.has("analytics")).toBe(false);
+      expect(search.has("analytics_decided_at")).toBe(false);
+    }
   });
 
   test("records the sign-in as started with the email's link method before the page opens", async () => {
@@ -811,7 +873,7 @@ describe("reauthentication", () => {
     const app = launchApp(server, store, webSignInAs(server, ada));
     const signals = sessionSignals(app.client);
 
-    const user = await app.runtime.runPromise(reauthenticate);
+    const user = await app.runtime.runPromise(reauthenticate());
 
     expect(user).toEqual(ada);
     expect(new URL(app.opened[0] ?? "").searchParams.get("prompt")).toBe(
@@ -824,6 +886,32 @@ describe("reauthentication", () => {
     expect((await app.client.getSession()).data?.user.id).toBe(ada.id);
   });
 
+  test("names the account and the purpose to the page", async () => {
+    const server = makeFakeAuthServer(origin);
+    const store = makeMemorySecureStore();
+    await signedInAs(server, store, ada);
+    const app = launchApp(server, store, webSignInAs(server, ada));
+
+    await app.runtime.runPromise(reauthenticate("delete-account"));
+
+    const search = new URL(app.opened[0] ?? "").searchParams;
+    expect(search.getAll("login_hint")).toEqual([ada.email]);
+    expect(search.getAll("purpose")).toEqual(["delete-account"]);
+  });
+
+  test("names no purpose when the action gives none", async () => {
+    const server = makeFakeAuthServer(origin);
+    const store = makeMemorySecureStore();
+    await signedInAs(server, store, ada);
+    const app = launchApp(server, store, webSignInAs(server, ada));
+
+    await app.runtime.runPromise(reauthenticate());
+
+    const search = new URL(app.opened[0] ?? "").searchParams;
+    expect(search.getAll("login_hint")).toEqual([ada.email]);
+    expect(search.has("purpose")).toBe(false);
+  });
+
   test("records the reauthentication as a started sign-in, as the web page does", async () => {
     const server = makeFakeAuthServer(origin);
     const store = makeMemorySecureStore();
@@ -834,7 +922,7 @@ describe("reauthentication", () => {
     try {
       const app = launchApp(server, store, webSignInAs(server, ada));
 
-      await app.runtime.runPromise(reauthenticate);
+      await app.runtime.runPromise(reauthenticate());
 
       expect(
         capture.mock.calls.filter(([event]) => event.name === "sign-in started")
@@ -852,7 +940,7 @@ describe("reauthentication", () => {
     const adaCookie = await signedInAs(server, store, ada);
     const app = launchApp(server, store, webSignInAs(server, bob));
 
-    const exit = await app.runtime.runPromiseExit(reauthenticate);
+    const exit = await app.runtime.runPromiseExit(reauthenticate());
 
     expect(failureTag(exit)).toBe("AccountSwitchRefused");
     expect(server.openSessions()).not.toContainEqual(bob);
@@ -866,7 +954,7 @@ describe("reauthentication", () => {
     const adaCookie = await signedInAs(server, store, ada);
     const first = launchApp(server, store);
     const request = await first.runtime.runPromise(
-      startPendingSignIn(Option.some(ada.id))
+      startPendingSignIn(Option.some({ user: ada }))
     );
     const callbackUrl = server.mintHandoff(bob, request);
     await first.runtime.dispose();
@@ -888,7 +976,7 @@ describe("reauthentication", () => {
     server.failSessionReadsAfterExchange(100);
     const app = launchApp(server, store, webSignInAs(server, bob));
 
-    const exit = await app.runtime.runPromiseExit(reauthenticate);
+    const exit = await app.runtime.runPromiseExit(reauthenticate());
 
     expect(Exit.isFailure(exit)).toBe(true);
     expect(server.openSessions()).toEqual([ada]);
@@ -906,7 +994,7 @@ describe("reauthentication", () => {
       links.push(server.issueMagicLink(bob), server.issueMagicLink(bob));
       return AuthSessionResult.Closed();
     });
-    const flow = app.runtime.runPromiseExit(reauthenticate);
+    const flow = app.runtime.runPromiseExit(reauthenticate());
     while (links.length === 0) await Bun.sleep(1);
 
     const [first, second] = links;
@@ -969,7 +1057,7 @@ describe("reauthentication", () => {
       link = server.issueMagicLink(bob);
       return AuthSessionResult.Closed();
     });
-    const flow = app.runtime.runPromiseExit(reauthenticate);
+    const flow = app.runtime.runPromiseExit(reauthenticate());
     while (link === undefined) await Bun.sleep(1);
 
     const linkExit = await app.runtime.runPromiseExit(
@@ -1040,7 +1128,7 @@ describe("reauthentication", () => {
   test("needs a signed-in session", async () => {
     const server = makeFakeAuthServer(origin);
     const app = launchApp(server, makeMemorySecureStore());
-    const exit = await app.runtime.runPromiseExit(reauthenticate);
+    const exit = await app.runtime.runPromiseExit(reauthenticate());
     expect(failureTag(exit)).toBe("NotSignedIn");
     expect(app.opened).toEqual([]);
   });

@@ -1,4 +1,5 @@
 import { Context, Data, Effect, Layer } from "effect";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import {
   type InvoicePdfFile,
@@ -8,26 +9,33 @@ import {
   type CustomerInvoiceSummary,
   getCustomerInvoiceCsvColumns,
   getCustomerInvoiceSummary,
+  type InvoicedReservation,
 } from "@/features/accounting/customer-invoice";
 import type { Locale } from "@/features/i18n";
 import { workspaceSiteConstants } from "@/shared/utils";
 import type { CsvColumn } from "@/shared/utils/csv";
 import { currentPlainDate, type PlainDate } from "@/shared/utils/temporal";
 import {
+  type CustomerAccountAccessError,
   isCustomerAccountAccessDenial,
   type LinkedCustomerAccount,
 } from "../customer-account";
+import { getReservationProductName } from "../reservation-product-name";
+import { CurrentCustomerAccount } from "./current-customer-account";
 import { requireAccountActivity } from "./customer-account-activity";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import { CustomerAccountResolver } from "./customer-account-resolver.service";
+import { requireLinkedCustomerAccount } from "./linked-customer-account";
 
 /**
  * The session has no active account whose invoices it may see: signed out,
  * no linked Dotypos customer, a review account, or deletion pending.
+ * `account` is the refusal, for callers that say why.
  */
 export class CustomerInvoicesUnavailableError extends Data.TaggedError(
   "CustomerInvoicesUnavailableError"
-) {}
+)<{
+  readonly account: CustomerAccountAccessError;
+}> {}
 
 /** No invoice of the account's customer has this id. */
 export class CustomerInvoiceNotFoundError extends Data.TaggedError(
@@ -50,6 +58,18 @@ export class CustomerInvoicesLoadError extends Data.TaggedError(
   readonly code: CustomerInvoiceLoadFailureCode;
 }> {}
 
+/**
+ * An invoice in the account's list: its summary, with the product an order's
+ * invoice booked named from the catalog in the list's locale, as the
+ * reservation history names it.
+ */
+export interface CustomerInvoiceListing
+  extends Omit<CustomerInvoiceSummary, "reservation"> {
+  readonly reservation:
+    | (InvoicedReservation & { readonly productName: string })
+    | null;
+}
+
 /** The account's invoice export, ready for `createCsvDownloadResponse`. */
 interface CustomerInvoiceExport {
   readonly filename: string;
@@ -58,9 +78,14 @@ interface CustomerInvoiceExport {
 }
 
 interface ICustomerInvoiceService {
-  /** The account's issued invoices, newest issue first. */
-  readonly list: Effect.Effect<
-    readonly CustomerInvoiceSummary[],
+  /**
+   * The account's issued invoices, newest issue first, each invoiced
+   * product named in `locale`.
+   */
+  readonly list: (options: {
+    readonly locale: Locale;
+  }) => Effect.Effect<
+    readonly CustomerInvoiceListing[],
     CustomerInvoicesUnavailableError | CustomerInvoicesLoadError
   >;
   /**
@@ -97,14 +122,15 @@ export class CustomerInvoiceService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const resolver = yield* CustomerAccountResolver;
+      const currentAccount = yield* CurrentCustomerAccount;
       const links = yield* CustomerAccountLinkRepository;
       const invoices = yield* InvoiceRepository;
 
       const authorize: Effect.Effect<
         LinkedCustomerAccount,
         CustomerInvoicesUnavailableError | CustomerInvoicesLoadError
-      > = resolver.resolve.pipe(
+      > = requireLinkedCustomerAccount.pipe(
+        Effect.provideService(CurrentCustomerAccount, currentAccount),
         Effect.tap((account) =>
           requireAccountActivity(links, account.accountId)
         ),
@@ -117,7 +143,9 @@ export class CustomerInvoiceService extends Context.Service<
             CustomerInvoicesUnavailableError | CustomerInvoicesLoadError
           > =>
             isCustomerAccountAccessDenial(error)
-              ? Effect.fail(new CustomerInvoicesUnavailableError())
+              ? Effect.fail(
+                  new CustomerInvoicesUnavailableError({ account: error })
+                )
               : failLoad("account.authority")
         )
       );
@@ -146,11 +174,25 @@ export class CustomerInvoiceService extends Context.Service<
           }))
         );
 
-      const list = authorize.pipe(
-        Effect.flatMap(listWithToday),
-        Effect.map(({ summaries }) => summaries),
-        Effect.withSpan("CustomerInvoiceService.list")
-      );
+      const list = ({ locale }: { readonly locale: Locale }) =>
+        authorize.pipe(
+          Effect.flatMap(listWithToday),
+          Effect.map(({ summaries }) =>
+            summaries.map(
+              ({ reservation, ...summary }): CustomerInvoiceListing => ({
+                ...summary,
+                reservation: reservation && {
+                  ...reservation,
+                  productName: getReservationProductName(
+                    reservation.product,
+                    locale
+                  ),
+                },
+              })
+            )
+          ),
+          Effect.withSpan("CustomerInvoiceService.list")
+        );
 
       const pdf = Effect.fn("CustomerInvoiceService.pdf")(function* (
         invoiceId: string
@@ -182,14 +224,18 @@ export class CustomerInvoiceService extends Context.Service<
     })
   );
 
-  static Live = this.Default.pipe(
+  /**
+   * For the account the caller's `CurrentCustomerAccount` reads, such as one
+   * built from a customer API request's own authentication.
+   */
+  static ForCurrentAccount = this.Default.pipe(
     Layer.provide(
-      Layer.mergeAll(
-        CustomerAccountResolver.Live,
-        CustomerAccountLinkRepository.Live,
-        InvoiceRepository.Live
-      )
+      Layer.mergeAll(CustomerAccountLinkRepository.Live, AccountingStorage.Live)
     )
+  );
+
+  static Live = this.ForCurrentAccount.pipe(
+    Layer.provide(CurrentCustomerAccount.Live)
   );
 }
 

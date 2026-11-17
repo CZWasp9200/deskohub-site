@@ -14,7 +14,8 @@ export const reservationsCacheName = "deskohub.reservations.v1";
 /** How long saved reservations stay usable; older ones are dropped on read. */
 export const reservationsCacheRetention = Duration.days(30);
 
-// Only what the list shows: never the other party's name.
+// Only what the list shows and what booking or paying again opens: never
+// the other party's name, nor today's PIN.
 const savedReservationFields = [
   "id",
   "orderId",
@@ -24,6 +25,10 @@ const savedReservationFields = [
   "setupStartsAt",
   "seats",
   "status",
+  "accessStartsAt",
+  "accessEndsAt",
+  // What booking again, or paying a failed order again, opens.
+  "bookedSelection",
 ] as const;
 
 /** A history reservation as the device keeps it. */

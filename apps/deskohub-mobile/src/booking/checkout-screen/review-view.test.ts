@@ -3,9 +3,14 @@ import { testEmailAddress } from "@deskohub/test-email";
 import type { CustomerCheckout } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { BookingProblem } from "../checkout/booking-problem";
-import { startCheckout, step } from "../checkout/checkout-machine";
+import {
+  startCheckout,
+  startPaymentRetry,
+  step,
+} from "../checkout/checkout-machine";
 import {
   type CheckoutCommand,
+  type CheckoutDetails,
   CheckoutEvent,
   type CheckoutState,
   type ReviewState,
@@ -15,7 +20,7 @@ import {
   sampleLegalDocuments,
   sampleSummary,
 } from "../testing/sample-booking-catalog";
-import { holdSecondsLeft, reviewView, summaryView } from "./review-view";
+import { reviewView } from "./review-view";
 
 const selection = {
   family: "cowork",
@@ -26,13 +31,14 @@ const selection = {
 
 const summary = sampleSummary({ lines: pricedLines(selection) });
 const documents = sampleLegalDocuments("en-US", 1);
-const now = Date.parse("2026-11-20T09:05:00.000Z");
 
 const held = (overrides: Partial<CustomerCheckout> = {}): CustomerCheckout => ({
   status: "ready",
   orderId: "order-1",
   payStateToken: "token-1",
-  expiresAt: "2026-11-20T09:10:00.000Z",
+  // The token outlives the hold here, so the countdown proves which it uses.
+  expiresAt: "2026-11-20T09:20:00.000Z",
+  holdExpiresAt: "2026-11-20T09:10:00.000Z",
   summary,
   earlyPerformanceConsent: {
     required: false,
@@ -79,25 +85,34 @@ const start = startCheckout({
   rememberedReferralCode: Option.none(),
 });
 
+const selfDetails: CheckoutDetails = {
+  bookingFor: "self",
+  contact: {
+    name: "Synthetic Booker",
+    email: testEmailAddress("booker"),
+    phone: "+420700000000",
+  },
+  billing: { purpose: "personal", invoice: "none" },
+};
+
+const address = {
+  line1: "Synthetic Street 1",
+  city: "Synthetic City",
+  postalCode: "11000",
+  country: "CZ",
+};
+
 /** A held checkout in Review, legal documents loaded unless told otherwise. */
 const reviewWith = (
   checkout: CustomerCheckout,
-  { loadLegal = true }: { readonly loadLegal?: boolean } = {}
+  {
+    loadLegal = true,
+    details = selfDetails,
+  }: { readonly loadLegal?: boolean; readonly details?: CheckoutDetails } = {}
 ): Run => {
   const continued = run(
     start,
-    CheckoutEvent.Continue({
-      checkoutAttemptId: "attempt-1",
-      details: {
-        bookingFor: "self",
-        contact: {
-          name: "Synthetic Booker",
-          email: testEmailAddress("booker"),
-          phone: "+420700000000",
-        },
-        billing: { purpose: "personal", invoice: "none" },
-      },
-    })
+    CheckoutEvent.Continue({ checkoutAttemptId: "attempt-1", details })
   );
   const created = run(
     continued.state,
@@ -124,223 +139,430 @@ const reviewWith = (
   };
 };
 
-describe("summaryView", () => {
-  test("lists every line but the final total line, then the total", () => {
-    const view = summaryView(
-      {
-        ...summary,
-        sections: [
-          ...summary.sections,
-          {
-            key: "total",
-            items: [{ key: "total:final", amount: summary.total }],
-            total: summary.total,
-          },
-        ],
-      },
-      Option.none()
-    );
-    expect(view.lines.map((line) => line.key)).toEqual(
-      pricedLines(selection).map((line) => line.key)
-    );
-    expect(view.total).toEqual(summary.total);
-    expect(view.lines.every((line) => !line.changed)).toBe(true);
-    expect(view.totalChanged).toBe(false);
-  });
+/** An order paid again in place, at its review with the terms loaded. */
+const retryReview = (checkout: CustomerCheckout): Run => {
+  const started = startPaymentRetry(
+    {
+      checkoutSessionId: "session-3",
+      locale: "en-US",
+      selection,
+      advertisedPriceToken: "",
+      rememberedReferralCode: Option.none(),
+    },
+    checkout
+  );
+  return run(
+    started.state,
+    CheckoutEvent.LegalDocumentsLoaded({
+      operationId: operationOf(
+        { state: started.state, commands: started.commands },
+        "LoadLegalDocuments"
+      ),
+      documents,
+    })
+  );
+};
 
-  test("marks only the changed items; a changed total section marks the total", () => {
-    const [first, second] = pricedLines(selection);
-    const byItem = summaryView(
-      summary,
-      Option.some({ sectionKeys: [], itemKeys: [first?.key ?? ""] })
-    );
-    expect(byItem.lines.map((line) => line.changed)).toEqual([true, false]);
-    expect(byItem.totalChanged).toBe(false);
-    const bySection = summaryView(
-      summary,
-      Option.some({ sectionKeys: ["order", "total"], itemKeys: [] })
-    );
-    expect(bySection.lines.map((line) => line.changed)).toEqual([false, false]);
-    expect(bySection.totalChanged).toBe(true);
-    expect(second?.key).toBe("addon:coffee");
-    expect(bySection.lines[1]?.kind).toEqual({ _tag: "Coffee" });
-  });
+const quoted = summary.total;
+const noBooker = Option.none<string>();
+const viewOf = (result: Run, bookerName = noBooker) =>
+  reviewView(asReview(result.state), quoted, bookerName);
 
-  test("carries the office line's days, seats and parts, and the discounts", () => {
-    const office = sampleSummary({
-      lines: pricedLines({
-        family: "office",
-        date: "2026-11-20",
-        endDate: "2026-11-22",
-        seats: 2,
-      }),
-      discountShare: 0.15,
-      discountLabel: "Referral",
-    });
-    const [line] = summaryView(office, Option.none()).lines;
-    expect(line?.kind).toEqual({ _tag: "Product", product: "office" });
-    expect(
-      Option.map(line?.office ?? Option.none(), (o) => [o.dayCount, o.seats])
-    ).toEqual(Option.some([3, 2]));
-    expect(Option.isSome(line?.originalAmount ?? Option.none())).toBe(true);
-    expect(line?.discounts.length).toBe(1);
-  });
+/** A summary whose total differs from the quote's. */
+const discounted = sampleSummary({
+  lines: pricedLines(selection),
+  discountShare: 0.1,
+  discountLabel: "SAVE10",
 });
 
+const applyCode = (from: Run, input: string) => {
+  const typed = run(from.state, CheckoutEvent.CodeChanged({ input }));
+  const applying = run(typed.state, CheckoutEvent.ApplyCode());
+  return {
+    applying,
+    operationId: operationOf(applying, "ApplyDiscountCode"),
+  };
+};
+
+/** A meeting room review, with or without early setup. */
+const meetingRoomReview = (earlySetup: boolean) => {
+  const meetingRoom = {
+    family: "meeting-room",
+    date: "2026-11-20",
+    duration: "hour:1",
+    startTime: "14:00",
+  } as const;
+  const started = startCheckout({
+    checkoutSessionId: "session-2",
+    locale: "en-US",
+    selection: meetingRoom,
+    advertisedPriceToken: "advertised-2",
+    rememberedReferralCode: Option.none(),
+    earlySetup,
+  });
+  const continued = run(
+    started,
+    CheckoutEvent.Continue({
+      checkoutAttemptId: "attempt-2",
+      details: selfDetails,
+    })
+  );
+  return run(
+    continued.state,
+    CheckoutEvent.CheckoutCreated({
+      operationId: operationOf(continued, "CreateCheckout"),
+      start: held({
+        summary: sampleSummary({ lines: pricedLines(meetingRoom) }),
+      }),
+    })
+  );
+};
+
 describe("reviewView", () => {
-  test("a price review shows the banner, marks the lines and disables Pay until accepted", () => {
-    const changedKeys = { sectionKeys: [], itemKeys: ["addon:coffee"] };
-    const reviewing = reviewWith(
-      held({ status: "price_review", priceReview: { changedKeys } })
+  test("a retried order keeps its booking: no details rows, terms confirmed again, Pay waits for them", () => {
+    const view = viewOf(retryReview(held()));
+    expect(view.retry).toBe(true);
+    expect(view.consent.retry).toBe(true);
+    expect(view.party).toEqual(Option.none());
+    expect(view.invoice).toEqual(Option.none());
+    expect(view.payBlock).toEqual(Option.some("Agreement"));
+    const agreed = viewOf(
+      run(
+        retryReview(held()).state,
+        CheckoutEvent.ToggleConsent({ accepted: true })
+      )
+    );
+    expect(agreed.canPay).toBe(true);
+  });
+
+  test("a retried order whose price changed asks to accept it first", () => {
+    const view = viewOf(
+      retryReview(
+        held({
+          status: "price_review",
+          summary: discounted,
+          priceReview: {
+            changedKeys: { sectionKeys: ["total"], itemKeys: [] },
+          },
+        })
+      )
+    );
+    expect(Option.isSome(view.priceChange)).toBe(true);
+    expect(view.payBlock).toEqual(Option.some("AcceptPrice"));
+  });
+
+  test("a meeting room booked with early setup says so; without it, or for a desk, it doesn't", () => {
+    expect(viewOf(meetingRoomReview(true)).earlySetup).toBe(true);
+    expect(viewOf(meetingRoomReview(false)).earlySetup).toBe(false);
+    expect(viewOf(reviewWith(held())).earlySetup).toBe(false);
+  });
+
+  test("opens on the booking, the server's price and the quiet code row; Pay waits for the agreement", () => {
+    const view = viewOf(reviewWith(held()));
+    expect(view.party).toEqual(
+      Option.some({ _tag: "Self", name: "Synthetic Booker" })
+    );
+    expect(view.invoice).toEqual(Option.some({ _tag: "None" }));
+    expect(view.retry).toBe(false);
+    expect(view.price.breakdown.total).toEqual(summary.total);
+    expect(view.price.breakdown.lines.length).toBeGreaterThan(0);
+    expect(view.price.was).toEqual(Option.none());
+    expect(view.priceChange).toEqual(Option.none());
+    expect(view.code).toMatchObject({ _tag: "Entry", startsOpen: false });
+    expect(view.payBlock).toEqual(Option.some("Agreement"));
+    expect(view.canPay).toBe(false);
+  });
+
+  test("names a guest with their email and the booker, and a company invoice by its name", () => {
+    const view = viewOf(
+      reviewWith(held(), {
+        details: {
+          bookingFor: "someone-else",
+          contact: {
+            name: "Synthetic Guest",
+            email: testEmailAddress("guest"),
+            phone: "+420700000001",
+          },
+          billing: {
+            purpose: "business",
+            invoice: "required",
+            buyer: {
+              kind: "business",
+              legalName: "Synthetic Studio s.r.o.",
+              companyId: "12345678",
+              address,
+            },
+          },
+        },
+      }),
+      Option.some("Synthetic Booker")
+    );
+    expect(view.party).toEqual(
+      Option.some({
+        _tag: "SomeoneElse",
+        name: "Synthetic Guest",
+        email: testEmailAddress("guest"),
+        bookerName: Option.some("Synthetic Booker"),
+      })
+    );
+    expect(view.invoice).toEqual(
+      Option.some({ _tag: "Company", legalName: "Synthetic Studio s.r.o." })
+    );
+  });
+
+  test("a personal invoice is shown by its city", () => {
+    const view = viewOf(
+      reviewWith(held(), {
+        details: {
+          ...selfDetails,
+          billing: { purpose: "personal", invoice: "requested", address },
+        },
+      })
+    );
+    expect(view.invoice).toEqual(
+      Option.some({ _tag: "Personal", city: "Synthetic City" })
+    );
+  });
+
+  test("a changed price shows the quote's total and the new one, and Pay waits for the acceptance", () => {
+    const changed = reviewWith(
+      held({
+        status: "price_review",
+        summary: discounted,
+        priceReview: {
+          changedKeys: { sectionKeys: ["total"], itemKeys: [] },
+        },
+      })
     );
     const ticked = run(
-      reviewing.state,
+      changed.state,
       CheckoutEvent.ToggleConsent({ accepted: true })
     );
-    const before = reviewView(asReview(ticked.state), now);
-    expect(before.priceReview).toBe(true);
-    expect(before.summary.lines.map((line) => line.changed)).toEqual([
-      false,
-      true,
-    ]);
-    expect(before.canPay).toBe(false);
+    const view = viewOf(ticked);
+    expect(view.priceChange).toEqual(
+      Option.some({ before: quoted, now: discounted.total, accepting: false })
+    );
+    expect(view.price.was).toEqual(Option.some(quoted));
+    expect(view.payBlock).toEqual(Option.some("AcceptPrice"));
+    expect(view.canPay).toBe(false);
 
     const accepting = run(ticked.state, CheckoutEvent.AcceptPrice());
-    const pending = reviewView(asReview(accepting.state), now);
-    expect(pending.acceptingPrice).toBe(true);
-    expect(pending.code.editable).toBe(false);
-    expect(pending.consent.disabled).toBe(true);
+    const pending = viewOf(accepting);
+    expect(
+      Option.map(pending.priceChange, (change) => change.accepting)
+    ).toEqual(Option.some(true));
+    expect(pending.payBlock).toEqual(Option.some("AcceptPrice"));
 
     const accepted = run(
       accepting.state,
       CheckoutEvent.PriceAccepted({
         operationId: operationOf(accepting, "AcceptPriceChange"),
-        checkout: held({ payStateToken: "token-2" }),
+        checkout: held({ payStateToken: "token-2", summary: discounted }),
       })
     );
-    const after = reviewView(asReview(accepted.state), now);
-    expect(after.priceReview).toBe(false);
-    expect(after.summary.lines.every((line) => !line.changed)).toBe(true);
-    expect(after.canPay).toBe(after.consent.checked);
+    const settled = viewOf(accepted);
+    expect(settled.priceChange).toEqual(Option.none());
+    expect(settled.price.was).toEqual(Option.some(quoted));
+    expect(settled.canPay).toBe(true);
+    expect(settled.payBlock).toEqual(Option.none());
   });
 
-  test("Pay needs the loaded documents ticked, and holds still while submitting", () => {
-    const loading = reviewWith(held(), { loadLegal: false });
-    const whileLoading = reviewView(asReview(loading.state), now);
-    expect(whileLoading.consent.legal._tag).toBe("Loading");
-    expect(whileLoading.consent.disabled).toBe(true);
-    expect(whileLoading.canPay).toBe(false);
-
-    const loaded = reviewWith(held());
-    expect(reviewView(asReview(loaded.state), now).canPay).toBe(false);
-    const ticked = run(
-      loaded.state,
-      CheckoutEvent.ToggleConsent({ accepted: true })
+  test("a price review after a removed code compares against the total last shown, not the quote's", () => {
+    const appliedDiscountCode = { code: "SAVE10", discountId: "sample-code" };
+    const applied = reviewWith(
+      held({ summary: discounted, appliedDiscountCode })
     );
-    expect(reviewView(asReview(ticked.state), now).canPay).toBe(true);
-
-    const paying = run(ticked.state, CheckoutEvent.Pay());
-    const submitting = reviewView(asReview(paying.state), now);
-    expect(submitting.submitting).toBe(true);
-    expect(submitting.canPay).toBe(false);
-    expect(submitting.code.editable).toBe(false);
-  });
-
-  test("the checkbox asks for early performance when the checkout requires it", () => {
-    const loaded = reviewWith(
-      held({
-        earlyPerformanceConsent: {
-          required: true,
-          requiredFrom: "2026-12-04T09:00:00.000Z",
-        },
-      })
-    );
-    expect(
-      reviewView(asReview(loaded.state), now).consent.earlyPerformance
-    ).toBe(true);
-  });
-
-  test("code: applying, applied, and an unavailable code stays retryable", () => {
-    const loaded = reviewWith(held());
-    const typed = run(
-      loaded.state,
-      CheckoutEvent.CodeChanged({ input: " SAVE10 " })
-    );
-    expect(reviewView(asReview(typed.state), now).code.canApply).toBe(true);
-
-    const applying = run(typed.state, CheckoutEvent.ApplyCode());
-    const pending = reviewView(asReview(applying.state), now);
-    expect(pending.code.message._tag).toBe("Applying");
-    expect(pending.busy).toBe(true);
-    expect(pending.code.canApply).toBe(false);
-    expect(pending.consent.disabled).toBe(true);
-
-    const operationId = operationOf(applying, "ApplyDiscountCode");
-    const unavailable = run(
-      applying.state,
-      CheckoutEvent.CommandFailed({
-        operationId,
-        problem: BookingProblem.CodeRejected({
-          reason: "unavailable",
-          replacement: Option.none(),
+    const clearing = run(applied.state, CheckoutEvent.ClearCode());
+    const cleared = run(
+      clearing.state,
+      CheckoutEvent.CodeCleared({
+        operationId: operationOf(clearing, "ClearDiscountCode"),
+        checkout: held({
+          status: "price_review",
+          payStateToken: "token-2",
+          priceReview: {
+            changedKeys: { sectionKeys: ["total"], itemKeys: [] },
+          },
         }),
       })
     );
-    const retryable = reviewView(asReview(unavailable.state), now);
-    expect(retryable.code.message._tag).toBe("Retryable");
-    expect(retryable.code.canApply).toBe(true);
-    expect(retryable.code.input).toBe(" SAVE10 ");
+    expect(viewOf(cleared).priceChange).toEqual(
+      Option.some({
+        before: discounted.total,
+        now: summary.total,
+        accepting: false,
+      })
+    );
+  });
 
+  test("code entry opens with an input, holds still while applying, and shows the server's refusal at the field", () => {
+    const loaded = reviewWith(held());
+    const typed = run(
+      loaded.state,
+      CheckoutEvent.CodeChanged({ input: "OLD" })
+    );
+    expect(viewOf(typed).code).toMatchObject({
+      _tag: "Entry",
+      startsOpen: true,
+      canApply: true,
+      problem: Option.none(),
+    });
+
+    const { applying, operationId } = applyCode(loaded, "OLD");
+    const pending = viewOf(applying);
+    expect(pending.code).toMatchObject({
+      _tag: "Entry",
+      applying: true,
+      editable: false,
+      canApply: false,
+    });
+    expect(pending.busy).toBe(true);
+    expect(pending.payBlock).toEqual(Option.some("Agreement"));
+
+    const refusedWith = (reason: "ineligible" | "unavailable") =>
+      viewOf(
+        run(
+          applying.state,
+          CheckoutEvent.CommandFailed({
+            operationId,
+            problem: BookingProblem.CodeRejected({
+              reason,
+              replacement: Option.none(),
+            }),
+          })
+        )
+      ).code;
+    expect(refusedWith("ineligible")).toMatchObject({
+      _tag: "Entry",
+      startsOpen: true,
+      input: "OLD",
+      problem: Option.some({ _tag: "Rejected", reason: "ineligible" }),
+    });
+    expect(refusedWith("unavailable")).toMatchObject({
+      _tag: "Entry",
+      canApply: true,
+      problem: Option.some({ _tag: "Retryable" }),
+    });
+  });
+
+  test("an applied code is a chip; Remove only while the server's entered code can be cleared", () => {
+    const appliedDiscountCode = { code: "SAVE10", discountId: "sample-code" };
+    const { applying, operationId } = applyCode(reviewWith(held()), "save10");
     const applied = run(
       applying.state,
       CheckoutEvent.CodeApplied({
         operationId,
         result: {
-          ...held({ payStateToken: "token-2" }),
+          ...held({
+            payStateToken: "token-2",
+            summary: discounted,
+            appliedDiscountCode,
+          }),
           discountCode: "applied",
         },
       })
     );
-    expect(reviewView(asReview(applied.state), now).code.message).toEqual({
+    const view = viewOf(applied);
+    expect(view.code).toEqual({
       _tag: "Applied",
-      outcome: "applied",
+      code: "SAVE10",
+      canClear: true,
+      clearing: false,
     });
-  });
+    expect(view.price.was).toEqual(Option.some(quoted));
 
-  test("an ineligible code is rejected with its reason", () => {
-    const typed = run(
-      reviewWith(held()).state,
-      CheckoutEvent.CodeChanged({ input: "OLD" })
-    );
-    const applying = run(typed.state, CheckoutEvent.ApplyCode());
-    const rejected = run(
-      applying.state,
-      CheckoutEvent.CommandFailed({
-        operationId: operationOf(applying, "ApplyDiscountCode"),
-        problem: BookingProblem.CodeRejected({
-          reason: "ineligible",
-          replacement: Option.none(),
-        }),
+    const clearing = run(applied.state, CheckoutEvent.ClearCode());
+    expect(viewOf(clearing).code).toMatchObject({
+      _tag: "Applied",
+      canClear: false,
+      clearing: true,
+    });
+    const cleared = run(
+      clearing.state,
+      CheckoutEvent.CodeCleared({
+        operationId: operationOf(clearing, "ClearDiscountCode"),
+        checkout: held({ payStateToken: "token-3" }),
       })
     );
-    expect(reviewView(asReview(rejected.state), now).code.message).toEqual({
-      _tag: "Rejected",
-      reason: "ineligible",
+    expect(viewOf(cleared).code).toMatchObject({
+      _tag: "Entry",
+      startsOpen: false,
+    });
+
+    // A referral the server accepted isn't an entered code it can remove.
+    const referral = applyCode(reviewWith(held()), "FRIEND");
+    const accepted = run(
+      referral.applying.state,
+      CheckoutEvent.CodeApplied({
+        operationId: referral.operationId,
+        result: {
+          ...held({ payStateToken: "token-2", referralApplied: true }),
+          discountCode: "referral_accepted",
+        },
+      })
+    );
+    expect(viewOf(accepted).code).toEqual({
+      _tag: "Applied",
+      code: "FRIEND",
+      canClear: false,
+      clearing: false,
+    });
+
+    // While a price review waits, the code stays in the price.
+    const reviewing = reviewWith(
+      held({
+        status: "price_review",
+        appliedDiscountCode,
+        priceReview: {
+          changedKeys: { sectionKeys: ["total"], itemKeys: [] },
+        },
+      })
+    );
+    expect(viewOf(reviewing).code).toMatchObject({
+      _tag: "Applied",
+      canClear: false,
     });
   });
-});
 
-test("reviewView counts the hold down from the flow clock's tick", () => {
-  const loaded = reviewWith(held());
-  expect(reviewView(asReview(loaded.state), now).holdSecondsLeft).toBe(300);
-  expect(reviewView(asReview(loaded.state), now).busy).toBe(false);
-});
+  test("the hold deadline is the server's: the same holdExpiresAt keeps it, a new one moves it", () => {
+    const loaded = reviewWith(held());
+    const deadline = viewOf(loaded).holdExpiresAt;
+    const answer = (holdExpiresAt: string) => {
+      const { applying, operationId } = applyCode(loaded, "SAVE10");
+      return viewOf(
+        run(
+          applying.state,
+          CheckoutEvent.CodeApplied({
+            operationId,
+            result: {
+              // A code renews the token, with a later expiry of its own.
+              ...held({
+                payStateToken: "token-2",
+                expiresAt: "2026-11-20T09:30:00.000Z",
+                holdExpiresAt,
+              }),
+              discountCode: "applied",
+            },
+          })
+        )
+      ).holdExpiresAt;
+    };
+    expect(answer(deadline)).toBe(deadline);
+    expect(answer("2026-11-20T09:25:00.000Z")).toBe("2026-11-20T09:25:00.000Z");
+  });
 
-describe("holdSecondsLeft", () => {
-  test("counts whole seconds down to zero, never below", () => {
-    const expiresAt = Date.parse("2026-11-20T09:10:00.000Z");
-    expect(holdSecondsLeft(expiresAt, expiresAt - 90_500)).toBe(91);
-    expect(holdSecondsLeft(expiresAt, expiresAt)).toBe(0);
-    expect(holdSecondsLeft(expiresAt, expiresAt + 5_000)).toBe(0);
+  test("Pay opens once the agreement is ticked, and holds still while submitting", () => {
+    const ticked = run(
+      reviewWith(held()).state,
+      CheckoutEvent.ToggleConsent({ accepted: true })
+    );
+    const ready = viewOf(ticked);
+    expect(ready.canPay).toBe(true);
+    expect(ready.payBlock).toEqual(Option.none());
+
+    const paying = viewOf(run(ticked.state, CheckoutEvent.Pay()));
+    expect(paying.submitting).toBe(true);
+    expect(paying.canPay).toBe(false);
+    expect(paying.payBlock).toEqual(Option.none());
   });
 });

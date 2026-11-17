@@ -1,4 +1,5 @@
 import { Context, Layer } from "effect";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   type AccountReleaseLayers,
   type AccountServiceLayers,
@@ -7,7 +8,10 @@ import {
 } from "@/features/account/backend/account-state-capabilities";
 import { AnalyticsPersonAnonymisation } from "@/features/account/backend/analytics-person-anonymisation";
 import { CustomerAccountDeletionEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
+import { CompanyLookupService } from "@/features/account/backend/company-lookup.service";
+import type { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import type { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
 import { CustomerLocalePreference } from "@/features/account/backend/customer-locale-preference.service";
 import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
 import { MarketingConsentLedger } from "@/features/legal/backend/marketing-consent-ledger";
@@ -43,10 +47,28 @@ export type CustomerAccountServiceLayers = Omit<
     AnalyticsPersonAnonymisation,
     Layer.Error<typeof AnalyticsPersonAnonymisation.Live>
   >;
+  /** The account's issued invoices, under the request's account standing. */
+  readonly invoices: Layer.Layer<
+    CustomerInvoiceService,
+    Layer.Error<typeof CustomerInvoiceService.ForCurrentAccount>,
+    CurrentCustomerAccount
+  >;
+  /** The registry's company lookup, under the request's account standing. */
+  readonly companyLookup: Layer.Layer<
+    CompanyLookupService,
+    Layer.Error<typeof CompanyLookupService.ForCurrentAccount>,
+    CurrentCustomerAccount
+  >;
   /** The account's locale preference, under the request's authentication. */
   readonly localePreference: Layer.Layer<
     CustomerLocalePreference,
     Layer.Error<typeof CustomerLocalePreference.Live>,
+    CustomerAuthentication
+  >;
+  /** The account's data archive, under the request's authentication. */
+  readonly dataExport: Layer.Layer<
+    AccountDataExportService,
+    Layer.Error<typeof AccountDataExportService.ForProvidedAuthentication>,
     CustomerAuthentication
   >;
 };
@@ -80,6 +102,9 @@ export class CustomerAccountLayers extends Context.Service<
       analyticsConsentLedger: AnalyticsConsentLedger.Live,
       analyticsPersonAnonymisation: AnalyticsPersonAnonymisation.Live,
       localePreference: CustomerLocalePreference.Live,
+      dataExport: AccountDataExportService.ForProvidedAuthentication,
+      invoices: CustomerInvoiceService.ForCurrentAccount,
+      companyLookup: CompanyLookupService.ForCurrentAccount,
     },
     releases: runAccountReleaseLayers,
   });

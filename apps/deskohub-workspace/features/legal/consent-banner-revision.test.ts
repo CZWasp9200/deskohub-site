@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { consentBannerRevision } from "@deskohub/workspace-customer-api/consent-banner";
 import { type Locale, locales } from "@/features/i18n";
 import {
   consentBannerDocumentVersions,
@@ -65,8 +66,10 @@ describe("getConsentBannerRevision", () => {
 
   test("keeps the published revision of every locale's recorded versions", () => {
     // Saved consent choices carry this revision; changing it reopens the
-    // banner for every visitor.
-    expect(getConsentBannerRevision()).toBe(72178894499992);
+    // banner for every visitor. The app's web bundle saves consent under the
+    // shared copy, so on a change update it in
+    // packages/workspace-customer-api/src/consent-banner.ts.
+    expect(getConsentBannerRevision()).toBe(consentBannerRevision);
   });
 
   test("gives a new revision once a locale's versions are recorded", () => {

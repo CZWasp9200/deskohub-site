@@ -42,10 +42,25 @@ export type ReferralAccountSummary = {
   readonly savings: readonly Money[];
 };
 
-/** The account referral summary with the customer's absolute share link. */
+/**
+ * The account referral summary with the customer's absolute share link and
+ * the programme's discounts: per eligible invitee and for the invitee.
+ */
 export type ReferralAccountOverview = {
   readonly summary: ReferralAccountSummary;
   readonly shareUrl: string;
+  /**
+   * The referrer discount one eligible invitee earns, as an exact
+   * percentage in canonical decimal form, like `summary.discount`.
+   */
+  readonly discountPerInvitee: string;
+  /**
+   * The discount an invited customer gets on their first booking, as an
+   * exact percentage in the same form.
+   */
+  readonly invitationDiscount: string;
+  /** The currency savings are counted in while there are none yet. */
+  readonly savingsCurrency: string;
 };
 
 /** A verdict that the code can't refer this customer now. */

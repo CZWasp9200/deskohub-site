@@ -107,7 +107,8 @@ Rules:
 - `findLocaleBoundContinuation` (`features/checkout/locale-bound-continuation.ts`)
   matches the URL shape without secrets. `continuesInIssuedLocale`
   (`features/checkout/backend/locale-bound-continuation.server.ts`) verifies it
-  with `openPayState` and `payStateContinuesOn`, which the pages also use, or
+  with `PayState.open` given the page (locale and reservation kind), as the
+  pages open it, or
   with `openReservationAccessToken`. `pageLocalePreference` loads the verifier
   lazily, and only when the preference would move a candidate URL.
 - The Pay state fixes the language of the accepted terms, operating rules, and

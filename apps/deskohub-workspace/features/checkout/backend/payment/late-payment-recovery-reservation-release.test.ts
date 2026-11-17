@@ -3,7 +3,8 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { makeRecordingAdvisoryLock } from "@/db/postgres-advisory-lock.test-utils";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import {
   makeCoworkInvoiceDocument,
   makeMeetingRoomInvoiceDocument,
@@ -177,6 +178,7 @@ const makeRecoveryHarness = (options: {
   } as never;
   const layer = LatePaymentRecoveryService.Default.pipe(
     Layer.provide(UnpaidHoldRelease.Default),
+    Layer.provide(makeRecordingAdvisoryLock().layer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(LatePaymentRecoveryRepository, {
@@ -201,8 +203,8 @@ const makeRecoveryHarness = (options: {
           markCancelled: spies.markCancelled,
           markCancellationFailed: spies.markCancellationFailed,
         }),
-        Layer.mock(AccountingDocumentSnapshotRepository, {
-          findByPaymentAttemptId: mock(() => Effect.succeed(snapshot)),
+        Layer.mock(AccountingDocumentSnapshots, {
+          find: mock(() => Effect.succeed(snapshot)),
         }),
         Layer.mock(WorkspaceAvailabilityService, {
           ensureAvailable: spies.ensureAvailable as never,
@@ -323,10 +325,13 @@ describe("LatePaymentRecoveryService with an expired or released hold", () => {
     const result = await harness.recover();
 
     expect(result).toMatchObject({ _tag: "Success", success: "recovered" });
+    // Availability checks the occupied interval of an early-setup booking.
     expect(harness.spies.ensureAvailable).toHaveBeenCalledWith(
       expect.objectContaining({
-        startsAt: "2099-02-03T07:45:00Z",
+        kind: "meeting-room",
+        startsAt: "2099-02-03T08:00:00Z",
         endsAt: "2099-02-03T12:00:00Z",
+        earlySetup: true,
       })
     );
     expect(harness.spies.createReservation).toHaveBeenCalledWith(

@@ -48,10 +48,27 @@ opens the web bundle's `/app/sign-in?native=1` in an in-app auth session:
   handoff code, returns to `deskohub://auth/callback` or the `/app/auth/callback`
   App Link with code and state, and `auth-callback.ts` exchanges it with the
   verifier.
+- The request (`native-handoff-request.ts`) may carry the app's analytics
+  answer as `analytics=granted|denied` plus `analytics_decided_at`, the
+  stored instant byte for byte. Only a single, valid pair counts; anything
+  else drops the answer and keeps the request. The page applies it as the
+  analytics reference describes.
 - A magic link opened later on the device arrives as the
   `/app/auth/callback?token=…` App Link; the app verifies the token itself with
   its Expo origin. `ACCOUNT_SWITCH_REFUSED` keeps the current account signed in
   and the link unused.
+- The tab normally opens in the app's own task, so the return link to the
+  app closes it. On Chrome's first run, Chrome opens it in a task of its
+  own (`NEW_TASK | MULTIPLE_TASK | NEW_DOCUMENT`), which the app can't close
+  and the back gesture would reveal; the page therefore closes itself
+  (`close-tab-on-handoff.ts`) once it has handed off and the app hides it.
+  A magic link opened from the mail app in that case never hands off, so
+  that tab stays (accepted limitation; follow-up
+  [#1303](https://github.com/totalolage/deskohub-site/issues/1303)).
+- The page focuses the email field on load, but Chrome raises the keyboard
+  only on a tap, in the app's tab as in Chrome itself (checked on the
+  emulator, 2026-11-16); neither the TWA nor the Custom Tab launch can
+  change that.
 - The TWA needs the site's `assetlinks.json` and the app's `asset_statements`
   to agree on the signing key. On a debug-signed build, or on first launch
   before verification finishes, it falls back to a Custom Tab with a visible

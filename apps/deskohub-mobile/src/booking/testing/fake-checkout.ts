@@ -15,7 +15,7 @@ import {
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
 import type { SampleAccountKind } from "../../customer-api/testing/sample-fixtures";
 import { sequentialBookingIds } from "../booking-ids.service.mock";
-import type { CheckoutRequest } from "../checkout/checkout-flow";
+import type { BookingRequest } from "../checkout/checkout-flow";
 import type { CheckoutDetails } from "../checkout/checkout-state";
 import {
   type BookingServices,
@@ -28,6 +28,7 @@ import {
 } from "../payment-browser.service";
 import { observedRememberedReferralCode } from "../remembered-referral.service.mock";
 import { fakeBooking } from "./fake-booking-api";
+import { pricedLines, sampleSummary } from "./sample-booking-catalog";
 
 /** The payment page as a test scripts it, recording each page it opened. */
 export const makeFakePaymentBrowser = () => {
@@ -126,11 +127,16 @@ export const makeFakeCheckout = async (kind: SampleAccountKind = "linked") => {
       date: booking.dateIn(20),
       coffee: true,
     }
-  ): CheckoutRequest => ({
-    locale: "en-US",
-    selection,
-    advertisedPriceToken: booking.issueQuoteToken(selection),
-  });
+  ): BookingRequest => {
+    const summary = sampleSummary({ lines: pricedLines(selection) });
+    return {
+      _tag: "Booking",
+      locale: "en-US",
+      selection,
+      advertisedPriceToken: booking.issueQuoteToken(selection),
+      quote: { summary, regularPrice: summary.total },
+    };
+  };
 
   return {
     registry,

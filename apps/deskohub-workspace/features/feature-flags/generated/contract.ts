@@ -1,4 +1,4 @@
-import { definePostHogFeatureFlags } from "@deskohub/posthog/feature-flags";
+import { definePostHogFeatureFlags } from "@deskohub/analytics-posthog/feature-flags";
 
 /** Generated from PostHog feature flag definitions. Do not edit manually. */
 export const postHogFeatureFlags = definePostHogFeatureFlags<
@@ -12,6 +12,7 @@ export const postHogFeatureFlags = definePostHogFeatureFlags<
   "login_passkeys",
   "meeting_room_page",
   "office_page",
+  "overnight_stays",
   "referrals",
   "seating_map",
   "webmcp_site_tools",
@@ -50,6 +51,10 @@ export interface PostHogFeatureFlagDefinitions {
     readonly payload: undefined;
   };
   readonly "office_page": {
+    readonly value: boolean;
+    readonly payload: undefined;
+  };
+  readonly "overnight_stays": {
     readonly value: boolean;
     readonly payload: undefined;
   };

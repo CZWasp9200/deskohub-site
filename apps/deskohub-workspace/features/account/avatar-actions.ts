@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { accountActionError } from "@/features/account/account-action-guards";
 import { AccountFeatureWithheldError } from "@/features/account/backend/account-feature-withheld";
 import { AccountAvatarReleaseGate } from "@/features/account/backend/account-release-gates";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import {
   CustomerAvatarService,
@@ -96,10 +96,9 @@ const mapAvatarActionError =
  * never hides a session, release or account refusal.
  */
 const avatarAdmissionLayer = Layer.mergeAll(
-  CustomerAuthentication.Default,
   AccountAvatarReleaseGate.Live,
-  CustomerAccountResolver.Live
-);
+  CurrentCustomerAccount.ForProvidedAuthentication
+).pipe(Layer.provideMerge(CustomerAuthentication.Default));
 
 /**
  * Uploads the submitted file as the signed-in customer's avatar and

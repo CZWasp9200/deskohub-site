@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
+import { calendarSaleDiscountServiceLayer } from "@/features/discounts/calendar-sale.test-utils";
 import { makeDiscountCommitment } from "@/features/discounts/commitment";
 import {
   affirmedDiscountAdvertisementQuoteCodec,
@@ -14,11 +15,13 @@ import {
 import type { DiscountService } from "@/features/discounts/discount.service";
 import { DiscountServiceMock } from "@/features/discounts/discount.service.mock";
 import {
+  DiscountAffirmationUnavailableError,
   DiscountProviderError,
   PromotionCodeUnavailableError,
 } from "@/features/discounts/errors";
 import { getCoworkAdvertisedPriceReservation } from "@/features/reservation/cowork-reservation";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
+import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { Money } from "@/shared/money/money";
 import { coworkCheckoutPricing } from "./cowork-checkout-pricing";
 
@@ -205,10 +208,14 @@ describe("cowork checkout pricing", () => {
       Effect.gen(function* () {
         const pricing = yield* coworkCheckoutPricing;
         return yield* pricing.affirmAdvertisement({
-          reservation: advertisedReservation,
+          advertisement: {
+            locale: "en-US",
+            reservation: advertisedReservation,
+            quote: displayedQuote,
+          },
+          reservation,
           locale: "en-US",
           bookedAt,
-          advertisedQuote: displayedQuote,
         });
       }),
       DiscountServiceMock({ affirmAdvertisement })
@@ -223,8 +230,8 @@ describe("cowork checkout pricing", () => {
       bookedAt,
       advertisedDiscountIds: [advertisedDiscountId],
     });
-    expect(result.discountQuote).toBe(affirmedAdvertisement);
-    expect(result.quote.payment.expectedPrice).toEqual(money(22_500));
+    expect(result.status).toBe("affirmed");
+    expect(result.priced.discountQuote).toBe(affirmedAdvertisement);
   });
 
   describe("affirming an advertised query code", () => {
@@ -263,12 +270,16 @@ describe("cowork checkout pricing", () => {
           const pricing = yield* coworkCheckoutPricing;
           return yield* pricing
             .affirmAdvertisement({
-              reservation: advertisedReservation,
+              advertisement: {
+                locale: "en-US",
+                reservation: advertisedReservation,
+                quote: advertisedQuote,
+                submittedCode,
+                submittedCodeDiscountId: codeDiscountId,
+              },
+              reservation,
               locale: "en-US",
               bookedAt,
-              advertisedQuote,
-              submittedCode,
-              submittedCodeDiscountId: codeDiscountId,
             })
             .pipe(Effect.result);
         }),
@@ -304,7 +315,7 @@ describe("cowork checkout pricing", () => {
     });
 
     test("drops a code that is no longer available", async () => {
-      const { advertisedQuote, result } = await affirmWithFailedCodePreview(
+      const { result } = await affirmWithFailedCodePreview(
         new PromotionCodeUnavailableError({
           reason: "usage_limit_reached",
           message: "The code has no uses left.",
@@ -313,11 +324,56 @@ describe("cowork checkout pricing", () => {
 
       expect(result._tag).toBe("Success");
       if (result._tag !== "Success") return;
-      expect(result.success.submittedCodeDiscountId).toBeUndefined();
-      expect(result.success.quote.fingerprint).not.toBe(
-        advertisedQuote.fingerprint
+      expect(result.success.status).toBe("pricing_changed");
+      expect(result.success.priced.submittedCodeDiscountId).toBeUndefined();
+      expect(result.success.priced.discountQuote.discounts).toEqual(
+        affirmedAdvertisement.discounts
       );
-      expect(result.success.quote.payment.expectedPrice).toEqual(money(22_500));
+    });
+
+    test("affirms a still-available advertised code with its submitted-code metadata", async () => {
+      const codeQuote = discountQuoteCodec.make({
+        ...advertisementQuote,
+        discounts: [...advertisementQuote.discounts, codeApplication],
+        totalDiscount: money(21_000),
+        discountedSubtotal: money(14_000),
+      });
+      const advertisedQuote = await Effect.runPromise(
+        buildCoworkReservationQuote(reservation, { discountQuote: codeQuote })
+      );
+
+      const result = await runWithDiscounts(
+        Effect.gen(function* () {
+          const pricing = yield* coworkCheckoutPricing;
+          return yield* pricing.affirmAdvertisement({
+            advertisement: {
+              locale: "en-US",
+              reservation: advertisedReservation,
+              quote: advertisedQuote,
+              submittedCode,
+              submittedCodeDiscountId: codeDiscountId,
+            },
+            reservation,
+            locale: "en-US",
+            bookedAt,
+          });
+        }),
+        DiscountServiceMock({
+          affirmAdvertisement: () => Effect.succeed(affirmedAdvertisement),
+          previewDiscountCode: () =>
+            Effect.succeed({ application: codeApplication, quote: codeQuote }),
+        })
+      );
+
+      expect(result).toMatchObject({
+        status: "affirmed",
+        priced: {
+          submittedCode,
+          submittedCodeDiscountId: codeDiscountId,
+          advertisedQuote,
+          discountQuote: { discounts: codeQuote.discounts },
+        },
+      });
     });
 
     test("omits a code from discovery when its provider is unavailable", async () => {
@@ -420,9 +476,11 @@ describe("cowork checkout pricing", () => {
       submittedCode,
     });
     expect(result).toMatchObject({
-      status: "applied",
-      submittedCodeDiscountId: codeApplication.discount.id,
-      quote: { payment: { expectedPrice: money(19_000) } },
+      status: "affirmed",
+      priced: {
+        submittedCodeDiscountId: codeApplication.discount.id,
+        quote: { payment: { expectedPrice: money(19_000) } },
+      },
     });
   });
 
@@ -475,6 +533,204 @@ describe("cowork checkout pricing", () => {
     expect(applyDiscountCode).not.toHaveBeenCalled();
   });
 
+  describe("clearing an entered code", () => {
+    const codeDiscountId = Schema.decodeUnknownSync(discountIdSchema)("code");
+    const referralCode = Schema.decodeUnknownSync(canonicalPromotionCodeSchema)(
+      "RFL12345"
+    );
+    /** The sale and, stacked on it, the entered code. */
+    const codeOnSaleQuote = discountQuoteCodec.make({
+      ...affirmedAdvertisement,
+      discounts: [
+        ...affirmedAdvertisement.discounts,
+        {
+          discount: {
+            id: codeDiscountId,
+            label: "Member code",
+            adjustment: { kind: "percentage", basisPoints: 2000 },
+          },
+          subtotalBefore: money(17_500),
+          amount: money(3500),
+          subtotalAfter: money(14_000),
+        },
+      ],
+      totalDiscount: money(21_000),
+      discountedSubtotal: money(14_000),
+    });
+
+    test("affirms every displayed discount but the code's, keeping a referral", async () => {
+      const affirmDisplayedDiscounts = mock(() =>
+        Effect.succeed({
+          quote: affirmedAdvertisement,
+          commitment: emptyCommitment(),
+        })
+      );
+      const displayedQuote = await Effect.runPromise(
+        buildCoworkReservationQuote(reservation, {
+          discountQuote: codeOnSaleQuote,
+        })
+      );
+
+      const result = await runWithDiscounts(
+        Effect.gen(function* () {
+          const pricing = yield* coworkCheckoutPricing;
+          return yield* pricing.clearDiscountCode({
+            reservation,
+            locale: "en-US",
+            bookedAt,
+            dotyposCustomerId,
+            quote: displayedQuote,
+            submittedCodeDiscountId: codeDiscountId,
+            referralCode,
+          });
+        }),
+        DiscountServiceMock({ affirmDisplayedDiscounts })
+      );
+
+      expect(affirmDisplayedDiscounts).toHaveBeenCalledWith({
+        product: { kind: "cowork", tier: "basic" },
+        discountableSubtotal: money(35_000),
+        firstServiceDate: reservation.date,
+        lastServiceDate: reservation.date,
+        dotyposCustomerId,
+        locale: "en-US",
+        bookedAt,
+        submittedCode: undefined,
+        referralCode,
+        displayedDiscountIds: [advertisedDiscountId],
+      });
+      expect(result).toMatchObject({
+        kind: "cowork",
+        quote: { payment: { expectedPrice: money(22_500) } },
+        changedKeys: {
+          itemKeys: ["product:cowork:basic", "total:final"],
+          sectionKeys: ["order", "total"],
+        },
+      });
+      expect(
+        result.quote.payment.discounts.map(({ discount }) => discount.id)
+      ).toEqual([advertisedDiscountId]);
+    });
+
+    test("stacks the discounts it keeps afresh instead of taking the code's amount back off", async () => {
+      const saleDate = getCurrentWorkspaceDate().add({ days: 1 });
+      const saleReservation = { ...reservation, date: saleDate.toString() };
+      const saleDiscounts = calendarSaleDiscountServiceLayer({
+        calendarId: "clear-code-stacked-sale",
+        firstDay: saleDate.subtract({ days: 2 }),
+        lastDay: saleDate.add({ days: 2 }),
+        labels: { "en-US": "Summer sale", "cs-CZ": "Letní sleva" },
+        products: [{ kind: "cowork" }],
+      });
+      const runWithSale = <A, E>(
+        effect: Effect.Effect<A, E, DiscountService>
+      ) => effect.pipe(Effect.provide(saleDiscounts), Effect.runPromise);
+      const advertised = await runWithSale(
+        Effect.gen(function* () {
+          const pricing = yield* coworkCheckoutPricing;
+          return yield* pricing.quoteAdvertisement({
+            reservation: getCoworkAdvertisedPriceReservation(saleReservation),
+            locale: "en-US",
+          });
+        })
+      );
+      const sale = advertised.quote.payment.discounts[0]?.discount;
+      if (!sale) throw new Error("Expected the synthetic sale");
+      // The code ran first, so the sale's displayed amount is on the
+      // code-reduced subtotal. Without the code the sale applies to the full
+      // subtotal again.
+      const saleOnCodeQuote = discountQuoteCodec.make({
+        product: { kind: "cowork", tier: "basic" },
+        discountableSubtotal: money(35_000),
+        discounts: [
+          {
+            discount: {
+              id: codeDiscountId,
+              label: "Member code",
+              adjustment: { kind: "percentage", basisPoints: 5000 },
+            },
+            subtotalBefore: money(35_000),
+            amount: money(17_500),
+            subtotalAfter: money(17_500),
+          },
+          {
+            discount: sale,
+            subtotalBefore: money(17_500),
+            amount: money(3500),
+            subtotalAfter: money(14_000),
+          },
+        ],
+        totalDiscount: money(21_000),
+        discountedSubtotal: money(14_000),
+      });
+      const displayedQuote = await Effect.runPromise(
+        buildCoworkReservationQuote(saleReservation, {
+          discountQuote: saleOnCodeQuote,
+        })
+      );
+
+      const result = await runWithSale(
+        Effect.gen(function* () {
+          const pricing = yield* coworkCheckoutPricing;
+          return yield* pricing.clearDiscountCode({
+            reservation: saleReservation,
+            locale: "en-US",
+            bookedAt: Temporal.Now.instant(),
+            dotyposCustomerId,
+            quote: displayedQuote,
+            submittedCodeDiscountId: codeDiscountId,
+          });
+        })
+      );
+
+      expect(result.quote.payment.discounts).toEqual([
+        expect.objectContaining({
+          discount: expect.objectContaining({ id: sale.id }),
+          subtotalBefore: money(35_000),
+          amount: money(7000),
+          subtotalAfter: money(28_000),
+        }),
+      ]);
+      expect(result.quote.payment.expectedPrice).toEqual(
+        money(displayedQuote.payment.undiscountedPrice.value - 7000)
+      );
+    });
+
+    test("fails when a provider can't affirm a discount it keeps", async () => {
+      const unavailable = new DiscountAffirmationUnavailableError({
+        message: "Calendar was unavailable.",
+        discountIds: [advertisedDiscountId],
+      });
+      const displayedQuote = await Effect.runPromise(
+        buildCoworkReservationQuote(reservation, {
+          discountQuote: codeOnSaleQuote,
+        })
+      );
+
+      const exit = await Effect.gen(function* () {
+        const pricing = yield* coworkCheckoutPricing;
+        return yield* pricing.clearDiscountCode({
+          reservation,
+          locale: "en-US",
+          bookedAt,
+          dotyposCustomerId,
+          quote: displayedQuote,
+          submittedCodeDiscountId: codeDiscountId,
+        });
+      }).pipe(
+        Effect.provide(
+          DiscountServiceMock({
+            affirmDisplayedDiscounts: () => Effect.fail(unavailable),
+          })
+        ),
+        Effect.flip,
+        Effect.runPromise
+      );
+
+      expect(exit).toBe(unavailable);
+    });
+  });
+
   test("keeps a historical profi full order pricable through quote and payment", async () => {
     const profiOrder = {
       kind: "cowork" as const,
@@ -508,18 +764,27 @@ describe("cowork checkout pricing", () => {
       buildCoworkReservationQuote(profiOrder, { discountQuote: profiQuote })
     );
 
-    const customerQuote = await runWithDiscounts(
+    const customerVerdict = await runWithDiscounts(
       Effect.gen(function* () {
         const pricing = yield* coworkCheckoutPricing;
         return yield* pricing.quoteForCustomer({
-          reservation: profiOrder,
+          advertisement: {
+            status: "affirmed",
+            priced: {
+              kind: profiOrder.kind,
+              reservation: profiOrder,
+              advertisedQuote: expectedQuote,
+              discountQuote: profiAffirmedAdvertisement,
+            },
+          },
           locale: "en-US",
           dotyposCustomerId,
-          affirmedAdvertisement: profiAffirmedAdvertisement,
         });
       }),
       DiscountServiceMock({ applyCustomerDiscount })
     );
+    expect(customerVerdict.status).toBe("affirmed");
+    const customerQuote = customerVerdict.priced;
 
     expect(applyCustomerDiscount).toHaveBeenCalledWith({
       affirmedAdvertisement: profiAffirmedAdvertisement,
@@ -544,6 +809,7 @@ describe("cowork checkout pricing", () => {
           bookedAt,
           dotyposCustomerId,
           quote: customerQuote.quote,
+          acceptedTotal: money(55_000),
         });
       }),
       DiscountServiceMock({ affirmDisplayedDiscounts })
@@ -560,10 +826,13 @@ describe("cowork checkout pricing", () => {
       submittedCode: undefined,
       displayedDiscountIds: [],
     });
-    expect(payment.reservation).toBe(profiOrder);
-    expect(payment.commitment).toBe(commitment);
-    expect(payment.quote.fingerprint).toBe(customerQuote.quote.fingerprint);
-    expect(payment.quote.payment.expectedPrice).toEqual(money(55_000));
+    expect(payment.status).toBe("affirmed");
+    expect(payment.priced.reservation).toBe(profiOrder);
+    expect(payment.priced.commitment).toBe(commitment);
+    expect(payment.priced.quote.fingerprint).toBe(
+      customerQuote.quote.fingerprint
+    );
+    expect(payment.priced.quote.payment.expectedPrice).toEqual(money(55_000));
   });
 
   test("prices workstation presence from the advertised reserved-desk selection", async () => {

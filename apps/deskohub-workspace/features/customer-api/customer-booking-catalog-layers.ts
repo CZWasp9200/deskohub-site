@@ -3,6 +3,7 @@ import { CheckoutPricingService } from "@/features/checkout/backend/checkout/che
 import { OfficeReleaseGateForRun } from "@/features/office/backend/office-release-gate-run";
 import { ReferralReleaseGateForRun } from "@/features/referrals/referral-release-gate-run";
 import { SharedAvailabilityInventoryLive } from "@/features/reservation/backend/availability-inventory-cache.server";
+import { OvernightStayReleaseGateForRun } from "@/features/reservation/backend/overnight-stay-release-gate-run";
 import { WorkspaceAvailabilityLoaderLive } from "@/features/reservation/backend/workspace-availability-loader";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 
@@ -24,6 +25,7 @@ const liveCatalogLayers = {
    */
   releases: {
     office: OfficeReleaseGateForRun,
+    overnightStay: OvernightStayReleaseGateForRun,
     referral: ReferralReleaseGateForRun,
   },
 };

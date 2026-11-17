@@ -7,14 +7,13 @@ import type {
   CustomerReservationStatus,
   CustomerReservationSummary,
 } from "@/features/account/contracts";
-import {
-  getWorkspaceMeetingRoomProductTitle,
-  getWorkspaceOfficeProductTitle,
-  getWorkspaceProductTierTitle,
-} from "@/features/checkout/product-catalog.i18n";
+import { getReservationProductName } from "@/features/account/reservation-product-name";
 import { type Locale, m } from "@/features/i18n";
 import { formatMeetingRoomSetupStart } from "@/features/reservation/meeting-room-reservation-display-time";
-import { formatReservationDisplayDateRange } from "@/features/reservation/reservation-date";
+import {
+  formatReservationDisplayDateRange,
+  formatReservationDisplayDateTimeRange,
+} from "@/features/reservation/reservation-date";
 import {
   reservationAccessPath,
   reservationStatusPath,
@@ -28,22 +27,6 @@ import {
 } from "@/shared/components/ui/status-badge";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { isMidnight } from "@/shared/utils/temporal";
-
-const getReservationTitle = (
-  reservation: CustomerReservationSummary,
-  locale: Locale
-) => {
-  switch (reservation.product.kind) {
-    case "cowork":
-      return getWorkspaceProductTierTitle(reservation.product.tier, locale);
-    case "meeting-room":
-      return getWorkspaceMeetingRoomProductTitle(locale);
-    case "office":
-      return getWorkspaceOfficeProductTitle(locale);
-    case "other":
-      return m.accountReservationOtherProduct({}, { locale });
-  }
-};
 
 const getStatusLabel = (status: CustomerReservationStatus, locale: Locale) => {
   switch (status) {
@@ -104,11 +87,9 @@ const formatReservationPeriod = (
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return null;
   }
+  const startInstant = Temporal.Instant.fromEpochMilliseconds(start.getTime());
+  const endInstant = Temporal.Instant.fromEpochMilliseconds(end.getTime());
   if (end.getTime() > start.getTime()) {
-    const startInstant = Temporal.Instant.fromEpochMilliseconds(
-      start.getTime()
-    );
-    const endInstant = Temporal.Instant.fromEpochMilliseconds(end.getTime());
     if (
       isMidnight(
         startInstant
@@ -128,11 +109,11 @@ const formatReservationPeriod = (
       );
     }
   }
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: workspaceSiteConstants.location.timeZone,
-  }).formatRange(start, end);
+  return formatReservationDisplayDateTimeRange(
+    startInstant,
+    endInstant,
+    locale
+  );
 };
 
 /** The setup start of a meeting room booked with early setup. */
@@ -266,7 +247,7 @@ function FeaturedReservationItem({
 }) {
   const period = formatReservationPeriod(reservation, locale);
   const setupStart = formatReservationSetupStart(reservation, locale);
-  const title = getReservationTitle(reservation, locale);
+  const title = getReservationProductName(reservation.product, locale);
 
   return (
     <li className="min-w-0">
@@ -478,7 +459,7 @@ function CompactReservationItem({
               {m.accountReservationProduct({}, { locale })}
             </p>
             <h4 className="break-words text-base font-semibold leading-5 text-[#00024f]">
-              {getReservationTitle(reservation, locale)}
+              {getReservationProductName(reservation.product, locale)}
             </h4>
             <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-2 text-sm text-[#64748b]">
               {period ? (
@@ -630,7 +611,7 @@ function PastReservationTable({
                     {m.accountReservationProduct({}, { locale })}
                   </span>
                   <span className="min-w-0 break-words">
-                    {getReservationTitle(reservation, locale)}
+                    {getReservationProductName(reservation.product, locale)}
                     {reservation.party && (
                       <span className="mt-1 block text-xs font-normal text-[#64748b]">
                         <ReservationPartyNote

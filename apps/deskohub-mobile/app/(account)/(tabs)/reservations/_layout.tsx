@@ -13,15 +13,14 @@ export default function ReservationsLayout() {
     <Stack screenOptions={stackScreenOptions(locale)}>
       <Stack.Screen
         name="index"
-        options={{ title: m.account_section_reservations({}, { locale }) }}
+        options={{
+          title: m.account_section_reservations({}, { locale }),
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="[orderId]/index"
         options={{ title: m.reservations_status_title({}, { locale }) }}
-      />
-      <Stack.Screen
-        name="[orderId]/access"
-        options={{ title: m.reservations_access_title({}, { locale }) }}
       />
     </Stack>
   );

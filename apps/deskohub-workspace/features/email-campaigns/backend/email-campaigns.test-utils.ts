@@ -92,6 +92,7 @@ type SeededRecipient = {
   readonly deliveryAttempt?: number;
   readonly status?: CampaignRecipientStatus;
   readonly providerMessageId?: string;
+  readonly failureCode?: string;
 };
 
 /** Inserts a send of `campaignId` with its frozen recipients. */

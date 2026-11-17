@@ -58,6 +58,7 @@ const release = async (input: {
       trace,
       holdRelease.release({
         reservationId: "reservation-id" as never,
+        claimedAt: Temporal.Instant.from("2026-07-01T08:00:00Z"),
         dotyposReservationId: "dotypos-reservation-id" as never,
         liveStatus: input.liveStatus,
         failureCode: input.failureCode ?? "dotypos_cancel_failed",
@@ -148,7 +149,7 @@ describe("DotyposHoldRelease.release", () => {
       [
         "span dotyposHoldRelease.release",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.markCancellationFailed(id=reservation-id, failureCode=checkout_supersession_cancel_failed)",
+        "call reservations.markCancellationFailed(id=reservation-id, claimedAt=<Instant>, failureCode=checkout_supersession_cancel_failed)",
       ]
     `);
   });
@@ -165,7 +166,7 @@ describe("DotyposHoldRelease.release", () => {
       [
         "span dotyposHoldRelease.release",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.markCancellationFailed(id=reservation-id, failureCode=checkout_supersession_cancel_failed)",
+        "call reservations.markCancellationFailed(id=reservation-id, claimedAt=<Instant>, failureCode=checkout_supersession_cancel_failed)",
       ]
     `);
   });
@@ -181,7 +182,7 @@ describe("DotyposHoldRelease.release", () => {
       [
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancellationFailed(id=reservation-id, failureCode=dotypos_cancel_failed)",
+        "call reservations.markCancellationFailed(id=reservation-id, claimedAt=<Instant>, failureCode=dotypos_cancel_failed)",
       ]
     `);
   });
@@ -206,7 +207,7 @@ describe("DotyposHoldRelease.release", () => {
         "span dotyposHoldRelease.release",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancellationFailed(id=reservation-id, failureCode=dotypos_cancel_failed)",
+        "call reservations.markCancellationFailed(id=reservation-id, claimedAt=<Instant>, failureCode=dotypos_cancel_failed)",
         "Error Reservation cancellation failure marker failed (orderId=reservation-id, failureCode=dotypos_cancel_failed, cause=<Error>) {} in dotyposHoldRelease.release",
       ]
     `);

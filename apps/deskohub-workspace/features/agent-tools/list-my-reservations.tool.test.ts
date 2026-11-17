@@ -131,6 +131,7 @@ describe("list_my_reservations", () => {
           order_id: "order-1",
           family: "cowork",
           tier: "open-space",
+          stay: "day",
           starts_at: "2099-07-01T06:00:00Z",
           ends_at: "2099-07-01T22:00:00Z",
           seats: 1,
@@ -158,6 +159,46 @@ describe("list_my_reservations", () => {
       ],
       unavailable: [],
     });
+  });
+
+  test("tells an overnight Reserved Desk stay by its booked time", async () => {
+    history = {
+      kind: "available",
+      groups: {
+        current: [
+          {
+            id: "order-1",
+            workspaceReservationId: "order-1" as never,
+            product: { kind: "cowork", tier: "reserved-desk" },
+            startsAt: "2099-07-01T10:00:00Z",
+            endsAt: "2099-07-02T10:00:00Z",
+            seats: 1,
+            status: "confirmed",
+          },
+        ],
+        past: [],
+        unavailable: [
+          {
+            id: "dotypos-unreadable",
+            product: { kind: "cowork", tier: "reserved-desk" },
+            startsAt: "2099-07-01T10:00:00Z",
+            endsAt: "not-a-date",
+            seats: null,
+            status: "requires-attention",
+          },
+        ],
+      },
+    };
+
+    const result = await list();
+
+    expect(result._tag === "Success" && result.success.current).toEqual([
+      expect.objectContaining({ tier: "reserved-desk", stay: "overnight" }),
+    ]);
+    // An unreadable time tells no stay, and the rest of the list still answers.
+    expect(result._tag === "Success" && result.success.unavailable).toEqual([
+      expect.not.objectContaining({ stay: expect.anything() }),
+    ]);
   });
 
   test("lists only authored reservations for an account without a linked profile", async () => {

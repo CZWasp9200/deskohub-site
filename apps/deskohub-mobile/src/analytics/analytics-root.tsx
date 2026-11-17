@@ -1,5 +1,10 @@
 import { usePathname, useSegments } from "expo-router";
-import { type ReactNode, useEffect } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Platform } from "react-native";
 import type { AuthSessionState } from "../auth/auth-session-state";
 import { useAuthSession } from "../auth/use-auth-session";
@@ -8,11 +13,9 @@ import {
   appAccountConsentCheck,
   useConsentPromptWaits,
 } from "../consent/account-consent-check";
+import { appAnalyticsGate } from "../consent/app-analytics-gate";
 import { ConsentPrompt } from "../consent/consent-prompt";
-import {
-  appAnalyticsConsent,
-  useAnalyticsConsent,
-} from "../consent/use-analytics-consent";
+import { useAnalyticsConsent } from "../consent/use-analytics-consent";
 import { analytics, setAnalyticsIdentity } from "./analytics";
 import {
   classifyDeploymentEnvironment,
@@ -46,7 +49,7 @@ const connectAnalytics = () =>
     createClient: createPostHogClient,
     detectOtherSdk: () =>
       Platform.OS === "web" && detectOtherPostHogSdk(window),
-    consent: appAnalyticsConsent(),
+    consent: appAnalyticsGate(),
     accountCheck,
     clearStoredState: clearPostHogStoredState,
     warn: (message) => console.warn(message),
@@ -78,20 +81,25 @@ const useSessionAnalyticsIdentity = (session: AuthSessionState) => {
 /**
  * Connects analytics for the app's lifetime, records screen views and asks
  * for analytics consent while there is no answer, once the session's first
- * account check has settled (`useConsentPromptWaits`).
+ * account check has settled (`useConsentPromptWaits`). Analytics follows the
+ * page's gate (`appAnalyticsGate`): on the web page the native app opened
+ * for its sign-in, the app's carried answer, and the prompt never shows.
  */
 export function AnalyticsRoot({ children }: { readonly children: ReactNode }) {
   const session = useAuthSession();
   const consent = useAnalyticsConsent();
+  const gate = appAnalyticsGate();
+  const status = useSyncExternalStore(gate.subscribe, gate.status, gate.status);
   const promptWaits = useConsentPromptWaits(accountCheck, session);
+  // Dismissing the prompt answers nothing; it asks again on the next launch.
+  const [promptDismissed, setPromptDismissed] = useState(false);
   // Views record the route pattern (`/reservations/[orderId]`), never the
   // concrete path; the path only marks a new view, such as another order.
   const screen = screenPathPattern(useSegments());
   const pathname = usePathname();
   // Screen views wait in memory while the answer loads; a later grant records
   // the current screen again, since it was dropped while undecided.
-  const recording =
-    consent.status === "granted" || consent.status === "loading";
+  const recording = status === "granted" || status === "loading";
 
   useEffect(connectAnalytics, []);
   useSessionAnalyticsIdentity(session);
@@ -103,9 +111,16 @@ export function AnalyticsRoot({ children }: { readonly children: ReactNode }) {
   return (
     <>
       {children}
-      {consent.status === "undecided" && !promptWaits && (
-        <ConsentPrompt onAccept={consent.grant} onDecline={consent.deny} />
-      )}
+      {gate.asks &&
+        consent.status === "undecided" &&
+        !promptWaits &&
+        !promptDismissed && (
+          <ConsentPrompt
+            onAccept={consent.grant}
+            onDecline={consent.deny}
+            onDismiss={() => setPromptDismissed(true)}
+          />
+        )}
     </>
   );
 }

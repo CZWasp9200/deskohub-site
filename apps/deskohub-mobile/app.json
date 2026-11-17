@@ -2,7 +2,7 @@
   "expo": {
     "name": "Deskohub",
     "slug": "deskohub-mobile",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "scheme": "deskohub",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -68,7 +68,12 @@
               {
                 "fontFamily": "Sculpin Variable",
                 "path": "./assets/fonts/Sculpin.ttf",
-                "fontDefinitions": [{ "weight": 400 }, { "weight": 600 }]
+                "fontDefinitions": [
+                  { "weight": 400 },
+                  { "weight": 500 },
+                  { "weight": 600 },
+                  { "weight": 700 }
+                ]
               }
             ]
           }

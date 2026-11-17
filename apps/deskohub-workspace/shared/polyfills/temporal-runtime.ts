@@ -98,7 +98,7 @@ export const requiredTemporalApis = {
   },
   PlainTime: {
     static: ["compare", "from"],
-    methods: ["toJSON", "toLocaleString", "toString"],
+    methods: ["equals", "toJSON", "toLocaleString", "toString"],
     getters: [
       "hour",
       "microsecond",

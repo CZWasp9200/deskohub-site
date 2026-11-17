@@ -1,6 +1,7 @@
 import { router, usePathname } from "expo-router";
 import { useCallback, useState } from "react";
 import { type AuthUser, safeReturnPath } from "./auth-session-state";
+import type { ReauthenticationPurpose } from "./native-handoff-request";
 import {
   type NativeSignInFailure,
   NotSignedIn,
@@ -12,7 +13,10 @@ import type {
 } from "./reauthentication.native";
 import { useAuthSession } from "./use-auth-session";
 import type { AuthTaskState } from "./use-auth-task";
-import { saveReauthenticatingUser } from "./web-reauthentication-store";
+import {
+  saveReauthenticatingUser,
+  takeCompletedReauthentication,
+} from "./web-reauthentication-store";
 
 export { isReauthenticationRequired } from "./auth-session-state";
 export type {
@@ -29,9 +33,12 @@ const idle: AuthTaskState<AuthUser, NativeSignInFailure> = {
  * which signs in again even with a browser session and then returns to the
  * current route, where the customer repeats the action. The route is stored
  * with the account, so the email's link returns there from any tab. Signing in to another
- * account there is refused, as on native.
+ * account there is refused, as on native. The web page names no purpose; an
+ * action that names one continues once on its return (`takeConfirmedReturn`).
  */
-export const useReauthentication = (): Reauthentication => {
+export const useReauthentication = (
+  purpose?: ReauthenticationPurpose
+): Reauthentication => {
   const pathname = usePathname();
   const session = useAuthSession();
   const [state, setState] =
@@ -44,7 +51,7 @@ export const useReauthentication = (): Reauthentication => {
       if (
         userId === undefined ||
         !saveReauthenticatingUser(
-          { userId, returnPath: safeReturnPath(pathname) },
+          { userId, returnPath: safeReturnPath(pathname), purpose },
           Date.now()
         )
       ) {
@@ -63,6 +70,13 @@ export const useReauthentication = (): Reauthentication => {
         params: { prompt: "login", return_to: pathname },
       });
       return "redirected";
-    }, [pathname, userId]);
-  return { state, reauthenticate };
+    }, [pathname, userId, purpose]);
+  const takeConfirmedReturn = useCallback(
+    () =>
+      userId !== undefined &&
+      purpose !== undefined &&
+      takeCompletedReauthentication({ userId, purpose }, Date.now()),
+    [userId, purpose]
+  );
+  return { state, reauthenticate, takeConfirmedReturn };
 };

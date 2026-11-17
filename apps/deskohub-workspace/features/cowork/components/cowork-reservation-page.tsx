@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { isWorkspaceCoworkCurrentProductTier } from "@/features/checkout/product-catalog";
 import { type Locale, m } from "@/features/i18n";
+import { isOvernightStayOfferedAfterConnection } from "@/features/reservation/backend/overnight-stay-release-gate.server";
 import { isRememberedCoworkOfferAvailable } from "@/features/reservation/backend/reservation-existing-customer.server";
 import { createReservationPage } from "@/features/reservation/components/create-reservation-page.server";
 import { getCoworkDateAdvertisedPriceRequests } from "@/features/reservation/cowork-advertised-price";
@@ -30,6 +31,18 @@ import {
 const withWorkspaceDate = (values: CoworkReservationInput, today: string) =>
   values.date ? values : { ...values, date: today };
 
+type CoworkReservationPageData = {
+  /** Whether a Reserved Desk can be booked as an overnight stay. */
+  readonly overnightStayOffered: boolean;
+};
+
+/** Drops a linked or restored overnight stay the page doesn't offer. */
+const withOfferedStay = (
+  values: CoworkReservationInput,
+  { overnightStayOffered }: CoworkReservationPageData
+): CoworkReservationInput =>
+  overnightStayOffered ? values : { ...values, stay: undefined };
+
 export const coworkReservationPage = createReservationPage({
   breadcrumbs: (locale) => [
     { pathname: "/coworking", name: m.coworkingBreadcrumb({}, { locale }) },
@@ -40,20 +53,26 @@ export const coworkReservationPage = createReservationPage({
   ],
   fallback: (locale) => <CoworkReservationFormFallback locale={locale} />,
   kind: "cowork",
+  loadPageData: async (): Promise<CoworkReservationPageData> => ({
+    overnightStayOffered: await isOvernightStayOfferedAfterConnection(),
+  }),
   pathname: coworkReservationPath,
   prefillsContact: true,
   // A historical tier can't be booked again, so its customer starts over.
-  restore: (reservation, searchParams, { locale, today }) =>
+  restore: (reservation, searchParams, { locale, pageData, today }) =>
     isWorkspaceCoworkCurrentProductTier(reservation.entryTier)
       ? {
           kind: "restored",
-          values: withWorkspaceDate(
-            coworkSelectionLink.restore(
-              getCoworkReservationDefaultValues(reservation),
-              searchParams,
-              { locale }
+          values: withOfferedStay(
+            withWorkspaceDate(
+              coworkSelectionLink.restore(
+                getCoworkReservationDefaultValues(reservation),
+                searchParams,
+                { locale }
+              ),
+              today
             ),
-            today
+            pageData
           ),
         }
       : { kind: "replaced", content: <CoworkOfferReplaced locale={locale} /> },
@@ -63,17 +82,23 @@ export const coworkReservationPage = createReservationPage({
    */
   read: Effect.fn("coworkReservationPage.read")(function* (
     searchParams,
-    { lastReservation, locale, today }
+    { lastReservation, locale, pageData, today }
   ) {
-    const queryValues = withWorkspaceDate(
-      coworkSelectionLink.read(searchParams, { locale }),
-      today
+    const queryValues = withOfferedStay(
+      withWorkspaceDate(
+        coworkSelectionLink.read(searchParams, { locale }),
+        today
+      ),
+      pageData
     );
     if (!lastReservation) return queryValues;
 
-    const rememberedValues = withWorkspaceDate(
-      coworkSelectionLink.read(searchParams, { locale, lastReservation }),
-      today
+    const rememberedValues = withOfferedStay(
+      withWorkspaceDate(
+        coworkSelectionLink.read(searchParams, { locale, lastReservation }),
+        today
+      ),
+      pageData
     );
     if (
       rememberedValues.entryTier === queryValues.entryTier &&
@@ -115,6 +140,7 @@ export const coworkReservationPage = createReservationPage({
       initialAvailability={form.initialAvailability}
       initialValues={form.initialValues}
       locale={form.locale}
+      overnightStayOffered={form.pageData.overnightStayOffered}
       replacementToken={form.replacementToken}
       submittedCode={form.submittedCode}
       today={form.today}

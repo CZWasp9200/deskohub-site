@@ -6,9 +6,10 @@ import {
 } from "@effect/atom-react";
 import { Effect, Match, Option } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
-import { openBrowserAsync } from "expo-web-browser";
+import ChartColumn from "lucide-react-native/icons/chart-column";
+import FileText from "lucide-react-native/icons/file-text";
+import Megaphone from "lucide-react-native/icons/megaphone";
 import { useContext, useEffect, useState } from "react";
-import { StyleSheet, Switch, View } from "react-native";
 import { apiOrigin } from "../../auth/auth-client";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
@@ -17,11 +18,14 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { appForegroundAtom } from "../../platform/app-foreground";
-import { theme } from "../../theme";
+import { openSitePage } from "../../routing/open-site-page";
 import { LiveMessage } from "../../ui/controls";
+import type { IconComponent } from "../../ui/icon";
 import { ListGroup, ListRow, SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
-import { Text } from "../../ui/text";
+import { SkeletonGroup, SkeletonRow } from "../../ui/skeleton";
+import { SwitchRow } from "../../ui/switch";
+import { useToast } from "../../ui/toast";
 import {
   type AnalyticsSaveFeedback,
   analyticsPreferenceAtom,
@@ -30,6 +34,7 @@ import {
   isAnalyticsPreferenceUnavailable,
   saveAnalyticsPreferenceAtom,
 } from "./analytics-preference";
+import { DataExportRow } from "./data-export-row";
 import {
   type LegalDocument,
   legalDocuments,
@@ -55,7 +60,7 @@ const documentLabel = (document: LegalDocument, locale: AppLocale) =>
 // Opens a document in the in-app browser; it fails where no browser is
 // available.
 const openDocumentAtom = Atom.fn((url: string) =>
-  Effect.tryPromise(() => openBrowserAsync(url))
+  Effect.tryPromise(() => openSitePage(url))
 );
 
 /**
@@ -88,14 +93,18 @@ export function LegalScreen() {
     openDocument(legalDocumentUrl("privacy", apiOrigin));
 
   return (
-    <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
-      <SectionHeader title={m.legal_documents_heading({}, { locale })} />
+    <ScrollScreen
+      refreshing={account.waiting && !AsyncResult.isInitial(account)}
+      onRefresh={refresh}
+    >
+      <SectionHeader first title={m.legal_documents_heading({}, { locale })} />
       <ListGroup>
         {legalDocuments.map((document) => (
           <ListRow
             key={document}
+            icon={FileText}
             label={documentLabel(document, locale)}
-            description={m.legal_document_opens_in_browser({}, { locale })}
+            trailing="external"
             onPress={() => openDocument(legalDocumentUrl(document, apiOrigin))}
           />
         ))}
@@ -110,7 +119,11 @@ export function LegalScreen() {
         }
       />
       <SectionHeader title={m.legal_marketing_heading({}, { locale })} />
-      <AsyncView result={account} onRetry={refreshAccount}>
+      <AsyncView
+        result={account}
+        onRetry={refreshAccount}
+        loading={<PreferenceSkeleton />}
+      >
         {(current) =>
           current.kind === "linked" ? (
             <MarketingPreference />
@@ -124,9 +137,7 @@ export function LegalScreen() {
       <SectionHeader title={m.legal_analytics_heading({}, { locale })} />
       <AnalyticsPreference onOpenPrivacyPolicy={openPrivacyPolicy} />
       <SectionHeader title={m.legal_archive_heading({}, { locale })} />
-      <ListGroup>
-        <ListRow label={m.legal_archive_unavailable({}, { locale })} />
-      </ListGroup>
+      <DataExportRow />
     </ScrollScreen>
   );
 }
@@ -134,17 +145,17 @@ export function LegalScreen() {
 const feedbackMessage = (
   feedback: MarketingSaveFeedback,
   locale: AppLocale
-): { readonly role: "status" | "alert"; readonly message: string } =>
+):
+  | { readonly role: "status" | "alert"; readonly message: string }
+  | undefined =>
   Match.value(feedback).pipe(
     Match.discriminatorsExhaustive("kind")({
       saving: () => ({
         role: "status" as const,
         message: m.legal_marketing_saving({}, { locale }),
       }),
-      saved: () => ({
-        role: "status" as const,
-        message: m.legal_marketing_saved({}, { locale }),
-      }),
+      // The toast confirms the new state.
+      saved: () => undefined,
       stale: () => ({
         role: "alert" as const,
         message: m.legal_marketing_stale({}, { locale }),
@@ -172,18 +183,31 @@ function MarketingPreference() {
   const refresh = useAtomRefresh(marketingPreferencesAtom);
   const [save, choose] = useAtom(saveMarketingPreferenceAtom);
   const [requested, setRequested] = useState<boolean>();
+  const toast = useToast();
 
   const view = marketingSwitchView({ preferences, save, requested });
   const feedback =
     view.feedback === undefined
       ? undefined
       : feedbackMessage(view.feedback, locale);
+  const saved = view.feedback?.kind === "saved";
+  // A save confirms the state it saved: turned on, or turned off.
+  useEffect(() => {
+    if (!saved) return;
+    toast.show({
+      message: (view.granted
+        ? m.legal_marketing_turned_on
+        : m.legal_marketing_turned_off)({}, { locale }),
+      tone: "confirmation",
+    });
+  }, [saved, view.granted, toast, locale]);
 
   return (
     <>
       <AsyncView
         result={preferences}
         onRetry={refresh}
+        loading={<PreferenceSkeleton />}
         errorMessage={(error) =>
           isMarketingPreferenceUnavailable(error)
             ? m.legal_marketing_unavailable({}, { locale })
@@ -193,9 +217,11 @@ function MarketingPreference() {
         {(current) => (
           <ListGroup>
             <PreferenceSwitch
+              icon={Megaphone}
               label={m.legal_marketing_switch_label({}, { locale })}
               description={m.legal_marketing_description({}, { locale })}
               view={view}
+              saving={view.feedback?.kind === "saving"}
               onChange={(granted) => {
                 setRequested(granted);
                 choose({ context: current.context, granted, locale });
@@ -272,6 +298,7 @@ function AnalyticsPreference({
       <AsyncView
         result={preference}
         onRetry={refresh}
+        loading={<PreferenceSkeleton />}
         errorMessage={(error) =>
           isAnalyticsPreferenceUnavailable(error)
             ? m.legal_analytics_unavailable({}, { locale })
@@ -281,17 +308,20 @@ function AnalyticsPreference({
         {() => (
           <ListGroup>
             <PreferenceSwitch
+              icon={ChartColumn}
               label={m.legal_analytics_switch_label({}, { locale })}
               description={m.legal_analytics_description({}, { locale })}
               view={view}
+              saving={view.feedback?.kind === "saving"}
               onChange={(granted) => {
                 setRequested(granted);
                 choose({ granted, locale });
               }}
             />
             <ListRow
+              icon={FileText}
               label={m.legal_document_privacy({}, { locale })}
-              description={m.legal_document_opens_in_browser({}, { locale })}
+              trailing="external"
               onPress={onOpenPrivacyPolicy}
             />
           </ListGroup>
@@ -302,38 +332,47 @@ function AnalyticsPreference({
   );
 }
 
-/** A switch row over a saved account preference. */
+/**
+ * A switch row over a saved account preference. While a change saves, the
+ * switch shows its new position and ignores presses.
+ */
 function PreferenceSwitch({
+  icon,
   label,
   description,
   view,
+  saving,
   onChange,
 }: {
+  readonly icon: IconComponent;
   readonly label: string;
   readonly description: string;
   readonly view: PreferenceSwitchState;
+  readonly saving: boolean;
   readonly onChange: (granted: boolean) => void;
 }) {
   return (
-    <View style={styles.switchRow}>
-      <View style={styles.switchText}>
-        <Text style={styles.switchLabel}>{label}</Text>
-        <Text style={styles.switchDescription}>{description}</Text>
-      </View>
-      <Switch
-        aria-label={label}
-        accessibilityHint={description}
-        value={view.granted}
-        disabled={!view.enabled}
-        aria-disabled={!view.enabled}
-        trackColor={{
-          false: theme.colors.border,
-          true: theme.colors.accent,
-        }}
-        thumbColor={theme.colors.text}
-        onValueChange={onChange}
-      />
-    </View>
+    <SwitchRow
+      icon={icon}
+      label={label}
+      description={description}
+      value={view.granted}
+      busy={saving}
+      disabled={!view.enabled && !saving}
+      onValueChange={onChange}
+    />
+  );
+}
+
+/** A preference switch row while it loads, in its final size. */
+function PreferenceSkeleton() {
+  const locale = useAppLocale();
+  return (
+    <SkeletonGroup label={m.account_loading({}, { locale })}>
+      <ListGroup>
+        <SkeletonRow icon lines={2} />
+      </ListGroup>
+    </SkeletonGroup>
   );
 }
 
@@ -358,17 +397,3 @@ function FeedbackMessages({
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  switchRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: theme.spacing.md,
-    minHeight: theme.touchTarget + theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm + theme.spacing.xs,
-  },
-  switchText: { flex: 1, gap: theme.spacing.xs },
-  switchLabel: { color: theme.colors.text, ...theme.type.body },
-  switchDescription: { color: theme.colors.textMuted, ...theme.type.caption },
-});

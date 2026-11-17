@@ -1,25 +1,22 @@
 import {
-  CliMutationInProgress,
-  CliMutationRejected,
+  type CampaignOperations,
   CurrentAdministrationCaller,
   campaignOperations,
-  OperationConflict,
-  OperationInProgress,
 } from "@deskohub/workspace-admin-api";
-import { Effect, Match, type Schema } from "effect";
+import { Effect, Match } from "effect";
 import type { CliStoredMutation, CliStoredMutationResult } from "@/db/schema";
-import type { DatabaseQueryError } from "@/db/sql-constraint";
-import type {
-  OperationLedgerRequest,
-  OperationRequestLedger,
-} from "@/features/email-campaigns/backend/operation-request-ledger.service";
+import type { OperationLedgerRequest } from "@/features/administration/administration-operation-port";
+import type { OperationRequestLedger } from "@/features/email-campaigns/backend/operation-request-ledger.service";
 import type { AdministrationRequestLedger } from "./administration-request-ledger.service";
+import { toOperationLedgerFailure } from "./cli-administration-operations.server";
+
+type CampaignLedgerRequest = OperationLedgerRequest<CampaignOperations>;
 
 /**
  * The stored form of each ledger operation. The kinds predate the port, so
  * a retry that spans a deployment still matches its first request.
  */
-const storedMutation = (request: OperationLedgerRequest): CliStoredMutation =>
+const storedMutation = (request: CampaignLedgerRequest): CliStoredMutation =>
   Match.value(request).pipe(
     Match.discriminatorsExhaustive("operation")({
       createCampaignAudience: ({ input }) => ({
@@ -54,7 +51,7 @@ export const cliOperationRequestLedger = (
 const applyLedgerEntry = <E, R>(
   ledger: AdministrationRequestLedger["Service"],
   caller: CurrentAdministrationCaller["Service"],
-  entry: OperationLedgerRequest & {
+  entry: CampaignLedgerRequest & {
     readonly apply: Effect.Effect<CliStoredMutationResult, E, R>;
   }
 ) =>
@@ -66,31 +63,6 @@ const applyLedgerEntry = <E, R>(
       apply: entry.apply,
     })
     .pipe(
-      Effect.mapError(toLedgerFailure),
+      Effect.mapError(toOperationLedgerFailure),
       Effect.provideService(CurrentAdministrationCaller, caller)
     );
-
-/** The ledger's own failures become port errors; others pass through. */
-const toLedgerFailure = <E>(
-  error:
-    | E
-    | CliMutationInProgress
-    | CliMutationRejected
-    | DatabaseQueryError
-    | Schema.SchemaError
-) => {
-  if (error instanceof CliMutationInProgress) {
-    return new OperationInProgress({
-      code: "request-in-progress",
-      message: error.message,
-      requestId: error.requestId,
-    });
-  }
-  if (error instanceof CliMutationRejected) {
-    return new OperationConflict({
-      code: "request-id-reused",
-      message: error.message,
-    });
-  }
-  return error;
-};

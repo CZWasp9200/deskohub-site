@@ -11,8 +11,12 @@ import { ReservationRecords } from "@/features/reservation/backend/reservation-r
 import { SeatingMapReleaseGate } from "@/features/reservation/backend/seating-map-release-gate";
 import { ReviewSandboxMock } from "@/features/review-accounts/backend/review-sandbox.service.mock";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
-import type { ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType } from "../payment/provider-payment-finalization.service";
+import type {
+  ProviderPaymentFinalizationResult,
+  ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType,
+} from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
+import { observePaymentPagesAs } from "./payment-page-provider-status.test-utils";
 
 const reviewSandboxLayer = ReviewSandboxMock({
   status: () => Effect.succeed(Option.none()),
@@ -165,6 +169,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -220,6 +225,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {}),
@@ -291,6 +297,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -418,6 +425,7 @@ describe("CheckoutStatusService", () => {
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
+            Layer.provide(observePaymentPagesAs("unknown").layer),
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -630,6 +638,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -739,6 +748,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -875,6 +885,7 @@ describe("CheckoutStatusService", () => {
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
+            Layer.provide(observePaymentPagesAs("unknown").layer),
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -937,9 +948,15 @@ describe("CheckoutStatusService", () => {
       {
         dotypos = makeContactDotypos(),
         includeSupportContact,
+        provider = observePaymentPagesAs("unknown"),
+        refreshedAs,
       }: {
         readonly dotypos?: ReturnType<typeof makeDotypos>;
         readonly includeSupportContact?: boolean;
+        /** What the provider's order shows when the status asks. */
+        readonly provider?: ReturnType<typeof observePaymentPagesAs>;
+        /** Refreshes first, with this finalization result, instead of a plain lookup. */
+        readonly refreshedAs?: ProviderPaymentFinalizationResult;
       } = {}
     ) => {
       const { CheckoutStatusService } = await import(
@@ -958,6 +975,12 @@ describe("CheckoutStatusService", () => {
       return Effect.gen(function* () {
         yield* TestClock.setTime(now.epochMilliseconds);
         const service = yield* CheckoutStatusService;
+        if (refreshedAs) {
+          return yield* service.refreshStatus({
+            orderId: "reservation-provider-return",
+            returnOutcome: "success",
+          });
+        }
         return yield* service.getStatus({
           orderId: "reservation-provider-return",
           returnOutcome: "success",
@@ -966,11 +989,14 @@ describe("CheckoutStatusService", () => {
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
+            Layer.provide(provider.layer),
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(ProviderPaymentFinalizationService, {
                   finalizePendingProviderPayment: mock(() =>
-                    Effect.die("not used")
+                    refreshedAs
+                      ? Effect.succeed(refreshedAs)
+                      : Effect.die("not used")
                   ),
                 }),
                 Layer.mock(WorkspaceReservationRepository, {
@@ -997,6 +1023,8 @@ describe("CheckoutStatusService", () => {
                       makePaymentAttempt({
                         state: "pending",
                         providerOrderCreatedAt: paidAt,
+                        providerRedirectUrl: "https://sandbox.example/hpp/page",
+                        securityToken: "security-token",
                       })
                     )
                   ),
@@ -1110,6 +1138,96 @@ describe("CheckoutStatusService", () => {
       expect(status).toMatchObject({ status: "pending" });
     });
 
+    test("offers the stored payment page again just inside its reopening window while the provider can't be asked", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 5, seconds: 59 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({
+        status: "pending",
+        paymentPageReopenable: true,
+      });
+    });
+
+    test("offers the stored payment page past the provisional window while the provider's order shows no activity", async () => {
+      const provider = observePaymentPagesAs("no_activity");
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 20 }),
+        pendingPayment,
+        { provider }
+      );
+
+      expect(status).toMatchObject({
+        status: "pending",
+        paymentPageReopenable: true,
+      });
+      expect(provider.observe).toHaveBeenCalledTimes(1);
+    });
+
+    test("stops offering the stored payment page once the provider's order shows activity", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 1 }),
+        pendingPayment,
+        { provider: observePaymentPagesAs("activity") }
+      );
+
+      expect(status).toMatchObject({ status: "pending" });
+      expect(status).not.toHaveProperty("paymentPageReopenable");
+    });
+
+    test.each([
+      ["awaiting_payment", true],
+      ["pending", false],
+    ] as const)(
+      "reuses a refresh's provider read (%s) instead of asking the provider again",
+      async (refreshedAs, reopenable) => {
+        const provider = observePaymentPagesAs("unknown");
+        const status = await getPaidStatus(
+          paidAt.add({ minutes: 20 }),
+          pendingPayment,
+          { provider, refreshedAs }
+        );
+
+        expect(status).toMatchObject({ status: "pending" });
+        expect("paymentPageReopenable" in status).toBe(reopenable);
+        expect(provider.observe).not.toHaveBeenCalled();
+      }
+    );
+
+    test("stops offering the stored payment page when the abandonment cutoff passes while the provider answers", async () => {
+      const provider = observePaymentPagesAs("no_activity", {
+        answersAfter: "2 seconds",
+      });
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 29, seconds: 59 }),
+        pendingPayment,
+        { provider }
+      );
+
+      expect(provider.observe).toHaveBeenCalledTimes(1);
+      expect(status).not.toHaveProperty("paymentPageReopenable");
+    });
+
+    test("asks the provider about no page once the payment is past its abandonment cutoff", async () => {
+      const provider = observePaymentPagesAs("no_activity");
+      await getPaidStatus(paidAt.add({ minutes: 45 }), pendingPayment, {
+        provider,
+      });
+
+      expect(provider.observe).not.toHaveBeenCalled();
+    });
+
+    test("stops offering the stored payment page once its reopening window ends while the provider can't be asked, and the payment stays pending", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 6 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({ status: "pending" });
+      expect(status).not.toHaveProperty("paymentPageReopenable");
+    });
+
     test("offers support for a payment still unconfirmed after the abandonment cutoff", async () => {
       const status = await getPaidStatus(
         paidAt.add({ minutes: 45 }),
@@ -1207,6 +1325,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -1277,6 +1396,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -1330,6 +1450,7 @@ describe("CheckoutStatusService summary reconstruction", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {
@@ -1487,6 +1608,7 @@ describe("CheckoutStatusService retry selection", () => {
     ).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {
