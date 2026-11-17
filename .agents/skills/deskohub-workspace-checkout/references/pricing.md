@@ -41,8 +41,8 @@ The summary page's code form is an independent action (`features/checkout/action
 Removing an entered code (`clearDiscountCodeFromPayState`) shares entry's live guards (`priceBetweenPayableGuards`), unavailable mapping, signed `bookedAt` and deadline:
 
 1. No `submittedCode` and no `requestedDiscountCode`: return the caller's token as `unchanged`. It signs nothing and reads no reservation, like accepting a price that needs no review, so a retry after a lost response is safe; payment checks the reservation again.
-2. Only a `requestedDiscountCode`: after one live payable guard, reissue without it. No repricing; a pending `changedKeys` review stays.
-3. An applied code with `changedKeys` pending: `price_review_pending`.
+2. An applied or an intended code with `changedKeys` pending: `price_review_pending`, before any guard. The customer accepts the reviewed price first.
+3. Only a `requestedDiscountCode`: after one live payable guard, reissue without it. No repricing.
 4. An applied code: `CheckoutPricingService.clearDiscountCode` affirms every displayed discount except `submittedCodeDiscountId` through `affirmDisplayedDiscounts`, so `selectAffirmedCandidates` decides as at payment and the kept discounts are stacked afresh, never by taking the code's amount back off. The referral benefit is affirmed with them through `referralCode`. Reissue without `submittedCode`, `submittedCodeDiscountId` and `requestedDiscountCode`, with the new quote (and so its `acceptedTotal`) and `changedKeys` from the signed summary to the new one, so the customer accepts the price before paying. A code that changed no summary key signs no review.
 
 Both reissue through `PayState.reissue` (`requested_code_cleared` and `code_cleared`), on a state given its `holdExpiresAt` by `withPayStateHoldExpiry`; neither operation moves the hold.
@@ -60,7 +60,7 @@ Both reissue through `PayState.reissue` (`requested_code_cleared` and `code_clea
 
 Every Pay state signs `holdExpiresAt`, the reservation's stored `reservation_hold_expires_at`, separately from the token's own `exp`. Every issue copies it from the stored reservation, and `PayState.reissue` takes only a `PayStateWithHoldExpiry` and carries its deadline into every outcome; an opened state gets it from `withPayStateHoldExpiry` or `loadPayStateHoldExpiry` (`pay-state-hold.ts`). Never recompute it from the token TTL. A token issued before the claim existed reads it from the stored reservation. `PayableCheckout` (`open`, `reconfirm`) remains the authority that refuses an ended hold, and its `OpenCheckout.state` already carries the deadline.
 
-Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. Issue a new order's Pay state with `PayState.issue` and replace an open one only with `PayState.reissue(state, outcome)` (`pay-state.ts`): each outcome owns the fields it carries forward, so callers never assemble a replacement's fields by hand. Every reservation family quotes and affirms through its own canonical product identity; dispatch family-owned quote, summary, persistence, and checkout-details projections exhaustively, with no implicit cowork default.
+Keep `submittedCode` and `changedKeys` in the common signed Pay-state envelope. Issue a new order's Pay state with `PayState.issue` and replace an open one only with `PayState.reissue(state, outcome)` (`pay-state.ts`): each outcome owns the fields it carries forward, so callers never assemble a replacement's fields by hand. `referral_applied` deliberately drops `requestedDiscountCode`: the customer entered the referral through the same discount-code field, so carrying the earlier code would refill that field with a code the customer moved past and leave a stale removable intended code. Every reservation family quotes and affirms through its own canonical product identity; dispatch family-owned quote, summary, persistence, and checkout-details projections exhaustively, with no implicit cowork default.
 
 ### Payment
 
