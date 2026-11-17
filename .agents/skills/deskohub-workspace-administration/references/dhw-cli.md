@@ -75,6 +75,16 @@ Each operation group that the Admin UI and the API both serve has one port. Camp
 - The ledger adapter turns the request ledger's own failures into port errors with `toOperationLedgerFailure`, and applies the declared settlement with `startOperationSettlement` after a successful result, applied or replayed, never after a failure. It starts the refresh and revalidates the pages in each locale inside the fiber, best effort: a step Next.js refuses is logged and never changes the response, the ledger result, or recovery. `revalidatePath` is allowed in the route handlers behind `/api/v1/cli` and `/api/mcp`.
 - The Admin UI action provides the group's `unscoped` ledger, maps the `code` to its catalog's copy (`mutation-error-message.ts` for discounts), falls back to the area's generic message, and passes the settlement to `defineAdministrationAction`.
 
+### Groups outside the port
+
+Only campaigns, automations, and discount mutations use the port. The rest keep their handler and action pair; don't move one without the reason below changing.
+
+- Reservation cancellation (with refund attention) and access recovery: cross-system workflows (Dotypos, Igloohome) with their own state machines and recovery. Access recovery's request ledger uses a named `RecoveryPolicy` (see [Retries and idempotency](#retries-and-idempotency)).
+- Invoice issuance: its own durable idempotency, keyed by the invoice ID, and issuer provenance. It may become an accounting operation of its own; keep it out of the generic ledger either way.
+- Standalone access codes: the API's request ledger and recovery and the Admin UI's form outcome differ by channel.
+- Administrators (`AdministratorRoster` grant and revoke, legacy backfill): the roster already holds the policy, and each channel adds only a few lines of error mapping. A port would add a registry, a service, and a ledger tag with no ledger operation, and remove less than it adds. The legacy backfill is API-only and dry-run shaped.
+- CLI sessions, read projections, and the CLI handshake: little or no adapter glue to remove; the handshake is CLI-only by design.
+
 ## Retries and idempotency
 
 - Discount, reservation-access and standalone access-code mutations carry a client-generated request ID. `AdministrationRequestLedger` (`features/admin-cli/administration-request-ledger.service.ts`) stores the request and result per caller channel, so retrying after an ambiguous transport failure replays the stored result instead of applying the mutation twice. A replayed access mutation returns safe grant metadata without issuing another credential.

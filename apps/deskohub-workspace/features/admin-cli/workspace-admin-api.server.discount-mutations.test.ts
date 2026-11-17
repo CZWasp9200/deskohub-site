@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   AdministrationDiscountCodeId,
+  type AdministrationDiscountMutationResult,
   AdministrationStoredDiscountId,
   AdministrationVoucherId,
   CliClientCompatibility,
@@ -156,6 +157,20 @@ const settlingRequestLedger = (
   } as (typeof AdministrationRequestLedger)["Service"]);
   return { layer, releases, failures };
 };
+
+/**
+ * A ledger that finds the request already completed, as the real one replays
+ * a stored result: it never applies the mutation again, and runs
+ * `afterSettled` once the stored result is replayed.
+ */
+const replayingRequestLedger = (stored: AdministrationDiscountMutationResult) =>
+  Layer.succeed(AdministrationRequestLedger, {
+    applyOnce: () => Effect.die("Discount mutations have external effects."),
+    applyOnceWithEffects: (mutation) =>
+      Effect.sync(() => mutation.stored.replay(stored as never)).pipe(
+        Effect.tap(() => mutation.afterSettled ?? Effect.void)
+      ),
+  } as (typeof AdministrationRequestLedger)["Service"]);
 
 const mutateDiscounts = (
   mutation: Parameters<
@@ -421,6 +436,26 @@ describe("discount mutation page revalidation over the administration API", () =
     });
 
     expect(result._tag).toBe("Success");
+    expect(revalidatedPaths).toEqual(customerPagePaths());
+  });
+
+  test("revalidates the customer's page when a retried code creation replays", async () => {
+    const created: AdministrationDiscountMutationResult = {
+      kind: "create-customer-code",
+      createdDiscountId: null,
+      createdCodeId: codeId,
+      createdVoucherId: null,
+    };
+
+    const result = await mutateDiscounts(customerCodeCreation, {
+      discounts: {
+        createCustomerCode: () =>
+          Effect.die("A replayed request never creates the code again."),
+      },
+      ledger: replayingRequestLedger(created),
+    });
+
+    expect(result).toMatchObject({ _tag: "Success", success: created });
     expect(revalidatedPaths).toEqual(customerPagePaths());
   });
 
