@@ -146,16 +146,32 @@ export const CustomerCheckoutChangedKeys = Schema.Struct({
 /**
  * A held order ready to pay, as its signed checkout state describes it.
  * `price_review`: the price changed; show `summary` and `priceReview`, and
- * call `acceptCheckoutPriceChange` before submitting. `expiresAt` is when
- * `payStateToken` stops working; accepting a price doesn't extend the hold.
+ * call `acceptCheckoutPriceChange` before submitting.
  */
 export const CustomerCheckout = Schema.Struct({
   status: Schema.Literals(["ready", "price_review"]),
   orderId: Schema.String,
   /** Sent back with every later checkout step; opaque to the client. */
   payStateToken: Schema.String,
+  /**
+   * When `payStateToken` stops working. Each step that returns a new token
+   * gives it a new expiry; count the hold down with `holdExpiresAt`.
+   */
   expiresAt: isoInstant,
+  /**
+   * When the hold ends and the order can no longer be paid. Applying or
+   * clearing a code and accepting a price never move it.
+   */
+  holdExpiresAt: isoInstant,
   summary: CustomerCheckoutSummary,
+  /**
+   * The entered discount code the price includes. Its line is the summary
+   * discount whose `discount.id` is `discountId`; remove it with
+   * `clearCheckoutDiscountCode`.
+   */
+  appliedDiscountCode: Schema.optionalKey(
+    Schema.Struct({ code: Schema.String, discountId: Schema.String })
+  ),
   priceReview: Schema.optionalKey(
     Schema.Struct({ changedKeys: CustomerCheckoutChangedKeys })
   ),
@@ -321,6 +337,12 @@ export const ApplyCustomerCheckoutDiscountCode = Schema.Struct({
   identifier: "ApplyCustomerCheckoutDiscountCode",
 });
 
+export const ClearCustomerCheckoutDiscountCode = Schema.Struct(
+  PayStateStep
+).annotate({
+  identifier: "ClearCustomerCheckoutDiscountCode",
+});
+
 export const AcceptCustomerCheckoutPriceChange = Schema.Struct(
   PayStateStep
 ).annotate({
@@ -398,6 +420,22 @@ const applyCheckoutDiscountCode = HttpApiEndpoint.post(
 ).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
 
 /**
+ * Removes the entered discount code from a held checkout. When the code was
+ * in the price, the checkout comes back as `price_review` without it: accept
+ * it before submitting. With no code entered, it returns the checkout as it
+ * is, so a retry is safe. It doesn't extend the hold.
+ */
+const clearCheckoutDiscountCode = HttpApiEndpoint.post(
+  "clearCheckoutDiscountCode",
+  "/checkouts/discount-code/clear",
+  {
+    payload: ClearCustomerCheckoutDiscountCode,
+    success: CustomerCheckout,
+    error: [...checkoutStepErrors],
+  }
+).annotate(HttpApi.PayloadParseOptions, customerInputParseOptions);
+
+/**
  * Accepts the changed price a `price_review` checkout shows. It doesn't
  * extend the hold.
  */
@@ -435,6 +473,7 @@ const submitCheckout = HttpApiEndpoint.post(
 export const customerBookingCheckoutEndpoints = [
   createCheckout,
   applyCheckoutDiscountCode,
+  clearCheckoutDiscountCode,
   acceptCheckoutPriceChange,
   submitCheckout,
 ] as const;

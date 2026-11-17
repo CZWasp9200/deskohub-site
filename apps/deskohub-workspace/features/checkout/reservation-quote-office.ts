@@ -13,7 +13,11 @@ import {
   officeReservationDayCountSchema,
   officeSeatsSchema,
 } from "@/features/reservation/office-reservation";
-import { moneyCodec, positiveMoneyCodec } from "@/shared/money/money";
+import {
+  moneyCodec,
+  moneyWithValue,
+  positiveMoneyCodec,
+} from "@/shared/money/money";
 
 export const officeReservationQuoteItemSchema = Schema.Struct({
   type: Schema.Literal("office"),
@@ -29,6 +33,13 @@ export const officeReservationQuoteSchema = makeReservationQuoteSchema(
 );
 
 export type OfficeReservationQuote = typeof officeReservationQuoteSchema.Type;
+
+/** Every booked seat's price for the days booked: one seat's price per seat. */
+export const getOfficeSeatsAmount = ({
+  seatAmount,
+  seats,
+}: Pick<OfficeReservationQuote["items"][0], "seatAmount" | "seats">) =>
+  moneyWithValue(seatAmount.value * seats, seatAmount);
 
 export type CanonicalOfficeReservation = {
   readonly kind: "office";

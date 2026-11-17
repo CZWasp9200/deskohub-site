@@ -279,15 +279,22 @@ const settleSelection = ({
     )
   );
 
+/**
+ * Waits for the next commit, then for every later one while the form is
+ * pending. Each commit's listener subscribes to the next one before it
+ * returns, so a form that settles over commits in quick succession, as when
+ * the price and availability resolve together, never slips past the wait.
+ */
 const awaitReadiness = (form: SiteToolReservationFormHandle) =>
-  nextCommit(form).pipe(
-    Effect.repeat({ while: () => form.current().readiness.isPending })
-  );
-
-const nextCommit = (form: SiteToolReservationFormHandle) =>
   Effect.callback<void>((resume) => {
-    const stop = form.onNextCommit(() => resume(Effect.void));
-    return Effect.sync(stop);
+    let stop = form.onNextCommit(function wake() {
+      if (form.current().readiness.isPending) {
+        stop = form.onNextCommit(wake);
+        return;
+      }
+      resume(Effect.void);
+    });
+    return Effect.sync(() => stop());
   });
 
 const stopUnlessBookable = ({

@@ -131,11 +131,14 @@ const {
   reauthenticationExpectation,
   sendSignInEmail,
   signInEmailField,
+  appAccountEmail,
 } = await import("./web-sign-in");
 const {
   clearReauthenticatingUser,
   loadReauthentication,
   loadReauthenticatingUser,
+  saveReauthenticatingUser,
+  takeCompletedReauthentication,
 } = await import("./web-reauthentication-store");
 
 /** A browser `localStorage`, or one that refuses access. */
@@ -283,6 +286,25 @@ describe("signInEmailField", () => {
     }
   });
 
+  test("locks the app's reauthentication to the account the app named", () => {
+    const other = { id: "bob", email: testEmailAddress("bob") };
+    for (const pageSession of [
+      undefined,
+      { user: undefined },
+      { user: other },
+    ]) {
+      for (const reauthenticating of [true, false]) {
+        expect(
+          signInEmailField({
+            reauthenticating,
+            pageSession,
+            appAccountEmail: user.email,
+          })
+        ).toEqual({ kind: "locked", email: user.email });
+      }
+    }
+  });
+
   test("leaves the address free with no account to keep", () => {
     expect(
       signInEmailField({
@@ -293,6 +315,31 @@ describe("signInEmailField", () => {
     expect(
       signInEmailField({ reauthenticating: false, pageSession: { user } })
     ).toEqual({ kind: "free" });
+  });
+});
+
+describe("appAccountEmail", () => {
+  const request = {
+    codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+    state: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+    returnUri: "deskohub://auth/callback",
+    reauthenticate: true,
+    loginHint: testEmailAddress("ada"),
+  };
+
+  test("is the account an app reauthentication names", () => {
+    expect(appAccountEmail(Option.some(request))).toBe(request.loginHint);
+  });
+
+  test("is absent without an app reauthentication naming one", () => {
+    const { loginHint: _, ...withoutHint } = request;
+    for (const nativeRequest of [
+      Option.none(),
+      Option.some(withoutHint),
+      Option.some({ ...request, reauthenticate: false }),
+    ]) {
+      expect(appAccountEmail(nativeRequest)).toBeUndefined();
+    }
   });
 });
 
@@ -421,6 +468,7 @@ describe("prepareReauthenticationEmail", () => {
       Option.some({
         userId: "ada",
         returnPath: Option.some("/account/passkeys"),
+        purpose: undefined,
       })
     );
     clearReauthenticatingUser();
@@ -575,6 +623,34 @@ describe("completeWebPasskeySignIn", () => {
     ).toBeUndefined();
     expect(signOuts).toBe(0);
     expect(loadReauthenticatingUser(Date.now())).toEqual(Option.none());
+  });
+  test("a confirmed reauthentication for a purpose lets its screen continue once", async () => {
+    useStorage(true);
+    saveReauthenticatingUser(
+      {
+        userId: "ada",
+        returnPath: "/account/danger",
+        purpose: "delete-account",
+      },
+      Date.now()
+    );
+    // The sign-in page stores the account again before its email.
+    await Effect.runPromise(
+      prepareReauthenticationEmail(
+        { kind: "account", userId: "ada" },
+        "/account/danger"
+      )
+    );
+    expect(
+      await reasonOfPasskey({ kind: "account", userId: "ada" })
+    ).toBeUndefined();
+    const take = () =>
+      takeCompletedReauthentication(
+        { userId: "ada", purpose: "delete-account" },
+        Date.now()
+      );
+    expect(take()).toBe(true);
+    expect(take()).toBe(false);
   });
 });
 

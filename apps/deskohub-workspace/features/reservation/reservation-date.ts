@@ -3,6 +3,7 @@ import type { Locale } from "@/features/i18n";
 import {
   formatInstantDate,
   formatInstantDateRange,
+  formatInstantDateTimeRange,
   formatPlainDate,
   formatPlainDateRange,
 } from "@/shared/utils/date-time-format";
@@ -148,6 +149,24 @@ export const formatReservationDisplayTimeRange = (
     locale,
     reservationDisplayTimeFormatOptions
   ).formatRange(temporalInstantToDate(start), temporalInstantToDate(end));
+
+/**
+ * A reservation that starts and ends at set times on different dates, such as
+ * an overnight stay, with both dates and times.
+ */
+export const formatReservationDisplayDateTimeRange = (
+  start: Temporal.Instant,
+  end: Temporal.Instant,
+  locale: Locale
+) =>
+  formatInstantDateTimeRange({
+    start,
+    end,
+    locale,
+    dateStyle: reservationDisplayDateTimeFormatOptions.dateStyle,
+    timeStyle: reservationDisplayDateTimeFormatOptions.timeStyle,
+    timeZone: workspaceSiteConstants.location.timeZone,
+  });
 
 export const formatReservationDisplayDateTime = (
   instant: Temporal.Instant,

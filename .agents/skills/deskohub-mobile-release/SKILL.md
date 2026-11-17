@@ -61,12 +61,27 @@ list to the user when an agent can't:
 - An OTA rollback (`--rollback`) after a published update: the Restart banner
   returns the app to its embedded update, and a dismissed one applies at the
   next cold start.
-- The live Obtainium badge and import on `/android`.
+- The live Obtainium badge and import on `/android`, installing without the
+  APK-origin warning, and no native-update prompt in an app Obtainium
+  installed (one installed from the browser still shows it).
 - Creating and signing in with a passkey through the device's credential
   provider.
 - The link-only "sent" screen with the `login_email_code` flag off.
 - TalkBack across sign-in, booking and the account screens; iOS once an Apple
   account exists.
+- A PIN link (`/app/reservations/<id>/access`) opens the PIN screen in the
+  app; Back from it leaves the app until #1327 lands.
+- The payment hand-off with a real bank: the 3-D Secure switch to a banking
+  app and back, then the return to the booking ticket.
+- Sign-in on a phone whose Chrome has never run: the first-run screens and
+  the leftover sign-in tab (#1303).
+- Invoice and data-export downloads open the share sheet with the phone's
+  own apps (Files, mail), and the saved file opens.
+- With the phone's own keyboard (Gboard or the maker's) and both gesture and
+  three-button navigation: Pay, Save and Continue stay above the keyboard on
+  the checkout details, profile, billing and onboarding steps.
+- On Android 9 or older (below API 29) the logo on the sign-in photo is
+  drawn unblended (accepted); check that it stays legible.
 
 ## Update code signing and development clients
 
@@ -76,7 +91,7 @@ Development clients and Metro run without it. A build that embeds the certificat
 
 ## Latest-release endpoint
 
-`GET /api/mobile/releases/latest` tells the app, and the `/android` page through `loadLatestAndroidRelease`, which APK is the newest. The code is in `apps/deskohub-workspace/features/mobile-releases`: the release-note rules in `android-release.ts`, and the cached lookup in `backend/latest-android-release.server.ts`. It answers the release as JSON, 404 `{ "error": "no-release" }`, or an uncached 502 `{ "error": "lookup-failed" }`.
+`GET /api/mobile/releases/latest` tells the app, and the `/android` page through `loadLatestAndroidRelease`, which APK is the newest. The code is in `apps/deskohub-workspace/features/mobile-releases`: the release-note rules in `android-release.ts`, and the cached lookup in `backend/latest-android-release.server.ts`. It answers the release as JSON, 404 `{ "error": "no-release" }`, or an uncached 502 `{ "error": "lookup-failed" }`. The APK download routes `/android/download` and `/android/download/deskohub-X.Y.Z.apk` (`backend/android-apk-download-response.ts`) answer the same way, with a 302 to the GitHub asset in place of the JSON. A version older than the latest is looked up by its own tag in `backend/android-release-version.server.ts`, only when the shared `mobile-v` tag list (ten minutes) has it, and shared for a day once found; a version above the latest or without a tag is 404 without a release request, so made-up names don't spend the hourly limit.
 
 - It reads GitHub's REST API without a token: `git/matching-refs/tags/mobile-v`, then `releases/tags/<tag>` for the three highest versions until one is usable. A 404 there means the tag has no published release yet. Paging the release list could miss mobile releases behind dhw releases; the tag list can't.
 - A release counts only if `renderReleaseNotes` wrote it: tag `mobile-vX.Y.Z`, title `mobile: vX.Y.Z`, asset `deskohub-X.Y.Z.apk`, and an `### Android APK` section whose `File` line names that asset with its version code, with a `File SHA-256` line and a `Signing certificate SHA-256` line equal to `nativeApp.androidReleaseCertificate` (`features/account/backend/auth/native-app.ts`). Change `android-release.ts` with any change to those lines. Keep `nativeApp.androidReleaseCertificate` equal to `releaseCertificateSha256` in `scripts/release/apk-signature.ts`.

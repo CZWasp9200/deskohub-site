@@ -4,6 +4,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import {
   type DotyposCustomerId,
   DotyposCustomerIdSchema,
+  DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
 import {
   AlgoPinSchema,
@@ -374,6 +375,256 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    describe("hold cancellation claims", () => {
+      const holdExpiresAt = at(-5);
+
+      const expiredHold = (
+        stage: Partial<ReservationFixtureStage> = {},
+        overrides: ReservationFixtureInput["overrides"] = {}
+      ) =>
+        insertReservation(stage, {
+          reservationHoldExpiresAt: holdExpiresAt,
+          ...overrides,
+        });
+
+      const expectedHoldOf = async (id: WorkspaceReservationId) => {
+        const row = (await readReservation(id))!;
+        return {
+          dotyposReservationId: row.dotyposReservationId!,
+          reservationHoldExpiresAt: row.reservationHoldExpiresAt!,
+        };
+      };
+
+      test("claims a hold that still carries the expected hold, stamping the claim", async () => {
+        const id = await expiredHold();
+        const before = (await readReservation(id))!;
+        const expectedHold = await expectedHoldOf(id);
+
+        const claimed = await run((repository) =>
+          repository.claimCancellation({
+            id,
+            expectedHold,
+            cause: "hold_expired",
+          })
+        );
+
+        expect(claimed?.reservationState).toBe("cancelling");
+        const after = (await readReservation(id))!;
+        expect(after.reservationState).toBe("cancelling");
+        expect(claimed?.updatedAt.equals(after.updatedAt)).toBe(true);
+        expect(after.updatedAt.equals(before.updatedAt)).toBe(false);
+      });
+
+      test.each([
+        [
+          "another Dotypos hold",
+          { dotyposReservationId: DotyposReservationIdSchema.make("other") },
+        ],
+        ["another deadline", { reservationHoldExpiresAt: at(20) }],
+      ] as const)(
+        "does not claim a hold replaced by %s",
+        async (_label, replaced) => {
+          const id = await expiredHold();
+          const expectedHold = await expectedHoldOf(id);
+          await Effect.runPromise(
+            testDatabase.db
+              .update(workspaceReservations)
+              .set(replaced)
+              .where(eq(workspaceReservations.id, id))
+          );
+
+          expect(
+            await run((repository) =>
+              repository.claimCancellation({
+                id,
+                expectedHold,
+                cause: "hold_expired",
+              })
+            )
+          ).toBeNull();
+          expect((await readReservation(id))?.reservationState).toBe("held");
+        }
+      );
+
+      test("takes over only a stale claim, restamping it", async () => {
+        const fresh = await expiredHold(
+          { reservation: "cancelling" },
+          {
+            updatedAt: Temporal.Now.instant(),
+          }
+        );
+        const stale = await expiredHold(
+          { reservation: "cancelling" },
+          {
+            updatedAt: Temporal.Now.instant().subtract({ hours: 1 }),
+          }
+        );
+        const staleBefore = Temporal.Now.instant().subtract({ minutes: 10 });
+        const expectedHold = await expectedHoldOf(stale);
+
+        const freshTakeover = await run((repository) =>
+          repository.takeOverStaleCancellation({ id: fresh, staleBefore })
+        );
+        const staleTakeover = await run((repository) =>
+          repository.takeOverStaleCancellation({
+            id: stale,
+            staleBefore,
+            expectedHold,
+          })
+        );
+
+        expect(freshTakeover).toBeNull();
+        expect(staleTakeover?.reservationState).toBe("cancelling");
+        expect(
+          Temporal.Instant.compare(staleTakeover!.updatedAt, staleBefore)
+        ).toBe(1);
+      });
+
+      test("does not take over a stale claim on a replaced hold", async () => {
+        const id = await expiredHold(
+          { reservation: "cancelling" },
+          {
+            updatedAt: Temporal.Now.instant().subtract({ hours: 1 }),
+          }
+        );
+        const expectedHold = await expectedHoldOf(id);
+        await Effect.runPromise(
+          testDatabase.db
+            .update(workspaceReservations)
+            .set({ reservationHoldExpiresAt: at(20) })
+            .where(eq(workspaceReservations.id, id))
+        );
+
+        expect(
+          await run((repository) =>
+            repository.takeOverStaleCancellation({
+              id,
+              staleBefore: Temporal.Now.instant().subtract({ minutes: 10 }),
+              expectedHold,
+            })
+          )
+        ).toBeNull();
+      });
+
+      test("records the cause when a claim starts the cancellation, and keeps it when a later claim retries it", async () => {
+        const fresh = await expiredHold({
+          reservation: "held",
+          payment: "failed",
+        });
+        const operatorFailed = await expiredHold(
+          { reservation: "cancellation_failed", payment: "failed" },
+          { cancellationCause: "operator" }
+        );
+        const unknownFailed = await expiredHold({
+          reservation: "cancellation_failed",
+          payment: "failed",
+        });
+
+        const claims = await Promise.all(
+          [fresh, operatorFailed, unknownFailed].map((id) =>
+            run((repository) =>
+              repository.claimCancellation({ id, cause: "payment_retry" })
+            )
+          )
+        );
+
+        expect(claims.map((claim) => claim?.cancellationCause)).toEqual([
+          "payment_retry",
+          "operator",
+          null,
+        ]);
+      });
+
+      test("a payment retry claims only the hold of a payment that ended", async () => {
+        const pending = await expiredHold({
+          reservation: "held",
+          payment: "pending",
+        });
+        const ended = await expiredHold({
+          reservation: "held",
+          payment: "cancelled",
+        });
+
+        const claims = await Promise.all(
+          [pending, ended].map((id) =>
+            run((repository) =>
+              repository.claimCancellation({ id, cause: "payment_retry" })
+            )
+          )
+        );
+
+        expect(claims.map((claim) => claim?.reservationState ?? null)).toEqual([
+          null,
+          "cancelling",
+        ]);
+        expect((await readReservation(pending))?.reservationState).toBe("held");
+      });
+
+      test("records an outcome only under the current claim's stamp", async () => {
+        const cancelled = await expiredHold();
+        const failed = await expiredHold();
+        const claims = await Promise.all(
+          [cancelled, failed].map((id) =>
+            run((repository) =>
+              repository.claimCancellation({ id, cause: "hold_expired" })
+            )
+          )
+        );
+        const [cancelledClaim, failedClaim] = claims.map(
+          (claim) => claim!.updatedAt
+        );
+        const previousStamp = at(-60);
+
+        const staleCancel = await runFailure((repository) =>
+          repository.markCancelled({
+            id: cancelled,
+            claimedAt: previousStamp,
+            cancelledAt: at(1),
+          })
+        );
+        const staleFailure = await runFailure((repository) =>
+          repository.markCancellationFailed({
+            id: failed,
+            claimedAt: previousStamp,
+            failureCode: "dotypos_cancel_failed",
+          })
+        );
+        expect(staleCancel).toMatchObject({
+          _tag: "WorkspaceReservationStateError",
+        });
+        expect(staleFailure).toMatchObject({
+          _tag: "WorkspaceReservationStateError",
+        });
+        expect((await readReservation(cancelled))?.reservationState).toBe(
+          "cancelling"
+        );
+        expect((await readReservation(failed))?.reservationState).toBe(
+          "cancelling"
+        );
+
+        await run((repository) =>
+          repository.markCancelled({
+            id: cancelled,
+            claimedAt: cancelledClaim!,
+            cancelledAt: at(1),
+          })
+        );
+        await run((repository) =>
+          repository.markCancellationFailed({
+            id: failed,
+            claimedAt: failedClaim!,
+            failureCode: "dotypos_cancel_failed",
+          })
+        );
+        expect((await readReservation(cancelled))?.reservationState).toBe(
+          "cancelled"
+        );
+        expect((await readReservation(failed))?.reservationState).toBe(
+          "cancellation_failed"
+        );
+      });
+    });
+
     describe("administration cancellation", () => {
       const confirmedPaid = {
         reservation: "confirmed",
@@ -396,6 +647,28 @@ describe.skipIf(!testDatabase)(
             ...input,
           })
         );
+
+      test("records an administrator's cause on a new cancellation and keeps the cause of one it resumes", async () => {
+        const booked = await insertReservation(confirmedPaid);
+        const expiryFailed = await insertReservation(
+          { reservation: "cancellation_failed" },
+          { cancellationCause: "hold_expired" }
+        );
+        const unknownFailed = await insertReservation({
+          reservation: "cancellation_failed",
+        });
+
+        for (const id of [booked, expiryFailed, unknownFailed]) {
+          await claimCancellation(id);
+        }
+
+        const causes = await Promise.all(
+          [booked, expiryFailed, unknownFailed].map(
+            async (id) => (await readReservation(id))?.cancellationCause
+          )
+        );
+        expect(causes).toEqual(["operator", "hold_expired", null]);
+      });
 
       test("claims a confirmed paid booking for cancellation", async () => {
         const id = await insertReservation(confirmedPaid);
@@ -792,8 +1065,13 @@ describe.skipIf(!testDatabase)(
         });
         const replacementKey = crypto.randomUUID();
 
+        const claimedAt = (await readReservation(unpaid))!.updatedAt;
         await run((repository) =>
-          repository.markCancelled({ id: unpaid, cancelledAt: at(2) })
+          repository.markCancelled({
+            id: unpaid,
+            claimedAt,
+            cancelledAt: at(2),
+          })
         );
         const replacement = await run((repository) =>
           repository.completeSupersessionAndCreateDraft({

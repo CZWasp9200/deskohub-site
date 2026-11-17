@@ -7,9 +7,10 @@ import {
   type DotyposWriteFailure,
 } from "@deskohub/dotypos";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Effect, Layer, Predicate } from "effect";
+import { Context, Data, Effect, Layer, Predicate } from "effect";
 import type { WorkspaceReservationDetailsMalformedError } from "@/features/reservation/backend/stored-reservation-details.server";
 import {
+  type ExpectedReservationHold,
   type WorkspaceReservation,
   WorkspaceReservationRepository,
   type WorkspaceReservationStateError,
@@ -25,16 +26,25 @@ import { DotyposHoldRelease } from "./dotypos-hold-release.service";
  *   recreates the reservation or refunds.
  * - `agent_rotated`: an agent client's hold left behind in a rotated checkout
  *   session.
+ * - `payment_retry`: a customer retries the order's failed, cancelled or
+ *   expired payment, and its hold expired; the retry books the reservation
+ *   again for the same order once this hold is released.
  */
 type UnpaidHoldReleaseReason =
   | "hold_expired"
   | "late_payment"
-  | "agent_rotated";
+  | "agent_rotated"
+  | "payment_retry";
 
 export type UnpaidHoldReleaseRequest =
   | {
       readonly reason: "hold_expired";
       readonly reservationId: WorkspaceReservationId;
+      /**
+       * The hold cleanup found expired. A reservation that has carried
+       * another hold or deadline since is left alone.
+       */
+      readonly expectedHold: ExpectedReservationHold;
       /** When cleanup found the hold expired; recorded with the cancellation. */
       readonly holdExpiredAt?: Temporal.Instant;
     }
@@ -51,6 +61,12 @@ export type UnpaidHoldReleaseRequest =
   | {
       readonly reason: "agent_rotated";
       readonly reservationId: WorkspaceReservationId;
+    }
+  | {
+      readonly reason: "payment_retry";
+      readonly reservationId: WorkspaceReservationId;
+      /** The hold the retry found; a reservation carrying another is left alone. */
+      readonly expectedHold: ExpectedReservationHold;
     };
 
 /** A hold this run released and marked cancelled. */
@@ -66,15 +82,27 @@ interface RefusedHold {
 }
 
 /**
+ * Another run's cancellation claim on the reservation is fresh, so this run
+ * leaves it to that run. At `staleAt` the claim counts as interrupted and a
+ * later release may take it over.
+ */
+export class HoldCancellationInProgress extends Data.TaggedClass(
+  "HoldCancellationInProgress"
+)<{
+  readonly staleAt: Temporal.Instant;
+}> {}
+
+/**
  * - `already_released`: the reservation was cancelled already, or another run
  *   marked it cancelled while this one released it.
- * - `in_progress`: another run's cancellation of it is fresh, so this run
- *   leaves it alone.
- * - `unclaimed`: the reservation changed before this run could claim it.
+ * - `HoldCancellationInProgress`: another run's cancellation of it is fresh,
+ *   so this run leaves it alone.
+ * - `unclaimed`: the reservation changed before this run could claim it, or
+ *   it no longer carries the hold the release was for.
  * - `unreleasable`: it isn't an unpaid hold with a Dotypos reservation this
  *   reason may release.
- * - `state_changed`: it left `cancelling` before this run marked it
- *   cancelled, after the Dotypos release.
+ * - `state_changed`: it left `cancelling`, or another run took over the
+ *   claim, before this run marked it cancelled, after the Dotypos release.
  * - `refused`: the live Dotypos status kept the hold; under `require_new`
  *   the reservation moved to `cancellation_failed`, under
  *   `read_before_claim` it is untouched.
@@ -82,7 +110,7 @@ interface RefusedHold {
 type UnpaidHoldReleaseOutcome =
   | ReleasedHold
   | "already_released"
-  | "in_progress"
+  | HoldCancellationInProgress
   | "unclaimed"
   | "unreleasable"
   | "state_changed"
@@ -141,6 +169,11 @@ const releasePolicies = {
     failureCode: "checkout_supersession_cancel_failed",
     markerRefused: "fails",
   },
+  payment_retry: {
+    liveStatus: "require_new",
+    failureCode: "dotypos_cancel_failed",
+    markerRefused: "state_changed",
+  },
 } as const satisfies Record<UnpaidHoldReleaseReason, ReleasePolicy>;
 
 /**
@@ -155,22 +188,32 @@ const releasableReservationStates: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * A `cancelling` reservation untouched for this long belongs to an
- * interrupted run, so a late-payment release may finish it instead of
- * waiting indefinitely.
+ * A `cancelling` reservation whose claim is this old belongs to an
+ * interrupted run, so a release may take it over instead of waiting
+ * indefinitely. A fresher claim belongs to a run that is still going, whatever
+ * its reason: only its claimant records the outcome.
  */
 const staleHoldCancellationAfter = Temporal.Duration.from({ minutes: 10 });
 
-/** A fresh `cancelling` reservation belongs to a run that is still going. */
-const isHoldCancellationFresh = (reservation: WorkspaceReservation) =>
-  Temporal.Instant.compare(
-    reservation.updatedAt,
-    Temporal.Now.instant().subtract(staleHoldCancellationAfter)
-  ) > 0;
+/** The other run's claim, while it is fresh; nothing once it is stale. */
+const freshClaimInProgress = (
+  reservation: WorkspaceReservation,
+  now: Temporal.Instant
+) => {
+  const staleAt = reservation.updatedAt.add(staleHoldCancellationAfter);
+  return Temporal.Instant.compare(staleAt, now) > 0
+    ? new HoldCancellationInProgress({ staleAt })
+    : undefined;
+};
 
-/** A claimed hold, with the live status read before the claim, if any. */
+/**
+ * A claimed hold: `claimedAt` is the claim's stamp, which every outcome this
+ * run records requires, and `statusBeforeClaim` the live status read before
+ * the claim, if any.
+ */
 interface ClaimedHold {
   readonly reservation: WorkspaceReservation;
+  readonly claimedAt: Temporal.Instant;
   readonly dotyposReservationId: DotyposReservationId;
   readonly statusBeforeClaim?: "NEW" | "CANCELLED";
 }
@@ -182,6 +225,22 @@ type ClaimResult =
 
 const isClaimedHold = (result: ClaimResult): result is ClaimedHold =>
   !Predicate.isString(result) && "reservation" in result;
+
+const isClaimedRow = (
+  result: WorkspaceReservation | ClaimResult
+): result is WorkspaceReservation =>
+  !Predicate.isString(result) && "reservationState" in result;
+
+/** Whether the reservation still carries the hold and deadline `expected`. */
+const carriesHold = (
+  reservation: WorkspaceReservation,
+  expected: ExpectedReservationHold
+) =>
+  reservation.dotyposReservationId === expected.dotyposReservationId &&
+  reservation.reservationHoldExpiresAt !== null &&
+  reservation.reservationHoldExpiresAt.equals(
+    expected.reservationHoldExpiresAt
+  );
 
 interface IUnpaidHoldRelease {
   /**
@@ -208,21 +267,28 @@ export class UnpaidHoldRelease extends Context.Service<
       const dotypos = yield* DotyposService;
       const holdRelease = yield* DotyposHoldRelease;
 
-      // Claims the cancellation, or takes over a `cancelling` reservation
-      // another run claimed; unreleasable after logging why it may not be
-      // released.
-      const claimResumingClaimed = Effect.fnUntraced(function* (
-        reservationId: WorkspaceReservationId
-      ): Effect.fn.Return<ClaimResult, UnpaidHoldReleaseError> {
-        const claimedFromNew =
-          yield* reservations.claimCancellation(reservationId);
+      // Claims the cancellation of the expected hold, or takes over a stale
+      // claim on it; leaves a fresh claim to its run, and is unreleasable
+      // after logging why it may not be released.
+      const claimExpectedHold = Effect.fnUntraced(function* (request: {
+        readonly reason: "hold_expired" | "payment_retry";
+        readonly reservationId: WorkspaceReservationId;
+        readonly expectedHold: ExpectedReservationHold;
+      }): Effect.fn.Return<ClaimResult, UnpaidHoldReleaseError> {
+        const { reservationId, expectedHold } = request;
+        const claimedFromNew = yield* reservations.claimCancellation({
+          id: reservationId,
+          expectedHold,
+          cause: request.reason,
+        });
         yield* Effect.logDebug(
           "Reservation hold cancellation claim completed",
           { claimedFromNew: claimedFromNew !== null }
         );
         const claimed =
-          claimedFromNew ?? (yield* reservations.findById(reservationId));
-        if (claimed?.reservationState !== "cancelling") {
+          claimedFromNew ?? (yield* takeOverExpectedHold(request));
+        if (!isClaimedRow(claimed)) return claimed;
+        if (claimed.reservationState !== "cancelling") {
           yield* Effect.logWarning(
             "Reservation hold cancellation skipped: claim not cancellable"
           );
@@ -242,8 +308,44 @@ export class UnpaidHoldRelease extends Context.Service<
         }
         return {
           reservation: claimed,
+          claimedAt: claimed.updatedAt,
           dotyposReservationId: claimed.dotyposReservationId,
         } satisfies ClaimedHold;
+      });
+
+      // Without a fresh claim of its own, the reservation is either another
+      // run's claim, fresh or stale, or no longer the expected hold's.
+      const takeOverExpectedHold = Effect.fnUntraced(function* (request: {
+        readonly reservationId: WorkspaceReservationId;
+        readonly expectedHold: ExpectedReservationHold;
+      }): Effect.fn.Return<
+        WorkspaceReservation | ClaimResult,
+        UnpaidHoldReleaseError
+      > {
+        const current = yield* reservations.findById(request.reservationId);
+        if (!current) return "unreleasable" as const;
+        if (!carriesHold(current, request.expectedHold)) {
+          yield* Effect.logWarning(
+            "Reservation hold cancellation skipped: reservation carries another hold"
+          );
+          return "unclaimed" as const;
+        }
+        if (current.reservationState !== "cancelling") return current;
+        const now = Temporal.Now.instant();
+        const inProgress = freshClaimInProgress(current, now);
+        if (inProgress) {
+          yield* Effect.logInfo(
+            "Reservation hold cancellation left to another run's fresh claim",
+            { staleAt: inProgress.staleAt }
+          );
+          return inProgress;
+        }
+        const takenOver = yield* reservations.takeOverStaleCancellation({
+          id: request.reservationId,
+          staleBefore: now.subtract(staleHoldCancellationAfter),
+          expectedHold: request.expectedHold,
+        });
+        return takenOver ?? ("unclaimed" as const);
       });
 
       // Claims a `held` reservation whose payment may be superseded.
@@ -258,6 +360,7 @@ export class UnpaidHoldRelease extends Context.Service<
         if (!claimed.dotyposReservationId) return "unreleasable" as const;
         return {
           reservation: claimed,
+          claimedAt: claimed.updatedAt,
           dotyposReservationId: claimed.dotyposReservationId,
         } satisfies ClaimedHold;
       });
@@ -285,9 +388,10 @@ export class UnpaidHoldRelease extends Context.Service<
         }
         const resumesStaleCancellation =
           reservation.reservationState === "cancelling";
-        if (resumesStaleCancellation && isHoldCancellationFresh(reservation)) {
-          return "in_progress" as const;
-        }
+        const now = Temporal.Now.instant();
+        const inProgress =
+          resumesStaleCancellation && freshClaimInProgress(reservation, now);
+        if (inProgress) return inProgress;
 
         const status = yield* dotypos.getReservationStatus(
           request.originalDotyposReservationId
@@ -295,14 +399,19 @@ export class UnpaidHoldRelease extends Context.Service<
         if (status !== "NEW" && status !== "CANCELLED") {
           return { refused: status } satisfies RefusedHold;
         }
-        if (
-          !resumesStaleCancellation &&
-          !(yield* reservations.claimCancellation(reservation.id))
-        ) {
-          return "unclaimed" as const;
-        }
+        const claimed = resumesStaleCancellation
+          ? yield* reservations.takeOverStaleCancellation({
+              id: reservation.id,
+              staleBefore: now.subtract(staleHoldCancellationAfter),
+            })
+          : yield* reservations.claimCancellation({
+              id: reservation.id,
+              cause: "late_payment",
+            });
+        if (!claimed) return "unclaimed" as const;
         return {
           reservation,
+          claimedAt: claimed.updatedAt,
           dotyposReservationId: request.originalDotyposReservationId,
           statusBeforeClaim: status,
         } satisfies ClaimedHold;
@@ -314,7 +423,8 @@ export class UnpaidHoldRelease extends Context.Service<
       const claimHold = (request: UnpaidHoldReleaseRequest) => {
         switch (request.reason) {
           case "hold_expired":
-            return claimResumingClaimed(request.reservationId);
+          case "payment_retry":
+            return claimExpectedHold(request);
           case "late_payment":
             return claimResumingStale(request);
           case "agent_rotated":
@@ -332,6 +442,7 @@ export class UnpaidHoldRelease extends Context.Service<
         return holdRelease
           .release({
             reservationId: claimed.reservation.id,
+            claimedAt: claimed.claimedAt,
             dotyposReservationId: claimed.dotyposReservationId,
             liveStatus:
               policy.liveStatus === "require_new" ? "require_new" : "unchecked",
@@ -355,6 +466,7 @@ export class UnpaidHoldRelease extends Context.Service<
         return yield* reservations
           .markCancelled({
             id: claimed.reservation.id,
+            claimedAt: claimed.claimedAt,
             cancelledAt,
             ...holdExpiry,
           })

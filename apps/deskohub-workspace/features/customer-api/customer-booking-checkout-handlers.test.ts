@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
   type CreateCustomerCheckout,
+  type CustomerCheckout,
   customerReferralCodeHeader,
   type SubmitCustomerCheckout,
 } from "@deskohub/workspace-customer-api";
@@ -18,17 +19,24 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import {
   CheckoutError,
   CheckoutService,
-  openPayState,
+  openPayStateWithHoldExpiry,
+  PayState,
   PayStateAuthorNotFoundError,
   PayStateIssueError,
   PayStateTokenError,
 } from "@/features/checkout/backend/checkout";
+import { CheckoutUnavailableError } from "@/features/checkout/backend/checkout/checkout-unavailable";
+import { sealPayState } from "@/features/checkout/backend/checkout/pay-state";
 import {
   sealSyntheticPayStateToken,
   syntheticChangedKeys,
+  syntheticHoldExpiresAt,
   syntheticPayStateOrderId,
 } from "@/features/checkout/backend/checkout/signed-pay-state.test-utils";
-import { canonicalPromotionCodeSchema } from "@/features/discounts/contracts";
+import {
+  canonicalPromotionCodeSchema,
+  discountIdSchema,
+} from "@/features/discounts/contracts";
 import {
   DiscountAffirmationUnavailableError,
   DiscountProviderError,
@@ -39,9 +47,15 @@ import { ReferralServiceMock } from "@/features/referrals/referral.service.mock"
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { WorkspaceTableUnavailableError } from "@/features/reservation/backend/workspace-availability.service";
+import {
+  type WorkspaceReservation,
+  WorkspaceReservationRepository,
+} from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
+import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
   type CustomerApiCall,
   customerApiRequest,
@@ -71,8 +85,20 @@ const unsignablePayState = new PayStateIssueError({
   }),
 });
 
+/** The hold deadline the checkout's reservation stores. */
+const storedHoldExpiresAt = "2099-07-01T10:09:00.000Z";
+
+/** The reservation a state signed without its hold deadline reads it from. */
+const storedReservations = Layer.mock(WorkspaceReservationRepository, {
+  findById: (id) =>
+    Effect.succeed({
+      id,
+      reservationHoldExpiresAt: Temporal.Instant.from(storedHoldExpiresAt),
+    } as WorkspaceReservation),
+});
+
 const openTestPayState = (token: string) =>
-  openPayState(token).pipe(Effect.provide(TestSealedStateKeys));
+  PayState.open(token).pipe(Effect.provide(TestSealedStateKeys));
 
 /**
  * Checkout operations over the test key ring: tokens open, and the session's
@@ -80,7 +106,10 @@ const openTestPayState = (token: string) =>
  */
 const operationsWith = (overrides: Partial<Operations> = {}) =>
   Layer.mock(CustomerCheckoutOperations, {
-    readPayState: openTestPayState,
+    readPayState: (token) =>
+      openPayStateWithHoldExpiry(token).pipe(
+        Effect.provide(Layer.merge(TestSealedStateKeys, storedReservations))
+      ),
     requireAuthor: ({ payStateToken }) => openTestPayState(payStateToken),
     ...overrides,
   });
@@ -180,7 +209,11 @@ const expectedReadyCheckout = {
   orderId: syntheticPayStateOrderId,
   payStateToken: readyToken,
   expiresAt: expect.any(String),
-  summary: expect.objectContaining({ sections: expect.any(Array) }),
+  holdExpiresAt: syntheticHoldExpiresAt,
+  summary: expect.objectContaining({
+    sections: expect.any(Array),
+    vatStatus: workspaceSiteConstants.company.vatStatus,
+  }),
   earlyPerformanceConsent: {
     required: expect.any(Boolean),
     requiredFrom: expect.any(String),
@@ -535,6 +568,7 @@ describe("createCheckout", () => {
           office: Layer.unwrap(
             counted("office").pipe(Effect.map(OfficeReleaseGate.fromEvaluation))
           ),
+          overnightStay: OvernightStayReleaseGate.fromDecision(false),
         },
       }),
     });
@@ -597,6 +631,104 @@ describe("applyCheckoutDiscountCode", () => {
     });
   });
 
+  describe("hold deadline and applied code", () => {
+    const answerApplied = async (input: {
+      readonly payStateToken: string;
+      readonly freshPayStateToken: string;
+    }) => {
+      const api = makeCustomerApiTestServer({
+        bookingCheckout: {
+          operations: operationsWith({
+            applyDiscountCode: () =>
+              Effect.succeed({
+                status: "applied",
+                freshPayUrl: "/en-US/checkout/pay?payState=fresh",
+                freshPayStateToken: input.freshPayStateToken,
+                expiresAt: "2099-07-01T10:13:00.000Z",
+              }),
+          }),
+        },
+      });
+      const response = await api.handle(
+        customerApiRequest({
+          method: "POST",
+          path: "/booking/checkouts/discount-code",
+          body: {
+            locale: "en-US",
+            payStateToken: input.payStateToken,
+            code: "SPRING",
+          },
+        })
+      );
+      expect(response.status).toBe(200);
+      return (await response.json()) as typeof CustomerCheckout.Encoded;
+    };
+
+    /** `token`'s state with an entered code its price includes. */
+    const withAppliedCode = (token: string) =>
+      Effect.runPromise(
+        openTestPayState(token).pipe(
+          Effect.flatMap((state) =>
+            sealPayState({
+              ...state,
+              submittedCode: canonicalPromotionCodeSchema.make("SPRING"),
+              submittedCodeDiscountId: discountIdSchema.make("spring-discount"),
+            })
+          ),
+          Effect.provide(TestSealedStateKeys)
+        )
+      );
+
+    test("keeps the hold deadline while the replacement moves the checkout's expiry", async () => {
+      const signedEarlier = await sealSyntheticPayStateToken({
+        issuedAt: Temporal.Now.instant().subtract({ minutes: 5 }),
+      });
+      const signedEarlierExpiresAt = new Date(
+        (await Effect.runPromise(openTestPayState(signedEarlier))).exp * 1000
+      ).toISOString();
+
+      const body = await answerApplied({
+        payStateToken: signedEarlier,
+        freshPayStateToken: await sealSyntheticPayStateToken(),
+      });
+
+      expect(body.holdExpiresAt).toBe(syntheticHoldExpiresAt);
+      expect(body.expiresAt).not.toBe(signedEarlierExpiresAt);
+    });
+
+    test("names the entered code the replacement's price includes", async () => {
+      const body = await answerApplied({
+        payStateToken: readyToken,
+        freshPayStateToken: await withAppliedCode(readyToken),
+      });
+
+      expect(body.appliedDiscountCode).toEqual({
+        code: "SPRING",
+        discountId: "spring-discount",
+      });
+    });
+
+    test("leaves the applied code out of a checkout without one", async () => {
+      const body = await answerApplied({
+        payStateToken: readyToken,
+        freshPayStateToken: readyToken,
+      });
+
+      expect(body).not.toHaveProperty("appliedDiscountCode");
+    });
+
+    test("answers a state signed without the deadline with its reservation's stored one", async () => {
+      const body = await answerApplied({
+        payStateToken: readyToken,
+        freshPayStateToken: await sealSyntheticPayStateToken({
+          withoutHoldExpiry: true,
+        }),
+      });
+
+      expect(body.holdExpiresAt).toBe(storedHoldExpiresAt);
+    });
+  });
+
   test("tells the client to remember an accepted referral code while referrals are released", async () => {
     const acceptedCode = canonicalPromotionCodeSchema.make("RFLTYPED1");
     const accepting = (released: boolean) =>
@@ -605,6 +737,7 @@ describe("applyCheckoutDiscountCode", () => {
           releases: {
             referral: ReferralReleaseGate.fromDecision(released),
             office: OfficeReleaseGate.fromDecision(false),
+            overnightStay: OvernightStayReleaseGate.fromDecision(false),
           },
           operations: Layer.effect(
             CustomerCheckoutOperations,
@@ -831,6 +964,197 @@ describe("applyCheckoutDiscountCode", () => {
   });
 });
 
+describe("clearCheckoutDiscountCode", () => {
+  const clearCode = (payStateToken = readyToken): CustomerApiCall => ({
+    method: "POST",
+    path: "/booking/checkouts/discount-code/clear",
+    body: { locale: "en-US", payStateToken },
+  });
+  const answerClear = (
+    clearDiscountCode: Operations["clearDiscountCode"],
+    overrides: Partial<Operations> = {}
+  ) =>
+    makeCustomerApiTestServer({
+      bookingCheckout: {
+        operations: operationsWith({ clearDiscountCode, ...overrides }),
+      },
+    });
+
+  testCustomerEndpointGuards(clearCode());
+
+  test("answers the checkout without the code, for review of its new price", async () => {
+    const signedEarlier = await sealSyntheticPayStateToken({
+      issuedAt: Temporal.Now.instant().subtract({ minutes: 5 }),
+    });
+    const signedEarlierExpiresAt = new Date(
+      (await Effect.runPromise(openTestPayState(signedEarlier))).exp * 1000
+    ).toISOString();
+    const api = answerClear(() =>
+      Effect.succeed({
+        status: "cleared",
+        freshPayUrl: "/en-US/checkout/pay?payState=review",
+        freshPayStateToken: reviewToken,
+        expiresAt: "2099-07-01T10:13:00.000Z",
+      })
+    );
+
+    const response = await api.handle(
+      customerApiRequest(clearCode(signedEarlier))
+    );
+    const body = (await response.json()) as typeof CustomerCheckout.Encoded;
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      status: "price_review",
+      payStateToken: reviewToken,
+      holdExpiresAt: syntheticHoldExpiresAt,
+      priceReview: { changedKeys: expect.any(Object) },
+    });
+    expect(body.expiresAt).not.toBe(signedEarlierExpiresAt);
+    expect(body).not.toHaveProperty("appliedDiscountCode");
+  });
+
+  test("answers a checkout that carried no code as it is", async () => {
+    const api = answerClear(() =>
+      Effect.succeed({
+        status: "unchanged",
+        freshPayUrl: "/en-US/checkout/pay?payState=ready",
+        freshPayStateToken: readyToken,
+        expiresAt: "2099-07-01T10:13:00.000Z",
+      })
+    );
+
+    const response = await api.handle(customerApiRequest(clearCode()));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(expectedReadyCheckout);
+  });
+
+  test("answers a state signed without the deadline with its reservation's stored one", async () => {
+    const freshPayStateToken = await sealSyntheticPayStateToken({
+      withoutHoldExpiry: true,
+    });
+    const api = answerClear(() =>
+      Effect.succeed({
+        status: "cleared",
+        freshPayUrl: "/en-US/checkout/pay?payState=fresh",
+        freshPayStateToken,
+        expiresAt: "2099-07-01T10:13:00.000Z",
+      })
+    );
+
+    const response = await api.handle(customerApiRequest(clearCode()));
+
+    expect(
+      ((await response.json()) as typeof CustomerCheckout.Encoded).holdExpiresAt
+    ).toBe(storedHoldExpiresAt);
+  });
+
+  test.each([
+    [
+      "a discount provider that can't answer",
+      { status: "unavailable", reason: "provider" },
+      503,
+      { _tag: "CustomerServiceUnavailable" },
+    ],
+    [
+      "an expired hold",
+      { status: "unavailable", reason: "checkout", checkoutReason: "expired" },
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "expired" },
+    ],
+    [
+      "a reservation that can't be paid",
+      {
+        status: "unavailable",
+        reason: "checkout",
+        checkoutReason: "not_current",
+      },
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "not_payable" },
+    ],
+    [
+      "a payment already started",
+      {
+        status: "unavailable",
+        reason: "checkout",
+        checkoutReason: "payment_in_progress",
+      },
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "payment_in_progress" },
+    ],
+    [
+      "a price review still pending",
+      { status: "unavailable", reason: "price_review_pending" },
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "price_review_pending" },
+    ],
+  ] as const)(
+    "answers %s with its public error",
+    async (_case, result, status, body) => {
+      const api = answerClear(() => Effect.succeed(result));
+
+      const response = await api.handle(customerApiRequest(clearCode()));
+
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual(body);
+    }
+  );
+
+  test.each([
+    [
+      "an expired checkout state",
+      new PayStateTokenError({ code: "expired", message: "expired" }),
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "expired" },
+    ],
+    [
+      "a replacement checkout the server can't sign",
+      unsignablePayState,
+      503,
+      { _tag: "CustomerServiceUnavailable" },
+    ],
+  ] as const)(
+    "answers %s like entering a code does",
+    async (_case, error, status, body) => {
+      const api = answerClear(() => Effect.fail(error));
+
+      const response = await api.handle(customerApiRequest(clearCode()));
+
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual(body);
+    }
+  );
+
+  test("answers another account's checkout as not found, before the code is removed", async () => {
+    let cleared = 0;
+    const api = answerClear(
+      () =>
+        Effect.sync(() => {
+          cleared += 1;
+          return {
+            status: "unavailable" as const,
+            reason: "provider" as const,
+          };
+        }),
+      {
+        requireAuthor: () =>
+          Effect.fail(
+            new PayStateAuthorNotFoundError({
+              orderId: syntheticPayStateOrderId,
+            })
+          ),
+      }
+    );
+
+    const response = await api.handle(customerApiRequest(clearCode()));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ _tag: "CustomerCheckoutNotFound" });
+    expect(cleared).toBe(0);
+  });
+});
+
 describe("acceptCheckoutPriceChange", () => {
   const acceptPrice: CustomerApiCall = {
     method: "POST",
@@ -926,6 +1250,31 @@ describe("acceptCheckoutPriceChange", () => {
     expect(await response.json()).toEqual({
       _tag: "CustomerCheckoutUnavailable",
       reason: "expired",
+    });
+  });
+
+  test("answers acceptance of a checkout whose reservation is gone as unavailable", async () => {
+    const api = makeCustomerApiTestServer({
+      bookingCheckout: {
+        operations: operationsWith({
+          acceptPriceChange: () =>
+            Effect.fail(
+              new CheckoutUnavailableError({
+                orderId: syntheticPayStateOrderId,
+                reason: "missing_reservation",
+                restartKind: "cowork",
+              })
+            ),
+        }),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(acceptPrice));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerCheckoutUnavailable",
+      reason: "not_payable",
     });
   });
 
@@ -1250,6 +1599,7 @@ describe("submitCheckout", () => {
     expect(await response.json()).toMatchObject({
       status: "price_review",
       payStateToken: reviewToken,
+      holdExpiresAt: syntheticHoldExpiresAt,
       priceReview: { changedKeys: syntheticChangedKeys },
     });
   });

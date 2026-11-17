@@ -165,6 +165,8 @@
   "administrationCustomerExportColumnPhone": "Phone",
   "administrationCustomerExportColumnReservations": "Reservations",
   "administrationCustomerUnnamed": "Unnamed customer",
+  "administrationCustomerDeleted": "Deleted customer",
+  "administrationCustomerExpired": "Expired customer",
   "administrationCustomerNoContactDetails": "No contact details",
   "administrationCustomerSearchAmbiguous": "Multiple matches. Choose the correct customer.",
   "administrationCustomerSearchEmpty": "No customer matched.",

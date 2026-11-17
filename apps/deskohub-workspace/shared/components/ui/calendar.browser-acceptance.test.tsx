@@ -69,9 +69,9 @@ test.skipIf(!chromiumAvailable)(
       expect(styles?.selectedFill).toBe(styles?.fill);
       expect(styles?.selectedColor).toBe("rgb(255, 255, 255)");
       expect(styles?.otherFill).not.toBe(styles?.fill);
-      await expect(
-        page.getByRole("grid", { name: "listopad 2099" }).count()
-      ).resolves.toBe(1);
+      expect(
+        await page.getByRole("grid", { name: "listopad 2099" }).count()
+      ).toBe(1);
     } finally {
       await page.close();
     }

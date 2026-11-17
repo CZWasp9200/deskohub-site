@@ -7,8 +7,10 @@ import Info from "lucide-react-native/icons/info";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { m } from "../../i18n/messages";
+import { upperFirst } from "../../i18n/sentence-case";
 import { Icon, type IconComponent } from "../../ui/icon";
 import { useLiveRegionAnnouncement } from "../../ui/live-announcement";
+import { shrinkToFitLine } from "../../ui/shrink-to-fit";
 import { Text } from "../../ui/text";
 import {
   color,
@@ -31,13 +33,6 @@ import {
   monthCalendarModel,
 } from "./month-calendar-model";
 
-// The calendar's own greys (board 26): days that can't be booked (past, or
-// after the last bookable date), struck-through days and their strike, and
-// a page arrow that can't page.
-const pastInk = "#A9ADB8";
-const unavailableInk = "#8F94A3";
-const pageDisabledInk = "#C4C1BA";
-
 // Noon UTC on the calendar date, formatted in UTC, names the same day in
 // every device time zone.
 const utcNoon = (year: number, month: number, day: number) =>
@@ -49,7 +44,7 @@ const monthTitle = ({ year, month }: PragueMonth, locale: CustomerLocale) => {
     year: "numeric",
     timeZone: "UTC",
   }).format(utcNoon(year, month, 1));
-  return title.charAt(0).toLocaleUpperCase(locale) + title.slice(1);
+  return upperFirst(title, locale);
 };
 
 // 1 January 2024 is a Monday, so its week names the weekdays Monday first.
@@ -188,6 +183,8 @@ export function MonthCalendar({
             variant="badge"
             tone="muted"
             style={styles.weekday}
+            // At 200% a weekday shrinks to its column, never splits.
+            {...shrinkToFitLine}
           >
             {weekdays[columnIndex]}
           </Text>
@@ -338,7 +335,10 @@ function PageButton({
         pressed && !disabled && styles.pressedDisc,
       ]}
     >
-      <Icon icon={icon} color={disabled ? pageDisabledInk : color.navy} />
+      <Icon
+        icon={icon}
+        color={disabled ? color.pageArrowDisabled : color.navy}
+      />
     </Pressable>
   );
 }
@@ -398,6 +398,10 @@ const styles = StyleSheet.create({
   disc: {
     alignItems: "center",
     borderRadius: radius.pill,
+    // Android drops the radius of a view that gains an outer shadow after
+    // it mounts, squaring a day once it's picked: every disc carries the
+    // selected disc's shadow, clear until picked.
+    boxShadow: "0 4px 10px -6px rgba(150, 48, 4, 0)",
     justifyContent: "center",
     minHeight: discSize,
     minWidth: discSize,
@@ -420,8 +424,8 @@ const styles = StyleSheet.create({
     fontVariationSettings: brandFontVariation(500),
     fontWeight: "500",
   },
-  pastNumber: { color: pastInk },
-  unavailableNumber: { color: unavailableInk },
+  pastNumber: { color: color.calendarPast },
+  unavailableNumber: { color: color.calendarUnavailable },
   bandNumber: {
     color: color.actionPressed,
     fontVariationSettings: brandFontVariation(600),
@@ -434,7 +438,7 @@ const styles = StyleSheet.create({
   },
   // A short diagonal line through the day number.
   strike: {
-    backgroundColor: unavailableInk,
+    backgroundColor: color.calendarUnavailable,
     height: 1.5,
     left: 11,
     position: "absolute",

@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { CustomerCheckoutDetailsInvalid } from "@deskohub/workspace-customer-api";
+import {
+  CustomerCheckoutDetailsInvalid,
+  type CustomerOffering,
+} from "@deskohub/workspace-customer-api";
 import { Clock, Deferred, Effect, Exit, Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { reservationHistoryAtom } from "../../account/reservations/reservations-list-state";
 import { analytics } from "../../analytics/analytics";
 import { accountStorageKey } from "../../customer-api/account-scoped-storage";
 import { fakeWorkspaceOrigin } from "../../customer-api/testing/fake-workspace";
+import { bookingOverviewOf } from "../checkout-screen/booking-overview";
 import {
   type PaymentBrowserResult,
   PaymentBrowserUnavailable,
@@ -26,8 +30,16 @@ import {
   waitForValue,
 } from "../testing/fake-checkout";
 import {
+  pricedLines,
+  sampleOfferings,
+  sampleSummary,
+  withReservedDeskOvernightStay,
+} from "../testing/sample-booking-catalog";
+import {
+  type CheckoutRequest,
   checkoutController,
   checkoutFlowAtom,
+  checkoutOvernightStay,
   holdClockInterval,
   type RunningCheckout,
 } from "./checkout-flow";
@@ -662,5 +674,89 @@ describe("a finished booking", () => {
     await settle();
 
     expect(reads()).toBe(1);
+  });
+});
+
+describe("checkoutOvernightStay", () => {
+  const overnight = {
+    family: "cowork",
+    tier: "reserved-desk",
+    date: "2026-11-26",
+    stay: "overnight",
+  } as const;
+  const noonToNoon = { startTime: "12:00", endTime: "12:00" };
+  const summary = sampleSummary({ lines: pricedLines(overnight) });
+  const retry: CheckoutRequest = {
+    _tag: "PaymentRetry",
+    locale: "en-US",
+    selection: overnight,
+    checkout: {
+      status: "ready",
+      orderId: "retried-order",
+      payStateToken: "pay-state-retry",
+      expiresAt: "2026-11-20T10:30:00.000Z",
+      holdExpiresAt: "2026-11-20T10:10:00.000Z",
+      summary,
+      earlyPerformanceConsent: {
+        required: false,
+        requiredFrom: "2026-11-26T00:00:00.000Z",
+      },
+    },
+    previousTotal: summary.total,
+  };
+  const catalog = sampleOfferings("en-US", "2026-11-20").offerings.map(
+    (offering) =>
+      offering.family === "cowork" && offering.tier === "reserved-desk"
+        ? { ...offering, overnightStay: noonToNoon }
+        : offering
+  );
+  const shownStay = (
+    request: CheckoutRequest,
+    offerings: ReadonlyArray<CustomerOffering> = catalog
+  ) =>
+    bookingOverviewOf(
+      request.selection,
+      false,
+      checkoutOvernightStay(request, Option.some(offerings))
+    );
+
+  test("an order paid again shows the catalog's overnight times", () => {
+    expect(shownStay(retry)).toMatchObject({
+      date: "2026-11-26",
+      overnight: Option.some({
+        start: "12:00",
+        end: "12:00",
+        endDate: "2026-11-27",
+      }),
+    });
+  });
+
+  test("an order paid again shows only its date until the catalog has loaded", () => {
+    expect(checkoutOvernightStay(retry, Option.none())).toBeUndefined();
+  });
+
+  test("an order paid again shows only its date once the catalog stops offering overnight", () => {
+    const dayOnly = withReservedDeskOvernightStay(
+      sampleOfferings("en-US", "2026-11-20").offerings,
+      undefined
+    );
+    expect(shownStay(retry, dayOnly)).toMatchObject({
+      overnight: Option.none(),
+    });
+  });
+
+  test("a new booking keeps the times its family screen handed over", () => {
+    const booking: CheckoutRequest = {
+      _tag: "Booking",
+      locale: "en-US",
+      selection: overnight,
+      advertisedPriceToken: "token",
+      quote: { summary, regularPrice: summary.total },
+      overnightStay: { startTime: "11:00", endTime: "11:00" },
+    };
+    expect(checkoutOvernightStay(booking, Option.some(catalog))).toEqual({
+      startTime: "11:00",
+      endTime: "11:00",
+    });
   });
 });

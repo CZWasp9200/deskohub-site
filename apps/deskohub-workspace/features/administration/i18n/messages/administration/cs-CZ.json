@@ -170,6 +170,8 @@
   "administrationCustomerExportColumnPhone": "Telefon",
   "administrationCustomerExportColumnReservations": "Rezervace",
   "administrationCustomerUnnamed": "Zákazník bez jména",
+  "administrationCustomerDeleted": "Smazaný zákazník",
+  "administrationCustomerExpired": "Zákazník s vypršelou platností",
   "administrationCustomerNoContactDetails": "Bez kontaktních údajů",
   "administrationCustomerSearchAmbiguous": "Odpovídá více zákazníků. Vyberte toho správného.",
   "administrationCustomerSearchEmpty": "Žádný zákazník neodpovídá.",

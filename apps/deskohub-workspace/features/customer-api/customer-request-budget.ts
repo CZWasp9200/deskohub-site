@@ -16,7 +16,8 @@ import { budgetKeyDigest } from "@/shared/backend/request-budget/request-budget-
 
 /**
  * What an endpoint costs beyond its general request budget:
- * `workspace-only` reads only the Workspace database and Better Auth;
+ * `workspace-only` reads only the Workspace database and Better Auth, or
+ * also calls a public provider whose allowance no site budget tracks;
  * `catalog-read` reads the booking catalog's shared snapshots;
  * `account-read`, `dotypos-read` and `dotypos-mutation` may call Dotypos,
  * whose allowance the whole site shares, and spend that kind's budget.
@@ -93,6 +94,10 @@ export const customerRequestBudgetClasses = {
     getReservationAccess: "account-read",
     // Authorizing the invoice can resolve the account's Dotypos customer.
     getReservationInvoice: "dotypos-read",
+    // Authorizes like the invoice, then records the page's return target.
+    reopenPaymentPage: "dotypos-mutation",
+    // May book the order's spot again in Dotypos and asks the payment provider.
+    retryPayment: "dotypos-mutation",
     // The space's address is the site's own constant.
     getEstablishment: "workspace-only",
   },
@@ -101,6 +106,12 @@ export const customerRequestBudgetClasses = {
     // the app reads them when the customer opens or downloads an invoice.
     listInvoices: "dotypos-read",
     getInvoicePdf: "dotypos-read",
+  },
+  companies: {
+    // One request to the public business registry (ARES), which needs no
+    // account resolution and no Dotypos call; the general budget bounds it,
+    // as the website's lookup has no budget of its own.
+    lookupCompany: "workspace-only",
   },
   booking: {
     // The office's seat maximum reads the shared table snapshot, which
@@ -117,8 +128,10 @@ export const customerRequestBudgetClasses = {
     listLegalDocuments: "workspace-only",
     // A booking spends two to four Dotypos mutations: the hold, an
     // optional code, the submission, and one retry after a price change.
+    // Removing a code reprices like entering one.
     createCheckout: "dotypos-mutation",
     applyCheckoutDiscountCode: "dotypos-mutation",
+    clearCheckoutDiscountCode: "dotypos-mutation",
     submitCheckout: "dotypos-mutation",
     // Reseals the signed checkout state only.
     acceptCheckoutPriceChange: "workspace-only",

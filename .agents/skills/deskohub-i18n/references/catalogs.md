@@ -43,7 +43,7 @@ Each locale's catalog carries its own CLDR cardinal plural categories, not the C
 | `hi-IN` | `one` (0 and 1), `other` |
 | `vi-VN` | `other` only |
 
-A catch-all `*` key (`countPlural=*`) appears where the source uses one; keep it. Group a count's digits with Inlang's `number` function (`local formattedCount = count: number`) rather than formatting in code. No test checks plural categories: the parity check in [translation-workflow.md](translation-workflow.md#parity-check) does.
+A catch-all `*` key (`countPlural=*`) appears where the source uses one; keep it. Group a count's digits with Inlang's `number` function (`local formattedCount = count: number`) rather than formatting in code. In the Workspace no test checks plural categories: the parity check in [translation-workflow.md](translation-workflow.md#parity-check) does. The mobile `src/i18n/message-catalogs.test.ts` checks that each plural message covers every category a whole count selects in its locale and no category the locale lacks.
 
 ### Selects
 

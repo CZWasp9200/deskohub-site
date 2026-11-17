@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { markCheckoutStatusWindowOwner } from "@/features/checkout/components/checkout-payment-window";
+import { openCheckoutPaymentWindow } from "@/features/checkout/components/checkout-payment-window";
 import { type Locale, m } from "@/features/i18n";
 import { submitReservation } from "@/features/reservation/actions/submit-reservation";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
@@ -10,19 +10,6 @@ import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 type SubmittedReservation = NonNullable<
   Awaited<ReturnType<typeof submitReservation>>
 >["data"];
-
-/**
- * Opens the payment gateway in a new tab whose status page this tab owns.
- * Returns false when the browser didn't open the tab.
- */
-const openCheckoutPaymentWindow = (redirectUrl: string, statusUrl: string) => {
-  const paymentWindow = window.open(redirectUrl, "_blank");
-  if (!paymentWindow) return false;
-
-  paymentWindow.opener = null;
-  markCheckoutStatusWindowOwner(statusUrl);
-  return true;
-};
 
 /**
  * Continues a submitted reservation and returns where this tab goes next: the

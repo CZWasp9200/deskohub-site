@@ -2,9 +2,10 @@
   "expo": {
     "name": "Deskohub",
     "slug": "deskohub-mobile",
-    "version": "0.1.1",
+    "version": "0.2.1",
     "scheme": "deskohub",
     "orientation": "portrait",
+    "backgroundColor": "#F8F5EF",
     "icon": "./assets/images/icon.png",
     "runtimeVersion": {
       "policy": "fingerprint"
@@ -49,6 +50,7 @@
     "plugins": [
       "expo-router",
       "expo-localization",
+      "expo-system-ui",
       [
         "expo-splash-screen",
         {

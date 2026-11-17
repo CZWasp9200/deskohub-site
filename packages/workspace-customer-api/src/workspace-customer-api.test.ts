@@ -58,10 +58,11 @@ const endpointsOf = <Id extends string, Groups extends HttpApiGroup.Constraint>(
 describe("WorkspaceCustomerApi", () => {
   const endpoints = endpointsOf(WorkspaceCustomerApi);
 
-  test("declares the account, reservations, booking and invoices groups", () => {
+  test("declares the account, reservations, booking, invoices and companies groups", () => {
     expect(Object.keys(WorkspaceCustomerApi.groups).sort()).toEqual([
       "account",
       "booking",
+      "companies",
       "invoices",
       "reservations",
     ]);
@@ -102,8 +103,11 @@ describe("WorkspaceCustomerApi", () => {
         "account.syncAnalyticsConsent",
         "account.saveAnalyticsPreference",
         "account.requestDeletion",
+        "reservations.reopenPaymentPage",
+        "reservations.retryPayment",
         "booking.createCheckout",
         "booking.applyCheckoutDiscountCode",
+        "booking.clearCheckoutDiscountCode",
         "booking.acceptCheckoutPriceChange",
         "booking.submitCheckout",
       ].map((reference) => ({ reference, options: customerInputParseOptions }))

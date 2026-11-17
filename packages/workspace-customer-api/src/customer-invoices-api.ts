@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 import { CustomerAccountLinkRequired } from "./customer-account-api";
 import { CustomerPlainDate } from "./customer-booking-selection";
+import { CustomerLocale } from "./customer-locale";
 import {
   CustomerInvoicePdf,
   CustomerReservationOrderId,
@@ -46,10 +47,34 @@ export const CustomerInvoiceTotal = Schema.Struct({
 }).annotate({ identifier: "CustomerInvoiceTotal" });
 export type CustomerInvoiceTotal = typeof CustomerInvoiceTotal.Type;
 
+const isoInstant = Schema.String.annotate({
+  description: "ISO 8601 instant.",
+});
+
+/**
+ * What an invoiced order booked and when, as the invoice froze it. A booking
+ * of whole days starts and ends at Prague midnights.
+ */
+export const CustomerInvoicedReservation = Schema.Struct({
+  /**
+   * The catalog name of the booked product in the request's locale, as the
+   * reservation history names it.
+   */
+  productName: Schema.NonEmptyString,
+  /** The office's seats; absent for a product booked without seats. */
+  seats: Schema.optionalKey(Schema.Int),
+  startsAt: isoInstant,
+  /** Exclusive. */
+  endsAt: isoInstant,
+}).annotate({ identifier: "CustomerInvoicedReservation" });
+export type CustomerInvoicedReservation =
+  typeof CustomerInvoicedReservation.Type;
+
 /**
  * One issued invoice. `orderId` names the order it invoices, the ID the
- * reservation history and order status go by; an invoice the office issued
- * by hand invoices no order and has none.
+ * reservation history and order status go by, and `reservation` what that
+ * order booked and when; an invoice the office issued by hand invoices no
+ * order and has neither.
  */
 export const CustomerInvoice = Schema.Struct({
   id: CustomerInvoiceId,
@@ -58,6 +83,7 @@ export const CustomerInvoice = Schema.Struct({
   issuedOn: CustomerPlainDate,
   total: CustomerInvoiceTotal,
   orderId: Schema.optionalKey(CustomerReservationOrderId),
+  reservation: Schema.optionalKey(CustomerInvoicedReservation),
 }).annotate({ identifier: "CustomerInvoice" });
 export type CustomerInvoice = typeof CustomerInvoice.Type;
 
@@ -77,6 +103,8 @@ export type CustomerInvoiceList = typeof CustomerInvoiceList.Type;
 export const CustomerInvoicesApi = HttpApiGroup.make("invoices")
   .add(
     HttpApiEndpoint.get("listInvoices", "/", {
+      /** The language of `productName`; the default locale when absent. */
+      query: Schema.Struct({ locale: Schema.optionalKey(CustomerLocale) }),
       success: CustomerInvoiceList,
       error: [
         CustomerAccountLinkRequired.schema,

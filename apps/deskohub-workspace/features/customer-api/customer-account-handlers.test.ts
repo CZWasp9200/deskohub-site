@@ -1092,6 +1092,10 @@ describe("getReferrals", () => {
     expect(response.status).toBe(200);
     const overview = await response.json();
     expect(overview.summary).toEqual(summary);
+    // The programme's rate, so the app never hard-codes it.
+    expect(overview.discountPerInvitee).toBe("5");
+    expect(overview.invitationDiscount).toBe("15");
+    expect(overview.savingsCurrency).toBe("CZK");
     expect(new URL(overview.shareUrl).searchParams.size).toBe(1);
     expect([...new URL(overview.shareUrl).searchParams.values()]).toEqual([
       summary.code,

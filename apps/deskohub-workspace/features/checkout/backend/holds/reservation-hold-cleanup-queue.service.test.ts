@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer, Logger } from "effect";
+import { makeRecordingAdvisoryLock } from "@/db/postgres-advisory-lock.test-utils";
 import type { WorkspaceReservationRow } from "@/db/schema";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { ReservationHoldCleanupService as ReservationHoldCleanupServiceType } from "./reservation-hold-cleanup.service";
@@ -89,6 +90,75 @@ const runProcessMessage = async (
   );
 
   return { result, findById, cancelOrderHold };
+};
+
+/**
+ * Delivers `payload` to the real cleanup service over `reservation`. The
+ * claim reports whether the cleanup got as far as claiming the hold.
+ */
+const deliverToCleanup = async (
+  payload: Parameters<
+    typeof import("./reservation-hold-cleanup-queue.service").processReservationHoldCleanupScheduleMessage
+  >[0],
+  reservation: WorkspaceReservationRow,
+  deliveredAt: Temporal.Instant
+) => {
+  const { ReservationHoldCleanupService } = await import(
+    "./reservation-hold-cleanup.service"
+  );
+  const { UnpaidHoldRelease } = await import("./unpaid-hold-release.service");
+  const { ProviderPaymentFinalizationService } = await import(
+    "../payment/provider-payment-finalization.service"
+  );
+  const { PaymentLifecycleRepository } = await import(
+    "../repositories/payment-lifecycle.repository"
+  );
+  const { processReservationHoldCleanupScheduleMessage } = await import(
+    "./reservation-hold-cleanup-queue.service"
+  );
+  const { WorkspaceReservationRepository } = await import(
+    "@/features/reservation/backend/workspace-reservation.repository"
+  );
+  const { silentCheckoutAnalytics } = await import(
+    "../analytics/checkout-analytics.service.mock"
+  );
+  const { CheckoutAnalytics } = await import(
+    "../analytics/checkout-analytics.service"
+  );
+  const { DotyposService } = await import("@deskohub/dotypos");
+  const claimCancellation = mock(() =>
+    Effect.succeed({ ...reservation, reservationState: "cancelling" })
+  );
+  const lock = makeRecordingAdvisoryLock();
+  const result = await processReservationHoldCleanupScheduleMessage(
+    payload,
+    deliveredAt
+  ).pipe(
+    Effect.provide(
+      ReservationHoldCleanupService.Default.pipe(
+        Layer.provide(UnpaidHoldRelease.Default),
+        Layer.provide(lock.layer),
+        Layer.provideMerge(
+          Layer.mergeAll(
+            Layer.mock(WorkspaceReservationRepository, {
+              findById: mock(() => Effect.succeed(reservation)),
+              claimCancellation,
+              markCancelled: mock(() => Effect.void),
+            } as never),
+            Layer.mock(ProviderPaymentFinalizationService, {}),
+            Layer.mock(PaymentLifecycleRepository, {}),
+            Layer.mock(CheckoutAnalytics, silentCheckoutAnalytics),
+            Layer.mock(DotyposService, {
+              getReservationStatus: mock(() => Effect.succeed("NEW")),
+              cancelReservation: mock(() => Effect.void),
+            } as never)
+          )
+        )
+      )
+    ),
+    Effect.runPromise
+  );
+  return { result, claimCancellation, lockKeys: lock.entered };
 };
 
 const duePayload = {
@@ -212,32 +282,58 @@ describe("ReservationHoldCleanupScheduleService", () => {
     ).toEqual(duePayload);
   });
 
-  test("ignores not-due, changed-expiry, and completed reservations", async () => {
-    const notDue = mock(() =>
-      Effect.succeed(
-        makeReservation({
-          reservationHoldExpiresAt: Temporal.Instant.from(
-            "2026-06-01T10:11:00.000Z"
-          ),
-        })
-      )
-    );
-    const notDueResult = await runProcessMessage(duePayload, {
-      findById: notDue,
+  test("acknowledges a cleanup its order is no longer due for", async () => {
+    const result = await runProcessMessage(duePayload, {
+      cancelOrderHold: mock(() => Effect.succeed("not_due" as const)),
+      now: dueNow,
     });
-    expect(notDueResult.result).toBe("ignored");
-    expect(notDueResult.cancelOrderHold).not.toHaveBeenCalled();
 
+    expect(result.result).toBe("ignored");
+  });
+
+  test("checks under the order's lock that the hold is still the scheduled one", async () => {
     for (const reservation of [
+      makeReservation({
+        reservationHoldExpiresAt: Temporal.Instant.from(
+          "2026-06-01T10:11:00.000Z"
+        ),
+      }),
       makeReservation({ paymentState: "paid" }),
       makeReservation({ reservationState: "cancelled" }),
       makeReservation({ reservationState: "confirmed" }),
     ]) {
-      const result = await runProcessMessage(duePayload, {
-        findById: mock(() => Effect.succeed(reservation)),
+      const delivery = await deliverToCleanup(duePayload, reservation, dueNow);
+
+      expect(delivery.result).toBe("ignored");
+      expect(delivery.claimCancellation).not.toHaveBeenCalled();
+      expect(delivery.lockKeys).toEqual([["reservation-order", "order-id"]]);
+    }
+    const early = await deliverToCleanup(
+      duePayload,
+      makeReservation(),
+      dueNow.subtract({ seconds: 1 })
+    );
+    expect(early.result).toBe("ignored");
+
+    for (const reservationState of [
+      "held",
+      "cancelling",
+      "cancellation_failed",
+    ] as const) {
+      const delivery = await deliverToCleanup(
+        duePayload,
+        makeReservation({ reservationState }),
+        dueNow
+      );
+      expect(delivery.result).toBe("cancelled");
+      expect(delivery.claimCancellation).toHaveBeenCalledWith({
+        id: "order-id",
+        expectedHold: {
+          dotyposReservationId: "dotypos-reservation-id",
+          reservationHoldExpiresAt: expiresAt,
+        },
+        cause: "hold_expired",
       });
-      expect(result.result).toBe("ignored");
-      expect(result.cancelOrderHold).not.toHaveBeenCalled();
     }
   });
 
@@ -251,30 +347,9 @@ describe("ReservationHoldCleanupScheduleService", () => {
     expect(result.result).toBe("cancelled");
     expect(cancelOrderHold).toHaveBeenCalledWith({
       orderId: "order-id",
+      holdExpiresAt: expiresAt,
       checkedAt: dueNow,
     });
-
-    for (const reservationState of [
-      "cancelling",
-      "cancellation_failed",
-    ] as const) {
-      const retryCancelOrderHold = mock(() =>
-        Effect.succeed("cancelled" as const)
-      );
-      const retryResult = await runProcessMessage(duePayload, {
-        cancelOrderHold: retryCancelOrderHold,
-        findById: mock(() =>
-          Effect.succeed(makeReservation({ reservationState }))
-        ),
-        now: dueNow,
-      });
-
-      expect(retryResult.result).toBe("cancelled");
-      expect(retryCancelOrderHold).toHaveBeenCalledWith({
-        orderId: "order-id",
-        checkedAt: dueNow,
-      });
-    }
   });
 
   test("cancels a due hold whose deadline came from the nanosecond clock", async () => {
@@ -303,15 +378,14 @@ describe("ReservationHoldCleanupScheduleService", () => {
       // Messages enqueued before the payload was stored-precision.
       { ...duePayload, reservationHoldExpiresAtIso: clockExpiresAt.toString() },
     ]) {
-      const cancelOrderHold = mock(() => Effect.succeed("cancelled" as const));
-      const result = await runProcessMessage(payload, {
-        cancelOrderHold,
-        findById: mock(() => Effect.succeed(storedReservation)),
-        now: dueNow.add({ seconds: 1 }),
-      });
+      const delivery = await deliverToCleanup(
+        payload,
+        storedReservation,
+        dueNow.add({ seconds: 1 })
+      );
 
-      expect(result.result).toBe("cancelled");
-      expect(cancelOrderHold).toHaveBeenCalledTimes(1);
+      expect(delivery.result).toBe("cancelled");
+      expect(delivery.claimCancellation).toHaveBeenCalledTimes(1);
     }
   });
 
@@ -341,15 +415,43 @@ describe("ReservationHoldCleanupScheduleService", () => {
 
     expect(failure).toMatchObject({
       _tag: "ReservationHoldCleanupDeferredError",
-      abandonmentCutoff,
+      redeliverAt: abandonmentCutoff,
     });
     expect(reservationHoldCleanupRedelivery(failure)).toEqual(
       QueueRedelivery.At({ instant: abandonmentCutoff })
     );
     expect(cancelOrderHold).toHaveBeenCalledWith({
       orderId: "order-id",
+      holdExpiresAt: expiresAt,
       checkedAt: retryNow,
     });
+  });
+
+  test("redelivers cleanup once another run's fresh cancellation claim is stale", async () => {
+    const { HoldCancellationInProgress } = await import(
+      "./unpaid-hold-release.service"
+    );
+    const { reservationHoldCleanupRedelivery } = await import(
+      "./reservation-hold-cleanup-queue.service"
+    );
+    const { QueueRedelivery } = await import(
+      "@/shared/backend/queue/queue-consumer"
+    );
+    const staleAt = dueNow.add({ minutes: 10 });
+
+    const failure = await runProcessMessage(duePayload, {
+      cancelOrderHold: mock(() =>
+        Effect.succeed(new HoldCancellationInProgress({ staleAt }))
+      ),
+      now: dueNow,
+    }).then(
+      () => undefined,
+      (cause: unknown) => cause
+    );
+
+    expect(reservationHoldCleanupRedelivery(failure)).toEqual(
+      QueueRedelivery.At({ instant: staleAt })
+    );
   });
 
   test("acknowledges a hold Dotypos kept and redelivers one whose status can't be read", async () => {
@@ -395,6 +497,7 @@ describe("ReservationHoldCleanupScheduleService", () => {
         Effect.provide(
           ReservationHoldCleanupService.Default.pipe(
             Layer.provide(UnpaidHoldRelease.Default),
+            Layer.provide(makeRecordingAdvisoryLock().layer),
             Layer.provideMerge(
               Layer.mergeAll(
                 Layer.mock(WorkspaceReservationRepository, {
@@ -431,6 +534,7 @@ describe("ReservationHoldCleanupScheduleService", () => {
     expect(kept.cancelReservation).not.toHaveBeenCalled();
     expect(kept.markCancellationFailed).toHaveBeenCalledWith({
       id: "order-id",
+      claimedAt: makeReservation().updatedAt,
       failureCode: "dotypos_cancel_failed",
     });
 
@@ -458,6 +562,7 @@ describe("ReservationHoldCleanupScheduleService", () => {
     expect(unreadable.cancelReservation).not.toHaveBeenCalled();
     expect(unreadable.markCancellationFailed).toHaveBeenCalledWith({
       id: "order-id",
+      claimedAt: makeReservation().updatedAt,
       failureCode: "dotypos_cancel_failed",
     });
   });

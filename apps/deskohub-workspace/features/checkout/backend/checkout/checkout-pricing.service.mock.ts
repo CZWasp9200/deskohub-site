@@ -7,10 +7,7 @@ import {
   type PaymentRepricingInput,
   type PreparedCustomerQuote,
 } from "./checkout-pricing.service";
-import {
-  getSignedPayStateCheckoutSummary,
-  type SignedPayStatePricing,
-} from "./pay-state";
+import { PayState, type SignedPayStatePricing } from "./pay-state";
 import {
   getCustomerQuotePriceVerdict,
   getPaymentPriceVerdict,
@@ -41,7 +38,7 @@ export const paymentPricingFrom = <E>(
             reservation: input.reservation,
             quote,
             commitment,
-            summary: getSignedPayStateCheckoutSummary({
+            summary: PayState.summary({
               reservation: input.reservation,
               quote,
             } as SignedPayStatePricing),
@@ -56,7 +53,7 @@ export const paymentPricingFrom = <E>(
           getPaymentPriceVerdict({
             signed: {
               quote: input.quote,
-              summary: getSignedPayStateCheckoutSummary(input),
+              summary: PayState.summary(input),
               acceptedTotal: input.acceptedTotal,
             },
             priced,
@@ -81,7 +78,7 @@ export const customerQuotePricingFrom = <E>(
       Effect.map((customerQuote) => {
         const { reservation, advertisedQuote } = input.advertisement.priced;
         const summarize = (summarized: PreparedCustomerQuote["quote"]) =>
-          getSignedPayStateCheckoutSummary({
+          PayState.summary({
             reservation,
             quote: summarized,
           } as SignedPayStatePricing);

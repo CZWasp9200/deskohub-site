@@ -13,7 +13,19 @@ export interface WorkspaceOpeningHours {
   readonly alwaysOpen: boolean;
   /** Open Space desks are usable from midnight until this local time, exclusive. */
   readonly openSpaceUsableUntil: string;
+  /**
+   * An overnight Reserved Desk stay runs from this local time on the arrival
+   * date until the same local time on the next date.
+   */
+  readonly overnightStayChangeover: string;
 }
+
+/**
+ * Whether the company is registered for VAT. The website footer, invoices and
+ * the app's price totals state it from the one setting below.
+ */
+export const vatStatuses = ["not-vat-payer", "vat-payer"] as const;
+export type VatStatus = (typeof vatStatuses)[number];
 
 export const workspaceSiteConstants = {
   brand: {
@@ -41,6 +53,7 @@ export const workspaceSiteConstants = {
   openingHours: {
     alwaysOpen: true,
     openSpaceUsableUntil: "17:00",
+    overnightStayChangeover: "12:00",
   } satisfies WorkspaceOpeningHours,
   reservation: {
     defaultStartTime: "10:00",
@@ -49,7 +62,8 @@ export const workspaceSiteConstants = {
     identificationNumber: "24531596",
     taxIdentificationNumber: "CZ24531596",
     establishmentId: "1016069146",
-    vatStatus: "not-vat-payer",
+    /** The company's VAT status; `"vat-payer"` once it registers for VAT. */
+    vatStatus: "not-vat-payer" as VatStatus,
     commercialRegister: {
       court: "Městský soud v Praze",
       section: "C",

@@ -50,6 +50,7 @@ export {
   CustomerAvailability,
   CustomerAvailabilityNotice,
   CustomerAvailabilityQuery,
+  CustomerBookableDates,
   CustomerBookingOfferings,
   CustomerBookingQuote,
   CustomerLegalDocument,
@@ -58,11 +59,13 @@ export {
   CustomerMeetingRoomUnavailableDates,
   CustomerOffering,
   CustomerOfferingAddOn,
+  CustomerOfferingFact,
   customerAvailabilityReplacementHeader,
 } from "./customer-booking-catalog-api";
 export {
   AcceptCustomerCheckoutPriceChange,
   ApplyCustomerCheckoutDiscountCode,
+  ClearCustomerCheckoutDiscountCode,
   CreateCustomerCheckout,
   CustomerCheckout,
   CustomerCheckoutBilling,
@@ -90,6 +93,7 @@ export {
   CustomerBookingSelection,
   CustomerBookingSelectionInvalid,
   CustomerBookingSelectionQuery,
+  CustomerCoworkStay,
   CustomerMeetingRoomDuration,
   CustomerMonitorOption,
   CustomerOfferingUnavailable,
@@ -101,9 +105,18 @@ export {
   CustomerCheckoutSummary,
   CustomerCheckoutSummaryDiscount,
   CustomerCheckoutSummaryItem,
+  CustomerVatStatus,
 } from "./customer-checkout-summary";
 export {
+  CustomerCompaniesApi,
+  CustomerCompanyDetails,
+  CustomerCompanyIdInvalid,
+  CustomerCompanyNotFound,
+  CustomerCompanyRegistryUnavailable,
+} from "./customer-companies-api";
+export {
   CustomerInvoice,
+  CustomerInvoicedReservation,
   CustomerInvoiceId,
   CustomerInvoiceList,
   CustomerInvoiceNotFound,
@@ -136,6 +149,11 @@ export {
   CustomerOrderPaymentStatus,
   CustomerOrderState,
   CustomerOrderStatus,
+  CustomerPaymentPage,
+  CustomerPaymentPageClosed,
+  CustomerPaymentPageClosedReason,
+  CustomerPaymentRetryRefused,
+  CustomerPaymentRetryRefusedReason,
   CustomerReservationAccess,
   CustomerReservationHistory,
   CustomerReservationKind,
@@ -146,6 +164,8 @@ export {
   CustomerReservationStatus,
   CustomerReservationSummary,
   CustomerReservationsApi,
+  ReopenCustomerPaymentPage,
+  RetryCustomerPayment,
 } from "./customer-reservations-api";
 export {
   CurrentCustomerSession,

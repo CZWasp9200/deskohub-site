@@ -39,6 +39,7 @@ import { AdministrationActionRecordLive } from "./administration-action-record.s
 import { AdministrationRequestLedger } from "./administration-request-ledger.service";
 import {
   cliSessionAdministrator,
+  GrantedAdministrator,
   UnusedCliSessionAuthentication,
 } from "./cli-api.test-utils";
 import { CliAuthentication } from "./cli-authentication.service";
@@ -166,6 +167,7 @@ const serve = ({
           Layer.succeed(LegacyAdministratorBackfill, {} as never),
           Layer.succeed(ReservationAccessAdministration, {} as never),
           Layer.succeed(DiscountAdministration, {} as never),
+          GrantedAdministrator,
           UnusedAdministrationCustomerDirectory,
           Layer.succeed(CampaignOperations, {} as never),
           NodeHttpServer.layerHttpServices

@@ -37,6 +37,9 @@ const referrals = {
     savings: [{ value: 9234, exponent: 2, currency: "CZK" }],
   },
   shareUrl,
+  discountPerInvitee: "5",
+  invitationDiscount: "15",
+  savingsCurrency: "CZK",
 } as const;
 const originalClipboard = Object.getOwnPropertyDescriptor(
   navigator,

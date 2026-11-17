@@ -37,13 +37,17 @@ One invoice per reservation payment is enforced by unique indexes; repeated or c
 
 Render the PDF on demand from the issued JSON. Never persist the PDF or read current catalog, supplier, customer, or reservation data while rendering.
 
+## VAT status
+
+`workspaceSiteConstants.company.vatStatus` (`shared/utils/site-constants.ts`) is the one VAT setting. The snapshot freezes it as `supplier.vatStatus`, and the invoice states the status it was issued under (`invoice-presentation.ts`), never the current setting. The website footer and the customer API's `CustomerCheckoutSummary.vatStatus` (mapped in `features/customer-api/customer-checkout-summary.ts`) read the setting; the app shows the total's tax note only for `"vat-payer"`. The VAT-payer case has no approved wording yet, so the footer, invoice and app state nothing for it.
+
 ## Customer account access
 
 `CustomerInvoiceService` (`features/account/backend/customer-invoice.service.ts`) is the only customer-facing reader of issued invoices.
 
 - Every operation re-authorizes: `requireLinkedCustomerAccount` (over `CurrentCustomerAccount.resolve`), then `requireAccountActivity` against the database, never cookies or a cached result. A refused session (signed out, unverified, not linked, a review account, deletion pending, login gone) is `CustomerInvoicesUnavailableError`, which keeps the refusal as `account` for the customer API; an unreadable session or link is a load failure.
 - Ownership is in SQL: read through `InvoiceRepository.listForCustomer` and `findForCustomer` with the resolved Dotypos customer, so another customer's invoice is never decrypted. An unknown, foreign, or malformed id is the same not-found.
-- Project with `getCustomerInvoiceSummary` (`features/accounting/customer-invoice.ts`) on the Prague date from `currentPlainDate`; totals, settlement, and due dates come only from `invoice-settlement.ts`. Render PDFs with `renderInvoicePdfFile` and export CSV with `getCustomerInvoiceCsvColumns` through `createCsvDownloadResponse`. Customer reads never touch the email delivery ledger.
+- Project with `getCustomerInvoiceSummary` (`features/accounting/customer-invoice.ts`) on the Prague date from `currentPlainDate`; totals, settlement, and due dates come only from `invoice-settlement.ts`. What an order's invoice booked and when comes only from the issued document's frozen `reservation` and `quote` (`getInvoicedReservation`; whole days as Prague midnights), never from the order row, the snapshot table, or Dotypos. `CustomerInvoiceService.list` names the product with `getReservationProductName` in the request's locale, so accounting never depends on account code. Render PDFs with `renderInvoicePdfFile` and export CSV with `getCustomerInvoiceCsvColumns` through `createCsvDownloadResponse`. Customer reads never touch the email delivery ledger.
 - `CustomerInvoicesLoadError` keeps a fixed `code` and logs only it, never an id, email, or a database, decryption, or renderer cause. Routes answer every refusal with one indistinguishable private 404 and a load failure with a private 500 (account skill, account domain and routes); the customer API's `invoices` group answers as its account endpoints do (account skill, customer HTTP API).
 - Account deletion keeps issued invoices: the tombstone clears the account's Dotypos customer, so the deleted account reaches none, while the rows stay readable by id and customer (`customer-account-deletion.postgres.test.ts`).
 

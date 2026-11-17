@@ -12,10 +12,12 @@ import { Button, Screen, TextField } from "../ui/controls";
 import { find, findAll } from "../ui/testing/element-tree";
 import { AppSignInCodeStep } from "./app-sign-in-code-step.web";
 import { AppSignInContinueStep } from "./app-sign-in-continue-step";
+import { appSignInEmailHeading } from "./app-sign-in-email-heading";
 import { AppSignInEmailStep } from "./app-sign-in-email-step";
 import { AppSignInLinkStep } from "./app-sign-in-link-step";
 import { nativeReturnUri } from "./auth-callback";
 import type { AuthSessionState } from "./auth-session-state";
+import { ReauthenticationShield } from "./reauthentication-shield";
 import {
   clearNativeHandoffRequest,
   saveNativeHandoffRequest,
@@ -52,6 +54,7 @@ const refused = (error: Readonly<Record<string, unknown>>): Answer => ({
 let emailAnswers: Array<Answer> = [];
 let codeAnswers: Array<Answer> = [];
 let emailsSent = 0;
+let emailedTo: Array<string> = [];
 const next = (answers: Array<Answer>) => {
   const answer = answers.shift();
   if (!answer) throw new Error("The test gave the server no answer.");
@@ -63,8 +66,9 @@ mock.module("./auth-client.web", () => ({
     $fetch: async () => refused({ status: 500 }),
     getSession: async () => ok(null),
     signIn: {
-      magicLink: async () => {
+      magicLink: async ({ email }: { readonly email: string }) => {
         emailsSent += 1;
+        emailedTo.push(email);
         // Better Auth's client parses answers with its own JSON parser,
         // which revives ISO 8601 strings into Dates.
         return parseJSON<Answer>(JSON.stringify(next(emailAnswers)));
@@ -87,16 +91,22 @@ const codesOn = (nextSignInEmailAt?: number) =>
     }),
   });
 
-const openedByApp = () =>
-  saveNativeHandoffRequest(
-    {
-      codeChallenge: "c".repeat(43),
-      state: "s".repeat(43),
-      returnUri: nativeReturnUri,
-      reauthenticate: false,
-    },
-    Date.now()
-  );
+const appRequest = {
+  codeChallenge: "c".repeat(43),
+  state: "s".repeat(43),
+  returnUri: nativeReturnUri,
+  reauthenticate: false,
+} as const;
+
+const openedByApp = () => saveNativeHandoffRequest(appRequest, Date.now());
+
+/** The app asks to confirm its account before deleting it. */
+const appReauthentication = {
+  ...appRequest,
+  reauthenticate: true,
+  loginHint: testEmailAddress("app-account"),
+  purpose: "delete-account",
+} as const;
 
 /** The tree the page returns on its latest render. */
 let shown: ReactNode = null;
@@ -134,6 +144,7 @@ describe("the web SignInScreen", () => {
     emailAnswers = [];
     codeAnswers = [];
     emailsSent = 0;
+    emailedTo = [];
     passkeyOption.mockClear();
     clearNativeHandoffRequest();
   });
@@ -157,6 +168,55 @@ describe("the web SignInScreen", () => {
     await show();
     shownStep(AppSignInEmailStep);
     expect(passkeyOption).not.toHaveBeenCalled();
+  });
+
+  test("the app's reauthentication confirms its account: shield, locked address, no passkey", async () => {
+    saveNativeHandoffRequest(appReauthentication, Date.now());
+    // The browser may hold someone else's session; the app's account wins.
+    session = {
+      status: "signed-in",
+      user: { id: "other", email: testEmailAddress("browser") },
+      signedInAt: new Date(Date.now() - 60 * 60_000),
+    };
+    await show();
+    const step = shownStep(AppSignInEmailStep);
+    const heading = appSignInEmailHeading(appReauthentication, "en-US");
+    expect(step.title).toBe(heading.title);
+    expect(step.body).toBe(heading.body);
+    expect((step.illustration as ReactElement).type).toBe(
+      ReauthenticationShield
+    );
+    expect(step.email).toMatchObject({
+      value: appReauthentication.loginHint,
+      locked: true,
+    });
+    expect(passkeyOption).not.toHaveBeenCalled();
+
+    // Typing can't move the code to another address.
+    await runInPage(() =>
+      shownStep(AppSignInEmailStep).email.onChange(testEmailAddress("else"))
+    );
+    expect(shownStep(AppSignInEmailStep).email.value).toBe(
+      appReauthentication.loginHint
+    );
+    emailAnswers.push(codesOn());
+    await runInPage(() => shownStep(AppSignInEmailStep).onSubmit());
+    await settle(() => (shown as ReactElement).type === AppSignInCodeStep);
+    expect(emailedTo).toEqual([appReauthentication.loginHint]);
+
+    // Starting over keeps the address locked.
+    await runInPage(() => shownStep(AppSignInCodeStep).onUseDifferentEmail());
+    expect(shownStep(AppSignInEmailStep).email).toMatchObject({
+      value: appReauthentication.loginHint,
+      locked: true,
+    });
+  });
+
+  test("an ordinary sign-in from the app shows no shield", async () => {
+    openedByApp();
+    await show();
+    expect(shownStep(AppSignInEmailStep).illustration).toBeUndefined();
+    expect(shownStep(AppSignInEmailStep).email.locked).toBe(false);
   });
 
   test("an invalid address shows at the field and sends nothing", async () => {

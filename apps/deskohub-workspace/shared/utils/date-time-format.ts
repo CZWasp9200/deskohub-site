@@ -12,15 +12,22 @@ interface InstantDateFormatOptions extends DateFormatOptions {
 
 interface InstantDateTimeFormatOptions extends InstantDateFormatOptions {
   readonly timeStyle?: Intl.DateTimeFormatOptions["timeStyle"];
+  readonly hourCycle?: Intl.DateTimeFormatOptions["hourCycle"];
 }
 
 const makeDateFormatter = ({
   locale,
   dateStyle = "medium",
   timeStyle,
+  hourCycle,
   timeZone,
 }: InstantDateTimeFormatOptions) =>
-  new Intl.DateTimeFormat(locale, { dateStyle, timeStyle, timeZone });
+  new Intl.DateTimeFormat(locale, {
+    dateStyle,
+    timeStyle,
+    hourCycle,
+    timeZone,
+  });
 
 /**
  * Replaces the narrow no-break and thin spaces that Node's ICU puts in times
@@ -79,6 +86,26 @@ export const formatInstantDateRange = ({
   makeDateFormatter(options).formatRange(
     temporalInstantToDate(start),
     temporalInstantToDate(end)
+  );
+
+/**
+ * Both instants' dates and times of day, for a span that crosses dates. Plain
+ * spaces keep it hydrating when both the server and the client render it.
+ */
+export const formatInstantDateTimeRange = ({
+  start,
+  end,
+  timeStyle = "short",
+  ...options
+}: InstantDateTimeFormatOptions & {
+  readonly start: Temporal.Instant;
+  readonly end: Temporal.Instant;
+}) =>
+  withPlainSpaces(
+    makeDateFormatter({ ...options, timeStyle }).formatRange(
+      temporalInstantToDate(start),
+      temporalInstantToDate(end)
+    )
   );
 
 const plainDateToDate = (date: Temporal.PlainDate) =>

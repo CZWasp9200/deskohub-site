@@ -61,6 +61,25 @@ describe("invoice PDF", () => {
     );
   });
 
+  test("prints the VAT statement only for the status the invoice was issued under", async () => {
+    const document = makeCoworkInvoiceDocument("cs-CZ");
+    const statement = m.invoiceNonVatPayerStatement({}, { locale: "cs-CZ" });
+    const textOf = async (vatStatus: typeof document.supplier.vatStatus) =>
+      (
+        await extractPdfText(
+          await Effect.runPromise(
+            renderInvoicePdf({
+              ...document,
+              supplier: { ...document.supplier, vatStatus },
+            })
+          )
+        )
+      ).text;
+
+    expect(await textOf("not-vat-payer")).toContain(statement);
+    expect(await textOf("vat-payer")).not.toContain(statement);
+  });
+
   test("renders a paid manual invoice without payment instructions", async () => {
     const document = makeTestManualInvoiceDocument("cs-CZ", "450", {
       status: "paid",

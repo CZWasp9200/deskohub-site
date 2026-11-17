@@ -3,6 +3,7 @@ import { createElement, type ReactElement } from "react";
 import { Pressable } from "react-native";
 import { AppLocaleProvider } from "../i18n/locale-context";
 import { AppBar } from "./app-bar";
+import { Icon } from "./icon";
 import { elementTree, find, findAll, flatStyle } from "./testing/element-tree";
 import { Text } from "./text";
 import { color, touchTarget } from "./tokens";
@@ -23,6 +24,17 @@ describe("AppBar", () => {
     expect(title?.role).toBe("heading");
     expect(title?.variant).toBe("title");
     expect(title?.numberOfLines).toBeUndefined();
+  });
+
+  test("a navy bar draws its title and back arrow in white on navy", () => {
+    const tree = bar({ title: "title", onBack: () => undefined, tone: "navy" });
+    expect(flatStyle(tree.props.style)).toMatchObject({
+      backgroundColor: color.navy,
+    });
+    expect(flatStyle(find(tree, Text)?.props.style)).toMatchObject({
+      color: color.white,
+    });
+    expect(find(tree, Icon)?.props.color).toBe(color.white);
   });
 
   test("keeps half the bar for the title and moves the actions under it when they can't share the line", () => {
@@ -66,6 +78,14 @@ describe("AppBar", () => {
     });
     back.onPress?.({} as never);
     expect(presses).toEqual(["back"]);
+  });
+
+  test("a closing bar names its button apart from the back button", () => {
+    const label = (back: "back" | "close") =>
+      find(bar({ title: "title", onBack: () => undefined, back }), Pressable)
+        ?.props["aria-label"];
+    expect(label("close")).toBeTruthy();
+    expect(label("close")).not.toBe(label("back"));
   });
 
   test("without onBack there is no back button", () => {

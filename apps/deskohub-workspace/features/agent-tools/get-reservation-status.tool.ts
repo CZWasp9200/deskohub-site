@@ -8,6 +8,10 @@ import { checkoutStatusKinds } from "@/features/checkout/checkout-status-kind";
 import type { Locale } from "@/features/i18n";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import {
+  coworkStaySchema,
+  getBookedCoworkStay,
+} from "@/features/reservation/cowork-stay";
+import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
@@ -46,6 +50,12 @@ const outputSchema = Schema.Struct({
   ),
   ends_at: Schema.optionalKey(
     Schema.String.annotate({ description: "End, as an ISO 8601 instant." })
+  ),
+  stay: Schema.optionalKey(
+    coworkStaySchema.annotate({
+      description:
+        "Cowork only: overnight for a Reserved Desk held from noon on the arrival date to noon the next date (Prague time), otherwise day.",
+    })
   ),
   setup_starts_at: Schema.optionalKey(
     Schema.String.annotate({
@@ -149,6 +159,15 @@ const toReservationStatusResult = ({
           onSome: (summary) => ({
             starts_at: summary.reservedFrom.toString(),
             ends_at: summary.reservedUntil.toString(),
+            ...("entryTier" in summary && {
+              stay: getBookedCoworkStay({
+                tier: summary.entryTier,
+                interval: {
+                  startsAt: summary.reservedFrom,
+                  endsAt: summary.reservedUntil,
+                },
+              }),
+            }),
             ...("setupFrom" in summary &&
               summary.setupFrom && {
                 setup_starts_at: summary.setupFrom.toString(),

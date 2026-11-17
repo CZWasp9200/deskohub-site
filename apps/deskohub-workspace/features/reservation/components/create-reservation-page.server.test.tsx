@@ -251,6 +251,7 @@ const sealCoworkPayState = (requestedDiscountCode?: string) =>
         quote,
         orderId: "reservation-id",
         bookedAt: payStateBookedAt,
+        holdExpiresAt: instantStringSchema.make("2099-06-01T10:08:00.000Z"),
         checkoutSessionId: "session-id",
         ...(requestedDiscountCode && {
           requestedDiscountCode: Schema.decodeUnknownSync(

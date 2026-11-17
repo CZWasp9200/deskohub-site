@@ -22,8 +22,8 @@ class CalendarDiscountSourceMaintenanceError extends Data.TaggedError(
  * and tomorrow's after the response, for a mutation that changed the source.
  * It throws when Next.js refuses, so call it from the request's own async
  * context: under another request's work store, tag invalidation throws while
- * that request renders. An Admin UI action passes it to the action edge's
- * `refreshes`, which runs it after the action settles.
+ * that request renders. The discount operation port declares it as the
+ * mutation's refresh, which each adapter starts once the result is known.
  */
 export const startCalendarDiscountSourceRefresh = (
   input: DiscountAdminMutation
@@ -36,26 +36,6 @@ export const startCalendarDiscountSourceRefresh = (
     )
   );
 };
-
-/**
- * Starts the refresh from inside a fiber, for the administration API. Best
- * effort: a refresh that can't start is logged and skipped.
- */
-export const refreshCalendarDiscountSourceAfterMutation = Effect.fn(
-  "DiscountAdministration.refreshCalendarSource"
-)((input: DiscountAdminMutation) =>
-  Effect.try({
-    try: () => startCalendarDiscountSourceRefresh(input),
-    catch: (cause) => new CalendarDiscountSourceMaintenanceError({ cause }),
-  }).pipe(
-    Effect.tapError((cause) =>
-      Effect.logWarning("Calendar discount cache refresh could not start", {
-        cause,
-      })
-    ),
-    Effect.ignore
-  )
-);
 
 const primeCurrentCalendarDiscountSources = Effect.fn(
   "DiscountAdministration.primeCalendarSources"

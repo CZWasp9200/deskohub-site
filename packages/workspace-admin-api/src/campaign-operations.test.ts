@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { Result, Schema } from "effect";
 import { administrationInputParseOptions } from "./administration-input-parse-options";
 import {
-  campaignOperations,
   type LedgerOperationName,
   OperationInputInvalid,
-} from "./campaign-operations";
+} from "./administration-operation-port";
+import { campaignOperations } from "./campaign-operations";
 
 describe("campaign operations", () => {
   test.each([

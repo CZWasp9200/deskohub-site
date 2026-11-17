@@ -132,6 +132,7 @@ export {
 } from "./standalone-access-code-attempt-events";
 export {
   type WebhookEvent,
+  type WebhookEventState,
   webhookEventStates,
   webhookEvents,
   webhookProviders,
@@ -141,6 +142,7 @@ export {
   fulfillmentStates,
   type PaymentState,
   paymentStates,
+  type ReservationCancellationCause,
   type ReservationState,
   reservationStates,
   type WorkspaceReservationRow,

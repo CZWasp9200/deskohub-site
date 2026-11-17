@@ -66,7 +66,8 @@ export const wholeHourReservationInstantSchema =
 
 export const coworkReservationIntervalSchema = reservationIntervalSchema.check(
   Schema.makeFilter(isCoworkReservationInterval, {
-    message: "Cowork reservations must use the full-day duration.",
+    message:
+      "Cowork reservations must use a full-day, Open Space, or overnight interval.",
   })
 );
 

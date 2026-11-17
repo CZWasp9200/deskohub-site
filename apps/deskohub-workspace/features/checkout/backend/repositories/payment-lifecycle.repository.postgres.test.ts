@@ -22,6 +22,7 @@ import {
   discountCodes,
   discountProductTargets,
   discounts,
+  latePaymentRecoveries,
   paymentAttempts,
   promotionCodes,
   referralAttributions,
@@ -639,6 +640,77 @@ const admit = (
     locale: input.locale,
     accountingSnapshot: input.snapshot,
   });
+
+describe.skipIf(!testDatabase)(
+  "PaymentLifecycleRepository admission after a late payment on disposable Postgres",
+  () => {
+    test("admits no new payment for an order whose earlier attempt settled late, and still admits one without", async () => {
+      const repository = await makeRepository();
+      const dotyposCustomerId = customerId();
+      const recovering = await createHeldReservation(dotyposCustomerId);
+      const ordinary = await createHeldReservation(dotyposCustomerId);
+      const earlierAttemptId = `attempt-${uniqueId()}` as never;
+      await Effect.runPromise(
+        testDatabase!.db.insert(paymentAttempts).values({
+          id: earlierAttemptId,
+          workspaceReservationId: recovering.id,
+          provider: "nexi",
+          providerOrderId: NexiOrderIdSchema.make(`order-${uniqueId()}`),
+          state: "expired",
+          failureCode: "provider_order_abandoned",
+          amountValue: 29_000,
+          amountExponent: 2,
+          currency: "CZK",
+        })
+      );
+      await Effect.runPromise(
+        testDatabase!.db.insert(latePaymentRecoveries).values({
+          paymentAttemptId: earlierAttemptId,
+          workspaceReservationId: recovering.id,
+          state: "pending",
+          originalDotyposReservationId: DotyposReservationIdSchema.make(
+            `dotypos-original-${uniqueId()}`
+          ),
+          verifiedPaidAt: Temporal.Now.instant(),
+        })
+      );
+
+      const refused = await Effect.runPromise(
+        Effect.result(
+          admit(
+            repository,
+            recovering,
+            makeOrdinaryAdmission(recovering, dotyposCustomerId)
+          )
+        )
+      );
+      const admitted = await Effect.runPromise(
+        admit(
+          repository,
+          ordinary,
+          makeOrdinaryAdmission(ordinary, dotyposCustomerId)
+        )
+      );
+
+      expect(refused._tag).toBe("Failure");
+      expect(admitted.state).toBe("created");
+      const [unchanged] = await Effect.runPromise(
+        testDatabase!.db
+          .select({
+            activePaymentAttemptId:
+              workspaceReservations.activePaymentAttemptId,
+            paymentState: workspaceReservations.paymentState,
+          })
+          .from(workspaceReservations)
+          .where(eq(workspaceReservations.id, recovering.id))
+      );
+      expect(unchanged).toEqual({
+        activePaymentAttemptId: null,
+        paymentState: recovering.paymentState,
+      });
+    });
+  }
+);
 
 describe.skipIf(!testDatabase)(
   "PaymentLifecycleRepository first-use admission on disposable Postgres",

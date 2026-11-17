@@ -602,7 +602,7 @@ describe.skipIf(!invoiceDatabase)(
       const denied = await run(
         Effect.flatMap(CustomerInvoiceService, (invoices) =>
           Effect.all([
-            Effect.flip(invoices.list),
+            Effect.flip(invoices.list({ locale: "cs-CZ" })),
             Effect.flip(invoices.pdf(issued.id)),
             Effect.flip(invoices.csv("cs-CZ")),
           ])

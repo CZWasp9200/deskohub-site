@@ -23,11 +23,12 @@ describe.skipIf(!testDatabase)("ReviewSandbox on disposable Postgres", () => {
 
   const reviewer = customerAccountIdSchema.make(crypto.randomUUID());
   const otherReviewer = customerAccountIdSchema.make(crypto.randomUUID());
+  const malformedReviewer = customerAccountIdSchema.make(crypto.randomUUID());
 
   beforeAll(() => {
     const fixtures = workspaceFixtures(testDatabase.db);
     return Effect.runPromise(
-      Effect.forEach([reviewer, otherReviewer], (id) =>
+      Effect.forEach([reviewer, otherReviewer, malformedReviewer], (id) =>
         fixtures.customerAccount({ id, review: true })
       )
     );
@@ -183,5 +184,35 @@ describe.skipIf(!testDatabase)("ReviewSandbox on disposable Postgres", () => {
 
     expect(next.orderId).not.toBe(expired.orderId);
     expect(Option.getOrThrow(status).status).toBe("expired");
+  });
+
+  test("leaves a malformed hold out of the history and fails its status", async () => {
+    const held = await run((sandbox) =>
+      sandbox.prepareHold(hold("2099-06-01", { accountId: malformedReviewer }))
+    );
+    // Only a write outside the encoder can store a malformed document.
+    await testDatabase.pool.query(
+      `update review_account_holds set reservation_details = '{"kind":"boat"}'::jsonb where id = $1`,
+      [held.orderId]
+    );
+
+    const history = await run((sandbox) => sandbox.history(malformedReviewer));
+    if (history.kind !== "available") throw new Error("Expected a history");
+    const listed = [
+      ...history.groups.current,
+      ...history.groups.past,
+      ...history.groups.unavailable,
+    ].map(({ workspaceReservationId }) => workspaceReservationId);
+    const failure = await run((sandbox) =>
+      sandbox
+        .status({ orderId: held.orderId, returnOutcome: "unknown" })
+        .pipe(Effect.flip)
+    );
+
+    expect(listed).not.toContain(held.orderId);
+    expect(failure).toMatchObject({
+      _tag: "WorkspaceReservationDetailsMalformedError",
+      reservationId: held.orderId,
+    });
   });
 });

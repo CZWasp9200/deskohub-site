@@ -1,22 +1,24 @@
-import type {
-  CustomerCheckoutSummary,
-  Money,
-} from "@deskohub/workspace-customer-api";
+import { RegistryProvider } from "@effect/atom-react";
 import { Option } from "effect";
-import Lock from "lucide-react-native/icons/lock";
+import { Atom } from "effect/reactivity";
+import Coffee from "lucide-react-native/icons/coffee";
+import Monitor from "lucide-react-native/icons/monitor";
+import Moon from "lucide-react-native/icons/moon";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { type ComponentRef, type ReactNode, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { customerDataLayer } from "../../../customer-api/customer-data-runtime";
 import type { AppLocale } from "../../../i18n/app-locale";
+import { homeCountry } from "../../../i18n/country-names";
 import { useAppLocale } from "../../../i18n/locale-context";
 import { m } from "../../../i18n/messages";
 import { AppBar } from "../../../ui/app-bar";
-import { Card } from "../../../ui/card";
+import { CheckboxRow } from "../../../ui/checkbox";
 import { FocusedStatusBar } from "../../../ui/focused-status-bar";
 import { useSample } from "../../../ui/gallery/gallery-kit";
 import { Notice } from "../../../ui/notice";
-import { Text } from "../../../ui/text";
+import { Switch } from "../../../ui/switch";
 import { color, radius, space } from "../../../ui/tokens";
 import {
   type DetailsDraft,
@@ -24,33 +26,53 @@ import {
   initialDetailsDraft,
 } from "../../checkout-screen/details-form";
 import { DetailsStep } from "../../checkout-screen/details-step";
+import {
+  CoworkBookingScreen,
+  CoworkSkeleton,
+} from "../../family/cowork-booking-screen";
+import {
+  type CoworkTierCard,
+  CoworkTierCards,
+  tierArtwork,
+} from "../../family/cowork-tier-cards";
+import { MeetingRoomBookingScreen } from "../../family/meeting-room-booking-screen";
+import { MeetingRoomHero } from "../../family/meeting-room-hero";
+import {
+  type MeetingRoomLength,
+  MeetingRoomLengths,
+} from "../../family/meeting-room-lengths";
+import { MeetingRoomNoneLeft } from "../../family/meeting-room-none-left";
+import { MeetingRoomStartTimes } from "../../family/meeting-room-start-times";
+import {
+  OfficeBookingScreen,
+  OfficeStayControls,
+} from "../../family/office-booking-screen";
+import { RestartNotice } from "../../family/restart-notice";
 import type { DateChoice } from "../../selection/booking-selection";
 import type { PragueDate } from "../../selection/prague-date";
 import { czk } from "../../testing/sample-booking-catalog";
-import {
-  BookingBar,
-  type BookingBarAction,
-  type BookingBarPrice,
-} from "../booking-bar";
+import { AddonOptions, AddonToggle } from "../addon-toggle";
+import { BookingBar, type BookingBarAction } from "../booking-bar";
 import { BookingSectionHeading } from "../booking-section-heading";
 import { type BookingStep, BookingSteps } from "../booking-steps";
-import {
-  HoldEndedDialog,
-  type HoldStatus,
-  HoldStatusChip,
-} from "../hold-timer";
+import { type HoldStatus, HoldStatusChip } from "../hold-timer";
 import { MonthCalendar } from "../month-calendar";
-import type { CalendarRange } from "../month-calendar-model";
-import { priceBreakdown } from "../price-breakdown";
-import { describePriceLine } from "../price-line-description";
-import { PriceLines } from "../price-lines";
+import { OvernightStayTimes } from "../overnight-stay-times";
 import {
   meetingRoomHour,
   officeSixSeats,
   openSpaceWithCoffee,
-  type PriceFixture,
   reservedDeskWithWorkstation,
 } from "../testing/price-fixtures";
+import { bookTabFrames } from "./book-tab-frames";
+import {
+  coworkDates,
+  officeDates,
+  officeRange,
+  quotedPrice as quoted,
+  galleryToday as today,
+} from "./gallery-fixtures";
+import { reviewFrames } from "./review-frames";
 
 /**
  * The booking boards' proposed frames (boards 26–35) rebuilt from the shared
@@ -71,75 +93,8 @@ export interface BoardFrame {
   readonly Screen: (props: { readonly onBack: () => void }) => ReactNode;
 }
 
-const today: PragueDate = "2026-11-10";
-const coworkDates: DateChoice = {
-  earliest: today,
-  latest: "2027-01-31",
-  unavailable: new Set(["2026-11-20"]),
-};
-const officeDates: DateChoice = {
-  ...coworkDates,
-  unavailable: new Set(["2026-11-14", "2026-11-15"]),
-};
-const officeRange: CalendarRange = { start: "2026-11-23", end: "2026-11-25" };
 const chosenDay: PragueDate = "2026-11-26";
 const fullDay: PragueDate = "2026-11-20";
-
-const hold = {
-  review: { secondsLeft: 597, phase: "held" },
-  codeApplied: { secondsLeft: 545, phase: "held" },
-  lastMinute: { secondsLeft: 58, phase: "ending" },
-  ended: { secondsLeft: 0, phase: "ended" },
-  paying: { secondsLeft: 509, phase: "held" },
-} as const satisfies Record<string, HoldStatus>;
-
-/** Board 32's applied code: 10% off the desk after the calendar discount. */
-const openSpaceWithCode: PriceFixture = (() => {
-  const total = czk(258.8);
-  const summary: CustomerCheckoutSummary = {
-    sections: [
-      {
-        key: "order",
-        items: [
-          {
-            key: "product:cowork:open-space",
-            amount: czk(208.8),
-            originalAmount: czk(290),
-            discounts: [
-              {
-                discount: {
-                  id: "calendar-sale-2026-11",
-                  label: "Calendar discount",
-                },
-                amount: czk(58),
-              },
-              {
-                discount: { id: "code-welcome10", label: "Code WELCOME10" },
-                amount: czk(23.2),
-              },
-            ],
-          },
-          { key: "addon:coffee", amount: czk(50) },
-        ],
-        total,
-      },
-      { key: "total", items: [{ key: "total:final", amount: total }], total },
-    ],
-    total,
-  };
-  return { selection: openSpaceWithCoffee.selection, summary };
-})();
-
-const quoted = (
-  { selection, summary }: PriceFixture,
-  locale: AppLocale,
-  was?: Money
-): BookingBarPrice => ({
-  kind: "quoted",
-  breakdown: priceBreakdown(summary),
-  describeLine: describePriceLine(selection, locale),
-  was,
-});
 
 const ignore = () => undefined;
 
@@ -210,23 +165,6 @@ function FlowScreen({
   );
 }
 
-/** Screen content another ticket builds, at the board's height. */
-function Placeholder({
-  label,
-  height,
-}: {
-  readonly label: string;
-  readonly height: number;
-}) {
-  return (
-    <View style={[styles.placeholder, { minHeight: height }]}>
-      <Text variant="bodySmall" tone="muted">
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 function Calendar({
   locale,
   ...props
@@ -246,6 +184,57 @@ function Calendar({
       unavailableLabel={czech ? "nedostupné" : "not available"}
       today={today}
       {...props}
+    />
+  );
+}
+
+/** Board 26's desk cards, the chosen one first-class. */
+function DeskCards({
+  locale,
+  selected = "open-space",
+  workstation = false,
+  only,
+}: {
+  readonly locale: AppLocale;
+  readonly selected?: CoworkTierCard["tier"];
+  readonly workstation?: boolean;
+  readonly only?: CoworkTierCard["tier"];
+}) {
+  const sample = useSample();
+  const czech = locale === "cs-CZ";
+  const cards: ReadonlyArray<CoworkTierCard> = [
+    {
+      tier: "open-space",
+      name: sample(czech ? "Sdílené místo" : "Open Space"),
+      price: czk(232),
+      was: czk(290),
+      description: sample(
+        czech
+          ? "Seď, kde chceš, k dispozici do 17:00."
+          : "Sit wherever you like, available until 17:00."
+      ),
+      artwork: tierArtwork("open-space", false),
+    },
+    {
+      tier: "reserved-desk",
+      name: sample(czech ? "Vyhrazené místo" : "Reserved Desk"),
+      price: czk(328),
+      was: czk(410),
+      description: sample(
+        czech
+          ? "Tvůj vlastní stůl pro nepřetržitý flow."
+          : "Your own desk for uninterrupted flow."
+      ),
+      artwork: tierArtwork("reserved-desk", workstation),
+    },
+  ];
+  return (
+    <CoworkTierCards
+      label={sample("Desk type")}
+      cards={cards.filter((card) => only === undefined || card.tier === only)}
+      selected={selected}
+      onSelect={ignore}
+      locale={locale}
     />
   );
 }
@@ -279,7 +268,7 @@ function CoworkStart({ onBack }: { readonly onBack: () => void }) {
       }
     >
       <BookingSectionHeading title={sample("Desk type")} first />
-      <Placeholder label="Desk type cards (screen ticket)" height={232} />
+      <DeskCards locale={locale} />
       <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} />
     </FlowScreen>
@@ -316,11 +305,73 @@ function CoworkChosen({
       }
     >
       <BookingSectionHeading title={sample("Desk type")} first />
-      <Placeholder label="Desk type cards (screen ticket)" height={232} />
+      <DeskCards locale={locale} />
       <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} selected={chosenDay} />
       <BookingSectionHeading title={sample("Coffee")} />
-      <Placeholder label="Coffee switch (screen ticket)" height={56} />
+      <AddonToggle
+        label={sample("Coffee")}
+        icon={Coffee}
+        checked
+        onToggle={ignore}
+        price="+ CZK 50"
+      />
+    </FlowScreen>
+  );
+}
+
+/** Reserved Desk with the overnight stay offered; the switch toggles it. */
+function CoworkOvernight({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  const [overnight, setOvernight] = useState(true);
+  return (
+    <FlowScreen
+      title={sample("Cowork desk")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      at="end"
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample(
+              overnight
+                ? "Thu 26 Nov 12:00 → Fri 27 Nov 12:00"
+                : "Thu 26 Nov, 08:00–18:00"
+            ),
+            detail: sample("Reserved Desk"),
+            price: {
+              kind: "from",
+              amount: czk(328),
+              unit: sample(overnight ? "per night" : "per day"),
+            },
+          }}
+          action={next(sample("Continue"))}
+        />
+      }
+    >
+      <BookingSectionHeading title={sample("Desk type")} first />
+      <DeskCards locale={locale} selected="reserved-desk" />
+      <BookingSectionHeading
+        title={sample("Date")}
+        control={
+          <Switch
+            label={sample("Overnight")}
+            accessibilityLabel={sample("Overnight")}
+            icon={Moon}
+            value={overnight}
+            onValueChange={setOvernight}
+          />
+        }
+      />
+      <Calendar locale={locale} selected={chosenDay} />
+      {overnight && (
+        <OvernightStayTimes
+          times={sample("Thu 26 Nov 12:00 → Fri 27 Nov 12:00")}
+        />
+      )}
     </FlowScreen>
   );
 }
@@ -384,11 +435,33 @@ function ReservedDeskOpened({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <Placeholder label="Reserved desk card (screen ticket)" height={112} />
-      <BookingSectionHeading title={sample("Workstation")} aside="+ CZK 120" />
-      <Placeholder label="Workstation grid (screen ticket)" height={168} />
+      <DeskCards
+        locale={locale}
+        selected="reserved-desk"
+        workstation
+        only="reserved-desk"
+      />
       <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} selected={chosenDay} legend={false} />
+      <BookingSectionHeading title={sample("Monitor workstation")} />
+      <AddonToggle
+        label={sample("Monitor workstation")}
+        icon={Monitor}
+        checked
+        onToggle={ignore}
+        price="+ CZK 120"
+      />
+      <AddonOptions
+        label={sample("Monitor workstation")}
+        options={[
+          { value: "2x27-qhd", label: "2× 27″ QHD" },
+          { value: "2x32-qhd", label: "2× 32″ QHD" },
+          { value: "2x27-4k", label: "2× 27″ 4K" },
+          { value: "2x32-4k", label: "2× 32″ 4K" },
+        ]}
+        selected="2x27-qhd"
+        onSelect={ignore}
+      />
     </FlowScreen>
   );
 }
@@ -410,10 +483,7 @@ function CoworkLoading({ onBack }: { readonly onBack: () => void }) {
         />
       }
     >
-      <BookingSectionHeading title={sample("Desk type")} first />
-      <Placeholder label="Desk type skeleton (screen ticket)" height={184} />
-      <BookingSectionHeading title={sample("Date")} />
-      <Placeholder label="Calendar skeleton (screen ticket)" height={232} />
+      <CoworkSkeleton locale={locale} />
     </FlowScreen>
   );
 }
@@ -450,6 +520,73 @@ function CoworkPriceError({ onBack }: { readonly onBack: () => void }) {
   );
 }
 
+/**
+ * The real cowork screen over the sample Workspace, without signing in, so a
+ * capture reaches its live states. The gallery's route params reach it: a
+ * booked selection (`&tier=reserved-desk&date=…`) or `&restart=hold_expired`.
+ */
+function CoworkLive({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  // Metro drops the branch from release bundles, so the fake Workspace and
+  // its fixtures never ship there (see `customer-data-provider.tsx`); read
+  // at render, as Bun's tests don't define `__DEV__`.
+  const [initialValues] = useState(() =>
+    __DEV__
+      ? [
+          Atom.initialValue(
+            customerDataLayer,
+            (
+              require("../../../customer-api/testing/sample-data-layer") as typeof import("../../../customer-api/testing/sample-data-layer")
+            ).sampleCustomerDataLayer("linked")
+          ),
+        ]
+      : []
+  );
+  return (
+    <RegistryProvider initialValues={initialValues}>
+      <SafeAreaView edges={["top"]} style={styles.screen}>
+        <FocusedStatusBar style="dark" />
+        <AppBar
+          title={m.booking_family_cowork_title({}, { locale })}
+          onBack={onBack}
+        />
+        <CoworkBookingScreen />
+      </SafeAreaView>
+    </RegistryProvider>
+  );
+}
+
+/** Board 27: back after the hold ran out, the choices kept. */
+function CoworkRestart({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Cowork desk")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample("Thu 26 Nov, until 17:00"),
+            detail: sample("Open Space desk · coffee"),
+            price: quoted(openSpaceWithCoffee, locale, czk(340)),
+          }}
+          action={next(sample("Continue"))}
+        />
+      }
+    >
+      <RestartNotice reason={Option.some("hold_expired")} />
+      <BookingSectionHeading title={sample("Desk type")} />
+      <DeskCards locale={locale} />
+      <BookingSectionHeading title={sample("Date")} />
+      <Calendar locale={locale} selected={chosenDay} legend={false} />
+    </FlowScreen>
+  );
+}
+
 /** Board 27's Czech strings at their real length; the whole frame in cs-CZ. */
 function CoworkCzech({ onBack }: { readonly onBack: () => void }) {
   const locale: AppLocale = "cs-CZ";
@@ -475,18 +612,130 @@ function CoworkCzech({ onBack }: { readonly onBack: () => void }) {
       <BookingSectionHeading title={sample("Datum")} first />
       <Calendar locale={locale} selected={chosenDay} legend={false} />
       <BookingSectionHeading title={sample("Káva")} />
-      <Placeholder label="Coffee switch (screen ticket)" height={56} />
+      <AddonToggle
+        label={sample("Káva")}
+        icon={Coffee}
+        checked
+        onToggle={ignore}
+        price="+ 50 Kč"
+      />
     </FlowScreen>
   );
 }
 
 // ------------------------------------------------------------ board 28: meeting room
 
+/** Board 28's start times: 08:00–19:00, four taken; the rest behind the link. */
+const meetingRoomStarts = (() => {
+  const taken = new Set(["09:00", "10:00", "16:00", "18:00"]);
+  const daytime = Array.from({ length: 12 }, (_, offset) => {
+    const startTime = `${String(8 + offset).padStart(2, "0")}:00`;
+    return {
+      startTime,
+      taken: taken.has(startTime),
+      earlySetupAvailable: !taken.has(startTime),
+    };
+  });
+  const outside = ["07:00", "20:00", "21:00"].map((startTime) => ({
+    startTime,
+    taken: false,
+    earlySetupAvailable: true,
+  }));
+  return { daytime, outside };
+})();
+
+const meetingRoomDates: DateChoice = {
+  earliest: today,
+  latest: "2027-05-10",
+  unavailable: new Set(["2026-11-13"]),
+};
+
+function MeetingRoomLengthList({
+  selected,
+}: {
+  readonly selected: MeetingRoomLength["duration"];
+}) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <MeetingRoomLengths
+      label={sample("How long?")}
+      lengths={[
+        {
+          duration: "hour:1",
+          label: sample("1 hour"),
+          price: czk(280),
+          was: czk(350),
+        },
+        {
+          duration: "hour:4",
+          label: sample("4 hours"),
+          price: czk(784),
+          was: czk(980),
+        },
+        {
+          duration: "day:1",
+          label: sample("Whole day"),
+          price: czk(1456),
+          was: czk(1820),
+        },
+      ]}
+      selected={selected}
+      onSelect={ignore}
+      locale={locale}
+    />
+  );
+}
+
+/** Board 28 "Start": the illustration and the room's facts, then the date. */
+function MeetingRoomStart({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Meeting room")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample("Meeting room"),
+            price: {
+              kind: "from",
+              amount: czk(280),
+              unit: sample("per hour"),
+            },
+          }}
+          action={next(sample("Continue"), { disabled: true })}
+          reason={sample("Choose a date, then a length and a start time")}
+        />
+      }
+    >
+      <MeetingRoomHero
+        facts={[
+          { kind: "capacity", text: sample("Up to 10 people") },
+          { kind: "equipment", text: sample("TV and projector") },
+        ]}
+      />
+      <BookingSectionHeading title={sample("Date")} />
+      <Calendar locale={locale} dates={meetingRoomDates} today={today} />
+    </FlowScreen>
+  );
+}
+
+/**
+ * Board 28 "Length and start time" and "Early setup" (`early`, scrolled to
+ * the end), and 28b "Price opened" (`opened`).
+ */
 function MeetingRoom({
   onBack,
+  early = false,
   opened = false,
 }: {
   readonly onBack: () => void;
+  readonly early?: boolean;
   readonly opened?: boolean;
 }) {
   const locale = useAppLocale();
@@ -497,7 +746,7 @@ function MeetingRoom({
       step="choose"
       locale={locale}
       onBack={onBack}
-      at={opened ? "end" : "top"}
+      at={early || opened ? "end" : "top"}
       bar={
         <BookingBar
           locale={locale}
@@ -505,7 +754,9 @@ function MeetingRoom({
           summary={{
             title: sample("Wed 18 Nov, 14:00–15:00"),
             detail: sample(
-              opened ? "Meeting room · in from 13:45" : "Meeting room · 1 hour"
+              early || opened
+                ? "Meeting room · in from 13:45"
+                : "Meeting room · 1 hour"
             ),
             price: quoted(meetingRoomHour, locale, czk(350)),
           }}
@@ -518,16 +769,136 @@ function MeetingRoom({
         aside={sample("Wed 18 Nov")}
         first
       />
-      <Placeholder label="Lengths with prices (screen ticket)" height={176} />
+      <MeetingRoomLengthList selected="hour:1" />
       <BookingSectionHeading title={sample("Start time")} />
-      <Placeholder label="Start times (screen ticket)" height={208} />
-      {opened && (
-        <Placeholder
-          label="Come 15 minutes early (screen ticket)"
-          height={48}
-        />
+      <MeetingRoomStartTimes
+        label={sample("Start time")}
+        daytime={meetingRoomStarts.daytime}
+        outside={meetingRoomStarts.outside}
+        selected="14:00"
+        onSelect={ignore}
+        locale={locale}
+      />
+      {(early || opened) && (
+        <View style={styles.earlySetup}>
+          <CheckboxRow
+            label={sample("I want to come 15 minutes early")}
+            checked
+            onChange={ignore}
+          />
+        </View>
       )}
     </FlowScreen>
+  );
+}
+
+/** Board 28b "Whole day": no start times when they don't apply. */
+function MeetingRoomWholeDay({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Meeting room")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample("Wed 18 Nov, whole day"),
+            detail: sample("Meeting room"),
+            price: { kind: "from", amount: czk(1456), was: czk(1820) },
+          }}
+          action={next(sample("Continue"))}
+        />
+      }
+    >
+      <BookingSectionHeading
+        title={sample("How long?")}
+        aside={sample("Wed 18 Nov")}
+        first
+      />
+      <MeetingRoomLengthList selected="day:1" />
+    </FlowScreen>
+  );
+}
+
+/** Board 28b "Nothing left for that length": what is still free instead. */
+function MeetingRoomNoneLeftFrame({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Meeting room")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample("Thu 12 Nov"),
+            detail: sample("Meeting room · 4 hours"),
+            price: { kind: "from", amount: czk(784) },
+          }}
+          action={next(sample("Continue"), { disabled: true })}
+          reason={sample("Choose a start time to continue")}
+        />
+      }
+    >
+      <BookingSectionHeading
+        title={sample("How long?")}
+        aside={sample("Thu 12 Nov")}
+        first
+      />
+      <MeetingRoomLengthList selected="hour:4" />
+      <BookingSectionHeading title={sample("Start time")} />
+      <MeetingRoomNoneLeft
+        title={sample("Nothing free for 4 hours on Thu 12 Nov")}
+        body={sample(
+          "1 hour is still free that day. The next free day for 4 hours is Sat 14 Nov."
+        )}
+        actions={[
+          { label: sample("Switch to 1 hour"), onPress: ignore },
+          { label: sample("Go to Sat 14 Nov"), onPress: ignore },
+        ]}
+      />
+    </FlowScreen>
+  );
+}
+
+/**
+ * The real meeting-room screen over the sample Workspace, without signing
+ * in, so a capture reaches its live states. The gallery's route params
+ * reach it: a booked selection (`&date=…&duration=hour:1&startTime=14:00`)
+ * or `&restart=hold_expired`.
+ */
+function MeetingRoomLive({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const [initialValues] = useState(() =>
+    __DEV__
+      ? [
+          Atom.initialValue(
+            customerDataLayer,
+            (
+              require("../../../customer-api/testing/sample-data-layer") as typeof import("../../../customer-api/testing/sample-data-layer")
+            ).sampleCustomerDataLayer("linked")
+          ),
+        ]
+      : []
+  );
+  return (
+    <RegistryProvider initialValues={initialValues}>
+      <SafeAreaView edges={["top"]} style={styles.screen}>
+        <FocusedStatusBar style="dark" />
+        <AppBar
+          title={m.booking_family_meeting_room_title({}, { locale })}
+          onBack={onBack}
+        />
+        <MeetingRoomBookingScreen />
+      </SafeAreaView>
+    </RegistryProvider>
   );
 }
 
@@ -571,11 +942,49 @@ function OfficeRange({
         legend={false}
       />
       <BookingSectionHeading title={sample("Days and seats")} />
-      <Placeholder
-        label="Days and seats steppers (screen ticket)"
-        height={152}
+      <OfficeStayControls
+        steppers={{
+          days: { maximum: 28, lastDate: officeRange.end },
+          seats: { maximum: Option.some(6), reached: true },
+        }}
+        draft={{ date: Option.some(officeRange.start), dayCount: 3, seats: 6 }}
+        onChange={ignore}
+        locale={locale}
       />
     </FlowScreen>
+  );
+}
+
+/**
+ * The real office screen over the sample Workspace, without signing in, so
+ * a capture reaches its live states. The gallery's route params reach it:
+ * a booked stay (`&date=…&endDate=…&seats=6`) or `&restart=hold_expired`.
+ */
+function OfficeLive({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const [initialValues] = useState(() =>
+    __DEV__
+      ? [
+          Atom.initialValue(
+            customerDataLayer,
+            (
+              require("../../../customer-api/testing/sample-data-layer") as typeof import("../../../customer-api/testing/sample-data-layer")
+            ).sampleCustomerDataLayer("linked")
+          ),
+        ]
+      : []
+  );
+  return (
+    <RegistryProvider initialValues={initialValues}>
+      <SafeAreaView edges={["top"]} style={styles.screen}>
+        <FocusedStatusBar style="dark" />
+        <AppBar
+          title={m.booking_family_office_title({}, { locale })}
+          onBack={onBack}
+        />
+        <OfficeBookingScreen />
+      </SafeAreaView>
+    </RegistryProvider>
   );
 }
 
@@ -599,16 +1008,23 @@ const jana = (sample: (text: string) => string): DetailsProfile => ({
   },
 });
 
-type DetailsFrameState = "self" | "someone" | "company" | "errors" | "holding";
+type DetailsFrameState =
+  | "self"
+  | "someone"
+  | "company"
+  | "company-lookup"
+  | "errors"
+  | "holding";
 
 const detailsDraftFor = (
   state: DetailsFrameState,
   sample: (text: string) => string
 ): DetailsDraft => {
-  const start = initialDetailsDraft({
-    address: Option.none(),
-    company: Option.none(),
-  });
+  // The boards show a customer in Czechia.
+  const start = initialDetailsDraft(
+    { address: Option.none(), company: Option.none() },
+    homeCountry
+  );
   switch (state) {
     case "self":
     case "holding":
@@ -639,6 +1055,9 @@ const detailsDraftFor = (
           },
         },
       };
+    // Board 30b's lookup frames: an empty company form, the IČO to type.
+    case "company-lookup":
+      return { ...start, billing: "business" };
     case "errors":
       return {
         ...start,
@@ -652,6 +1071,32 @@ const detailsDraftFor = (
       };
   }
 };
+
+/**
+ * Board 30b: the details step's company form with a live company lookup,
+ * answered by the sample data's fake Workspace (`12345679` and `00000019`
+ * are found, `00000027` finds the registry unavailable, any other ID none).
+ */
+function DetailsCompanyLookup({ onBack }: { readonly onBack: () => void }) {
+  // As in `CoworkLive`: the fake Workspace never ships in release bundles.
+  const [initialValues] = useState(() =>
+    __DEV__
+      ? [
+          Atom.initialValue(
+            customerDataLayer,
+            (
+              require("../../../customer-api/testing/sample-data-layer") as typeof import("../../../customer-api/testing/sample-data-layer")
+            ).sampleCustomerDataLayer("linked")
+          ),
+        ]
+      : []
+  );
+  return (
+    <RegistryProvider initialValues={initialValues}>
+      <Details onBack={onBack} state="company-lookup" />
+    </RegistryProvider>
+  );
+}
 
 /**
  * Boards 30 and 31: the real details step with the boards' data. The
@@ -709,209 +1154,29 @@ function Details({
 
 // ------------------------------------------------------------ boards 32–35: review and pay
 
-/** The review's price card (`.bk-card` with `.bk-li` rows and the total). */
-function PriceCard({
-  fixture,
-  was,
-  locale,
-}: {
-  readonly fixture: PriceFixture;
-  readonly was?: Money;
-  readonly locale: AppLocale;
-}) {
-  const sample = useSample();
-  return (
-    // The board's price card (`.bk-card`) is inset 16, not the card's 20.
-    <Card padding="none">
-      <View style={styles.priceCard}>
-        <PriceLines
-          breakdown={priceBreakdown(fixture.summary)}
-          describeLine={describePriceLine(fixture.selection, locale)}
-          locale={locale}
-          variant="card"
-          total={{ label: sample("Total"), was }}
-        />
-      </View>
-    </Card>
-  );
-}
-
-const payLabel = (amount: string) => `Order and pay ${amount}`;
-
-function ReviewTop({
-  onBack,
-  ended = false,
-}: {
-  readonly onBack: () => void;
-  readonly ended?: boolean;
-}) {
-  const locale = useAppLocale();
-  const sample = useSample();
-  return (
-    <FlowScreen
-      title={sample("Review and pay")}
-      step="pay"
-      locale={locale}
-      onBack={onBack}
-      hold={ended ? hold.ended : hold.review}
-      bar={
-        ended ? (
-          <BookingBar
-            locale={locale}
-            action={next(sample(payLabel("CZK 282")), { icon: Lock })}
-          />
-        ) : (
-          <BookingBar
-            locale={locale}
-            action={next(sample(payLabel("CZK 282")), { disabled: true })}
-            reason={sample("Tick the agreement to pay")}
-          />
-        )
-      }
-      overlay={
-        ended && (
-          <HoldEndedDialog
-            visible
-            onCheckDate={ignore}
-            onLeave={ignore}
-            locale={locale}
-          />
-        )
-      }
-    >
-      <BookingSectionHeading
-        title={sample("Your booking")}
-        aside={sample("Change")}
-        first
-      />
-      <Placeholder label="Booking summary (screen ticket)" height={196} />
-      <BookingSectionHeading title={sample("Price")} />
-      <PriceCard fixture={openSpaceWithCoffee} locale={locale} />
-      <Placeholder label="Discount code row (screen ticket)" height={48} />
-      <Placeholder label="Agreement (screen ticket)" height={120} />
-    </FlowScreen>
-  );
-}
-
-function ReviewCodeApplied({ onBack }: { readonly onBack: () => void }) {
-  const locale = useAppLocale();
-  const sample = useSample();
-  return (
-    <FlowScreen
-      title={sample("Review and pay")}
-      step="pay"
-      locale={locale}
-      onBack={onBack}
-      hold={hold.codeApplied}
-      raised
-      bar={
-        <BookingBar
-          locale={locale}
-          action={next(sample(payLabel("CZK 258.80")), { disabled: true })}
-          reason={sample("Tick the agreement to pay")}
-        />
-      }
-    >
-      <BookingSectionHeading title={sample("Price")} first />
-      <PriceCard fixture={openSpaceWithCode} was={czk(282)} locale={locale} />
-      <Placeholder
-        label="Code applied, with Remove (screen ticket)"
-        height={64}
-      />
-      <Placeholder label="Agreement (screen ticket)" height={120} />
-    </FlowScreen>
-  );
-}
-
-function ReviewLastMinute({ onBack }: { readonly onBack: () => void }) {
-  const locale = useAppLocale();
-  const sample = useSample();
-  return (
-    <FlowScreen
-      title={sample("Review and pay")}
-      step="pay"
-      locale={locale}
-      onBack={onBack}
-      hold={hold.lastMinute}
-      at="end"
-      banner={
-        <Notice
-          tone="warning"
-          title={sample("Less than a minute left to pay")}
-          message={sample(
-            "If time runs out we release the spot, but keep your choices."
-          )}
-        />
-      }
-      bar={
-        <BookingBar
-          locale={locale}
-          action={next(sample(payLabel("CZK 282")), { icon: Lock })}
-        />
-      }
-    >
-      <BookingSectionHeading
-        title={sample("Your booking")}
-        aside={sample("Change")}
-        first
-      />
-      <Placeholder label="Booking summary (screen ticket)" height={196} />
-      <BookingSectionHeading title={sample("Price")} />
-      <PriceCard fixture={openSpaceWithCoffee} locale={locale} />
-      <Placeholder label="Discount code row (screen ticket)" height={48} />
-      <Placeholder label="Agreement, ticked (screen ticket)" height={120} />
-    </FlowScreen>
-  );
-}
-
-function PayBusy({ onBack }: { readonly onBack: () => void }) {
-  const locale = useAppLocale();
-  const sample = useSample();
-  return (
-    <FlowScreen
-      title={sample("Review and pay")}
-      step="pay"
-      locale={locale}
-      onBack={onBack}
-      hold={hold.paying}
-      at="end"
-      bar={
-        <BookingBar
-          locale={locale}
-          action={next(sample("Opening payment…"), {
-            busy: true,
-            disabled: true,
-          })}
-        />
-      }
-    >
-      <BookingSectionHeading
-        title={sample("Your booking")}
-        aside={sample("Change")}
-        first
-      />
-      <Placeholder label="Booking summary (screen ticket)" height={196} />
-      <BookingSectionHeading title={sample("Price")} />
-      <PriceCard fixture={openSpaceWithCode} was={czk(282)} locale={locale} />
-      <Placeholder
-        label="Code applied, with Remove (screen ticket)"
-        height={64}
-      />
-      <Placeholder label="Agreement, ticked (screen ticket)" height={120} />
-    </FlowScreen>
-  );
-}
-
 // ------------------------------------------------------------ the frame list
 
 /** Every proposed frame this ticket's pieces appear in, in board order. */
 export const boardFrames: ReadonlyArray<BoardFrame> = [
+  ...bookTabFrames,
+  {
+    key: "cowork-live",
+    board: "26",
+    state: "The cowork screen over sample data",
+    Screen: CoworkLive,
+  },
   { key: "cowork-start", board: "26", state: "Start", Screen: CoworkStart },
   {
     key: "cowork-chosen",
     board: "26",
     state: "Date and extras chosen",
     Screen: CoworkChosen,
+  },
+  {
+    key: "cowork-overnight",
+    board: "26",
+    state: "Reserved Desk overnight",
+    Screen: CoworkOvernight,
   },
   {
     key: "cowork-full-day",
@@ -944,10 +1209,28 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     Screen: CoworkPriceError,
   },
   {
+    key: "cowork-restart",
+    board: "27",
+    state: "Back after the hold ran out",
+    Screen: CoworkRestart,
+  },
+  {
     key: "cowork-czech",
     board: "27",
     state: "Czech strings",
     Screen: CoworkCzech,
+  },
+  {
+    key: "meeting-room-live",
+    board: "28",
+    state: "The meeting-room screen over sample data",
+    Screen: MeetingRoomLive,
+  },
+  {
+    key: "meeting-room-start",
+    board: "28",
+    state: "Start",
+    Screen: MeetingRoomStart,
   },
   {
     key: "meeting-room-chosen",
@@ -956,10 +1239,34 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     Screen: MeetingRoom,
   },
   {
-    key: "meeting-room-price-opened",
+    key: "meeting-room-early",
     board: "28",
+    state: "Early setup",
+    Screen: ({ onBack }) => <MeetingRoom onBack={onBack} early />,
+  },
+  {
+    key: "meeting-room-whole-day",
+    board: "28b",
+    state: "Whole day",
+    Screen: MeetingRoomWholeDay,
+  },
+  {
+    key: "meeting-room-none-left",
+    board: "28b",
+    state: "Nothing left for that length",
+    Screen: MeetingRoomNoneLeftFrame,
+  },
+  {
+    key: "meeting-room-price-opened",
+    board: "28b",
     state: "Price opened",
     Screen: ({ onBack }) => <MeetingRoom onBack={onBack} opened />,
+  },
+  {
+    key: "office-live",
+    board: "29",
+    state: "The office screen over sample data",
+    Screen: OfficeLive,
   },
   {
     key: "office-range",
@@ -992,6 +1299,12 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     Screen: ({ onBack }) => <Details onBack={onBack} state="company" />,
   },
   {
+    key: "details-company-lookup",
+    board: "30b",
+    state: "Company lookup",
+    Screen: ({ onBack }) => <DetailsCompanyLookup onBack={onBack} />,
+  },
+  {
     key: "details-errors",
     board: "31",
     state: "Errors",
@@ -1003,35 +1316,14 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     state: "Holding your spot",
     Screen: ({ onBack }) => <Details onBack={onBack} state="holding" />,
   },
-  { key: "review", board: "32", state: "Review", Screen: ReviewTop },
-  {
-    key: "review-code-applied",
-    board: "32",
-    state: "Code applied",
-    Screen: ReviewCodeApplied,
-  },
-  {
-    key: "review-last-minute",
-    board: "33",
-    state: "Last minute",
-    Screen: ReviewLastMinute,
-  },
-  {
-    key: "review-hold-ended",
-    board: "33",
-    state: "Hold ended",
-    Screen: ({ onBack }) => <ReviewTop onBack={onBack} ended />,
-  },
-  {
-    key: "pay-busy",
-    board: "35",
-    state: "Leaving the app",
-    Screen: PayBusy,
-  },
+  ...reviewFrames,
 ];
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: color.paper },
+  // The row's own gutter would inset the box; the board puts it on the
+  // screen's.
+  earlySetup: { marginHorizontal: -space.lg, marginTop: space.xl },
   banner: {
     backgroundColor: color.paper,
     borderBottomColor: color.line,

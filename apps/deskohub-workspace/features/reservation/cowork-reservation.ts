@@ -17,6 +17,12 @@ import {
   type WorkspaceCoworkProductTier,
 } from "@/features/reservation/cowork-reservation-product";
 import {
+  type CoworkStay,
+  coworkStaySchema,
+  isOvernightCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
+import {
   defaultReservationBillingSelection,
   normalizedReservationBillingSelectionSchema,
   reservationBillingSelectionInputSchema,
@@ -59,12 +65,15 @@ const getOpenSpaceExclusiveEndHour = () =>
  * Shared tier-aware cowork interval constructor used by availability,
  * assignment/hold creation, and recovery. Open Space spans Prague-local
  * 00:00 until 17:00 exclusive on the reserved date; every other tier spans
- * Prague midnight to the next midnight (DST-correct calendar day).
+ * Prague midnight to the next midnight (DST-correct calendar day). An
+ * overnight Reserved Desk stay spans wall-clock noon on the arrival date to
+ * noon on the next date; the stay is ignored for every other tier.
  */
 export const getCoworkReservationIntervalInput = (
   tier: WorkspaceCoworkProductTier | undefined,
-  date: string
-): ReservationIntervalInput => getCoworkLocalInterval(tier, date);
+  date: string,
+  stay?: CoworkStay
+): ReservationIntervalInput => getCoworkLocalInterval(tier, date, stay);
 
 /**
  * The canonical cowork interval already resolved to site instants, equal to
@@ -73,9 +82,10 @@ export const getCoworkReservationIntervalInput = (
  */
 export const getCoworkReservationInterval = (
   tier: WorkspaceCoworkProductTier | undefined,
-  date: string
+  date: string,
+  stay?: CoworkStay
 ): ReservationInterval => {
-  const { startsAt, endsAt } = getCoworkLocalInterval(tier, date);
+  const { startsAt, endsAt } = getCoworkLocalInterval(tier, date, stay);
   const timeZone = workspaceSiteConstants.location.timeZone;
 
   return {
@@ -90,8 +100,20 @@ export const getCoworkReservationInterval = (
 
 const getCoworkLocalInterval = (
   tier: WorkspaceCoworkProductTier | undefined,
-  date: string
+  date: string,
+  stay: CoworkStay | undefined
 ) => {
+  if (isOvernightCoworkStay(tier, stay)) {
+    const changeover =
+      workspaceSiteConstants.openingHours.overnightStayChangeover;
+    return {
+      startsAt: decodeLocalDateTime(`${date}T${changeover}`),
+      endsAt: decodeLocalDateTime(
+        `${Temporal.PlainDate.from(date).add({ days: 1 })}T${changeover}`
+      ),
+    };
+  }
+
   if (tier === "open-space") {
     return {
       startsAt: decodeLocalDateTime(`${date}T00:00`),
@@ -169,6 +191,7 @@ const coworkReservationOrderBaseSchema = (defaultPhoneRegion: string) =>
     billing: reservationBillingSelectionInputSchema,
     ...coworkReservationProductInputSchema.fields,
     date: dateSchema,
+    stay: Schema.optional(coworkStaySchema),
   });
 
 const coworkReservationOrderInputSchema = (defaultPhoneRegion: string) =>
@@ -205,6 +228,8 @@ export const normalizedReservedDeskCoworkReservationOrderSchema = Schema.Struct(
     billing: normalizedReservationBillingSelectionSchema,
     ...normalizedReservedDeskCoworkReservationProductSchema.fields,
     date: plainDateStringSchema,
+    /** Present only for an overnight stay; absence is a day stay. */
+    stay: Schema.optionalKey(Schema.Literal("overnight")),
   }
 );
 
@@ -300,6 +325,11 @@ const reservedDeskCoworkReservationDetailsSchema = Schema.Struct({
   kind: Schema.Literal(coworkReservationKind),
   ...normalizedReservedDeskCoworkReservationProductSchema.fields,
   date: coworkReservationDetailsDateSchema,
+  /**
+   * Present only for an overnight stay. Checkout details carry it into hold
+   * creation; stored details never do.
+   */
+  stay: Schema.optionalKey(Schema.Literal("overnight")),
 });
 
 const basicCoworkReservationDetailsSchema = Schema.Struct({
@@ -474,6 +504,9 @@ export const getCoworkReservationDetails = (
           date: reservedDeskReservation.date,
           coffee: true,
           monitorOption: reservedDeskReservation.monitorOption,
+          ...(reservedDeskReservation.stay && {
+            stay: reservedDeskReservation.stay,
+          }),
         }),
       basic: (basicReservation) =>
         basicCoworkReservationDetailsSchema.make({
@@ -518,16 +551,30 @@ export const getCoworkCheckoutAttemptDetails = (
   monitorOption: reservation.monitorOption ?? null,
 });
 
+const getCoworkReservationStayIssues = (data: {
+  readonly entryTier: WorkspaceCoworkProductTier;
+  readonly stay?: CoworkStay | undefined;
+}): readonly Schema.FilterIssue[] =>
+  data.stay === "overnight" && data.entryTier !== overnightCoworkStayTier
+    ? [
+        {
+          path: ["stay"],
+          issue: "Only a Reserved Desk offers an overnight stay.",
+        },
+      ]
+    : [];
+
 const getCoworkReservationIssues = (
   data: CoworkReservationOrderInput | CoworkReservationFormInput
 ): readonly Schema.FilterIssue[] => [
   ...getCoworkReservationProductIssues(data),
   ...getCoworkReservationDateIssues(data),
+  ...getCoworkReservationStayIssues(data),
 ];
 
 type NormalizedCoworkReservationBase = Omit<
   CoworkReservationOrderInput,
-  "kind" | "entryTier" | "date" | "coffee" | "monitorOption"
+  "kind" | "entryTier" | "date" | "coffee" | "monitorOption" | "stay"
 >;
 
 const normalizeCoworkReservationOrder = (
@@ -557,6 +604,7 @@ const normalizeCoworkReservationOrder = (
           ...base,
           ...reservedDeskProduct,
           date,
+          ...(data.stay === "overnight" && { stay: "overnight" }),
         }),
       basic: (basicProduct) =>
         normalizedBasicCoworkReservationOrderSchema.make({

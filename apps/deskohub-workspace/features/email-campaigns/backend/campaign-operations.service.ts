@@ -1,28 +1,35 @@
 import "server-only";
 
 import {
-  type CampaignOperationError,
-  type CampaignOperationName,
   type CampaignOperations as CampaignOperationRegistry,
   type CampaignTemplatePreviewInputType,
   campaignOperations,
   OperationConflict,
-  type OperationDecodedInput,
-  type OperationInput,
   OperationInputInvalid,
-  type OperationOutput,
-  OperationUnauthorized,
 } from "@deskohub/workspace-admin-api";
-import { Context, Effect, Layer, Match, Schema, SchemaIssue } from "effect";
+import { Context, Effect, Layer, Match, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import {
+  type AdministrationOperationPort,
+  makeAdministrationOperationPort,
+  type OperationHandlers,
+  type OperationResults,
+} from "@/features/administration/administration-operation-port";
 import { AccountRoleGrants } from "@/features/administrators/backend/account-role-grants.service";
 import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
 import { type AudienceFilter, audienceFilterSchema } from "../audience-filter";
 import { previewCalendarExpression } from "../automation/automation-calendar-preview";
-import { AutomationDryRun } from "../automation/backend/automation-dry-run.service";
+import {
+  AutomationDryRun,
+  type AutomationDryRunWithLifecycle,
+} from "../automation/backend/automation-dry-run.service";
 import { AutomationEngineHealth } from "../automation/backend/automation-engine-health.service";
 import { AutomationLifecycle } from "../automation/backend/automation-lifecycle.service";
-import { AutomationRunLog } from "../automation/backend/automation-run-log.service";
+import {
+  type AutomationRunDetailWithLifecycle,
+  AutomationRunLog,
+  type AutomationRunPageWithLifecycle,
+} from "../automation/backend/automation-run-log.service";
 import {
   readCampaignContent,
   readCampaignDraftContent,
@@ -53,36 +60,32 @@ import { OperationRequestLedger } from "./operation-request-ledger.service";
 
 type Registry = CampaignOperationRegistry;
 
+/** The dry run's and run log's reads add each customer's lifecycle for the Admin UI. */
+type CampaignOperationResults = OperationResults<
+  Registry,
+  {
+    readonly getAutomationDryRun: AutomationDryRunWithLifecycle;
+    readonly listAutomationRuns: AutomationRunPageWithLifecycle;
+    readonly getAutomationRun: AutomationRunDetailWithLifecycle;
+  }
+>;
+
 /**
  * One handler per registered operation; a missing one fails the typecheck.
  * A handler may read who acts, as activation records it.
  */
-type CampaignOperationHandlers = {
-  readonly [Name in CampaignOperationName]: (
-    input: OperationDecodedInput<Registry[Name]>
-  ) => Effect.Effect<
-    OperationOutput<Registry[Name]>,
-    CampaignOperationCause,
-    CurrentAdministrator
-  >;
-};
+type CampaignOperationHandlers = OperationHandlers<
+  Registry,
+  CampaignOperationCause,
+  CurrentAdministrator,
+  CampaignOperationResults
+>;
 
-export interface ICampaignOperations {
-  /**
-   * Runs one campaign operation for the current administrator: re-checks
-   * the administrator grant, decodes the input strictly, applies a ledger
-   * operation once through the adapter's ledger, runs the handler, and maps
-   * its failure to a port error. Every adapter gets the same behaviour.
-   */
-  readonly invoke: <Name extends CampaignOperationName>(
-    name: Name,
-    input: OperationInput<Registry[Name]>
-  ) => Effect.Effect<
-    OperationOutput<Registry[Name]>,
-    CampaignOperationError,
-    CurrentAdministrator | OperationRequestLedger
-  >;
-}
+export type ICampaignOperations = AdministrationOperationPort<
+  Registry,
+  OperationRequestLedger,
+  CampaignOperationResults
+>;
 
 /** The single port the admin UI, `/api/v1/cli` and future adapters call. */
 export class CampaignOperations extends Context.Service<
@@ -92,65 +95,15 @@ export class CampaignOperations extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const grants = yield* AccountRoleGrants;
-      const handlers = yield* makeCampaignOperationHandlers;
-
-      const authorize = CurrentAdministrator.pipe(
-        Effect.flatMap(({ accountId }) =>
-          grants.has({ accountId, role: "administrator" })
-        ),
-        Effect.mapError(toOperationError),
-        Effect.filterOrFail(
-          (isAdministrator) => isAdministrator,
-          () =>
-            new OperationUnauthorized({
-              code: "administrator-required",
-              message:
-                "Your account isn't an administrator any more. Ask an administrator to grant the role again.",
-            })
-        )
-      );
-
-      const invoke = <Name extends CampaignOperationName>(
-        name: Name,
-        input: OperationInput<Registry[Name]>
-      ) => {
-        const operation: Registry[Name] = campaignOperations[name];
-        const handle: CampaignOperationHandlers[Name] = handlers[name];
-        return authorize.pipe(
-          Effect.andThen(decodeOperationInput(operation.input, input)),
-          Effect.flatMap((decoded) =>
-            operation.ledger
-              ? OperationRequestLedger.pipe(
-                  Effect.flatMap(
-                    (ledger) =>
-                      // The registry pairs a ledger operation's name with its
-                      // input, which a generic name can't express.
-                      ledger.applyOnce({
-                        operation: name,
-                        input: decoded,
-                        apply: handle(decoded),
-                      } as never) as Effect.Effect<
-                        OperationOutput<Registry[Name]>,
-                        CampaignOperationCause,
-                        CurrentAdministrator
-                      >
-                  )
-                )
-              : handle(decoded)
-          ),
-          Effect.mapError(toOperationError),
-          Effect.withSpan("CampaignOperations.invoke", {
-            attributes: { operation: name },
-          })
-        ) as Effect.Effect<
-          OperationOutput<Registry[Name]>,
-          CampaignOperationError,
-          CurrentAdministrator | OperationRequestLedger
-        >;
-      };
-
-      return { invoke } satisfies ICampaignOperations;
+      const handlers: CampaignOperationHandlers =
+        yield* makeCampaignOperationHandlers;
+      return yield* makeAdministrationOperationPort({
+        group: "CampaignOperations",
+        operations: campaignOperations,
+        handlers,
+        ledger: OperationRequestLedger,
+        toOperationError,
+      });
     })
   );
 
@@ -173,33 +126,6 @@ export class CampaignOperations extends Context.Service<
     )
   );
 }
-
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
-
-const formatIssues = SchemaIssue.makeFormatterStandardSchemaV1();
-
-/** Unknown keys and invalid values fail as one `input-invalid` error. */
-const decodeOperationInput = <S extends Schema.Decoder<unknown>>(
-  schema: S,
-  input: S["Encoded"]
-): Effect.Effect<S["Type"], OperationInputInvalid> =>
-  Schema.decodeUnknownEffect(schema)(input, strictParseOptions).pipe(
-    Effect.mapError(
-      (cause) =>
-        new OperationInputInvalid({
-          code: "input-invalid",
-          message: `The input is invalid: ${cause.message}`,
-          issues: formatIssues(cause.issue).issues.map(({ path, message }) => ({
-            path: (path ?? []).map((segment) => String(segment)),
-            message,
-          })),
-          cause,
-        })
-    )
-  );
 
 /** The contract mirrors the domain filter; its own schema has the last word. */
 const decodeAudienceFilter = (filter: AudienceFilter) =>

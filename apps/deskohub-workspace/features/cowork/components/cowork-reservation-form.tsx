@@ -1,7 +1,14 @@
 "use client";
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import { AlertTriangle, Clock3, Coffee, Monitor, Wifi } from "lucide-react";
+import {
+  AlertTriangle,
+  Clock3,
+  Coffee,
+  Monitor,
+  Moon,
+  Wifi,
+} from "lucide-react";
 import Image, { getImageProps } from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useId } from "react";
@@ -60,6 +67,7 @@ import {
   type NormalizedCoworkReservationOrder,
 } from "@/features/reservation/cowork-reservation";
 import { coworkSelectionLink } from "@/features/reservation/cowork-selection-link";
+import { overnightCoworkStayTier } from "@/features/reservation/cowork-stay";
 import {
   formatReservationInputDate,
   getCurrentWorkspaceDate,
@@ -73,9 +81,11 @@ import {
   FormMessage,
 } from "@/shared/components/ui/form";
 import { Label } from "@/shared/components/ui/label";
+import { Switch } from "@/shared/components/ui/switch";
 import { cn } from "@/shared/utils";
 import { CoworkOptionalAddonToggle } from "./cowork-optional-addon-toggle";
 import { getCoworkReservationSelectionSummary } from "./cowork-reservation-selection-summary";
+import { formatCoworkOvernightStay } from "./cowork-stay-display";
 import { useCoworkAddonNormalization } from "./use-cowork-addon-normalization";
 import { useCoworkAdvertisedPrices } from "./use-cowork-advertised-prices";
 import { useCoworkSelectionAvailability } from "./use-cowork-selection-availability";
@@ -85,6 +95,11 @@ type CoworkReservationFormProps = {
   initialAdvertisedPrices?: ReadonlyArray<PreloadedAdvertisedPrice>;
   initialValues?: CoworkReservationInput;
   locale: Locale;
+  /**
+   * Whether the overnight-stay release is open, so a Reserved Desk can be
+   * booked as an overnight stay.
+   */
+  overnightStayOffered?: boolean;
   checkoutSessionId?: CheckoutSessionId;
   checkoutCustomer: ReservationCheckoutCustomerForm;
   initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
@@ -138,6 +153,7 @@ export function CoworkReservationForm({
   initialAdvertisedPrices = [],
   initialValues,
   locale,
+  overnightStayOffered = false,
   checkoutSessionId,
   checkoutCustomer,
   initialAvailability,
@@ -160,8 +176,13 @@ export function CoworkReservationForm({
     reValidateMode: "onChange",
   });
   const selection = useWatchedSelection(coworkSelectionLink, form.control);
-  const { entryTier: selectedTier, monitorOption: selectedMonitorOption } =
-    selection;
+  const {
+    entryTier: selectedTier,
+    monitorOption: selectedMonitorOption,
+    stay: selectedStay,
+  } = selection;
+  const offersStayChoice =
+    overnightStayOffered && selectedTier === overnightCoworkStayTier;
   useReservationSelectionUrl(coworkSelectionLink, selection);
   const allowedMonitorOptions =
     getAllowedMonitorOptionsForCoworkTier(selectedTier);
@@ -221,6 +242,10 @@ export function CoworkReservationForm({
                 onBlur={field.onBlur}
                 onChange={(tier) => {
                   field.onChange(tier);
+                  // Only a Reserved Desk offers an overnight stay.
+                  if (tier !== overnightCoworkStayTier) {
+                    form.setValue("stay", undefined);
+                  }
                   onTierChange(tier);
                 }}
                 presentation="illustrated"
@@ -315,6 +340,8 @@ export function CoworkReservationForm({
           <CoworkReservationDateField
             control={form.control}
             locale={locale}
+            offersStayChoice={offersStayChoice}
+            overnight={offersStayChoice && selectedStay === "overnight"}
             unavailableDates={selectionAvailability.unavailableDates}
           />
 
@@ -659,9 +686,62 @@ function CoworkWorkstationAddonField({
   );
 }
 
+/**
+ * The Reserved Desk's overnight-stay switch. Off writes the explicit day stay
+ * rather than clearing the field, because a cleared controlled field shows its
+ * default again (an opened overnight link would stay on); the link and the
+ * order drop a day stay, so it still books as unset.
+ */
+function CoworkOvernightStaySwitch({
+  control,
+  locale,
+}: {
+  readonly control: Control<
+    CoworkReservationInput,
+    unknown,
+    CoworkReservationData
+  >;
+  readonly locale: Locale;
+}) {
+  const switchId = useId();
+
+  return (
+    <FormField
+      control={control}
+      name="stay"
+      render={({ field }) => (
+        <div className="flex shrink-0 items-center gap-2">
+          <Label
+            className={cn(
+              "sr-only cursor-pointer @md:not-sr-only",
+              field.value === "overnight"
+                ? "text-burned-orange"
+                : "text-navy-blue/72"
+            )}
+            htmlFor={switchId}
+          >
+            {m.coworkReservationStayOvernight({}, { locale })}
+          </Label>
+          <Switch
+            checked={field.value === "overnight"}
+            icon={<Moon />}
+            id={switchId}
+            onBlur={field.onBlur}
+            onCheckedChange={(overnight) =>
+              field.onChange(overnight ? "overnight" : "day")
+            }
+          />
+        </div>
+      )}
+    />
+  );
+}
+
 function CoworkReservationDateField({
   control,
   locale,
+  offersStayChoice,
+  overnight,
   unavailableDates,
 }: {
   readonly control: Control<
@@ -670,6 +750,10 @@ function CoworkReservationDateField({
     CoworkReservationData
   >;
   readonly locale: Locale;
+  /** Whether the date's heading row carries the overnight-stay switch. */
+  readonly offersStayChoice: boolean;
+  /** Whether the date is an overnight stay's arrival. */
+  readonly overnight: boolean;
   readonly unavailableDates: ReadonlySet<string>;
 }) {
   return (
@@ -678,12 +762,30 @@ function CoworkReservationDateField({
       name="date"
       render={({ field }) => (
         <FormItem>
-          <ReservationFormLabel required>
-            {m.reservationDateLabel({}, { locale })}
-          </ReservationFormLabel>
+          {/* The switch's text shows only where the row has room for it. */}
+          <div className="@container flex items-center justify-between gap-3">
+            <ReservationFormLabel className="whitespace-nowrap" required>
+              {m.reservationDateLabel({}, { locale })}
+            </ReservationFormLabel>
+            {offersStayChoice && (
+              <CoworkOvernightStaySwitch control={control} locale={locale} />
+            )}
+          </div>
           <ReservationFormDateInput
             {...field}
-            displayValue={formatDisplayDate(field.value, locale)}
+            displayValue={
+              overnight && field.value ? (
+                <span
+                  data-cowork-overnight-stay-times
+                  className="flex items-start gap-1.5"
+                >
+                  <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-burned-orange" />
+                  {formatCoworkOvernightStay(field.value, locale)}
+                </span>
+              ) : (
+                formatDisplayDate(field.value, locale)
+              )
+            }
             label={m.reservationDateLabel({}, { locale })}
             locale={locale}
             minimum={() => getCurrentWorkspaceDate().toString()}

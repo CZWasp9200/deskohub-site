@@ -9,6 +9,7 @@ export {
 export {
   getDeskohubBarPageUrl,
   getWorkspaceCanonicalUrl,
+  type VatStatus,
   workspaceSiteConstants,
   workspaceSiteOrigin,
 } from "./site-constants";

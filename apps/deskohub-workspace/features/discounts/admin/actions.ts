@@ -1,19 +1,19 @@
 "use server";
 
-import { Effect } from "effect";
-import { administrationHref } from "@/features/administration/administration-href";
+import { Effect, Layer } from "effect";
 import { m } from "@/features/administration/i18n";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
-import type { Locale } from "@/features/i18n";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
-import { startCalendarDiscountSourceRefresh } from "./calendar-discount-source-maintenance.server";
 import {
   type DiscountAdminMutation,
   discountAdminMutationStandardSchema,
 } from "./contracts";
-import { DiscountAdministration } from "./discount-administration.service";
-import { executeDiscountAdminMutation } from "./execute-discount-admin-mutation";
-import { getDiscountAdminMutationErrorMessage } from "./mutation-error-message";
+import {
+  DiscountOperations,
+  DiscountRequestLedger,
+  discountOperationSettlements,
+} from "./discount-operations.service";
+import { getDiscountMutationFailureMessage } from "./mutation-error-message";
 
 const failureCopy: WorkspaceActionFailureCopy = {
   timeout: m.discountsActionTimedOut,
@@ -44,48 +44,29 @@ const discountAdminMutationNotices = {
   typeof m.discountsNoticeDiscountCreated
 >;
 
-const executeDiscountAdminActionMutation = Effect.fn(
-  "DiscountAdministration.executeActionMutation"
-)(function* (input: DiscountAdminMutation, locale: Locale) {
-  const result = yield* executeDiscountAdminMutation(input);
-
-  return {
-    ...(result.createdDiscountId && {
-      createdDiscountId: result.createdDiscountId,
-    }),
-    notice: discountAdminMutationNotices[input.kind]({}, { locale }),
-  };
-});
-
-const getMutatedCustomerPaths = (input: DiscountAdminMutation) => {
-  if (input.kind === "create-customer-code") {
-    return [
-      administrationHref("/[locale]/admin/customers/[customerId]", {
-        customerId: input.customerId,
-      }),
-    ];
-  }
-  if (input.kind === "create-customer-voucher") {
-    return [
-      administrationHref("/[locale]/admin/customers/[customerId]", {
-        customerId: input.voucher.customerId,
-      }),
-    ];
-  }
-  return [];
-};
-
 const discountAdminMutationAction = defineAdministrationAction(
   {
     operation: "discount-administration.mutate",
     failureCopy,
     schema: discountAdminMutationStandardSchema,
-    capabilities: DiscountAdministration.Live,
-    publicFailure: getDiscountAdminMutationErrorMessage,
-    revalidates: getMutatedCustomerPaths,
-    refreshes: startCalendarDiscountSourceRefresh,
+    capabilities: Layer.mergeAll(
+      DiscountOperations.Live,
+      DiscountRequestLedger.unscoped
+    ),
+    publicFailure: getDiscountMutationFailureMessage,
+    ...discountOperationSettlements.mutateDiscounts,
   },
-  (input, { locale }) => executeDiscountAdminActionMutation(input, locale)
+  (input, { locale }) =>
+    Effect.flatMap(DiscountOperations, (operations) =>
+      operations.invoke("mutateDiscounts", input)
+    ).pipe(
+      Effect.map((result) => ({
+        ...(result.createdDiscountId && {
+          createdDiscountId: result.createdDiscountId,
+        }),
+        notice: discountAdminMutationNotices[input.kind]({}, { locale }),
+      }))
+    )
 );
 
 export const mutateDiscountAdmin: typeof discountAdminMutationAction = async (

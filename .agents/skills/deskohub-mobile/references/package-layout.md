@@ -6,8 +6,16 @@ Paths are relative to `apps/deskohub-mobile`.
 
 - `app/` holds the Expo Router routes. `app/_layout.tsx` gates the signed-in
   routes and mounts analytics, locale, customer-data cleanup and the update
-  banner. `app/(account)/(tabs)` holds the Reservations and Account tabs;
-  booking routes stack outside the tab bar. `app/dev/effect-smoke.tsx` is a
+  banner. `app/(account)/(tabs)` holds the Account, Book and Reservations
+  tabs, drawn by the custom `TabBar` (`src/ui/tab-bar.tsx`); Book's root is
+  the choice of spaces, while booking a space and checkout stack outside the
+  tab bar in `app/(account)/book`. A hidden tab (`href: null`) that gains
+  focus redirects to the initial tab, so keep screens without the bar out of
+  `(tabs)`. `app/(account)/index.tsx` sends `/` to the start tab
+  (`src/routing/start-tab.ts`). Expo Router ignores a navigator's dynamic
+  `initialRouteName` (only `unstable_settings` counts), so the tabs use
+  `backBehavior="none"` and `src/routing/back-to-start-tab.ts` handles
+  Android back at a tab root. `app/dev/effect-smoke.tsx` is a
   development-only screen (an Account tab row when `__DEV__`) that runs the
   `src/smoke` cases (Effect, Paraglide, `Intl`) on the device's Hermes.
 - `app/+native-intent.ts` maps an incoming `https://<host>/app/<route>` App
@@ -38,6 +46,9 @@ Paths are relative to `apps/deskohub-mobile`.
 - `modules/trusted-web-activity/` is a local Expo module in Kotlin (Android
   Browser Helper): TWA provider detection, launch and release for the sign-in
   page; other platforms get an unsupported stub.
+- `modules/install-source/` is a local Expo module in Kotlin that reads which
+  app installed this one (`getInstallSourceInfo`, `getInstallerPackageName`
+  below API 30); other platforms and builds without it read `null`.
 - `plugins/android-asset-statements.cjs` writes the Android
   `asset_statements` resource, the app's half of the Digital Asset Links
   association used by TWA verification and the site's
@@ -62,10 +73,15 @@ Next: the app bundles for Hermes and the browser.
 - The root `biome.json` override for `apps/deskohub-mobile/**` bans `next`,
   `next/**`, `@deskohub/next-effect` and `@deskohub/i18n/{next,action,request-locale}`
   through `style/noRestrictedImports`. The `@deskohub/i18n` root, `core`,
-  `pathname`, `translatable`, `effect` and `currency` entries are allowed.
+  `pathname`, `translatable`, `effect`, `currency` and `search-text` entries are allowed.
   `lint/import-ban.test.ts` pins banned and allowed specifiers; extend both
   when a new server-bound entry appears.
-- Hermes lacks some `Intl` APIs. `@deskohub/i18n/currency` falls back to the
+- Hermes lacks some `Intl` APIs: it has only `Collator`, `DateTimeFormat`,
+  `NumberFormat` and `getCanonicalLocales`. `index.ts` installs the app's
+  cardinal `Intl.PluralRules` (`src/i18n/plural-rules.ts`, held to ICU by
+  its test) where the engine has none, so catalog plurals work on a device;
+  a new locale needs its rule there, and typecheck names it. Ordinal plurals
+  aren't bundled. `@deskohub/i18n/currency` falls back to the
   ISO code where `Intl.DisplayNames` is missing; `src/smoke/intl-smoke-cases.ts`
   asserts that on a device. `formatCurrencyAmount` can lose precision on
   Hermes for large decimal strings. Add a smoke case when a shared module

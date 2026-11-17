@@ -3,7 +3,7 @@ import {
   type CustomerReservationAccess,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
-import { type Duration, Effect, Layer, Option } from "effect";
+import { Duration, Effect, Layer, Option } from "effect";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { TestClock } from "effect/testing";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
@@ -28,12 +28,19 @@ import {
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
 import { sampleOrderIds } from "../../customer-api/testing/sample-fixtures";
 import {
+  AccessScreenState,
   accessCountdownAtom,
   accessErrorMessage,
+  accessHeaderTone,
+  accessScreenStateOf,
   accessWindowKey,
   copyAccessCodeAtom,
+  copyAddressAtom,
+  copyFeedbackDuration,
+  copyPinWithFeedbackAtom,
   reservationAccessAtom,
   shownAccess,
+  showsCopied,
 } from "./access-screen-state";
 
 const orderId = CustomerReservationOrderId.make("test-order-access");
@@ -136,14 +143,11 @@ describe("reservationAccessAtom", () => {
 });
 
 describe("accessErrorMessage", () => {
-  test("explains a missing order and an unavailable PIN itself", () => {
-    for (const error of [
-      CustomerViewError.NotFound(),
-      CustomerViewError.AccessCodeUnavailable(),
-    ]) {
-      for (const locale of ["en-US", "cs-CZ"] as const) {
-        expect(accessErrorMessage(error, locale)).toEqual(expect.any(String));
-      }
+  test("explains a missing order itself", () => {
+    for (const locale of ["en-US", "cs-CZ"] as const) {
+      expect(accessErrorMessage(CustomerViewError.NotFound(), locale)).toEqual(
+        expect.any(String)
+      );
     }
   });
 
@@ -153,36 +157,42 @@ describe("accessErrorMessage", () => {
       CustomerViewError.Unavailable(),
       CustomerViewError.InvoiceNotIssued(),
       CustomerViewError.Unexpected(),
+      // A missing PIN is the screen's own No PIN state, not an error line.
+      CustomerViewError.AccessCodeUnavailable(),
     ]) {
       expect(accessErrorMessage(error, "en-US")).toBeUndefined();
     }
   });
 });
 
+const refreshedAccess = async (
+  arrange: (workspace: FakeWorkspace) => void
+): Promise<
+  AsyncResult.AsyncResult<CustomerReservationAccess, CustomerRequestFailure>
+> => {
+  const { registry, workspace } = makeFakeCustomerData("linked");
+  withAccess(workspace, {
+    code: pin,
+    accessStartsAt: atMillis(0),
+    accessEndsAt: atMillis(60_000),
+  });
+  const atom = reservationAccessAtom(orderId);
+  const unmount = registry.mount(atom);
+  await settle(registry, atom);
+  arrange(workspace);
+  registry.refresh(atom);
+  await Effect.runPromise(
+    Effect.result(
+      AtomRegistry.getResult(atom, { suspendOnWaiting: true })(registry)
+    )
+  );
+  const result = registry.get(atom);
+  unmount();
+  return result;
+};
+
 describe("shownAccess", () => {
-  const refreshed = async (
-    arrange: (workspace: FakeWorkspace) => void
-  ): Promise<AsyncResult.AsyncResult<unknown, CustomerRequestFailure>> => {
-    const { registry, workspace } = makeFakeCustomerData("linked");
-    withAccess(workspace, {
-      code: pin,
-      accessStartsAt: atMillis(0),
-      accessEndsAt: atMillis(60_000),
-    });
-    const atom = reservationAccessAtom(orderId);
-    const unmount = registry.mount(atom);
-    await settle(registry, atom);
-    arrange(workspace);
-    registry.refresh(atom);
-    await Effect.runPromise(
-      Effect.result(
-        AtomRegistry.getResult(atom, { suspendOnWaiting: true })(registry)
-      )
-    );
-    const result = registry.get(atom);
-    unmount();
-    return result;
-  };
+  const refreshed = refreshedAccess;
 
   test("drops the last PIN when a refresh finds it withdrawn", async () => {
     const result = await refreshed((workspace) =>
@@ -365,5 +375,158 @@ describe("accessCountdownAtom", () => {
         accessWindowKey({ ...window, accessEndsAt: atMillis(120_000) })
       )
     );
+  });
+});
+
+describe("accessScreenStateOf", () => {
+  const access: CustomerReservationAccess = {
+    code: pin,
+    accessStartsAt: atMillis(0),
+    accessEndsAt: atMillis(60_000),
+  };
+
+  test("loads until the first read answers", () => {
+    expect(accessScreenStateOf(AsyncResult.initial(true))).toEqual(
+      AccessScreenState.Loading()
+    );
+  });
+
+  test("shows the PIN once read", () => {
+    expect(accessScreenStateOf(AsyncResult.success(access))).toEqual(
+      AccessScreenState.Pin({ access })
+    );
+  });
+
+  /** The access read after its first answer, as the screen holds it. */
+  const firstRead = async (arrange: (workspace: FakeWorkspace) => void) => {
+    const { registry, workspace } = makeFakeCustomerData("linked");
+    arrange(workspace);
+    const atom = reservationAccessAtom(orderId);
+    const unmount = registry.mount(atom);
+    await settle(registry, atom);
+    const result = registry.get(atom);
+    unmount();
+    return shownAccess(result);
+  };
+
+  test("an order without a PIN is the No PIN state", async () => {
+    const result = await firstRead((workspace) =>
+      withAccess(workspace, undefined)
+    );
+    expect(accessScreenStateOf(result)).toEqual(AccessScreenState.NoPin());
+  });
+
+  test("a PIN withdrawn on refresh turns into the No PIN state", async () => {
+    const result = await refreshedAccess((workspace) =>
+      withAccess(workspace, undefined)
+    );
+    expect(accessScreenStateOf(shownAccess(result))).toEqual(
+      AccessScreenState.NoPin()
+    );
+  });
+
+  test("any other failure without a PIN is the shared failure", async () => {
+    const result = await firstRead(() => undefined);
+    expect(accessScreenStateOf(result)).toEqual(AccessScreenState.Failed());
+  });
+
+  test("a PIN on screen stays through a failed refresh", async () => {
+    const result = await refreshedAccess((workspace) =>
+      workspace.fail("getReservationAccess", "rate-limited")
+    );
+    expect(accessScreenStateOf(shownAccess(result))._tag).toBe("Pin");
+  });
+});
+
+describe("accessHeaderTone", () => {
+  test("a No PIN that a refresh turns into a PIN goes back to the navy header", async () => {
+    const { registry, workspace } = makeFakeCustomerData("linked");
+    withAccess(workspace, undefined);
+    const atom = reservationAccessAtom(orderId);
+    const unmount = registry.mount(atom);
+    await settle(registry, atom);
+    const before = accessScreenStateOf(shownAccess(registry.get(atom)));
+
+    withAccess(workspace, {
+      code: pin,
+      accessStartsAt: atMillis(0),
+      accessEndsAt: atMillis(60_000),
+    });
+    registry.refresh(atom);
+    await Effect.runPromise(
+      Effect.result(
+        AtomRegistry.getResult(atom, { suspendOnWaiting: true })(registry)
+      )
+    );
+    const after = accessScreenStateOf(shownAccess(registry.get(atom)));
+    unmount();
+
+    expect([before._tag, accessHeaderTone(before)]).toEqual(["NoPin", "paper"]);
+    expect([after._tag, accessHeaderTone(after)]).toEqual(["Pin", "navy"]);
+  });
+
+  test("loading and a failure keep the navy header", () => {
+    expect(accessHeaderTone(AccessScreenState.Loading())).toBe("navy");
+    expect(accessHeaderTone(AccessScreenState.Failed())).toBe("navy");
+  });
+});
+
+describe("copy feedback", () => {
+  const copiedNow = (
+    registry: AtomRegistry.AtomRegistry,
+    atom: Parameters<typeof registry.get>[0]
+  ) =>
+    showsCopied(
+      registry.get(atom) as AsyncResult.AsyncResult<boolean, unknown>
+    );
+
+  test("Copy PIN copies only the PIN, as sensitive, and confirms it for two seconds", async () => {
+    const { registry, device } = onTestClock();
+    const copy = copyPinWithFeedbackAtom(orderId);
+    const unmount = registry.mount(copy);
+    registry.set(copy, pin);
+    await advance(registry, 0);
+
+    expect(device.copied).toEqual([{ text: pin, sensitive: true }]);
+    expect(copiedNow(registry, copy)).toBe(true);
+
+    await advance(
+      registry,
+      Duration.subtract(copyFeedbackDuration, Duration.millis(1))
+    );
+    expect(copiedNow(registry, copy)).toBe(true);
+    await advance(registry, Duration.millis(1));
+    expect(copiedNow(registry, copy)).toBe(false);
+    unmount();
+  });
+
+  test("the address copies as plain text with the same feedback", async () => {
+    const { registry, device } = onTestClock();
+    const unmount = registry.mount(copyAddressAtom);
+    registry.set(copyAddressAtom, "Sample address");
+    await advance(registry, 0);
+    expect(device.copied).toEqual([
+      { text: "Sample address", sensitive: false },
+    ]);
+    expect(copiedNow(registry, copyAddressAtom)).toBe(true);
+    await advance(registry, copyFeedbackDuration);
+    expect(copiedNow(registry, copyAddressAtom)).toBe(false);
+    unmount();
+  });
+
+  test("a failed copy never shows the check", async () => {
+    const { registry } = onTestClock(
+      Layer.succeed(Clipboard, {
+        copy: () =>
+          Effect.fail(new DeviceCapabilityFailed({ capability: "clipboard" })),
+      })
+    );
+    const copy = copyPinWithFeedbackAtom(orderId);
+    const unmount = registry.mount(copy);
+    registry.set(copy, pin);
+    await advance(registry, 0);
+    expect(AsyncResult.isFailure(registry.get(copy))).toBe(true);
+    expect(copiedNow(registry, copy)).toBe(false);
+    unmount();
   });
 });

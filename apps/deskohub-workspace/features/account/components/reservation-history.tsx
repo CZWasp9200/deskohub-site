@@ -10,7 +10,10 @@ import type {
 import { getReservationProductName } from "@/features/account/reservation-product-name";
 import { type Locale, m } from "@/features/i18n";
 import { formatMeetingRoomSetupStart } from "@/features/reservation/meeting-room-reservation-display-time";
-import { formatReservationDisplayDateRange } from "@/features/reservation/reservation-date";
+import {
+  formatReservationDisplayDateRange,
+  formatReservationDisplayDateTimeRange,
+} from "@/features/reservation/reservation-date";
 import {
   reservationAccessPath,
   reservationStatusPath,
@@ -84,11 +87,9 @@ const formatReservationPeriod = (
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return null;
   }
+  const startInstant = Temporal.Instant.fromEpochMilliseconds(start.getTime());
+  const endInstant = Temporal.Instant.fromEpochMilliseconds(end.getTime());
   if (end.getTime() > start.getTime()) {
-    const startInstant = Temporal.Instant.fromEpochMilliseconds(
-      start.getTime()
-    );
-    const endInstant = Temporal.Instant.fromEpochMilliseconds(end.getTime());
     if (
       isMidnight(
         startInstant
@@ -108,11 +109,11 @@ const formatReservationPeriod = (
       );
     }
   }
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: workspaceSiteConstants.location.timeZone,
-  }).formatRange(start, end);
+  return formatReservationDisplayDateTimeRange(
+    startInstant,
+    endInstant,
+    locale
+  );
 };
 
 /** The setup start of a meeting room booked with early setup. */

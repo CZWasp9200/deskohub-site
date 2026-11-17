@@ -1,6 +1,6 @@
 import { mock } from "bun:test";
 import type {
-  CampaignOperationError,
+  AdministrationOperationError,
   CampaignOperationName,
   CampaignOperations as CampaignOperationRegistry,
   OperationInput,
@@ -34,7 +34,7 @@ export const stubCampaignPageQueries = () => {
     responses: {} as Partial<
       Record<
         CampaignOperationName,
-        Effect.Effect<unknown, CampaignOperationError>
+        Effect.Effect<unknown, AdministrationOperationError>
       >
     >,
     invoked: [] as Invocation[],

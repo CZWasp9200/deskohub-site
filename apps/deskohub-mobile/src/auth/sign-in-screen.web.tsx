@@ -14,6 +14,7 @@ import {
 } from "../ui/controls";
 import { AppSignInCodeStep } from "./app-sign-in-code-step.web";
 import { AppSignInContinueStep } from "./app-sign-in-continue-step";
+import { appSignInEmailHeading } from "./app-sign-in-email-heading";
 import { AppSignInEmailStep } from "./app-sign-in-email-step";
 import { AppSignInLinkStep } from "./app-sign-in-link-step";
 import {
@@ -21,6 +22,11 @@ import {
   isFreshSignIn,
   safeReturnPath,
 } from "./auth-session-state";
+import {
+  closeTabWhenAppTakesOver,
+  currentHandoffTabPage,
+} from "./close-tab-on-handoff";
+import { ReauthenticationShield } from "./reauthentication-shield";
 import { webSignInFailureMessage } from "./sign-in-failure-message";
 import { signInResendAvailableAt } from "./sign-in-resend-gate";
 import type { SignInScreenProps } from "./sign-in-screen.native";
@@ -39,6 +45,7 @@ import {
 } from "./web-native-request-store";
 import { loadReauthenticatingUser } from "./web-reauthentication-store";
 import {
+  appAccountEmail,
   completeWebCodeSignIn,
   completeWebPasskeySignIn,
   finishSignIn,
@@ -143,7 +150,11 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     setPageSession((known) => known ?? { user });
   }, [sessionRead, sessionUserId, sessionEmail]);
   // Its email goes only to that account, through any start over.
-  const emailField = signInEmailField({ reauthenticating, pageSession });
+  const emailField = signInEmailField({
+    reauthenticating,
+    pageSession,
+    appAccountEmail: appAccountEmail(nativeRequest),
+  });
   const verify = useAuthTask(
     standaloneTaskRuntime,
     (address: string, entered: string, expectation: WebAccountExpectation) =>
@@ -174,6 +185,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     if (finished.kind === "app") {
       clearNativeHandoffRequest();
       globalThis.location.assign(finished.url);
+      closeTabWhenAppTakesOver(currentHandoffTabPage());
     } else {
       router.replace(returnPath);
     }
@@ -329,7 +341,7 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     passkey.reset();
   };
 
-  if (openedByApp) {
+  if (Option.isSome(nativeRequest)) {
     const verifyFailure =
       verify.state.status === "failed" ? verify.state.failure : undefined;
     // A refused resend outranks the earlier code result, so it is seen.
@@ -406,13 +418,13 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
         />
       );
     }
+    const heading = appSignInEmailHeading(nativeRequest.value, locale);
     return (
       <AppSignInEmailStep
-        title={m.signin_create_title({}, { locale })}
-        body={
-          reauthenticate
-            ? m.signin_reauthenticate_body({}, { locale })
-            : undefined
+        title={heading.title}
+        body={heading.body}
+        illustration={
+          heading.confirmsAccount ? <ReauthenticationShield /> : undefined
         }
         email={{
           value: emailField.kind === "locked" ? emailField.email : email,

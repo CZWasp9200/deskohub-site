@@ -25,6 +25,10 @@ import {
 } from "@/features/checkout/product-catalog";
 import { getCoworkReservationInterval } from "@/features/reservation/cowork-reservation";
 import {
+  type CoworkStay,
+  isOvernightCoworkStay,
+} from "@/features/reservation/cowork-stay";
+import {
   coworkReservationKind,
   officeReservationKind,
 } from "@/features/reservation/reservation-kind";
@@ -73,8 +77,15 @@ type Occupancy = ReadonlyMap<DotyposTableId, number>;
 export const evaluateAvailability = (
   input: AvailabilityEvaluationInput
 ): Result.Result<AvailabilityEvaluation, InvalidDotyposTableSeats> => {
-  const inventory = createInventoryView(input.tables, input.reservations);
+  const coworkStay =
+    input.query.kind === coworkReservationKind ? input.query.stay : undefined;
+  const inventory = createInventoryView(
+    input.tables,
+    input.reservations,
+    coworkStay
+  );
   const getDateOccupancy = createDateOccupancyLookup(inventory, input);
+  const isOfferClosed = createOfferClosureLookup(input, coworkStay);
 
   // Alternative tier, monitor-option, and bare range-selection checks each use
   // the candidate offer's OWN authoritative interval; the selected offer's
@@ -82,19 +93,25 @@ export const evaluateAvailability = (
   // full-day Reserved Desk occupancy describe different intervals).
   const reservedDeskWorkstationRequiredDates =
     input.query.kind === coworkReservationKind
-      ? findReservedDeskWorkstationRequiredDates(inventory, input)
+      ? findReservedDeskWorkstationRequiredDates(
+          inventory,
+          input,
+          isOfferClosed
+        )
       : [];
   const unavailableDates = findUnavailableDates(
     inventory,
     input,
-    getDateOccupancy
+    getDateOccupancy,
+    isOfferClosed
   );
   const selectedDateAvailability = input.selectedDate
     ? evaluateSelectedDate(
         inventory,
         input,
         input.selectedDate,
-        getDateOccupancy
+        getDateOccupancy,
+        isOfferClosed
       )
     : noSelectedDateAvailability();
 
@@ -124,6 +141,29 @@ const noSelectedDateAvailability = (): SelectedDateAvailability => ({
 
 type DateOccupancyLookup = (date: string) => Occupancy;
 
+/** Whether a fully occupied Calendar date closes an offer arriving on `date`. */
+type OfferClosureLookup = (
+  date: string,
+  tier: WorkspaceCoworkProductTier | undefined
+) => boolean;
+
+/**
+ * A fully occupied Calendar date closes every offer on it. An overnight
+ * Reserved Desk stay also touches the next date, so a fully occupied next
+ * date closes it too.
+ */
+const createOfferClosureLookup = (
+  { fullyOccupiedDates }: AvailabilityEvaluationInput,
+  coworkStay: CoworkStay | undefined
+): OfferClosureLookup => {
+  return (date, tier) =>
+    fullyOccupiedDates.has(date) ||
+    (isOvernightCoworkStay(tier, coworkStay) &&
+      fullyOccupiedDates.has(
+        Temporal.PlainDate.from(date).add({ days: 1 }).toString()
+      ));
+};
+
 /**
  * The selected date of a meeting-room or cowork query uses the selected
  * reservation's own interval; every other date uses the queried cowork
@@ -147,11 +187,12 @@ const createDateOccupancyLookup = (
  */
 const findReservedDeskWorkstationRequiredDates = (
   inventory: InventoryView,
-  { dates, fullyOccupiedDates }: AvailabilityEvaluationInput
+  { dates }: AvailabilityEvaluationInput,
+  isOfferClosed: OfferClosureLookup
 ) => {
   const workstationRequiredDates: string[] = [];
   for (const date of dates) {
-    if (fullyOccupiedDates.has(date)) continue;
+    if (isOfferClosed(date, "reserved-desk")) continue;
 
     const reservedDeskOccupancy = inventory.getCoworkOfferOccupancy(
       date,
@@ -195,13 +236,16 @@ const shouldCheckRangeDateSelection = ({
 const findUnavailableDates = (
   inventory: InventoryView,
   input: AvailabilityEvaluationInput,
-  getDateOccupancy: DateOccupancyLookup
+  getDateOccupancy: DateOccupancyLookup,
+  isOfferClosed: OfferClosureLookup
 ) => {
-  const { query, dates, selectedDate, fullyOccupiedDates } = input;
+  const { query, dates, selectedDate } = input;
   const checksEveryDate = shouldCheckRangeDateSelection(input);
+  const entryTier =
+    query.kind === coworkReservationKind ? query.entryTier : undefined;
   const unavailableDates: string[] = [];
   for (const date of dates) {
-    if (fullyOccupiedDates.has(date)) {
+    if (isOfferClosed(date, entryTier)) {
       unavailableDates.push(date);
       continue;
     }
@@ -229,7 +273,8 @@ const evaluateSelectedDate = (
     fullyOccupiedDates,
   }: AvailabilityEvaluationInput,
   selectedDate: string,
-  getDateOccupancy: DateOccupancyLookup
+  getDateOccupancy: DateOccupancyLookup,
+  isOfferClosed: OfferClosureLookup
 ): SelectedDateAvailability => {
   const selectedDateOccupancy: Occupancy = dates.includes(selectedDate)
     ? getDateOccupancy(selectedDate)
@@ -237,12 +282,14 @@ const evaluateSelectedDate = (
   // A fully occupied Calendar day closes every tier, whatever the tables say.
   const unavailableCoworkTiers = fullyOccupiedDates.has(selectedDate)
     ? [...workspaceCoworkCurrentTiers]
-    : workspaceCoworkCurrentTiers.filter((tier) =>
-        isCoworkCategoryUnavailable(
-          inventory,
-          inventory.getCoworkOfferOccupancy(selectedDate, tier),
-          tier
-        )
+    : workspaceCoworkCurrentTiers.filter(
+        (tier) =>
+          isOfferClosed(selectedDate, tier) ||
+          isCoworkCategoryUnavailable(
+            inventory,
+            inventory.getCoworkOfferOccupancy(selectedDate, tier),
+            tier
+          )
       );
   const meetingRoomUnavailable = isMeetingRoomUnavailable(
     inventory,
@@ -307,7 +354,8 @@ export const createMeetingRoomIntervalEvaluator = ({
     reservations.filter(
       ({ _tableId }) =>
         _tableId !== undefined && meetingRoomTableIds.has(_tableId)
-    )
+    ),
+    undefined
   );
   const closedDates = [...fullyOccupiedDates];
 
@@ -335,7 +383,9 @@ type InventoryView = ReturnType<typeof createInventoryView>;
  */
 const createInventoryView = (
   tables: readonly DotyposTable[],
-  reservations: readonly ReservationRecord[]
+  reservations: readonly ReservationRecord[],
+  /** The queried Reserved Desk stay; other tiers ignore it. */
+  coworkStay: CoworkStay | undefined
 ) => {
   const bookings = toTableBookings(reservations);
   const occupancyByInterval = new Map<string, Occupancy>();
@@ -363,7 +413,7 @@ const createInventoryView = (
     const key = `${date}/${tier ?? ""}`;
     let interval = coworkIntervals.get(key);
     if (!interval) {
-      interval = getCoworkReservationInterval(tier, date);
+      interval = getCoworkReservationInterval(tier, date, coworkStay);
       coworkIntervals.set(key, interval);
     }
     return getOccupancy(interval);

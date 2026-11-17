@@ -236,7 +236,11 @@ const getReservationLogAnnotations = (
 ) =>
   Match.value(reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
-      cowork: ({ date, entryTier }) => ({ entryTier, date }),
+      cowork: ({ date, entryTier, stay }) => ({
+        entryTier,
+        date,
+        ...(stay && { stay }),
+      }),
       "meeting-room": (meetingRoomReservation) => ({
         date: getReservationDate({
           interval: meetingRoomReservation,

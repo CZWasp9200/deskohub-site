@@ -1,14 +1,25 @@
-import type { CustomerReservationOrderId } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerReservationAccess,
+  CustomerReservationOrderId,
+} from "@deskohub/workspace-customer-api";
 import { Array as Arr, DateTime, Option } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
 import { formatInstant, parseInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
 import { opensReservationStatus } from "../account-gating";
+import type { TicketBadgeKind } from "./booking-ticket-model";
 import {
-  reservationProductTitle,
-  reservationStatusLabel,
-} from "./reservation-labels";
-import { reservationPeriodText } from "./reservation-period";
+  bookingTimeLine,
+  historyBadgeKind,
+  shortDate,
+} from "./booking-ticket-text";
+import {
+  type BookingCountdown,
+  bookingCountdown,
+  type DateTileParts,
+  dateTileParts,
+} from "./booking-time";
+import { reservationProductTitle } from "./reservation-labels";
 import type {
   SavedReservation,
   SavedReservationHistory,
@@ -16,9 +27,12 @@ import type {
 
 /**
  * A reservation the list shows. A fresh history row has more (the other
- * party), which the list doesn't show; saved rows have only this.
+ * party), which the list doesn't show; saved rows have only what the device
+ * keeps, never today's PIN.
  */
-export type ReservationListRow = SavedReservation;
+export type ReservationListRow = SavedReservation & {
+  readonly todayAccess?: CustomerReservationAccess;
+};
 
 /** The list's groups, as the site's account page shows them. */
 export interface ReservationGroups {
@@ -49,7 +63,9 @@ const hasEndedBy =
  * later) moves to the top of the past ones.
  */
 export const reservationGroups = (
-  history: SavedReservationHistory,
+  history: {
+    readonly [Group in keyof SavedReservationHistory]: ReadonlyArray<ReservationListRow>;
+  },
   now: DateTime.DateTime
 ): ReservationGroups => {
   const ended = history.current.filter(hasEndedBy(now));
@@ -67,38 +83,138 @@ export const reservationGroups = (
   };
 };
 
-/** One reservation's text, formatted for the locale. */
-export interface ReservationRowText {
+const timeLineOf = (
+  row: ReservationListRow,
+  locale: AppLocale,
+  date?: (start: DateTime.DateTime) => string
+): string =>
+  Option.match(Option.all([instantOf(row.startsAt), instantOf(row.endsAt)]), {
+    onNone: () => m.reservations_value_unavailable({}, { locale }),
+    onSome: ([start, end]) =>
+      bookingTimeLine(start, end, locale, date?.(start)),
+  });
+
+/** A later or past reservation as its compact row shows it. */
+export interface ReservationRowView {
   readonly title: string;
-  /** Its days or times, or "unavailable" when either end can't be read. */
-  readonly period: string;
-  /** When early setup starts, for a meeting room booked with it. */
-  readonly setup: Option.Option<string>;
-  readonly seats: string;
-  readonly status: string;
+  /** Its day's tile; none when its time can't be read. */
+  readonly date: Option.Option<DateTileParts>;
+  /** The time, or for a past cancelled one only that it was cancelled. */
+  readonly detail: string;
+  /** The status badge of an upcoming one not confirmed yet. */
+  readonly badge: Option.Option<TicketBadgeKind>;
 }
 
-export const reservationRowText = (
+const seatsOf = (row: ReservationListRow, locale: AppLocale) =>
+  row.product.kind === "office" && row.seats !== null
+    ? Option.some(m.reservations_seats({ count: row.seats }, { locale }))
+    : Option.none();
+
+export const reservationRowView = (
   row: ReservationListRow,
+  place: "later" | "past",
   locale: AppLocale
-): ReservationRowText => ({
-  title: reservationProductTitle(row.product, locale),
-  period: reservationPeriodText(
-    { kind: row.product.kind, startsAt: row.startsAt, endsAt: row.endsAt },
-    locale
-  ),
-  setup: Option.map(instantOf(row.setupStartsAt), (setup) =>
-    m.reservations_setup_from(
-      { time: formatInstant(setup, locale, "time") },
-      { locale }
-    )
-  ),
-  seats:
-    row.seats === null
-      ? m.reservations_seats_unavailable({}, { locale })
-      : m.reservations_seats({ count: row.seats }, { locale }),
-  status: reservationStatusLabel(row.status, locale),
-});
+): ReservationRowView => {
+  const cancelled = row.status === "cancelled";
+  const badge = historyBadgeKind(row.status);
+  return {
+    title: reservationProductTitle(row.product, locale),
+    date: Option.map(instantOf(row.startsAt), (start) =>
+      dateTileParts(start, locale)
+    ),
+    // A past booking says only that it was cancelled, never "not charged":
+    // the history can't tell whether a payment was taken.
+    detail:
+      place === "past" && cancelled
+        ? m.reservations_status_cancelled({}, { locale })
+        : [
+            timeLineOf(row, locale),
+            ...Option.toArray(seatsOf(row, locale)),
+          ].join(" · "),
+    badge:
+      place === "later" && (badge === "pending" || badge === "attention")
+        ? Option.some(badge)
+        : Option.none(),
+  };
+};
+
+/** What the next booking's ticket shows under its stub line. */
+export type NextAccess =
+  /** Today's PIN, shown on the ticket. */
+  | { readonly _tag: "Pin"; readonly code: string; readonly until: string }
+  /** The PIN waits on its screen. */
+  | { readonly _tag: "Ready"; readonly from: Option.Option<string> }
+  /** The booking isn't confirmed yet: the PIN follows payment. */
+  | { readonly _tag: "AfterPayment" };
+
+/** The next booking as its ticket shows it. */
+export interface NextReservationView {
+  readonly title: string;
+  readonly badge: TicketBadgeKind;
+  readonly countdown: Option.Option<BookingCountdown>;
+  readonly date: Option.Option<DateTileParts>;
+  /** Its day and time. */
+  readonly when: string;
+  readonly access: NextAccess;
+}
+
+export const nextReservationView = (
+  row: ReservationListRow,
+  now: DateTime.DateTime,
+  locale: AppLocale
+): NextReservationView => {
+  const start = instantOf(row.startsAt);
+  const end = instantOf(row.endsAt);
+  const countdown = Option.flatMap(Option.all([start, end]), ([start, end]) =>
+    bookingCountdown(now, start, end)
+  );
+  const isToday = Option.exists(
+    countdown,
+    ({ kind }) => kind === "open-now" || kind === "today"
+  );
+  const badge = historyBadgeKind(row.status);
+  const timeOf = (iso: string | undefined) =>
+    Option.map(instantOf(iso), (instant) =>
+      formatInstant(instant, locale, "time")
+    );
+  const access = (): NextAccess => {
+    if (badge !== "confirmed") return { _tag: "AfterPayment" };
+    if (row.todayAccess !== undefined) {
+      return {
+        _tag: "Pin",
+        code: row.todayAccess.code,
+        until: Option.getOrElse(timeOf(row.todayAccess.accessEndsAt), () => ""),
+      };
+    }
+    return {
+      _tag: "Ready",
+      from: Option.map(instantOf(row.accessStartsAt), (from) =>
+        m.reservations_date_time(
+          {
+            date: shortDate(from, locale),
+            time: formatInstant(from, locale, "time"),
+          },
+          { locale }
+        )
+      ),
+    };
+  };
+  return {
+    title: reservationProductTitle(row.product, locale),
+    badge,
+    countdown,
+    date: Option.map(start, (start) => dateTileParts(start, locale)),
+    when: [
+      timeLineOf(row, locale, (start) =>
+        isToday
+          ? m.reservations_countdown_today({}, { locale })
+          : shortDate(start, locale)
+      ),
+      ...Option.toArray(seatsOf(row, locale)),
+    ].join(" · "),
+    access: access(),
+  };
+};
 
 /** The order a row opens the status screen of; none when it isn't navigable. */
 export const reservationStatusTarget = (

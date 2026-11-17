@@ -3,6 +3,7 @@ import {
   Animated,
   Easing,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,27 +14,54 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useReducedMotion } from "./reduced-motion";
 import { Text } from "./text";
 import { color, radius, shadow, space } from "./tokens";
+import { useKeyboardHeight } from "./use-keyboard-shown";
 
 const slideMs = 240;
 
 /**
+ * The space under a sheet's content: clear of the on-screen keyboard while
+ * it's up, else of the bottom safe area. Android reports the keyboard's
+ * height above the navigation bar, which the edge-to-edge sheet still has to
+ * clear; iOS reports it from the screen's bottom edge.
+ */
+export const sheetBottomInset = ({
+  safeAreaBottom,
+  keyboardHeight,
+  platform,
+}: {
+  readonly safeAreaBottom: number;
+  readonly keyboardHeight: number;
+  readonly platform: typeof Platform.OS;
+}) =>
+  (keyboardHeight === 0
+    ? safeAreaBottom
+    : keyboardHeight + (platform === "android" ? safeAreaBottom : 0)) +
+  space.sm;
+
+/**
  * A white sheet that slides up from the bottom over the navy scrim, for
  * pickers and short choices. Its content scrolls when it's taller than the
- * screen allows; the bottom safe area stays clear. The back button and a
- * tap on the scrim call `onDismiss`.
+ * screen allows; the bottom safe area, and the keyboard while it's up, stay
+ * clear, and a tap on a row picks it even while the keyboard is up. A
+ * `header`, such as a search field, stays put above the scrolling content.
+ * The back button and a tap on the scrim call `onDismiss`.
  */
 export function BottomSheet({
   visible,
   title,
+  header,
   onDismiss,
   children,
 }: {
   readonly visible: boolean;
   readonly title?: string;
+  /** Content under the title that doesn't scroll, such as a search field. */
+  readonly header?: ReactNode;
   readonly onDismiss: () => void;
   readonly children: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const { height } = useWindowDimensions();
   const reducedMotion = useReducedMotion() !== false;
   // The modal stays up while the sheet slides away.
@@ -77,7 +105,13 @@ export function BottomSheet({
           accessibilityViewIsModal
           style={[
             styles.sheet,
-            { paddingBottom: insets.bottom + space.sm },
+            {
+              paddingBottom: sheetBottomInset({
+                safeAreaBottom: insets.bottom,
+                keyboardHeight,
+                platform: Platform.OS,
+              }),
+            },
             {
               transform: [
                 {
@@ -96,7 +130,14 @@ export function BottomSheet({
               {title}
             </Text>
           )}
-          <ScrollView style={styles.scroll}>{children}</ScrollView>
+          {header !== undefined && <View style={styles.header}>{header}</View>}
+          <ScrollView
+            style={styles.scroll}
+            // One tap on a row picks it while the keyboard is up.
+            keyboardShouldPersistTaps="handled"
+          >
+            {children}
+          </ScrollView>
         </Animated.View>
       </View>
     </Modal>
@@ -128,5 +169,6 @@ const styles = StyleSheet.create({
     width: 32,
   },
   title: { paddingBottom: space.sm, paddingHorizontal: space.xs },
+  header: { paddingBottom: space.md },
   scroll: { flexGrow: 0, flexShrink: 1 },
 });

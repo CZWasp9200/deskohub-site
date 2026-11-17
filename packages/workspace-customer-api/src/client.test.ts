@@ -15,6 +15,12 @@ import {
 } from "./customer-account-api";
 import { CustomerAuthRejected } from "./customer-auth-api";
 import {
+  type CustomerCompanyDetails,
+  CustomerCompanyIdInvalid,
+  CustomerCompanyNotFound,
+  CustomerCompanyRegistryUnavailable,
+} from "./customer-companies-api";
+import {
   CustomerInvoiceId,
   type CustomerInvoiceList,
   CustomerInvoiceNotFound,
@@ -24,7 +30,12 @@ import {
   CustomerInvoiceNotIssued,
   CustomerReservationOrderId,
 } from "./customer-reservations-api";
-import { CustomerAccountId, CustomerSessionRequired } from "./customer-session";
+import {
+  CustomerAccountId,
+  CustomerRateLimited,
+  CustomerServiceUnavailable,
+  CustomerSessionRequired,
+} from "./customer-session";
 
 const baseUrl = "https://workspace.deskohub.test";
 const customerEmail = testEmailAddress("customer");
@@ -304,7 +315,7 @@ describe("makeWorkspaceCustomerApiClient", () => {
     expect(
       await run(
         Effect.flatMap(makeWorkspaceCustomerApiClient({ baseUrl }), (api) =>
-          api.invoices.listInvoices()
+          api.invoices.listInvoices({ query: {} })
         ),
         client
       )
@@ -318,6 +329,56 @@ describe("makeWorkspaceCustomerApiClient", () => {
       `${baseUrl}/api/customer/invoices/${invoiceId}/pdf`,
       `${baseUrl}/api/customer/invoices/${invoiceId}/pdf`,
     ]);
+  });
+
+  test("decodes a company lookup as the company's details or each refusal as its own error", async () => {
+    const company: CustomerCompanyDetails = {
+      companyName: "Ukázková firma s.r.o.",
+      companyId: "12345679",
+      addressLine1: "Ukázková 1",
+      city: "Praha",
+      zip: "10000",
+      country: "CZ",
+    };
+    const responses = [
+      () => json(company),
+      () => json({ _tag: "CustomerCompanyIdInvalid" }, 400),
+      () => json({ _tag: "CustomerCompanyNotFound" }, 404),
+      () => json({ _tag: "CustomerCompanyRegistryUnavailable" }, 503),
+      () => json({ _tag: "CustomerServiceUnavailable" }, 503),
+      () => json({ _tag: "CustomerRateLimited" }, 429),
+    ];
+    const { client, requests } = recordingClient(() =>
+      responses[requests.length - 1]!()
+    );
+    const lookup = Effect.flatMap(
+      makeWorkspaceCustomerApiClient({ baseUrl }),
+      (api) =>
+        api.companies.lookupCompany({ params: { companyId: "12345679" } })
+    );
+
+    expect(await run(lookup, client)).toEqual(Result.succeed(company));
+    expect(await run(lookup, client)).toEqual(
+      Result.fail(new CustomerCompanyIdInvalid())
+    );
+    expect(await run(lookup, client)).toEqual(
+      Result.fail(new CustomerCompanyNotFound())
+    );
+    expect(await run(lookup, client)).toEqual(
+      Result.fail(new CustomerCompanyRegistryUnavailable())
+    );
+    expect(await run(lookup, client)).toEqual(
+      Result.fail(new CustomerServiceUnavailable())
+    );
+    expect(await run(lookup, client)).toEqual(
+      Result.fail(new CustomerRateLimited())
+    );
+    expect(requests.map((request) => request.url)).toEqual(
+      Array.from(
+        { length: 6 },
+        () => `${baseUrl}/api/customer/companies/12345679`
+      )
+    );
   });
 
   test("decodes the data archive as its bytes, and a refusal as its tagged error", async () => {

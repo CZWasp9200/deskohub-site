@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import { ReservationFulfillment } from "@/features/checkout/backend/fulfillment";
 import { UnpaidHoldRelease } from "@/features/checkout/backend/holds";
@@ -35,6 +36,7 @@ const ConsumerLive = LatePaymentRecoveryService.Default.pipe(
     )
   ),
   Layer.provide(ReservationFulfillment.Live),
+  Layer.provide(WorkspaceDatabaseAdvisoryLock.Default),
   Layer.provide(WorkspaceDotyposLayer)
 );
 

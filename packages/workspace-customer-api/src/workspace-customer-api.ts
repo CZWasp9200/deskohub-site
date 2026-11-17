@@ -1,6 +1,7 @@
 import { HttpApi, OpenApi } from "effect/http-api";
 import { CustomerAccountApi } from "./customer-account-api";
 import { CustomerBookingApi } from "./customer-booking-api";
+import { CustomerCompaniesApi } from "./customer-companies-api";
 import { CustomerInvoicesApi } from "./customer-invoices-api";
 import { CustomerReservationsApi } from "./customer-reservations-api";
 import {
@@ -26,6 +27,7 @@ export const WorkspaceCustomerApi = HttpApi.make("workspaceCustomerApi")
   .add(CustomerReservationsApi)
   .add(CustomerBookingApi)
   .add(CustomerInvoicesApi)
+  .add(CustomerCompaniesApi)
   .prefix(customerApiPathPrefix)
   .middleware(CustomerSessionAuthentication)
   .middleware(CustomerRequestOriginCheck)

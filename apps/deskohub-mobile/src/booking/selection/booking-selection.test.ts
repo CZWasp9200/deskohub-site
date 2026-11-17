@@ -87,3 +87,19 @@ describe("isDateSelectable", () => {
     expect(isDateSelectable(choice, "2026-12-08")).toBe(false);
   });
 });
+
+describe("selectionKey for a cowork stay", () => {
+  test("a day and an overnight stay on one date are quoted apart", () => {
+    const day = {
+      family: "cowork",
+      date: "2026-11-17",
+      tier: "reserved-desk",
+    } as const;
+    const overnight = { ...day, stay: "overnight" } as const;
+
+    expect(selectionKey(overnight)).not.toBe(selectionKey(day));
+    expect(selectionKey({ ...day, stay: "day" })).not.toBe(
+      selectionKey(overnight)
+    );
+  });
+});

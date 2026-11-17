@@ -18,6 +18,7 @@ import { CustomerAccountLayers } from "./customer-account-layers";
 import { CustomerBookingCatalogLayers } from "./customer-booking-catalog-layers";
 import { CustomerBookingCheckoutLayers } from "./customer-booking-checkout-layers";
 import { CustomerBookingApiHandlers } from "./customer-booking-handlers";
+import { CustomerCompaniesApiHandlers } from "./customer-company-handlers";
 import { CustomerInvoicesApiHandlers } from "./customer-invoice-handlers";
 import {
   CustomerRequestOriginCheckLive,
@@ -44,7 +45,8 @@ export const makeWorkspaceCustomerApiLayer = () =>
           Layer.fresh(CustomerAccountApiHandlers),
           Layer.fresh(CustomerReservationsApiHandlers),
           Layer.fresh(CustomerBookingApiHandlers),
-          Layer.fresh(CustomerInvoicesApiHandlers)
+          Layer.fresh(CustomerInvoicesApiHandlers),
+          Layer.fresh(CustomerCompaniesApiHandlers)
         )
       ),
       Layer.provide(

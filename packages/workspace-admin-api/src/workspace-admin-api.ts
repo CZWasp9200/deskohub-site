@@ -420,10 +420,14 @@ export type AdministratorActor = {
 };
 
 /**
- * How an administrator reached the administration API: a `dhw` session, or an
- * AI assistant the administrator connected, identified by its OAuth client.
+ * How an administrator reached an administration operation: the Admin UI, a
+ * `dhw` session, or an AI assistant the administrator connected, identified
+ * by its OAuth client. Only the latter two reach the administration API.
  */
 export type AdministrationChannel =
+  | {
+      readonly _tag: "AdminUi";
+    }
   | {
       readonly _tag: "CliSession";
       readonly sessionId: CliSessionId;

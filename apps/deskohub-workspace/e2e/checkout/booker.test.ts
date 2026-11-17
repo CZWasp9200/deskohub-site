@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Browser } from "@playwright/test";
 import { Effect } from "effect";
+import { rejectionOf } from "@/shared/testing/promise-outcome.test-utils";
 import { makeWorkspaceE2EAccountRecipientForRunId } from "../account/config";
 import type { WorkspaceE2EEnvironment } from "../e2e-env";
 import { makeTestE2EEnvironment } from "../e2e-env.test-fixture";
@@ -136,7 +137,7 @@ test("keeps the planned contact of a case that books for someone else", async ()
 });
 
 test("fails closed before a booker case runs without the preview signing secret", async () => {
-  await expect(bind("checkout-zero-total", undefined)).rejects.toBeInstanceOf(
-    WorkspaceE2EError
-  );
+  expect(
+    await rejectionOf(bind("checkout-zero-total", undefined))
+  ).toBeInstanceOf(WorkspaceE2EError);
 });

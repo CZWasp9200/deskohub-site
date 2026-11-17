@@ -1,3 +1,4 @@
+import type { CustomerVatStatus } from "@deskohub/workspace-customer-api";
 import Lock from "lucide-react-native/icons/lock";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import type { ComponentProps, ReactNode } from "react";
@@ -15,7 +16,7 @@ import { ScrollScreen } from "../../../ui/scroll-screen";
 import { Text } from "../../../ui/text";
 import { color, radius, space } from "../../../ui/tokens";
 import { czk } from "../../testing/sample-booking-catalog";
-import { BookingBar, type BookingBarPrice } from "../booking-bar";
+import { BookingBar } from "../booking-bar";
 import { priceBreakdown } from "../price-breakdown";
 import { describePriceLine } from "../price-line-description";
 import { PriceLines } from "../price-lines";
@@ -24,24 +25,13 @@ import {
   officeSixSeats,
   officeSixSeatsDiscounted,
   openSpaceWithCoffee,
-  type PriceFixture,
   reservedDeskWithWorkstation,
 } from "../testing/price-fixtures";
+import { quotedPrice } from "./gallery-fixtures";
 
 type BarProps = ComponentProps<typeof BookingBar>;
 
 const noop = () => undefined;
-
-const quotedPrice = (
-  { selection, summary }: PriceFixture,
-  locale: AppLocale,
-  was?: PriceFixture["summary"]["total"]
-): BookingBarPrice => ({
-  kind: "quoted",
-  breakdown: priceBreakdown(summary),
-  describeLine: describePriceLine(selection, locale),
-  was,
-});
 
 /** Every bar state on boards 26–36, as fixture data. */
 const barStates = (
@@ -108,7 +98,7 @@ const barStates = (
       },
     },
     {
-      label: "Long Czech summary: only the grey line is cut",
+      label: "Long Czech summary: every line wraps",
       props: {
         locale: "cs-CZ",
         summary: {
@@ -267,10 +257,14 @@ export function PriceGallerySection() {
   const bars = barStates(locale, sample);
   const opened = openedStates(locale, sample);
   const pay = payStates(locale, sample);
-  const card = (taxNote?: string) => (
+  // The note shows only for a VAT payer; its sample wording is not approved copy.
+  const card = (vatStatus: CustomerVatStatus, taxNote?: string) => (
     <Card>
       <PriceLines
-        breakdown={priceBreakdown(openSpaceWithCoffee.summary)}
+        breakdown={priceBreakdown({
+          ...openSpaceWithCoffee.summary,
+          vatStatus,
+        })}
         describeLine={describePriceLine(openSpaceWithCoffee.selection, locale)}
         locale={locale}
         variant="card"
@@ -295,9 +289,11 @@ export function PriceGallerySection() {
         ))}
       </GallerySection>
       <GallerySection title="Price card">
-        <GalleryCase label="Without a tax note (today)">{card()}</GalleryCase>
+        <GalleryCase label="Without a tax note (today)">
+          {card("not-vat-payer")}
+        </GalleryCase>
         <GalleryCase label="With the tax note slot filled">
-          {card(sample("Prices include VAT"))}
+          {card("vat-payer", sample("Prices include VAT"))}
         </GalleryCase>
       </GallerySection>
       <GallerySection title="Full-screen frames">

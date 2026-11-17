@@ -74,6 +74,7 @@ export type ProviderPaymentFinalizationResult =
   | "not_verifiable"
   | "provider_verification_failed"
   | "verification_mismatch"
+  | "awaiting_payment"
   | "pending"
   | "paid"
   | "terminal";
@@ -527,6 +528,17 @@ function makeProviderPaymentFinalizationServiceLayer(
           providerOrderCreatedAt: attempt.providerOrderCreatedAt,
           order: verification.provider,
         });
+        // Without an abandonment check, an operation-free order is still
+        // waiting for the customer's payment on its page.
+        if (
+          !input.abandonmentCheckedAt &&
+          !hasProviderPaymentActivity(verification.provider)
+        ) {
+          yield* Effect.logInfo(
+            "Payment finalization returned awaiting_payment"
+          );
+          return "awaiting_payment" as const;
+        }
         if (emptyOrder.state !== "not_empty") {
           yield* Effect.logInfo(
             "Payment finalization resolved empty provider order",

@@ -28,6 +28,20 @@ const paidAttempt = {
   | "updatedAt"
 >;
 
+const coworkDay = {
+  date: "2026-10-12",
+  startsAt: "2026-10-11T22:00:00Z",
+  endsAt: "2026-10-12T22:00:00Z",
+  type: "cowork",
+  product: { kind: "cowork", tier: "reserved-desk" },
+} as const;
+
+const overnightStay = {
+  ...coworkDay,
+  startsAt: "2026-10-12T10:00:00Z",
+  endsAt: "2026-10-13T10:00:00Z",
+} as const;
+
 describe("administration formatters", () => {
   test("formats dates and cowork reservations in en-US", () => {
     expect(formatAdministrationDateTime("2026-10-12T06:34:00Z", "en-US")).toBe(
@@ -38,7 +52,7 @@ describe("administration formatters", () => {
     );
     expect(
       formatAdministrationReservationDate(
-        { date: "2026-10-12", startsAt: null, type: "cowork" },
+        { ...coworkDay, startsAt: null, endsAt: null },
         "en-US"
       )
     ).toBe("Oct 12, 2026");
@@ -53,10 +67,40 @@ describe("administration formatters", () => {
     );
     expect(
       formatAdministrationReservationDate(
-        { date: "2026-10-12", startsAt: null, type: "cowork" },
+        { ...coworkDay, startsAt: null, endsAt: null },
         "cs-CZ"
       )
     ).toBe("12. 10. 2026");
+  });
+});
+
+describe("formatAdministrationReservationDate", () => {
+  test("shows an overnight stay's start and end and a cowork day's date", () => {
+    for (const locale of ["en-US", "cs-CZ"] as const) {
+      const overnight = formatAdministrationReservationDate(
+        overnightStay,
+        locale
+      );
+
+      expect(overnight).toContain(
+        formatAdministrationDateTime(overnightStay.startsAt, locale)
+      );
+      expect(overnight).toContain(
+        formatAdministrationDateTime(overnightStay.endsAt, locale)
+      );
+      expect(formatAdministrationReservationDate(coworkDay, locale)).toBe(
+        formatAdministrationPlainDate(coworkDay.date, locale)
+      );
+    }
+  });
+
+  test("shows a noon-to-noon booking of another tier as its date", () => {
+    expect(
+      formatAdministrationReservationDate(
+        { ...overnightStay, product: { kind: "cowork", tier: "open-space" } },
+        "en-US"
+      )
+    ).toBe(formatAdministrationPlainDate(overnightStay.date, "en-US"));
   });
 });
 

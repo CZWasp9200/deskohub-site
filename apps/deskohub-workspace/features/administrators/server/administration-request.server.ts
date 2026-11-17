@@ -1,5 +1,6 @@
 import "server-only";
 
+import { CurrentAdministrationCaller } from "@deskohub/workspace-admin-api";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Data, Effect, Layer, Option, Predicate, Result } from "effect";
 import { notFound } from "next/navigation";
@@ -69,6 +70,30 @@ const actingAs = <R, LE>(
   );
 
 /**
+ * Acts as the administrator through the Admin UI channel, so a handler that
+ * records provenance or scopes requests reads the same caller the
+ * administration API provides.
+ */
+const callingFromAdminUi = <R, LE>(
+  capabilities: Layer.Layer<
+    R,
+    LE,
+    CurrentAdministrator | CurrentAdministrationCaller
+  >,
+  administrator: CurrentAdministrator["Service"]
+) =>
+  Layer.provideMerge(
+    capabilities,
+    Layer.mergeAll(
+      Layer.succeed(CurrentAdministrator, administrator),
+      Layer.succeed(CurrentAdministrationCaller, {
+        actor: administrator,
+        channel: { _tag: "AdminUi" },
+      })
+    )
+  );
+
+/**
  * Runs an administration page's query as the administrator the page gate
  * authorized. The gate runs once per request, so every loader of a page
  * shares one session read; a signed-out visitor goes to sign-in and an
@@ -104,8 +129,12 @@ export interface AdministrationActionOptions<
 > extends WorkspaceActionOptions<S> {
   /** Copy for the runtime's own failures, from the area's catalog. */
   readonly failureCopy: WorkspaceActionFailureCopy;
-  /** What the handler needs besides the acting administrator. */
-  readonly capabilities: Layer.Layer<R, LE, CurrentAdministrator>;
+  /** What the handler needs besides the acting administrator and caller. */
+  readonly capabilities: Layer.Layer<
+    R,
+    LE,
+    CurrentAdministrator | CurrentAdministrationCaller
+  >;
   /**
    * The public message for a failure, in the action's locale, or undefined to
    * keep it private and show `fallback`. It also words a caller who isn't an
@@ -186,7 +215,8 @@ const applySettledChanges = <A>({
  * Defines an operator action of the Admin UI. The handler runs only for an
  * administrator: anyone else fails closed, without a redirect, before the
  * handler or its capabilities start. The handler acts as that
- * `CurrentAdministrator`, its failures are worded through `publicFailure`,
+ * `CurrentAdministrator`, called through the Admin UI channel as
+ * `CurrentAdministrationCaller`, its failures are worded through `publicFailure`,
  * and the pages and caches it changed are refreshed after it settles.
  */
 export const defineAdministrationAction = <
@@ -200,7 +230,11 @@ export const defineAdministrationAction = <
   handler: (
     input: StandardSchemaV1.InferOutput<S>,
     context: WorkspaceActionContext<S>
-  ) => Effect.Effect<A, E, R | CurrentAdministrator>
+  ) => Effect.Effect<
+    A,
+    E,
+    R | CurrentAdministrator | CurrentAdministrationCaller
+  >
 ) => {
   const {
     capabilities,
@@ -237,7 +271,7 @@ export const defineAdministrationAction = <
                 refresh: () => refreshes?.(input, result),
               })
             ),
-            Effect.provide(actingAs(capabilities, administrator))
+            Effect.provide(callingFromAdminUi(capabilities, administrator))
           )
         ),
         Effect.catchIf(

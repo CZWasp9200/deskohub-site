@@ -23,6 +23,7 @@ import {
   BigDecimal,
   Context,
   Data,
+  DateTime,
   Effect,
   Layer,
   Match,
@@ -64,7 +65,8 @@ import {
   administrationHref,
 } from "@/features/administration/administration-href";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
-import { nameAdministrationCustomer } from "@/features/administration/customer-identity";
+import { describeAdministrationCustomer } from "@/features/administration/customer-identity";
+import type { AdministrationCustomerName } from "@/features/administration/customer-name";
 import { getAdministrationPagination } from "@/features/administration/listing";
 import { baseLocale, defaultPhoneRegion, type Locale } from "@/features/i18n";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
@@ -161,12 +163,8 @@ export type InvoiceAdministrationDetail = InvoiceAdministrationListItem & {
   readonly settlement: InvoiceSettlement;
 };
 
-export type InvoiceAdministrationCustomer = {
+export type InvoiceAdministrationCustomer = AdministrationCustomerName & {
   readonly id: string;
-  /** Never empty: "Unnamed customer" when `hasName` is false. */
-  readonly displayName: string;
-  /** Whether Dotypos holds a name or email, so the Admin UI can name an unnamed customer in the operator's language. */
-  readonly hasName: boolean;
   readonly email: string | null;
   readonly details: AdministrationInvoiceCustomerDetailsType;
 };
@@ -334,7 +332,8 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     "InvoiceAdministrationService.searchCustomers"
   )(function* (query: string) {
     const { customers } = yield* customerDirectory.search(query);
-    return customers.map(toCustomer);
+    const now = yield* DateTime.nowAsDate;
+    return customers.map((customer) => toCustomer(customer, now));
   });
 
   const preview = Effect.fn("InvoiceAdministrationService.preview")(function* (
@@ -674,14 +673,17 @@ const toCustomerDetails = (
   };
 };
 
+/** A searched customer, named at `now`, the time it was read. */
 const toCustomer = (
-  customer: DotyposCustomer
-): InvoiceAdministrationCustomer => ({
-  id: customer.id,
-  ...nameAdministrationCustomer(customer, "company-person-email"),
-  email: customerText(customer.email) || null,
-  details: toCustomerDetails(customer),
-});
+  customer: DotyposCustomer,
+  now: Date
+): InvoiceAdministrationCustomer => {
+  const { phone: _phone, ...described } = describeAdministrationCustomer(
+    customer,
+    now
+  );
+  return { ...described, details: toCustomerDetails(customer) };
+};
 
 const toListItem = (
   invoice: Invoice,

@@ -29,6 +29,7 @@ export function AsyncView<A, E extends CustomerRequestFailure>({
   result,
   onRetry,
   errorMessage,
+  errorTitle,
   loading,
   children,
 }: {
@@ -36,6 +37,8 @@ export function AsyncView<A, E extends CustomerRequestFailure>({
   readonly onRetry: () => void;
   /** Copy for failures only this screen can explain. */
   readonly errorMessage?: (error: CustomerViewError) => string | undefined;
+  /** Names what didn't load, above the message, on the retry card. */
+  readonly errorTitle?: string;
   /** Shown instead of the spinner while the first load is under way. */
   readonly loading?: ReactNode;
   readonly children: (value: A) => ReactNode;
@@ -69,6 +72,7 @@ export function AsyncView<A, E extends CustomerRequestFailure>({
         (loading ?? <LoadingState label={m.account_loading({}, { locale })} />)}
       {retryState && (
         <ErrorState
+          title={errorTitle}
           message={message ?? ""}
           retryLabel={m.account_retry({}, { locale })}
           onRetry={onRetry}

@@ -1,4 +1,7 @@
-import type { Money } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerVatStatus,
+  Money,
+} from "@deskohub/workspace-customer-api";
 import { StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
@@ -16,15 +19,15 @@ export interface PriceLinesTotal {
   readonly label: string;
   /** The total before a discount, struck through above the total. */
   readonly was?: Money;
-  /** The one tax note under the total's label, only when there is one. */
+  /**
+   * The one tax note under the total's label, shown only while the
+   * breakdown's seller is a VAT payer.
+   */
   readonly taxNote?: string;
 }
 
 /** A line's amount as it reads: a discount as "− CZK 58", nothing to pay as "Free". */
-export const priceLineAmountText = (
-  line: PriceLine,
-  locale: AppLocale
-): string => {
+const priceLineAmountText = (line: PriceLine, locale: AppLocale): string => {
   if (line._tag === "Reduction") {
     return formatMoneyReduction(line.amount, locale);
   }
@@ -99,7 +102,12 @@ export function PriceLines({
         );
       })}
       {variant === "card" && total !== undefined && (
-        <TotalRow total={total} amount={breakdown.total} locale={locale} />
+        <TotalRow
+          total={total}
+          amount={breakdown.total}
+          vatStatus={breakdown.vatStatus}
+          locale={locale}
+        />
       )}
     </View>
   );
@@ -108,13 +116,16 @@ export function PriceLines({
 function TotalRow({
   total,
   amount,
+  vatStatus,
   locale,
 }: {
   readonly total: PriceLinesTotal;
   readonly amount: Money;
+  readonly vatStatus: CustomerVatStatus;
   readonly locale: AppLocale;
 }) {
-  const { label, was, taxNote } = total;
+  const { label, was } = total;
+  const taxNote = vatStatus === "vat-payer" ? total.taxNote : undefined;
   return (
     <View style={totalStyles.row}>
       <View style={cardStyles.name}>
@@ -168,21 +179,25 @@ const barStyles = StyleSheet.create({
 });
 
 // `.bk-price` / `.bk-li`: the review card's rows.
+// A row too narrow for its name and amount, as at large font sizes, puts
+// the amount under the name on the right instead of breaking words.
 const cardStyles = StyleSheet.create({
   list: { gap: 10 },
   row: {
     alignItems: "baseline",
+    columnGap: space.md,
     flexDirection: "row",
-    gap: space.md,
+    flexWrap: "wrap",
     justifyContent: "space-between",
   },
-  name: { flexShrink: 1, minWidth: 0 },
+  name: { flexShrink: 0, maxWidth: "100%" },
   label: { ...typeScale.lead, color: color.navy },
   detail: { ...typeScale.hint, color: color.ink2 },
   amount: {
     ...typeScale.lead,
     color: color.navy,
     flexShrink: 0,
+    marginLeft: "auto",
     textAlign: "right",
   },
   reductionAmount: { ...typeScale.subhead, lineHeight: 22 },
@@ -194,13 +209,14 @@ const totalStyles = StyleSheet.create({
     alignItems: "center",
     borderTopColor: color.divider,
     borderTopWidth: 1,
+    columnGap: space.md,
     flexDirection: "row",
-    gap: space.md,
+    flexWrap: "wrap",
     justifyContent: "space-between",
     paddingTop: space.md,
   },
   label: { ...typeScale.headline, color: color.navy },
-  amounts: { alignItems: "flex-end", flexShrink: 0 },
+  amounts: { alignItems: "flex-end", flexShrink: 0, marginLeft: "auto" },
   was: {
     ...typeScale.hint,
     color: color.ink2,

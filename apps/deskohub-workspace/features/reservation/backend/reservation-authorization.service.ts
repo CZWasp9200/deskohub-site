@@ -26,19 +26,34 @@ import {
 /** What a visitor may see of a reservation. */
 type ReservationPermission =
   | "view-status"
+  | "open-payment-page"
+  | "retry-payment"
   | "view-access-code"
   | "view-invoice";
 
 /**
  * Who may see what. The customer's emailed capability links, the access
  * cookie, and the account linked to the reservation's customer see
- * everything. The author's session sees the status only, so the door access
- * code and the invoice stay with the customer the reservation was booked for.
+ * everything. The author's session sees the status and may open its unpaid
+ * payment page again, so the door access code and the invoice stay with the
+ * customer the reservation was booked for.
  */
 const reservationAccessPolicy = {
-  capability: ["view-status", "view-access-code", "view-invoice"],
-  customer: ["view-status", "view-access-code", "view-invoice"],
-  author: ["view-status"],
+  capability: [
+    "view-status",
+    "open-payment-page",
+    "retry-payment",
+    "view-access-code",
+    "view-invoice",
+  ],
+  customer: [
+    "view-status",
+    "open-payment-page",
+    "retry-payment",
+    "view-access-code",
+    "view-invoice",
+  ],
+  author: ["view-status", "open-payment-page", "retry-payment"],
 } as const satisfies Record<string, readonly ReservationPermission[]>;
 
 const grants = (

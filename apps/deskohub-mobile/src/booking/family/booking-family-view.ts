@@ -13,12 +13,13 @@ import {
   viewErrorOf,
 } from "../../customer-api/customer-view-error";
 import type { CheckoutRestartReason } from "../checkout/booking-problem";
-import type { CheckoutRequest } from "../checkout/checkout-flow";
+import type { BookingRequest } from "../checkout/checkout-flow";
 import {
   type BookingQueryFailure,
   type BookingQueryViewError,
   toBookingQueryError,
 } from "../data/booking-query-error";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
 
 /** One booking catalog read as a selection screen shows it. */
 export type BookingRead<A> =
@@ -125,6 +126,7 @@ export const checkoutRequestOf = ({
   blockers,
   quote,
   earlySetup,
+  overnightStay,
 }: {
   readonly locale: CustomerLocale;
   readonly selection: Option.Option<CustomerBookingSelection>;
@@ -132,18 +134,22 @@ export const checkoutRequestOf = ({
   readonly quote: Option.Option<CustomerBookingQuote>;
   /** Meeting room only. */
   readonly earlySetup?: boolean;
-}): Option.Option<CheckoutRequest> =>
+  /** Overnight Reserved Desk only: the stay's times from the catalog. */
+  readonly overnightStay?: CoworkOvernightStay;
+}): Option.Option<BookingRequest> =>
   blockers.length > 0
     ? Option.none()
     : Option.flatMap(selection, (current) =>
         Option.map(
           Option.filter(quote, ({ family }) => family === current.family),
           ({ advertisedPriceToken, summary, regularPrice }) => ({
+            _tag: "Booking" as const,
             locale,
             selection: current,
             advertisedPriceToken,
             quote: { summary, regularPrice },
             ...(earlySetup === undefined ? {} : { earlySetup }),
+            ...(overnightStay === undefined ? {} : { overnightStay }),
           })
         )
       );

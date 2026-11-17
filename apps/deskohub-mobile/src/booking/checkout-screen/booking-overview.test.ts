@@ -14,8 +14,8 @@ const meetingRoom = (
   startTime: Option.Option<string>
 ) => {
   const selection = toMeetingRoomSelection({
-    date: "2026-11-20",
-    duration,
+    date: Option.some("2026-11-20"),
+    duration: Option.some(duration),
     startTime,
     earlySetup: false,
   });
@@ -25,14 +25,17 @@ const meetingRoom = (
 
 describe("bookingOverviewOf", () => {
   test("cowork names the booked date", () => {
-    const selection = toCoworkSelection({
-      tier: "reserved-desk",
-      date: "2026-11-20",
-      coffee: false,
-      workstation: Option.none(),
-    });
+    const selection = Option.getOrThrow(
+      toCoworkSelection({
+        tier: "reserved-desk",
+        stay: "day",
+        date: Option.some("2026-11-20"),
+        coffee: false,
+        workstation: Option.none(),
+      })
+    );
     expect(bookingOverviewOf(selection, false)).toEqual(
-      BookingOverview.Cowork({ date: "2026-11-20" })
+      BookingOverview.Cowork({ date: "2026-11-20", overnight: Option.none() })
     );
   });
 
@@ -116,7 +119,13 @@ describe("bookingOverviewOf", () => {
   test("an office spans its inclusive dates with its seats", () => {
     expect(
       bookingOverviewOf(
-        toOfficeSelection({ date: "2026-11-30", dayCount: 3, seats: 2 }),
+        Option.getOrThrow(
+          toOfficeSelection({
+            date: Option.some("2026-11-30"),
+            dayCount: 3,
+            seats: 2,
+          })
+        ),
         false
       )
     ).toEqual(
@@ -131,9 +140,45 @@ describe("bookingOverviewOf", () => {
   test("a one-day office starts and ends on its date", () => {
     expect(
       bookingOverviewOf(
-        toOfficeSelection({ date: "2026-11-30", dayCount: 1, seats: 1 }),
+        Option.getOrThrow(
+          toOfficeSelection({
+            date: Option.some("2026-11-30"),
+            dayCount: 1,
+            seats: 1,
+          })
+        ),
         false
       )
     ).toMatchObject({ firstDate: "2026-11-30", lastDate: "2026-11-30" });
+  });
+});
+
+describe("bookingOverviewOf for an overnight stay", () => {
+  const desk = {
+    family: "cowork",
+    date: "2026-11-30",
+    tier: "reserved-desk",
+  } as const;
+  const overnightStay = { startTime: "12:00", endTime: "12:00" };
+
+  test("runs from the catalog's start on arrival to its end the next day", () => {
+    expect(
+      bookingOverviewOf({ ...desk, stay: "overnight" }, false, overnightStay)
+    ).toEqual(
+      BookingOverview.Cowork({
+        date: "2026-11-30",
+        overnight: Option.some({
+          start: "12:00",
+          end: "12:00",
+          endDate: "2026-12-01",
+        }),
+      })
+    );
+  });
+
+  test("a day names no times, even where the catalog offers a stay", () => {
+    expect(bookingOverviewOf(desk, false, overnightStay)).toEqual(
+      BookingOverview.Cowork({ date: "2026-11-30", overnight: Option.none() })
+    );
   });
 });

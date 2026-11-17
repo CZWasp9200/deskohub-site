@@ -3,7 +3,10 @@ import { CustomerAccountContactService } from "@/features/account";
 import { buildAdvertisedPrice } from "@/features/checkout/backend/checkout/advertised-price.server";
 import { type Locale, m } from "@/features/i18n";
 import { prepareAgentPayState } from "@/features/reservation/backend/agent-booking";
-import type { QuoteSelection } from "@/features/reservation/backend/booking-selection";
+import {
+  BookingSelectionRejected,
+  type QuoteSelection,
+} from "@/features/reservation/backend/booking-selection";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import { currentInstant } from "@/shared/utils/temporal";
 import {
@@ -161,6 +164,11 @@ const toStartReservationError = (
     ),
     Match.tag("OfficeReservationsDisabledError", () =>
       AgentToolError.unsupportedFamily()
+    ),
+    Match.tag("OvernightStayUnavailableError", () =>
+      AgentToolError.rejectedSelection(
+        BookingSelectionRejected.invalidField("stay")
+      )
     ),
     Match.orElse(AgentToolError.unavailable("reservation_unavailable"))
   );
