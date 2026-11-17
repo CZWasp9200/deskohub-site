@@ -214,6 +214,8 @@
   "signin_resend_link": "Gửi lại liên kết",
   "signin_resend_link_in": "Gửi lại liên kết sau {time}",
   "signin_link_resent": "Chúng tôi đã gửi liên kết mới. Hãy dùng email mới nhất.",
+  "signin_signed_in_in_app_title": "Bạn đã đăng nhập",
+  "signin_signed_in_in_app_body": "Bạn đã đăng nhập vào ứng dụng bằng liên kết trong email. Bạn có thể đóng tab này.",
   "signin_already_signed_in": "Bạn đã đăng nhập",
   "signin_continue": "Tiếp tục",
   "signin_create_title": "Đăng nhập hoặc tạo tài khoản",

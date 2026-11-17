@@ -220,6 +220,8 @@
   "signin_resend_link": "Poslať odkaz znova",
   "signin_resend_link_in": "Odkaz znova o {time}",
   "signin_link_resent": "Poslali sme nový odkaz. Použi najnovší e-mail.",
+  "signin_signed_in_in_app_title": "Prihlásenie je hotové",
+  "signin_signed_in_in_app_body": "Odkaz z e-mailu ťa prihlásil do aplikácie. Túto stránku môžeš zavrieť.",
   "signin_already_signed_in": "Účet je už prihlásený",
   "signin_continue": "Pokračovať",
   "signin_create_title": "Prihlásenie alebo vytvorenie účtu",
