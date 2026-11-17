@@ -226,7 +226,10 @@ const runPrepare = (harness: Harness = {}) => {
             ),
           getReservationWithoutCustomer: () =>
             harness.dotyposBounds
-              ? Effect.succeed({ ...harness.dotyposBounds, seats: "1" } as never)
+              ? Effect.succeed({
+                  ...harness.dotyposBounds,
+                  seats: "1",
+                } as never)
               : Effect.fail({ _tag: "DotyposError" } as never),
         }),
         Layer.mock(PaymentRetryProviderCheck, {
