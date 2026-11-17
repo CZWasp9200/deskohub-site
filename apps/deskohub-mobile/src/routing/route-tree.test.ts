@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import {
   accountSectionHref,
@@ -253,6 +253,15 @@ describe("app route tree", () => {
       accountRootHref
     );
     expect(accountTabOptions.lazy).toBe(false);
+    // The layouts take both from there.
+    const layoutSource = (...segments: string[]) =>
+      readFileSync(join(appDir, ...segments, "_layout.tsx"), "utf8");
+    expect(layoutSource("(account)", "(tabs)", "account")).toMatch(
+      /unstable_settings = \{ anchor: accountStackAnchor \}/
+    );
+    expect(layoutSource("(account)", "(tabs)")).toMatch(
+      /name="account"\s+options=\{\{\s+\.\.\.accountTabOptions,/
+    );
   });
 
   test("every Account section with a screen links to it", () => {

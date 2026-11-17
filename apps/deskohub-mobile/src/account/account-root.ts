@@ -27,7 +27,8 @@ export const accountStackAnchor = "index";
  * link that starts the app (and a `withAnchor` navigation). A link that
  * arrives while the app runs creates a missing stack with the linked section
  * alone, but it pushes onto a stack that is already mounted, above the
- * root. The root reads only the account the tabs already load.
+ * root. The root screen itself renders on its first visit
+ * (`useScreenVisited`), so start-up and the other tabs behave as before.
  */
 export const accountTabOptions = {
   lazy: false,
