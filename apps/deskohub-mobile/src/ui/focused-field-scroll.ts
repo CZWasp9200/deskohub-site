@@ -94,7 +94,8 @@ export const useFocusedFieldScroll = (
               offset: viewportTop - contentTop,
               viewportHeight: height,
             });
-            if (y !== undefined)
+            // Focus may have moved on while the field was measured.
+            if (y !== undefined && focusedField.current === field)
               view.scrollTo({ y, animated: animated.current });
           })
         )
@@ -111,8 +112,12 @@ export const useFocusedFieldScroll = (
           viewportHeight.current !== undefined &&
           height < viewportHeight.current;
         viewportHeight.current = height;
-        const field = focusedField.current;
-        if (shrank && field) requestAnimationFrame(() => reveal(field));
+        if (shrank && focusedField.current)
+          requestAnimationFrame(() => {
+            // The field that has focus once the frame comes.
+            const field = focusedField.current;
+            if (field) reveal(field);
+          });
       },
       tracker: {
         focused: (field) => {

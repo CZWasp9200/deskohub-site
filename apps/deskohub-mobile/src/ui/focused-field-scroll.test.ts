@@ -88,6 +88,23 @@ const scrollingForm = () => {
     measureInWindow: () => undefined,
     measureLayout: (_relativeTo, done) => done(16, top, 380, fieldHeight),
   });
+  // A field whose measurement answers only when `answer` is called, as a
+  // native one does a moment later.
+  const slowField = (top: number, fieldHeight: number) => {
+    let pending: Array<() => void> = [];
+    const view: FieldView = {
+      measureInWindow: () => undefined,
+      measureLayout: (_relativeTo, done) => {
+        pending.push(() => done(16, top, 380, fieldHeight));
+      },
+    };
+    const answer = () => {
+      const due = pending;
+      pending = [];
+      for (const run of due) run();
+    };
+    return { view, answer };
+  };
   let form: ReturnType<typeof useFocusedFieldScroll> | undefined;
   elementTree(() => {
     form = useFocusedFieldScroll(scroll);
@@ -100,7 +117,7 @@ const scrollingForm = () => {
       nativeEvent: { layout: { x: 0, y: 0, width: 412, height } },
     } as LayoutChangeEvent);
   };
-  return { form, field, layout, scrolls };
+  return { form, field, slowField, layout, scrolls };
 };
 
 describe("useFocusedFieldScroll", () => {
@@ -157,5 +174,27 @@ describe("useFocusedFieldScroll", () => {
     layout(400);
     nextFrame();
     expect(scrolls).toEqual([{ y: 226, animated: true }]);
+  });
+
+  test("focus moving on before the keyboard's frame scrolls to the field that has it then", () => {
+    const { form, field, layout, scrolls } = scrollingForm();
+    layout(700);
+    form.tracker.focused(field(500, 110));
+    // The keyboard comes up, and focus moves to a field higher up before
+    // the frame the scroll waits for.
+    layout(400);
+    form.tracker.focused(field(100, 110));
+    nextFrame();
+    expect(scrolls).toEqual([]);
+  });
+
+  test("a field that lost focus while being measured moves nothing", () => {
+    const { form, slowField, field, layout, scrolls } = scrollingForm();
+    layout(400);
+    const phone = slowField(500, 110);
+    form.tracker.focused(phone.view);
+    form.tracker.focused(field(100, 110));
+    phone.answer();
+    expect(scrolls).toEqual([]);
   });
 });
