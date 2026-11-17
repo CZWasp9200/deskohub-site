@@ -83,8 +83,11 @@ export const reservedDeskWithWorkstation: PriceFixture = {
         originalAmount: czk(410),
         discounts: [calendarDiscount(82)],
       },
-      { key: "addon:workstation", amount: czk(120) },
-      { key: "monitor:2x27-qhd", amount: czk(0) },
+      {
+        key: "addon:workstation",
+        amount: czk(120),
+        monitorOption: "2x27-qhd",
+      },
     ],
     czk(448)
   ),

@@ -139,15 +139,18 @@ describe("priceBreakdown", () => {
 describe("summaryItemSubject", () => {
   test.each([
     [
-      "product:cowork:open-space",
+      { key: "product:cowork:open-space" },
       { _tag: "Product", product: "cowork:open-space" },
     ],
-    ["addon:coffee", { _tag: "Coffee" }],
-    ["addon:workstation", { _tag: "Workstation" }],
-    ["monitor:2x27-qhd", { _tag: "Monitor", option: "2x27-qhd" }],
-    ["addon:parking", { _tag: "Other", key: "addon:parking" }],
-  ])("%s", (key, subject) => {
-    expect(summaryItemSubject(key)).toEqual(subject as never);
+    [{ key: "addon:coffee" }, { _tag: "Coffee" }],
+    [{ key: "addon:workstation" }, { _tag: "Workstation" }],
+    [
+      { key: "addon:workstation", monitorOption: "2x27-qhd" },
+      { _tag: "Workstation", monitorOption: "2x27-qhd" },
+    ],
+    [{ key: "addon:parking" }, { _tag: "Other", key: "addon:parking" }],
+  ] as const)("%o", (item, subject) => {
+    expect(summaryItemSubject(item)).toEqual(subject);
   });
 });
 

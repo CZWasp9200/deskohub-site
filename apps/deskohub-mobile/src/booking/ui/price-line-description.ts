@@ -28,10 +28,8 @@ const monitorOptionNames = {
   "2x32-4k": "2× 32″ 4K",
 } as const satisfies Record<CustomerMonitorOption, string>;
 
-export const monitorOptionName = (option: string): string =>
-  option in monitorOptionNames
-    ? monitorOptionNames[option as CustomerMonitorOption]
-    : option;
+export const monitorOptionName = (option: CustomerMonitorOption): string =>
+  monitorOptionNames[option];
 
 /**
  * What the booked product covers: a cowork desk's day or overnight stay, or a meeting room's
@@ -114,11 +112,11 @@ const chargeDescription = (
     case "Coffee":
       return { label: m.booking_checkout_line_coffee({}, { locale }) };
     case "Workstation":
-      return { label: m.booking_checkout_line_workstation({}, { locale }) };
-    case "Monitor":
       return {
         label: m.booking_checkout_line_workstation({}, { locale }),
-        detail: monitorOptionName(subject.option),
+        ...(subject.monitorOption !== undefined && {
+          detail: monitorOptionName(subject.monitorOption),
+        }),
       };
     case "EarlySetup":
       return {

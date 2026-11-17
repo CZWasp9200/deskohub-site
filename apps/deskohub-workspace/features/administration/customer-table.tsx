@@ -1,7 +1,7 @@
 "use client";
 
 import Interpolate from "@doist/react-interpolate";
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import type { Locale } from "@/features/i18n";
 import { useRouteLocale } from "@/features/i18n/route-locale";
 import type { MarketingConsentStatus } from "@/features/legal/marketing-consent-status";
@@ -13,6 +13,11 @@ import {
   type CustomerListQuery,
   customerListQuery,
 } from "./customer-list-query";
+import { isInactiveAdministrationCustomer } from "./customer-name";
+import {
+  AdministrationCustomerNameLabel,
+  AdministrationCustomerNameLink,
+} from "./customer-name-label";
 import {
   getAdministrationCustomerMarketingConsentLabel,
   getAdministrationCustomerName,
@@ -25,6 +30,32 @@ import { EmptyState } from "./empty-state";
 import { formatAdministrationDateTime } from "./formatters";
 import { m } from "./i18n";
 
+/** Stretches the name link over its table row, so the whole row opens the customer. */
+const customerRowLinkClassName =
+  "font-semibold underline decoration-navy-blue/20 underline-offset-4 before:absolute before:inset-0 before:content-[''] hover:decoration-navy-blue focus-visible:outline-none focus-visible:before:ring-2 focus-visible:before:ring-inset focus-visible:before:ring-navy-blue/40";
+
+/** A mobile customer list item: a link to the customer, except for a deleted or expired one, which has no detail page. */
+function CustomerListItemFrame({
+  children,
+  item,
+}: {
+  readonly children: ReactNode;
+  readonly item: AdministrationCustomerSummary;
+}) {
+  if (item.customer && isInactiveAdministrationCustomer(item.customer))
+    return <div className="block px-4 py-4">{children}</div>;
+  return (
+    <Link
+      className="block px-4 py-4 transition-colors hover:bg-navy-blue/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy-blue/40"
+      href={administrationHref("/[locale]/admin/customers/[customerId]", {
+        customerId: item.customerId,
+      })}
+    >
+      {children}
+    </Link>
+  );
+}
+
 const getColumns = (
   locale: Locale
 ): readonly AdministrationDataTableColumn<AdministrationCustomerSummary>[] => [
@@ -33,18 +64,24 @@ const getColumns = (
       item.customer
         ? getAdministrationCustomerName(item.customer, locale)
         : m.administrationCustomerDetailsUnavailable({}, { locale }),
-    cell: ({ row }) => (
-      <Link
-        className="font-semibold underline decoration-navy-blue/20 underline-offset-4 before:absolute before:inset-0 before:content-[''] hover:decoration-navy-blue focus-visible:outline-none focus-visible:before:ring-2 focus-visible:before:ring-inset focus-visible:before:ring-navy-blue/40"
-        href={administrationHref("/[locale]/admin/customers/[customerId]", {
-          customerId: row.original.customerId,
-        })}
-      >
-        {row.original.customer
-          ? getAdministrationCustomerName(row.original.customer, locale)
-          : m.administrationCustomerDetailsUnavailable({}, { locale })}
-      </Link>
-    ),
+    cell: ({ row }) =>
+      row.original.customer ? (
+        <AdministrationCustomerNameLink
+          className={customerRowLinkClassName}
+          customer={row.original.customer}
+          customerId={row.original.customerId}
+          locale={locale}
+        />
+      ) : (
+        <Link
+          className={customerRowLinkClassName}
+          href={administrationHref("/[locale]/admin/customers/[customerId]", {
+            customerId: row.original.customerId,
+          })}
+        >
+          {m.administrationCustomerDetailsUnavailable({}, { locale })}
+        </Link>
+      ),
     enableSorting: false,
     header: m.administrationCustomerTableName({}, { locale }),
     id: "name",
@@ -168,20 +205,16 @@ export function AdministrationCustomerTable({
         <ul className="divide-y divide-navy-blue/10">
           {customers.map((item) => (
             <li key={item.customerId}>
-              <Link
-                className="block px-4 py-4 transition-colors hover:bg-navy-blue/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy-blue/40"
-                href={administrationHref(
-                  "/[locale]/admin/customers/[customerId]",
-                  { customerId: item.customerId }
-                )}
-              >
+              <CustomerListItemFrame item={item}>
                 <p className="font-semibold">
-                  {item.customer
-                    ? getAdministrationCustomerName(item.customer, locale)
-                    : m.administrationCustomerDetailsUnavailable(
-                        {},
-                        { locale }
-                      )}
+                  {item.customer ? (
+                    <AdministrationCustomerNameLabel
+                      customer={item.customer}
+                      locale={locale}
+                    />
+                  ) : (
+                    m.administrationCustomerDetailsUnavailable({}, { locale })
+                  )}
                 </p>
                 <p className="mt-1 text-sm text-navy-blue/65">
                   {item.customer?.email ??
@@ -210,7 +243,7 @@ export function AdministrationCustomerTable({
                     { locale }
                   )}
                 </p>
-              </Link>
+              </CustomerListItemFrame>
             </li>
           ))}
         </ul>

@@ -72,12 +72,20 @@ describe("PriceLines", () => {
   });
 
   test("reads a zero charge as free", () => {
+    const { summary, selection } = reservedDeskWithWorkstation;
     const tree = render({
-      breakdown: priceBreakdown(reservedDeskWithWorkstation.summary),
-      describeLine: describePriceLine(
-        reservedDeskWithWorkstation.selection,
-        locale
-      ),
+      breakdown: priceBreakdown({
+        ...summary,
+        sections: summary.sections.map((section) => ({
+          ...section,
+          items: section.items.map((item) =>
+            item.key === "addon:workstation"
+              ? { ...item, amount: czk(0) }
+              : item
+          ),
+        })),
+      }),
+      describeLine: describePriceLine(selection, locale),
     });
     expect(texts(rows(tree).at(-1) as ReactElement<HostProps>).at(-1)).toBe(
       m.booking_price_free({}, { locale })

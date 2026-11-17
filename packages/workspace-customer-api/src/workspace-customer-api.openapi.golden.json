@@ -6345,6 +6345,9 @@
             },
             "required": ["startsAt", "amount"],
             "additionalProperties": false
+          },
+          "monitorOption": {
+            "$ref": "#/components/schemas/CustomerMonitorOption"
           }
         },
         "required": ["key", "amount"],

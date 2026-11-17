@@ -5,6 +5,7 @@ import type {
   CustomerCheckoutSummary,
   CustomerLegalDocument,
   CustomerLocale,
+  CustomerMonitorOption,
   CustomerOffering,
   Money,
 } from "@deskohub/workspace-customer-api";
@@ -232,6 +233,8 @@ interface PricedLine {
   readonly accessCrowns?: number;
   /** One office seat for the days booked, before discounts. */
   readonly seatCrowns?: number;
+  /** A workstation line's monitor setup. */
+  readonly monitorOption?: CustomerMonitorOption;
 }
 
 /**
@@ -275,8 +278,9 @@ export const pricedLines = (
       ...(tier === "reserved-desk" && selection.monitorOption !== undefined
         ? [
             {
-              key: `monitor:${selection.monitorOption}`,
+              key: "addon:workstation",
               crowns: samplePrices.workstation,
+              monitorOption: selection.monitorOption,
             },
           ]
         : []),
@@ -377,6 +381,9 @@ export const sampleSummary = ({
       ...(index === 0 && earlySetupStartsAt !== undefined
         ? { earlySetup: { startsAt: earlySetupStartsAt, amount: czk(0) } }
         : {}),
+      ...(line.monitorOption === undefined
+        ? {}
+        : { monitorOption: line.monitorOption }),
     };
   });
   const total = czk(

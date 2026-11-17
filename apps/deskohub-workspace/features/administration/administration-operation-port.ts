@@ -20,13 +20,35 @@ import { revalidateLocalizedPath } from "@/features/i18n/server/revalidate-local
 import type { AdministrationPath } from "./administration-href";
 
 /**
+ * What each operation of a group returns in-app: its contract output, or,
+ * where `Richer` names the operation, a value that adds what only the Admin
+ * UI reads. A richer value is still the contract output, so every API
+ * adapter encodes it by the contract, which leaves the additions out.
+ */
+export type OperationResults<
+  Ops extends Operations,
+  Richer extends {
+    readonly [Name in keyof Ops]?: OperationOutput<Ops[Name]>;
+  } = Record<never, never>,
+> = {
+  readonly [Name in keyof Ops]: Name extends keyof Richer
+    ? Exclude<Richer[Name], undefined>
+    : OperationOutput<Ops[Name]>;
+};
+
+/**
  * One handler per operation of a group; a missing one fails the typecheck.
  * A handler may read who acts, for provenance.
  */
-export type OperationHandlers<Ops extends Operations, Cause, R> = {
+export type OperationHandlers<
+  Ops extends Operations,
+  Cause,
+  R,
+  Results extends OperationResults<Ops> = OperationResults<Ops>,
+> = {
   readonly [Name in keyof Ops]: (
     input: OperationDecodedInput<Ops[Name]>
-  ) => Effect.Effect<OperationOutput<Ops[Name]>, Cause, R>;
+  ) => Effect.Effect<Results[Name], Cause, R>;
 };
 
 /** A ledger operation of the group with its decoded input. */
@@ -138,7 +160,11 @@ export const startOperationSettlement = <Input>(
   );
 
 /** One operation group's port: what every adapter calls. */
-export interface AdministrationOperationPort<Ops extends Operations, R> {
+export interface AdministrationOperationPort<
+  Ops extends Operations,
+  R,
+  Results extends OperationResults<Ops> = OperationResults<Ops>,
+> {
   /**
    * Runs one operation for the current administrator: re-checks the
    * administrator grant, decodes the input strictly, applies a ledger
@@ -149,7 +175,7 @@ export interface AdministrationOperationPort<Ops extends Operations, R> {
     name: Name,
     input: OperationInput<Ops[Name]>
   ) => Effect.Effect<
-    OperationOutput<Ops[Name]>,
+    Results[Name],
     AdministrationOperationError,
     CurrentAdministrator | R
   >;
@@ -170,6 +196,7 @@ export const makeAdministrationOperationPort = <
   Cause,
   R,
   Ledger,
+  Results extends OperationResults<Ops> = OperationResults<Ops>,
 >({
   group,
   operations,
@@ -180,7 +207,7 @@ export const makeAdministrationOperationPort = <
   /** Names the port's spans, as `<group>.invoke`. */
   readonly group: string;
   readonly operations: Ops;
-  readonly handlers: OperationHandlers<Ops, Cause, R>;
+  readonly handlers: OperationHandlers<Ops, Cause, R, Results>;
   /** The adapter's ledger for the group's ledger operations. */
   readonly ledger: Context.Key<Ledger, OperationLedger<Ops>>;
   readonly toOperationError: (
@@ -214,7 +241,8 @@ export const makeAdministrationOperationPort = <
       input: OperationInput<Ops[Name]>
     ) => {
       const operation: Ops[Name] = operations[name];
-      const handle: OperationHandlers<Ops, Cause, R>[Name] = handlers[name];
+      const handle: OperationHandlers<Ops, Cause, R, Results>[Name] =
+        handlers[name];
       return authorize.pipe(
         Effect.andThen(
           // An operation's input schema decodes without services.
@@ -246,13 +274,17 @@ export const makeAdministrationOperationPort = <
           attributes: { operation: name },
         })
       ) as Effect.Effect<
-        OperationOutput<Ops[Name]>,
+        Results[Name],
         AdministrationOperationError,
         CurrentAdministrator | R | Ledger
       >;
     };
 
-    return { invoke } satisfies AdministrationOperationPort<Ops, R | Ledger>;
+    return { invoke } satisfies AdministrationOperationPort<
+      Ops,
+      R | Ledger,
+      Results
+    >;
   });
 
 const strictParseOptions = {

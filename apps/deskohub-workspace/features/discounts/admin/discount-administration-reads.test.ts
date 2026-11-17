@@ -6,10 +6,12 @@ import {
   DotyposUnavailable,
 } from "@deskohub/dotypos";
 import { GoogleCalendarService } from "@deskohub/google-calendar";
+import { testEmailAddress } from "@deskohub/test-email";
 import { AdministrationCustomerSearchResult } from "@deskohub/workspace-admin-api";
 import { Effect, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
+import { inactiveCustomerDisplayNames } from "@/features/administration/customer-name";
 import { CalendarResourceConfig } from "@/shared/backend/config/calendar-resource.config";
 import type { DiscountCodeId } from "../persistence-contracts";
 import {
@@ -51,21 +53,29 @@ describe("discount administration read models", () => {
 
 describe("discount administration customers", () => {
   const unnamed = { id: "dotypos-customer" } as DotyposCustomer;
+  const now = new Date("2026-11-17T12:00:00Z");
+  const former = {
+    id: "dotypos-customer",
+    firstName: "Synthetic",
+    lastName: "Former",
+    email: testEmailAddress("discount-former"),
+    phone: "+420 123 456 789",
+  } as DotyposCustomer;
 
   test("signals a customer without a name or contact detail", () => {
-    expect(toAdminDotyposCustomer(unnamed)).toMatchObject({
+    expect(toAdminDotyposCustomer(unnamed, now)).toMatchObject({
       displayName: "Unnamed customer",
       hasName: false,
     });
     expect(
-      toAdminDotyposCustomer({ ...unnamed, phone: " +420 123 456 789 " })
+      toAdminDotyposCustomer({ ...unnamed, phone: " +420 123 456 789 " }, now)
     ).toMatchObject({ displayName: "+420 123 456 789", hasName: true });
   });
 
   test("keeps the administration API customer shape unchanged", () => {
     const encoded = Schema.encodeSync(AdministrationCustomerSearchResult)({
       kind: "matched",
-      customers: [toAdminDotyposCustomer(unnamed)],
+      customers: [toAdminDotyposCustomer(unnamed, now)],
     });
 
     expect(encoded.customers[0]).toEqual({
@@ -76,6 +86,35 @@ describe("discount administration customers", () => {
       discountGroupId: null,
     });
   });
+
+  test.each([
+    ["deleted", { deleted: true }],
+    ["expired", { expireDate: "2020-01-01T00:00:00Z" }],
+  ] as const)(
+    "carries a %s customer's placeholder on the unchanged API shape, without contact details",
+    (lifecycle, fields) => {
+      const customer = toAdminDotyposCustomer({ ...former, ...fields }, now);
+      expect(customer).toMatchObject({
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        hasName: false,
+        lifecycle,
+        email: null,
+        phone: null,
+      });
+      expect(
+        Schema.encodeSync(AdministrationCustomerSearchResult)({
+          kind: "matched",
+          customers: [customer],
+        }).customers[0]
+      ).toEqual({
+        id: "dotypos-customer",
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        email: null,
+        phone: null,
+        discountGroupId: null,
+      });
+    }
+  );
 });
 
 /** The reads over a substituted Dotypos and database; the directory is the real one. */
@@ -95,13 +134,16 @@ const readsLayer = (
 
 describe("discount administration audiences", () => {
   test("lists audience customers in audience order when the batch read fails", async () => {
-    const audience = ["failing", "deleted", "active", "missing"].map((id) => ({
-      dotyposCustomerId: id as DotyposCustomerId,
-    }));
+    const audience = ["failing", "deleted", "expired", "active", "missing"].map(
+      (id) => ({
+        dotyposCustomerId: id as DotyposCustomerId,
+      })
+    );
     const customers = new Map(
       [
         { id: "active", firstName: "Jana" },
         { id: "deleted", firstName: "Petr", deleted: true },
+        { id: "expired", firstName: "Eva", expireDate: "2020-01-01T00:00:00Z" },
       ].map((customer) => [customer.id, customer as DotyposCustomer])
     );
     const unavailable = new DotyposUnavailable({
@@ -160,8 +202,24 @@ describe("discount administration audiences", () => {
     ).toEqual([
       ["failing", null],
       ["deleted", "deleted"],
+      ["expired", "expired"],
       ["active", "active"],
       ["missing", null],
     ]);
+    const shown = new Map(
+      detail.customers.map(({ customerId, customer }) => [customerId, customer])
+    );
+    for (const lifecycle of ["deleted", "expired"] as const)
+      expect(shown.get(lifecycle as DotyposCustomerId)).toMatchObject({
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        hasName: false,
+        lifecycle,
+        email: null,
+        phone: null,
+      });
+    expect(shown.get("active" as DotyposCustomerId)).toMatchObject({
+      displayName: "Jana",
+      lifecycle: "active",
+    });
   });
 });

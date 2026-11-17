@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import { accountStackAnchor } from "../../../../src/account/account-root";
 import { SignOutButton } from "../../../../src/account/sign-out-button";
 import { useAppLocale } from "../../../../src/i18n/locale-context";
 import { m } from "../../../../src/i18n/messages";
@@ -6,9 +7,9 @@ import { stackScreenOptions } from "../../../../src/ui/navigation";
 
 const renderSignOutButton = () => <SignOutButton />;
 
-// A link straight to a deeper screen, such as a reservation from a payment
-// return, keeps this stack's index behind it for Back.
-export const unstable_settings = { anchor: "index" };
+// A link straight to a section, such as billing or referrals, keeps the
+// Account root behind it for Back (see `accountStackAnchor`).
+export const unstable_settings = { anchor: accountStackAnchor };
 
 export default function AccountSectionsLayout() {
   const locale = useAppLocale();

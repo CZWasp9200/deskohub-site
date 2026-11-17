@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Money } from "./customer-account-api";
+import { CustomerMonitorOption } from "./customer-booking-selection";
 
 const isoInstant = Schema.String.annotate({
   description: "ISO 8601 instant.",
@@ -40,7 +41,7 @@ export type CustomerCheckoutSummaryDiscount =
 export const CustomerCheckoutSummaryItem = Schema.Struct({
   /**
    * What the line is: `product:<product key>`, `addon:coffee`,
-   * `addon:workstation`, `monitor:<option>`, or `total:final`.
+   * `addon:workstation`, or `total:final`.
    */
   key: Schema.String,
   /** The line's price after its discounts. */
@@ -75,6 +76,11 @@ export const CustomerCheckoutSummaryItem = Schema.Struct({
   earlySetup: Schema.optionalKey(
     Schema.Struct({ startsAt: isoInstant, amount: Money })
   ),
+  /**
+   * Workstation line only: the monitor setup the workstation is configured
+   * with. It is part of the line, not a line of its own.
+   */
+  monitorOption: Schema.optionalKey(CustomerMonitorOption),
 }).annotate({ identifier: "CustomerCheckoutSummaryItem" });
 export type CustomerCheckoutSummaryItem =
   typeof CustomerCheckoutSummaryItem.Type;

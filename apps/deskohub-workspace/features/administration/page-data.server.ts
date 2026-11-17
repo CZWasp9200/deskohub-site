@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { DotyposCustomer, DotyposCustomerId } from "@deskohub/dotypos";
-import { Effect, Layer, Match, Option, Schema } from "effect";
+import { DateTime, Effect, Layer, Match, Option, Schema } from "effect";
 import { cache } from "react";
 import type { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
 import {
@@ -288,8 +288,13 @@ export const loadAdministrationCustomerReservationActivity = cache(
 
 /** What the customer detail page and its breadcrumb know of one Dotypos customer. */
 export type AdministrationCustomerLookup =
-  | { readonly kind: "found"; readonly customer: DotyposCustomer }
-  /** Dotypos has no such customer, or it is deleted. */
+  | {
+      readonly kind: "found";
+      readonly customer: DotyposCustomer;
+      /** When the customer was read, for naming it. */
+      readonly readAt: Date;
+    }
+  /** Dotypos has no such customer, or it is deleted or expired. */
   | { readonly kind: "absent" }
   /** The Dotypos read failed; the failure is logged. */
   | { readonly kind: "unavailable" };
@@ -309,11 +314,14 @@ export const loadAdministrationCustomer = cache(
       "administration.customer",
       Effect.gen(function* () {
         const directory = yield* AdministrationCustomerDirectory;
-        return Option.match(yield* directory.find(customerId), {
+        const found = yield* directory.find(customerId);
+        const readAt = yield* DateTime.nowAsDate;
+        return Option.match(found, {
           onNone: (): AdministrationCustomerLookup => ({ kind: "absent" }),
           onSome: (customer): AdministrationCustomerLookup => ({
             kind: "found",
             customer,
+            readAt,
           }),
         });
       }).pipe(
@@ -336,9 +344,9 @@ export const loadAdministrationCustomerBreadcrumbLabel = cache(
     const lookup = await loadAdministrationCustomer(customerId);
     return Match.value(lookup).pipe(
       Match.discriminatorsExhaustive("kind")({
-        found: ({ customer }) =>
+        found: ({ customer, readAt }) =>
           getAdministrationCustomerName(
-            nameAdministrationCustomer(customer),
+            nameAdministrationCustomer(customer, readAt),
             locale
           ),
         absent: () => undefined,
