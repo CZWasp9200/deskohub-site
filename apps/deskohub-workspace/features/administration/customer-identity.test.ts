@@ -62,14 +62,16 @@ describe("nameAdministrationCustomer", () => {
       )
     ).toEqual(named("Synthetic Person"));
     expect(
-      nameAdministrationCustomer(customer({ companyName: " Synthetic Company " }))
+      nameAdministrationCustomer(
+        customer({ companyName: " Synthetic Company " })
+      )
     ).toEqual(named("Synthetic Company"));
-    expect(nameAdministrationCustomer(customer({ email: ` ${email} ` }))).toEqual(
-      named(email)
-    );
-    expect(nameAdministrationCustomer(customer({ phone: ` ${phone} ` }))).toEqual(
-      named(phone)
-    );
+    expect(
+      nameAdministrationCustomer(customer({ email: ` ${email} ` }))
+    ).toEqual(named(email));
+    expect(
+      nameAdministrationCustomer(customer({ phone: ` ${phone} ` }))
+    ).toEqual(named(phone));
   });
 
   test("skips whitespace-only parts", () => {
@@ -101,7 +103,11 @@ describe("describeAdministrationCustomer", () => {
   test("names the customer and trims the contact details", () => {
     expect(
       describeAdministrationCustomer(
-        customer({ companyName: "Synthetic Company", email: ` ${email} `, phone })
+        customer({
+          companyName: "Synthetic Company",
+          email: ` ${email} `,
+          phone,
+        })
       )
     ).toEqual({
       id: "customer-1",
