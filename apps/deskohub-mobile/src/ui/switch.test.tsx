@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import Bell from "lucide-react-native/icons/bell";
+import Moon from "lucide-react-native/icons/moon";
 import type { ComponentProps } from "react";
 import { StyleSheet } from "react-native";
 import { listRowLayout } from "./list-row-layout";
@@ -12,6 +13,7 @@ import {
   type HostProps,
   hostTree,
 } from "./testing/element-tree";
+import { Text } from "./text";
 import { color } from "./tokens";
 
 const flat = (style: unknown) =>
@@ -75,6 +77,43 @@ describe("SwitchTrack", () => {
       color.disabledField
     );
   });
+
+  test("an icon keeps the thumb large and draws in it, white off", () => {
+    const off = track({ value: false, icon: Moon });
+    expect(off.track).toMatchObject({
+      backgroundColor: color.disabled,
+      borderColor: color.field,
+    });
+    expect(off.thumb).toMatchObject({
+      width: 24,
+      left: 2,
+      backgroundColor: color.field,
+    });
+    expect(off.check).toBeDefined();
+    expect(
+      switchLook({ value: false, busy: false, disabled: false, icon: true })
+    ).toMatchObject({ glyph: color.white });
+  });
+
+  test("an icon on: orange track, white thumb at the end, orange icon", () => {
+    const on = track({ value: true, icon: Moon });
+    expect(on.track.backgroundColor).toBe(color.action);
+    expect(on.thumb).toMatchObject({
+      width: 24,
+      left: 22,
+      backgroundColor: color.white,
+    });
+    expect(on.check).toBeDefined();
+    expect(
+      switchLook({ value: true, busy: false, disabled: false, icon: true })
+    ).toMatchObject({ glyph: color.action });
+  });
+
+  test("an icon keeps the thumb large while disabled", () => {
+    expect(
+      track({ value: false, disabled: true, icon: Moon }).thumb.width
+    ).toBe(24);
+  });
 });
 
 const standalone = (props: Partial<ComponentProps<typeof Switch>> = {}) => {
@@ -118,6 +157,37 @@ describe("Switch", () => {
     const { pressable } = standalone({ disabled: true });
     expect(pressable["aria-disabled"]).toBe(true);
     expect(pressable.disabled).toBe(true);
+  });
+
+  test("a label draws before the track, muted off and orange on", () => {
+    const labelTone = (value: boolean) =>
+      find(
+        elementTree(Switch, {
+          value,
+          onValueChange: () => undefined,
+          accessibilityLabel: "name",
+          label: "label",
+        }),
+        Text
+      )?.props.tone;
+    expect(labelTone(false)).toBe("muted");
+    expect(labelTone(true)).toBe("action");
+    const { pressable } = standalone({ label: "label", value: true });
+    expect(pressable.role).toBe("switch");
+    expect(pressable["aria-checked"]).toBe(true);
+  });
+
+  test("without a label it draws the track alone", () => {
+    expect(
+      find(
+        elementTree(Switch, {
+          value: false,
+          onValueChange: () => undefined,
+          accessibilityLabel: "name",
+        }),
+        Text
+      )
+    ).toBeUndefined();
   });
 });
 

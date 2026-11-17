@@ -108,6 +108,7 @@ export const sampleOfferings = (
           ],
         },
       ],
+      overnightStay: { startTime: "12:00", endTime: "12:00" },
     },
     ...(["hour:1", "hour:4", "day:1"] as const).map(
       (duration): CustomerOffering => ({

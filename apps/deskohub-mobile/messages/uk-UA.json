@@ -516,8 +516,6 @@
   "booking_gate_deletion_title": "Ваш обліковий запис видаляється",
   "booking_gate_deletion_body": "Поки це триває, ви не можете робити нові бронювання. Напишіть нам, якщо це помилка.",
   "booking_cowork_tier_heading": "Тип місця",
-  "booking_cowork_stay_label": "Тривалість перебування",
-  "booking_cowork_stay_day": "День",
   "booking_cowork_stay_overnight": "На ніч",
   "booking_date_heading": "Дата",
   "booking_calendar_previous_month": "Попередній місяць",

@@ -265,16 +265,23 @@ describe("overnight stay", () => {
   };
   const stayCatalog = async () => {
     const { registry, draft } = await setup();
-    const { offerings } = await settledValue(
+    const { offerings: sampled } = await settledValue(
       registry,
       bookingOfferingsAtom("en-US")
     );
-    const withOvernight = offerings.map((offering) =>
-      offering.family === "cowork" && offering.tier === "reserved-desk"
-        ? { ...offering, overnightStay }
-        : offering
-    );
-    return { offerings, withOvernight, draft };
+    // The sample Reserved Desk offers the stay; each test sets it itself.
+    const reservedDeskWith = (stay: typeof overnightStay | undefined) =>
+      sampled.map((offering) => {
+        if (offering.family !== "cowork" || offering.tier !== "reserved-desk")
+          return offering;
+        const { overnightStay: _sampled, ...day } = offering;
+        return stay === undefined ? day : { ...day, overnightStay: stay };
+      });
+    return {
+      offerings: reservedDeskWith(undefined),
+      withOvernight: reservedDeskWith(overnightStay),
+      draft,
+    };
   };
 
   test("offers the switch only for a Reserved Desk whose offering advertises it", async () => {
