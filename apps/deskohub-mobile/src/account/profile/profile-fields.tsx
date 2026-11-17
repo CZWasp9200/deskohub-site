@@ -81,6 +81,8 @@ const fieldInput: Record<
   vatId: {
     label: (locale) => m.profile_vat_id_label({}, { locale }),
     optional: true,
+    // The format, as boards 07 and 13 show it.
+    placeholder: "CZ12345678",
     autoComplete: "off",
     autoCapitalize: "characters",
     maxLength: 32,
