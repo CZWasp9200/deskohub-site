@@ -64,6 +64,8 @@ import { ReservationAccessService } from "@/features/reservation/backend/reserva
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { ReviewAccountsMock } from "@/features/review-accounts/backend/review-accounts.repository.mock";
+import { WithdrawalService } from "@/features/withdrawal/backend/withdrawal.service";
+import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
 import {
   makeMemoryRequestBudget,
   unavailableRequestBudget,
@@ -251,6 +253,10 @@ const unusedReservationServices: CustomerReservationServiceLayers = {
   paymentRetry: () => Layer.mock(CheckoutPaymentRetryService, {}),
   access: () => Layer.mock(ReservationAccessService, {}),
   invoice: () => Layer.mock(ReservationInvoicePdfService, {}),
+  withdrawals: Layer.mergeAll(
+    Layer.mock(WithdrawalService, {}),
+    WithdrawalReleaseGate.fromDecision(false)
+  ),
 };
 
 /** The Dotypos profile of `linkedAccountServices`' account. */

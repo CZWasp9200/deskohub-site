@@ -171,7 +171,10 @@ describe.skipIf(!testDatabase)(
         id: recorded.id,
         claimedAt: retried.settlementClaimedAt,
       };
-      for (const step of ["operator_notice", "contract_cancellation"] as const) {
+      for (const step of [
+        "operator_notice",
+        "contract_cancellation",
+      ] as const) {
         expect(
           await run((repository) =>
             repository.markStepDone({ ...retryClaim, step, doneAt: later })

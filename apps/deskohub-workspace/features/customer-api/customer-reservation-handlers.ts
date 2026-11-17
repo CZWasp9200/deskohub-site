@@ -54,7 +54,6 @@ import {
   WithdrawalService,
 } from "@/features/withdrawal/backend/withdrawal.service";
 import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
-import { WithdrawalReleaseGateForRun } from "@/features/withdrawal/backend/withdrawal-release-gate-run";
 import {
   toWithdrawalQuoteData,
   toWithdrawalReceiptData,
@@ -102,11 +101,8 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
     );
     // The gate and the reservation reads behind a withdrawal decide per
     // request, so each request builds them.
-    const withdrawalLayer = Layer.mergeAll(
-      WithdrawalService.ForProvidedAuthentication.pipe(
-        Layer.provide(authentication)
-      ),
-      WithdrawalReleaseGateForRun
+    const withdrawalLayer = reservations.withdrawals.pipe(
+      Layer.provide(authentication)
     );
 
     return (
