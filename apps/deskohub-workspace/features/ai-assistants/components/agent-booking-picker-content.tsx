@@ -126,7 +126,7 @@ function CopyPill({
         wrap
       >
         <StatusIcon aria-hidden className="size-4 shrink-0" />
-        <span className="grid">
+        <span className="grid text-left">
           {copyStatuses.map((labelStatus) => (
             <span
               aria-hidden={labelStatus !== status}
