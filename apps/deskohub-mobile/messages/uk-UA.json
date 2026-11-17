@@ -74,8 +74,31 @@
   "booking_checkout_summary_total": "Разом до оплати",
   "booking_checkout_summary_changed": "Ціна змінилася",
   "booking_checkout_summary_original_price": "Початкова ціна: {amount}",
-  "booking_checkout_summary_office_days": "Кількість днів: {count}",
-  "booking_checkout_summary_office_seats": "Кількість місць в офісі: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} день",
+        "countPlural=few": "{count} дні",
+        "countPlural=many": "{count} днів",
+        "countPlural=other": "{count} дня"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Місця в офісі",
+  "booking_price_line_seats": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} місце",
+        "countPlural=few": "{count} місця",
+        "countPlural=many": "{count} місць",
+        "countPlural=other": "{count} місця"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Місце у спільному просторі",
   "booking_checkout_line_reserved_desk": "Закріплене місце на день",
   "booking_checkout_line_meeting_room": "Переговорна кімната",
@@ -83,7 +106,6 @@
   "booking_checkout_line_coffee": "Кава",
   "booking_checkout_line_workstation": "Робоча станція з моніторами",
   "booking_checkout_line_other": "Інша позиція",
-  "booking_price_line_one_day": "1 день",
   "booking_price_line_one_hour": "1 година, {start}–{end}",
   "booking_price_line_four_hours": "4 години, {start}–{end}",
   "booking_summary_open_space_day": "{date}, до {time}",
@@ -736,7 +758,32 @@
   "referrals_saved_so_far": "Заощаджено досі",
   "referrals_discount_info": "Як розраховується знижка",
   "referrals_joined_nobody": "За вашим кодом поки ніхто не приєднався.",
-  "referrals_joined_some": "Приєдналися за вашим кодом: {invitees}. Враховуються у вашій знижці: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "За вашим кодом приєдналася {count} людина",
+        "countPlural=few": "За вашим кодом приєдналися {count} людини",
+        "countPlural=many": "За вашим кодом приєдналося {count} людей",
+        "countPlural=other": "За вашим кодом приєдналися {count} людини"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} враховується у вашій знижці",
+        "countPlural=few": "{count} враховуються у вашій знижці",
+        "countPlural=many": "{count} враховуються у вашій знижці",
+        "countPlural=other": "{count} враховуються у вашій знижці"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "у вашій знижці поки ніхто не враховується",
   "referrals_how_it_works": "Як це працює",
   "referrals_step_share": "Поділіться своїм кодом або посиланням.",
   "referrals_step_friend_rate": "Ваш друг отримує знижку {rate} на своє перше бронювання.",

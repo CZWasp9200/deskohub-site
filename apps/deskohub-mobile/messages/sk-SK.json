@@ -74,8 +74,31 @@
   "booking_checkout_summary_total": "Spolu na úhradu",
   "booking_checkout_summary_changed": "Cena sa zmenila",
   "booking_checkout_summary_original_price": "Pôvodná cena: {amount}",
-  "booking_checkout_summary_office_days": "Počet dní: {count}",
-  "booking_checkout_summary_office_seats": "Počet miest v kancelárii: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} deň",
+        "countPlural=few": "{count} dni",
+        "countPlural=many": "{count} dňa",
+        "countPlural=other": "{count} dní"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Miesta v kancelárii",
+  "booking_price_line_seats": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} miesto",
+        "countPlural=few": "{count} miesta",
+        "countPlural=many": "{count} miesta",
+        "countPlural=other": "{count} miest"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Zdieľané miesto",
   "booking_checkout_line_reserved_desk": "Vyhradené miesto",
   "booking_checkout_line_meeting_room": "Zasadacia miestnosť",
@@ -83,7 +106,6 @@
   "booking_checkout_line_coffee": "Káva",
   "booking_checkout_line_workstation": "Pracovná stanica s monitormi",
   "booking_checkout_line_other": "Ďalšia položka",
-  "booking_price_line_one_day": "1 deň",
   "booking_price_line_one_hour": "1 hodina, {start}–{end}",
   "booking_price_line_four_hours": "4 hodiny, {start}–{end}",
   "booking_summary_open_space_day": "{date}, do {time}",
@@ -736,7 +758,32 @@
   "referrals_saved_so_far": "Zatiaľ ušetrené",
   "referrals_discount_info": "Ako sa zľava počíta",
   "referrals_joined_nobody": "S tvojím kódom sa zatiaľ nikto nepripojil.",
-  "referrals_joined_some": "S tvojím kódom sa pripojili: {invitees}. Do tvojej zľavy sa počítajú: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "S tvojím kódom sa pripojil {count} človek",
+        "countPlural=few": "S tvojím kódom sa pripojili {count} ľudia",
+        "countPlural=many": "S tvojím kódom sa pripojili {count} ľudia",
+        "countPlural=other": "S tvojím kódom sa pripojilo {count} ľudí"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} sa počíta do tvojej zľavy",
+        "countPlural=few": "{count} sa počítajú do tvojej zľavy",
+        "countPlural=many": "{count} sa počítajú do tvojej zľavy",
+        "countPlural=other": "{count} sa počíta do tvojej zľavy"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "do tvojej zľavy sa zatiaľ nepočíta nikto",
   "referrals_how_it_works": "Ako to funguje",
   "referrals_step_share": "Pošli svoj kód alebo odkaz.",
   "referrals_step_friend_rate": "Tvoj kamarát dostane zľavu {rate} na svoju prvú rezerváciu.",

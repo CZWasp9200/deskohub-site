@@ -74,8 +74,27 @@
   "booking_checkout_summary_total": "Total to pay",
   "booking_checkout_summary_changed": "Price changed",
   "booking_checkout_summary_original_price": "Original price: {amount}",
-  "booking_checkout_summary_office_days": "Days: {count}",
-  "booking_checkout_summary_office_seats": "Office seats: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} day",
+        "countPlural=other": "{count} days"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Office seats",
+  "booking_price_line_seats": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} seat",
+        "countPlural=other": "{count} seats"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Open Space",
   "booking_checkout_line_reserved_desk": "Reserved Desk",
   "booking_checkout_line_meeting_room": "Meeting Room",
@@ -83,7 +102,6 @@
   "booking_checkout_line_coffee": "Coffee",
   "booking_checkout_line_workstation": "Monitor workstation",
   "booking_checkout_line_other": "Other item",
-  "booking_price_line_one_day": "1 day",
   "booking_price_line_one_hour": "1 hour, {start}–{end}",
   "booking_price_line_four_hours": "4 hours, {start}–{end}",
   "booking_summary_open_space_day": "{date}, until {time}",
@@ -736,7 +754,28 @@
   "referrals_saved_so_far": "Saved so far",
   "referrals_discount_info": "How the discount is worked out",
   "referrals_joined_nobody": "No one has joined with your code yet.",
-  "referrals_joined_some": "Joined with your code: {invitees}. Counting toward your discount: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} person joined with your code",
+        "countPlural=other": "{count} people joined with your code"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} counts toward your discount",
+        "countPlural=other": "{count} count toward your discount"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "none count toward your discount yet",
   "referrals_how_it_works": "How it works",
   "referrals_step_share": "Share your code or link.",
   "referrals_step_friend_rate": "Your friend gets {rate} off their first reservation.",

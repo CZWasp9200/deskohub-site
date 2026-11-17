@@ -10,12 +10,19 @@ export type PriceLineSubject =
   /** The booked product, `product:<product key>`. */
   | { readonly _tag: "Product"; readonly product: string }
   /** An office product line's access part. */
-  | { readonly _tag: "OfficeAccess"; readonly dayCount: number }
+  | {
+      readonly _tag: "OfficeAccess";
+      readonly dayCount: number;
+      /** The access price of one day, where the quote gives it. */
+      readonly dailyRate?: Money;
+    }
   /** An office product line's seats part. */
   | {
       readonly _tag: "OfficeSeats";
       readonly seats: number;
       readonly dayCount: number;
+      /** The price of one seat for one day, where the quote gives it. */
+      readonly dailySeatRate?: Money;
     }
   | { readonly _tag: "Coffee" }
   | { readonly _tag: "Workstation" }
