@@ -2,14 +2,16 @@
  * Runs an external command to completion and captures its output, in Bun and
  * in Node (such as Playwright's worker processes) alike.
  *
- * Commands always run asynchronously. Bun 1.4.2's synchronous spawn
- * (`Bun.spawnSync` and the `node:child_process` `*Sync` functions) waits on
- * a process-wide isolated event loop whose poll count drifts when a garbage
- * collection inside the call finalizes an earlier object's poll, such as a
+ * Commands always run asynchronously. Before Bun 1.4.3, synchronous spawn
+ * (`Bun.spawnSync` and the `node:child_process` `*Sync` functions) waited on
+ * a process-wide isolated event loop whose poll count drifted when a garbage
+ * collection inside the call finalized an earlier object's poll, such as a
  * stdio writer from a test file that `bun test --parallel` already
- * discarded. Once it drifts, later synchronous spawns in the same process
- * never observe their child's exit and spin until the test times out
- * (oven-sh/bun#43697, fixed upstream by oven-sh/bun#44581 after 1.4.2).
+ * discarded. Once it drifted, later synchronous spawns in the same process
+ * never observed their child's exit and spun until the test timed out
+ * (oven-sh/bun#43697). Bun 1.4.3 fixed that with oven-sh/bun#44581, but the
+ * nested-tick synchronous spawn reported on the same issue still hangs on
+ * 1.4.4 and is fixed only on Bun's main branch.
  *
  * Bun spawns through `Bun.spawn`: under Bun, a caller that spawned a
  * detached `node:child_process` command often dies by SIGINT or SIGTERM
