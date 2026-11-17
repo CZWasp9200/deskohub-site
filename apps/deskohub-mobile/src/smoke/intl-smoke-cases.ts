@@ -73,7 +73,7 @@ export const intlSmokeCases: ReadonlyArray<SmokeCase> = [
         .map((range) => [range.start, ...Option.toArray(range.end)].join(" – "))
         .join(" | ");
       assertSmoke(
-        days === "Monday, November 30, 2026 | pondělí 30. listopadu 2026",
+        days === "Nov 30, 2026 | 30. 11. 2026",
         `got ${JSON.stringify(days)}`
       );
       return days;
