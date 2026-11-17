@@ -1,4 +1,5 @@
 import type { Href, ImperativeRouter } from "expo-router";
+import type { BottomTabNavigationOptions } from "expo-router/tabs";
 
 /** The Account tab's root: its index, the list of sections. */
 export const accountRootHref = "/account" as const satisfies Href;
@@ -13,3 +14,21 @@ export const accountRootHref = "/account" as const satisfies Href;
 export const returnToAccountRoot = (
   router: Pick<ImperativeRouter, "dismissTo">
 ) => router.dismissTo(accountRootHref);
+
+/**
+ * The Account stack's anchor: its root, which Expo Router puts under a
+ * section that opens the stack, so the section shows Back to the root.
+ */
+export const accountStackAnchor = "index";
+
+/**
+ * The Account tab's stack mounts with the tabs instead of on its first visit
+ * (#1345). Expo Router puts a stack's anchor under the target only for the
+ * link that starts the app (and a `withAnchor` navigation). A link that
+ * arrives while the app runs creates a missing stack with the linked section
+ * alone, but it pushes onto a stack that is already mounted, above the
+ * root. The root reads only the account the tabs already load.
+ */
+export const accountTabOptions = {
+  lazy: false,
+} as const satisfies BottomTabNavigationOptions;

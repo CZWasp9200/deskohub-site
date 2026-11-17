@@ -6,6 +6,11 @@ import {
   accountSectionOrder,
 } from "../account/account-gating";
 import {
+  accountRootHref,
+  accountStackAnchor,
+  accountTabOptions,
+} from "../account/account-root";
+import {
   onboardingBillingHref,
   onboardingHref,
 } from "../account/onboarding/onboarding-routes";
@@ -235,6 +240,19 @@ describe("app route tree", () => {
         resolves: true,
       });
     }
+  });
+
+  test("a linked Account section has the Account root behind it", () => {
+    // The anchor names the Account tab's root screen, and the tab's stack
+    // mounts with the tabs, so a link that arrives while the app runs pushes
+    // onto that root instead of creating a stack without it (#1345).
+    expect(screens().map((segments) => segments.join("/"))).toContain(
+      `(account)/(tabs)/account/${accountStackAnchor}`
+    );
+    expect(screenPathPattern(["account", accountStackAnchor])).toBe(
+      accountRootHref
+    );
+    expect(accountTabOptions.lazy).toBe(false);
   });
 
   test("every Account section with a screen links to it", () => {
