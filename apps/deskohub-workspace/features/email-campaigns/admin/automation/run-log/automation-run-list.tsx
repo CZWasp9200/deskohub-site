@@ -3,7 +3,6 @@ import {
   type AutomationFlow,
   type AutomationRunOutcome,
   type AutomationRunState,
-  type AutomationRunSummary,
   type AutomationVersionSummary,
 } from "@deskohub/workspace-admin-api";
 import { Option } from "effect";
@@ -37,6 +36,7 @@ import {
 } from "@/shared/components/ui/table";
 import type { SearchParamValues } from "@/shared/utils/search-params";
 import { upperCaseFirst } from "@/shared/utils/text-case";
+import type { AutomationRunSummaryWithLifecycle } from "../../../automation/backend/automation-run-log.service";
 import { automationTriggerLabel } from "../automation-trigger-labels";
 import { AutomationRunCustomer } from "./automation-run-customer";
 import type { AutomationRunFilters } from "./automation-run-filters";
@@ -219,7 +219,7 @@ function AutomationRunFilterForm({
 }
 
 interface RunRowCopy {
-  readonly run: AutomationRunSummary;
+  readonly run: AutomationRunSummaryWithLifecycle;
   readonly href: AdministrationHref;
   readonly started: string;
   readonly ended: string | null;
@@ -369,7 +369,7 @@ export function AutomationRunList({
   readonly href: (params: SearchParamValues) => AdministrationHref;
   readonly locale: Locale;
   readonly nextCursor: string | null;
-  readonly runs: readonly AutomationRunSummary[];
+  readonly runs: readonly AutomationRunSummaryWithLifecycle[];
   readonly versions: readonly AutomationVersionSummary[];
 }) {
   const rows = runs.map(

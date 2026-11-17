@@ -175,6 +175,8 @@
   "administrationCustomerExportColumnPhone": "Телефон",
   "administrationCustomerExportColumnReservations": "Бронювання",
   "administrationCustomerUnnamed": "Клієнт без імені",
+  "administrationCustomerDeleted": "Видалений клієнт",
+  "administrationCustomerExpired": "Клієнт із закінченим терміном дії",
   "administrationCustomerNoContactDetails": "Без контактних даних",
   "administrationCustomerSearchAmbiguous": "Знайдено кількох клієнтів. Оберіть потрібного.",
   "administrationCustomerSearchEmpty": "Жоден клієнт не відповідає запиту.",

@@ -10,6 +10,7 @@ import Clock from "lucide-react-native/icons/clock";
 import MapPin from "lucide-react-native/icons/map-pin";
 import Monitor from "lucide-react-native/icons/monitor";
 import Receipt from "lucide-react-native/icons/receipt";
+import { monitorOptionName } from "../../booking/ui/price-line-description";
 import type { AppLocale } from "../../i18n/app-locale";
 import { formatInstant, parseInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
@@ -119,6 +120,7 @@ const extras = (
             key: "monitor",
             icon: Monitor,
             text: m.booking_checkout_line_workstation({}, { locale }),
+            detail: monitorOptionName(selection.monitorOption),
           },
         ]),
     ...(order.kind === "office" && selection?.seats !== undefined

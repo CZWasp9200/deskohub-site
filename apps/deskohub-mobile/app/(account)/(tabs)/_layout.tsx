@@ -6,6 +6,7 @@ import { getFocusedRouteNameFromRoute } from "expo-router/react-navigation";
 import CalendarCheck from "lucide-react-native/icons/calendar-check";
 import CalendarPlus from "lucide-react-native/icons/calendar-plus";
 import CircleUser from "lucide-react-native/icons/circle-user";
+import { accountTabOptions } from "../../../src/account/account-root";
 import { accountAtom } from "../../../src/customer-api/customer-data-runtime";
 import { useAppLocale } from "../../../src/i18n/locale-context";
 import { m } from "../../../src/i18n/messages";
@@ -62,7 +63,10 @@ export default function AccountTabsLayout() {
     >
       <Tabs.Screen
         name="account"
-        options={{ title: m.account_tab_account({}, { locale }) }}
+        options={{
+          ...accountTabOptions,
+          title: m.account_tab_account({}, { locale }),
+        }}
       />
       <Tabs.Screen
         name="book"

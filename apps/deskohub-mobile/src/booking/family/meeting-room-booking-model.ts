@@ -1,5 +1,6 @@
 import type {
   CustomerAvailability,
+  CustomerBookableDates,
   CustomerBookedSelection,
   CustomerBookingSelection,
   CustomerMeetingRoomStartTimes,
@@ -20,7 +21,6 @@ import {
   reconcileMeetingRoomDraft,
   toMeetingRoomSelection,
 } from "../selection/meeting-room-selection";
-import type { PragueDate } from "../selection/prague-date";
 import { quotableSelection } from "./booking-family-view";
 
 /** The meeting-room draft the screen keeps, with the preselection it grew from. */
@@ -41,12 +41,13 @@ export const openingMeetingRoomDraft = ({
   kept,
   preselection,
   offerings,
-  today,
+  bookableDates,
 }: {
   readonly kept: Option.Option<KeptMeetingRoomDraft>;
   readonly preselection: Option.Option<CustomerBookedSelection>;
   readonly offerings: ReadonlyArray<CustomerOffering>;
-  readonly today: PragueDate;
+  /** The dates the meeting-room offerings can be booked on. */
+  readonly bookableDates: CustomerBookableDates;
 }): MeetingRoomDraft => {
   const seed = bookingPreselectionKey(preselection);
   return Option.filter(
@@ -56,7 +57,7 @@ export const openingMeetingRoomDraft = ({
     Option.map(({ draft }) => draft),
     Option.orElse(() =>
       Option.flatMap(preselection, (booked) =>
-        meetingRoomDraftFromSelection(booked, offerings, today)
+        meetingRoomDraftFromSelection(booked, offerings, bookableDates)
       )
     ),
     Option.getOrElse(() => emptyMeetingRoomDraft)
@@ -91,6 +92,7 @@ export const meetingRoomBookingModel = ({
   settled,
   now,
   offerings,
+  bookableDates,
   startTimes,
   calendar,
   availability,
@@ -101,6 +103,8 @@ export const meetingRoomBookingModel = ({
   readonly settled: MeetingRoomDraft;
   readonly now: Date;
   readonly offerings: ReadonlyArray<CustomerOffering>;
+  /** The dates the meeting-room offerings can be booked on. */
+  readonly bookableDates: CustomerBookableDates;
   /** The latest starts read, for any date and length. */
   readonly startTimes: Option.Option<CustomerMeetingRoomStartTimes>;
   /** The meeting-room calendar, once read. */
@@ -126,6 +130,7 @@ export const meetingRoomBookingModel = ({
     availability: current,
     calendar,
     offered: meetingRoomOfferings(offerings).map(({ duration }) => duration),
+    bookableDates,
   });
   const selection = Result.getSuccess(toMeetingRoomSelection(fitted));
   // Quoted only once the selection has settled, like its availability, so

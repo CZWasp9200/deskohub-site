@@ -16,7 +16,6 @@ import type {
 } from "@/features/checkout/product-catalog";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
 import type { CoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
-import { moneyWithValue } from "@/shared/money/money";
 
 type CoworkReservationSummaryInput = {
   readonly entryTier: WorkspaceCoworkProductTier;
@@ -66,19 +65,14 @@ export const getCoworkCheckoutSummary = (
   }
 
   if (addonQuoteItem?.type === "workstation") {
+    // The chosen monitor setup is the workstation's configuration: it
+    // changes the reserved desk, never the price, so it rides on the
+    // workstation's own line.
+    const monitorOption = getCoworkSummaryMonitorOption(reservation);
     orderItems.push({
       key: "addon:workstation",
       amount: addonQuoteItem.amount,
-    });
-  }
-
-  // Workstation composition is a zero-priced product line: the chosen monitor
-  // configuration changes the reserved product, never the price.
-  const monitorOption = getCoworkSummaryMonitorOption(reservation);
-  if (monitorOption) {
-    orderItems.push({
-      key: `monitor:${monitorOption}`,
-      amount: moneyWithValue(0, productQuoteItem.amount),
+      ...(monitorOption && { monitorOption }),
     });
   }
 

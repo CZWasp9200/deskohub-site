@@ -17,10 +17,15 @@ import {
 import { billingFormView } from "./billing-form-model";
 
 const phoneRegion = "CZ";
-const business: EditedProfile = { profile: sampleProfile, phoneRegion };
+const business: EditedProfile = {
+  profile: sampleProfile,
+  phoneRegion,
+  deviceCountry: "CZ",
+};
 const withoutBilling: EditedProfile = {
   profile: { ...sampleProfile, billing: null },
   phoneRegion,
+  deviceCountry: "CZ",
 };
 
 /** The draft after each change in turn, as the form applies them. */
@@ -52,7 +57,7 @@ describe("billingFormView", () => {
   });
 
   test("switching to Personal and back keeps the company details in the draft", () => {
-    const saved = profileDraftOf(sampleProfile, phoneRegion);
+    const saved = profileDraftOf(sampleProfile, phoneRegion, "CZ");
     const back = afterChanges(
       business,
       { billingKind: "personal" },

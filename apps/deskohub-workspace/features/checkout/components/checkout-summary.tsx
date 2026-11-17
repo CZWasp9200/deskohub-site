@@ -3,7 +3,6 @@ import type {
   CheckoutSummaryChangedKeys,
   CheckoutSummary as CheckoutSummaryData,
 } from "@/features/checkout/checkout-summary";
-import { isWorkspaceProductMonitorOption } from "@/features/checkout/product-catalog";
 import { getWorkspaceProductMonitorTitle } from "@/features/checkout/product-catalog.i18n";
 import { CoworkCheckoutSummaryItem } from "@/features/cowork/components/cowork-checkout-summary-item";
 import { type Locale, m } from "@/features/i18n";
@@ -31,13 +30,6 @@ const getSummaryItemLabel = (
 
   if (key === "addon:workstation")
     return m.checkoutSummaryItemWorkstation({}, { locale });
-
-  if (key.startsWith("monitor:")) {
-    const monitorOption = key.slice("monitor:".length);
-    if (isWorkspaceProductMonitorOption(monitorOption)) {
-      return getWorkspaceProductMonitorTitle(monitorOption, locale);
-    }
-  }
 
   if (key === "total:final") return m.checkoutSummaryItemTotal({}, { locale });
 
@@ -103,6 +95,14 @@ export function CheckoutSummary({
                   key={item.key}
                   amount={item.amount}
                   changed={itemChanged}
+                  detail={
+                    "monitorOption" in item && item.monitorOption
+                      ? getWorkspaceProductMonitorTitle(
+                          item.monitorOption,
+                          locale
+                        )
+                      : undefined
+                  }
                   label={itemLabel}
                   locale={locale}
                 />

@@ -34,6 +34,7 @@ import {
   pricedLines,
   sampleOfferings,
   sampleSummary,
+  withReservedDeskOvernightStay,
 } from "../testing/sample-booking-catalog";
 import {
   type CheckoutRequest,
@@ -744,7 +745,10 @@ describe("checkoutOvernightStay", () => {
   });
 
   test("an order paid again shows only its date once the catalog stops offering overnight", () => {
-    const dayOnly = sampleOfferings("en-US", "2026-11-20").offerings;
+    const dayOnly = withReservedDeskOvernightStay(
+      sampleOfferings("en-US", "2026-11-20").offerings,
+      undefined
+    );
     expect(shownStay(retry, dayOnly)).toMatchObject({
       overnight: Option.none(),
     });

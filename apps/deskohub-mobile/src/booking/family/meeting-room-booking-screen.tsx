@@ -208,6 +208,8 @@ function MeetingRoomSelection({
   const now = useAtomValue(bookingClockAtom);
   const today = pragueToday(now);
   const allOfferings: ReadonlyArray<CustomerOffering> = offerings;
+  // The meeting-room offerings share one bookable window.
+  const { bookableDates } = offerings[0];
 
   const seed = bookingPreselectionKey(preselection);
   const [kept, setStored] = useAtom(meetingRoomDraftAtom);
@@ -215,13 +217,13 @@ function MeetingRoomSelection({
     kept,
     preselection,
     offerings: allOfferings,
-    today,
+    bookableDates,
   });
   const settled = openingMeetingRoomDraft({
     kept: useAtomValue(settledMeetingRoomDraftAtom),
     preselection,
     offerings: allOfferings,
-    today,
+    bookableDates,
   });
   const setDraft = (next: typeof draft) =>
     setStored(Option.some({ seed, draft: next }));
@@ -251,6 +253,7 @@ function MeetingRoomSelection({
     settled,
     now,
     offerings: allOfferings,
+    bookableDates,
     startTimes,
     calendar: readValue(calendarRead),
     availability: Option.flatMap(query, (answered) =>

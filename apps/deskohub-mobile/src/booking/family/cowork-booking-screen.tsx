@@ -8,14 +8,12 @@ import {
   useAtomSet,
   useAtomValue,
 } from "@effect/atom-react";
-import { Option } from "effect";
+import { type Array as Arr, Option } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import { useRouter } from "expo-router";
 import Coffee from "lucide-react-native/icons/coffee";
 import Monitor from "lucide-react-native/icons/monitor";
-import Moon from "lucide-react-native/icons/moon";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
-import Sun from "lucide-react-native/icons/sun";
 import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -23,7 +21,6 @@ import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
 import { Notice } from "../../ui/notice";
-import { SegmentedChoice } from "../../ui/segmented-choice";
 import { Skeleton, SkeletonGroup } from "../../ui/skeleton";
 import { color, radius, space } from "../../ui/tokens";
 import { bookingPreselectionKey } from "../booking-preselection";
@@ -39,8 +36,10 @@ import {
   type CoworkDraft,
   type CoworkOffering,
   coworkAvailabilityQueries,
+  coworkBookableDates,
   coworkDayQuery,
   freeCoworkTierOn,
+  offeredCoworkTiers,
   selectCoworkDate,
   selectCoworkStay,
   selectCoworkTier,
@@ -81,6 +80,7 @@ import {
   type KeptCoworkDraft,
   openingCoworkDraft,
 } from "./cowork-booking-model";
+import { CoworkDateHeading, CoworkStayTimes } from "./cowork-stay";
 import {
   type CoworkTierCard,
   CoworkTierCards,
@@ -109,11 +109,6 @@ const blockerMessage = (blocker: CoworkBlocker, locale: AppLocale) =>
       m.booking_cowork_workstation_required({}, { locale }),
   })[blocker._tag]();
 
-const coworkTiers = (offerings: ReadonlyArray<CustomerOffering>) =>
-  offerings.filter(
-    (offering): offering is CoworkOffering => offering.family === "cowork"
-  );
-
 /**
  * Cowork: an Open Space or Reserved Desk day with its extras, opened empty
  * or on a booked selection ("Book again").
@@ -140,10 +135,14 @@ function CoworkCatalog({
   const read = bookingReadOf(useAtomValue(catalogAtom));
   const refresh = useAtomRefresh(catalogAtom);
   const catalog = readValue(read);
-  if (Option.isSome(catalog)) {
+  const tiers = Option.flatMap(catalog, ({ offerings }) =>
+    offeredCoworkTiers(offerings)
+  );
+  if (Option.isSome(catalog) && Option.isSome(tiers)) {
     return (
       <CoworkSelection
         offerings={catalog.value.offerings}
+        tiers={tiers.value}
         catalog={read}
         onRetryCatalog={refresh}
         preselection={preselection}
@@ -182,11 +181,14 @@ function CoworkCatalog({
 
 function CoworkSelection({
   offerings,
+  tiers,
   catalog,
   onRetryCatalog,
   preselection,
 }: {
   readonly offerings: ReadonlyArray<CustomerOffering>;
+  /** The cowork offerings, one per tier; never empty. */
+  readonly tiers: Arr.NonEmptyReadonlyArray<CoworkOffering>;
   readonly catalog: BookingRead<unknown>;
   readonly onRetryCatalog: () => void;
   readonly preselection: Option.Option<CustomerBookedSelection>;
@@ -199,11 +201,12 @@ function CoworkSelection({
 
   const seed = bookingPreselectionKey(preselection);
   const [kept, setStored] = useAtom(coworkDraftAtom);
-  const draft = openingCoworkDraft({ kept, preselection, offerings, today });
+  const draft = openingCoworkDraft({ kept, preselection, offerings });
   const setDraft = (next: CoworkDraft) =>
     setStored(Option.some({ seed, draft: next }));
 
-  const queries = coworkAvailabilityQueries(draft, today);
+  const bookableDates = coworkBookableDates(tiers, draft.tier);
+  const queries = coworkAvailabilityQueries(draft, bookableDates);
   const rangeAtom = bookingAvailabilityAtom({ query: queries.range });
   const selectionAtom = Option.match(queries.selection, {
     onNone: () => unneededReadAtom,
@@ -224,6 +227,7 @@ function CoworkSelection({
     draft,
     now,
     offerings,
+    bookableDates,
     availability: {
       range: readValue(range),
       selection: Option.flatMap(queries.selection, () => loadedValue(selected)),
@@ -278,7 +282,6 @@ function CoworkSelection({
     if (quoteRepeats) refreshQuote();
   };
 
-  const tiers = coworkTiers(offerings);
   const chosen = tiers.find(({ tier }) => tier === model.draft.tier);
   const chosenDate = Option.getOrUndefined(model.draft.date);
   const shortDate = (date: PragueDate) => formatShortPragueDate(date, locale);
@@ -464,36 +467,14 @@ function CoworkSelection({
               }}
               locale={locale}
             />
-            {overnightStay !== undefined && (
-              <>
-                <BookingSectionHeading
-                  title={m.booking_cowork_stay_label({}, { locale })}
-                />
-                <SegmentedChoice
-                  label={m.booking_cowork_stay_label({}, { locale })}
-                  options={[
-                    {
-                      value: "day",
-                      icon: Sun,
-                      label: m.booking_cowork_stay_day({}, { locale }),
-                    },
-                    {
-                      value: "overnight",
-                      icon: Moon,
-                      label: m.booking_cowork_stay_overnight({}, { locale }),
-                    },
-                  ]}
-                  selected={model.draft.stay}
-                  onSelect={(stay) => {
-                    setTapped(undefined);
-                    setDraft(selectCoworkStay(model.draft, stay));
-                  }}
-                />
-              </>
-            )}
-
-            <BookingSectionHeading
-              title={m.booking_date_heading({}, { locale })}
+            <CoworkDateHeading
+              locale={locale}
+              overnightStay={overnightStay}
+              stay={model.draft.stay}
+              onStayChange={(stay) => {
+                setTapped(undefined);
+                setDraft(selectCoworkStay(model.draft, stay));
+              }}
             />
             <MonthCalendar
               label={m.booking_date_heading({}, { locale })}
@@ -519,6 +500,11 @@ function CoworkSelection({
                 {},
                 { locale }
               )}
+            />
+            <CoworkStayTimes
+              locale={locale}
+              overnightStay={overnightStay}
+              selection={model.selection}
             />
             <View style={styles.after}>
               <Notice

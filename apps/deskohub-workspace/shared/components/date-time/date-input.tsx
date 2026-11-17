@@ -2,7 +2,14 @@
 
 import { Option } from "effect";
 import { CalendarIcon } from "lucide-react";
-import { type Ref, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import { isLocale, m } from "@/features/i18n";
 import { useRouteLocale } from "@/features/i18n/route-locale";
@@ -47,10 +54,11 @@ export type DateInputProps = {
   readonly defaultValue?: string | undefined;
   readonly disabled?: boolean | undefined;
   /**
-   * The selected date as shown under the field: the long date by default, or
-   * nothing with `false`.
+   * The selected date as shown under the field: the long date by default,
+   * other content describing the selection in its place, or nothing with
+   * `false`.
    */
-  readonly displayValue?: string | false | undefined;
+  readonly displayValue?: ReactNode;
   readonly id?: string | undefined;
   /** Dates the calendar doesn't offer and typed text can't choose. */
   readonly isDateDisabled?: ((date: Temporal.PlainDate) => boolean) | undefined;

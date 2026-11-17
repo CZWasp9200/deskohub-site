@@ -1,10 +1,10 @@
 import CircleAlert from "lucide-react-native/icons/circle-alert";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, type TextStyle, View } from "react-native";
 import { fieldErrorPresentation } from "./field-error-presentation";
 import { Icon } from "./icon";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { Text } from "./text";
-import { color, radius } from "./tokens";
+import { color, radius, space, typeScale } from "./tokens";
 
 /**
  * The parts every form field shares: the label above, the outlined frame,
@@ -65,6 +65,22 @@ export const fieldFrameStyles = StyleSheet.create({
   readOnly: frame(color.sunken, color.sunken, 1),
   disabled: frame(color.disabledField, color.disabled, 1),
 });
+
+/** A field's text input: body text filling the frame's row. */
+export const fieldInputStyle = StyleSheet.create({
+  input: {
+    ...typeScale.body,
+    flex: 1,
+    minWidth: 0,
+    // The frame draws the focus ring; the web's own outline would double it.
+    // Chromium draws an `auto` outline whatever its width, so the style goes
+    // too. React Native's types omit `none`, which React Native Web passes on.
+    outlineStyle: "none" as unknown as TextStyle["outlineStyle"],
+    outlineWidth: 0,
+    paddingHorizontal: 0,
+    paddingVertical: space.md,
+  },
+}).input;
 
 /** The colour of a field's value text in each state. */
 export const fieldInkColor = (state: FieldFrameState) =>

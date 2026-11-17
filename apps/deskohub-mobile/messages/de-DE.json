@@ -29,6 +29,8 @@
   "booking_details_city": "Stadt",
   "booking_details_postal_code": "PLZ",
   "booking_details_country": "Land",
+  "booking_details_country_search": "Länder suchen",
+  "booking_details_country_no_match": "Kein Land passt zu deiner Suche.",
   "booking_details_news_heading": "Neuigkeiten von Deskohub",
   "booking_details_optional": "Optional",
   "booking_details_marketing_consent": "Schickt mir Neuigkeiten, Veranstaltungen und Angebote von Deskohub Workspace per E-Mail. Abmelden kann ich mich jederzeit.",
@@ -74,8 +76,35 @@
   "booking_checkout_summary_total": "Zu zahlen insgesamt",
   "booking_checkout_summary_changed": "Preis geändert",
   "booking_checkout_summary_original_price": "Ursprünglich: {amount}",
-  "booking_checkout_summary_office_days": "Tage: {count}",
-  "booking_checkout_summary_office_seats": "Plätze im Büro: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} Tag",
+        "countPlural=other": "{formattedCount} Tage"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Plätze im Büro",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} Platz",
+        "countPlural=other": "{formattedCount} Plätze"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Open-Space-Platz",
   "booking_checkout_line_reserved_desk": "Reservierter Platz",
   "booking_checkout_line_meeting_room": "Meetingraum",
@@ -83,7 +112,6 @@
   "booking_checkout_line_coffee": "Kaffee",
   "booking_checkout_line_workstation": "Workstation mit Monitoren",
   "booking_checkout_line_other": "Weitere Position",
-  "booking_price_line_one_day": "1 Tag",
   "booking_price_line_one_hour": "1 Stunde, {start}–{end}",
   "booking_price_line_four_hours": "4 Stunden, {start}–{end}",
   "booking_summary_open_space_day": "{date}, bis {time}",
@@ -514,8 +542,6 @@
   "booking_gate_deletion_title": "Dein Konto wird gelöscht",
   "booking_gate_deletion_body": "Solange das läuft, kannst du nichts Neues reservieren. Schreib uns, falls das ein Versehen ist.",
   "booking_cowork_tier_heading": "Platzart",
-  "booking_cowork_stay_label": "Aufenthaltsdauer",
-  "booking_cowork_stay_day": "Tag",
   "booking_cowork_stay_overnight": "Über Nacht",
   "booking_date_heading": "Datum",
   "booking_calendar_previous_month": "Vorheriger Monat",
@@ -736,7 +762,36 @@
   "referrals_saved_so_far": "Bisher gespart",
   "referrals_discount_info": "So wird der Rabatt berechnet",
   "referrals_joined_nobody": "Mit deinem Code ist noch niemand dazugekommen.",
-  "referrals_joined_some": "Mit deinem Code dazugekommen: {invitees}. Zählen für deinen Rabatt: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} Person ist mit deinem Code dazugekommen",
+        "countPlural=other": "{formattedCount} Personen sind mit deinem Code dazugekommen"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} zählt für deinen Rabatt",
+        "countPlural=other": "{formattedCount} zählen für deinen Rabatt"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "noch zählt niemand für deinen Rabatt",
   "referrals_how_it_works": "So funktioniert es",
   "referrals_step_share": "Teile deinen Code oder Link.",
   "referrals_step_friend_rate": "Deine Freundin oder dein Freund bekommt {rate} Rabatt auf die erste Reservierung.",

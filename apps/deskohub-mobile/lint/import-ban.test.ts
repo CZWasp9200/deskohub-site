@@ -53,6 +53,7 @@ const cases: readonly (readonly [title: string, source: string, flagged: boolean
   ["permits the @deskohub/i18n root entry", 'import { isLocale } from "@deskohub/i18n";\nexport { isLocale };\n', false],
   ["permits the @deskohub/i18n core entry", 'import { resolvePreferredLocale } from "@deskohub/i18n/core";\nexport { resolvePreferredLocale };\n', false],
   ["permits the @deskohub/i18n currency entry", 'import { formatCurrency } from "@deskohub/i18n/currency";\nexport { formatCurrency };\n', false],
+  ["permits the @deskohub/i18n search-text entry", 'import { includesSearchText } from "@deskohub/i18n/search-text";\nexport { includesSearchText };\n', false],
   ["permits the @deskohub/i18n pathname entry", 'import { stripLocaleFromPathname } from "@deskohub/i18n/pathname";\nexport { stripLocaleFromPathname };\n', false],
   ["permits the @deskohub/i18n effect entry", 'import { createParaglideLocaleBridge } from "@deskohub/i18n/effect";\nexport { createParaglideLocaleBridge };\n', false],
   ["permits a re-export from the @deskohub/i18n translatable entry", 'export { translatable } from "@deskohub/i18n/translatable";\n', false],

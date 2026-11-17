@@ -121,7 +121,7 @@ When you change a deadline, make the action select it through its getter and mak
 ## Quotes and summaries
 
 - A quote holds priced items, payment totals, generic discount applications, and the fingerprint. It never embeds a summary or duplicates the reservation selection.
-- The checkout summary is a family-owned projection of the signed reservation plus its quote. Zero-priced composition, such as the selected cowork monitor, belongs there.
+- The checkout summary is a family-owned projection of the signed reservation plus its quote. Zero-priced composition belongs there, on the priced line it configures: the chosen cowork monitor setup is the `addon:workstation` line's `monitorOption`, never a line of its own, so every client shows the workstation once with its setup under it.
 - Pass canonical reservation projections into pricing. Use the reservation domain's PII-free details projection instead of intersecting fields such as `date` onto an incomplete product type.
 
 ## Currency

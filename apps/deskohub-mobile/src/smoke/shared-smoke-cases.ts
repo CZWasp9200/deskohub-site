@@ -2,6 +2,7 @@
 // through Metro and run on the app's engine.
 import { parseAcceptLanguage } from "@deskohub/i18n/core";
 import { getLocaleFromPathname } from "@deskohub/i18n/pathname";
+import { foldSearchText } from "@deskohub/i18n/search-text";
 import { getTranslatedValue } from "@deskohub/i18n/translatable";
 import { decodeStandardSchema } from "@deskohub/standard-schema";
 import { Schema } from "effect";
@@ -53,6 +54,17 @@ export const sharedSmokeCases: ReadonlyArray<SmokeCase> = [
           translated === "Hello",
         actual
       );
+      return actual;
+    },
+  },
+  {
+    group: "shared",
+    name: "i18n-search-text-fold",
+    // Searches fold with String.normalize and the Unicode property escape
+    // \p{Diacritic}, which Hermes must support.
+    run: () => {
+      const actual = foldSearchText("Česko Österreich Việt Nam");
+      assertSmoke(actual === "cesko osterreich viet nam", actual);
       return actual;
     },
   },
