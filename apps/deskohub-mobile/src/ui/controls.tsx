@@ -456,27 +456,44 @@ export function TextField({
           {leadingIcon && (
             <Icon icon={leadingIcon} size={20} color={iconColor} />
           )}
-          <TextInput
-            aria-label={optional === undefined ? label : `${label} ${optional}`}
-            aria-disabled={disabled}
-            // Native platforms read the hint; the web reads `aria-describedby`
-            // and `aria-invalid`, which react-native-web maps and RN ignores.
-            accessibilityHint={description.hint}
-            aria-describedby={description.describedBy}
-            aria-invalid={description.invalid}
-            autoCapitalize={autoCapitalize}
-            autoCorrect={false}
-            style={[styles.input, { color: fieldInkColor(state) }]}
-            placeholderTextColor={color.ink3}
-            {...input}
-            editable={typeable}
-            onFocus={() => setFocused(true)}
-            onBlur={(event) => {
-              setFocused(false);
-              onBlur?.(event);
-            }}
-            onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}
-          />
+          {readOnly ? (
+            // A locked value can't be edited, so it shows whole: it wraps
+            // instead of scrolling out of sight at large font sizes.
+            <Text
+              selectable
+              style={[
+                styles.input,
+                styles.readOnlyValue,
+                { color: fieldInkColor(state) },
+              ]}
+            >
+              {input.value}
+            </Text>
+          ) : (
+            <TextInput
+              aria-label={
+                optional === undefined ? label : `${label} ${optional}`
+              }
+              aria-disabled={disabled}
+              // Native platforms read the hint; the web reads `aria-describedby`
+              // and `aria-invalid`, which react-native-web maps and RN ignores.
+              accessibilityHint={description.hint}
+              aria-describedby={description.describedBy}
+              aria-invalid={description.invalid}
+              autoCapitalize={autoCapitalize}
+              autoCorrect={false}
+              style={[styles.input, { color: fieldInkColor(state) }]}
+              placeholderTextColor={color.ink3}
+              {...input}
+              editable={typeable}
+              onFocus={() => setFocused(true)}
+              onBlur={(event) => {
+                setFocused(false);
+                onBlur?.(event);
+              }}
+              onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}
+            />
+          )}
           {trailing && (
             <Icon icon={trailing} size={readOnly ? 18 : 20} color={iconColor} />
           )}
@@ -549,6 +566,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   centeredContent: { alignItems: "center" },
+  readOnlyValue: { paddingVertical: space.md },
   input: {
     ...typeScale.body,
     flex: 1,

@@ -11,7 +11,7 @@ import { localeTextStyle, textFontFamily } from "./text-style";
 import { color, type TypeVariant, typeScale } from "./tokens";
 
 /** What text says about itself through colour. */
-export type TextTone =
+type TextTone =
   | "default"
   | "muted"
   | "subtle"

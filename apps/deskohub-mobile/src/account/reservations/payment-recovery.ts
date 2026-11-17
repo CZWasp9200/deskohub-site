@@ -4,7 +4,7 @@ import type {
   CustomerPaymentRetryRefusedReason,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
-import { Data, Effect } from "effect";
+import { Data, Effect, Option } from "effect";
 import { Platform } from "react-native";
 import type { CheckoutRetryKind } from "../../booking/checkout/booking-problem";
 import { bookingProblem } from "../../booking/checkout/booking-problem";
@@ -23,6 +23,19 @@ import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerWrite } from "../../customer-api/customer-request";
 import type { AppLocale } from "../../i18n/app-locale";
+
+/**
+ * What an order books, for Book again or a retry: the order's own
+ * selection, else its reservation's in the saved list. A failed payment's
+ * order has released its hold and no longer says what it books.
+ */
+export const bookedSelectionOf = <Selection>(
+  order: { readonly bookedSelection?: Selection | undefined },
+  reservation: Option.Option<{
+    readonly bookedSelection?: Selection | undefined;
+  }>
+): Selection | undefined =>
+  order.bookedSelection ?? Option.getOrUndefined(reservation)?.bookedSelection;
 
 /** How reopening the payment page ended. */
 export type PaymentPageOutcome = Data.TaggedEnum<{

@@ -133,6 +133,12 @@ describe("DetailsStep layout (the company form scrolls, board 30)", () => {
     expect(scrollAt).toBeGreaterThanOrEqual(0);
     expect(barAt).toBeGreaterThan(scrollAt);
   });
+
+  test("the keyboard lifts the screen by the header above it too, so Continue stays visible", () => {
+    const screen = screenOf({ keyboardOffset: 56 });
+    expect(screen.type).toBe("KeyboardAvoidingView");
+    expect(screen.props.keyboardVerticalOffset).toBe(56);
+  });
 });
 
 describe("DetailsStep fields", () => {

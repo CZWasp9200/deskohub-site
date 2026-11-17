@@ -5,6 +5,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { color } from "../../ui/tokens";
 
 /** How a drawing fills a box as wide as the screen. */
 type FullWidthPlacement =
@@ -22,9 +23,6 @@ interface SpaceDrawing {
   readonly aspectRatio: number;
   readonly fullWidth: FullWidthPlacement;
 }
-
-/** The tint every space drawing sits on. */
-const spaceDrawingTint = "#EEF2FA";
 
 /** An enlarged drawing's height, relative to its box (owner, 2026-11-15). */
 const enlargement = 1.4;
@@ -105,7 +103,7 @@ export function SpaceIllustration({
 const styles = StyleSheet.create({
   box: {
     alignItems: "center",
-    backgroundColor: spaceDrawingTint,
+    backgroundColor: color.illustrationTint,
     overflow: "hidden",
   },
   whole: { height: "100%", width: "100%" },

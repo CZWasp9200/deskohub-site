@@ -313,7 +313,7 @@ describe("booking services in sample-data mode", () => {
   const flag = process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_DATA;
 
   afterEach(() => {
-    delete globals.__DEV__;
+    globals.__DEV__ = false;
     if (flag === undefined) delete process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_DATA;
     else process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_DATA = flag;
   });

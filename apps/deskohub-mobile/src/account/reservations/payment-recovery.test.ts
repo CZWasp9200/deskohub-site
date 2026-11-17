@@ -5,7 +5,7 @@ import {
   CustomerPaymentRetryRefusedReason,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
-import { Effect, Exit, Layer } from "effect";
+import { Effect, Exit, Layer, Option } from "effect";
 import type { WebBrowserAuthSessionResult } from "expo-web-browser";
 import {
   PaymentBrowser,
@@ -20,6 +20,7 @@ import { fakeCustomerApiLayer } from "../../customer-api/testing/fake-customer-d
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
 import { sampleDeskOrderId } from "../../customer-api/testing/sample-fixtures";
 import {
+  bookedSelectionOf,
   PaymentPageOutcome,
   PaymentRecoveryFailed,
   PaymentRetryOutcome,
@@ -177,5 +178,23 @@ describe("paymentRetryRefusal", () => {
         PaymentRetryOutcome.BookAgain({ reason })
       );
     }
+  });
+});
+
+describe("bookedSelectionOf", () => {
+  test("takes the order's own selection first", () => {
+    expect(
+      bookedSelectionOf(
+        { bookedSelection: "order" },
+        Option.some({ bookedSelection: "saved" })
+      )
+    ).toBe("order");
+  });
+
+  test("falls back to the saved reservation's selection once the order dropped it", () => {
+    expect(
+      bookedSelectionOf<string>({}, Option.some({ bookedSelection: "saved" }))
+    ).toBe("saved");
+    expect(bookedSelectionOf<string>({}, Option.none())).toBeUndefined();
   });
 });

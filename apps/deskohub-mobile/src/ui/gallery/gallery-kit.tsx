@@ -19,7 +19,7 @@ export const LongTextProvider = LongTextContext.Provider;
  * at least 30% more characters by repeating its own words, so a layout can be
  * checked against translations that run long.
  */
-export const stretchText = (text: string): string => {
+const stretchText = (text: string): string => {
   const words = text.split(" ");
   const target = Math.ceil(text.length * 1.3);
   let stretched = text;

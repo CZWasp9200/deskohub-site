@@ -72,6 +72,28 @@ export const color = {
   handle: "#C9CCDA",
   /** The dashed outline of an empty state. */
   dashed: "#D3CDC0",
+  /** The arrow on the booking bar's top edge. */
+  grabArrow: "#A9A59B",
+  /** Calendar days that can't be booked: past, or after the last bookable day. */
+  calendarPast: "#A9ADB8",
+  /** Calendar days that are full, and their strike. */
+  calendarUnavailable: "#8F94A3",
+  /** A calendar page arrow that can't page. */
+  pageArrowDisabled: "#C4C1BA",
+  /** Ink on a warning (sunset yellow) fill, such as a ticket step's glyph. */
+  onWarning: "#3A2600",
+  /** Ink on a positive (aquamarine) fill, such as the live PIN chip. */
+  onPositive: "#00241B",
+  /** The booking ticket's perforation. */
+  perforation: "#DDD7CB",
+  /** A done step's connector on the booking ticket. */
+  stepConnectorDone: "#9FE3C8",
+  /** A stepper button's outline, and its ink while it can't step. */
+  stepperDisabledInk: "#B9BCC6",
+  /** A stepper button's fill while it can't step. */
+  stepperDisabledFill: "#FAF9F6",
+  /** The tint every space illustration sits on. */
+  illustrationTint: "#EEF2FA",
   /** The one-tone line drawings on paper, such as the sign-in shield. */
   illustration: "#B5B0A6",
   white: "#FFFFFF",

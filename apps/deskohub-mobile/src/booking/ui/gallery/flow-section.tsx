@@ -13,7 +13,6 @@ import {
 import { ScrollScreen } from "../../../ui/scroll-screen";
 import { Text } from "../../../ui/text";
 import { color, space } from "../../../ui/tokens";
-import type { DateChoice } from "../../selection/booking-selection";
 import type { PragueDate } from "../../selection/prague-date";
 import { type BookingStep, BookingSteps } from "../booking-steps";
 import {
@@ -23,22 +22,12 @@ import {
   HoldStatusChip,
 } from "../hold-timer";
 import { MonthCalendar } from "../month-calendar";
-import type { CalendarRange } from "../month-calendar-model";
-
-// Synthetic fixture dates, as the boards draw them: November 2026 seen on
-// the 10th, with the 20th full for cowork and the 14th and 15th for the
-// office.
-const today: PragueDate = "2026-11-10";
-const coworkDates: DateChoice = {
-  earliest: today,
-  latest: "2027-01-31",
-  unavailable: new Set(["2026-11-20"]),
-};
-const officeDates: DateChoice = {
-  ...coworkDates,
-  unavailable: new Set(["2026-11-14", "2026-11-15"]),
-};
-const officeRange: CalendarRange = { start: "2026-11-23", end: "2026-11-25" };
+import {
+  coworkDates,
+  officeDates,
+  officeRange,
+  galleryToday as today,
+} from "./gallery-fixtures";
 
 const held: HoldStatus = { secondsLeft: 597, phase: "held" };
 const ending: HoldStatus = { secondsLeft: 58, phase: "ending" };

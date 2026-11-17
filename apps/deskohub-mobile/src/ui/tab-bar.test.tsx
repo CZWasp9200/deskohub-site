@@ -17,7 +17,7 @@ mock.module("expo-router/tabs", () => ({
   >(undefined),
 }));
 
-const { TabBar, tabBarHeight } = await import("./tab-bar");
+const { TabBar, tabBarHeight, tabBarObstruction } = await import("./tab-bar");
 const { Icon } = await import("./icon");
 const { elementTree, find, findAll, flatStyle } = await import(
   "./testing/element-tree"
@@ -149,6 +149,18 @@ describe("TabBar", () => {
     expect(circle).toMatchObject({ backgroundColor: color.action });
     expect(circle.width).toBeGreaterThan(tabBarHeight);
     expect(circle.marginTop).toBeLessThan(0);
+  });
+
+  test("toasts clear the raised circle, not only the bar", () => {
+    const height = tabBarHeight + 24;
+    const book = tabs(render())[1];
+    if (book === undefined) throw new Error("three tabs");
+    const overhang = -(flatStyle(content(book).props.style).marginTop ?? 0);
+    expect(tabBarObstruction(height, items, false)).toBe(height + overhang);
+    expect(
+      tabBarObstruction(height, { account: { icon: CircleUser } }, false)
+    ).toBe(height);
+    expect(tabBarObstruction(height, items, true)).toBe(0);
   });
 
   test("a white bar with no top border, above the bottom safe area", () => {

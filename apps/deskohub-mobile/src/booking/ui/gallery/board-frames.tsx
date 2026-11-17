@@ -1,4 +1,3 @@
-import type { Money } from "@deskohub/workspace-customer-api";
 import { RegistryProvider } from "@effect/atom-react";
 import { Option } from "effect";
 import { Atom } from "effect/unstable/reactivity";
@@ -50,26 +49,25 @@ import type { DateChoice } from "../../selection/booking-selection";
 import type { PragueDate } from "../../selection/prague-date";
 import { czk } from "../../testing/sample-booking-catalog";
 import { AddonOptions, AddonToggle } from "../addon-toggle";
-import {
-  BookingBar,
-  type BookingBarAction,
-  type BookingBarPrice,
-} from "../booking-bar";
+import { BookingBar, type BookingBarAction } from "../booking-bar";
 import { BookingSectionHeading } from "../booking-section-heading";
 import { type BookingStep, BookingSteps } from "../booking-steps";
 import { type HoldStatus, HoldStatusChip } from "../hold-timer";
 import { MonthCalendar } from "../month-calendar";
-import type { CalendarRange } from "../month-calendar-model";
-import { priceBreakdown } from "../price-breakdown";
-import { describePriceLine } from "../price-line-description";
 import {
   meetingRoomHour,
   officeSixSeats,
   openSpaceWithCoffee,
-  type PriceFixture,
   reservedDeskWithWorkstation,
 } from "../testing/price-fixtures";
 import { bookTabFrames } from "./book-tab-frames";
+import {
+  coworkDates,
+  officeDates,
+  officeRange,
+  quotedPrice as quoted,
+  galleryToday as today,
+} from "./gallery-fixtures";
 import { reviewFrames } from "./review-frames";
 
 /**
@@ -91,30 +89,8 @@ export interface BoardFrame {
   readonly Screen: (props: { readonly onBack: () => void }) => ReactNode;
 }
 
-const today: PragueDate = "2026-11-10";
-const coworkDates: DateChoice = {
-  earliest: today,
-  latest: "2027-01-31",
-  unavailable: new Set(["2026-11-20"]),
-};
-const officeDates: DateChoice = {
-  ...coworkDates,
-  unavailable: new Set(["2026-11-14", "2026-11-15"]),
-};
-const officeRange: CalendarRange = { start: "2026-11-23", end: "2026-11-25" };
 const chosenDay: PragueDate = "2026-11-26";
 const fullDay: PragueDate = "2026-11-20";
-
-const quoted = (
-  { selection, summary }: PriceFixture,
-  locale: AppLocale,
-  was?: Money
-): BookingBarPrice => ({
-  kind: "quoted",
-  breakdown: priceBreakdown(summary),
-  describeLine: describePriceLine(selection, locale),
-  was,
-});
 
 const ignore = () => undefined;
 

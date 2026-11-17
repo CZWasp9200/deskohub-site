@@ -101,6 +101,13 @@ describe("BookingBar", () => {
     );
   });
 
+  test("the summary's lines wrap at large text sizes; none is cut", () => {
+    const texts = findAll(bar(), "Text").filter(
+      (text) => text.props.numberOfLines !== undefined
+    );
+    expect(texts).toEqual([]);
+  });
+
   test("a quoted price has a collapsed toggle named for showing the details", () => {
     const tree = bar();
     const chevron = chevronOf(tree);

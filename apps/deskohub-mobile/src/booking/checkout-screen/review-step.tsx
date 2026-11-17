@@ -22,7 +22,6 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
 import { upperFirst } from "../../i18n/sentence-case";
-import { theme } from "../../theme";
 import { ErrorState, LoadingState } from "../../ui/async-states";
 import { Card } from "../../ui/card";
 import { Checkbox } from "../../ui/checkbox";
@@ -806,7 +805,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: touchTarget,
   },
-  group: { gap: theme.spacing.sm, marginTop: space.lg },
+  group: { gap: space.sm, marginTop: space.lg },
   agreement: {
     alignItems: "flex-start",
     flexDirection: "row",

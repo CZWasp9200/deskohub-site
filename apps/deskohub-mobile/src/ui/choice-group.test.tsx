@@ -1,6 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 import { StyleSheet } from "react-native";
-import { theme } from "../theme";
 import { ChoiceGroup } from "./choice-group";
 import {
   elementTree,
@@ -9,7 +8,7 @@ import {
   type HostProps,
   hostTree,
 } from "./testing/element-tree";
-import { color } from "./tokens";
+import { color, touchTarget } from "./tokens";
 
 type Value = "a" | "b" | "c";
 
@@ -157,7 +156,7 @@ describe("ChoiceGroup", () => {
               entry !== null &&
               "minHeight" in entry &&
               typeof entry.minHeight === "number" &&
-              entry.minHeight >= theme.touchTarget
+              entry.minHeight >= touchTarget
           )
       ).toBe(true);
     }

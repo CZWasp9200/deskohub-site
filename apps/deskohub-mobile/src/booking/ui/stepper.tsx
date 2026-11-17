@@ -10,10 +10,6 @@ import { stepperModel } from "./stepper-model";
 /** How the line under a stepper's label reads: grey, or in warning ink at a limit. */
 export type StepperHintTone = "muted" | "warning";
 
-// A step button's outline, and its ink and fill while it can't step.
-const disabledButtonInk = "#B9BCC6";
-const disabledButtonFill = "#FAF9F6";
-
 /**
  * A whole number picked within `min..max` with round − and + buttons, as a
  * row (`.bk-stp`): its label with one line under it (`hint`, such as what
@@ -132,7 +128,7 @@ function StepButton({
       <Icon
         icon={icon}
         size={20}
-        color={disabled ? disabledButtonInk : color.navy}
+        color={disabled ? color.stepperDisabledInk : color.navy}
       />
     </Pressable>
   );
@@ -177,7 +173,7 @@ const styles = StyleSheet.create({
   },
   pressed: { backgroundColor: color.pressed },
   buttonDisabled: {
-    backgroundColor: disabledButtonFill,
+    backgroundColor: color.stepperDisabledFill,
     borderColor: color.disabled,
   },
   value: {

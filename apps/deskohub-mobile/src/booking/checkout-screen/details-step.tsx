@@ -19,6 +19,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { vatIdFormatExample } from "../../account/profile/profile-fields";
 import { CompanyLookup } from "../../company-lookup/company-lookup";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
@@ -87,6 +88,8 @@ export interface DetailsStepProps extends Locale {
   readonly onRetry: () => void;
   /** Gallery and captures: the problems a submit left. */
   readonly initialProblems?: DetailsFieldProblems;
+  /** The height above the step, such as the stack header's. */
+  readonly keyboardOffset?: number;
 }
 
 /**
@@ -200,7 +203,12 @@ export function DetailsStep(props: DetailsStepProps) {
     setRaised(event.nativeEvent.contentOffset.y > 0);
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.screen}>
+    <KeyboardAvoidingView
+      behavior="padding"
+      // Without the header's height the keyboard covered Pay.
+      keyboardVerticalOffset={props.keyboardOffset ?? 0}
+      style={styles.screen}
+    >
       <BookingSteps current="details" raised={raised} locale={locale} />
       <ScrollView
         ref={scroll}
@@ -652,6 +660,7 @@ function InvoiceSection({
               optional={m.booking_details_optional_field({}, { locale })}
               value={company.vatId}
               onChangeText={(vatId) => setCompany({ vatId }, "buyer.vatId")}
+              placeholder={vatIdFormatExample}
               autoCapitalize="characters"
             />
             <AddressFields

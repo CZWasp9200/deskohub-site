@@ -6,8 +6,8 @@ import {
 } from "react-native-safe-area-context";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
-import { theme } from "../theme";
 import { Text } from "../ui/text";
+import { color, space, touchTarget, typeScale } from "../ui/tokens";
 import type { SampleAccountKind } from "./sample-data-mode";
 
 /**
@@ -39,10 +39,10 @@ export function SampleDataBanner({
         style={[
           styles.banner,
           {
-            minHeight: insets.top + theme.touchTarget,
+            minHeight: insets.top + touchTarget,
             paddingTop: insets.top,
-            paddingLeft: insets.left + theme.spacing.md,
-            paddingRight: insets.right + theme.spacing.md,
+            paddingLeft: insets.left + space.lg,
+            paddingRight: insets.right + space.lg,
           },
         ]}
       >
@@ -59,13 +59,13 @@ const styles = StyleSheet.create({
   frame: { flex: 1 },
   banner: {
     alignItems: "center",
-    backgroundColor: theme.colors.accent,
+    backgroundColor: color.action,
     justifyContent: "center",
   },
   screens: { flex: 1 },
   text: {
-    color: theme.colors.background,
-    paddingVertical: theme.spacing.xs,
-    ...theme.type.captionStrong,
+    color: color.paper,
+    paddingVertical: space.xs,
+    ...typeScale.subhead,
   },
 });
