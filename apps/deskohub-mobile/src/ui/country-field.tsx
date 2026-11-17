@@ -36,36 +36,33 @@ export function CountryField({
   /** The field, which a form can focus, e.g. when it is invalid. */
   readonly ref?: Ref<ComponentRef<typeof Pressable>>;
 }) {
-  const [picking, setPicking] = useState(false);
-  const [query, setQuery] = useState("");
+  // The search exists only while the picker is open, so every opening
+  // starts with an empty one.
+  const [search, setSearch] = useState<string>();
   const detected = useDeviceCountry();
   return (
     <>
       <SelectField
         label={label}
         value={value === "" ? undefined : countryName(value, locale)}
-        onPress={() => {
-          // Each opening starts a new search.
-          setQuery("");
-          setPicking(true);
-        }}
+        onPress={() => setSearch("")}
         error={error}
         disabled={disabled}
         ref={ref}
       />
       <CountryPickerSheet
-        visible={picking}
+        visible={search !== undefined}
         title={label}
-        query={query}
-        onQueryChange={setQuery}
+        query={search ?? ""}
+        onQueryChange={setSearch}
         value={value}
         detected={detected}
         locale={locale}
         onPick={(code) => {
-          setPicking(false);
+          setSearch(undefined);
           onChange(code);
         }}
-        onDismiss={() => setPicking(false)}
+        onDismiss={() => setSearch(undefined)}
       />
     </>
   );
