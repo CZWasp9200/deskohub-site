@@ -218,7 +218,7 @@ const flat = (style: unknown) =>
 const field = (props: Partial<ComponentProps<typeof TextField>> = {}) => {
   const tree = hostTree(elementTree(TextField, { label: "label", ...props }));
   const frame = findAll(tree, "View").find(
-    (view) => find(view, "TextInput") && flat(view.props.style).minHeight
+    (view) => flat(view.props.style).minHeight !== undefined
   );
   const errorRegion = findAll(tree, "Text").find(
     (text) => text.props.role !== undefined
@@ -288,11 +288,20 @@ describe("TextField", () => {
     expect(field().input?.placeholderTextColor).toBe(color.ink3);
   });
 
-  test("read-only is sunken with a lock and not editable", () => {
-    const { input, frame, icons } = field({ readOnly: true });
+  test("read-only is sunken with a lock and shows its whole value, wrapping", () => {
+    const value = "a.very.long.address@example.com";
+    const tree = hostTree(
+      elementTree(TextField, { label: "label", value, readOnly: true })
+    );
+    const { input, frame, icons } = field({ value, readOnly: true });
     expect(frame.backgroundColor).toBe(color.sunken);
     expect(icons).toBe(1);
-    expect(input?.editable).toBe(false);
+    expect(input).toBeUndefined();
+    const shown = findAll(tree, "Text").find(
+      (text) => text.props.children === value
+    );
+    expect(shown?.props.numberOfLines).toBeUndefined();
+    expect(shown?.props.selectable).toBe(true);
   });
 
   test("disabled is greyed, not editable and marked disabled", () => {
