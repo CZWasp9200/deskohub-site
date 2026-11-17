@@ -332,7 +332,10 @@ function PageButton({
         pressed && !disabled && styles.pressedDisc,
       ]}
     >
-      <Icon icon={icon} color={disabled ? color.pageArrowDisabled : color.navy} />
+      <Icon
+        icon={icon}
+        color={disabled ? color.pageArrowDisabled : color.navy}
+      />
     </Pressable>
   );
 }

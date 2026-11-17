@@ -8,8 +8,8 @@ import { m } from "../../src/i18n/messages";
 import type { SmokeReport } from "../../src/smoke/smoke-case";
 import { runSmokeCases } from "../../src/smoke/smoke-case";
 import { smokeCases } from "../../src/smoke/smoke-cases";
-import { theme } from "../../src/theme";
 import { Text } from "../../src/ui/text";
+import { color, space } from "../../src/ui/tokens";
 
 const formatTotals = (
   { passed, failed, total }: SmokeReport,
@@ -107,11 +107,11 @@ function SmokeTotals({
 }
 
 const styles = StyleSheet.create({
-  screen: { backgroundColor: theme.colors.background, flex: 1 },
-  content: { gap: theme.spacing.sm, padding: theme.spacing.md },
-  heading: { color: theme.colors.text, fontSize: 24, fontWeight: "600" },
-  totals: { color: theme.colors.text, fontSize: 18, fontWeight: "600" },
+  screen: { backgroundColor: color.paper, flex: 1 },
+  content: { gap: space.sm, padding: space.lg },
+  heading: { color: color.navy, fontSize: 24, fontWeight: "600" },
+  totals: { color: color.navy, fontSize: 18, fontWeight: "600" },
   result: { gap: 2 },
-  status: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
-  text: { color: theme.colors.text, fontSize: 14 },
+  status: { color: color.navy, fontSize: 14, fontWeight: "600" },
+  text: { color: color.navy, fontSize: 14 },
 });

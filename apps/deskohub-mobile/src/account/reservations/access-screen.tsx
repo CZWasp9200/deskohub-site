@@ -397,7 +397,7 @@ function StatusChip({ chip }: { readonly chip: AccessChip }) {
   }[chip._tag];
   const ink = {
     Starts: color.white,
-    Active: chipLiveInk,
+    Active: color.onPositive,
     Ended: color.onNavyMuted,
   }[chip._tag];
   return (
@@ -618,8 +618,6 @@ function NoPin({ orderId }: { readonly orderId: CustomerReservationOrderId }) {
     </Card>
   );
 }
-
-const chipLiveInk = "#00241B";
 
 const styles = StyleSheet.create({
   hero: {

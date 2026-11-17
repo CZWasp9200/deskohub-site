@@ -22,11 +22,11 @@ import { type AppLocale, isAppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { openSitePage } from "../../routing/open-site-page";
-import { theme } from "../../theme";
 import { LoadingState } from "../../ui/async-states";
 import { Button } from "../../ui/controls";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
+import { space } from "../../ui/tokens";
 import { bookFamilyHref, bookHref, bookProfileHref } from "../booking-routes";
 import type {
   CheckoutRestartReason,
@@ -614,5 +614,5 @@ function AccountUnavailableNotice({
 }
 
 const styles = StyleSheet.create({
-  group: { gap: theme.spacing.md },
+  group: { gap: space.lg },
 });

@@ -27,7 +27,7 @@ export interface PriceLinesTotal {
 }
 
 /** A line's amount as it reads: a discount as "− CZK 58", nothing to pay as "Free". */
-export const priceLineAmountText = (
+const priceLineAmountText = (
   line: PriceLine,
   locale: AppLocale
 ): string => {
