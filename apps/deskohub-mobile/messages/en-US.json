@@ -768,5 +768,9 @@
   "booking_checkout_retry_title": "Payment was not completed",
   "booking_checkout_retry_lead": "Your reservation details are saved. Please confirm the terms again before trying the payment once more.",
   "booking_checkout_retry_pay": "Try payment again",
-  "reservations_payment_retry_settling": "Your previous payment may still go through. Check again in a few minutes before you pay again."
+  "reservations_payment_retry_settling": "Your previous payment may still go through. Check again in a few minutes before you pay again.",
+  "booking_gate_support_title": "We need to check your account",
+  "booking_gate_support_body": "You can't book until we've checked it.",
+  "booking_gate_unavailable_title": "Your account didn't load",
+  "booking_gate_unavailable_body": "Nothing in your account changed. Try again in a moment."
 }

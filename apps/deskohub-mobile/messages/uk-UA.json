@@ -768,5 +768,9 @@
   "booking_checkout_retry_title": "Оплату не завершено",
   "booking_checkout_retry_lead": "Ми зберегли дані бронювання. Перш ніж повторити оплату, ще раз підтвердьте умови.",
   "booking_checkout_retry_pay": "Повторити оплату",
-  "reservations_payment_retry_settling": "Попередня оплата ще може пройти. Перш ніж платити знову, перевірте стан за кілька хвилин."
+  "reservations_payment_retry_settling": "Попередня оплата ще може пройти. Перш ніж платити знову, перевірте стан за кілька хвилин.",
+  "booking_gate_support_title": "Нам потрібно перевірити ваш обліковий запис",
+  "booking_gate_support_body": "Ви не зможете бронювати, доки ми його не перевіримо.",
+  "booking_gate_unavailable_title": "Ваш обліковий запис не завантажився",
+  "booking_gate_unavailable_body": "У вашому обліковому записі нічого не змінилося. Спробуйте ще раз за мить."
 }

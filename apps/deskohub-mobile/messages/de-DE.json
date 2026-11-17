@@ -768,5 +768,9 @@
   "booking_checkout_retry_title": "Die Zahlung wurde nicht abgeschlossen",
   "booking_checkout_retry_lead": "Deine Reservierungsdaten haben wir behalten. Bestätige bitte die Bedingungen erneut, bevor du die Zahlung wiederholst.",
   "booking_checkout_retry_pay": "Zahlung wiederholen",
-  "reservations_payment_retry_settling": "Deine vorherige Zahlung kann noch durchgehen. Prüf den Stand in ein paar Minuten, bevor du erneut zahlst."
+  "reservations_payment_retry_settling": "Deine vorherige Zahlung kann noch durchgehen. Prüf den Stand in ein paar Minuten, bevor du erneut zahlst.",
+  "booking_gate_support_title": "Wir müssen dein Konto prüfen",
+  "booking_gate_support_body": "Du kannst erst buchen, wenn wir es geprüft haben.",
+  "booking_gate_unavailable_title": "Dein Konto wurde nicht geladen",
+  "booking_gate_unavailable_body": "An deinem Konto hat sich nichts geändert. Versuch es gleich noch einmal."
 }

@@ -768,5 +768,9 @@
   "booking_checkout_retry_title": "भुगतान पूरा नहीं हुआ",
   "booking_checkout_retry_lead": "हमने बुकिंग का विवरण सुरक्षित रखा है। भुगतान फिर से करने से पहले कृपया शर्तों की दोबारा पुष्टि करें।",
   "booking_checkout_retry_pay": "फिर से भुगतान करें",
-  "reservations_payment_retry_settling": "पिछला भुगतान अब भी पूरा हो सकता है। दोबारा भुगतान करने से पहले कुछ मिनट बाद स्थिति फिर से देखें।"
+  "reservations_payment_retry_settling": "पिछला भुगतान अब भी पूरा हो सकता है। दोबारा भुगतान करने से पहले कुछ मिनट बाद स्थिति फिर से देखें।",
+  "booking_gate_support_title": "हमें आपका खाता जाँचना होगा",
+  "booking_gate_support_body": "जब तक हम इसे जाँच नहीं लेते, आप बुकिंग नहीं कर सकते।",
+  "booking_gate_unavailable_title": "आपका खाता लोड नहीं हुआ",
+  "booking_gate_unavailable_body": "आपके खाते में कुछ नहीं बदला है। थोड़ी देर में फिर कोशिश करें।"
 }

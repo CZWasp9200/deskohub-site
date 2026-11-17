@@ -768,5 +768,9 @@
   "booking_checkout_retry_title": "Thanh toán chưa hoàn tất",
   "booking_checkout_retry_lead": "Chúng tôi đã giữ nguyên thông tin đặt chỗ. Hãy xác nhận lại các điều kiện trước khi thanh toán lại.",
   "booking_checkout_retry_pay": "Thanh toán lại",
-  "reservations_payment_retry_settling": "Khoản thanh toán trước vẫn có thể được ghi nhận. Hãy kiểm tra lại sau vài phút trước khi thanh toán lần nữa."
+  "reservations_payment_retry_settling": "Khoản thanh toán trước vẫn có thể được ghi nhận. Hãy kiểm tra lại sau vài phút trước khi thanh toán lần nữa.",
+  "booking_gate_support_title": "Chúng tôi cần kiểm tra tài khoản của bạn",
+  "booking_gate_support_body": "Bạn chưa thể đặt chỗ cho đến khi chúng tôi kiểm tra xong.",
+  "booking_gate_unavailable_title": "Không tải được tài khoản của bạn",
+  "booking_gate_unavailable_body": "Tài khoản của bạn không có gì thay đổi. Hãy thử lại sau giây lát."
 }
