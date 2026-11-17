@@ -5,6 +5,7 @@ import type {
   CustomerCheckoutSummaryItem,
   Money,
 } from "@deskohub/workspace-customer-api";
+import type { OfficeOffering } from "../../selection/office-selection";
 import { czk } from "../../testing/sample-booking-catalog";
 
 /**
@@ -173,6 +174,37 @@ export const officeSixSeatsDiscounted: PriceFixture = {
     ],
     czk(6534)
   ),
+};
+
+/**
+ * The office's catalog entry while a 10% calendar sale runs: a day's access
+ * (530) and one seat (315) come to 845, less 84.50, so its from-price is
+ * 760.50.
+ */
+export const officeOnSale: OfficeOffering = {
+  family: "office",
+  name: "Private office",
+  description: "",
+  usage: "",
+  price: czk(530),
+  seatPrice: czk(315),
+  maximumSeats: 6,
+  maximumDurationHours: 672,
+  advertisedPrice: {
+    price: czk(760.5),
+    discount: czk(84.5),
+    saleLastDay: "2026-11-30",
+    discounts: [
+      {
+        discount: {
+          id: "calendar-sale-2026-11",
+          label: "Calendar discount",
+          adjustment: { kind: "percentage", basisPoints: 1000 },
+        },
+        amount: czk(84.5),
+      },
+    ],
+  },
 };
 
 /** Every fixture by name. */

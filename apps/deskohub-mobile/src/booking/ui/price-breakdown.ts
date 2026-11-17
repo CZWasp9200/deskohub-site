@@ -91,7 +91,15 @@ const totalKey = "total:final";
 const officeCharges = (
   item: CustomerCheckoutSummaryItem
 ): ReadonlyArray<PriceLine> | undefined => {
-  const { key, dayCount, seats, accessAmount, seatAmount } = item;
+  const {
+    key,
+    dayCount,
+    seats,
+    accessAmount,
+    seatAmount,
+    dailyAccessRate,
+    dailySeatRate,
+  } = item;
   if (
     dayCount === undefined ||
     seats === undefined ||
@@ -104,13 +112,24 @@ const officeCharges = (
     {
       _tag: "Charge",
       key: `${key}:access`,
-      subject: { _tag: "OfficeAccess", dayCount },
+      subject: {
+        _tag: "OfficeAccess",
+        dayCount,
+        ...(dailyAccessRate === undefined
+          ? {}
+          : { dailyRate: dailyAccessRate }),
+      },
       amount: accessAmount,
     },
     {
       _tag: "Charge",
       key: `${key}:seats`,
-      subject: { _tag: "OfficeSeats", seats, dayCount },
+      subject: {
+        _tag: "OfficeSeats",
+        seats,
+        dayCount,
+        ...(dailySeatRate === undefined ? {} : { dailySeatRate }),
+      },
       amount: { ...seatAmount, value: seatAmount.value * seats },
     },
   ];

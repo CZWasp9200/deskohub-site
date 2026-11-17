@@ -156,6 +156,23 @@ const emptyInventory = Layer.succeed(AdvisoryAvailabilityInventory, {
   listLimitations: () => Effect.succeed([]),
 });
 
+/** The inventory with the one assignable office table office quotes need. */
+const officeInventory = Layer.succeed(AdvisoryAvailabilityInventory, {
+  tables: Effect.succeed([
+    {
+      id: "office",
+      _cloudId: "cloud",
+      display: true,
+      enabled: true,
+      name: "Office",
+      seats: "6",
+      tags: ["reservation:office"],
+    },
+  ]),
+  listActiveReservationsOverlapping: () => Effect.succeed([]),
+  listLimitations: () => Effect.succeed([]),
+});
+
 /** A replaced Pay state's hold that is still payable and unpaid. */
 const supersedableHold = (state: SignedPayState) =>
   ({
@@ -250,6 +267,32 @@ describe("listOfferings", () => {
     for (const offering of body.offerings) {
       expect(offering.advertisedPrice.price).toEqual(offering.price);
       expect(offering.advertisedPrice.discount.value).toBe(0);
+      expect(offering.advertisedPrice).not.toHaveProperty("discounts");
+    }
+  });
+
+  test("lists a running sale's discounts, which make up the advertised discount", async () => {
+    const api = makeCustomerApiTestServer({
+      bookingCatalog: pricedCatalog({
+        pricing: pricingWith(tenPercentSale),
+        releases: officeOpen,
+      }),
+    });
+
+    const response = await api.handle(customerApiRequest(listOfferings));
+
+    expect(response.status).toBe(200);
+    for (const { advertisedPrice } of (await response.json()).offerings) {
+      expect(advertisedPrice.discounts).toEqual([
+        {
+          discount: {
+            id: "app-sale",
+            label: "App sale",
+            adjustment: { kind: "percentage", basisPoints: 1000 },
+          },
+          amount: advertisedPrice.discount,
+        },
+      ]);
     }
   });
 
@@ -982,10 +1025,104 @@ describe("getQuote", () => {
     expect(product.originalAmount).toEqual(body.regularPrice);
     expect(product.discounts).toEqual([
       {
-        discount: { id: "app-sale", label: "App sale" },
+        discount: {
+          id: "app-sale",
+          label: "App sale",
+          adjustment: { kind: "percentage", basisPoints: 1000 },
+        },
         amount: body.discount,
       },
     ]);
+  });
+
+  test("lists the early setup a meeting-room quote asks for: in before the start, free", async () => {
+    const api = makeCustomerApiTestServer({ bookingCatalog: pricedCatalog() });
+    const date = workspaceDateFromToday(2);
+
+    const response = await api.handle(
+      customerApiRequest({
+        method: "GET",
+        path: quotePath(
+          `family=meeting-room&duration=hour:1&startTime=10:00&date=${date}&earlySetup=true`
+        ),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const [product] = body.summary.sections[0].items;
+    expect(product.earlySetup.amount).toEqual({ ...body.total, value: 0 });
+    expect(
+      Temporal.Instant.from(product.earlySetup.startsAt).epochMilliseconds
+    ).toBe(
+      Temporal.PlainDateTime.from(`${date}T09:45`)
+        .toZonedDateTime("Europe/Prague")
+        .toInstant().epochMilliseconds
+    );
+    expect(body.total).toEqual(body.regularPrice);
+    expect(body.summary.total).toEqual(body.total);
+  });
+
+  test("lists no early setup the quote doesn't ask for", async () => {
+    const api = makeCustomerApiTestServer({ bookingCatalog: pricedCatalog() });
+
+    const response = await api.handle(
+      customerApiRequest({
+        method: "GET",
+        path: quotePath(
+          `family=meeting-room&duration=hour:1&startTime=10:00&date=${workspaceDateFromToday(2)}&earlySetup=false`
+        ),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const [product] = (await response.json()).summary.sections[0].items;
+    expect(product).not.toHaveProperty("earlySetup");
+  });
+
+  test("refuses early setup for a family without one", async () => {
+    const api = makeCustomerApiTestServer({ bookingCatalog: pricedCatalog() });
+
+    const response = await api.handle(
+      customerApiRequest({
+        method: "GET",
+        path: `${coworkToday}&earlySetup=true`,
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerBookingSelectionInvalid",
+      field: "earlySetup",
+    });
+  });
+
+  test("gives an office line the daily rates its access and seats count", async () => {
+    const api = makeCustomerApiTestServer({
+      bookingCatalog: pricedCatalog({
+        releases: officeOpen,
+        inventory: officeInventory,
+      }),
+    });
+
+    const response = await api.handle(
+      customerApiRequest({
+        method: "GET",
+        path: quotePath(
+          `family=office&seats=2&date=${workspaceDateFromToday(1)}&endDate=${workspaceDateFromToday(3)}`
+        ),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const [product] = (await response.json()).summary.sections[0].items;
+    expect(product.dayCount).toBe(3);
+    expect(product.dailyAccessRate.value * product.dayCount).toBe(
+      product.accessAmount.value
+    );
+    expect(product.dailySeatRate.value * product.dayCount).toBe(
+      product.seatAmount.value
+    );
   });
 
   test("names the field a family needs", async () => {

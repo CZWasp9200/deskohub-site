@@ -110,13 +110,18 @@ const buildState = (overrides: Partial<PayStateWithHoldExpiry> = {}) => ({
   ...overrides,
 });
 
-const buildMeetingRoomState = () => {
+const buildMeetingRoomState = ({
+  earlySetup,
+}: {
+  readonly earlySetup?: true;
+} = {}) => {
   const reservation = Schema.decodeUnknownSync(reservationOrderSchema("CZ"))({
     kind: "meeting-room",
     duration: { unit: "hour", amount: 4 },
     reservationDate: "2099-06-10",
     startsAt: "2099-06-10T08:00:00Z",
     endsAt: "2099-06-10T12:00:00Z",
+    ...(earlySetup && { earlySetup }),
     name: "Ada Lovelace",
     email: testEmailAddressForAda,
     phone: "+420 777 777 777",
@@ -233,6 +238,21 @@ describe("Pay URL state", () => {
     expect(opened.submittedCode).toBe(canonicalCode);
     expect(opened.submittedCodeDiscountId).toBe(submittedCodeDiscountId);
     expect(opened.changedKeys).toEqual(changedKeys);
+  });
+
+  test("lists a meeting room's early setup in its summary, free, from 15 minutes before the start", () => {
+    const [withSetup, without] = [
+      buildMeetingRoomState({ earlySetup: true }),
+      buildMeetingRoomState(),
+    ].map((state) => PayState.summary(state).sections[0]?.items[0]);
+
+    expect(withSetup).toMatchObject({
+      earlySetup: {
+        startsAt: "2099-06-10T07:45:00Z",
+        amount: { value: 0 },
+      },
+    });
+    expect(without).not.toHaveProperty("earlySetup");
   });
 
   test("fails closed when no encryption key is configured", () => {

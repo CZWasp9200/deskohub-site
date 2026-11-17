@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { czk } from "../testing/sample-booking-catalog";
 import {
   type PriceLine,
   priceBreakdown,
@@ -6,6 +7,8 @@ import {
   summaryItemSubject,
 } from "./price-breakdown";
 import {
+  meetingRoomHour,
+  meetingRoomHourEarlySetup,
   officeSixSeats,
   officeSixSeatsDiscounted,
   openSpaceWithCoffee,
@@ -63,19 +66,24 @@ describe("priceBreakdown", () => {
     expect(priceLineAmount(reduction as PriceLine).value).toBe(-5800);
   });
 
-  test("splits an office line into access and seats", () => {
+  test("splits an office line into access and seats, each at its daily rate", () => {
     const { lines } = priceBreakdown(officeSixSeats.summary);
     expect(lines).toEqual([
       {
         _tag: "Charge",
         key: "product:office:6:3:access",
-        subject: { _tag: "OfficeAccess", dayCount: 3 },
+        subject: { _tag: "OfficeAccess", dayCount: 3, dailyRate: czk(530) },
         amount: { value: 159_000, exponent: 2, currency: "CZK" },
       },
       {
         _tag: "Charge",
         key: "product:office:6:3:seats",
-        subject: { _tag: "OfficeSeats", seats: 6, dayCount: 3 },
+        subject: {
+          _tag: "OfficeSeats",
+          seats: 6,
+          dayCount: 3,
+          dailySeatRate: czk(315),
+        },
         amount: { value: 567_000, exponent: 2, currency: "CZK" },
       },
     ]);
@@ -103,5 +111,59 @@ describe("summaryItemSubject", () => {
     ["addon:parking", { _tag: "Other", key: "addon:parking" }],
   ])("%s", (key, subject) => {
     expect(summaryItemSubject(key)).toEqual(subject as never);
+  });
+});
+
+describe("priceBreakdown detail", () => {
+  test("gives each reduction its discount's adjustment", () => {
+    const [product] = meetingRoomHour.summary.sections[0]?.items ?? [];
+    const reductions = priceBreakdown(meetingRoomHour.summary).lines.flatMap(
+      (line) => (line._tag === "Reduction" ? [line.adjustment] : [])
+    );
+    expect(reductions).toEqual(
+      (product?.discounts ?? []).map(({ discount }) => discount.adjustment)
+    );
+  });
+
+  test("lists a meeting room's early setup after the room's discounts, at the response's price", () => {
+    const { lines } = priceBreakdown(meetingRoomHourEarlySetup.summary);
+    expect(
+      lines.map((line) =>
+        line._tag === "Charge" ? line.subject._tag : line._tag
+      )
+    ).toEqual(["Product", "Reduction", "EarlySetup"]);
+    expect(lines.at(-1)).toMatchObject({
+      _tag: "Charge",
+      subject: { _tag: "EarlySetup", startsAt: "2026-11-26T12:45:00Z" },
+      amount: czk(0),
+    });
+  });
+
+  test("lists no early setup the response doesn't give", () => {
+    expect(
+      priceBreakdown(meetingRoomHour.summary).lines.some(
+        (line) => line._tag === "Charge" && line.subject._tag === "EarlySetup"
+      )
+    ).toBe(false);
+  });
+
+  test("leaves an office's rates out when the response has none", () => {
+    const summary = {
+      ...officeSixSeats.summary,
+      sections: officeSixSeats.summary.sections.map((section) => ({
+        ...section,
+        items: section.items.map(
+          ({ dailyAccessRate: _access, dailySeatRate: _seat, ...item }) => item
+        ),
+      })),
+    };
+    for (const line of priceBreakdown(summary).lines) {
+      expect(line._tag === "Charge" && line.subject).not.toHaveProperty(
+        "dailyRate"
+      );
+      expect(line._tag === "Charge" && line.subject).not.toHaveProperty(
+        "dailySeatRate"
+      );
+    }
   });
 });

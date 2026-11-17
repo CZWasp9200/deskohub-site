@@ -3,10 +3,14 @@ import type {
   CustomerBookingSelection,
   Money,
 } from "@deskohub/workspace-customer-api";
+import { DateTime } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
+import { formatInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
+import { formatBasisPoints } from "../../i18n/percent-format";
 import { productLabel } from "../checkout-screen/checkout-copy";
+import { czk } from "../testing/sample-booking-catalog";
 import {
   type PriceLine,
   type PriceLineSubject,
@@ -19,6 +23,7 @@ import {
 } from "./price-line-description";
 import {
   meetingRoomHour,
+  meetingRoomHourEarlySetup,
   officeSixSeatsDiscounted,
   openSpaceWithCoffee,
   type PriceFixture,
@@ -26,6 +31,13 @@ import {
 } from "./testing/price-fixtures";
 
 const locale: AppLocale = "en-US";
+
+/** A percentage discount's detail, "20% off". */
+const percentOff = (basisPoints: number) =>
+  m.booking_price_line_discount_off(
+    { amount: formatBasisPoints(basisPoints, locale) },
+    { locale }
+  );
 
 /** Each line's key with how it reads. */
 const described = (
@@ -50,7 +62,7 @@ describe("describePriceLine", () => {
       ],
       [
         "product:cowork:open-space:discount:calendar-sale-2026-11",
-        { label: "Calendar discount" },
+        { label: "Calendar discount", detail: percentOff(2000) },
       ],
       [
         "addon:coffee",
@@ -103,13 +115,16 @@ describe("describePriceLine", () => {
     );
   });
 
-  test("gives an office's access by days and its seats by seats and days", () => {
+  test("gives an office's access by days and its seats by seats and days, at the quote's daily rates", () => {
     expect(described(officeSixSeatsDiscounted)).toEqual([
       [
         "product:office:6:3:access",
         {
           label: productLabel(officeSixSeatsDiscounted.selection, locale),
-          detail: m.booking_price_line_days({ count: 3 }, { locale }),
+          detail: [
+            m.booking_price_line_days({ count: 3 }, { locale }),
+            formatMoney(czk(530), locale),
+          ].join(" × "),
         },
       ],
       [
@@ -119,12 +134,13 @@ describe("describePriceLine", () => {
           detail: [
             m.booking_price_line_seats({ count: 6 }, { locale }),
             m.booking_price_line_days({ count: 3 }, { locale }),
+            formatMoney(czk(315), locale),
           ].join(" × "),
         },
       ],
       [
         "product:office:6:3:discount:office-week-10",
-        { label: "Office discount" },
+        { label: "Office discount", detail: percentOff(1000) },
       ],
     ]);
   });
@@ -183,11 +199,56 @@ describe("describePriceLine", () => {
     }
   });
 
+  test("says under a discount's label what it takes off: a percentage or an amount", () => {
+    const describe = describePriceLine(meetingRoomHour.selection, locale);
+    const reduction = (
+      adjustment: Extract<PriceLine, { _tag: "Reduction" }>["adjustment"]
+    ): PriceLine => ({
+      _tag: "Reduction",
+      key: "discount",
+      discountId: "discount",
+      label: "Discount",
+      adjustment,
+      amount: czk(50),
+    });
+    expect(
+      describe(reduction({ kind: "percentage", basisPoints: 2000 }))
+    ).toEqual({ label: "Discount", detail: percentOff(2000) });
+    expect(describe(reduction({ kind: "fixed", amount: czk(50) }))).toEqual({
+      label: "Discount",
+      detail: m.booking_price_line_discount_off(
+        { amount: formatMoney(czk(50), locale) },
+        { locale }
+      ),
+    });
+  });
+
+  test("names a meeting room's early setup with when the customer may come in", () => {
+    const [, , earlySetup] = described(meetingRoomHourEarlySetup);
+    expect(earlySetup?.[0]).toBe("product:meeting-room:hour:1:early-setup");
+    expect(earlySetup?.[1].label).toBe(
+      m.booking_price_line_early_setup({}, { locale })
+    );
+    expect(earlySetup?.[1].detail).toBe(
+      m.booking_price_line_early_setup_from(
+        {
+          time: formatInstant(
+            DateTime.makeUnsafe("2026-11-26T12:45:00Z"),
+            locale,
+            "time"
+          ),
+        },
+        { locale }
+      )
+    );
+  });
+
   test("names every line in every locale", () => {
     for (const fixture of [
       openSpaceWithCoffee,
       reservedDeskWithWorkstation,
       meetingRoomHour,
+      meetingRoomHourEarlySetup,
       officeSixSeatsDiscounted,
     ]) {
       for (const lineLocale of ["cs-CZ", "hi-IN"] as const) {

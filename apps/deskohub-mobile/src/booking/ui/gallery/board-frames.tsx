@@ -59,6 +59,7 @@ import { MonthCalendar } from "../month-calendar";
 import { OvernightStayTimes } from "../overnight-stay-times";
 import {
   meetingRoomHour,
+  meetingRoomHourEarlySetup,
   officeSixSeats,
   openSpaceWithCoffee,
   reservedDeskWithWorkstation,
@@ -68,6 +69,7 @@ import {
   coworkDates,
   officeDates,
   officeRange,
+  officeSaleFromPrice,
   quotedPrice as quoted,
   galleryToday as today,
 } from "./gallery-fixtures";
@@ -726,7 +728,8 @@ function MeetingRoomStart({ onBack }: { readonly onBack: () => void }) {
 
 /**
  * Board 28 "Length and start time" and "Early setup" (`early`, scrolled to
- * the end), and 28b "Price opened" (`opened`).
+ * the end), and 28b "Price opened" (`opened`), which comes early too, so
+ * its lines end in the free early setup.
  */
 function MeetingRoom({
   onBack,
@@ -757,7 +760,11 @@ function MeetingRoom({
                 ? "Meeting room · in from 13:45"
                 : "Meeting room · 1 hour"
             ),
-            price: quoted(meetingRoomHour, locale, czk(350)),
+            price: quoted(
+              early || opened ? meetingRoomHourEarlySetup : meetingRoomHour,
+              locale,
+              czk(350)
+            ),
           }}
           action={next(sample("Continue"))}
         />
@@ -902,6 +909,38 @@ function MeetingRoomLive({ onBack }: { readonly onBack: () => void }) {
 }
 
 // ------------------------------------------------------------ board 29: private office
+
+/**
+ * Board 29b before a first day, while a sale runs: the from-price opened to
+ * a day's access and one seat, then the sale as one discount line.
+ */
+function OfficeFromPriceSale({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  return (
+    <FlowScreen
+      title={sample("Private office")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      bar={
+        <BookingBar
+          locale={locale}
+          initiallyOpen
+          summary={{
+            title: sample("Private office"),
+            price: officeSaleFromPrice(locale, sample),
+          }}
+          action={next(sample("Continue"), { disabled: true })}
+          reason={sample("Choose a first day to continue")}
+        />
+      }
+    >
+      <BookingSectionHeading title={sample("First day")} first />
+      <Calendar locale={locale} dates={officeDates} legend={false} />
+    </FlowScreen>
+  );
+}
 
 function OfficeRange({
   onBack,
@@ -1271,6 +1310,12 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     board: "29",
     state: "Seat limit reached",
     Screen: OfficeRange,
+  },
+  {
+    key: "office-from-price-sale",
+    board: "29b",
+    state: "From-price opened during a sale",
+    Screen: OfficeFromPriceSale,
   },
   {
     key: "office-price-opened",

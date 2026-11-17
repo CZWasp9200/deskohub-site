@@ -12,8 +12,8 @@ import {
 import { Data, Effect, Layer, Match, Option, Struct } from "effect";
 import type { HttpApiBuilder } from "effect/unstable/httpapi";
 import { buildAdvertisedPrice } from "@/features/checkout/backend/checkout/advertised-price.server";
-import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
 import { loadPublicOfferings } from "@/features/checkout/backend/checkout/public-offerings";
+import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
 import {
   getPublicOpeningHours,
   type PublicOffering,
@@ -198,6 +198,7 @@ export const handleCustomerBookingCatalog = <R>(
 
 type QuoteQuery = typeof CustomerBookingSelectionQuery.Type & {
   readonly locale: Locale;
+  readonly earlySetup?: "true" | "false";
 };
 
 /**

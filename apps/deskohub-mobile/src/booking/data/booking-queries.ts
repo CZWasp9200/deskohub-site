@@ -218,16 +218,16 @@ const refreshQuoteLater = (get: Atom.AtomContext) =>
   );
 
 const quoteReadFamily = Atom.family((request: BookingQuoteRequest) =>
-    customerDataRuntime
-      .atom((get) =>
-        Effect.flatMap(bookingApi, (booking) =>
-          booking.getQuote({ query: quoteQuery(request) })
-        ).pipe(
-          catalogRead,
-          Effect.tap(() => refreshQuoteLater(get))
-        )
+  customerDataRuntime
+    .atom((get) =>
+      Effect.flatMap(bookingApi, (booking) =>
+        booking.getQuote({ query: quoteQuery(request) })
+      ).pipe(
+        catalogRead,
+        Effect.tap(() => refreshQuoteLater(get))
       )
-      .pipe(Atom.setIdleTTL(catalogIdleTTL.quote))
+    )
+    .pipe(Atom.setIdleTTL(catalogIdleTTL.quote))
 );
 
 /**

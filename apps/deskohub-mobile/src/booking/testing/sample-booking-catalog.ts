@@ -327,7 +327,7 @@ export const sampleSummary = ({
                   id: sampleDiscountId,
                   label: discountLabel,
                   adjustment: {
-                    kind: "percentage",
+                    kind: "percentage" as const,
                     basisPoints: Math.round(discountShare * 10_000),
                   },
                 },

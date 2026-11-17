@@ -16,8 +16,7 @@ export const CustomerDiscountAdjustment = Schema.Union([
   }),
   Schema.Struct({ kind: Schema.Literal("fixed"), amount: Money }),
 ]).annotate({ identifier: "CustomerDiscountAdjustment" });
-export type CustomerDiscountAdjustment =
-  typeof CustomerDiscountAdjustment.Type;
+export type CustomerDiscountAdjustment = typeof CustomerDiscountAdjustment.Type;
 
 /** A discount a summary item includes. */
 export const CustomerCheckoutSummaryDiscount = Schema.Struct({
