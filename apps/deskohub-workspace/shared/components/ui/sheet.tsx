@@ -3,7 +3,7 @@
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 import { baseLocale, type Locale, m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils";
@@ -54,6 +54,12 @@ interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
     VariantProps<typeof sheetVariants> {
   locale?: Locale;
+  /**
+   * Lets a bottom sheet be swiped down from a grab handle at its top edge,
+   * which calls this to close it. Escape, the close button and the overlay
+   * still close it as before.
+   */
+  onSwipeDismiss?: () => void;
   ref?: React.Ref<React.ComponentRef<typeof SheetPrimitive.Content>>;
 }
 
@@ -62,35 +68,146 @@ function SheetContent({
   className,
   children,
   locale = baseLocale,
+  onSwipeDismiss,
   ref,
+  style,
   ...props
 }: SheetContentProps) {
   return (
     <SheetPortal>
       <SheetOverlay />
-      <SheetPrimitive.Content
+      <SheetPanel
+        className={className}
+        locale={locale}
+        onSwipeDismiss={onSwipeDismiss}
         ref={ref}
-        className={cn(sheetVariants({ side }), className)}
+        side={side}
+        style={style}
         {...props}
       >
         {children}
-        <Button
-          asChild
-          className="absolute right-3 top-3"
-          size="icon-sm"
-          tone="muted"
-          variant="ghost"
-        >
-          <SheetPrimitive.Close>
-            <X aria-hidden className="size-4" />
-            <span className="sr-only">
-              {m.closeDialogLabel({}, { locale })}
-            </span>
-          </SheetPrimitive.Close>
-        </Button>
-      </SheetPrimitive.Content>
+      </SheetPanel>
     </SheetPortal>
   );
+}
+
+/**
+ * The sheet itself. The portal mounts it only while the sheet is open, so a
+ * swipe's state starts fresh on every opening.
+ */
+function SheetPanel({
+  side = "right",
+  className,
+  children,
+  locale = baseLocale,
+  onSwipeDismiss,
+  ref,
+  style,
+  ...props
+}: SheetContentProps) {
+  const swipe = useSwipeDownDismiss(onSwipeDismiss);
+  const swipeable = side === "bottom" && onSwipeDismiss !== undefined;
+
+  return (
+    <SheetPrimitive.Content
+      ref={ref}
+      className={cn(
+        sheetVariants({ side }),
+        swipeable && swipe.dismissing && "data-[state=closed]:animate-none",
+        className
+      )}
+      style={swipeable ? { ...style, ...swipe.style } : style}
+      {...props}
+    >
+      {swipeable && (
+        <div
+          aria-hidden
+          className="-mt-6 mb-2 flex cursor-grab touch-none justify-center pt-2.5 pb-3 active:cursor-grabbing"
+          {...swipe.handle}
+        >
+          <span className="h-1.25 w-10 rounded-full bg-navy-blue/15" />
+        </div>
+      )}
+      {children}
+      <Button
+        asChild
+        className="absolute right-3 top-3"
+        size="icon-sm"
+        tone="muted"
+        variant="ghost"
+      >
+        <SheetPrimitive.Close>
+          <X aria-hidden className="size-4" />
+          <span className="sr-only">{m.closeDialogLabel({}, { locale })}</span>
+        </SheetPrimitive.Close>
+      </Button>
+    </SheetPrimitive.Content>
+  );
+}
+
+/** How far, or how fast, a swipe must travel to dismiss the sheet. */
+const swipeDismissDistance = 96;
+const swipeDismissMinimumDistance = 24;
+const swipeDismissVelocity = 0.5;
+const swipeSlideOutMs = 200;
+
+/**
+ * Follows a pointer dragged down from the sheet's grab handle. Released past
+ * the distance, or flicked, the sheet slides out of view and then calls
+ * `onDismiss` with its exit animation off, so it doesn't jump back to slide
+ * out again; otherwise it springs back.
+ */
+function useSwipeDownDismiss(onDismiss: (() => void) | undefined) {
+  const [offset, setOffset] = React.useState(0);
+  const [dragging, setDragging] = React.useState(false);
+  const [dismissing, setDismissing] = React.useState(false);
+  const start = React.useRef<{ y: number; time: number } | null>(null);
+  const slideOut = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  React.useEffect(() => () => clearTimeout(slideOut.current), []);
+
+  const end = () => {
+    start.current = null;
+    setDragging(false);
+  };
+
+  return {
+    dismissing,
+    style: {
+      transform: dismissing ? "translateY(100%)" : `translateY(${offset}px)`,
+      transition: dragging ? "none" : `transform ${swipeSlideOutMs}ms ease-out`,
+    } satisfies React.CSSProperties,
+    handle: {
+      onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0 || dismissing) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        start.current = { y: event.clientY, time: event.timeStamp };
+        setDragging(true);
+      },
+      onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+        if (start.current)
+          setOffset(Math.max(0, event.clientY - start.current.y));
+      },
+      onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => {
+        const swipe = start.current;
+        end();
+        if (!swipe) return;
+        const distance = Math.max(0, event.clientY - swipe.y);
+        const velocity = distance / Math.max(1, event.timeStamp - swipe.time);
+        const dismissed =
+          distance >= swipeDismissDistance ||
+          (distance >= swipeDismissMinimumDistance &&
+            velocity >= swipeDismissVelocity);
+        if (!dismissed) return setOffset(0);
+        setDismissing(true);
+        slideOut.current = setTimeout(() => onDismiss?.(), swipeSlideOutMs);
+      },
+      onPointerCancel: () => {
+        end();
+        setOffset(0);
+      },
+    },
+  };
 }
 
 const SheetHeader = ({

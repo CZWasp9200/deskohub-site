@@ -16,16 +16,17 @@ type ReservationPageProps = {
   readonly breadcrumbs?: ReadonlyArray<PublicPageBreadcrumb>;
   readonly children: ReactNode;
   readonly fallback: ReactNode;
+  /** The page's h1 and anything that takes its place above the form. */
+  readonly heading: ReactNode;
   readonly locale: Locale;
-  readonly title: string;
 };
 
 export function ReservationPage({
   breadcrumbs,
   children,
   fallback,
+  heading,
   locale,
-  title,
 }: ReservationPageProps) {
   return (
     <CheckoutFlowLayout
@@ -51,12 +52,34 @@ export function ReservationPage({
         </Suspense>
       }
     >
-      <h1 className="text-4xl leading-tight text-balance sm:text-5xl">
-        {title}
-      </h1>
+      {heading}
       <Suspense fallback={fallback}>
         <QueryProvider>{children}</QueryProvider>
       </Suspense>
     </CheckoutFlowLayout>
+  );
+}
+
+/**
+ * The reservation page's h1, shown above the form, or kept only for screen
+ * readers and search engines while something else takes its place.
+ */
+export function ReservationPageTitle({
+  title,
+  visuallyHidden = false,
+}: {
+  readonly title: string;
+  readonly visuallyHidden?: boolean;
+}) {
+  return (
+    <h1
+      className={
+        visuallyHidden
+          ? "sr-only"
+          : "text-4xl leading-tight text-balance sm:text-5xl"
+      }
+    >
+      {title}
+    </h1>
   );
 }

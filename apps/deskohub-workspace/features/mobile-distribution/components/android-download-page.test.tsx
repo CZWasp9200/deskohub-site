@@ -68,9 +68,11 @@ const expectCertificateAndSteps = (page: RenderedPage) => {
 test("offers the latest release's APK and the Obtainium import", () => {
   const page = renderPage({ kind: "release", release });
 
-  const [apkLink] = linksTo(page, release.apkUrl);
+  // On the site's own domain, so Obtainium doesn't warn about the APK's
+  // origin.
+  const [apkLink] = linksTo(page, "/android/download/deskohub-1.2.3.apk");
   expect(apkLink).toBeDefined();
-  expect(apkLink?.getAttribute("href")).toEndWith("/deskohub-1.2.3.apk");
+  expect(linksTo(page, release.apkUrl)).toEqual([]);
 
   const [obtainiumLink] = linksTo(page, obtainiumImportUrl);
   expect(obtainiumLink).toBeDefined();

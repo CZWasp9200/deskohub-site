@@ -109,16 +109,60 @@ const updatesCodeSigning = (
   };
 };
 
-// app.json links only the production host's /app/ paths to the app. A
-// development build pointed at a preview (`EXPO_PUBLIC_API_ORIGIN`) also
-// claims that host's /app/ paths, so a sign-in email from the preview opens
-// the app. The filter isn't verified: a tester approves the host on the
-// device. A production build never gets it.
+// app.json links the production host's /app/ paths to the app, and
+// `siteLinkFilter` links the website pages the app has a screen for:
+// reservation access pages and account sections, each bare and under every
+// site locale tag. `src/routing/app-link.ts` maps them to app routes, and
+// app.config.test.ts keeps this list, the site's locales and that mapping in
+// step. The other site pages stay in the browser: see the deskohub-mobile
+// skill's web-app reference before claiming one.
+//
+// A development build pointed at a preview (`EXPO_PUBLIC_API_ORIGIN`) also
+// claims that host's /app/ paths and site pages, so a sign-in email from the
+// preview opens the app. That filter isn't verified: a tester approves the
+// host on the device. A production build never gets it.
 const productionHost = new URL(productionApiOrigin).hostname;
+
+const siteLocaleTags = [
+  "en-US",
+  "cs-CZ",
+  "de-DE",
+  "uk-UA",
+  "sk-SK",
+  "vi-VN",
+  "hi-IN",
+] as const;
+const siteAccountPaths = [
+  "/account/reservations",
+  "/account/referrals",
+  "/account/profile",
+  "/account/security",
+  "/account/assistants",
+  "/account/billing",
+  "/account/danger",
+] as const;
+const siteAccessPathPrefix = "/reservation/access/";
 
 type AndroidIntentFilter = NonNullable<
   NonNullable<ExpoConfig["android"]>["intentFilters"]
 >[number];
+
+const siteLinkFilter = (
+  host: string,
+  autoVerify: boolean
+): AndroidIntentFilter => ({
+  action: "VIEW",
+  autoVerify,
+  data: ["", ...siteLocaleTags.map((tag) => `/${tag}`)].flatMap((locale) => [
+    { scheme: "https", host, pathPrefix: `${locale}${siteAccessPathPrefix}` },
+    ...siteAccountPaths.map((path) => ({
+      scheme: "https",
+      host,
+      path: `${locale}${path}`,
+    })),
+  ]),
+  category: ["BROWSABLE", "DEFAULT"],
+});
 
 const developmentAppLinkFilters = (
   env: Readonly<Record<string, string | undefined>>
@@ -140,6 +184,7 @@ const developmentAppLinkFilters = (
       data: [{ scheme: "https", host: url.hostname, pathPrefix: "/app/" }],
       category: ["BROWSABLE", "DEFAULT"],
     },
+    siteLinkFilter(url.hostname, false),
   ];
 };
 
@@ -155,6 +200,7 @@ export default (
     versionCode: androidVersionCode(config.version),
     intentFilters: [
       ...(config.android?.intentFilters ?? []),
+      siteLinkFilter(productionHost, true),
       ...developmentAppLinkFilters(env),
     ],
   },
