@@ -508,9 +508,9 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
     /**
      * The same order's checkout again, with its details kept and returned
      * in `details`: the terms are confirmed again and `submitCheckout`
-     * starts the new payment. A changed
-     * price comes back as `price_review` to accept first. It never starts a
-     * payment and never books a second spot.
+     * starts the new payment. A changed price comes back as `price_review`
+     * to accept first. It never starts a payment and never books a second
+     * spot.
      */
     HttpApiEndpoint.post("retryPayment", "/:orderId/payment-retry", {
       params: OrderParams,
