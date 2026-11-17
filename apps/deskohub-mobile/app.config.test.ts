@@ -93,6 +93,16 @@ describe("app config", () => {
     expect(resolved.version).toBe("1.2.3");
   });
 
+  test("paints the window in the canvas colour so no white shows between screens", async () => {
+    const { color } = await import("./src/ui/tokens");
+    const app = (await Bun.file(`${import.meta.dir}/app.json`).json()) as {
+      expo: { backgroundColor?: string };
+    };
+    expect(app.expo.backgroundColor?.toLowerCase()).toBe(
+      color.paper.toLowerCase()
+    );
+  });
+
   const staticConfig = {
     name: "Deskohub",
     slug: "deskohub-mobile",
