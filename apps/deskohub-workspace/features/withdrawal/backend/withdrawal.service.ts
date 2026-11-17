@@ -210,24 +210,45 @@ export class WithdrawalService extends Context.Service<
             )
           );
 
+        // Each step runs even when an earlier one failed, so a failing email
+        // never holds up the cancellation; the run then fails with the first
+        // step's failure and every unfinished step is retried.
         const settlement = Effect.gen(function* () {
+          const failures: SettlementStepError[] = [];
+          const attempt = <E>(
+            step: WithdrawalSettlementStep,
+            work: Effect.Effect<void, E>,
+            isTransient: (error: E) => boolean,
+            failureCode: (error: E) => string
+          ) =>
+            runStep(step, work, isTransient, failureCode).pipe(
+              Effect.catchTag("SettlementStepError", (failure) =>
+                Effect.sync(() => {
+                  failures.push(failure);
+                })
+              )
+            );
           const needsEmail =
             !withdrawal.receiptSentAt || !withdrawal.operatorNotifiedAt;
           const receiptEmail = needsEmail
             ? (known?.receiptEmail ??
               (yield* accountEmail(withdrawal.accountId).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new SettlementStepError({
-                      step: "receipt",
-                      code: "receipt_address_unavailable",
-                      cause,
-                    })
+                Effect.catch((cause) =>
+                  Effect.sync(() => {
+                    failures.push(
+                      new SettlementStepError({
+                        step: "receipt",
+                        code: "receipt_address_unavailable",
+                        cause,
+                      })
+                    );
+                    return undefined;
+                  })
                 )
               )))
             : undefined;
           if (!withdrawal.receiptSentAt && receiptEmail) {
-            yield* runStep(
+            yield* attempt(
               "receipt",
               emails.sendReceipt({
                 withdrawal,
@@ -239,7 +260,7 @@ export class WithdrawalService extends Context.Service<
             );
           }
           if (!withdrawal.operatorNotifiedAt && receiptEmail) {
-            yield* runStep(
+            yield* attempt(
               "operator_notice",
               emails.sendOperatorNotice({
                 withdrawal,
@@ -250,7 +271,7 @@ export class WithdrawalService extends Context.Service<
             );
           }
           if (!withdrawal.contractCancelledAt) {
-            yield* runStep(
+            yield* attempt(
               "contract_cancellation",
               family.cancel({
                 contractId: withdrawal.contract.id,
@@ -261,6 +282,8 @@ export class WithdrawalService extends Context.Service<
               (error: ContractCancellationError) => error.code
             );
           }
+          const [firstFailure] = failures;
+          if (firstFailure) return yield* Effect.fail(firstFailure);
           yield* repository.markSettled({
             ...claim,
             settledAt: Temporal.Now.instant(),
@@ -283,12 +306,13 @@ export class WithdrawalService extends Context.Service<
                 error._tag === "SettlementStepError"
                   ? error.code
                   : "settlement_record_failed";
+              // Only fixed codes: a provider failure may carry the address.
               yield* Effect.logWarning("Withdrawal settlement failed").pipe(
                 Effect.annotateLogs({
                   failureCode,
+                  failureTag: failureTagOf(error),
                   settlementAttempts: withdrawal.settlementAttempts + 1,
-                }),
-                Effect.annotateLogs("cause", error)
+                })
               );
               yield* repository
                 .recordSettlementFailure({
@@ -304,7 +328,12 @@ export class WithdrawalService extends Context.Service<
                   Effect.catch((recordError) =>
                     Effect.logError(
                       "Withdrawal settlement failure could not be recorded"
-                    ).pipe(Effect.annotateLogs("cause", recordError))
+                    ).pipe(
+                      Effect.annotateLogs({
+                        failureCode,
+                        failureTag: failureTagOf(recordError),
+                      })
+                    )
                   )
                 );
               return "failed" as const;
@@ -480,6 +509,16 @@ class SettlementStepError extends Data.TaggedError("SettlementStepError")<{
 class SettlementClaimLostError extends Data.TaggedError(
   "SettlementClaimLostError"
 ) {}
+
+/** The tag of a failure, or of the failure a settlement step wraps. */
+const failureTagOf = (error: { readonly _tag: string; readonly cause?: unknown }) =>
+  error._tag === "SettlementStepError" &&
+  typeof error.cause === "object" &&
+  error.cause !== null &&
+  "_tag" in error.cause &&
+  typeof error.cause._tag === "string"
+    ? error.cause._tag
+    : error._tag;
 
 /** How long a settlement run owns its claim before another may take over. */
 const settlementClaimLifetime = Duration.minutes(10);

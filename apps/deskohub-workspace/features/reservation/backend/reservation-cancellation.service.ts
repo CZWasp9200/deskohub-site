@@ -263,7 +263,8 @@ export class ReservationCancellation extends Context.Service<
             const refusal = getProviderStateRefusal(
               current,
               details,
-              forcedPendingPayment
+              forcedPendingPayment,
+              input.cause
             );
             if (refusal) return yield* refusal;
             const claimed = yield* claimCancellation(
@@ -358,8 +359,9 @@ const getUncancellableReservationError = (
 };
 
 /**
- * Refuses a cancellation Dotypos already made outside Workspace, or one a
- * pending payment blocks unless the operator forced it for an active attempt.
+ * Refuses an operator's cancellation Dotypos already made outside Workspace,
+ * or one a pending payment blocks unless the operator forced it for an
+ * active attempt.
  */
 const getProviderStateRefusal = (
   current: Pick<
@@ -367,10 +369,14 @@ const getProviderStateRefusal = (
     "activePaymentAttemptId" | "paymentState" | "reservationState"
   >,
   details: Pick<WorkspaceReservationDetails, "providerStatus">,
-  forcedPendingPayment: boolean
+  forcedPendingPayment: boolean,
+  cause: RequestedCancellationCause
 ) => {
+  // A customer's recorded withdrawal still ends the contract and marks its
+  // refund when Dotypos already lost the booking; only Dotypos is skipped.
   if (
     details.providerStatus === "CANCELLED" &&
+    cause === "operator" &&
     !["cancelling", "cancellation_failed"].includes(current.reservationState)
   ) {
     return new ReservationCancellationError({

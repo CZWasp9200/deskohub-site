@@ -636,13 +636,14 @@ describe.skipIf(!testDatabase)(
         id: WorkspaceReservationId,
         input: Partial<
           Parameters<
-            typeof WorkspaceReservationRepository.Service.claimAdministrationCancellation
+            typeof WorkspaceReservationRepository.Service.claimRequestedCancellation
           >[0]
         > = {}
       ) =>
         run((repository) =>
-          repository.claimAdministrationCancellation({
+          repository.claimRequestedCancellation({
             id,
+            cause: "operator",
             staleCancellingBefore: at(10),
             ...input,
           })
@@ -747,8 +748,9 @@ describe.skipIf(!testDatabase)(
         });
 
         const error = await runFailure((repository) =>
-          repository.claimAdministrationCancellation({
+          repository.claimRequestedCancellation({
             id,
+            cause: "operator",
             staleCancellingBefore: at(10),
             pendingPaymentCancellation: {
               paymentAttemptId,
@@ -759,7 +761,7 @@ describe.skipIf(!testDatabase)(
 
         expect(error).toBeInstanceOf(WorkspaceReservationStateError);
         expect(error).toMatchObject({
-          operation: "workspaceReservations.claimAdministrationCancellation",
+          operation: "workspaceReservations.claimRequestedCancellation",
           reservationId: id,
         });
         expect(await readReservation(id)).toMatchObject({
@@ -831,7 +833,7 @@ describe.skipIf(!testDatabase)(
         });
 
         await run((repository) =>
-          repository.markAdministrationCancelled({
+          repository.completeRequestedCancellation({
             id,
             cancelledAt: at(6),
             claimedAt,
@@ -868,13 +870,13 @@ describe.skipIf(!testDatabase)(
         };
 
         await run((repository) =>
-          repository.markAdministrationCancellationFailed({
+          repository.markRequestedCancellationFailed({
             id: claimedRevision,
             ...failure,
           })
         );
         const error = await runFailure((repository) =>
-          repository.markAdministrationCancellationFailed({
+          repository.markRequestedCancellationFailed({
             id: laterRevision,
             ...failure,
           })
@@ -898,7 +900,7 @@ describe.skipIf(!testDatabase)(
         const attempt = await insertActivePaymentAttempt(id);
 
         const error = await runFailure((repository) =>
-          repository.markAdministrationCancelled({
+          repository.completeRequestedCancellation({
             id,
             cancelledAt: at(8),
             claimedAt: at(5),
@@ -1004,7 +1006,7 @@ describe.skipIf(!testDatabase)(
         });
         const cancel = (id: WorkspaceReservationId) =>
           run((repository) =>
-            repository.markAdministrationCancelled({
+            repository.completeRequestedCancellation({
               id,
               cancelledAt: at(6),
               claimedAt,
@@ -1041,7 +1043,7 @@ describe.skipIf(!testDatabase)(
           `new.workspace_reservation_id = '${id}'`
         );
         const failure = await runFailure((repository) =>
-          repository.markAdministrationCancelled({
+          repository.completeRequestedCancellation({
             id,
             cancelledAt: at(6),
             claimedAt,

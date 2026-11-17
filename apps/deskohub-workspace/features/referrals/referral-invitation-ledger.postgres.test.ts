@@ -884,8 +884,9 @@ describe.skipIf(!testDatabase)(
         Effect.runPromise(
           Effect.gen(function* () {
             const reservations = yield* WorkspaceReservationRepository;
-            return yield* reservations.claimAdministrationCancellation({
+            return yield* reservations.claimRequestedCancellation({
               id: attempt.workspaceReservationId,
+              cause: "operator",
               staleCancellingBefore: now(),
               pendingPaymentCancellation: {
                 paymentAttemptId: attempt.paymentAttemptId,

@@ -17,6 +17,7 @@ import {
 import type { PaymentState, ReservationState } from "@/db/schema";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import { getConsumerWithdrawalPeriodCutoff } from "@/features/legal/early-performance";
+import type { LegalDocumentKey } from "@/features/legal/legal-document-path";
 import {
   type StoredWorkspaceReservationDetails,
   type WorkspaceReservationId,
@@ -209,15 +210,21 @@ const transientCancellationReasons: ReadonlySet<ReservationCancellationFailureRe
  */
 const getContractAt = (
   evidence: readonly {
+    readonly documentKey: string;
     readonly accepted: boolean;
     readonly acceptedAt: Temporal.Instant;
   }[]
 ) =>
   evidence
-    .filter((event) => event.accepted)
+    .filter(
+      (event) => event.accepted && event.documentKey === termsDocumentKey
+    )
     .map((event) => event.acceptedAt)
     .sort(Temporal.Instant.compare)
     .at(-1);
+
+/** The legal document whose acceptance at payment submit concludes the contract. */
+const termsDocumentKey = "terms-and-conditions" satisfies LegalDocumentKey;
 
 /** Names the reservation for the statement: product, then when it runs. */
 const getReservationContractLabel = (
@@ -358,7 +365,7 @@ export class ReservationWithdrawalAvailability extends Context.Service<
               Effect.tapError((error) =>
                 Effect.logWarning(
                   "Reservation withdrawal availability unavailable"
-                ).pipe(Effect.annotateLogs("cause", error))
+                ).pipe(Effect.annotateLogs({ failureTag: error._tag }))
               ),
               Effect.orElseSucceed(
                 () =>

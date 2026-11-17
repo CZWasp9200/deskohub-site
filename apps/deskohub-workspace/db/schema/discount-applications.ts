@@ -189,7 +189,6 @@ export const discountCodeRedemptions = pgTable(
         and ${t.releaseReason} is null
       ) or (
         ${t.state} = 'released'
-        and ${t.redeemedAt} is null
         and ${t.releasedAt} is not null
         and ${t.releaseReason} is not null
         and btrim(${t.releaseReason}) <> ''
@@ -266,7 +265,6 @@ export const voucherRedemptions = pgTable(
         and ${t.releaseReason} is null
       ) or (
         ${t.state} = 'released'
-        and ${t.redeemedAt} is null
         and ${t.releasedAt} is not null
         and ${t.releaseReason} is not null
         and btrim(${t.releaseReason}) <> ''

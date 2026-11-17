@@ -720,6 +720,41 @@ const lockReferralClaimRelease = Effect.fnUntraced(function* (
  * and referral invitation claims, under `lockReferralClaimRelease`; fails when
  * the attempt can no longer be cancelled.
  */
+/**
+ * Gives back the code, voucher and referral claims of the reservation's paid
+ * attempts after a full withdrawal: the customer paid nothing in the end, so
+ * the promotion counts as unused. Runs under the referral release lock.
+ */
+const releasePaidPromotions = Effect.fnUntraced(function* (
+  reservationId: WorkspaceReservationId,
+  releasedAt: Temporal.Instant
+) {
+  const { db } = yield* WorkspaceTransaction;
+  const paid = yield* db
+    .select({ id: paymentAttempts.id })
+    .from(paymentAttempts)
+    .where(
+      and(
+        eq(paymentAttempts.workspaceReservationId, reservationId),
+        eq(paymentAttempts.state, "paid")
+      )
+    )
+    .orderBy(paymentAttempts.id);
+  for (const { id } of paid) {
+    const release = {
+      paymentAttemptId: id,
+      releasedAt,
+      releaseReason: customerWithdrawalReleaseReason,
+      reversesRedemption: true,
+    };
+    yield* PromotionClaims.release(release);
+    yield* ReferralInvitationLedger.release(release);
+  }
+});
+
+/** Why a full withdrawal gave a paid attempt's promotion claims back. */
+const customerWithdrawalReleaseReason = "customer_withdrawal";
+
 const cancelPendingPaymentAttempt = Effect.fnUntraced(function* (
   reservationId: WorkspaceReservationId,
   pendingPaymentCancellation: PendingPaymentCancellation,
