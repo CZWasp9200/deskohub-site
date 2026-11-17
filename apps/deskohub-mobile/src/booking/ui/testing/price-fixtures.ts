@@ -5,7 +5,8 @@ import type {
   CustomerCheckoutSummaryItem,
   Money,
 } from "@deskohub/workspace-customer-api";
-import { czk } from "../../testing/sample-booking-catalog";
+import type { OfficeOffering } from "../../selection/office-selection";
+import { czk, sampleBookableDates } from "../../testing/sample-booking-catalog";
 
 /**
  * Synthetic pricing responses for tests and the booking gallery, shaped as
@@ -21,7 +22,11 @@ export interface PriceFixture {
 }
 
 const calendarDiscount = (crowns: number): CustomerCheckoutSummaryDiscount => ({
-  discount: { id: "calendar-sale-2026-11", label: "Calendar discount" },
+  discount: {
+    id: "calendar-sale-2026-11",
+    label: "Calendar discount",
+    adjustment: { kind: "percentage", basisPoints: 2000 },
+  },
   amount: czk(crowns),
 });
 
@@ -88,21 +93,37 @@ export const reservedDeskWithWorkstation: PriceFixture = {
   ),
 };
 
+const meetingRoomHourSelection: CustomerBookingSelection = {
+  family: "meeting-room",
+  date: "2026-11-26",
+  startTime: "14:00",
+  duration: "hour:1",
+};
+
+const meetingRoomHourLine = {
+  key: "product:meeting-room:hour:1",
+  amount: czk(280),
+  originalAmount: czk(350),
+  discounts: [calendarDiscount(70)],
+} as const satisfies CustomerCheckoutSummaryItem;
+
 /** The meeting room for an hour from 14:00 with a calendar discount: 350 − 70 = 280. */
 export const meetingRoomHour: PriceFixture = {
-  selection: {
-    family: "meeting-room",
-    date: "2026-11-26",
-    startTime: "14:00",
-    duration: "hour:1",
-  },
+  selection: meetingRoomHourSelection,
+  summary: summaryOf([meetingRoomHourLine], czk(280)),
+};
+
+/**
+ * The same hour with early setup: in from 13:45 Prague time, free, so the
+ * total stays 280.
+ */
+export const meetingRoomHourEarlySetup: PriceFixture = {
+  selection: meetingRoomHourSelection,
   summary: summaryOf(
     [
       {
-        key: "product:meeting-room:hour:1",
-        amount: czk(280),
-        originalAmount: czk(350),
-        discounts: [calendarDiscount(70)],
+        ...meetingRoomHourLine,
+        earlySetup: { startsAt: "2026-11-26T12:45:00Z", amount: czk(0) },
       },
     ],
     czk(280)
@@ -127,9 +148,11 @@ const officeParts = {
   accessAmount: czk(1590),
   seatAmount: czk(945),
   seatsAmount: czk(5670),
+  dailyAccessRate: czk(530),
+  dailySeatRate: czk(315),
 } as const;
 
-/** A private office for 3 days with 6 seats: 1,590 + 6 × 945 = 7,260. */
+/** A private office for 3 days with 6 seats: 3 × 530 + 6 × 3 × 315 = 7,260. */
 export const officeSixSeats: PriceFixture = {
   selection: officeSelection,
   summary: summaryOf([{ ...officeParts, amount: czk(7260) }], czk(7260)),
@@ -146,7 +169,11 @@ export const officeSixSeatsDiscounted: PriceFixture = {
         originalAmount: czk(7260),
         discounts: [
           {
-            discount: { id: "office-week-10", label: "Office discount" },
+            discount: {
+              id: "office-week-10",
+              label: "Office discount",
+              adjustment: { kind: "percentage", basisPoints: 1000 },
+            },
             amount: czk(726),
           },
         ],
@@ -156,11 +183,44 @@ export const officeSixSeatsDiscounted: PriceFixture = {
   ),
 };
 
+/**
+ * The office's catalog entry while a 10% calendar sale runs: a day's access
+ * (530) and one seat (315) come to 845, less 84.50, so its from-price is
+ * 760.50.
+ */
+export const officeOnSale: OfficeOffering = {
+  family: "office",
+  name: "Private office",
+  description: "",
+  usage: "",
+  price: czk(530),
+  seatPrice: czk(315),
+  maximumSeats: 6,
+  maximumDurationHours: 672,
+  bookableDates: sampleBookableDates("2026-11-17", "office"),
+  advertisedPrice: {
+    price: czk(760.5),
+    discount: czk(84.5),
+    saleLastDay: "2026-11-30",
+    discounts: [
+      {
+        discount: {
+          id: "calendar-sale-2026-11",
+          label: "Calendar discount",
+          adjustment: { kind: "percentage", basisPoints: 1000 },
+        },
+        amount: czk(84.5),
+      },
+    ],
+  },
+};
+
 /** Every fixture by name. */
 export const priceFixtures = {
   openSpaceWithCoffee,
   reservedDeskWithWorkstation,
   meetingRoomHour,
+  meetingRoomHourEarlySetup,
   officeSixSeats,
   officeSixSeatsDiscounted,
 } as const satisfies Record<string, PriceFixture>;

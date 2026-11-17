@@ -31,9 +31,14 @@ const { default: CircleAlert } = await import(
 const { czk } = await import("../testing/sample-booking-catalog");
 const { BookingBar, claimsSwipe, swipeIntent } = await import("./booking-bar");
 const { priceBreakdown } = await import("./price-breakdown");
-const { describePriceLine } = await import("./price-line-description");
+const { describeOfficePriceLine, describePriceLine } = await import(
+  "./price-line-description"
+);
 const { PriceLines } = await import("./price-lines");
-const { openSpaceWithCoffee } = await import("./testing/price-fixtures");
+const { officeFromPrice } = await import("../family/office-booking-model");
+const { officeOnSale, openSpaceWithCoffee } = await import(
+  "./testing/price-fixtures"
+);
 
 type BarProps = ComponentProps<typeof BookingBar>;
 type Price = NonNullable<BarProps["summary"]>["price"];
@@ -220,6 +225,37 @@ describe("BookingBar", () => {
     const host = hostTree(tree);
     expect(chevronOf(host)?.props["aria-expanded"]).toBe(true);
     expect(findAll(host, "Text").map(textOf)).toContain(unit);
+  });
+
+  test("an office from-price during a sale opens to its base lines, then the sale's discount line", () => {
+    const breakdown = officeFromPrice(officeOnSale);
+    if (breakdown._tag === "None") throw new Error("Expected sale lines");
+    const fromPrice: Price = {
+      kind: "from",
+      amount: officeOnSale.advertisedPrice.price,
+      unit,
+      itemized: {
+        breakdown: breakdown.value,
+        describeLine: describeOfficePriceLine(locale, officeOnSale.name),
+      },
+    };
+    const tree = elementTree(
+      BookingBar,
+      props({
+        summary: { title: "Private office", price: fromPrice },
+        initiallyOpen: true,
+      }),
+      withToasts
+    );
+    const lines = find(tree, PriceLines)?.props.breakdown.lines ?? [];
+    expect(lines.map((line) => line._tag)).toEqual([
+      "Charge",
+      "Charge",
+      "Reduction",
+    ]);
+    expect(findAll(hostTree(tree), "Text").map(textOf)).toContain(
+      formatMoney(officeOnSale.advertisedPrice.price, locale)
+    );
   });
 
   test("updating shows the indicator in an announced status, and no total", () => {

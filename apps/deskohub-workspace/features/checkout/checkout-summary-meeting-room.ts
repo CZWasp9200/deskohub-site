@@ -14,9 +14,26 @@ import {
   type WorkspaceProductIdentity,
 } from "@/features/checkout/product-identity";
 import type { MeetingRoomReservationQuote } from "@/features/checkout/reservation-quote-meeting-room";
+import {
+  getMeetingRoomSetupStartsAt,
+  type MeetingRoomEarlySetup,
+} from "@/features/reservation/meeting-room-early-setup";
+import { moneyWithValue } from "@/shared/money/money";
+import type { Instant } from "@/shared/utils/temporal";
 
+/** The booking a meeting-room summary lists its early setup from. */
+type MeetingRoomSummaryReservation = MeetingRoomEarlySetup & {
+  readonly startsAt: Instant;
+};
+
+/**
+ * A meeting-room booking's itemized price. Given the booking, the room line
+ * also says when an early-setup customer may come in, at no cost; an
+ * advertised price has no booked start and lists the room alone.
+ */
 export const getMeetingRoomCheckoutSummary = (
-  quote: MeetingRoomReservationQuote
+  quote: MeetingRoomReservationQuote,
+  reservation?: MeetingRoomSummaryReservation
 ): CheckoutSummary => {
   const [item] = quote.items;
   const product: WorkspaceProductIdentity = {
@@ -24,6 +41,12 @@ export const getMeetingRoomCheckoutSummary = (
     duration: item.duration,
   };
   const key = `product:${getWorkspaceProductKey(product)}` as const;
+  const earlySetup = reservation?.earlySetup === true && {
+    earlySetup: {
+      startsAt: getMeetingRoomSetupStartsAt(reservation.startsAt),
+      amount: moneyWithValue(0, quote.payment.expectedPrice),
+    },
+  };
   const summaryDiscounts = quote.payment.discounts.map(({ amount, discount }) =>
     checkoutSummaryDiscountSchema.make({ amount, discount })
   );
@@ -32,6 +55,7 @@ export const getMeetingRoomCheckoutSummary = (
       ? meetingRoomCheckoutSummaryDiscountedProductItemSchema.make({
           key,
           product,
+          ...earlySetup,
           amount: quote.payment.expectedPrice,
           originalAmount: quote.payment.undiscountedPrice,
           discounts: [summaryDiscounts[0]!, ...summaryDiscounts.slice(1)],
@@ -39,6 +63,7 @@ export const getMeetingRoomCheckoutSummary = (
       : meetingRoomCheckoutSummaryProductItemSchema.make({
           key,
           product,
+          ...earlySetup,
           amount: quote.payment.undiscountedPrice,
         });
   const orderSection = checkoutSummaryOrderSectionSchema.make({

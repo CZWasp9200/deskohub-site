@@ -5,11 +5,25 @@ import {
   checkoutSummaryProductKeyFilter,
 } from "@/features/checkout/checkout-summary-product-item";
 import { workspaceMeetingRoomProductIdentitySchema } from "@/features/reservation/meeting-room-reservation";
-import { positiveMoneyCodec } from "@/shared/money/money";
+import {
+  nonNegativeMoneyCodec,
+  positiveMoneyCodec,
+} from "@/shared/money/money";
+import { instantStringSchema } from "@/shared/utils/temporal";
 
 const meetingRoomCheckoutSummaryProductItemBaseSchema = Schema.Struct({
   ...checkoutSummaryProductItemBaseSchema.fields,
   product: workspaceMeetingRoomProductIdentitySchema,
+  /**
+   * The customer comes early to set up: when they may come in, and its
+   * price, which is nothing.
+   */
+  earlySetup: Schema.optionalKey(
+    Schema.Struct({
+      startsAt: instantStringSchema,
+      amount: nonNegativeMoneyCodec,
+    })
+  ),
 });
 
 export const meetingRoomCheckoutSummaryProductItemSchema = Schema.Struct({

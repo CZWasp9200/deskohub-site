@@ -67,6 +67,7 @@ import type { CustomerBookingEndpoint } from "./customer-booking-endpoint";
 import {
   answerBookingSelectionFailure,
   toBookingSelectionInput,
+  withEarlySetup,
 } from "./customer-booking-selection";
 import {
   CheckoutServicesUnavailable,
@@ -231,23 +232,6 @@ const createCheckout = Effect.fn("customerApi.createCheckout")(function* (
 
   return yield* toCheckoutStart(prepared);
 });
-
-/**
- * Adds the early setup a meeting-room booking asked for, at no cost, as
- * `start_reservation` does. Other families offer none.
- */
-const withEarlySetup = (
-  selection: QuoteSelection,
-  earlySetup: boolean | undefined
-): Effect.Effect<
-  QuoteSelection["reservation"],
-  CustomerBookingSelectionInvalid
-> => {
-  if (earlySetup !== true) return Effect.succeed(selection.reservation);
-  return selection.reservation.kind === "meeting-room"
-    ? Effect.succeed({ ...selection.reservation, earlySetup: true })
-    : Effect.fail(new CustomerBookingSelectionInvalid({ field: "earlySetup" }));
-};
 
 /**
  * The booking form's input for the checkout: the account's own booking
