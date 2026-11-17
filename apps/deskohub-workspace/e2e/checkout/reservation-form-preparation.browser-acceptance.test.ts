@@ -1055,26 +1055,30 @@ describe("detached reservation preparation in Chromium", () => {
             event.preventDefault();
             window.submitEvents++;
           });
-          setTimeout(() => {
-            document.querySelector("#reservation-submit").disabled = false;
-          }, 1_500);
         </script>
       `;
       const currentPage = getPage();
       await currentPage.setContent(html);
-      await expect(
-        currentPage.evaluate(prepareReservationForm, {
-          preparation: withWaits(preparedReservationForm, 1_500, 4_000),
-          detachInto: "detachedPreparation",
-        })
-      ).resolves.toBe(true);
-      await expect(
-        currentPage.evaluate(
-          readReservationPreparationState,
-          "detachedPreparation"
-        )
-      ).resolves.toEqual({ status: "pending" });
+      // The test enables Submit itself once it has seen pending: Bun's
+      // `expect(promise).resolves` can settle seconds late, so a page timer
+      // raced the pending read. The deadline only bounds a broken run.
+      const started = await currentPage.evaluate(prepareReservationForm, {
+        preparation: withWaits(preparedReservationForm, 1_500, 10_000),
+        detachInto: "detachedPreparation",
+      });
+      const pending = await currentPage.evaluate(
+        readReservationPreparationState,
+        "detachedPreparation"
+      );
+      expect({ started, pending }).toEqual({
+        started: true,
+        pending: { status: "pending" },
+      });
 
+      await currentPage.evaluate(() => {
+        const submit = document.querySelector("#reservation-submit");
+        if (submit instanceof HTMLButtonElement) submit.disabled = false;
+      });
       const becameReady = await currentPage
         .waitForFunction(
           (key) => {
@@ -1096,16 +1100,14 @@ describe("detached reservation preparation in Chromium", () => {
         readReservationPreparationState,
         "detachedPreparation"
       );
-      expect({ becameReady, state }).toEqual({
+      const submitEvents = await currentPage.evaluate(
+        () => (window as typeof window & { submitEvents: number }).submitEvents
+      );
+      expect({ becameReady, state, submitEvents }).toEqual({
         becameReady: true,
         state: { status: "ready" },
+        submitEvents: 0,
       });
-      await expect(
-        currentPage.evaluate(
-          () =>
-            (window as typeof window & { submitEvents: number }).submitEvents
-        )
-      ).resolves.toBe(0);
     }
   );
 
