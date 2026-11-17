@@ -1,7 +1,4 @@
-import type {
-  CustomerCheckoutSummary,
-  Money,
-} from "@deskohub/workspace-customer-api";
+import type { Money } from "@deskohub/workspace-customer-api";
 import { RegistryProvider } from "@effect/atom-react";
 import { Option } from "effect";
 import { Atom } from "effect/unstable/reactivity";
@@ -16,12 +13,10 @@ import type { AppLocale } from "../../../i18n/app-locale";
 import { useAppLocale } from "../../../i18n/locale-context";
 import { m } from "../../../i18n/messages";
 import { AppBar } from "../../../ui/app-bar";
-import { Card } from "../../../ui/card";
 import { CheckboxRow } from "../../../ui/checkbox";
 import { FocusedStatusBar } from "../../../ui/focused-status-bar";
 import { useSample } from "../../../ui/gallery/gallery-kit";
 import { Notice } from "../../../ui/notice";
-import { Text } from "../../../ui/text";
 import { color, radius, space } from "../../../ui/tokens";
 import {
   type DetailsDraft,
@@ -67,7 +62,6 @@ import { MonthCalendar } from "../month-calendar";
 import type { CalendarRange } from "../month-calendar-model";
 import { priceBreakdown } from "../price-breakdown";
 import { describePriceLine } from "../price-line-description";
-import { PriceLines } from "../price-lines";
 import {
   meetingRoomHour,
   officeSixSeats,
@@ -110,48 +104,6 @@ const officeDates: DateChoice = {
 const officeRange: CalendarRange = { start: "2026-11-23", end: "2026-11-25" };
 const chosenDay: PragueDate = "2026-11-26";
 const fullDay: PragueDate = "2026-11-20";
-
-const hold = {
-  paying: { secondsLeft: 509, phase: "held" },
-} as const satisfies Record<string, HoldStatus>;
-
-/** Board 32's applied code: 10% off the desk after the calendar discount. */
-const openSpaceWithCode: PriceFixture = (() => {
-  const total = czk(258.8);
-  const summary: CustomerCheckoutSummary = {
-    sections: [
-      {
-        key: "order",
-        items: [
-          {
-            key: "product:cowork:open-space",
-            amount: czk(208.8),
-            originalAmount: czk(290),
-            discounts: [
-              {
-                discount: {
-                  id: "calendar-sale-2026-11",
-                  label: "Calendar discount",
-                },
-                amount: czk(58),
-              },
-              {
-                discount: { id: "code-welcome10", label: "Code WELCOME10" },
-                amount: czk(23.2),
-              },
-            ],
-          },
-          { key: "addon:coffee", amount: czk(50) },
-        ],
-        total,
-      },
-      { key: "total", items: [{ key: "total:final", amount: total }], total },
-    ],
-    total,
-    vatStatus: "not-vat-payer",
-  };
-  return { selection: openSpaceWithCoffee.selection, summary };
-})();
 
 const quoted = (
   { selection, summary }: PriceFixture,
@@ -230,23 +182,6 @@ function FlowScreen({
       {bar}
       {overlay}
     </SafeAreaView>
-  );
-}
-
-/** Screen content another ticket builds, at the board's height. */
-function Placeholder({
-  label,
-  height,
-}: {
-  readonly label: string;
-  readonly height: number;
-}) {
-  return (
-    <View style={[styles.placeholder, { minHeight: height }]}>
-      <Text variant="bodySmall" tone="muted">
-        {label}
-      </Text>
-    </View>
   );
 }
 
@@ -1182,71 +1117,6 @@ function Details({
 
 // ------------------------------------------------------------ boards 32–35: review and pay
 
-/** The review's price card (`.bk-card` with `.bk-li` rows and the total). */
-function PriceCard({
-  fixture,
-  was,
-  locale,
-}: {
-  readonly fixture: PriceFixture;
-  readonly was?: Money;
-  readonly locale: AppLocale;
-}) {
-  const sample = useSample();
-  return (
-    // The board's price card (`.bk-card`) is inset 16, not the card's 20.
-    <Card padding="none">
-      <View style={styles.priceCard}>
-        <PriceLines
-          breakdown={priceBreakdown(fixture.summary)}
-          describeLine={describePriceLine(fixture.selection, locale)}
-          locale={locale}
-          variant="card"
-          total={{ label: sample("Total"), was }}
-        />
-      </View>
-    </Card>
-  );
-}
-
-function PayBusy({ onBack }: { readonly onBack: () => void }) {
-  const locale = useAppLocale();
-  const sample = useSample();
-  return (
-    <FlowScreen
-      title={sample("Review and pay")}
-      step="pay"
-      locale={locale}
-      onBack={onBack}
-      hold={hold.paying}
-      at="end"
-      bar={
-        <BookingBar
-          locale={locale}
-          action={next(sample("Opening payment…"), {
-            busy: true,
-            disabled: true,
-          })}
-        />
-      }
-    >
-      <BookingSectionHeading
-        title={sample("Your booking")}
-        aside={sample("Change")}
-        first
-      />
-      <Placeholder label="Booking summary (screen ticket)" height={196} />
-      <BookingSectionHeading title={sample("Price")} />
-      <PriceCard fixture={openSpaceWithCode} was={czk(282)} locale={locale} />
-      <Placeholder
-        label="Code applied, with Remove (screen ticket)"
-        height={64}
-      />
-      <Placeholder label="Agreement, ticked (screen ticket)" height={120} />
-    </FlowScreen>
-  );
-}
-
 // ------------------------------------------------------------ the frame list
 
 /** Every proposed frame this ticket's pieces appear in, in board order. */
@@ -1404,12 +1274,6 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     Screen: ({ onBack }) => <Details onBack={onBack} state="holding" />,
   },
   ...reviewFrames,
-  {
-    key: "pay-busy",
-    board: "35",
-    state: "Leaving the app",
-    Screen: PayBusy,
-  },
 ];
 
 const styles = StyleSheet.create({

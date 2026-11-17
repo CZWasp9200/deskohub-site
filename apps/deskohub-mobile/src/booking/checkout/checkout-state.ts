@@ -36,6 +36,7 @@ export interface CheckoutStartInput {
   readonly checkoutSessionId: string;
   readonly locale: CustomerLocale;
   readonly selection: CustomerBookingSelection;
+  /** Empty for a payment retry, which reviews an existing order and never creates one. */
   readonly advertisedPriceToken: string;
   /** Meeting room only. */
   readonly earlySetup?: boolean;
@@ -193,10 +194,21 @@ export type ReviewNotice = Data.TaggedEnum<{
 }>;
 export const ReviewNotice = Data.taggedEnum<ReviewNotice>();
 
+/**
+ * What the review pays for: a new booking, with who books and who is
+ * invoiced as the details step submitted them, or an order whose payment
+ * failed, was cancelled or expired, paid again with its details kept (the
+ * server keeps them; the app isn't told them).
+ */
+export type ReviewKind = Data.TaggedEnum<{
+  NewBooking: { readonly details: CheckoutDetails };
+  PaymentRetry: Record<never, never>;
+}>;
+export const ReviewKind = Data.taggedEnum<ReviewKind>();
+
 interface ReviewFields {
   readonly flow: CheckoutFlow;
-  /** Who books and who is invoiced, as the details step submitted them. */
-  readonly details: CheckoutDetails;
+  readonly kind: ReviewKind;
   readonly checkout: HeldCheckout;
   /**
    * The total shown before the price changed, while a price review waits;
@@ -249,6 +261,12 @@ export type CheckoutState = Data.TaggedEnum<{
     readonly notice: Option.Option<CheckoutRetryKind>;
   };
   Paying: {
+    /**
+     * The review Pay was pressed on, its submit still pending: the screen
+     * keeps showing it, Pay saying the page is opening, until the payment
+     * page is up and the customer comes back.
+     */
+    readonly review: ReviewState;
     readonly flow: CheckoutFlow;
     readonly orderId: string;
     readonly paymentUrl: string;

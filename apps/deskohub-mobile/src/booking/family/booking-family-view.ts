@@ -143,6 +143,7 @@ export const checkoutRequestOf = ({
         Option.map(
           Option.filter(quote, ({ family }) => family === current.family),
           ({ advertisedPriceToken, summary, regularPrice }) => ({
+            _tag: "Booking" as const,
             locale,
             selection: current,
             advertisedPriceToken,

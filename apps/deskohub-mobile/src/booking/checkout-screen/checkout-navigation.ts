@@ -3,6 +3,7 @@ import { Option } from "effect";
 import type { ImperativeRouter } from "expo-router";
 import {
   bookFamilyHref,
+  orderStatusHref,
   paymentStatusHref,
   reservationsHref,
 } from "../booking-routes";
@@ -21,27 +22,36 @@ import type { ReviewState } from "../checkout/checkout-state";
 export type CheckoutDestination =
   | {
       readonly _tag: "Status";
-      readonly href: ReturnType<typeof paymentStatusHref>;
+      readonly href:
+        | ReturnType<typeof paymentStatusHref>
+        | ReturnType<typeof orderStatusHref>;
     }
   | {
       readonly _tag: "FamilyScreen";
       readonly href: ReturnType<typeof bookFamilyHref>;
     };
 
-/** The screen a checkout state leaves to, if it's finished here. */
+/**
+ * The screen a checkout state leaves to, if it's finished here. A payment
+ * retry (`retriedOrderId`) that has to start over goes back to its order's
+ * ticket, which offers the retry again, never to a new booking.
+ */
 export const checkoutDestination = (
   view: CheckoutFlowView,
-  family: CustomerBookingSelection["family"]
+  family: CustomerBookingSelection["family"],
+  retriedOrderId?: string
 ): CheckoutDestination | undefined => {
   if (view._tag === "Starting") return undefined;
   switch (view.state._tag) {
     case "Done":
       return { _tag: "Status", href: paymentStatusHref(view.state.orderId) };
     case "Restart":
-      return {
-        _tag: "FamilyScreen",
-        href: bookFamilyHref(family, view.state.reason),
-      };
+      return retriedOrderId === undefined
+        ? {
+            _tag: "FamilyScreen",
+            href: bookFamilyHref(family, view.state.reason),
+          }
+        : { _tag: "Status", href: orderStatusHref(retriedOrderId) };
     default:
       return undefined;
   }

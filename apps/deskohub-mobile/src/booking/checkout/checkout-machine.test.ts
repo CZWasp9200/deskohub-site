@@ -8,7 +8,12 @@ import type {
 import { Option } from "effect";
 import { RememberedReferralUpdate } from "../remembered-referral";
 import { BookingProblem } from "./booking-problem";
-import { canPay, startCheckout, step } from "./checkout-machine";
+import {
+  canPay,
+  startCheckout,
+  startPaymentRetry,
+  step,
+} from "./checkout-machine";
 import {
   type CheckoutCommand,
   CheckoutEvent,
@@ -16,6 +21,8 @@ import {
   type CheckoutStep,
   CodeStatus,
   LegalDocuments,
+  type PayingState,
+  ReviewKind,
   ReviewNotice,
   type ReviewState,
 } from "./checkout-state";
@@ -194,6 +201,58 @@ const consented = (created: CustomerCheckout = checkout()) => {
 };
 
 const paid = (state: CheckoutState) => run(state, CheckoutEvent.Pay());
+
+describe("payment retry", () => {
+  test.each(["ready", "price_review"] as const)(
+    "an order paid again (%s) opens at its review, the terms loading and unticked",
+    (status) => {
+      const started = startPaymentRetry(startInput, checkout({ status }));
+      expect(started.state).toMatchObject({
+        _tag: "Review",
+        kind: ReviewKind.PaymentRetry(),
+        consent: Option.none(),
+      });
+      expect(tags(started)).toEqual(["LoadLegalDocuments"]);
+    }
+  );
+
+  test("a retry pays through the same submit, to the order's status", () => {
+    const started = startPaymentRetry(startInput, checkout());
+    const agreed = run(
+      started.state,
+      CheckoutEvent.LegalDocumentsLoaded({
+        operationId: lastOperation(started, "LoadLegalDocuments"),
+        documents,
+      }),
+      CheckoutEvent.ToggleConsent({ accepted: true })
+    );
+    const paying = paid(agreed.state);
+    expect(tags(paying)).toEqual(["SubmitCheckout"]);
+    const opened = run(
+      paying.state,
+      CheckoutEvent.Submitted({
+        operationId: lastOperation(paying, "SubmitCheckout"),
+        submission: {
+          status: "payment_required",
+          orderId: "order-1",
+          paymentUrl: "https://gateway.example.test/pay/2",
+          statusUrl: "deskohub://reservations/order-1?after=payment",
+        },
+      })
+    );
+    const done = step(
+      opened.state,
+      CheckoutEvent.PaymentEnded({
+        operationId: lastOperation(opened, "OpenPayment"),
+        result: "returned",
+      })
+    );
+    expect(done.state).toEqual({
+      _tag: "Done",
+      orderId: "order-1",
+    } as CheckoutState);
+  });
+});
 
 describe("details", () => {
   test("starts on the details form with nothing sent", () => {
@@ -655,6 +714,28 @@ describe("review", () => {
       } as CheckoutState);
     }
   );
+
+  test("while the payment page opens, the review it left stays, its submit still pending", () => {
+    const paying = paid(consented().state);
+    const opened = run(
+      paying.state,
+      CheckoutEvent.Submitted({
+        operationId: lastOperation(paying, "SubmitCheckout"),
+        submission: {
+          status: "payment_required",
+          orderId: "order-1",
+          paymentUrl: "https://gateway.example.test/pay/1",
+          statusUrl: "deskohub://reservations/order-1",
+        },
+      })
+    );
+    expect(opened.state._tag).toBe("Paying");
+    const review = (opened.state as PayingState).review;
+    expect(review).toBe(paying.state as ReviewState);
+    expect(Option.map(review.pending, ({ _tag }) => _tag)).toEqual(
+      Option.some("SubmitCheckout")
+    );
+  });
 
   test("a payment page that can't open can be opened again", () => {
     const paying = paid(consented().state);

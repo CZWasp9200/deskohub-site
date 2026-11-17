@@ -99,6 +99,24 @@ describe("app route tree", () => {
     expect(layouts()).toContain("(account)/(tabs)");
   });
 
+  test("a paid booking's status sits in the Reservations tab, outside the book stack its checkout lives in", () => {
+    // Back from the status (paid, or paid again from its ticket) can only
+    // reach the Reservations list: the checkout's stack is dismissed first.
+    const matching = (path: string) =>
+      screens()
+        .map((segments) => segments.join("/"))
+        .filter((screen) =>
+          new RegExp(
+            `^${screenPathPattern(screen.split("/")).replace(/\[[^\]/]+\]/g, "[^/]+")}$`
+          ).test(path)
+        );
+    const status = paymentStatusHref("order-1").split("?")[0] ?? "";
+    expect(matching(status)).toEqual([
+      "(account)/(tabs)/reservations/[orderId]/index",
+    ]);
+    expect(matching(bookCheckoutHref)).toEqual(["(account)/book/checkout"]);
+  });
+
   test("the Book tab holds only the choice of spaces; booking opens above the tabs", () => {
     const screensIn = (prefix: string) =>
       screens()

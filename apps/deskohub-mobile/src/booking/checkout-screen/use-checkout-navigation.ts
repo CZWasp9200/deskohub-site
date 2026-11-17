@@ -17,13 +17,16 @@ import {
 export function useCheckoutNavigation(
   view: CheckoutFlowView,
   family: CustomerBookingSelection["family"],
-  waits: boolean
+  waits: boolean,
+  retriedOrderId?: string
 ) {
   const router = useRouter();
   const navigation = useNavigation();
   const focused = useIsFocused();
   const handled = useRef<CheckoutDestinationHref | undefined>(undefined);
-  const destination = waits ? undefined : checkoutDestination(view, family);
+  const destination = waits
+    ? undefined
+    : checkoutDestination(view, family, retriedOrderId);
   useEffect(() => {
     const decision = navigationDecision(
       destination,

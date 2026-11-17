@@ -1,4 +1,5 @@
 import type {
+  CustomerBookedSelection,
   CustomerOrderState,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
@@ -63,6 +64,7 @@ import { focusGained, focusLost, orderStatusAtoms } from "./order-status-state";
 import { orderTicketView, reservationOfOrderAtom } from "./order-ticket-view";
 import { canRefreshManually, type StatusRefreshState } from "./status-refresh";
 import { AutomaticRefresh, type StatusVisit } from "./status-refresh-rules";
+import { usePaymentRecovery } from "./use-payment-recovery";
 
 /** Opens the site's contact form. */
 export const openContactPage = () => {
@@ -184,18 +186,25 @@ function ContactLink() {
 function TicketStub({
   model,
   order,
+  booked,
   accessHint,
   checking,
   onCheckAgain,
   paymentPageAction,
+  retryPaymentAction,
 }: {
   readonly model: BookingTicketModel;
   readonly order: CustomerOrderState;
+  /** What the order books, for Book again. */
+  readonly booked: CustomerBookedSelection | undefined;
   readonly accessHint: string | undefined;
   /** A read the customer asked for is under way. */
   readonly checking: boolean;
   readonly onCheckAgain: () => void;
+  /** Opens the order's payment page again. */
   readonly paymentPageAction: ReactNode;
+  /** Pays the order again, its details kept. */
+  readonly retryPaymentAction: ReactNode;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
@@ -232,10 +241,12 @@ function TicketStub({
           <Button
             icon={RotateCcw}
             label={m.reservations_book_again({}, { locale })}
-            onPress={() => router.push(bookAgainHref(order.bookedSelection))}
+            onPress={() => router.push(bookAgainHref(booked))}
           />
         </>
       );
+    case "RetryPayment":
+      return retryPaymentAction;
     case "Steps":
       return (
         <>
@@ -259,8 +270,6 @@ function TicketStub({
                     onPress={openContactPage}
                   />
                 ),
-                // Reopening the payment page is the payment recovery
-                // tickets' (#1253 over #1243); until then the slot is empty.
                 "payment-page": paymentPageAction,
               })[action],
           })}
@@ -272,14 +281,30 @@ function TicketStub({
 function OrderTicket({
   state,
   onCheckAgain,
+  onPaymentPageLeft,
 }: {
   readonly state: StatusRefreshState;
   readonly onCheckAgain: () => void;
+  /** The customer came back from the payment page: follow the payment. */
+  readonly onPaymentPageLeft: () => void;
 }) {
   const locale = useAppLocale();
   const { order } = state;
-  const model = bookingTicketOf(order.status, orderCheckingOf(state.automatic));
   const reservation = useAtomValue(reservationOfOrderAtom(order.orderId));
+  // A failed payment's order has released its hold and no longer says what
+  // it books; its reservation in the list still does.
+  const booked =
+    order.bookedSelection ??
+    Option.getOrUndefined(reservation)?.bookedSelection;
+  const recovery = usePaymentRecovery(order, booked, {
+    onCheckAgain,
+    onPaymentPageLeft,
+  });
+  const model = bookingTicketOf(
+    order.status,
+    orderCheckingOf(state.automatic),
+    recovery.offer
+  );
   const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
   const view = orderTicketView({
     order,
@@ -297,15 +322,18 @@ function OrderTicket({
       : badge.label,
     "polite"
   );
-  // The last read's own failure; a 429 reads as "temporarily limited".
-  const failureMessage = Option.getOrUndefined(
-    Option.map(
-      state.failure,
-      (failure) =>
-        sharedViewErrorMessage(failure, locale) ??
-        m.account_error_unexpected({}, { locale })
-    )
-  );
+  // A payment action's answer, else the last read's own failure; a 429
+  // reads as "temporarily limited".
+  const failureMessage =
+    recovery.notice ??
+    Option.getOrUndefined(
+      Option.map(
+        state.failure,
+        (failure) =>
+          sharedViewErrorMessage(failure, locale) ??
+          m.account_error_unexpected({}, { locale })
+      )
+    );
   return (
     <View style={styles.stack}>
       {/* Kept mounted so assistive tech announces each change. */}
@@ -322,10 +350,27 @@ function OrderTicket({
         <TicketStub
           model={model}
           order={order}
+          booked={booked}
           accessHint={view.accessHint}
           checking={state.reading}
           onCheckAgain={onCheckAgain}
-          paymentPageAction={null}
+          paymentPageAction={
+            <Button
+              label={m.booking_checkout_payment_reopen({}, { locale })}
+              busy={recovery.reopening}
+              disabled={recovery.busy}
+              onPress={recovery.reopen}
+            />
+          }
+          retryPaymentAction={
+            <Button
+              icon={RotateCcw}
+              label={m.booking_checkout_retry_pay({}, { locale })}
+              busy={recovery.retrying}
+              disabled={recovery.busy}
+              onPress={recovery.retry}
+            />
+          }
         />
       </BookingTicket>
       {model.followUp === "more-actions" && (
@@ -439,7 +484,13 @@ export function OrderStatusScreen({
             />
           }
         >
-          {(state) => <OrderTicket state={state} onCheckAgain={refresh} />}
+          {(state) => (
+            <OrderTicket
+              state={state}
+              onCheckAgain={refresh}
+              onPaymentPageLeft={() => setFocus(focusGained("after-payment"))}
+            />
+          )}
         </AsyncView>
       )}
     </ScrollScreen>
