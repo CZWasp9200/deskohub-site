@@ -1,5 +1,4 @@
 import {
-  Array as Arr,
   Context,
   Data,
   Duration,
@@ -345,7 +344,7 @@ export class WithdrawalService extends Context.Service<
           const unfinished = withdrawalSettlementSteps.filter(
             (step) => !done.has(step)
           );
-          if (!Arr.isReadonlyArrayNonEmpty(unfinished)) {
+          if (unfinished.length === 0) {
             yield* repository.markSettled({
               ...claim,
               settledAt: Temporal.Now.instant(),
@@ -354,16 +353,18 @@ export class WithdrawalService extends Context.Service<
           }
           yield* repository.deferSettlement({
             ...claim,
-            nextSettlementAt: Arr.min(
-              Arr.map(
-                unfinished,
+            nextSettlementAt: unfinished
+              .map(
                 (step) =>
                   retriesScheduled.get(step) ??
                   withdrawal.stepRetries[step].retryAt ??
                   startedAt
+              )
+              .reduce((earliest, retryAt) =>
+                Temporal.Instant.compare(retryAt, earliest) < 0
+                  ? retryAt
+                  : earliest
               ),
-              Temporal.Instant.compare
-            ),
           });
           return retriesScheduled.size > 0
             ? ("failed" as const)
