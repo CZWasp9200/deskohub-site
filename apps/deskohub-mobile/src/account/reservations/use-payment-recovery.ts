@@ -1,4 +1,7 @@
-import type { CustomerOrderState } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerBookedSelection,
+  CustomerOrderState,
+} from "@deskohub/workspace-customer-api";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { Cause, Exit, Option } from "effect";
 import { useRouter } from "expo-router";
@@ -27,6 +30,8 @@ import {
  */
 export const usePaymentRecovery = (
   order: CustomerOrderState,
+  /** What the order books, from the order or its reservation in the list. */
+  booked: CustomerBookedSelection | undefined,
   {
     onCheckAgain,
     onPaymentPageLeft,
@@ -76,7 +81,6 @@ export const usePaymentRecovery = (
 
   const retry = async () => {
     setNotice(undefined);
-    const booked = order.bookedSelection;
     if (booked === undefined) return;
     const exit = await runRetry({ orderId: order.orderId, locale });
     Exit.match(exit, {
@@ -115,9 +119,9 @@ export const usePaymentRecovery = (
   const offer: PaymentRecovery = {
     pageReopenable:
       order.paymentPageReopenable === true && pageClosedOn !== order,
-    // Without its booked selection the order can't be shown for paying
-    // again; booking again is the way on.
-    retryRefused: retryRefused || order.bookedSelection === undefined,
+    // Without what the order books, its review can't be shown; booking again
+    // is the way on.
+    retryRefused: retryRefused || booked === undefined,
   };
   return {
     offer,

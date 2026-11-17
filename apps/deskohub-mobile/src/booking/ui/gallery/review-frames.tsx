@@ -233,7 +233,12 @@ function ReviewFrame({
       <AppBar
         title={m.booking_review_title({}, { locale })}
         onBack={onBack}
-        actions={<HoldChip expiresAt={holdExpiresAt} locale={locale} />}
+        // A payment retry shows no hold timer, as the checkout screen does.
+        actions={
+          frame.retry ? undefined : (
+            <HoldChip expiresAt={holdExpiresAt} locale={locale} />
+          )
+        }
       />
       <ReviewStep
         review={review}

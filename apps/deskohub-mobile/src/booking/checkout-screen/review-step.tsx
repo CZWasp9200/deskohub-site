@@ -638,14 +638,16 @@ function AgreementRow({
   };
   const toggle = () =>
     send(CheckoutEvent.ToggleConsent({ accepted: !consent.checked }));
+  const sentence = consentSentence(consent, locale);
   return (
     <View style={styles.agreement}>
-      {/* The box is the checkbox, named by the sentence beside it. */}
+      {/* The box is the checkbox, named by the sentence beside it (its
+          link markup dropped). */}
       <Pressable
         role="checkbox"
         aria-checked={consent.checked}
         aria-disabled={consent.disabled}
-        aria-labelledby={agreementSentenceId}
+        aria-label={sentence.replace(/<\/?[A-Za-z]+>/g, "")}
         disabled={consent.disabled}
         onPress={toggle}
         style={styles.agreementBox}
@@ -655,13 +657,12 @@ function AgreementRow({
       {/* Tapping the sentence ticks the box too, as the website's label
           does; a document link inside it opens the document only. */}
       <Text
-        nativeID={agreementSentenceId}
         variant="hint"
         style={styles.agreementText}
         onPress={consent.disabled ? undefined : toggle}
       >
         <Interpolate
-          string={consentSentence(consent, locale)}
+          string={sentence}
           mapping={{
             terms: link("terms-and-conditions"),
             operatingRules: link("operating-rules"),
@@ -671,8 +672,6 @@ function AgreementRow({
     </View>
   );
 }
-
-const agreementSentenceId = "checkout-agreement-sentence";
 
 /** The consent sentence for the checkout, or confirmed again for a retry. */
 const consentSentence = (consent: ConsentView, locale: AppLocale) => {

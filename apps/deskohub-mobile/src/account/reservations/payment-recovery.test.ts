@@ -18,7 +18,7 @@ import {
 import { CustomerSessionCheck } from "../../customer-api/customer-api.service";
 import { fakeCustomerApiLayer } from "../../customer-api/testing/fake-customer-data";
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
-import { sampleOrderIds } from "../../customer-api/testing/sample-fixtures";
+import { sampleDeskOrderId } from "../../customer-api/testing/sample-fixtures";
 import {
   PaymentPageOutcome,
   PaymentRecoveryFailed,
@@ -28,7 +28,7 @@ import {
   retryPayment,
 } from "./payment-recovery";
 
-const orderId = sampleOrderIds.cancelled;
+const orderId = sampleDeskOrderId("payment_failed");
 
 const retried: CustomerCheckout = {
   status: "ready",

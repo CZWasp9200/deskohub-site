@@ -1,4 +1,5 @@
 import type {
+  CustomerBookedSelection,
   CustomerOrderState,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
@@ -185,6 +186,7 @@ function ContactLink() {
 function TicketStub({
   model,
   order,
+  booked,
   accessHint,
   checking,
   onCheckAgain,
@@ -193,6 +195,8 @@ function TicketStub({
 }: {
   readonly model: BookingTicketModel;
   readonly order: CustomerOrderState;
+  /** What the order books, for Book again. */
+  readonly booked: CustomerBookedSelection | undefined;
   readonly accessHint: string | undefined;
   /** A read the customer asked for is under way. */
   readonly checking: boolean;
@@ -237,7 +241,7 @@ function TicketStub({
           <Button
             icon={RotateCcw}
             label={m.reservations_book_again({}, { locale })}
-            onPress={() => router.push(bookAgainHref(order.bookedSelection))}
+            onPress={() => router.push(bookAgainHref(booked))}
           />
         </>
       );
@@ -286,7 +290,13 @@ function OrderTicket({
 }) {
   const locale = useAppLocale();
   const { order } = state;
-  const recovery = usePaymentRecovery(order, {
+  const reservation = useAtomValue(reservationOfOrderAtom(order.orderId));
+  // A failed payment's order has released its hold and no longer says what
+  // it books; its reservation in the list still does.
+  const booked =
+    order.bookedSelection ??
+    Option.getOrUndefined(reservation)?.bookedSelection;
+  const recovery = usePaymentRecovery(order, booked, {
     onCheckAgain,
     onPaymentPageLeft,
   });
@@ -295,7 +305,6 @@ function OrderTicket({
     orderCheckingOf(state.automatic),
     recovery.offer
   );
-  const reservation = useAtomValue(reservationOfOrderAtom(order.orderId));
   const establishment = AsyncResult.value(useAtomValue(establishmentAtom));
   const view = orderTicketView({
     order,
@@ -341,6 +350,7 @@ function OrderTicket({
         <TicketStub
           model={model}
           order={order}
+          booked={booked}
           accessHint={view.accessHint}
           checking={state.reading}
           onCheckAgain={onCheckAgain}
