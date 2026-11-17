@@ -7,7 +7,9 @@ import {
   AutomationDetail,
   AutomationEngineHealth,
   AutomationPreviewId,
+  AutomationRunDetail,
   AutomationRunId,
+  AutomationRunPage,
   AutomationRunStats,
   AutomationRunSummary,
   automationsMinimumDhwVersion,
@@ -21,6 +23,7 @@ import {
 import { NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Schema } from "effect";
 import { HttpApiMiddleware, HttpApiTest } from "effect/unstable/httpapi";
+import { inactiveCustomerDisplayNames } from "@/features/administration/customer-name";
 import {
   AutomationDraftChanged,
   AutomationRunNotFound,
@@ -310,7 +313,10 @@ describe("automation admin API", () => {
         runLog: {
           listRuns: (input) => {
             queries.push(input);
-            return Effect.succeed({ runs: [run], nextCursor: null });
+            return Effect.succeed({
+              runs: [{ ...run, customerLifecycle: "active" }],
+              nextCursor: null,
+            });
           },
         },
       }
@@ -385,6 +391,44 @@ describe("automation admin API", () => {
     expect(error).toBeInstanceOf(CliResourceNotFound);
     expect(error).toMatchObject({ code: "automation-version-not-found" });
   });
+
+  test.each(["deleted", "expired"] as const)(
+    "encodes a %s customer's run by the contract, without the lifecycle the Admin UI reads",
+    (customerLifecycle) => {
+      const run = Schema.decodeUnknownSync(AutomationRunSummary)({
+        runId: "01990000-0000-7000-8000-000000000003",
+        campaignId,
+        versionNumber: 2,
+        customerId: "customer-1",
+        customerName: inactiveCustomerDisplayNames[customerLifecycle],
+        customerEmail: null,
+        customerProfileStatus: "found",
+        triggerKind: "account-created",
+        triggerAt: "2026-10-19T08:00:00Z",
+        state: "ended",
+        stepId: "send",
+        outcome: "sent",
+        startedAt: "2026-10-19T08:00:00Z",
+        endedAt: "2026-10-19T08:01:00Z",
+      });
+      const withLifecycle = { ...run, customerLifecycle };
+      const wireKeys = Object.keys(
+        Schema.encodeSync(AutomationRunSummary)(run)
+      );
+
+      const [listed] = Schema.encodeSync(AutomationRunPage)({
+        runs: [withLifecycle],
+        nextCursor: null,
+      }).runs;
+      const detail = Schema.encodeSync(AutomationRunDetail)({
+        ...withLifecycle,
+        timeline: [],
+      });
+
+      expect(Object.keys(listed!)).toEqual(wireKeys);
+      expect(detail).not.toHaveProperty("customerLifecycle");
+    }
+  );
 
   test("reports a missing run as not found", async () => {
     const runId = AutomationRunId.make("01990000-0000-7000-8000-000000000003");

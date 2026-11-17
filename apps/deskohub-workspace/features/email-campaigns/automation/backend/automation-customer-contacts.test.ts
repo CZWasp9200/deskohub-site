@@ -29,12 +29,13 @@ const read = (customers: readonly DotyposCustomer[]) =>
   ).then(Option.getOrThrow);
 
 describe("readAutomationCustomerContacts", () => {
-  test("reads an active customer's name and email", async () => {
+  test("reads an active customer's name, email and lifecycle", async () => {
     const contacts = await read([customer("customer-active")]);
 
     expect(contacts.get("customer-active" as DotyposCustomerId)).toEqual({
       name: "Synthetic customer-active",
       email: testEmailAddress("customer-active"),
+      lifecycle: "active",
     });
   });
 
@@ -42,7 +43,7 @@ describe("readAutomationCustomerContacts", () => {
     ["deleted", { deleted: true }],
     ["expired", { expireDate: "2020-01-01T00:00:00Z" }],
   ] as const)(
-    "names a %s customer only by the placeholder, without their email",
+    "names a %s customer only by the placeholder, without their email, and keeps the lifecycle",
     async (lifecycle, fields) => {
       const inactive = customer(`customer-${lifecycle}`, fields);
       const contacts = await read([inactive]);
@@ -50,6 +51,7 @@ describe("readAutomationCustomerContacts", () => {
       expect(contacts.get(inactive.id)).toEqual({
         name: inactiveCustomerDisplayNames[lifecycle],
         email: null,
+        lifecycle,
       });
     }
   );

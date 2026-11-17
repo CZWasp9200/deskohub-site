@@ -13,6 +13,7 @@ import {
   type AdministrationOperationPort,
   makeAdministrationOperationPort,
   type OperationHandlers,
+  type OperationResults,
 } from "@/features/administration/administration-operation-port";
 import { AccountRoleGrants } from "@/features/administrators/backend/account-role-grants.service";
 import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
@@ -21,7 +22,11 @@ import { previewCalendarExpression } from "../automation/automation-calendar-pre
 import { AutomationDryRun } from "../automation/backend/automation-dry-run.service";
 import { AutomationEngineHealth } from "../automation/backend/automation-engine-health.service";
 import { AutomationLifecycle } from "../automation/backend/automation-lifecycle.service";
-import { AutomationRunLog } from "../automation/backend/automation-run-log.service";
+import {
+  type AutomationRunDetailWithLifecycle,
+  AutomationRunLog,
+  type AutomationRunPageWithLifecycle,
+} from "../automation/backend/automation-run-log.service";
 import {
   readCampaignContent,
   readCampaignDraftContent,
@@ -52,6 +57,15 @@ import { OperationRequestLedger } from "./operation-request-ledger.service";
 
 type Registry = CampaignOperationRegistry;
 
+/** The run log's reads add each customer's lifecycle for the Admin UI. */
+type CampaignOperationResults = OperationResults<
+  Registry,
+  {
+    readonly listAutomationRuns: AutomationRunPageWithLifecycle;
+    readonly getAutomationRun: AutomationRunDetailWithLifecycle;
+  }
+>;
+
 /**
  * One handler per registered operation; a missing one fails the typecheck.
  * A handler may read who acts, as activation records it.
@@ -59,12 +73,14 @@ type Registry = CampaignOperationRegistry;
 type CampaignOperationHandlers = OperationHandlers<
   Registry,
   CampaignOperationCause,
-  CurrentAdministrator
+  CurrentAdministrator,
+  CampaignOperationResults
 >;
 
 export type ICampaignOperations = AdministrationOperationPort<
   Registry,
-  OperationRequestLedger
+  OperationRequestLedger,
+  CampaignOperationResults
 >;
 
 /** The single port the admin UI, `/api/v1/cli` and future adapters call. */

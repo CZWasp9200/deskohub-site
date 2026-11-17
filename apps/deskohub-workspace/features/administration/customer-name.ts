@@ -32,7 +32,7 @@ export type AdministrationCustomerName = {
 };
 
 /** Whether the customer is deleted or expired, so administration shows a placeholder and no contact details or detail page. */
-export const isInactiveAdministrationCustomer = (
-  customer: Pick<AdministrationCustomerName, "lifecycle">
-): customer is { readonly lifecycle: "deleted" | "expired" } =>
+export const isInactiveAdministrationCustomer = (customer: {
+  readonly lifecycle: DotyposCustomerLifecycle | null;
+}): customer is { readonly lifecycle: "deleted" | "expired" } =>
   customer.lifecycle === "deleted" || customer.lifecycle === "expired";

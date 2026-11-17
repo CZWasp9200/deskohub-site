@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   type DotyposCustomerId,
+  type DotyposCustomerLifecycle,
   DotyposService,
   dotyposFailureLogFields,
   getCustomerDisplayName,
@@ -9,10 +10,12 @@ import {
 import { DateTime, Effect, Option } from "effect";
 import { describeAdministrationCustomer } from "@/features/administration/customer-identity";
 
-/** A customer's name and email as Dotypos has them now. */
+/** A customer's name, email and lifecycle as Dotypos has them now. */
 export interface AutomationCustomerContact {
   readonly name: string | null;
   readonly email: string | null;
+  /** Only the Admin UI reads it, to show a deleted or expired customer's placeholder. */
+  readonly lifecycle: DotyposCustomerLifecycle;
 }
 
 /**
@@ -43,8 +46,13 @@ export const readAutomationCustomerContacts = Effect.fn(
                     ? {
                         name: getCustomerDisplayName(profile) ?? null,
                         email: customer.email,
+                        lifecycle: customer.lifecycle,
                       }
-                    : { name: customer.displayName, email: null };
+                    : {
+                        name: customer.displayName,
+                        email: null,
+                        lifecycle: customer.lifecycle,
+                      };
                 return [id, contact] as const;
               })
             ) as ReadonlyMap<DotyposCustomerId, AutomationCustomerContact>
