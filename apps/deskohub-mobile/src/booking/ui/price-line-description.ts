@@ -4,14 +4,15 @@ import type {
   CustomerMonitorOption,
   Money,
 } from "@deskohub/workspace-customer-api";
-import { Option } from "effect";
+import { DateTime, Option } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
-import { formatInstant, parseInstant } from "../../i18n/date-time-format";
+import { parseInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
 import { formatBasisPoints } from "../../i18n/percent-format";
 import { bookingOverviewOf } from "../checkout-screen/booking-overview";
 import { productLabel } from "../checkout-screen/checkout-copy";
+import { formatPragueTimeAt } from "./prague-date-format";
 import type { PriceLine, PriceLineSubject } from "./price-breakdown";
 
 /** How a price line reads: its name, and what it covers in grey under it. */
@@ -125,7 +126,7 @@ const chargeDescription = (
           onNone: () => undefined,
           onSome: (startsAt) =>
             m.booking_price_line_early_setup_from(
-              { time: formatInstant(startsAt, locale, "time") },
+              { time: formatPragueTimeAt(DateTime.toDate(startsAt), locale) },
               { locale }
             ),
         }),

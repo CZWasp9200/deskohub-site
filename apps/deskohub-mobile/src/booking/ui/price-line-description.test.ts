@@ -3,14 +3,13 @@ import type {
   CustomerBookingSelection,
   Money,
 } from "@deskohub/workspace-customer-api";
-import { DateTime } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
-import { formatInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
 import { formatBasisPoints } from "../../i18n/percent-format";
 import { productLabel } from "../checkout-screen/checkout-copy";
 import { czk } from "../testing/sample-booking-catalog";
+import { formatPragueTime } from "./prague-date-format";
 import {
   type PriceLine,
   type PriceLineSubject,
@@ -235,11 +234,8 @@ describe("describePriceLine", () => {
     expect(earlySetup?.[1].detail).toBe(
       m.booking_price_line_early_setup_from(
         {
-          time: formatInstant(
-            DateTime.makeUnsafe("2026-11-26T12:45:00Z"),
-            locale,
-            "time"
-          ),
+          // 12:45 UTC on 26 November is 13:45 in Prague.
+          time: formatPragueTime("13:45", locale),
         },
         { locale }
       )
