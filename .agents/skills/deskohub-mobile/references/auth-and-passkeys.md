@@ -23,7 +23,11 @@ origins. App paths are relative to `apps/deskohub-mobile/src/auth`.
   reauthentication ended as "unavailable" (#1123). Bun rejects the import
   instead, so `native-auth-client.test.ts` pins the dependency.
 - Web (the `/app/` bundle): `auth-client.web.ts` uses the site's cookies on the
-  same origin and `passkeyClient()`.
+  same origin and `passkeyClient()`. `web-auth-client.ts` builds it with a
+  `customFetchImpl` that reads `globalThis.fetch` on every request: Better
+  Auth otherwise keeps the `fetch` it saw at creation, which is before
+  `_layout.tsx` runs `initBotId`, and production then refuses every sign-in
+  email and code as `BOT_DETECTED`. `web-auth-client.test.ts` pins this.
 - Every write to the stored session (sign-in, sign-out, passkey sign-in, web
   verification) runs under `withSessionWriteLock` (`session-write-lock.ts`), so
   concurrent flows can't interleave. A `/get-session` response already in flight can still race a
