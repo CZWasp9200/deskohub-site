@@ -2,6 +2,23 @@ import type { ReactNode } from "react";
 import { Button, LiveMessage } from "./controls";
 import { Dialog } from "./dialog";
 
+/** The two buttons' looks and order for each kind of confirmation. */
+const actionLook = (destructive: boolean, irreversible: boolean) => {
+  if (irreversible)
+    return {
+      confirm: "danger",
+      cancel: "secondary",
+      cancelFirst: false,
+    } as const;
+  if (destructive)
+    return {
+      confirm: "dangerText",
+      cancel: "primary",
+      cancelFirst: true,
+    } as const;
+  return { confirm: "primary", cancel: "quiet", cancelFirst: false } as const;
+};
+
 /**
  * Asks the customer to confirm an action before it runs. A destructive
  * confirmation leads with the safe way out (the primary cancel) and puts the
@@ -47,10 +64,11 @@ export function ConfirmDialog({
   const dismiss = () => {
     if (!busy) onCancel();
   };
+  const look = actionLook(destructive, irreversible);
   const confirm = (
     <Button
       key="confirm"
-      variant={irreversible ? "danger" : destructive ? "dangerText" : "primary"}
+      variant={look.confirm}
       label={confirmLabel}
       onPress={onConfirm}
       busy={busy}
@@ -59,7 +77,7 @@ export function ConfirmDialog({
   const cancel = (
     <Button
       key="cancel"
-      variant={irreversible ? "secondary" : destructive ? "primary" : "quiet"}
+      variant={look.cancel}
       label={cancelLabel}
       onPress={onCancel}
       disabled={busy}

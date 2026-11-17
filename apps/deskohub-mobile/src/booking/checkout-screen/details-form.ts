@@ -5,9 +5,8 @@ import type {
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { CompanyDetailsField } from "../../company-lookup/company-lookup-model";
-import { invoiceCountryCodes } from "../../i18n/country-names";
+import { defaultCountry, invoiceCountryCodes } from "../../i18n/country-names";
 import type { CheckoutDetails } from "../checkout/checkout-state";
-import { defaultCountry } from "../../i18n/country-names";
 
 /**
  * The details step's form, as the site's contact and billing step asks it

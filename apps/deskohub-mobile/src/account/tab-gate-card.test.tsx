@@ -28,7 +28,8 @@ describe("TabGateCard", () => {
     const onRetry = mock(() => undefined);
     const [retry, ...rest] = actions({ gate: "unavailable", onRetry });
     expect(rest).toHaveLength(0);
-    (retry?.props.onPress as () => void)();
+    if (retry === undefined) throw new Error("no Try again");
+    (retry.props.onPress as () => void)();
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
