@@ -55,7 +55,7 @@ is at `<preview origin>/app/` behind the usual deployment protection.
   a usable release answers 404. Both routes (`app/android/download/`) have no
   locale: the proxy matcher and the dotted-path locale rewrite in
   `next.config.mjs` skip them. They read releases through `AndroidReleases`;
-  only a version older than the latest asks GitHub for its own release.
+  only a tagged version older than the latest asks GitHub for its own release.
 - `features/mobile-distribution/obtainium-link.ts` builds
   `https://apps.obtainium.imranr.dev/redirect?r=<encoded obtainium://app JSON>`
   with `/android` as an HTML source: Obtainium picks the link matching

@@ -92,6 +92,7 @@ describe("planUpdateCheck", () => {
     ["the system package installer", sideloaded],
     ["a browser that installed it directly", "com.android.chrome"],
     ["no recorded installer, as after adb install", null],
+    ["the shell, as an Obtainium install through Shizuku", "com.android.shell"],
   ])("offers new APKs when %s installed the app", (_installer, installer) => {
     expect(
       planUpdateCheck({

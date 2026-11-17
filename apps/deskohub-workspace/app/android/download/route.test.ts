@@ -141,6 +141,17 @@ describe("GET /android/download/[file]", () => {
     });
   });
 
+  test("answers 404 for an untagged older version without asking GitHub for its release", async () => {
+    const api = serveReleases();
+
+    const response = await downloadFile("deskohub-1.1.0.apk");
+
+    expect(response.status).toBe(404);
+    expect(api.requests.map(({ path }) => path)).not.toContain(
+      releasesApiPath("1.1.0")
+    );
+  });
+
   test("answers 404 above the latest version without asking GitHub for it", async () => {
     const api = serveReleases();
 
@@ -169,7 +180,10 @@ describe("GET /android/download/[file]", () => {
   test("answers an uncached 502 when GitHub can't be read", async () => {
     serveGitHub({
       "/git/matching-refs/tags/mobile-v": () =>
-        Response.json([{ ref: "refs/tags/mobile-v1.2.3" }]),
+        Response.json([
+          { ref: "refs/tags/mobile-v1.2.2" },
+          { ref: "refs/tags/mobile-v1.2.3" },
+        ]),
       [releasePath("1.2.3")]: () => Response.json(githubMobileRelease("1.2.3")),
       [releasePath("1.2.2")]: () =>
         new Response("unavailable", { status: 503 }),

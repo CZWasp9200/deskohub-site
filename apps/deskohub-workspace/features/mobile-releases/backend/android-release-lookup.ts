@@ -58,20 +58,7 @@ export const findLatestAndroidRelease = Effect.fn(
   "MobileReleases.findLatestAndroidRelease"
 )(function* () {
   const github = yield* gitHubApi;
-
-  const tagRefs = yield* github
-    .get(`${repositoryApiUrl}/git/matching-refs/tags/mobile-v`)
-    .pipe(
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap(HttpClientResponse.schemaBodyJson(TagRefs)),
-      Effect.timeout(requestTimeout)
-    );
-  const versions = Arr.sort(
-    tagRefs.flatMap(({ ref }) =>
-      Option.toArray(mobileReleaseVersion(ref.replace(/^refs\/tags\//, "")))
-    ),
-    Order.flip(mobileReleaseVersionOrder)
-  );
+  const versions = yield* listMobileReleaseVersions(github);
 
   const latest = yield* Effect.findFirstFilter(
     versions.slice(0, candidateTagLimit),
@@ -86,6 +73,13 @@ export const findLatestAndroidRelease = Effect.fn(
     );
   }
   return latest;
+}, Effect.mapError(MobileReleaseLookupError.fromCause));
+
+/** The versions the repository's `mobile-v` tags name, highest first. */
+export const findMobileReleaseVersions = Effect.fn(
+  "MobileReleases.findMobileReleaseVersions"
+)(function* () {
+  return yield* listMobileReleaseVersions(yield* gitHubApi);
 }, Effect.mapError(MobileReleaseLookupError.fromCause));
 
 /**
@@ -109,6 +103,21 @@ const gitHubApi = Effect.gen(function* () {
     )
   );
 });
+
+const listMobileReleaseVersions = (github: HttpClient.HttpClient) =>
+  github.get(`${repositoryApiUrl}/git/matching-refs/tags/mobile-v`).pipe(
+    Effect.flatMap(HttpClientResponse.filterStatusOk),
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(TagRefs)),
+    Effect.timeout(requestTimeout),
+    Effect.map((tagRefs) =>
+      Arr.sort(
+        tagRefs.flatMap(({ ref }) =>
+          Option.toArray(mobileReleaseVersion(ref.replace(/^refs\/tags\//, "")))
+        ),
+        Order.flip(mobileReleaseVersionOrder)
+      )
+    )
+  );
 
 const findUsableRelease = (
   github: HttpClient.HttpClient,

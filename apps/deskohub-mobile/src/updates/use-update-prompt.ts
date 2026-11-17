@@ -39,9 +39,10 @@ const runInBackground = (
   );
 };
 
-const openNativeDownload = Effect.tryPromise(() =>
-  Linking.openURL(configuredWorkspaceUpdateUrls.androidDownloadUrl)
-);
+const openNativeDownload = (versionName: string) =>
+  Effect.tryPromise(() =>
+    Linking.openURL(configuredWorkspaceUpdateUrls.androidApkUrl(versionName))
+  );
 
 const restartIntoUpdate = Effect.tryPromise(() => Updates.reloadAsync());
 
@@ -49,7 +50,7 @@ const restartIntoUpdate = Effect.tryPromise(() => Updates.reloadAsync());
  * Records an update this launch applied, then checks for a downloaded JS
  * update, a rollback and a newer APK on launch and on each return to the
  * foreground, and returns the one prompt to show. Accepting restarts into
- * the downloaded or embedded update, or downloads the latest APK;
+ * the downloaded or embedded update, or downloads the offered APK;
  * dismissing hides that offer for the rest of the session.
  */
 export function useUpdatePrompt(): {
@@ -129,7 +130,7 @@ export function useUpdatePrompt(): {
       }
       runInBackground(
         prompt.kind === "native-release"
-          ? openNativeDownload
+          ? openNativeDownload(prompt.versionName)
           : restartIntoUpdate
       );
     },

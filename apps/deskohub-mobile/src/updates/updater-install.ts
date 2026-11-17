@@ -25,7 +25,9 @@ const updaterPackageNames: ReadonlySet<string> = new Set([
  * Whether an app store or updater installed the app, so it offers new APKs
  * itself. `installingPackageName` is the installer Android records; a browser
  * or file manager download installs through the system package installer,
- * and `adb install` records none.
+ * and `adb install` records none. Obtainium installing through Shizuku or
+ * root records the shell or none unless set to pose as a store, so such an
+ * install keeps the banner.
  */
 export const installedByUpdater = (
   installingPackageName: string | null

@@ -113,7 +113,7 @@ rollback stays hidden for the session and applies at the next cold start.
 launch and on returning to the foreground, at most every 15 minutes. On
 Android it also reads `GET /api/mobile/releases/latest` and compares its
 `versionCode` with the installed build: a newer APK takes precedence and opens
-`/android/download`, an OTA update restarts the app on accept, and dismissing
+that version's `/android/download/deskohub-X.Y.Z.apk`, an OTA update restarts the app on accept, and dismissing
 lasts for the session. An app that an updater or store installed
 (`src/updates/updater-install.ts`: Obtainium, F-Droid clients, Google Play)
 skips the APK check and leaves new versions to that installer; one installed

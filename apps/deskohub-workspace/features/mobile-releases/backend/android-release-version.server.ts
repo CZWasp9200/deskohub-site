@@ -2,14 +2,18 @@ import "server-only";
 
 import { Effect, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { readSharedSnapshot } from "@/shared/backend/shared-snapshot";
+import {
+  fromSharedSnapshot,
+  readSharedSnapshot,
+} from "@/shared/backend/shared-snapshot";
 import {
   type AndroidRelease,
   mobileReleaseVersionOrder,
 } from "../android-release";
 import {
   findAndroidRelease,
-  type MobileReleaseLookupError,
+  findMobileReleaseVersions,
+  MobileReleaseLookupError,
 } from "./android-release-lookup";
 import {
   type AndroidReleaseSnapshot,
@@ -22,10 +26,12 @@ import { loadLatestAndroidRelease } from "./latest-android-release.server";
 
 /**
  * The Android release of one version. The latest release answers from the
- * shared latest lookup and a version above it has none, so only an older
- * version asks GitHub, once per version across requests and server
- * instances. `None` means the version has no usable release; a lookup that
- * failed, now or within the last couple of minutes, fails.
+ * shared latest lookup, and a version above it or without a `mobile-v` tag
+ * has none, so only an older tagged version asks GitHub for its release,
+ * once per version across requests and server instances. Made-up version
+ * names therefore never spend the GitHub API's hourly limit. `None` means
+ * the version has no usable release; a lookup that failed, now or within the
+ * last couple of minutes, fails.
  */
 export const loadAndroidRelease = (
   versionName: string
@@ -41,13 +47,74 @@ export const loadAndroidRelease = (
           );
           if (order === 0) return Effect.succeedSome(latest);
           if (order > 0) return Effect.succeedNone;
-          return readAndroidReleaseSnapshot("loadAndroidRelease", () =>
-            loadSharedAndroidRelease(versionName)
+          return loadMobileReleaseVersions.pipe(
+            Effect.flatMap((versions) =>
+              versions.includes(versionName)
+                ? readAndroidReleaseSnapshot("loadAndroidRelease", () =>
+                    loadSharedAndroidRelease(versionName)
+                  )
+                : Effect.succeedNone
+            )
           );
         },
       })
     )
   );
+
+/**
+ * What one shared tag lookup found. A plain object because the cache
+ * serializes it.
+ */
+type MobileReleaseVersionsSnapshot =
+  | { readonly outcome: "found"; readonly versions: ReadonlyArray<string> }
+  | { readonly outcome: "lookup-failed" };
+
+const loadMobileReleaseVersions = fromSharedSnapshot({
+  service: "mobile-releases",
+  operation: "loadMobileReleaseVersions",
+  load: () => loadSharedMobileReleaseVersions(),
+}).pipe(
+  Effect.mapError(MobileReleaseLookupError.fromCause),
+  Effect.flatMap((snapshot) =>
+    snapshot.outcome === "found"
+      ? Effect.succeed(snapshot.versions)
+      : Effect.fail(
+          MobileReleaseLookupError.fromCause(
+            "The shared GitHub tag lookup failed recently."
+          )
+        )
+  )
+);
+
+/** Tags change as often as the latest release, so they share its lifetime. */
+const tagLifetime = { stale: 300, revalidate: 600, expire: 86_400 };
+
+async function loadSharedMobileReleaseVersions(): Promise<MobileReleaseVersionsSnapshot> {
+  "use cache: remote";
+
+  return await readSharedSnapshot(
+    "mobile-releases.release-versions.load",
+    findMobileReleaseVersions().pipe(
+      Effect.map(
+        (versions): MobileReleaseVersionsSnapshot => ({
+          outcome: "found",
+          versions,
+        })
+      ),
+      Effect.provide(FetchHttpClient.layer)
+    ),
+    {
+      complete: { lifetime: tagLifetime },
+      failure: {
+        failureCode: "mobile_releases.release_versions.lookup_failed",
+        fallback: (): MobileReleaseVersionsSnapshot => ({
+          outcome: "lookup-failed",
+        }),
+        lifetime: failedLookupLifetime,
+      },
+    }
+  );
+}
 
 /**
  * A published release never changes, so a found one is shared for a day. A

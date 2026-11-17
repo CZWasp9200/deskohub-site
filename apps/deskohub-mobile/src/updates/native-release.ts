@@ -4,8 +4,8 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 /**
  * The fields of the Workspace's `GET /api/mobile/releases/latest` reply the
  * app compares against. The reply carries more (APK URL, size, hashes); the
- * app ignores them and downloads through the Workspace's `/android/download`
- * instead.
+ * app ignores them and downloads the offered version through the
+ * Workspace's `/android/download` instead.
  */
 const LatestNativeRelease = Schema.Struct({
   versionName: Schema.String,
