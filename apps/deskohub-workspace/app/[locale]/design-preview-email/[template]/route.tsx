@@ -3,9 +3,11 @@
 import { render } from "react-email";
 import { notFound } from "next/navigation";
 import type { Locale } from "@/features/i18n";
+import CustomerReservationEmail from "@/emails/customer-reservation";
 import ReservationCancellationEmail from "@/emails/reservation-cancellation";
 
 const templates = {
+  "customer-reservation": CustomerReservationEmail,
   "reservation-cancellation": ReservationCancellationEmail,
 } as const;
 

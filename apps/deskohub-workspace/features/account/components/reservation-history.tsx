@@ -9,6 +9,7 @@ import type {
 } from "@/features/account/contracts";
 import { getReservationProductName } from "@/features/account/reservation-product-name";
 import { type Locale, m } from "@/features/i18n";
+import { ReservationAccessButton } from "@/features/reservation/components/reservation-access-button";
 import {
   ReservationWithdrawalEntry,
   type ReservationWithdrawalOffer,
@@ -393,40 +394,20 @@ function FeaturedReservationItem({
                 {m.accountReservationCheckIn({}, { locale })}
               </Button>
             </FutureFeatureTooltip>
-            {reservation.workspaceReservationId &&
-            !reservation.reviewSandbox ? (
-              <Button
-                asChild
-                className="@3xl:w-auto"
-                fullWidth
-                size="sm"
-                variant="secondary"
-              >
-                <GuardedLink
-                  href={`/${locale}${reservationAccessPath}/${encodeURIComponent(reservation.workspaceReservationId)}`}
-                >
-                  {m.accountReservationShowPinCode({}, { locale })}
-                </GuardedLink>
-              </Button>
-            ) : (
-              <div className="min-w-0">
-                <Button
-                  className="@3xl:w-auto"
-                  fullWidth
-                  disabled
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                >
-                  {m.accountReservationShowPinCode({}, { locale })}
-                </Button>
-                <p className="mt-2 max-w-sm break-words text-xs leading-5 text-[#64748b]">
-                  {reservation.reviewSandbox
-                    ? m.accountReservationPinReviewSandbox({}, { locale })
-                    : m.accountReservationPinUnavailable({}, { locale })}
-                </p>
-              </div>
-            )}
+            <ReservationAccessButton
+              className="@3xl:w-auto"
+              href={
+                reservation.workspaceReservationId && !reservation.reviewSandbox
+                  ? `/${locale}${reservationAccessPath}/${encodeURIComponent(reservation.workspaceReservationId)}`
+                  : undefined
+              }
+              locale={locale}
+              unavailableNote={
+                reservation.reviewSandbox
+                  ? m.accountReservationPinReviewSandbox({}, { locale })
+                  : m.accountReservationPinUnavailable({}, { locale })
+              }
+            />
           </div>
           <div className="flex min-w-0 flex-col gap-3 @3xl:items-end @4xl:contents">
             <p className="max-w-sm break-words text-sm leading-5 text-[#64748b] @4xl:col-start-1 @4xl:row-start-1 @4xl:max-w-none @4xl:text-xs @4xl:leading-5">

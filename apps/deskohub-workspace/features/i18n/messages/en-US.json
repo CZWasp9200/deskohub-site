@@ -168,6 +168,7 @@
   "accountReservationSetupFrom": "Setup from {time}",
   "accountReservationView": "View reservation",
   "reservationWithdrawalAction": "Withdraw from contract",
+  "reservationOptionsMenuLabel": "Reservation options",
   "reservationWithdrawalAvailableUntil": "You can withdraw from this contract until {date}.",
   "accountReservationWifi": "Wi-Fi",
   "workspaceTitle": "Deskohub Workspace",

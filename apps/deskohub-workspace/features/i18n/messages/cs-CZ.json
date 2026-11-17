@@ -169,6 +169,7 @@
   "accountReservationSetupFrom": "Příprava od {time}",
   "accountReservationView": "Zobrazit rezervaci",
   "reservationWithdrawalAction": "Odstoupit od smlouvy",
+  "reservationOptionsMenuLabel": "Možnosti rezervace",
   "reservationWithdrawalAvailableUntil": "Od této smlouvy můžeš odstoupit do {date}.",
   "accountReservationWifi": "Wi-Fi",
   "workspaceTitle": "Deskohub Workspace",

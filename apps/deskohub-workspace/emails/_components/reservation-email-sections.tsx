@@ -16,6 +16,10 @@ const workspaceLocationMapUrl = getWorkspaceCanonicalUrl(
   workspaceLocationMapImagePath
 );
 
+// White lucide KeyRound at 2x, hosted like the map so clients can cache it.
+// Clients that block images show nothing (empty alt), leaving the label.
+const emailKeyIconUrl = getWorkspaceCanonicalUrl("/email/key-round-white.png");
+
 /** The reservation's primary button, with its table underneath when known. */
 export function ReservationEmailActionPanel({
   action,
@@ -34,10 +38,22 @@ export function ReservationEmailActionPanel({
         style={{ backgroundColor: "#00024f" }}
       >
         <Link
-          className="inline-block rounded-full bg-aquamarine px-7 py-3 text-[14px] font-bold leading-[20px] text-navy no-underline"
+          className="inline-block rounded-full px-7 py-3 text-[14px] font-bold leading-[20px] text-white no-underline"
           href={action.url}
-          style={{ backgroundColor: "#00df99", color: "#00024f" }}
+          style={{ backgroundColor: "#b83b06", color: "#ffffff" }}
         >
+          <Img
+            alt=""
+            height="16"
+            src={emailKeyIconUrl}
+            style={{
+              border: 0,
+              display: "inline-block",
+              marginRight: "8px",
+              verticalAlign: "-3px",
+            }}
+            width="16"
+          />
           {action.button}
         </Link>
       </Section>

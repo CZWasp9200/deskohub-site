@@ -15,6 +15,7 @@ import { getOfficeCheckoutStatusSummary } from "@/features/office/components/off
 import { getOfficeReservationSelection } from "@/features/reservation/office-reservation";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
+import { ReservationAccessButton } from "@/features/reservation/components/reservation-access-button";
 import {
   ReservationWithdrawalEntry,
   type ReservationWithdrawalOffer,
@@ -573,21 +574,14 @@ function CheckoutStatusActions({
         </>
       )}
       {reservationAccessHref && (
-        <Button asChild variant="secondary" size="lg">
-          {presentation === "modal" ? (
-            <Link
-              href={reservationAccessHref}
-              id="checkout-status-access"
-              prefetch={false}
-            >
-              {m.checkoutEmailCustomerAccessButton({}, { locale })}
-            </Link>
-          ) : (
-            <a href={reservationAccessHref} id="checkout-status-access">
-              {m.checkoutEmailCustomerAccessButton({}, { locale })}
-            </a>
-          )}
-        </Button>
+        <ReservationAccessButton
+          className="sm:w-auto"
+          href={reservationAccessHref}
+          id="checkout-status-access"
+          locale={locale}
+          navigation={presentation === "modal" ? "client" : "document"}
+          size="lg"
+        />
       )}
     </>
   );
