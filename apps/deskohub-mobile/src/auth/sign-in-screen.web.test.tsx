@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { parseJSON } from "better-auth/client";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { act, type ReactElement, type ReactNode } from "react";
 import { View } from "react-native";
 import { AppLocaleProvider } from "../i18n/locale-context";
@@ -14,12 +14,14 @@ import { AppSignInCodeStep } from "./app-sign-in-code-step.web";
 import { AppSignInContinueStep } from "./app-sign-in-continue-step";
 import { appSignInEmailHeading } from "./app-sign-in-email-heading";
 import { AppSignInEmailStep } from "./app-sign-in-email-step";
+import { AppSignInFinishedInAppStep } from "./app-sign-in-finished-in-app-step";
 import { AppSignInLinkStep } from "./app-sign-in-link-step";
 import { nativeReturnUri } from "./auth-callback";
 import type { AuthSessionState } from "./auth-session-state";
 import { ReauthenticationShield } from "./reauthentication-shield";
 import {
   clearNativeHandoffRequest,
+  loadNativeHandoffRequest,
   saveNativeHandoffRequest,
 } from "./web-native-request-store";
 
@@ -53,6 +55,8 @@ const refused = (error: Readonly<Record<string, unknown>>): Answer => ({
 /** What the fake server answers next, per request. */
 let emailAnswers: Array<Answer> = [];
 let codeAnswers: Array<Answer> = [];
+let statusAnswers: Array<Answer> = [];
+let statusAsked: Array<unknown> = [];
 let emailsSent = 0;
 let emailedTo: Array<string> = [];
 const next = (answers: Array<Answer>) => {
@@ -63,7 +67,11 @@ const next = (answers: Array<Answer>) => {
 
 mock.module("./auth-client.web", () => ({
   authClient: {
-    $fetch: async () => refused({ status: 500 }),
+    $fetch: async (path: string, init?: { readonly body?: unknown }) => {
+      if (path !== "/sign-in-attempt/status") return refused({ status: 500 });
+      statusAsked.push(init?.body);
+      return statusAnswers.shift() ?? ok({ completed: false });
+    },
     getSession: async () => ok(null),
     signIn: {
       magicLink: async ({ email }: { readonly email: string }) => {
@@ -143,6 +151,8 @@ describe("the web SignInScreen", () => {
     session = { status: "signed-out" };
     emailAnswers = [];
     codeAnswers = [];
+    statusAnswers = [];
+    statusAsked = [];
     emailsSent = 0;
     emailedTo = [];
     passkeyOption.mockClear();
@@ -151,7 +161,22 @@ describe("the web SignInScreen", () => {
   afterEach(async () => {
     await render(null);
     clearNativeHandoffRequest();
+    if (closeWindow) window.close = closeWindow;
   });
+
+  // The page asks about its sign-in attempts on its regular tick and at once
+  // when it comes back into view; the tests bring it back.
+  let closeWindow: typeof window.close | undefined;
+  const closeTab = mock(() => undefined);
+  beforeEach(() => {
+    closeTab.mockClear();
+    closeWindow = window.close;
+    window.close = closeTab;
+  });
+  const comesBackIntoView = () =>
+    runInPage(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
 
   test("without the app's request it keeps its own page, passkey option included", async () => {
     await show();
@@ -350,6 +375,74 @@ describe("the web SignInScreen", () => {
     await runInPage(() => shownStep(AppSignInEmailStep).onSubmit());
     await settle(() => (shown as ReactElement).type === AppSignInLinkStep);
     expect(shownStep(AppSignInLinkStep).email).toBe(testEmailAddress("link"));
+  });
+
+  const attempt = "a".repeat(43);
+  const codeWithAttempt = () =>
+    ok({ status: true, signInCode: true, signInAttempt: attempt });
+
+  test("once the email's link signed in in the app, the page forgets the request, closes, and says so if it stays", async () => {
+    await toCode(codeWithAttempt());
+    statusAnswers.push(ok({ completed: true }));
+
+    await comesBackIntoView();
+    await settle(
+      () => (shown as ReactElement).type === AppSignInFinishedInAppStep
+    );
+
+    expect(statusAsked).toEqual([{ attempts: [attempt] }]);
+    expect(closeTab).toHaveBeenCalledTimes(1);
+    expect(Option.isNone(loadNativeHandoffRequest(Date.now()))).toBe(true);
+  });
+
+  test("while the link hasn't signed in, the code step stays and its code still checks", async () => {
+    await toCode(codeWithAttempt());
+    await comesBackIntoView();
+    await settle(() => statusAsked.length === 1);
+    shownStep(AppSignInCodeStep);
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(Option.isSome(loadNativeHandoffRequest(Date.now()))).toBe(true);
+
+    codeAnswers.push(refused({ status: 400, code: "INVALID_OTP" }));
+    await runInPage(() => shownStep(AppSignInCodeStep).onSubmit("000000"));
+    await settle(() => shownStep(AppSignInCodeStep).invalid);
+  });
+
+  test("a resend asks about every email of the visit; starting over forgets them", async () => {
+    await toCode(codeWithAttempt());
+    const second = "b".repeat(43);
+    emailAnswers.push(
+      ok({ status: true, signInCode: true, signInAttempt: second })
+    );
+    await runInPage(() => shownStep(AppSignInCodeStep).onResend());
+    await settle(
+      () => shownStep(AppSignInCodeStep).notice?.tone === "positive"
+    );
+    await comesBackIntoView();
+    await settle(() => statusAsked.length === 1);
+    expect(statusAsked).toEqual([{ attempts: [attempt, second] }]);
+
+    await runInPage(() => shownStep(AppSignInCodeStep).onUseDifferentEmail());
+    await comesBackIntoView();
+    expect(statusAsked.length).toBe(1);
+  });
+
+  test("a page the app didn't open never asks", async () => {
+    await show();
+    emailAnswers.push(codeWithAttempt());
+    await runInPage(() =>
+      find(shown as ReactElement, TextField)?.props.onChangeText?.(
+        testEmailAddress("web")
+      )
+    );
+    await runInPage(() => find(shown as ReactElement, Button)?.props.onPress());
+    await settle(
+      () =>
+        find(shown as ReactElement, TextField)?.props.autoComplete ===
+        "one-time-code"
+    );
+    await comesBackIntoView();
+    expect(statusAsked).toEqual([]);
   });
 
   test("a fresh browser session continues as its account", async () => {

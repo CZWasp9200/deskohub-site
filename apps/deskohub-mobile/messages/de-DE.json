@@ -188,6 +188,8 @@
   "signin_resend_link": "Link erneut senden",
   "signin_resend_link_in": "Link erneut senden in {time}",
   "signin_link_resent": "Wir haben einen neuen Link geschickt. Nutz die neueste E-Mail.",
+  "signin_signed_in_in_app_title": "Du bist angemeldet",
+  "signin_signed_in_in_app_body": "Der Link aus der E-Mail hat dich in der App angemeldet. Du kannst diesen Tab schließen.",
   "signin_already_signed_in": "Du bist bereits angemeldet",
   "signin_continue": "Weiter",
   "signin_create_title": "Anmelden oder Konto erstellen",

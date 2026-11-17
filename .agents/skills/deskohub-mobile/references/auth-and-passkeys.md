@@ -63,8 +63,14 @@ opens the web bundle's `/app/sign-in?native=1` in an in-app auth session:
   and the back gesture would reveal; the page therefore closes itself
   (`close-tab-on-handoff.ts`) once it has handed off and the app hides it.
   A magic link opened from the mail app in that case never hands off, so
-  that tab stays (accepted limitation; follow-up
-  [#1303](https://github.com/totalolage/deskohub-site/issues/1303)).
+  the page asks the Workspace about it (`sign-in-elsewhere-watch.ts`): it
+  keeps the sign-in attempt of each email it sent in this visit and, on the
+  code or link step, asks `/sign-in-attempt/status` every 5 s and at once
+  when it comes back into view, until the newest link expires, it starts
+  over, or it checks a code or finishes a sign-in itself. Failed asks are
+  ignored. Once an attempt signed in, it clears the native request, calls
+  `window.close()`, and, if the tab stays, shows that the customer is signed
+  in in the app (`AppSignInFinishedInAppStep`).
 - The page focuses the email field on load, but Chrome raises the keyboard
   only on a tap, in the app's tab as in Chrome itself (checked on the
   emulator, 2026-11-16); neither the TWA nor the Custom Tab launch can
