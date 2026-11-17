@@ -37,7 +37,7 @@ Feature policy stays in the caller or a thin adapter; the controls only take gen
 - `isDateDisabled`: dates the calendar doesn't offer and typed text can't choose, such as unavailable reservation days.
 - `stepMinutes`: the time step, counted from midnight (60 for whole hours). A minimum off the step rounds up to the next step.
 - `defaultTime` (date-time): the time a date gets before any time is chosen, so a date alone completes the value. Picking a date moves an earlier time up to the minimum's time on the minimum's day.
-- `displayValue` (date): the line under the field with the selected date; the long date by default, `false` for none in compact cells.
+- `displayValue` (date): the line under the field with the selected date; the long date by default, other content describing the selection in its place (the cowork form shows an overnight stay's times), `false` for none in compact cells.
 
 Reservation availability, minimum booking times, and whole-hour rules live in the reservation adapters in `features/reservation/components`, which pass them through these hooks: `ReservationFormDateInput` takes the space's unavailable dates, and `ReservationFormDateTimeInput` gives a start the workspace's default start time and, for a whole-day booking, takes only the date while the start keeps its time.
 

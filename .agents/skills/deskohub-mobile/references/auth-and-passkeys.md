@@ -110,6 +110,8 @@ to the ceremony.
   `https://workspace.deskohub.cz/app/` is `autoVerify`; a build aimed at a
   preview adds an unverified filter for that host, which a tester approves in
   the app's Android settings.
+  The site pages the app also claims are in
+  [web-app-and-android-page.md](web-app-and-android-page.md).
 - `/.well-known/apple-app-site-association` (`webcredentials` and `applinks`
   for `/app/*`) needs `APPLE_TEAM_ID` and answers 404 without it. There is no
   Apple account yet, so iOS passkeys and universal links stay unconfigured.
