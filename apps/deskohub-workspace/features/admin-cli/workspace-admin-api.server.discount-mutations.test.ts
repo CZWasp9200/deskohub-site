@@ -113,14 +113,16 @@ class DependencyOutage extends Data.TaggedError("DependencyOutage")<{
 
 /**
  * A ledger that applies every request as the real one applies a new claim:
- * on success it runs `afterSettled`; on failure it asks the recovery policy
- * whether the claim would be released. `refusal` answers instead of applying,
- * as the real ledger answers a claim in progress or a reused request ID.
+ * on success it runs `afterSettled`; on failure it records the port failure
+ * and asks the recovery policy whether the claim would be released. `refusal`
+ * answers instead of applying, as the real ledger answers a claim in progress
+ * or a reused request ID.
  */
 const settlingRequestLedger = (
   refusal?: CliMutationInProgress | CliMutationRejected | CliServiceUnavailable
 ) => {
   const releases: boolean[] = [];
+  const failures: unknown[] = [];
   const layer = Layer.succeed(AdministrationRequestLedger, {
     applyOnce: () => Effect.die("Discount mutations have external effects."),
     applyOnceWithEffects: (mutation) =>
@@ -128,14 +130,15 @@ const settlingRequestLedger = (
         ? Effect.fail(refusal)
         : mutation.apply.pipe(
             Effect.tapError((failure) =>
-              Effect.sync(() =>
-                releases.push(mutation.recovery.releasesOn(failure))
-              )
+              Effect.sync(() => {
+                failures.push(failure);
+                releases.push(mutation.recovery.releasesOn(failure));
+              })
             ),
             Effect.tap(() => mutation.afterSettled ?? Effect.void)
           ),
   } as (typeof AdministrationRequestLedger)["Service"]);
-  return { layer, releases };
+  return { layer, releases, failures };
 };
 
 const mutateDiscounts = (
@@ -210,6 +213,7 @@ describe("discount mutation failures over the administration API", () => {
       CliResourceNotFound,
       "The discount doesn't exist.",
       true,
+      "discount-not-found",
     ],
     [
       "the last audience customer",
@@ -220,6 +224,7 @@ describe("discount mutation failures over the administration API", () => {
       CliMutationRejected,
       "Removing the last customer broadens the voucher.",
       true,
+      "voucher-final-audience-customer",
     ],
     [
       "a conflict",
@@ -230,6 +235,7 @@ describe("discount mutation failures over the administration API", () => {
       CliMutationRejected,
       "This discount is still referenced.",
       true,
+      "discount-referenced",
     ],
     [
       "refused service dates",
@@ -239,6 +245,7 @@ describe("discount mutation failures over the administration API", () => {
       CliMutationRejected,
       "serviceDateUntil must not be before serviceDateFrom",
       true,
+      "service-dates-invalid",
     ],
     [
       "an unavailable dependency",
@@ -246,10 +253,11 @@ describe("discount mutation failures over the administration API", () => {
       CliServiceUnavailable,
       unavailableMessage,
       false,
+      "service-unavailable",
     ],
   ] as const)(
-    "answers %s with its CLI error and claim release",
-    async (_, failure, errorClass, message, released) => {
+    "answers %s with its CLI error, stable code and claim release",
+    async (_, failure, errorClass, message, released, code) => {
       const ledger = settlingRequestLedger();
 
       const result = await mutateDiscounts(
@@ -262,6 +270,7 @@ describe("discount mutation failures over the administration API", () => {
       expect(error).toBeInstanceOf(errorClass);
       expect(error).toMatchObject({ message });
       expect(ledger.releases).toEqual([released]);
+      expect(ledger.failures).toEqual([expect.objectContaining({ code })]);
     }
   );
 
