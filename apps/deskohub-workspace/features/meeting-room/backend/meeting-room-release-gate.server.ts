@@ -1,15 +1,15 @@
 import "server-only";
 
 import { releaseGateForRequest } from "@/features/feature-flags/backend/release-gate.server";
-import { MeetingRoomPageReleaseGate } from "./meeting-room-page-release-gate";
+import {
+  MeetingRoomReleaseGate,
+  meetingRoomReleaseRunPolicy,
+} from "./meeting-room-release-gate";
 
-// A run that fails beyond the gate's own fail-closed policy, such as a
-// runtime that cannot start, rejects, so the page errors rather than
-// answering not found.
-const meetingRoomPageRequest = releaseGateForRequest(
-  MeetingRoomPageReleaseGate,
-  { operation: "meeting-room.page-enabled", whenRunFails: "reject" }
-);
+const meetingRoomPageRequest = releaseGateForRequest(MeetingRoomReleaseGate, {
+  operation: "meeting-room.page-enabled",
+  ...meetingRoomReleaseRunPolicy,
+});
 
 /**
  * The meeting-room page release gate, decided at most once per server
@@ -27,4 +27,4 @@ export const isMeetingRoomPageOpenAfterConnection =
   meetingRoomPageRequest.isOpen;
 
 /** The meeting-room page gate backed by the request's one decision. */
-export const MeetingRoomPageReleaseGateRequest = meetingRoomPageRequest.layer;
+export const MeetingRoomReleaseGateRequest = meetingRoomPageRequest.layer;

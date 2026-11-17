@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type {
+  CustomerCheckoutSummary,
+  CustomerCheckoutSummaryItem,
+} from "@deskohub/workspace-customer-api";
 import {
   type PriceLine,
   priceBreakdown,
@@ -81,6 +85,39 @@ describe("priceBreakdown", () => {
     ]);
   });
 
+  const officeLineWith = (
+    change: (item: CustomerCheckoutSummaryItem) => CustomerCheckoutSummaryItem
+  ): CustomerCheckoutSummary => ({
+    ...officeSixSeats.summary,
+    sections: officeSixSeats.summary.sections.map((section) => ({
+      ...section,
+      items: section.items.map((item) =>
+        item.key === "product:office:6:3" ? change(item) : item
+      ),
+    })),
+  });
+
+  test("shows the seats total the answer gives rather than multiplying a seat's price", () => {
+    const { lines } = priceBreakdown(
+      officeLineWith((item) => ({
+        ...item,
+        seatsAmount: { value: 500_000, exponent: 2, currency: "CZK" },
+      }))
+    );
+    expect(lines.find((line) => line.key.endsWith(":seats"))?.amount).toEqual({
+      value: 500_000,
+      exponent: 2,
+      currency: "CZK",
+    });
+  });
+
+  test("keeps an office line whole when the answer has no seats total", () => {
+    const { lines } = priceBreakdown(
+      officeLineWith(({ seatsAmount: _seatsAmount, ...item }) => item)
+    );
+    expect(lines.map((line) => line.key)).toEqual(["product:office:6:3"]);
+  });
+
   test("follows a discounted office's parts with its discount", () => {
     const { lines } = priceBreakdown(officeSixSeatsDiscounted.summary);
     expect(lines.map((line) => line.key)).toEqual([
@@ -94,14 +131,17 @@ describe("priceBreakdown", () => {
 describe("summaryItemSubject", () => {
   test.each([
     [
-      "product:cowork:open-space",
+      { key: "product:cowork:open-space" },
       { _tag: "Product", product: "cowork:open-space" },
     ],
-    ["addon:coffee", { _tag: "Coffee" }],
-    ["addon:workstation", { _tag: "Workstation" }],
-    ["monitor:2x27-qhd", { _tag: "Monitor", option: "2x27-qhd" }],
-    ["addon:parking", { _tag: "Other", key: "addon:parking" }],
-  ])("%s", (key, subject) => {
-    expect(summaryItemSubject(key)).toEqual(subject as never);
+    [{ key: "addon:coffee" }, { _tag: "Coffee" }],
+    [{ key: "addon:workstation" }, { _tag: "Workstation" }],
+    [
+      { key: "addon:workstation", monitorOption: "2x27-qhd" },
+      { _tag: "Workstation", monitorOption: "2x27-qhd" },
+    ],
+    [{ key: "addon:parking" }, { _tag: "Other", key: "addon:parking" }],
+  ] as const)("%o", (item, subject) => {
+    expect(summaryItemSubject(item)).toEqual(subject);
   });
 });

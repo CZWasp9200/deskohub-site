@@ -6,7 +6,12 @@ import type {
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { DateTime, Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { Stack, useIsFocused, useRouter } from "expo-router";
+import {
+  type NativeStackHeaderProps,
+  Stack,
+  useIsFocused,
+  useRouter,
+} from "expo-router";
 import CalendarPlus from "lucide-react-native/icons/calendar-plus";
 import Check from "lucide-react-native/icons/check";
 import Clock from "lucide-react-native/icons/clock";
@@ -18,7 +23,7 @@ import MapPin from "lucide-react-native/icons/map-pin";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { Fragment, type ReactNode } from "react";
 import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
-import { bookKindHref } from "../../booking/booking-routes";
+import { bookKindHref, reservationsHref } from "../../booking/booking-routes";
 import { AsyncView } from "../../customer-api/async-view";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
@@ -28,10 +33,7 @@ import { EmptyState } from "../../ui/empty-state";
 import { Icon } from "../../ui/icon";
 import { ListGroup, ListRow } from "../../ui/list";
 import { useLiveRegionAnnouncement } from "../../ui/live-announcement";
-import {
-  renderNavyStackHeader,
-  renderPaperStackHeader,
-} from "../../ui/navigation";
+import { StackHeader } from "../../ui/navigation";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Skeleton } from "../../ui/skeleton";
@@ -82,6 +84,20 @@ import type { ReservationListRow } from "./reservation-list-model";
 const placeholderGroups = accessPinGroups("0000000");
 
 /**
+ * The PIN's header in each tone: navy over the PIN, the paper canvas's
+ * without one. Back from a PIN a link opened on a cold start, with nothing
+ * behind it in the app, goes to the Reservations list.
+ */
+export const accessStackHeader = {
+  navy: (props: NativeStackHeaderProps) => (
+    <StackHeader {...props} tone="navy" backFallback={reservationsHref} />
+  ),
+  paper: (props: NativeStackHeaderProps) => (
+    <StackHeader {...props} backFallback={reservationsHref} />
+  ),
+} as const;
+
+/**
  * An order's door PIN (board 24): the PIN large on navy in groups, its
  * Copy action top right, how to use it, and a status chip from the lock's
  * window; under it the window, the address that copies on tap, Get
@@ -104,12 +120,7 @@ export function ReservationAccessScreen({
   // that a refresh turns into a PIN gets the navy header back.
   const header = (
     <Stack.Screen
-      options={{
-        header:
-          accessHeaderTone(state) === "navy"
-            ? renderNavyStackHeader
-            : renderPaperStackHeader,
-      }}
+      options={{ header: accessStackHeader[accessHeaderTone(state)] }}
     />
   );
   if (AccessScreenState.$is("NoPin")(state)) {

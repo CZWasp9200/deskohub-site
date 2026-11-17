@@ -18,7 +18,7 @@ import {
   CurrentCliSession,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
-import { Effect, Layer, Match, Redacted, Schema } from "effect";
+import { DateTime, Effect, Layer, Match, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
@@ -308,10 +308,15 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         administration.listCustomers(query).pipe(mapServiceFailure)
       )
       .handle("searchCustomers", ({ query }) =>
-        customerDirectory.search(query.query).pipe(
-          Effect.map(({ kind, customers }) => ({
+        Effect.all({
+          search: customerDirectory.search(query.query),
+          now: DateTime.nowAsDate,
+        }).pipe(
+          Effect.map(({ search: { kind, customers }, now }) => ({
             kind,
-            customers: customers.map(toAdminDotyposCustomer),
+            customers: customers.map((customer) =>
+              toAdminDotyposCustomer(customer, now)
+            ),
           })),
           mapServiceFailure
         )

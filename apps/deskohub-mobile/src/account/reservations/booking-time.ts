@@ -74,9 +74,8 @@ export const bookingCountdown = (
 };
 
 /**
- * `days` with its unit, in the locale's plural form ("16 days"). Hermes has
- * no `Intl.PluralRules`, so messages can't choose plural forms on a device;
- * the unit format carries them.
+ * `days` with its unit, in the locale's plural form ("16 days"), from the
+ * engine's unit format.
  */
 export const formatDayCount = (days: number, locale: AppLocale): string =>
   new Intl.NumberFormat(locale, {

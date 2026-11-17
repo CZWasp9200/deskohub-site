@@ -19,10 +19,6 @@ export function OfficeCheckoutSummaryItem({
   readonly item: OfficeCheckoutSummaryItem;
   readonly locale: Locale;
 }) {
-  const seatTotalAmount = moneyWithValue(
-    item.seatAmount.value * item.seats,
-    item.seatAmount
-  );
   const discountAmount = item.originalAmount
     ? moneyWithValue(item.amount.value - item.originalAmount.value, item.amount)
     : undefined;
@@ -39,7 +35,7 @@ export function OfficeCheckoutSummaryItem({
         locale={locale}
       />
       <CheckoutSummaryLine
-        amount={seatTotalAmount}
+        amount={item.seatsAmount}
         changed={changed}
         label={`${m.checkoutSummaryItemOfficeSeatCount(
           { seatCount: item.seats },

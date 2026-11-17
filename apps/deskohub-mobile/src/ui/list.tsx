@@ -1,3 +1,4 @@
+import Check from "lucide-react-native/icons/check";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import { Children, Fragment, isValidElement, type ReactNode } from "react";
@@ -126,6 +127,7 @@ export function ListRow({
   badge,
   below,
   accessibilityLabel,
+  selected,
 }: {
   readonly label: string;
   readonly description?: string;
@@ -153,14 +155,26 @@ export function ListRow({
    * trailing icon says what it does, such as a download.
    */
   readonly accessibilityLabel?: string;
+  /**
+   * Whether this is the chosen option of a pick list, such as a country
+   * sheet's: the chosen row ends in the action-coloured check, in place of
+   * `trailing`, and every row says whether it is chosen.
+   */
+  readonly selected?: boolean;
 }) {
   const { role, chevron } = listRowPresentation({
     pressable: onPress !== undefined,
     kind,
   });
   const tile = iconTileColors[iconTone ?? (destructive ? "danger" : "neutral")];
-  const end = trailing ?? (chevron ? "chevron" : "none");
-  const ownTrailing = end !== "chevron" && end !== "external" && end !== "none";
+  const end: RowEnd = selected
+    ? "check"
+    : (trailing ?? (chevron ? "chevron" : "none"));
+  const ownTrailing =
+    end !== "chevron" &&
+    end !== "external" &&
+    end !== "none" &&
+    end !== "check";
   // At large font sizes a custom trailing node, such as a badge, moves under
   // the label instead of squeezing it to a few letters per line.
   const { fontScale } = useWindowDimensions();
@@ -240,6 +254,7 @@ export function ListRow({
       role={role}
       aria-label={accessibleLabel}
       aria-disabled={disabled}
+      aria-selected={selected}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -252,7 +267,13 @@ export function ListRow({
   );
 }
 
-const trailingContent = (end: ListRowTrailing) => {
+// What ends a row: its `trailing`, or the check of a chosen option.
+type RowEnd = ListRowTrailing | "check";
+
+const trailingContent = (end: RowEnd) => {
+  if (end === "check") {
+    return <Icon icon={Check} size={20} color={color.action} />;
+  }
   if (end === "chevron") {
     return <Icon icon={ChevronRight} size={20} color={color.ink3} />;
   }

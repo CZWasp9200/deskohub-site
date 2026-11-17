@@ -29,6 +29,8 @@
   "booking_details_city": "शहर",
   "booking_details_postal_code": "पोस्टल कोड",
   "booking_details_country": "देश",
+  "booking_details_country_search": "देश खोजें",
+  "booking_details_country_no_match": "खोज से मेल खाता कोई देश नहीं है।",
   "booking_details_news_heading": "Deskohub की ख़बरें",
   "booking_details_optional": "वैकल्पिक",
   "booking_details_marketing_consent": "मुझे Deskohub Workspace की ख़बरें, इवेंट और ऑफ़र ईमेल पर भेजें। कभी भी अनसब्सक्राइब कर सकते हैं।",
@@ -74,8 +76,35 @@
   "booking_checkout_summary_total": "कुल भुगतान",
   "booking_checkout_summary_changed": "कीमत बदल गई",
   "booking_checkout_summary_original_price": "पहले की कीमत: {amount}",
-  "booking_checkout_summary_office_days": "दिनों की संख्या: {count}",
-  "booking_checkout_summary_office_seats": "ऑफ़िस में सीटों की संख्या: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} दिन",
+        "countPlural=other": "{formattedCount} दिन"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "ऑफ़िस में सीटें",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} सीट",
+        "countPlural=other": "{formattedCount} सीटें"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "साझा सीट",
   "booking_checkout_line_reserved_desk": "तय डेस्क",
   "booking_checkout_line_meeting_room": "मीटिंग रूम",
@@ -83,7 +112,6 @@
   "booking_checkout_line_coffee": "कॉफ़ी",
   "booking_checkout_line_workstation": "मॉनिटर वाला वर्कस्टेशन",
   "booking_checkout_line_other": "अन्य मद",
-  "booking_price_line_one_day": "1 दिन",
   "booking_price_line_one_hour": "1 घंटा, {start}–{end}",
   "booking_price_line_four_hours": "4 घंटे, {start}–{end}",
   "booking_summary_open_space_day": "{date}, {time} तक",
@@ -734,7 +762,36 @@
   "referrals_saved_so_far": "अब तक की बचत",
   "referrals_discount_info": "छूट कैसे गिनी जाती है",
   "referrals_joined_nobody": "आपके कोड से अभी तक कोई नहीं जुड़ा है।",
-  "referrals_joined_some": "आपके कोड से जुड़े: {invitees}. आपकी छूट में गिने जा रहे: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}।",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "आपके कोड से {formattedCount} व्यक्ति जुड़ा",
+        "countPlural=other": "आपके कोड से {formattedCount} लोग जुड़े"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} आपकी छूट में गिना जा रहा है",
+        "countPlural=other": "{formattedCount} आपकी छूट में गिने जा रहे हैं"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "आपकी छूट में अभी कोई नहीं गिना जा रहा",
   "referrals_how_it_works": "यह कैसे काम करता है",
   "referrals_step_share": "अपना कोड या लिंक शेयर करें।",
   "referrals_step_friend_rate": "आपके दोस्त को पहली बुकिंग पर {rate} की छूट मिलती है।",

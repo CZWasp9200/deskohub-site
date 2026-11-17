@@ -54,10 +54,10 @@ const props = (
   },
   initials: Option.some("SB"),
   onEditProfile: Option.some(ignore),
-  draft: initialDetailsDraft({
-    address: Option.none(),
-    company: Option.none(),
-  }),
+  draft: initialDetailsDraft(
+    { address: Option.none(), company: Option.none() },
+    "CZ"
+  ),
   onDraftChange: ignore,
   notice: Option.none(),
   busy: false,

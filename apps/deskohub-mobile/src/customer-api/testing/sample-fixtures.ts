@@ -146,6 +146,7 @@ export const sampleOrderIds = {
   // Status and access screen states; reachable by deep link
   // (deskohub://reservations/<id>), not listed in the history.
   upcoming: CustomerReservationOrderId.make("sample-order-upcoming"),
+  workstation: CustomerReservationOrderId.make("sample-order-workstation"),
   accessUnavailable: CustomerReservationOrderId.make(
     "sample-order-access-unavailable"
   ),
@@ -559,6 +560,35 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
           code: "222222",
           accessStartsAt: at(now, 3 * day - 0.5 * hour),
           accessEndsAt: at(now, 3 * day + 3.5 * hour),
+        },
+        invoice: sampleInvoicePdf(),
+      },
+    ],
+    [
+      sampleOrderIds.workstation,
+      {
+        state: {
+          orderId: sampleOrderIds.workstation,
+          kind: "cowork",
+          status: "fulfilled",
+          paymentStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          startsAt: at(now, 2 * day),
+          endsAt: at(now, 3 * day),
+          total: { value: 53000, exponent: 2, currency: "CZK" },
+          bookedSelection: {
+            selection: {
+              family: "cowork",
+              date: at(now, 2 * day).slice(0, 10),
+              tier: "reserved-desk",
+              monitorOption: "2x27-qhd",
+            },
+          },
+        },
+        access: {
+          code: "333333",
+          accessStartsAt: at(now, 2 * day),
+          accessEndsAt: at(now, 3 * day),
         },
         invoice: sampleInvoicePdf(),
       },

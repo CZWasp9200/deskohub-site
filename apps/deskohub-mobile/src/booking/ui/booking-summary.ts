@@ -156,10 +156,7 @@ export const bookingSummaryParts = (
                 { locale }
               ),
         extras: extrasOf(
-          m.booking_checkout_summary_office_seats(
-            { count: overview.seats },
-            { locale }
-          )
+          m.booking_price_line_seats({ count: overview.seats }, { locale })
         ),
       };
     }

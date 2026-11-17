@@ -73,10 +73,15 @@ Next: the app bundles for Hermes and the browser.
 - The root `biome.json` override for `apps/deskohub-mobile/**` bans `next`,
   `next/**`, `@deskohub/next-effect` and `@deskohub/i18n/{next,action,request-locale}`
   through `style/noRestrictedImports`. The `@deskohub/i18n` root, `core`,
-  `pathname`, `translatable`, `effect` and `currency` entries are allowed.
+  `pathname`, `translatable`, `effect`, `currency` and `search-text` entries are allowed.
   `lint/import-ban.test.ts` pins banned and allowed specifiers; extend both
   when a new server-bound entry appears.
-- Hermes lacks some `Intl` APIs. `@deskohub/i18n/currency` falls back to the
+- Hermes lacks some `Intl` APIs: it has only `Collator`, `DateTimeFormat`,
+  `NumberFormat` and `getCanonicalLocales`. `index.ts` installs the app's
+  cardinal `Intl.PluralRules` (`src/i18n/plural-rules.ts`, held to ICU by
+  its test) where the engine has none, so catalog plurals work on a device;
+  a new locale needs its rule there, and typecheck names it. Ordinal plurals
+  aren't bundled. `@deskohub/i18n/currency` falls back to the
   ISO code where `Intl.DisplayNames` is missing; `src/smoke/intl-smoke-cases.ts`
   asserts that on a device. `formatCurrencyAmount` can lose precision on
   Hermes for large decimal strings. Add a smoke case when a shared module

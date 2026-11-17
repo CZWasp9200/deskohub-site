@@ -31,11 +31,15 @@ shows something none of them draws.
   `ErrorState`, `RefreshingIndicator` for a screen's async states.
 - Controls: `Button` and `ButtonRow`, `IconButton` (its `label` is required:
   every icon-only control has a screen-reader name), `TextField` and the field
-  pieces in `field.tsx`, `SelectField`, `CountryField`, `Checkbox`, `Switch`
-  (optionally with a `label` before the track, grey off and orange on, and
-  an `icon` its thumb always holds, as the Date heading's Overnight switch),
+  pieces in `field.tsx`, `SelectField`, `SearchField` (a list's filter; its
+  placeholder is its name), `CountryField` (the searchable country sheet),
+  `Checkbox`, `Switch` (optionally with a `label` before the track, grey off
+  and orange on, and an `icon` its thumb always holds, as the Date heading's
+  Overnight switch),
   `ToggleRow`, the radio card pieces in `radio-card.tsx`, `SegmentedChoice`, `ChoiceGroup`, `ChoiceList`.
-- Overlays: `Dialog`, `ConfirmDialog`, `BottomSheet`, and the toast.
+- Overlays: `Dialog`, `ConfirmDialog`, `BottomSheet` (an optional fixed
+  `header`, such as a `SearchField`; it stays above the keyboard), and the
+  toast. A pick list in a sheet marks the chosen `ListRow` with `selected`.
 - Booking: `BookingBar` (the expandable price bar with its itemized
   breakdown), the step progress, `BookingSectionHeading` (an aside, a text
   action, or a `control` on the right, such as the Overnight switch),

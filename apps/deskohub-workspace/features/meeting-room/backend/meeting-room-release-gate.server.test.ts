@@ -43,7 +43,7 @@ mock.module(
 );
 
 const { isMeetingRoomPageEnabled, isMeetingRoomPageOpenAfterConnection } =
-  await import("./meeting-room-page-release-gate.server");
+  await import("./meeting-room-release-gate.server");
 
 describe("meeting-room page release gate readers", () => {
   test("reject for stored output but stay closed after connection() while PostHog can't decide the flag", async () => {
