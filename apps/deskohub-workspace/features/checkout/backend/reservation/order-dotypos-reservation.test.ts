@@ -14,6 +14,7 @@ import {
 import type { WorkspaceReservation } from "@/features/reservation/backend/workspace-reservation.repository";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import {
+  findOrderCoworkStay,
   findOrderDotyposReservations,
   type RecreatedReservation,
   rebuildAcceptedReservation,
@@ -31,10 +32,19 @@ const order: WorkspaceReservation = {
   reservationDetails: { kind: "cowork", entryTier: "basic", coffee: true },
 } as never;
 
+const reservedDeskOrder: WorkspaceReservation = {
+  ...order,
+  reservationDetails: {
+    kind: "cowork",
+    entryTier: "reserved-desk",
+    coffee: true,
+  },
+} as never;
+
 const coworkSnapshot = makeCoworkInvoiceDocument("en-US") as never;
 
 const recreated = (() => {
-  const rebuilt = rebuildAcceptedReservation(order, coworkSnapshot);
+  const rebuilt = rebuildAcceptedReservation(order, coworkSnapshot, undefined);
   if (!rebuilt) throw new Error("The cowork order must rebuild.");
   return rebuilt;
 })();
@@ -125,9 +135,94 @@ describe("rebuildAcceptedReservation", () => {
     expect(
       rebuildAcceptedReservation(
         order,
-        makeMeetingRoomInvoiceDocument("en-US") as never
+        makeMeetingRoomInvoiceDocument("en-US") as never,
+        undefined
       )
     ).toBeNull();
+  });
+
+  test("keeps an overnight stay on the rebuilt Reserved Desk", () => {
+    const rebuilt = rebuildAcceptedReservation(
+      reservedDeskOrder,
+      coworkSnapshot,
+      "overnight"
+    );
+    expect(rebuilt?.reservation).toMatchObject({
+      kind: "cowork",
+      entryTier: "reserved-desk",
+      stay: "overnight",
+    });
+    expect(rebuilt?.checkoutDetails.reservation).toBe(rebuilt?.reservation);
+    expect(
+      rebuildAcceptedReservation(reservedDeskOrder, coworkSnapshot, "day")
+        ?.reservation
+    ).not.toHaveProperty("stay");
+  });
+});
+
+describe("findOrderCoworkStay", () => {
+  const dotyposReservationId = "dotypos-reservation-id" as never;
+  const findStay = (
+    input: {
+      readonly order?: WorkspaceReservation;
+      readonly bounds?: {
+        readonly startDate: string;
+        readonly endDate: string;
+      };
+    } = {}
+  ) => {
+    const getReservationWithoutCustomer = mock(() =>
+      Effect.succeed({ ...input.bounds, seats: "1" })
+    );
+    return {
+      getReservationWithoutCustomer,
+      stay: Effect.runPromise(
+        findOrderCoworkStay({
+          order: input.order ?? reservedDeskOrder,
+          dotyposReservationId,
+        }).pipe(
+          Effect.provideService(DotyposService, {
+            getReservationWithoutCustomer,
+          } as never)
+        )
+      ),
+    };
+  };
+
+  test("reads an overnight stay from the Dotypos reservation's bounds", async () => {
+    // Prague winter time (UTC+1): noon on 2099-01-01 to noon on 2099-01-02.
+    const found = findStay({
+      bounds: {
+        startDate: "2099-01-01T11:00:00Z",
+        endDate: "2099-01-02T11:00:00Z",
+      },
+    });
+    expect(await found.stay).toBe("overnight");
+    expect(found.getReservationWithoutCustomer).toHaveBeenCalledWith(
+      dotyposReservationId
+    );
+  });
+
+  test("reads a day stay from day bounds", async () => {
+    const found = findStay({
+      bounds: {
+        startDate: "2098-12-31T23:00:00Z",
+        endDate: "2099-01-01T23:00:00Z",
+      },
+    });
+    expect(await found.stay).toBe("day");
+  });
+
+  test("leaves the stay unknown when the bounds can't be read", async () => {
+    expect(
+      await findStay({ bounds: { startDate: "", endDate: "" } }).stay
+    ).toBeUndefined();
+  });
+
+  test("reads nothing from Dotypos for a cowork tier without overnight stays", async () => {
+    const found = findStay({ order });
+    expect(await found.stay).toBeUndefined();
+    expect(found.getReservationWithoutCustomer).not.toHaveBeenCalled();
   });
 });
 

@@ -32,6 +32,7 @@ import {
 } from "../repositories/late-payment-recovery.repository";
 import { administrationForcedPaymentCancellationFailureCode } from "../repositories/payment-lifecycle.repository";
 import {
+  findOrderCoworkStay,
   findOrderDotyposReservations,
   type RecreatedReservation,
   rebuildAcceptedReservation,
@@ -230,10 +231,18 @@ export class LatePaymentRecoveryService extends Context.Service<
       const findRecreatedReservation = Effect.fnUntraced(function* (input: {
         readonly paymentAttemptId: PaymentAttemptId;
         readonly reservation: WorkspaceReservation;
+        readonly originalDotyposReservationId: DotyposReservationId;
       }) {
         const snapshot = yield* snapshots.find(input.paymentAttemptId);
         return snapshot
-          ? rebuildAcceptedReservation(input.reservation, snapshot)
+          ? rebuildAcceptedReservation(
+              input.reservation,
+              snapshot,
+              yield* findOrderCoworkStay({
+                order: input.reservation,
+                dotyposReservationId: input.originalDotyposReservationId,
+              }).pipe(Effect.provideService(DotyposService, dotypos))
+            )
           : null;
       });
 
@@ -362,6 +371,7 @@ export class LatePaymentRecoveryService extends Context.Service<
       )(function* (input: {
         readonly paymentAttemptId: PaymentAttemptId;
         readonly reservation: WorkspaceReservation;
+        readonly originalDotyposReservationId: DotyposReservationId;
         readonly newerReservation: boolean;
       }) {
         const recreated = yield* findRecreatedReservation(input);
@@ -535,6 +545,7 @@ export class LatePaymentRecoveryService extends Context.Service<
         return yield* recreateReservation({
           paymentAttemptId: claimed.paymentAttemptId,
           reservation: released,
+          originalDotyposReservationId: claimed.originalDotyposReservationId,
           newerReservation,
         });
       });

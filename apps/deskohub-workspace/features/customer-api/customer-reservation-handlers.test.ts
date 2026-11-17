@@ -182,7 +182,7 @@ describe("listReservations", () => {
         {
           id: orderId,
           orderId,
-          product: { kind: "cowork", tier: "open-space" },
+          product: { kind: "cowork", tier: "open-space", stay: "day" },
           startsAt: "2099-07-01T06:00:00Z",
           endsAt: "2099-07-01T22:00:00Z",
           seats: 1,
@@ -215,6 +215,76 @@ describe("listReservations", () => {
     });
     // Names included, as the account page shows them, in the default locale.
     expect(load).toHaveBeenCalledWith(testLinkedAccount, { locale: "en-US" });
+  });
+
+  test("tells an overnight Reserved Desk stay from a day by its booked time", async () => {
+    const reservedDesk = { kind: "cowork", tier: "reserved-desk" } as const;
+    const { reservations } = historyServices({
+      history: Effect.succeed({
+        kind: "available",
+        groups: {
+          current: [
+            {
+              ...ownReservation,
+              product: reservedDesk,
+              startsAt: "2099-07-01T10:00:00Z",
+              endsAt: "2099-07-02T10:00:00Z",
+              bookedSelection: {
+                selection: {
+                  family: "cowork",
+                  date: "2099-07-01" as PlainDate,
+                  tier: "reserved-desk",
+                  stay: "overnight",
+                },
+              },
+            },
+            {
+              ...ownReservation,
+              id: "dotypos-day",
+              product: reservedDesk,
+              startsAt: "2099-06-30T22:00:00Z",
+              endsAt: "2099-07-01T22:00:00Z",
+            },
+          ],
+          past: [],
+          unavailable: [
+            { ...undated, product: reservedDesk },
+            {
+              ...undated,
+              id: "dotypos-unreadable",
+              product: reservedDesk,
+              startsAt: "2099-07-01T10:00:00Z",
+              endsAt: "not-a-date",
+            },
+          ],
+        },
+      }),
+    });
+    const api = makeCustomerApiTestServer({ reservations });
+
+    const response = await api.handle(customerApiRequest(listReservations));
+    const history = (await response.json()) as {
+      readonly current: readonly {
+        readonly product: unknown;
+        readonly bookedSelection?: { readonly selection: unknown };
+      }[];
+      readonly unavailable: readonly { readonly product: unknown }[];
+    };
+
+    expect(history.current.map(({ product }) => product)).toEqual([
+      { ...reservedDesk, stay: "overnight" },
+      { ...reservedDesk, stay: "day" },
+    ]);
+    // Booking it again books the same stay.
+    expect(history.current[0]?.bookedSelection?.selection).toMatchObject({
+      tier: "reserved-desk",
+      stay: "overnight",
+    });
+    // Without a readable time, no stay is told.
+    expect(history.unavailable.map(({ product }) => product)).toEqual([
+      reservedDesk,
+      reservedDesk,
+    ]);
   });
 
   test("lists only the reservations an account without a Dotypos customer authored", async () => {
@@ -286,7 +356,7 @@ describe("listReservations", () => {
     expect(body.current[0]).toEqual({
       id: orderId,
       orderId,
-      product: { kind: "cowork", tier: "open-space" },
+      product: { kind: "cowork", tier: "open-space", stay: "day" },
       productName: "Open Space",
       startsAt: "2099-07-01T06:00:00Z",
       endsAt: "2099-07-01T22:00:00Z",

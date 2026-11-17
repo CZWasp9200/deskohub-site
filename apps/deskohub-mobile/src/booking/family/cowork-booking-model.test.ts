@@ -13,6 +13,7 @@ import {
   coworkAvailabilityQueries,
   defaultCoworkDraft,
   selectCoworkDate,
+  selectCoworkStay,
   selectCoworkTier,
 } from "../selection/cowork-selection";
 import { pragueToday } from "../selection/prague-date";
@@ -252,5 +253,97 @@ describe("openingCoworkDraft", () => {
         today,
       })
     ).toBe(earlier);
+  });
+});
+
+describe("overnight stay", () => {
+  const overnightStay = { startTime: "12:00", endTime: "12:00" };
+  const pending = {
+    range: Option.none(),
+    selection: Option.none(),
+    workstationRequirement: Option.none(),
+  };
+  const stayCatalog = async () => {
+    const { registry, draft } = await setup();
+    const { offerings } = await settledValue(
+      registry,
+      bookingOfferingsAtom("en-US")
+    );
+    const withOvernight = offerings.map((offering) =>
+      offering.family === "cowork" && offering.tier === "reserved-desk"
+        ? { ...offering, overnightStay }
+        : offering
+    );
+    return { offerings, withOvernight, draft };
+  };
+
+  test("offers the switch only for a Reserved Desk whose offering advertises it", async () => {
+    const { offerings, withOvernight, draft } = await stayCatalog();
+    const reservedDesk = selectCoworkTier(draft, "reserved-desk");
+    const switchFor = (shown: CoworkDraft, catalog: typeof offerings) =>
+      coworkBookingModel({
+        draft: shown,
+        now,
+        offerings: catalog,
+        availability: pending,
+      }).overnightStay;
+
+    expect(switchFor(reservedDesk, withOvernight)).toEqual(
+      Option.some(overnightStay)
+    );
+    expect(switchFor(draft, withOvernight)).toEqual(Option.none());
+    expect(switchFor(reservedDesk, offerings)).toEqual(Option.none());
+  });
+
+  test("a kept overnight stay opens as a day once the catalog stops offering it", async () => {
+    const { offerings, withOvernight, draft } = await stayCatalog();
+    const overnight = selectCoworkStay(
+      selectCoworkTier(draft, "reserved-desk"),
+      "overnight"
+    );
+    const kept = Option.some({ seed: "", draft: overnight });
+    const opened = (catalog: typeof offerings) =>
+      openingCoworkDraft({
+        kept,
+        preselection: Option.none(),
+        offerings: catalog,
+        today: pragueToday(now),
+      });
+
+    expect(opened(withOvernight)).toBe(overnight);
+    expect(opened(offerings).stay).toBe("day");
+  });
+
+  test("the overnight selection carries its stay and times to checkout", async () => {
+    const { registry, draft } = await setup();
+    const { withOvernight } = await stayCatalog();
+    const reservedDesk = selectCoworkTier(draft, "reserved-desk");
+    const day = await settledModel(registry, reservedDesk);
+    const quote = await settledValue(
+      registry,
+      bookingQuoteAtom(Option.getOrThrow(day.quotable), "en-US")
+    );
+
+    const model = coworkBookingModel({
+      draft: selectCoworkStay(reservedDesk, "overnight"),
+      now,
+      offerings: withOvernight,
+      availability: pending,
+    });
+    const request = checkoutRequestOf({
+      locale: "en-US",
+      selection: model.selection,
+      blockers: [],
+      quote: Option.some(quote),
+      overnightStay,
+    });
+
+    expect(Option.getOrThrow(day.selection)).not.toHaveProperty("stay");
+    expect(
+      Option.map(request, ({ selection, overnightStay: times }) => [
+        selection.stay,
+        times,
+      ])
+    ).toEqual(Option.some(["overnight", overnightStay]));
   });
 });

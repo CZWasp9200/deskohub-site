@@ -33,6 +33,7 @@ import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import {
   AvailabilityQueryInvalid,
   WorkspaceAvailabilityService,
@@ -200,6 +201,7 @@ const pricedCatalog = (
 
 const officeOpen: CustomerBookingCatalogLayerSet["releases"] = {
   office: OfficeReleaseGate.fromDecision(true),
+  overnightStay: OvernightStayReleaseGate.fromDecision(false),
   referral: ReferralReleaseGate.fromDecision(false),
 };
 
@@ -284,6 +286,39 @@ describe("listOfferings", () => {
       seatPrice: { currency: "CZK" },
       maximumDurationHours: expect.any(Number),
     });
+  });
+
+  test("advertises the overnight stay on the Reserved Desk only while it is offered", async () => {
+    const coworkOfferings = async (overnightStayOffered: boolean) => {
+      const api = makeCustomerApiTestServer({
+        bookingCatalog: pricedCatalog({
+          releases: {
+            ...officeOpen,
+            overnightStay:
+              OvernightStayReleaseGate.fromDecision(overnightStayOffered),
+          },
+        }),
+      });
+      const response = await api.handle(customerApiRequest(listOfferings));
+      expect(response.status).toBe(200);
+      const { offerings } = await response.json();
+      const byTier = (tier: string) =>
+        offerings.find((offering: { tier?: string }) => offering.tier === tier);
+      return {
+        reservedDesk: byTier("reserved-desk"),
+        openSpace: byTier("open-space"),
+      };
+    };
+
+    const offered = await coworkOfferings(true);
+    expect(offered.reservedDesk.overnightStay).toEqual({
+      startTime: "12:00",
+      endTime: "12:00",
+    });
+    expect(offered.openSpace).not.toHaveProperty("overnightStay");
+    expect((await coworkOfferings(false)).reservedDesk).not.toHaveProperty(
+      "overnightStay"
+    );
   });
 
   test("refuses a language the site doesn't speak", async () => {
@@ -516,6 +551,43 @@ describe("getAvailability", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  test("checks an overnight stay only while overnight stays are offered", async () => {
+    const overnight: CustomerApiCall = {
+      ...getAvailability,
+      path: `${getAvailability.path}&stay=overnight`,
+    };
+    const answer = async (overnightStayOffered: boolean) => {
+      const queries: AvailabilityRequest[] = [];
+      const api = makeCustomerApiTestServer({
+        bookingCatalog: {
+          availability: availabilityWith({
+            getAvailability: (input) => {
+              queries.push(input);
+              return Effect.succeed(testAvailability);
+            },
+          }),
+          releases: {
+            ...officeOpen,
+            overnightStay:
+              OvernightStayReleaseGate.fromDecision(overnightStayOffered),
+          },
+        },
+      });
+      const response = await api.handle(customerApiRequest(overnight));
+      return { status: response.status, queries };
+    };
+
+    const offered = await answer(true);
+    expect(offered.status).toBe(200);
+    expect(offered.queries[0]?.query).toMatchObject({
+      entryTier: "reserved-desk",
+      stay: "overnight",
+    });
+    const closed = await answer(false);
+    expect(closed.status).toBe(400);
+    expect(closed.queries).toEqual([]);
   });
 
   test("refuses a meeting-room interval no booking spans", async () => {
@@ -1107,6 +1179,7 @@ describe("overlapping requests in different release cohorts", () => {
     inventory: emptyInventory,
     releases: {
       office: releaseGateForRunOverFlags(OfficeReleaseGate, featureFlags),
+      overnightStay: OvernightStayReleaseGate.fromDecision(false),
       referral: releaseGateForRunOverFlags(ReferralReleaseGate, featureFlags),
     },
   });

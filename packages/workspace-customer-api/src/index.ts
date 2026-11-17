@@ -92,6 +92,7 @@ export {
   CustomerBookingSelection,
   CustomerBookingSelectionInvalid,
   CustomerBookingSelectionQuery,
+  CustomerCoworkStay,
   CustomerMeetingRoomDuration,
   CustomerMonitorOption,
   CustomerOfferingUnavailable,

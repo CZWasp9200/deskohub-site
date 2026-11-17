@@ -217,13 +217,30 @@ export const bookingTimeLine = (
   const last = DateTime.isGreaterThan(end, start)
     ? DateTime.subtract(end, { milliseconds: 1 })
     : start;
+  const endTime = formatInstant(end, locale, "time");
   if (dayOf(start) !== dayOf(last)) {
-    return m.reservations_time_until(
-      { time: shortDate(last, locale) },
+    if (isMidnight(start) && isMidnight(end)) {
+      return m.reservations_time_until(
+        { time: shortDate(last, locale) },
+        { locale }
+      );
+    }
+    // A timed booking into another day, such as an overnight stay, names the
+    // end's date beside its time.
+    const range = m.reservations_time_range(
+      {
+        start: formatInstant(start, locale, "time"),
+        end: m.reservations_date_time(
+          { date: shortDate(end, locale), time: endTime },
+          { locale }
+        ),
+      },
       { locale }
     );
+    return date === undefined
+      ? range
+      : m.reservations_date_time({ date, time: range }, { locale });
   }
-  const endTime = formatInstant(end, locale, "time");
   if (isMidnight(start)) {
     if (isMidnight(end)) {
       return date ?? shortDate(start, locale);

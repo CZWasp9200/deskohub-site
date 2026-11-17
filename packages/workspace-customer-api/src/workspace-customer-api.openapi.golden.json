@@ -2222,6 +2222,14 @@
             "required": false
           },
           {
+            "name": "stay",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerCoworkStay"
+            },
+            "required": false
+          },
+          {
             "name": "startsAt",
             "in": "query",
             "schema": {
@@ -2592,6 +2600,14 @@
             "in": "query",
             "schema": {
               "$ref": "#/components/schemas/CustomerMonitorOption"
+            },
+            "required": false
+          },
+          {
+            "name": "stay",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerCoworkStay"
             },
             "required": false
           },
@@ -5522,6 +5538,11 @@
         "type": "string",
         "enum": ["basic", "plus", "profi", "open-space", "reserved-desk"]
       },
+      "CustomerCoworkStay": {
+        "type": "string",
+        "enum": ["day", "overnight"],
+        "description": "day (the arrival date's Prague calendar day) or overnight (noon on the arrival date to noon the next date, Prague time). Reserved Desk only."
+      },
       "CustomerReservationProduct": {
         "anyOf": [
           {
@@ -5533,6 +5554,9 @@
               },
               "tier": {
                 "$ref": "#/components/schemas/CustomerCoworkTier"
+              },
+              "stay": {
+                "$ref": "#/components/schemas/CustomerCoworkStay"
               }
             },
             "required": ["kind", "tier"],
@@ -5635,6 +5659,9 @@
           },
           "monitorOption": {
             "$ref": "#/components/schemas/CustomerMonitorOption"
+          },
+          "stay": {
+            "$ref": "#/components/schemas/CustomerCoworkStay"
           },
           "seats": {
             "type": "integer",
@@ -6552,6 +6579,19 @@
                 "items": {
                   "$ref": "#/components/schemas/CustomerOfferingAddOn"
                 }
+              },
+              "overnightStay": {
+                "type": "object",
+                "properties": {
+                  "startTime": {
+                    "$ref": "#/components/schemas/CustomerStartTime"
+                  },
+                  "endTime": {
+                    "$ref": "#/components/schemas/CustomerStartTime"
+                  }
+                },
+                "required": ["startTime", "endTime"],
+                "additionalProperties": false
               }
             },
             "required": [

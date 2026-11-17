@@ -13,6 +13,11 @@ export interface WorkspaceOpeningHours {
   readonly alwaysOpen: boolean;
   /** Open Space desks are usable from midnight until this local time, exclusive. */
   readonly openSpaceUsableUntil: string;
+  /**
+   * An overnight Reserved Desk stay runs from this local time on the arrival
+   * date until the same local time on the next date.
+   */
+  readonly overnightStayChangeover: string;
 }
 
 /**
@@ -48,6 +53,7 @@ export const workspaceSiteConstants = {
   openingHours: {
     alwaysOpen: true,
     openSpaceUsableUntil: "17:00",
+    overnightStayChangeover: "12:00",
   } satisfies WorkspaceOpeningHours,
   reservation: {
     defaultStartTime: "10:00",

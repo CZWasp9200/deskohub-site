@@ -9,9 +9,12 @@ import {
   type CoworkAvailability,
   type CoworkDraft,
   type CoworkEnablement,
+  type CoworkOvernightStay,
   coworkDraftFromSelection,
   coworkEnablement,
+  coworkOvernightStay,
   defaultCoworkDraft,
+  fitCoworkStay,
   normalizeCoworkWorkstation,
   toCoworkSelection,
 } from "../selection/cowork-selection";
@@ -30,7 +33,8 @@ export interface KeptCoworkDraft {
  * was opened on another preselection ("Book again"), which then replaces
  * it; else the preselection's draft, else the empty default. Without a
  * preselection the kept draft stays, so a restarted checkout comes back to
- * the customer's choices.
+ * the customer's choices. An overnight stay the catalog no longer
+ * advertises opens as a day.
  */
 export const openingCoworkDraft = ({
   kept,
@@ -54,7 +58,8 @@ export const openingCoworkDraft = ({
         coworkDraftFromSelection(selection, offerings, today)
       )
     ),
-    Option.getOrElse(() => defaultCoworkDraft(offerings))
+    Option.getOrElse(() => defaultCoworkDraft(offerings)),
+    (draft) => fitCoworkStay(draft, offerings)
   );
 };
 
@@ -66,6 +71,11 @@ export type CoworkBookingModel = {
    */
   readonly draft: CoworkDraft;
   readonly enablement: CoworkEnablement;
+  /**
+   * The overnight stay a Reserved Desk draft can switch to, from the
+   * catalog; none hides the Day / Overnight switch.
+   */
+  readonly overnightStay: Option.Option<CoworkOvernightStay>;
   /** The booking the draft names, once it has a date. */
   readonly selection: Option.Option<CustomerBookingSelection>;
   /** The selection to quote, while it may still be bookable. */
@@ -100,6 +110,10 @@ export const coworkBookingModel = ({
   return {
     draft: fitted,
     enablement,
+    overnightStay: Option.filter(
+      coworkOvernightStay(offerings),
+      () => fitted.tier === "reserved-desk"
+    ),
     selection,
     quotable: quotableSelection(selection, enablement.blockers),
   };

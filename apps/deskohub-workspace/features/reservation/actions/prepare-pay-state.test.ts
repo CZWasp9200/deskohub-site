@@ -1,4 +1,5 @@
 import type { Locale } from "@/features/i18n";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
@@ -1258,7 +1259,8 @@ describe("prepareWorkspacePayState", () => {
                 isEnabled: mock(() => Effect.succeed(false)),
               })
             )
-          )
+          ),
+          OvernightStayReleaseGate.fromDecision(false)
         )
       )
     ) as Effect.Effect<never, unknown, never>;

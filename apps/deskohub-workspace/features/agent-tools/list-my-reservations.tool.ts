@@ -6,7 +6,9 @@ import {
   type CustomerReservationSummary,
   currentReservationHistoryAccount,
 } from "@/features/account";
+import { getReservationSummaryStay } from "@/features/account/reservation-summary-stay";
 import { workspaceCoworkTiers } from "@/features/checkout/product-catalog";
+import { coworkStaySchema } from "@/features/reservation/cowork-stay";
 import { agentToolLocaleField, defineSignedInAgentTool } from "./agent-tool";
 import { AgentToolError } from "./agent-tool-error";
 import { CurrentCustomerAgentGrant } from "./customer-agent-caller";
@@ -22,6 +24,12 @@ const reservationSchema = Schema.Struct({
   ),
   family: Schema.Literals(["cowork", "meeting-room", "office", "other"]),
   tier: Schema.optionalKey(Schema.Literals(workspaceCoworkTiers)),
+  stay: Schema.optionalKey(
+    coworkStaySchema.annotate({
+      description:
+        "Cowork only, when its time can be read: overnight for a Reserved Desk held from noon on the arrival date to noon the next date (Prague time), otherwise day.",
+    })
+  ),
   starts_at: Schema.NullOr(Schema.String),
   ends_at: Schema.NullOr(Schema.String),
   setup_starts_at: Schema.optionalKey(
@@ -126,23 +134,27 @@ const toListResult = (
 
 const toReservation = (
   reservation: CustomerReservationSummary
-): ListMyReservationsResult["current"][number] => ({
-  ...(reservation.workspaceReservationId && {
-    order_id: reservation.workspaceReservationId,
-  }),
-  family: reservation.product.kind,
-  ...(reservation.product.kind === "cowork" && {
-    tier: reservation.product.tier,
-  }),
-  starts_at: reservation.startsAt,
-  ends_at: reservation.endsAt,
-  ...(reservation.setupStartsAt && {
-    setup_starts_at: reservation.setupStartsAt,
-  }),
-  seats: reservation.seats,
-  status: reservation.status,
-  party: toParty(reservation.party),
-});
+): ListMyReservationsResult["current"][number] => {
+  const stay = getReservationSummaryStay(reservation);
+  return {
+    ...(reservation.workspaceReservationId && {
+      order_id: reservation.workspaceReservationId,
+    }),
+    family: reservation.product.kind,
+    ...(reservation.product.kind === "cowork" && {
+      tier: reservation.product.tier,
+    }),
+    ...(stay && { stay }),
+    starts_at: reservation.startsAt,
+    ends_at: reservation.endsAt,
+    ...(reservation.setupStartsAt && {
+      setup_starts_at: reservation.setupStartsAt,
+    }),
+    seats: reservation.seats,
+    status: reservation.status,
+    party: toParty(reservation.party),
+  };
+};
 
 const toParty = (party: CustomerReservationParty | undefined) =>
   party

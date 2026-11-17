@@ -36,6 +36,7 @@ import {
   type BookingRequest,
   type CheckoutController,
   type CheckoutRequest,
+  checkoutOvernightStay,
   checkoutRequestAtom,
   useCheckoutFlow,
 } from "../checkout/checkout-flow";
@@ -45,6 +46,7 @@ import {
   type DetailsState,
   type ReviewState,
 } from "../checkout/checkout-state";
+import { bookingOfferingsAtom } from "../data/booking-queries";
 import { quotedBarSummary } from "../ui/booking-summary";
 import { HoldChip, HoldEndedDialog } from "../ui/hold-timer";
 import { retryMessage } from "./checkout-copy";
@@ -309,6 +311,11 @@ function ReviewForAccount({
       return access._tag === "Unavailable" ? Option.none() : access.self.name;
     })
   );
+  const catalog = useAtomValue(bookingOfferingsAtom(locale));
+  const overnightStay = checkoutOvernightStay(
+    request,
+    Option.map(AsyncResult.value(catalog), ({ offerings }) => offerings)
+  );
   const backToSelection = (restart?: CheckoutRestartReason) =>
     leaveCheckout(router, {
       _tag: "FamilyScreen",
@@ -319,6 +326,7 @@ function ReviewForAccount({
       <ReviewStep
         review={review}
         selection={request.selection}
+        overnightStay={overnightStay}
         quotedTotal={
           request._tag === "Booking"
             ? request.quote.summary.total
@@ -434,7 +442,14 @@ function DetailsWithProfile({
       onDraftChange={setDraft}
       notice={notice}
       busy={busy}
-      summary={quotedBarSummary(request.selection, request.quote, locale)}
+      summary={quotedBarSummary(
+        request.selection,
+        request.quote,
+        locale,
+        request.overnightStay === undefined
+          ? {}
+          : { overnightStay: request.overnightStay }
+      )}
       consentLocale={consentLocale}
       onOpenMarketingDocument={() =>
         void WebBrowser.openBrowserAsync(

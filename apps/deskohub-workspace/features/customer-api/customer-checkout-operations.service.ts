@@ -22,6 +22,7 @@ import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate
 import { ReferralService } from "@/features/referrals";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import {
   prepareWorkspacePayState,
   ReservationBooking,
@@ -132,6 +133,10 @@ export class CustomerCheckoutOperations extends Context.Service<
           yield* ReferralReleaseGate
         ),
         office: Layer.succeed(OfficeReleaseGate, yield* OfficeReleaseGate),
+        overnightStay: Layer.succeed(
+          OvernightStayReleaseGate,
+          yield* OvernightStayReleaseGate
+        ),
       };
       const { remembered } = yield* CustomerReferralUpdates;
 
@@ -148,7 +153,13 @@ export class CustomerCheckoutOperations extends Context.Service<
             ).pipe(Layer.provide(authentication))
           )
         ),
-        Layer.provideMerge(Layer.mergeAll(releases.referral, releases.office)),
+        Layer.provideMerge(
+          Layer.mergeAll(
+            releases.referral,
+            releases.office,
+            releases.overnightStay
+          )
+        ),
         Layer.provide(WorkspaceDatabase.Default)
       );
 

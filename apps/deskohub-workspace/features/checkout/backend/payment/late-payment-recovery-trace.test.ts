@@ -60,6 +60,11 @@ interface Scenario {
   /** Overrides each `findById` in turn; later reads use the stateful row. */
   readonly findByIdSequence?: ReadonlyArray<Row | null>;
   readonly originalStatus?: string;
+  /** The original Dotypos reservation's bounds, read for its stay. */
+  readonly originalBounds?: {
+    readonly startDate: string;
+    readonly endDate: string;
+  };
   /** Each `hasNewerActiveReservation` answer in turn; the last one repeats. */
   readonly newerReservation?: ReadonlyArray<boolean>;
   readonly snapshot?: ReturnType<typeof makeCoworkInvoiceDocument> | null;
@@ -215,6 +220,10 @@ const recover = async (scenario: Scenario) => {
   });
   const dotypos = trace.recordCalls("dotypos", {
     getReservationStatus: succeed(scenario.originalStatus ?? "NEW"),
+    getReservationWithoutCustomer: succeed({
+      ...scenario.originalBounds,
+      seats: "1",
+    }),
     cancelReservation: scenario.cancelReservation ?? succeed(undefined),
     listActiveReservationsOverlapping: succeed(scenario.overlapping ?? []),
     createReservation: calls.createReservation,
@@ -445,6 +454,46 @@ describe("LatePaymentRecoveryService.recover original hold reuse", () => {
         "call fulfillment.run(reservation-id)",
       ]
     `);
+  });
+
+  test("recreates an overnight Reserved Desk with the stay of its original Dotypos bounds", async () => {
+    const reservedDesk: Row = {
+      ...currentHeld,
+      reservationDetails: {
+        kind: "cowork",
+        entryTier: "reserved-desk",
+        coffee: true,
+      },
+    };
+    const recreate = (originalBounds: Scenario["originalBounds"]) =>
+      recover({
+        reservation: reservedDesk,
+        originalStatus: "CANCELLED",
+        originalBounds,
+      });
+    const assignment = (trace: ReadonlyArray<string>) =>
+      trace.find((line) =>
+        line.startsWith("call tableAssignments.assignTableId(")
+      );
+
+    // Prague winter time (UTC+1): noon on 2099-01-01 to noon on 2099-01-02.
+    const overnight = await recreate({
+      startDate: "2099-01-01T11:00:00Z",
+      endDate: "2099-01-02T11:00:00Z",
+    });
+    const day = await recreate({
+      startDate: "2098-12-31T23:00:00Z",
+      endDate: "2099-01-01T23:00:00Z",
+    });
+
+    expect(overnight.outcome).toBe("recovered");
+    expect(overnight.trace).toContain(
+      "call dotypos.getReservationWithoutCustomer(dotypos-reservation-id)"
+    );
+    expect(assignment(overnight.trace)).toContain("stay=overnight");
+    expect(day.outcome).toBe("recovered");
+    expect(assignment(day.trace)).toContain("entryTier=reserved-desk");
+    expect(assignment(day.trace)).not.toContain("stay=");
   });
 
   test("recreates a current hold Dotypos already cancelled", async () => {

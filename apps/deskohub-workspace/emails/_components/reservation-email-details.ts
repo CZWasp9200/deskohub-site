@@ -6,6 +6,7 @@ import {
 } from "@/features/checkout/product-catalog.i18n";
 import { type Locale, m } from "@/features/i18n";
 import type { WorkspaceReservationDetails } from "@/features/reservation/backend/workspace-reservation.service";
+import { formatCoworkReservationDisplayDate } from "@/features/reservation/cowork-reservation-display-date";
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
 import {
   formatMeetingRoomReservationDisplayTimeValue,
@@ -40,7 +41,16 @@ const coworkDetails = (
   },
   {
     label: m.reservationEmailDateLabel({}, { locale }),
-    value: formatReservationDisplayDate(reservation.reservedFrom, locale),
+    value: formatCoworkReservationDisplayDate(
+      {
+        tier: details.entryTier,
+        interval: {
+          startsAt: reservation.reservedFrom,
+          endsAt: reservation.reservedUntil,
+        },
+      },
+      locale
+    ),
   },
   {
     label: m.reservationEmailCoffeeLabel({}, { locale }),

@@ -53,6 +53,14 @@ Read and write `workspace_reservations.reservation_details` and `review_account_
 - Source every visible office price from the advertised quote: `accessAmount` is the base price, and each seat choice is `seatAmount * seats`. Never hard-code catalog amounts on the client.
 - Exactly one assignable Dotypos table tagged `reservation:office` must exist. `getOfficeReservationSeatCapacity` (`features/office/backend/office-reservation-capacity.ts`) treats any other count as invalid configuration. Its seat capacity sets the form's seat choices.
 
+## Cowork Reserved Desk stay
+
+- **Stay** (`CoworkStay`, `features/reservation/cowork-stay.ts`): how long a Reserved Desk is held from its arrival date, `day` or `overnight`. Overnight runs from the overnight changeover time (`workspaceSiteConstants.openingHours.overnightStayChangeover`, noon) on the arrival date to the same wall-clock time on the next date. Only `reserved-desk` (`overnightCoworkStayTier`) has one; other tiers are always day stays. Not a tier, not a product identity, and not a price input.
+- The stay exists only on booking input and orders: the cowork order and form, booking selection, availability query, checkout details' reservation, table-assignment reservation, and the customer API and agent tool inputs. Absence means `day`; normalized orders and checkout details carry `stay: "overnight"` only. Never add it to `StoredReservationDetails`, accounting snapshots, or any other stored document.
+- A booked reservation's stay comes from its Dotypos bounds through `getBookedCoworkStay({ tier, interval })`, the one derivation for display and recovery. Late-payment recovery reads the original Dotypos reservation to recreate an overnight stay.
+- Derive the interval only with `getCoworkReservationInterval(Input)(tier, date, stay)`. Availability treats cowork query dates as arrival dates: an overnight query evaluates each date's noon-to-noon interval, loads inventory through the day after the last date, closes a date when it or the next date is fully occupied, and `ensureAvailable` checks the arrival date alone.
+- `OvernightStayReleaseGate` (flag `overnight_stays`) decides whether any surface offers the stay. Booking selections reject `stay` as an invalid field while it's closed; `ReservationBooking` fails with `OvernightStayUnavailableError`. The customer catalog advertises it as the optional `overnightStay` times on the Reserved Desk offering, never as a new tier.
+
 ## Cowork Reserved Desk assignment
 
 `features/checkout/backend/reservation/workspace-table-assignment.service.ts` builds the ranking occupancy for current `reserved-desk` assignments. Rank each enabled, displayable, assignable `cowork:open-space` table at `max(actual occupancy, seat capacity)`, and never add the two. Ranking is the only use of this value: candidate capacity and public availability use actual occupancy. Don't apply it to Open Space, historical tiers, meeting rooms, or offices.

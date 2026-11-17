@@ -1,4 +1,5 @@
 import type {
+  CustomerBookingSelection,
   CustomerCheckoutSummary,
   CustomerCheckoutSummaryDiscount,
   Money,
@@ -30,7 +31,10 @@ import {
   sampleLegalDocuments,
 } from "../../testing/sample-booking-catalog";
 import { HoldChip, HoldEndedDialog } from "../hold-timer";
-import { openSpaceWithCoffee } from "../testing/price-fixtures";
+import {
+  openSpaceWithCoffee,
+  reservedDeskWithWorkstation,
+} from "../testing/price-fixtures";
 import type { BoardFrame } from "./board-frames";
 
 // Boards 32, 32b, 33 and 33b: the review step itself over synthetic review
@@ -40,6 +44,11 @@ import type { BoardFrame } from "./board-frames";
 const ignore = () => undefined;
 const selection = openSpaceWithCoffee.selection;
 const quoted = czk(282);
+const overnightSelection: CustomerBookingSelection = {
+  ...reservedDeskWithWorkstation.selection,
+  stay: "overnight",
+};
+const noonToNoon = { startTime: "12:00", endTime: "12:00" };
 
 const calendar: CustomerCheckoutSummaryDiscount = {
   discount: { id: "calendar-sale-2026-11", label: "Calendar discount" },
@@ -174,6 +183,8 @@ interface ReviewSample {
   readonly consented?: boolean;
   /** An order paid again in place (board 35b). */
   readonly retry?: boolean;
+  /** An overnight Reserved Desk stay, with the catalog's times. */
+  readonly overnight?: boolean;
 }
 
 const reviewOf = (
@@ -242,8 +253,11 @@ function ReviewFrame({
       />
       <ReviewStep
         review={review}
-        selection={selection}
-        quotedTotal={quoted}
+        selection={frame.overnight ? overnightSelection : selection}
+        overnightStay={frame.overnight ? noonToNoon : undefined}
+        quotedTotal={
+          frame.overnight ? reservedDeskWithWorkstation.summary.total : quoted
+        }
         bookerName={Option.some(sample("Jana Nováková"))}
         send={ignore}
         onChangeBooking={ignore}
@@ -417,6 +431,17 @@ export const reviewFrames: ReadonlyArray<BoardFrame> = [
       secondsLeft: 597,
       checkout: welcome10Applied,
       retry: true,
+    }),
+  },
+  {
+    key: "review-retry-overnight",
+    board: "35b",
+    state: "Overnight stay paid again",
+    Screen: frame({
+      secondsLeft: 597,
+      checkout: { summary: reservedDeskWithWorkstation.summary },
+      retry: true,
+      overnight: true,
     }),
   },
 ];

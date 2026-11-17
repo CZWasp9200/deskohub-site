@@ -25,6 +25,7 @@ import { DiscountServiceMock } from "@/features/discounts/discount.service.mock"
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { GoogleCalendarWorkspaceLimitationsService } from "@/features/reservation/backend/google-calendar-workspace-limitations.service";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -225,6 +226,7 @@ export const makeAgentToolTestServices = ({
       )
     ),
     officeFlag,
+    OvernightStayReleaseGate.fromDecision(false),
     TestSealedStateKeys
   );
 

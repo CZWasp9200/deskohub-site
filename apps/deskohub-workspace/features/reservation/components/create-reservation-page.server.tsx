@@ -195,8 +195,9 @@ type ReservationPageDefinition<
   ? { readonly loadPageData?: undefined }
   : {
       /**
-       * Loads data that depends on neither the visitor nor the restored
-       * reservation, alongside them. A rejection fails the page.
+       * Loads data that depends on neither the customer's account nor the
+       * restored reservation, such as a release gate, alongside them. A
+       * rejection fails the page.
        */
       readonly loadPageData: () => Promise<PageData>;
     });

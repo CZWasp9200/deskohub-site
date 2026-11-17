@@ -14,6 +14,7 @@ import {
   getCoworkReservationIntervalInput,
 } from "@/features/reservation/cowork-reservation";
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
+import type { CoworkStay } from "@/features/reservation/cowork-stay";
 import { getMeetingRoomOccupiedInterval } from "@/features/reservation/meeting-room-early-setup";
 import type { MeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
 import {
@@ -46,7 +47,10 @@ import {
 } from "./workspace-table-selection";
 
 type CoworkTableAssignmentReservation = StoredCoworkReservationDetails &
-  Pick<CoworkReservationDetails, "date">;
+  Pick<CoworkReservationDetails, "date"> & {
+    /** The booked Reserved Desk stay; absence is a day stay. */
+    readonly stay?: CoworkStay;
+  };
 
 export type WorkspaceTableAssignmentReservation =
   | CoworkTableAssignmentReservation
@@ -103,8 +107,8 @@ export const getWorkspaceReservationInterval = (
   getReservationIntervalNormalization(
     Match.value(reservation).pipe(
       Match.discriminatorsExhaustive("kind")({
-        cowork: ({ entryTier, date }) =>
-          getCoworkReservationIntervalInput(entryTier, date),
+        cowork: ({ entryTier, date, stay }) =>
+          getCoworkReservationIntervalInput(entryTier, date, stay),
         "meeting-room": getMeetingRoomOccupiedInterval,
         office: getOfficeReservationIntervalInput,
       })
@@ -332,10 +336,11 @@ const getReservationOccupancyInput = (
     Match.discriminatorsExhaustive("kind")({
       // Occupancy must use the tier's authoritative reservation interval
       // (Open Space Prague 00:00-17:00 exclusive, every other tier Prague
-      // midnight to next midnight), not the whole calendar day.
-      cowork: ({ entryTier, date }) =>
+      // midnight to next midnight, an overnight Reserved Desk stay noon to
+      // noon), not the whole calendar day.
+      cowork: ({ entryTier, date, stay }) =>
         getReservationIntervalNormalization(
-          getCoworkReservationIntervalInput(entryTier, date)
+          getCoworkReservationIntervalInput(entryTier, date, stay)
         ).pipe(
           Effect.mapError(
             (cause) =>

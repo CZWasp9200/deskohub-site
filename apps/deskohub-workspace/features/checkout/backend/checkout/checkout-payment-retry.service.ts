@@ -37,6 +37,7 @@ import {
   PaymentAttemptRepository,
 } from "../repositories/payment-attempt.repository";
 import {
+  findOrderCoworkStay,
   type RecreatedReservation,
   rebuildAcceptedReservation,
 } from "../reservation/order-dotypos-reservation";
@@ -278,8 +279,22 @@ const implementation = Effect.gen(function* () {
       .pipe(
         Effect.mapError(unavailable("The order's records could not be read."))
       );
-    const recreated = snapshot && rebuildAcceptedReservation(order, snapshot);
-    if (!snapshot || !recreated) return refused("details_unavailable");
+    if (!snapshot) return refused("details_unavailable");
+    // Workspace stores no stay: an overnight Reserved Desk is booked again
+    // from the bounds of the order's Dotypos reservation.
+    const coworkStay = order.dotyposReservationId
+      ? yield* findOrderCoworkStay({
+          order,
+          dotyposReservationId: order.dotyposReservationId,
+        }).pipe(
+          Effect.provideService(DotyposService, dotypos),
+          Effect.mapError(
+            unavailable("The order's Dotypos reservation could not be read.")
+          )
+        )
+      : undefined;
+    const recreated = rebuildAcceptedReservation(order, snapshot, coworkStay);
+    if (!recreated) return refused("details_unavailable");
     const interval = yield* getWorkspaceReservationInterval(
       recreated.reservation
     ).pipe(Effect.option);

@@ -38,6 +38,7 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCoworkReservationIntervalInput } from "@/features/reservation/cowork-reservation";
+import type { CoworkStay } from "@/features/reservation/cowork-stay";
 import { hasOfficeReservationEnded } from "@/features/reservation/office-reservation";
 import {
   getStoredWorkspaceReservationDetails,
@@ -125,12 +126,16 @@ type CheckoutRedirectResult = {
 const isCoworkReservationExclusiveEndReached = (input: {
   readonly entryTier: WorkspaceCoworkProductTier;
   readonly date: string;
+  readonly stay?: CoworkStay;
   readonly now?: Temporal.Instant;
 }) => {
   const now = input.now ?? Temporal.Now.instant();
   const exclusiveEnd = localDateTimeToInstant({
-    dateTime: getCoworkReservationIntervalInput(input.entryTier, input.date)
-      .endsAt,
+    dateTime: getCoworkReservationIntervalInput(
+      input.entryTier,
+      input.date,
+      input.stay
+    ).endsAt,
     timeZone: workspaceSiteConstants.location.timeZone,
   });
 
@@ -157,8 +162,9 @@ const ensureReservationHasNotEnded = Effect.fn(
         // Exclusive-day end: a new payment attempt for an Open Space day
         // fails once the current Prague time is at or after 17:00 on the
         // reserved date, and a Reserved Desk day once it is at or after
-        // midnight after the reserved date — including reservations whose
-        // date is already before the current local date. Idempotent
+        // midnight after the reserved date (noon the next day for an
+        // overnight stay) — including reservations whose date is already
+        // before the current local date. Idempotent
         // provider-session reuse above is not affected.
         if (isCoworkReservationExclusiveEndReached(coworkReservation)) {
           return new CheckoutError({

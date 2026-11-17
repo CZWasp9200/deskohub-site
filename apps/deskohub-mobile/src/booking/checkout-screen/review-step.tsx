@@ -40,6 +40,7 @@ import {
   type ReviewState,
 } from "../checkout/checkout-state";
 import { usePaymentBrowserWarmUp } from "../payment-browser";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
 import { type PragueDate, pragueMidnight } from "../selection/prague-date";
 import { BookingBar, type BookingBarAction } from "../ui/booking-bar";
 import { BookingSectionHeading } from "../ui/booking-section-heading";
@@ -74,6 +75,7 @@ type Locale = { readonly locale: AppLocale };
 export function ReviewStep({
   review,
   selection,
+  overnightStay,
   quotedTotal,
   bookerName,
   send,
@@ -84,6 +86,8 @@ export function ReviewStep({
 }: Locale & {
   readonly review: ReviewState;
   readonly selection: CustomerBookingSelection;
+  /** An overnight Reserved Desk's times from the catalog. */
+  readonly overnightStay?: CoworkOvernightStay | undefined;
   /** The total the selection screen quoted. */
   readonly quotedTotal: ReviewView["price"]["breakdown"]["total"];
   /** The account's own name, for "Booked by". */
@@ -153,6 +157,7 @@ export function ReviewStep({
         <BookingCard
           selection={selection}
           earlySetup={view.earlySetup}
+          overnightStay={overnightStay}
           party={view.party}
           invoice={view.invoice}
           locale={locale}
@@ -257,6 +262,7 @@ const startDay = (selection: CustomerBookingSelection) => {
 function BookingCard({
   selection,
   earlySetup,
+  overnightStay,
   party,
   invoice,
   locale,
@@ -264,11 +270,13 @@ function BookingCard({
   readonly selection: CustomerBookingSelection;
   /** The meeting room opens early for setup, as the customer chose. */
   readonly earlySetup: boolean;
+  /** An overnight Reserved Desk's times from the catalog. */
+  readonly overnightStay: CoworkOvernightStay | undefined;
   /** For whom and who is invoiced; a retried order doesn't tell the app. */
   readonly party: Option.Option<ReviewParty>;
   readonly invoice: Option.Option<ReviewInvoice>;
 }) {
-  const summary = bookingSummaryParts(selection, locale);
+  const summary = bookingSummaryParts(selection, locale, overnightStay);
   return (
     <Card padding="none">
       <View style={styles.bookingCard}>

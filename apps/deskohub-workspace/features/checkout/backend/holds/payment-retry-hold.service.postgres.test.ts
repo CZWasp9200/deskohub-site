@@ -49,7 +49,8 @@ const recreated = (() => {
     {
       reservationDetails: { kind: "cowork", entryTier: "basic", coffee: true },
     } as WorkspaceReservation,
-    makeCoworkInvoiceDocument("en-US") as never
+    makeCoworkInvoiceDocument("en-US") as never,
+    undefined
   );
   if (!rebuilt) throw new Error("The cowork reservation must rebuild.");
   return rebuilt;

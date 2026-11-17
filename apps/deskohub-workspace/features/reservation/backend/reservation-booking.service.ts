@@ -67,6 +67,10 @@ import {
   BookingAgent,
 } from "@/features/reservation/backend/booking-agent";
 import {
+  ensureCoworkStayOffered,
+  OvernightStayReleaseGate,
+} from "@/features/reservation/backend/overnight-stay-release-gate";
+import {
   getAgentHoldBookedAt,
   getDotyposCustomerId,
   type ReservationHold,
@@ -148,6 +152,7 @@ const bookingCapabilities = [
   SealedStateKeys,
   ReferralReleaseGate,
   OfficeReleaseGate,
+  OvernightStayReleaseGate,
 ] as const;
 
 type BookingCapabilities =
@@ -162,7 +167,8 @@ type BookingCapabilities =
   | ReviewSandbox
   | SealedStateKeys
   | ReferralReleaseGate
-  | OfficeReleaseGate;
+  | OfficeReleaseGate
+  | OvernightStayReleaseGate;
 
 /** Reservation submissions, booked into a hold and a Pay page. */
 export class ReservationBooking extends Context.Service<
@@ -183,7 +189,7 @@ export class ReservationBooking extends Context.Service<
   );
 
   /**
-   * The live booking, with the referral and office release gates left to the
+   * The live booking, with the referral, office and overnight-stay release gates left to the
    * caller: a request that decides them once, such as the customer HTTP API,
    * passes the gates it built, so booking shares that request's decisions.
    */
@@ -684,7 +690,10 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         yield* Ref.set(inReviewSandbox, reviewAccount);
         yield* Match.value(input.reservation).pipe(
           Match.discriminatorsExhaustive("kind")({
-            cowork: () => Effect.void,
+            cowork: (cowork) =>
+              ensureCoworkStayOffered(
+                "stay" in cowork ? cowork.stay : undefined
+              ),
             "meeting-room": () => Effect.void,
             office: () => ensureOfficeReservationsEnabled,
           })

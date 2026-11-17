@@ -17,7 +17,7 @@ import {
 
 type CoworkAddonSelection = Pick<
   CoworkReservationInput,
-  "date" | "entryTier" | "monitorOption"
+  "date" | "entryTier" | "monitorOption" | "stay"
 >;
 
 /**
@@ -30,6 +30,7 @@ const isSelectionCurrent = (
 ) =>
   values.entryTier === selection.entryTier &&
   values.date === selection.date &&
+  values.stay === selection.stay &&
   values.monitorOption === selection.monitorOption;
 
 /**
@@ -55,7 +56,7 @@ export const useCoworkAddonNormalization = ({
   readonly selection: CoworkAddonSelection;
   readonly workstation: Parameters<typeof getCoworkWorkstationNormalization>[0];
 }) => {
-  const { date, entryTier, monitorOption } = selection;
+  const { date, entryTier, monitorOption, stay } = selection;
   const isCoffeeOptional = getCoworkTierCoffeeAddon(entryTier) === "optional";
   const isWorkstationOptional =
     getCoworkTierWorkstationAddon(entryTier) === "optional";
@@ -66,7 +67,9 @@ export const useCoworkAddonNormalization = ({
   useEffect(() => {
     if (isWorkstationOptional) {
       const values = form.getValues();
-      if (!isSelectionCurrent(values, { date, entryTier, monitorOption })) {
+      if (
+        !isSelectionCurrent(values, { date, entryTier, monitorOption, stay })
+      ) {
         return;
       }
 
@@ -104,6 +107,7 @@ export const useCoworkAddonNormalization = ({
     monitorOption,
     normalizable,
     requiredMonitorOption,
+    stay,
   ]);
 
   return {

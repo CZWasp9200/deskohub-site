@@ -145,6 +145,47 @@ describe("createWorkspaceDotyposReservation", () => {
     );
   });
 
+  test("creates an overnight Reserved Desk from noon on the arrival date to noon the next day", async () => {
+    const reservation = {
+      kind: "cowork" as const,
+      entryTier: "reserved-desk" as const,
+      date: "2099-06-10",
+      coffee: true as const,
+      stay: "overnight" as const,
+    };
+    const assignTableId = mock(() => Effect.succeed("cowork-table-id"));
+    const createReservation = mock(() =>
+      Effect.succeed({ id: "dotypos-reservation-id" } as never)
+    );
+
+    await createWorkspaceDotyposReservation({
+      paymentOrderId: "payment-order-id",
+      dotyposCustomerId: "dotypos-customer-id",
+      checkoutDetails,
+      reservation,
+      status: "NEW",
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.mock(WorkspaceTableAssignmentService, {
+            assignTableId,
+          } satisfies IWorkspaceTableAssignmentService),
+          Layer.mock(DotyposService, { createReservation })
+        )
+      ),
+      Effect.runPromise
+    );
+
+    expect(assignTableId).toHaveBeenCalledWith(reservation);
+    // Prague summer time (UTC+2): 12:00 on 2099-06-10 to 12:00 on 2099-06-11.
+    expect(createReservation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startDate: new Date("2099-06-10T10:00:00Z"),
+        endDate: new Date("2099-06-11T10:00:00Z"),
+      })
+    );
+  });
+
   test("annotates its rows with the created reservation's id and status, never a record", async () => {
     const testLayer = Layer.mergeAll(
       Layer.mock(WorkspaceTableAssignmentService, {

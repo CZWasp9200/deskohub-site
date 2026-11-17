@@ -122,6 +122,11 @@ type Harness = {
   readonly enteredCode?: string;
   readonly reprice?: (quote: RepricedPayment["quote"]) => RepricedPayment;
   readonly codeUnavailable?: boolean;
+  /** The bounds of the order's Dotypos reservation; undefined fails the read. */
+  readonly dotyposBounds?: {
+    readonly startDate: string;
+    readonly endDate: string;
+  };
 };
 
 const runPrepare = (harness: Harness = {}) => {
@@ -219,6 +224,13 @@ const runPrepare = (harness: Harness = {}) => {
                     : harness.customer.phone,
               } as never)
             ),
+          getReservationWithoutCustomer: () =>
+            harness.dotyposBounds
+              ? Effect.succeed({
+                  ...harness.dotyposBounds,
+                  seats: "1",
+                } as never)
+              : Effect.fail({ _tag: "DotyposError" } as never),
         }),
         Layer.mock(PaymentRetryProviderCheck, {
           check: () => Effect.succeed(harness.provider ?? "ended_unpaid"),
@@ -425,6 +437,53 @@ describe("CheckoutPaymentRetryService.prepare", () => {
     const { result, secure } = runPrepare({ customer: { phone: null } });
 
     await result;
+    expect(secure).not.toHaveBeenCalled();
+  });
+
+  test("books an overnight Reserved Desk again as an overnight stay", async () => {
+    const { result, secure } = runPrepare({
+      stored: row({
+        reservationDetails: {
+          kind: "cowork",
+          entryTier: "reserved-desk",
+          coffee: true,
+        },
+        dotyposReservationId: "dotypos-reservation-id" as never,
+      }),
+      // Prague winter time (UTC+1): noon on 2099-01-01 to noon on 2099-01-02.
+      dotyposBounds: {
+        startDate: "2099-01-01T11:00:00Z",
+        endDate: "2099-01-02T11:00:00Z",
+      },
+    });
+    const { state } = await openReady(await result);
+
+    expect(secure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recreated: expect.objectContaining({
+          reservation: expect.objectContaining({ stay: "overnight" }),
+        }),
+      })
+    );
+    expect(state.reservation).toMatchObject({
+      entryTier: "reserved-desk",
+      stay: "overnight",
+    });
+  });
+
+  test("fails as unavailable, to ask again, while the order's Dotypos reservation can't be read", async () => {
+    const { result, secure } = runPrepare({
+      stored: row({
+        reservationDetails: {
+          kind: "cowork",
+          entryTier: "reserved-desk",
+          coffee: true,
+        },
+        dotyposReservationId: "dotypos-reservation-id" as never,
+      }),
+    });
+
+    await expect(result).rejects.toBeInstanceOf(PaymentRetryUnavailableError);
     expect(secure).not.toHaveBeenCalled();
   });
 

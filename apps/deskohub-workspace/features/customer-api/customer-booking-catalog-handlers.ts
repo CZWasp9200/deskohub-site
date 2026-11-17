@@ -21,19 +21,26 @@ import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quo
 import type { Locale } from "@/features/i18n";
 import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-evidence";
 import { resolveBookingQuoteSelection } from "@/features/reservation/backend/booking-selection";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { AvailabilityQueryInvalid } from "@/features/reservation/backend/workspace-availability.service";
 import {
   loadAvailability,
   loadMeetingRoomStartTimes,
   loadMeetingRoomUnavailableDates,
 } from "@/features/reservation/backend/workspace-availability-loader";
+import {
+  getOvernightStayTimes,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
+import { coworkReservationKind } from "@/features/reservation/reservation-kind";
 import {
   getMeetingRoomUnavailableDatesQuery,
   parseMeetingRoomStartTimesQuery,
   parseWorkspaceAvailabilityQuery,
   type WorkspaceAvailability,
+  type WorkspaceAvailabilityQuery,
 } from "@/features/reservation/workspace-availability";
 import { providePerRequest } from "@/shared/backend/provide-per-request";
 import { currentInstant } from "@/shared/utils/temporal";
@@ -87,7 +94,8 @@ export const handleCustomerBookingCatalog = <R>(
     const offerings = Layer.mergeAll(
       pricing.pipe(Layer.provideMerge(releases.referral)),
       inventory,
-      releases.office
+      releases.office,
+      releases.overnightStay
     );
 
     /**
@@ -103,11 +111,17 @@ export const handleCustomerBookingCatalog = <R>(
             ({ complete }) => complete,
             () => new SalePricesUnavailable()
           ),
+          Effect.bind(
+            "overnightStayOffered",
+            () => OvernightStayReleaseGate.isOpen
+          ),
           Effect.map(
             (listing): CustomerBookingOfferings => ({
               advertisedOn: listing.advertisedOn.toString(),
               openingHours: getPublicOpeningHours(locale),
-              offerings: listing.offerings.map(toCustomerOffering),
+              offerings: listing.offerings.map((offering) =>
+                toCustomerOffering(offering, listing.overnightStayOffered)
+              ),
             })
           ),
           providePerRequest(offerings),
@@ -119,6 +133,7 @@ export const handleCustomerBookingCatalog = <R>(
           parseWorkspaceAvailabilityQuery,
           new URLSearchParams(definedEntries(query))
         ).pipe(
+          Effect.tap(ensureAvailabilityStayOffered(releases.overnightStay)),
           Effect.flatMap((parsed) =>
             loadAvailability({
               query: parsed,
@@ -217,6 +232,24 @@ const quoteSelection = Effect.fn("customerApi.quoteSelection")(function* (
 });
 
 /**
+ * An overnight availability query is invalid while overnight stays are not
+ * offered, as a quote or checkout for one is.
+ */
+const ensureAvailabilityStayOffered =
+  (overnightStayRelease: Layer.Layer<OvernightStayReleaseGate>) =>
+  (query: WorkspaceAvailabilityQuery) =>
+    query.kind === coworkReservationKind && query.stay === "overnight"
+      ? OvernightStayReleaseGate.isOpen.pipe(
+          Effect.filterOrFail(
+            (open) => open,
+            () => new CustomerBookingSelectionInvalid({ field: "stay" })
+          ),
+          Effect.asVoid,
+          providePerRequest(overnightStayRelease)
+        )
+      : Effect.void;
+
+/**
  * Reads the query the way the availability route does, so both accept the
  * same combinations. The contract already checked each value's format; what
  * the route's parser still refuses, such as a meeting-room interval no
@@ -279,7 +312,10 @@ const toCustomerAvailability = ({
   })),
 });
 
-const toCustomerOffering = (offering: PublicOffering): CustomerOffering => {
+const toCustomerOffering = (
+  offering: PublicOffering,
+  overnightStayOffered: boolean
+): CustomerOffering => {
   const copy = Struct.pick(offering, ["name", "description", "usage"]);
   const advertisedPrice = offering.advertisedPrice;
 
@@ -293,6 +329,10 @@ const toCustomerOffering = (offering: PublicOffering): CustomerOffering => {
         price: cowork.price,
         advertisedPrice,
         addOns: cowork.addOns,
+        ...(overnightStayOffered &&
+          cowork.tier === overnightCoworkStayTier && {
+            overnightStay: getOvernightStayTimes(),
+          }),
       }),
       "meeting-room": (meetingRoom): CustomerOffering => ({
         family: "meeting-room",

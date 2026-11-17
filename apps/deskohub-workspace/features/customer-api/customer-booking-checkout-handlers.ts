@@ -137,7 +137,8 @@ export const handleCustomerBookingCheckout = <R>(
           Layer.mergeAll(
             CustomerReferralUpdates.fromClient(referralCode),
             releases.referral,
-            releases.office
+            releases.office,
+            releases.overnightStay
           )
         )
       );
@@ -336,6 +337,8 @@ const answerPreparationFailure =
           ),
         OfficeReservationsDisabledError: () =>
           Effect.fail(new CustomerOfferingUnavailable({ family: "office" })),
+        OvernightStayUnavailableError: () =>
+          Effect.fail(new CustomerBookingSelectionInvalid({ field: "stay" })),
         ReservationIntervalValidationError: () =>
           Effect.fail(new CustomerBookingSelectionInvalid({})),
         UndeliverableContactEmailError: () =>

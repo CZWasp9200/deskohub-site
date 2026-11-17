@@ -9,7 +9,10 @@ import {
   resolveBookingQuoteSelection,
 } from "@/features/reservation/backend/booking-selection";
 import { AgentToolError } from "./agent-tool-error";
-import { quoteSelectionFields } from "./reservation-selection";
+import {
+  coworkStayArgument,
+  quoteSelectionFields,
+} from "./reservation-selection";
 
 /** The arguments naming one complete, priceable selection. */
 export const completeSelectionFields = {
@@ -31,6 +34,7 @@ export const completeSelectionFields = {
         "Cowork Reserved Desk only: add a monitor workstation in this configuration. Every configuration costs the same.",
     })
   ),
+  stay: Schema.optionalKey(coworkStayArgument),
 };
 
 const completeSelectionSchema = Schema.Struct(completeSelectionFields);

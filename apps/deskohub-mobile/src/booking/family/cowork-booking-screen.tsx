@@ -13,7 +13,9 @@ import { Atom } from "effect/unstable/reactivity";
 import { useRouter } from "expo-router";
 import Coffee from "lucide-react-native/icons/coffee";
 import Monitor from "lucide-react-native/icons/monitor";
+import Moon from "lucide-react-native/icons/moon";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
+import Sun from "lucide-react-native/icons/sun";
 import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -21,6 +23,7 @@ import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
 import { Notice } from "../../ui/notice";
+import { SegmentedChoice } from "../../ui/segmented-choice";
 import { Skeleton, SkeletonGroup } from "../../ui/skeleton";
 import { color, radius, space } from "../../ui/tokens";
 import { bookingPreselectionKey } from "../booking-preselection";
@@ -39,6 +42,7 @@ import {
   coworkDayQuery,
   freeCoworkTierOn,
   selectCoworkDate,
+  selectCoworkStay,
   selectCoworkTier,
   selectCoworkWorkstation,
 } from "../selection/cowork-selection";
@@ -256,7 +260,7 @@ function CoworkSelection({
     focusedDay === undefined
       ? unneededReadAtom
       : bookingAvailabilityAtom({
-          query: coworkDayQuery(draft.tier)(focusedDay),
+          query: coworkDayQuery(draft)(focusedDay),
         });
   const day = loadedValue(bookingReadOf(useAtomValue(dayAtom)));
 
@@ -282,11 +286,18 @@ function CoworkSelection({
     const message = blockerMessage(blocker, locale);
     return message === undefined ? [] : [message];
   });
+  const overnightStay = Option.getOrUndefined(model.overnightStay);
+  // The stay's times, for summaries of an overnight selection.
+  const overnightTimes =
+    overnightStay !== undefined && model.draft.stay === "overnight"
+      ? { overnightStay }
+      : {};
   const checkout = checkoutRequestOf({
     locale,
     selection: model.selection,
     blockers: enablement.blockers,
     quote: Option.flatMap(quote, freshValue),
+    ...overnightTimes,
   });
   const failedQuote = Option.getOrUndefined(quote);
   const quoteFailure =
@@ -299,7 +310,11 @@ function CoworkSelection({
           from: {
             title: chosen.name,
             amount: chosen.advertisedPrice.price,
-            unit: m.booking_price_unit_per_day({}, { locale }),
+            unit:
+              model.draft.stay === "overnight"
+                ? m.booking_price_unit_per_night({}, { locale })
+                : m.booking_price_unit_per_day({}, { locale }),
+            ...overnightTimes,
           },
           selection: model.selection,
           quote,
@@ -449,6 +464,33 @@ function CoworkSelection({
               }}
               locale={locale}
             />
+            {overnightStay !== undefined && (
+              <>
+                <BookingSectionHeading
+                  title={m.booking_cowork_stay_label({}, { locale })}
+                />
+                <SegmentedChoice
+                  label={m.booking_cowork_stay_label({}, { locale })}
+                  options={[
+                    {
+                      value: "day",
+                      icon: Sun,
+                      label: m.booking_cowork_stay_day({}, { locale }),
+                    },
+                    {
+                      value: "overnight",
+                      icon: Moon,
+                      label: m.booking_cowork_stay_overnight({}, { locale }),
+                    },
+                  ]}
+                  selected={model.draft.stay}
+                  onSelect={(stay) => {
+                    setTapped(undefined);
+                    setDraft(selectCoworkStay(model.draft, stay));
+                  }}
+                />
+              </>
+            )}
 
             <BookingSectionHeading
               title={m.booking_date_heading({}, { locale })}

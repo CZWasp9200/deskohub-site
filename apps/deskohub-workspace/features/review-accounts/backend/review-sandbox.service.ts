@@ -362,8 +362,12 @@ const digest = (kind: string, ...parts: readonly string[]) =>
 const getSandboxSelection = (reservation: ReviewSandboxOrder) => {
   const { interval, seats } = Match.value(reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
-      cowork: ({ entryTier, date }) => ({
-        interval: getCoworkReservationInterval(entryTier, date),
+      cowork: (cowork) => ({
+        interval: getCoworkReservationInterval(
+          cowork.entryTier,
+          cowork.date,
+          "stay" in cowork ? cowork.stay : undefined
+        ),
         seats: 1,
       }),
       "meeting-room": ({ startsAt, endsAt }) => ({

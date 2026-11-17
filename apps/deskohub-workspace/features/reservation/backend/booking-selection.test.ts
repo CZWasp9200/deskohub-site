@@ -16,6 +16,7 @@ import {
   resolveBookingQuoteSelection,
   resolveMeetingRoomSelection,
 } from "./booking-selection";
+import { OvernightStayReleaseGate } from "./overnight-stay-release-gate";
 
 const pragueInstant = (local: string) =>
   Temporal.PlainDateTime.from(local)
@@ -41,13 +42,16 @@ const sixSeatOffice = Schema.decodeSync(DotyposTableSchema)({
 
 const makeServices = ({
   officeOpen = true,
+  overnightStayOpen = false,
   tables = [sixSeatOffice],
 }: {
   readonly officeOpen?: boolean;
+  readonly overnightStayOpen?: boolean;
   readonly tables?: readonly DotyposTable[];
 } = {}) =>
   Layer.mergeAll(
     OfficeReleaseGate.fromDecision(officeOpen),
+    OvernightStayReleaseGate.fromDecision(overnightStayOpen),
     Layer.succeed(AdvisoryAvailabilityInventory, {
       tables: Effect.succeed(tables),
       listActiveReservationsOverlapping: () => Effect.succeed([]),
@@ -76,6 +80,54 @@ const rejectQuote = (
       Effect.provide(services)
     )
   );
+
+describe("resolveBookingQuoteSelection overnight stays", () => {
+  const reservedDesk = {
+    family: "cowork",
+    date: tomorrow,
+    tier: "reserved-desk",
+  } as const satisfies BookingSelectionInput;
+
+  test("books an overnight Reserved Desk at the day stay's price and service date while the gate is open", async () => {
+    const services = makeServices({ overnightStayOpen: true });
+    const overnight = await quote(
+      { ...reservedDesk, stay: "overnight" },
+      services
+    );
+    const day = await quote(reservedDesk, services);
+
+    expect(overnight.reservation).toEqual({
+      kind: "cowork",
+      entryTier: "reserved-desk",
+      date: tomorrow,
+      coffee: true,
+      stay: "overnight",
+    });
+    expect(overnight.reservationSelection).toMatchObject({ stay: "overnight" });
+    expect(overnight.request).toEqual(day.request);
+  });
+
+  test("rejects an overnight stay while the gate is closed", async () => {
+    expect(await rejectQuote({ ...reservedDesk, stay: "overnight" })).toEqual({
+      kind: "invalid-field",
+      field: "stay",
+    });
+  });
+
+  test("rejects an overnight Open Space", async () => {
+    expect(
+      await rejectQuote(
+        { ...reservedDesk, tier: "open-space", stay: "overnight" },
+        makeServices({ overnightStayOpen: true })
+      )
+    ).toEqual({ kind: "invalid-field", field: "stay" });
+  });
+
+  test("books a day stay without a stay key while the gate is closed", async () => {
+    const day = await quote({ ...reservedDesk, stay: "day" });
+    expect("stay" in day.reservation).toBe(false);
+  });
+});
 
 describe("resolveBookingQuoteSelection", () => {
   test("resolves a cowork tier and date to the order the website books", async () => {

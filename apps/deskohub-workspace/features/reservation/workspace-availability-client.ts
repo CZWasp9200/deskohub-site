@@ -27,10 +27,11 @@ export const getWorkspaceAvailabilityUrl = (
 
   Match.value(query).pipe(
     Match.discriminatorsExhaustive("kind")({
-      cowork: ({ date, entryTier, monitorOption }) => {
+      cowork: ({ date, entryTier, monitorOption, stay }) => {
         if (date) params.set("date", date);
         if (entryTier) params.set("entryTier", entryTier);
         if (monitorOption) params.set("monitorOption", monitorOption);
+        if (stay) params.set("stay", stay);
       },
       "meeting-room": ({ startsAt, endsAt }) => {
         if (startsAt) params.set("startsAt", startsAt);

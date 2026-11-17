@@ -1,13 +1,13 @@
 ---
 name: deskohub-workspace-domain
-description: Workspace reservation families, reservation author, reservation customer, customer account, deleted-account tombstone, booked by, cowork, meeting room, office, product identity, product keys, discount targets, Temporal, timezone, Prague dates, DST, Calendar sales, discount definitions, email campaigns, campaign audiences, recipients, test send, confirmation code, analytics consent decision, current decision, consent mirror, analytics consent ledger, silent grant, analytics preference, opt-out, PostHog person anonymisation, cross-device withdrawal, person-linked, reservation-keyed.
+description: Workspace reservation families, Reserved Desk stay, overnight stay, reservation author, reservation customer, customer account, deleted-account tombstone, booked by, cowork, meeting room, office, product identity, product keys, discount targets, Temporal, timezone, Prague dates, DST, Calendar sales, discount definitions, email campaigns, campaign audiences, recipients, test send, confirmation code, analytics consent decision, current decision, consent mirror, analytics consent ledger, silent grant, analytics preference, opt-out, PostHog person anonymisation, cross-device withdrawal, person-linked, reservation-keyed.
 ---
 
 # Deskohub Workspace domain
 
 Read the reference that matches the change:
 
-- [references/reservations.md](references/reservations.md): reservation families, product identities and keys, discount targets, meeting-room durations, office ranges and seats, and Reserved Desk ranking.
+- [references/reservations.md](references/reservations.md): reservation families, product identities and keys, discount targets, meeting-room durations, office ranges and seats, the Reserved Desk stay, and Reserved Desk ranking.
 - [references/reservation-parties.md](references/reservation-parties.md): reservation author, reservation customer, customer account, and deleted-account tombstone.
 - [references/temporal.md](references/temporal.md): timezone, Temporal types, formatting, Dotypos interval decoding, and stored instant precision.
 - [references/sales-calendar.md](references/sales-calendar.md): Calendar sales, stored discount definitions, sale eligibility, and the sale source cache.

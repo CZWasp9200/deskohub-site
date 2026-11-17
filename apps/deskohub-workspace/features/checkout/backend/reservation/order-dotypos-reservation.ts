@@ -5,13 +5,19 @@ import {
   type DotyposReservationId,
   DotyposService,
 } from "@deskohub/dotypos";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
 import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
 import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
+import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import type { WorkspaceReservation } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { CoworkReservationDetails } from "@/features/reservation/cowork-reservation";
+import {
+  type CoworkStay,
+  getBookedCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import { getMeetingRoomEarlySetupField } from "@/features/reservation/meeting-room-early-setup";
 import type { MeetingRoomReservationDetails } from "@/features/reservation/meeting-room-reservation";
 import type { OfficeReservationDetails } from "@/features/reservation/office-reservation";
@@ -66,7 +72,9 @@ const isOfficeSnapshot = (
  */
 export const rebuildAcceptedReservation = (
   row: WorkspaceReservation,
-  snapshot: AccountingDocumentSnapshot
+  snapshot: AccountingDocumentSnapshot,
+  /** The Reserved Desk stay {@link findOrderCoworkStay} read; Workspace stores none. */
+  coworkStay: CoworkStay | undefined
 ): RecreatedReservation | null => {
   if (row.reservationDetails.kind !== snapshot.reservation.kind) return null;
 
@@ -75,6 +83,7 @@ export const rebuildAcceptedReservation = (
     const reservation: CoworkReservationDetails = {
       ...row.reservationDetails,
       date: snapshot.reservation.date,
+      ...(coworkStay === "overnight" && { stay: coworkStay }),
     };
     return {
       reservation,
@@ -135,6 +144,33 @@ export const rebuildAcceptedReservation = (
   }
   return null;
 };
+
+/**
+ * The stay of the order's Reserved Desk, which Workspace doesn't store, from
+ * the bounds of one of the order's Dotypos reservations. Undefined for other
+ * reservations and when the bounds can't be read, which rebuilds a day stay.
+ */
+export const findOrderCoworkStay = Effect.fnUntraced(function* (input: {
+  readonly order: WorkspaceReservation;
+  readonly dotyposReservationId: DotyposReservationId;
+}) {
+  const details = input.order.reservationDetails;
+  if (
+    details.kind !== "cowork" ||
+    details.entryTier !== overnightCoworkStayTier
+  ) {
+    return undefined;
+  }
+  const dotypos = yield* DotyposService;
+  const booked = yield* dotypos.getReservationWithoutCustomer(
+    input.dotyposReservationId
+  );
+  return Option.match(decodeBookedReservation(booked).interval, {
+    onNone: () => undefined,
+    onSome: (interval) =>
+      getBookedCoworkStay({ tier: details.entryTier, interval }),
+  });
+});
 
 /**
  * The order's active (NEW or CONFIRMED) Dotypos reservations overlapping the

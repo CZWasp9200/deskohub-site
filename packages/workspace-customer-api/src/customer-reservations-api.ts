@@ -9,7 +9,10 @@ import {
   CustomerCheckout,
   CustomerCheckoutReturnTarget,
 } from "./customer-booking-checkout-api";
-import { CustomerBookingSelection } from "./customer-booking-selection";
+import {
+  CustomerBookingSelection,
+  CustomerCoworkStay,
+} from "./customer-booking-selection";
 import { CustomerLocale } from "./customer-locale";
 import { customerInputParseOptions } from "./customer-profile";
 import { CustomerServiceUnavailable } from "./customer-session";
@@ -148,7 +151,16 @@ export type CustomerCoworkTier = typeof CustomerCoworkTier.Type;
 
 /** What a reservation in the history books; `other` for any other product. */
 export const CustomerReservationProduct = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("cowork"), tier: CustomerCoworkTier }),
+  Schema.Struct({
+    kind: Schema.Literal("cowork"),
+    tier: CustomerCoworkTier,
+    /**
+     * The stay its booked time shows: overnight for a Reserved Desk held from
+     * noon to noon the next date. Absent when its time can't be read; read an
+     * absent stay as a day.
+     */
+    stay: Schema.optionalKey(CustomerCoworkStay),
+  }),
   Schema.Struct({ kind: Schema.Literal("meeting-room") }),
   Schema.Struct({ kind: Schema.Literal("office") }),
   Schema.Struct({ kind: Schema.Literal("other") }),
