@@ -704,6 +704,7 @@
   "invoices_download_label": "Stiahnuť faktúru {number}",
   "invoices_downloading": "Sťahujeme faktúru {number}…",
   "invoices_download_not_found": "Túto faktúru sme nenašli. Obnov zoznam a skús to znova.",
+  "invoices_status_cancelled": "Zrušené",
   "booking_review_title": "Zhrnutie a platba",
   "booking_review_booking_heading": "Tvoja rezervácia",
   "booking_review_change": "Zmeniť",

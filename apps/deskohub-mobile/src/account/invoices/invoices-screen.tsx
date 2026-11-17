@@ -1,7 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Match } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import Download from "lucide-react-native/icons/download";
 import Receipt from "lucide-react-native/icons/receipt";
 import { useState } from "react";
 import { AsyncView } from "../../customer-api/async-view";
@@ -12,15 +11,12 @@ import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { Card } from "../../ui/card";
 import { EmptyState } from "../../ui/empty-state";
-import { Icon } from "../../ui/icon";
-import { ListGroup, ListRow } from "../../ui/list";
-import { listRowAccessibleLabel } from "../../ui/list-row-presentation";
-import { LoadingIndicator } from "../../ui/loading-indicator";
+import { ListGroup } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { SkeletonGroup } from "../../ui/skeleton";
-import { color } from "../../ui/tokens";
-import { type InvoiceRow, invoiceRowText } from "./invoice-list-model";
+import type { InvoiceRow } from "./invoice-list-model";
+import { InvoiceListRow } from "./invoice-list-row";
 import {
   invoiceDownloadAtom,
   invoiceDownloadState,
@@ -92,6 +88,7 @@ function InvoiceRows({ rows }: { readonly rows: ReadonlyArray<InvoiceRow> }) {
           <InvoiceListRow
             key={row.id}
             row={row}
+            locale={locale}
             downloading={downloading && attempted?.id === row.id}
             held={downloading}
             onDownload={() => {
@@ -102,58 +99,6 @@ function InvoiceRows({ rows }: { readonly rows: ReadonlyArray<InvoiceRow> }) {
         ))}
       </ListGroup>
     </>
-  );
-}
-
-function InvoiceListRow({
-  row,
-  downloading,
-  held,
-  onDownload,
-}: {
-  readonly row: InvoiceRow;
-  /** This row's invoice is downloading. */
-  readonly downloading: boolean;
-  /** Some download runs, so no row starts another. */
-  readonly held: boolean;
-  readonly onDownload: () => void;
-}) {
-  const locale = useAppLocale();
-  const text = invoiceRowText(row, locale);
-  const downloadingLabel = m.invoices_downloading(
-    { number: row.invoiceNumber },
-    { locale }
-  );
-  return (
-    <ListRow
-      kind="action"
-      icon={Receipt}
-      label={text.title}
-      description={`${text.when}\n${text.amount}`}
-      // While it downloads, the row says so in place of its action.
-      accessibilityLabel={listRowAccessibleLabel({
-        label: downloading
-          ? downloadingLabel
-          : m.invoices_download_label(
-              { number: row.invoiceNumber },
-              { locale }
-            ),
-        description: [text.title, text.when, text.amount].join(", "),
-      })}
-      trailing={
-        downloading ? (
-          <LoadingIndicator
-            size="inline"
-            tone="navy"
-            label={downloadingLabel}
-          />
-        ) : (
-          <Icon icon={Download} size={20} color={color.ink2} />
-        )
-      }
-      disabled={held}
-      onPress={onDownload}
-    />
   );
 }
 
