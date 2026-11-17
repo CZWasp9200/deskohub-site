@@ -11,6 +11,7 @@ import {
   officeCheckoutSummaryDiscountedProductItemSchema,
   officeCheckoutSummaryProductItemSchema,
 } from "@/features/checkout/checkout-summary-office-item";
+import { workspaceProductMonitorOptions } from "@/features/checkout/product-catalog";
 import { moneyEquals, nonNegativeMoneyCodec } from "@/shared/money/money";
 
 export {
@@ -18,13 +19,21 @@ export {
   checkoutSummaryDiscountSchema,
 } from "@/features/checkout/checkout-summary-product-item";
 
-const checkoutSummaryAddOnItemSchema = Schema.Struct({
-  key: Schema.Union([
-    Schema.Literal("addon:coffee"),
-    Schema.Literal("addon:workstation"),
-    Schema.TemplateLiteral(["monitor:", Schema.String]),
-  ]),
+const checkoutSummaryCoffeeItemSchema = Schema.Struct({
+  key: Schema.Literal("addon:coffee"),
   amount: nonNegativeMoneyCodec,
+});
+
+/**
+ * The monitor workstation add-on: its price, and the monitor setup it is
+ * configured with, which changes the reserved desk but never the price.
+ */
+const checkoutSummaryWorkstationItemSchema = Schema.Struct({
+  key: Schema.Literal("addon:workstation"),
+  amount: nonNegativeMoneyCodec,
+  monitorOption: Schema.optionalKey(
+    Schema.Literals(workspaceProductMonitorOptions)
+  ),
 });
 
 export const checkoutSummaryOrderItemSchema = Schema.Union([
@@ -34,7 +43,8 @@ export const checkoutSummaryOrderItemSchema = Schema.Union([
   coworkCheckoutSummaryProductItemSchema,
   officeCheckoutSummaryDiscountedProductItemSchema,
   officeCheckoutSummaryProductItemSchema,
-  checkoutSummaryAddOnItemSchema,
+  checkoutSummaryCoffeeItemSchema,
+  checkoutSummaryWorkstationItemSchema,
 ]);
 
 const checkoutSummaryTotalItemSchema = Schema.Struct({
@@ -93,6 +103,7 @@ const getCanonicalSummaryItem = (item: CheckoutSummaryItem) => ({
   ...("accessAmount" in item && { accessAmount: item.accessAmount }),
   ...("seatAmount" in item && { seatAmount: item.seatAmount }),
   ...("seatsAmount" in item && { seatsAmount: item.seatsAmount }),
+  ...("monitorOption" in item && { monitorOption: item.monitorOption }),
   ...("originalAmount" in item && {
     originalAmount: item.originalAmount,
     discounts: item.discounts,

@@ -5,6 +5,7 @@ import type {
   CustomerCheckoutSummary,
   CustomerLegalDocument,
   CustomerLocale,
+  CustomerMonitorOption,
   CustomerOffering,
   Money,
 } from "@deskohub/workspace-customer-api";
@@ -231,6 +232,8 @@ interface PricedLine {
   readonly accessCrowns?: number;
   /** One office seat for the days booked, before discounts. */
   readonly seatCrowns?: number;
+  /** A workstation line's monitor setup. */
+  readonly monitorOption?: CustomerMonitorOption;
 }
 
 /** Inclusive Prague days between two plain dates. */
@@ -257,8 +260,9 @@ export const pricedLines = (
       ...(tier === "reserved-desk" && selection.monitorOption !== undefined
         ? [
             {
-              key: `monitor:${selection.monitorOption}`,
+              key: "addon:workstation",
               crowns: samplePrices.workstation,
+              monitorOption: selection.monitorOption,
             },
           ]
         : []),
@@ -338,6 +342,9 @@ export const sampleSummary = ({
       ...(line.seatCrowns === undefined || line.seats === undefined
         ? {}
         : { seatsAmount: czk(line.seatCrowns * line.seats) }),
+      ...(line.monitorOption === undefined
+        ? {}
+        : { monitorOption: line.monitorOption }),
     };
   });
   const total = czk(
