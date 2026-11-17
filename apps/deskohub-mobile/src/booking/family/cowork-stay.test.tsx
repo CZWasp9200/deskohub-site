@@ -14,7 +14,8 @@ import { bookingSummaryParts } from "../ui/booking-summary";
 import { OvernightStayTimes } from "../ui/overnight-stay-times";
 import { CoworkDateHeading, CoworkStayTimes } from "./cowork-stay";
 
-const overnightStay = { startTime: "12:00", endTime: "12:00" };
+// Not the sample noon-to-noon, so the times shown are the ones passed.
+const overnightStay = { startTime: "11:00", endTime: "10:00" };
 
 const heading = (offered: boolean, stay: CustomerCoworkStay = "day") => {
   const onStayChange = mock((_stay: CustomerCoworkStay) => undefined);

@@ -3,6 +3,7 @@ import Bell from "lucide-react-native/icons/bell";
 import Moon from "lucide-react-native/icons/moon";
 import type { ComponentProps } from "react";
 import { StyleSheet } from "react-native";
+import { Icon } from "./icon";
 import { listRowLayout } from "./list-row-layout";
 import { LoadingIndicator } from "./loading-indicator";
 import { Switch, SwitchRow, SwitchTrack, switchLook } from "./switch";
@@ -15,6 +16,9 @@ import {
 } from "./testing/element-tree";
 import { Text } from "./text";
 import { color } from "./tokens";
+
+const thumbIcon = (value: boolean) =>
+  find(elementTree(SwitchTrack, { value, icon: Moon }), Icon)?.props.icon;
 
 const flat = (style: unknown) =>
   (StyleSheet.flatten(style as never) ?? {}) as Record<string, unknown>;
@@ -109,6 +113,11 @@ describe("SwitchTrack", () => {
     ).toMatchObject({ glyph: color.action });
   });
 
+  test("the thumb draws the given icon in both states", () => {
+    expect(thumbIcon(false)).toBe(Moon);
+    expect(thumbIcon(true)).toBe(Moon);
+  });
+
   test("an icon keeps the thumb large while disabled", () => {
     expect(
       track({ value: false, disabled: true, icon: Moon }).thumb.width
@@ -172,9 +181,16 @@ describe("Switch", () => {
       )?.props.tone;
     expect(labelTone(false)).toBe("muted");
     expect(labelTone(true)).toBe("action");
-    const { pressable } = standalone({ label: "label", value: true });
-    expect(pressable.role).toBe("switch");
-    expect(pressable["aria-checked"]).toBe(true);
+    const pressable = elementTree(Switch, {
+      value: true,
+      onValueChange: () => undefined,
+      accessibilityLabel: "name",
+      label: "label",
+    });
+    // One pressable holds both, so the label presses with the track.
+    expect(find(pressable, Text)).toBeDefined();
+    expect(find(pressable, SwitchTrack)).toBeDefined();
+    expect(standalone({ label: "label" }).pressable.role).toBe("switch");
   });
 
   test("without a label it draws the track alone", () => {

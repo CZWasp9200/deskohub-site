@@ -18,6 +18,7 @@ import {
 } from "../selection/cowork-selection";
 import { pragueToday } from "../selection/prague-date";
 import { fakeBooking } from "../testing/fake-booking-api";
+import { withReservedDeskOvernightStay } from "../testing/sample-booking-catalog";
 import { checkoutRequestOf } from "./booking-family-view";
 import { coworkBookingModel, openingCoworkDraft } from "./cowork-booking-model";
 import { settledValue } from "./testing/settled-value";
@@ -269,17 +270,9 @@ describe("overnight stay", () => {
       registry,
       bookingOfferingsAtom("en-US")
     );
-    // The sample Reserved Desk offers the stay; each test sets it itself.
-    const reservedDeskWith = (stay: typeof overnightStay | undefined) =>
-      sampled.map((offering) => {
-        if (offering.family !== "cowork" || offering.tier !== "reserved-desk")
-          return offering;
-        const { overnightStay: _sampled, ...day } = offering;
-        return stay === undefined ? day : { ...day, overnightStay: stay };
-      });
     return {
-      offerings: reservedDeskWith(undefined),
-      withOvernight: reservedDeskWith(overnightStay),
+      offerings: withReservedDeskOvernightStay(sampled, undefined),
+      withOvernight: withReservedDeskOvernightStay(sampled, overnightStay),
       draft,
     };
   };
