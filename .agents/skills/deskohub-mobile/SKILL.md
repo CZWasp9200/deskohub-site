@@ -63,6 +63,7 @@ Read the reference that matches the change before editing:
   passkey origins per environment, and the association files.
 - [Web app and Android download](references/web-app-and-android-page.md): the
   `/app/` export and its hosting, the PWA shell, the `/android` page,
-  Obtainium, and open-in-app detection.
+  Obtainium, open-in-app detection, and which site pages the app claims as
+  App Links.
 - [Analytics](references/analytics.md): PostHog React Native, consent on
   native and web, typed events, identity and feature flags.
