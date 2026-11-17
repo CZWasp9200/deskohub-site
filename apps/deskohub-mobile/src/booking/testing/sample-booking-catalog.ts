@@ -1,13 +1,20 @@
 import type {
+  CustomerBookableDates,
   CustomerBookingOfferings,
   CustomerBookingSelection,
   CustomerCheckoutSummary,
   CustomerLegalDocument,
   CustomerLocale,
+  CustomerMonitorOption,
   CustomerOffering,
   Money,
 } from "@deskohub/workspace-customer-api";
-import { daysBetween, type PragueDate } from "../selection/prague-date";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
+import {
+  addMonths,
+  daysBetween,
+  type PragueDate,
+} from "../selection/prague-date";
 
 /**
  * Synthetic booking catalog for the fake Workspace: offerings, prices and
@@ -37,12 +44,46 @@ export const samplePrices = {
   officeSeat: 250,
 } as const;
 
+/** When the sample Reserved Desk's overnight stay starts and ends. */
+export const sampleOvernightStay: CoworkOvernightStay = {
+  startTime: "12:00",
+  endTime: "12:00",
+};
+
+/**
+ * `offerings` with the Reserved Desk's overnight stay set to `overnightStay`,
+ * or removed without one, for a test that needs a day-only catalog.
+ */
+export const withReservedDeskOvernightStay = (
+  offerings: ReadonlyArray<CustomerOffering>,
+  overnightStay: CoworkOvernightStay | undefined
+): ReadonlyArray<CustomerOffering> =>
+  offerings.map((offering) => {
+    if (offering.family !== "cowork" || offering.tier !== "reserved-desk")
+      return offering;
+    const { overnightStay: _sampled, ...day } = offering;
+    return overnightStay === undefined ? day : { ...day, overnightStay };
+  });
+
 export const sampleOfficeMaximumSeats = 6;
 export const sampleOfficeMaximumDurationHours = 672;
 
+/**
+ * The dates an offering advertised on `advertisedOn` can be booked on, as
+ * the server's rules give them: cowork and meeting room six months ahead,
+ * the office one.
+ */
+export const sampleBookableDates = (
+  advertisedOn: PragueDate,
+  family: CustomerOffering["family"]
+): CustomerBookableDates => ({
+  earliest: advertisedOn,
+  latest: addMonths(advertisedOn, family === "office" ? 1 : 6),
+});
+
 export const sampleOfferings = (
   locale: CustomerLocale,
-  advertisedOn: string
+  advertisedOn: PragueDate
 ): CustomerBookingOfferings => {
   const offerings: ReadonlyArray<CustomerOffering> = [
     {
@@ -62,6 +103,7 @@ export const sampleOfferings = (
       usage: copy(locale, "Weekdays 8:00–18:00.", "Všední dny 8:00–18:00."),
       price: czk(samplePrices.openSpace),
       advertisedPrice: { price: czk(samplePrices.openSpace), ...noSale },
+      bookableDates: sampleBookableDates(advertisedOn, "cowork"),
       addOns: [
         {
           id: "coffee",
@@ -88,6 +130,7 @@ export const sampleOfferings = (
       usage: copy(locale, "Weekdays 8:00–18:00.", "Všední dny 8:00–18:00."),
       price: czk(samplePrices.reservedDesk),
       advertisedPrice: { price: czk(samplePrices.reservedDesk), ...noSale },
+      bookableDates: sampleBookableDates(advertisedOn, "cowork"),
       addOns: [
         {
           id: "coffee",
@@ -108,6 +151,7 @@ export const sampleOfferings = (
           ],
         },
       ],
+      overnightStay: sampleOvernightStay,
     },
     ...(["hour:1", "hour:4", "day:1"] as const).map(
       (duration): CustomerOffering => ({
@@ -144,6 +188,7 @@ export const sampleOfferings = (
           price: czk(samplePrices.meetingRoom[duration]),
           ...noSale,
         },
+        bookableDates: sampleBookableDates(advertisedOn, "meeting-room"),
       })
     ),
     {
@@ -163,6 +208,7 @@ export const sampleOfferings = (
         price: czk(samplePrices.officeDay + samplePrices.officeSeat),
         ...noSale,
       },
+      bookableDates: sampleBookableDates(advertisedOn, "office"),
     },
   ];
   return {
@@ -186,6 +232,8 @@ interface PricedLine {
   readonly accessCrowns?: number;
   /** One office seat for the days booked, before discounts. */
   readonly seatCrowns?: number;
+  /** A workstation line's monitor setup. */
+  readonly monitorOption?: CustomerMonitorOption;
 }
 
 /** Inclusive Prague days between two plain dates. */
@@ -212,8 +260,9 @@ export const pricedLines = (
       ...(tier === "reserved-desk" && selection.monitorOption !== undefined
         ? [
             {
-              key: `monitor:${selection.monitorOption}`,
+              key: "addon:workstation",
               crowns: samplePrices.workstation,
+              monitorOption: selection.monitorOption,
             },
           ]
         : []),
@@ -290,6 +339,12 @@ export const sampleSummary = ({
       ...(line.seatCrowns === undefined
         ? {}
         : { seatAmount: czk(line.seatCrowns) }),
+      ...(line.seatCrowns === undefined || line.seats === undefined
+        ? {}
+        : { seatsAmount: czk(line.seatCrowns * line.seats) }),
+      ...(line.monitorOption === undefined
+        ? {}
+        : { monitorOption: line.monitorOption }),
     };
   });
   const total = czk(

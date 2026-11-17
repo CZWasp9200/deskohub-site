@@ -2,7 +2,6 @@ import "server-only";
 
 import {
   type AutomationDetail,
-  type AutomationDryRun,
   AutomationPreviewId,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Option, Schema } from "effect";
@@ -11,6 +10,7 @@ import {
   getSearchParam,
   type SearchParamsRecord,
 } from "@/shared/utils/search-params";
+import type { AutomationDryRunWithLifecycle } from "../../../automation/backend/automation-dry-run.service";
 import {
   campaignOperationCapabilities,
   invokeCampaignOperation,
@@ -27,7 +27,7 @@ const decodePreviewId = Schema.decodeUnknownOption(AutomationPreviewId);
 export const loadAutomationDryRun = async (
   automation: AutomationDetail,
   searchParams: SearchParamsRecord
-): Promise<AutomationDryRun | undefined> => {
+): Promise<AutomationDryRunWithLifecycle | undefined> => {
   const previewId =
     automation.activation._tag === "PreviewRunning" ||
     automation.activation._tag === "Ready"

@@ -1,10 +1,7 @@
-import { customerMcpServerPath } from "@/features/account/customer-agent-routes";
+import { customerMcpServerUrl } from "@/features/account/customer-agent-routes";
 import { getAccountSectionPath } from "@/features/account/routes";
 import { getLocalizedPagePath, type Locale, m } from "@/features/i18n";
-import {
-  workspaceSiteConstants,
-  workspaceSiteOrigin,
-} from "@/shared/utils/site-constants";
+import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 
 /**
  * A guide block. Text may wrap words in `<name>…</name>` tags, each a link
@@ -32,9 +29,6 @@ export interface AiAssistantsGuide {
     Record<"privacy" | "assistants" | "contact" | "email", string>
   >;
 }
-
-/** The public MCP server customers add as a custom connector. */
-const customerMcpServerUrl = `${workspaceSiteOrigin}${customerMcpServerPath}`;
 
 /**
  * How to use Deskohub Workspace from ChatGPT, Claude, and other MCP

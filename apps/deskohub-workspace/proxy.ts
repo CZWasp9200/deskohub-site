@@ -574,6 +574,8 @@ const previewCallbackOriginRedirect = (request: NextRequest) => {
 // `/en-US/x.html`. The prefix spells out both letter cases because matchers
 // compare them. RSC and segment requests stay out: Next strips their suffix
 // before the proxy sees the URL, so they would pass for page loads.
+// `/android/download` stays out too: it redirects to the APK and has no
+// locale.
 export const config: MiddlewareConfig = {
   matcher: [
     "/admin/:path*",
@@ -581,6 +583,6 @@ export const config: MiddlewareConfig = {
     "/account/:path*",
     "/:locale((?!api)[^/]+)/account/:path*",
     "/([a-zA-Z]{2}-[a-zA-Z]{2}/(?!.*\\.(?:prefetch\\.)?rsc$|.*\\.segments/).*\\..*)",
-    "/((?!api|_next/static|_next/image|favicon.ico|favicon.svg|.*\\..*).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|favicon.svg|android/download(?:/|$)|.*\\..*).*)",
   ],
 };

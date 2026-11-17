@@ -1,16 +1,20 @@
 import "server-only";
 
-import { Effect, Match, Option } from "effect";
+import { Effect, type Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import {
-  fromSharedSnapshot,
-  readSharedSnapshot,
-} from "@/shared/backend/shared-snapshot";
+import { readSharedSnapshot } from "@/shared/backend/shared-snapshot";
 import type { AndroidRelease } from "../android-release";
 import {
   findLatestAndroidRelease,
-  MobileReleaseLookupError,
+  type MobileReleaseLookupError,
 } from "./android-release-lookup";
+import {
+  type AndroidReleaseSnapshot,
+  failedLookupLifetime,
+  lookupFailedSnapshot,
+  readAndroidReleaseSnapshot,
+  toAndroidReleaseSnapshot,
+} from "./android-release-snapshot";
 
 export type { AndroidRelease } from "../android-release";
 export { MobileReleaseLookupError } from "./android-release-lookup";
@@ -24,36 +28,9 @@ export const loadLatestAndroidRelease = (): Effect.Effect<
   Option.Option<AndroidRelease>,
   MobileReleaseLookupError
 > =>
-  fromSharedSnapshot({
-    service: "mobile-releases",
-    operation: "loadLatestAndroidRelease",
-    load: () => loadSharedLatestAndroidRelease(),
-  }).pipe(
-    Effect.mapError(MobileReleaseLookupError.fromCause),
-    Effect.flatMap((snapshot) =>
-      Match.value(snapshot).pipe(
-        Match.discriminatorsExhaustive("outcome")({
-          found: ({ release }) => Effect.succeedSome(release),
-          none: () => Effect.succeedNone,
-          "lookup-failed": () =>
-            Effect.fail(
-              MobileReleaseLookupError.fromCause(
-                "The shared GitHub release lookup failed recently."
-              )
-            ),
-        })
-      )
-    )
+  readAndroidReleaseSnapshot("loadLatestAndroidRelease", () =>
+    loadSharedLatestAndroidRelease()
   );
-
-/**
- * What one shared lookup found. A plain object, not an `Option` or tagged
- * class, because the cache serializes it.
- */
-type LatestAndroidReleaseSnapshot =
-  | { readonly outcome: "found"; readonly release: AndroidRelease }
-  | { readonly outcome: "none" }
-  | { readonly outcome: "lookup-failed" };
 
 /**
  * Unauthenticated GitHub API requests are limited to 60 an hour per IP
@@ -64,40 +41,21 @@ type LatestAndroidReleaseSnapshot =
  */
 const releaseLifetime = { stale: 300, revalidate: 600, expire: 86_400 };
 
-/**
- * A failed lookup is shared as a value, not thrown: under Cache Components a
- * throwing `"use cache"` function fails a prerender even when its caller
- * catches it. It refreshes after two minutes; its expiry stays at the
- * five-minute prerender threshold so a page without a Suspense boundary
- * keeps it in the static shell.
- */
-const failureLifetime = { stale: 30, revalidate: 120, expire: 300 };
-
-async function loadSharedLatestAndroidRelease(): Promise<LatestAndroidReleaseSnapshot> {
+async function loadSharedLatestAndroidRelease(): Promise<AndroidReleaseSnapshot> {
   "use cache: remote";
 
   return await readSharedSnapshot(
     "mobile-releases.latest-android.load",
     findLatestAndroidRelease().pipe(
-      Effect.map(
-        Option.match({
-          onNone: (): LatestAndroidReleaseSnapshot => ({ outcome: "none" }),
-          onSome: (release): LatestAndroidReleaseSnapshot => ({
-            outcome: "found",
-            release,
-          }),
-        })
-      ),
+      Effect.map(toAndroidReleaseSnapshot),
       Effect.provide(FetchHttpClient.layer)
     ),
     {
       complete: { lifetime: releaseLifetime },
       failure: {
         failureCode: "mobile_releases.latest_android.lookup_failed",
-        fallback: (): LatestAndroidReleaseSnapshot => ({
-          outcome: "lookup-failed",
-        }),
-        lifetime: failureLifetime,
+        fallback: lookupFailedSnapshot,
+        lifetime: failedLookupLifetime,
       },
     }
   );

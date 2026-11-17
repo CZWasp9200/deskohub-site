@@ -79,12 +79,15 @@ export function CheckoutSummaryLine({
   amount,
   changed,
   children,
+  detail,
   label,
   locale,
 }: {
   readonly amount?: Money;
   readonly changed?: boolean;
   readonly children?: ReactNode;
+  /** What the line covers, in small type under its label. */
+  readonly detail?: ReactNode;
   readonly label: ReactNode;
   readonly locale: Locale;
 }) {
@@ -95,7 +98,14 @@ export function CheckoutSummaryLine({
         changed && "font-semibold text-burned-orange"
       )}
     >
-      <span>{label}</span>
+      {detail ? (
+        <span className="flex flex-col">
+          <span>{label}</span>
+          <span className="text-navy-blue/60 text-xs leading-5">{detail}</span>
+        </span>
+      ) : (
+        <span>{label}</span>
+      )}
       <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
         {amount ? (
           <span className="shrink-0 font-semibold tabular-nums">

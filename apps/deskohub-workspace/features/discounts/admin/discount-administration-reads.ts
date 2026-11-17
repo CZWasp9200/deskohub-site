@@ -1,6 +1,6 @@
 import { type DotyposCustomer, DotyposService } from "@deskohub/dotypos";
 import { GoogleCalendarService } from "@deskohub/google-calendar";
-import { Effect, Option } from "effect";
+import { DateTime, Effect, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type {
   DiscountCode,
@@ -184,22 +184,23 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
   const loadAudienceCustomers = (
     audience: readonly { readonly dotyposCustomerId: DotyposCustomerId }[]
   ) =>
-    customerDirectory
-      .findMany(
+    Effect.all({
+      customersById: customerDirectory.findMany(
         audience.map(({ dotyposCustomerId }) => dotyposCustomerId),
         degradeProviderRead
+      ),
+      now: DateTime.nowAsDate,
+    }).pipe(
+      Effect.map(({ customersById, now }) =>
+        audience.map(({ dotyposCustomerId }) => {
+          const customer = customersById.get(dotyposCustomerId);
+          return {
+            customerId: dotyposCustomerId,
+            customer: customer ? toAdminDotyposCustomer(customer, now) : null,
+          };
+        })
       )
-      .pipe(
-        Effect.map((customersById) =>
-          audience.map(({ dotyposCustomerId }) => {
-            const customer = customersById.get(dotyposCustomerId);
-            return {
-              customerId: dotyposCustomerId,
-              customer: customer ? toAdminDotyposCustomer(customer) : null,
-            };
-          })
-        )
-      );
+    );
 
   const loadCodeDetail = Effect.fn("DiscountAdministration.loadCodeDetail")(
     (input: { readonly codeId: DiscountCodeId }) =>
@@ -366,9 +367,10 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
     Effect.all({
       customer: loadActiveCustomer(input.customerId),
       sections: loadCustomerDiscountSections(input),
+      now: DateTime.nowAsDate,
     }).pipe(
-      Effect.map(({ customer, sections }) => ({
-        customer: toAdminDotyposCustomer(customer),
+      Effect.map(({ customer, sections, now }) => ({
+        customer: toAdminDotyposCustomer(customer, now),
         ...sections,
       }))
     )
@@ -381,11 +383,12 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
       {
         customer: loadActiveCustomer(input.customerId),
         discounts: loadDiscounts(),
+        now: DateTime.nowAsDate,
       },
       { concurrency: "inherit" }
     ).pipe(
-      Effect.map(({ customer, discounts }) => ({
-        customer: toAdminDotyposCustomer(customer),
+      Effect.map(({ customer, discounts, now }) => ({
+        customer: toAdminDotyposCustomer(customer, now),
         discounts: discounts.map(({ id, labels }) => ({ id, labels })),
       }))
     )
@@ -394,9 +397,12 @@ export const makeDiscountAdministrationReads = Effect.gen(function* () {
   const loadCustomerVoucherCreation = Effect.fn(
     "DiscountAdministration.loadCustomerVoucherCreation"
   )((input: { readonly customerId: DotyposCustomerId }) =>
-    loadActiveCustomer(input.customerId).pipe(
-      Effect.map((customer) => ({
-        customer: toAdminDotyposCustomer(customer),
+    Effect.all({
+      customer: loadActiveCustomer(input.customerId),
+      now: DateTime.nowAsDate,
+    }).pipe(
+      Effect.map(({ customer, now }) => ({
+        customer: toAdminDotyposCustomer(customer, now),
       }))
     )
   );
@@ -545,10 +551,12 @@ export const getAdminDiscountCodeUsage = (input: {
   };
 };
 
+/** A Dotypos customer as discount administration shows it, named at `now`, the time it was read. */
 export const toAdminDotyposCustomer = (
-  customer: DotyposCustomer
+  customer: DotyposCustomer,
+  now: Date
 ): AdminDotyposCustomer => ({
-  ...describeAdministrationCustomer(customer),
+  ...describeAdministrationCustomer(customer, now),
   discountGroupId: customer._discountGroupId ?? null,
 });
 

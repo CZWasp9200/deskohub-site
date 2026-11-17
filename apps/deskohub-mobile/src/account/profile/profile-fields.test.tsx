@@ -29,7 +29,7 @@ const fields = (invalid?: ProfileDraftInvalid<CompletionTextField>) =>
       () =>
         ProfileTextFields({
           fields: identityFields,
-          draft: profileDraftOf(sampleProfile, "CZ"),
+          draft: profileDraftOf(sampleProfile, "CZ", "CZ"),
           invalid,
           onChange: () => undefined,
           inputs: {

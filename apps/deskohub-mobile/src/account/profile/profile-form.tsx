@@ -14,6 +14,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useSettledResultReset } from "../../customer-api/settled-result-reset";
 import type { AppLocale } from "../../i18n/app-locale";
+import { useDeviceCountry } from "../../i18n/device-locale";
 import { m } from "../../i18n/messages";
 import { ConfirmDialog } from "../../ui/confirm-dialog";
 import type {
@@ -43,9 +44,11 @@ export function useProfileForm(account: {
   /** The account's saved language, whose phone region the Workspace reads. */
   readonly locale: string | null;
 }) {
+  const deviceCountry = useDeviceCountry();
   const edited: EditedProfile = {
     profile: account.profile,
     phoneRegion: accountPhoneRegion(account.locale),
+    deviceCountry,
   };
   const [edits, setEdits] = useAtom(profileEditsAtom);
   const result = useAtomValue(saveProfileAtom);

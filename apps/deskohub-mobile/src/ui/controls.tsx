@@ -16,7 +16,6 @@ import {
   StyleSheet,
   type TextInputInstance,
   type TextInputProps,
-  type TextStyle,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -30,6 +29,7 @@ import {
   fieldFrameStyles,
   fieldIconColor,
   fieldInkColor,
+  fieldInputStyle,
 } from "./field";
 import { FocusedFieldContext } from "./focused-field-scroll";
 import { Icon, type IconComponent } from "./icon";
@@ -38,7 +38,7 @@ import { LoadingIndicator } from "./loading-indicator";
 import { idleLiveRegionLayout } from "./notice-presentation";
 import { Text, TextInput } from "./text";
 import { textFieldSubmit } from "./text-field-submit";
-import { color, radius, shadow, space, touchTarget, typeScale } from "./tokens";
+import { color, radius, shadow, space, touchTarget } from "./tokens";
 
 /**
  * A centred screen with a heading. Its content keeps to a readable width;
@@ -468,7 +468,7 @@ export function TextField({
             <Text
               selectable
               style={[
-                styles.input,
+                fieldInputStyle,
                 styles.readOnlyValue,
                 { color: fieldInkColor(state) },
               ]}
@@ -488,7 +488,7 @@ export function TextField({
               aria-invalid={description.invalid}
               autoCapitalize={autoCapitalize}
               autoCorrect={false}
-              style={[styles.input, { color: fieldInkColor(state) }]}
+              style={[fieldInputStyle, { color: fieldInkColor(state) }]}
               placeholderTextColor={color.ink3}
               {...input}
               editable={typeable}
@@ -577,16 +577,4 @@ const styles = StyleSheet.create({
   },
   centeredContent: { alignItems: "center" },
   readOnlyValue: { paddingVertical: space.md },
-  input: {
-    ...typeScale.body,
-    flex: 1,
-    minWidth: 0,
-    // The frame draws the focus ring; the web's own outline would double it.
-    // Chromium draws an `auto` outline whatever its width, so the style goes
-    // too. React Native's types omit `none`, which React Native Web passes on.
-    outlineStyle: "none" as unknown as TextStyle["outlineStyle"],
-    outlineWidth: 0,
-    paddingHorizontal: 0,
-    paddingVertical: space.md,
-  },
 });

@@ -165,6 +165,8 @@
   "administrationCustomerExportColumnPhone": "फ़ोन",
   "administrationCustomerExportColumnReservations": "बुकिंग",
   "administrationCustomerUnnamed": "बिना नाम का ग्राहक",
+  "administrationCustomerDeleted": "हटाया गया ग्राहक",
+  "administrationCustomerExpired": "अवधि समाप्त ग्राहक",
   "administrationCustomerNoContactDetails": "संपर्क विवरण नहीं है",
   "administrationCustomerSearchAmbiguous": "कई ग्राहक मेल खाते हैं। सही ग्राहक चुनें।",
   "administrationCustomerSearchEmpty": "कोई मेल खाता ग्राहक नहीं मिला।",

@@ -9,7 +9,7 @@ import { type DetailsDraft, initialDetailsDraft } from "./details-form";
 
 const root = clientRoot();
 const fresh = () =>
-  initialDetailsDraft({ address: Option.none(), company: Option.none() });
+  initialDetailsDraft({ address: Option.none(), company: Option.none() }, "CZ");
 
 /**
  * A stand-in checkout screen: reads the kept details into `seen` and, once,

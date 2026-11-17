@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Children, createElement, type ReactElement } from "react";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
-import { BottomSheet } from "./bottom-sheet";
+import { BottomSheet, sheetBottomInset } from "./bottom-sheet";
 import { elementTree, find, findAll, flatStyle } from "./testing/element-tree";
 import { Text } from "./text";
 import { color, radius, space } from "./tokens";
@@ -79,6 +79,51 @@ describe("BottomSheet", () => {
       variant: "title",
     });
     expect(find(children[2], "Content")).toBeDefined();
+  });
+
+  test("a header stays between the title and the scrolling content", () => {
+    const children = Children.toArray(
+      panel(sheet({ header: createElement("Search") }))?.props.children
+    ) as ReactElement<Record<string, unknown>>[];
+    expect(children.map((child) => child.type)).toEqual([
+      "View",
+      Text,
+      "View",
+      "ScrollView",
+    ]);
+    expect(find(children[2], "Search")).toBeDefined();
+    expect(find(children[3], "Search")).toBeUndefined();
+  });
+
+  test("a tap on the content acts while the keyboard is up", () => {
+    expect(find(sheet(), "ScrollView")?.props.keyboardShouldPersistTaps).toBe(
+      "handled"
+    );
+  });
+
+  test("the sheet's bottom clears the keyboard while it's up, else the safe area", () => {
+    for (const platform of ["ios", "android"] as const) {
+      expect(
+        sheetBottomInset({ safeAreaBottom: 20, keyboardHeight: 0, platform })
+      ).toBe(20 + space.sm);
+    }
+    expect(
+      sheetBottomInset({
+        safeAreaBottom: 20,
+        keyboardHeight: 300,
+        platform: "ios",
+      })
+    ).toBe(300 + space.sm);
+  });
+
+  test("on Android the keyboard's height sits on top of the navigation bar", () => {
+    expect(
+      sheetBottomInset({
+        safeAreaBottom: 24,
+        keyboardHeight: 279,
+        platform: "android",
+      })
+    ).toBe(279 + 24 + space.sm);
   });
 
   test("without a title the content follows the handle", () => {

@@ -10,7 +10,10 @@ import {
   officeCheckoutSummaryProductItemSchema,
 } from "@/features/checkout/checkout-summary-office-item";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
-import type { OfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
+import {
+  getOfficeSeatsAmount,
+  type OfficeReservationQuote,
+} from "@/features/checkout/reservation-quote-office";
 import { getWorkspaceOfficeProductIdentity } from "@/features/reservation/office-reservation";
 
 export const getOfficeCheckoutSummary = (
@@ -32,6 +35,7 @@ export const getOfficeCheckoutSummary = (
     seats: item.seats,
     accessAmount: item.accessAmount,
     seatAmount: item.seatAmount,
+    seatsAmount: getOfficeSeatsAmount(item),
   };
   const productItem =
     summaryDiscounts.length > 0

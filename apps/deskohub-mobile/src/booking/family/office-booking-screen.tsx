@@ -189,19 +189,22 @@ function OfficeSelection({
 
   const seed = bookingPreselectionKey(preselection);
   const [kept, setStored] = useAtom(officeDraftAtom);
-  const draft = openingOfficeDraft({ kept, preselection, today });
+  const draft = openingOfficeDraft({
+    kept,
+    preselection,
+    bookableDates: offering.bookableDates,
+  });
   const setDraft = (next: OfficeDraft) =>
     setStored(Option.some({ seed, draft: next }));
 
   const availabilityAtom = bookingAvailabilityAtom({
-    query: officeAvailabilityQuery(today),
+    query: officeAvailabilityQuery(offering.bookableDates),
   });
   const availabilityRead = bookingReadOf(useAtomValue(availabilityAtom));
   const refreshAvailability = useAtomRefresh(availabilityAtom);
 
   const model = officeBookingModel({
     draft,
-    now,
     offering,
     availability: loadedValue(availabilityRead),
   });

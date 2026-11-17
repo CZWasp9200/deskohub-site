@@ -1,3 +1,4 @@
+import type { DotyposCustomerLifecycle } from "@deskohub/dotypos";
 import {
   AdministrationCampaignRecipientSkipReason,
   AutomationEngineHealth,
@@ -11,6 +12,10 @@ import {
   automationRunStates,
 } from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
+import type {
+  AutomationRunDetailWithLifecycle,
+  AutomationRunSummaryWithLifecycle,
+} from "../../../automation/backend/automation-run-log.service";
 import { fixtureCampaignId } from "../activation/automation-detail.test-utils";
 
 const runFields = {
@@ -34,14 +39,36 @@ const runFields = {
   endedAt: "2026-10-05T08:00:00.000Z",
 } satisfies typeof AutomationRunSummary.Encoded;
 
+/** The fields a run fixture overrides, its customer's lifecycle among them. */
+type RunOverrides<Encoded> = Partial<Encoded> & {
+  readonly customerLifecycle?: DotyposCustomerLifecycle;
+};
+
+/** The lifecycle the port reads: active for a found customer, else none. */
+const withLifecycle = <A extends typeof AutomationRunSummary.Type>(
+  run: A,
+  customerLifecycle: DotyposCustomerLifecycle | undefined
+) => ({
+  ...run,
+  customerLifecycle:
+    customerLifecycle ??
+    (run.customerProfileStatus === "found" ? "active" : null),
+});
+
 /** One run of the fixture campaign, decoded like the port's output. */
-export const automationRunFixture = (
-  overrides: Partial<typeof AutomationRunSummary.Encoded> = {}
-): AutomationRunSummary =>
-  Schema.decodeUnknownSync(AutomationRunSummary)({
-    ...runFields,
-    ...overrides,
-  });
+export const automationRunFixture = ({
+  customerLifecycle,
+  ...overrides
+}: RunOverrides<
+  typeof AutomationRunSummary.Encoded
+> = {}): AutomationRunSummaryWithLifecycle =>
+  withLifecycle(
+    Schema.decodeUnknownSync(AutomationRunSummary)({
+      ...runFields,
+      ...overrides,
+    }),
+    customerLifecycle
+  );
 
 /** A timeline entry decoded like the port's output; unknown kinds decode generically. */
 export const timelineEntryFixture = (
@@ -59,14 +86,20 @@ export const timelineEntryFixture = (
   });
 
 /** One run with its timeline, decoded like the port's output. */
-export const automationRunDetailFixture = (
-  overrides: Partial<typeof AutomationRunDetail.Encoded> = {}
-): AutomationRunDetail =>
-  Schema.decodeUnknownSync(AutomationRunDetail)({
-    ...runFields,
-    timeline: [],
-    ...overrides,
-  });
+export const automationRunDetailFixture = ({
+  customerLifecycle,
+  ...overrides
+}: RunOverrides<
+  typeof AutomationRunDetail.Encoded
+> = {}): AutomationRunDetailWithLifecycle =>
+  withLifecycle(
+    Schema.decodeUnknownSync(AutomationRunDetail)({
+      ...runFields,
+      timeline: [],
+      ...overrides,
+    }),
+    customerLifecycle
+  );
 
 const zeroCounts = <K extends string>(keys: readonly K[]) =>
   Object.fromEntries(keys.map((key) => [key, 0])) as Record<K, number>;

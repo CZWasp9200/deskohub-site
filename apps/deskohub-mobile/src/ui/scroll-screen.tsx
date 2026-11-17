@@ -98,6 +98,11 @@ export function ScrollScreen({
         <ScrollView
           ref={scrollView}
           onLayout={focusedField.onLayout}
+          // A tap on a button, or on a row of a sheet opened from this screen,
+          // acts while the keyboard is up; elsewhere it closes the keyboard.
+          // The responder system follows the React tree, so a modal sheet's
+          // rows sit inside this ScrollView too.
+          keyboardShouldPersistTaps="handled"
           scrollEventThrottle={collapsedHeader === undefined ? undefined : 16}
           onScroll={
             collapsedHeader === undefined || mastheadHeight === undefined

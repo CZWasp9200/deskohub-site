@@ -46,7 +46,7 @@ const as = (
 ): DetailsProfile => ({ self, saved });
 
 const draft = (patch: Partial<DetailsDraft> = {}): DetailsDraft => ({
-  ...initialDetailsDraft(noSaved),
+  ...initialDetailsDraft(noSaved, "CZ"),
   ...patch,
 });
 
@@ -418,11 +418,27 @@ describe("savedBillingOf", () => {
       })
     );
     expect(Option.isNone(saved.address)).toBe(true);
-    const start = initialDetailsDraft(saved);
+    const start = initialDetailsDraft(saved, "AT");
     expect(start.billing).toBe("none");
     expect(start.company.legalName).toBe("Firma s.r.o.");
     expect(start.company.address.city).toBe("Brno");
-    expect(start.company.address.country).toBe("CZ");
+    // Saved without a country, the address starts in the device's.
+    expect(start.company.address.country).toBe("AT");
+  });
+
+  test("a saved business country is kept; new addresses start in the device's country", () => {
+    const saved = savedBillingOf(
+      billing({ kind: "business", companyName: "Firma s.r.o.", country: "sk" })
+    );
+    const start = initialDetailsDraft(saved, "AT");
+    expect(start.company.address.country).toBe("SK");
+    expect(start.personalAddress.country).toBe("AT");
+    expect(
+      initialDetailsDraft(
+        { address: Option.none(), company: Option.none() },
+        "PL"
+      ).company.address.country
+    ).toBe("PL");
   });
 });
 
