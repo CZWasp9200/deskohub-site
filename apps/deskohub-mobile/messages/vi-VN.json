@@ -76,20 +76,28 @@
   "booking_checkout_summary_original_price": "Giá gốc: {amount}",
   "booking_price_line_days": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=other": "{count} ngày"
+        "countPlural=other": "{formattedCount} ngày"
       }
     }
   ],
   "booking_checkout_line_office_seats": "Chỗ trong văn phòng",
   "booking_price_line_seats": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=other": "{count} chỗ"
+        "countPlural=other": "{formattedCount} chỗ"
       }
     }
   ],
@@ -755,19 +763,27 @@
   "referrals_joined_some": "{invitees}; {eligible}.",
   "referrals_joined_invitees": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=other": "{count} người đã tham gia bằng mã của bạn"
+        "countPlural=other": "{formattedCount} người đã tham gia bằng mã của bạn"
       }
     }
   ],
   "referrals_joined_eligible": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=other": "{count} người được tính vào mức giảm của bạn"
+        "countPlural=other": "{formattedCount} người được tính vào mức giảm của bạn"
       }
     }
   ],

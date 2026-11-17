@@ -76,22 +76,30 @@
   "booking_checkout_summary_original_price": "पहले की कीमत: {amount}",
   "booking_price_line_days": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{count} दिन",
-        "countPlural=other": "{count} दिन"
+        "countPlural=one": "{formattedCount} दिन",
+        "countPlural=other": "{formattedCount} दिन"
       }
     }
   ],
   "booking_checkout_line_office_seats": "ऑफ़िस में सीटें",
   "booking_price_line_seats": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{count} सीट",
-        "countPlural=other": "{count} सीटें"
+        "countPlural=one": "{formattedCount} सीट",
+        "countPlural=other": "{formattedCount} सीटें"
       }
     }
   ],
@@ -757,21 +765,29 @@
   "referrals_joined_some": "{invitees}; {eligible}।",
   "referrals_joined_invitees": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "आपके कोड से {count} व्यक्ति जुड़ा",
-        "countPlural=other": "आपके कोड से {count} लोग जुड़े"
+        "countPlural=one": "आपके कोड से {formattedCount} व्यक्ति जुड़ा",
+        "countPlural=other": "आपके कोड से {formattedCount} लोग जुड़े"
       }
     }
   ],
   "referrals_joined_eligible": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{count} आपकी छूट में गिना जा रहा है",
-        "countPlural=other": "{count} आपकी छूट में गिने जा रहे हैं"
+        "countPlural=one": "{formattedCount} आपकी छूट में गिना जा रहा है",
+        "countPlural=other": "{formattedCount} आपकी छूट में गिने जा रहे हैं"
       }
     }
   ],

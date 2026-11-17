@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { appLocales } from "./app-locale";
+import { m } from "./messages";
 import { AppPluralRules, installPluralRules } from "./plural-rules";
 
 // Integers past the hundreds where Ukrainian's 11–14 exceptions repeat,
@@ -67,5 +68,36 @@ describe("installPluralRules", () => {
     const intl = { PluralRules: Intl.PluralRules } as typeof Intl;
     installPluralRules(intl);
     expect(intl.PluralRules).toBe(Intl.PluralRules);
+  });
+});
+
+describe("plural messages on an engine without plural rules", () => {
+  // Hermes has no Intl.PluralRules: with the native one removed and the
+  // app's installed, every generated plural message reads as it does on ICU.
+  test("read in the same forms through the app's rules", () => {
+    const counts = [0, 1, 2, 3, 5, 11, 21, 22, 25, 101, 1234];
+    const render = () =>
+      appLocales.flatMap((locale) =>
+        counts.flatMap((count) => [
+          m.booking_price_line_days({ count }, { locale }),
+          m.booking_price_line_seats({ count }, { locale }),
+          m.referrals_joined_invitees({ count }, { locale }),
+          m.referrals_joined_eligible({ count }, { locale }),
+        ])
+      );
+    const native = Intl.PluralRules;
+    const onIcu = render();
+    try {
+      Reflect.deleteProperty(Intl, "PluralRules");
+      installPluralRules();
+      expect(Intl.PluralRules).not.toBe(native);
+      expect(render()).toEqual(onIcu);
+    } finally {
+      Object.defineProperty(Intl, "PluralRules", {
+        configurable: true,
+        writable: true,
+        value: native,
+      });
+    }
   });
 });

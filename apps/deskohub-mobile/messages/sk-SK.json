@@ -76,26 +76,34 @@
   "booking_checkout_summary_original_price": "Pôvodná cena: {amount}",
   "booking_price_line_days": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{count} deň",
-        "countPlural=few": "{count} dni",
-        "countPlural=many": "{count} dňa",
-        "countPlural=other": "{count} dní"
+        "countPlural=one": "{formattedCount} deň",
+        "countPlural=few": "{formattedCount} dni",
+        "countPlural=many": "{formattedCount} dňa",
+        "countPlural=other": "{formattedCount} dní"
       }
     }
   ],
   "booking_checkout_line_office_seats": "Miesta v kancelárii",
   "booking_price_line_seats": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{count} miesto",
-        "countPlural=few": "{count} miesta",
-        "countPlural=many": "{count} miesta",
-        "countPlural=other": "{count} miest"
+        "countPlural=one": "{formattedCount} miesto",
+        "countPlural=few": "{formattedCount} miesta",
+        "countPlural=many": "{formattedCount} miesta",
+        "countPlural=other": "{formattedCount} miest"
       }
     }
   ],
@@ -761,25 +769,33 @@
   "referrals_joined_some": "{invitees}; {eligible}.",
   "referrals_joined_invitees": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "S tvojím kódom sa pripojil {count} človek",
-        "countPlural=few": "S tvojím kódom sa pripojili {count} ľudia",
-        "countPlural=many": "S tvojím kódom sa pripojili {count} ľudia",
-        "countPlural=other": "S tvojím kódom sa pripojilo {count} ľudí"
+        "countPlural=one": "S tvojím kódom sa pripojil {formattedCount} človek",
+        "countPlural=few": "S tvojím kódom sa pripojili {formattedCount} ľudia",
+        "countPlural=many": "S tvojím kódom sa pripojili {formattedCount} ľudia",
+        "countPlural=other": "S tvojím kódom sa pripojilo {formattedCount} ľudí"
       }
     }
   ],
   "referrals_joined_eligible": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{count} sa počíta do tvojej zľavy",
-        "countPlural=few": "{count} sa počítajú do tvojej zľavy",
-        "countPlural=many": "{count} sa počítajú do tvojej zľavy",
-        "countPlural=other": "{count} sa počíta do tvojej zľavy"
+        "countPlural=one": "{formattedCount} sa počíta do tvojej zľavy",
+        "countPlural=few": "{formattedCount} sa počítajú do tvojej zľavy",
+        "countPlural=many": "{formattedCount} sa počítajú do tvojej zľavy",
+        "countPlural=other": "{formattedCount} sa počíta do tvojej zľavy"
       }
     }
   ],
