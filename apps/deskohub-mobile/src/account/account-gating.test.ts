@@ -127,8 +127,8 @@ describe("tabGate", () => {
     ["linked", undefined, undefined],
     ["review-account", undefined, undefined],
     ["completion-required", "profile", "profile"],
-    ["support-required", undefined, undefined],
-    ["authenticated-unavailable", undefined, undefined],
+    ["support-required", "support", undefined],
+    ["authenticated-unavailable", "unavailable", undefined],
     ["deletion-pending", "deletion", undefined],
   ];
 

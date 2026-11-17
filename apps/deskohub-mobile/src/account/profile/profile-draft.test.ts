@@ -6,6 +6,7 @@ import {
 } from "@deskohub/workspace-customer-api";
 import { Option, Result } from "effect";
 import { sampleProfile } from "../../customer-api/testing/sample-fixtures";
+import { defaultCountry } from "../../i18n/country-names";
 import {
   billingFieldsOf,
   completionDraftOf,
@@ -363,5 +364,11 @@ describe("drafts", () => {
 
   test("the empty draft has no billing details", () => {
     expect(emptyProfileDraft.billingKind).toBe("none");
+  });
+});
+
+describe("completionDraftOf", () => {
+  test("starts billing details in the default country, as the checkout does", () => {
+    expect(completionDraftOf(undefined).country).toBe(defaultCountry);
   });
 });

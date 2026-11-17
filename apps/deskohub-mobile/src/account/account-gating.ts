@@ -151,21 +151,27 @@ export const reservationsAccess = (
 
 /**
  * The card a tab root shows in place of its content: Book and Reservations
- * ask for the profile first, and Book says it is blocked while the
- * account's deletion runs. Other states keep the tab's own notice.
+ * ask for the profile first; Book says it is blocked while the account's
+ * deletion runs, that support must check the account, or that the account
+ * didn't load (with Try again), as board 25 draws them. Other states keep
+ * the tab's own notice.
  */
-export type TabGate = "profile" | "deletion";
+export type TabGate = "profile" | "deletion" | "support" | "unavailable";
 
 export const tabGate = (
   tab: "book" | "reservations",
   access: ReservationsAccess
 ): TabGate | undefined => {
   if (access.kind === "completion-required") return "profile";
-  return tab === "book" &&
-    access.kind === "unavailable" &&
-    access.notice === "deletion-pending"
-    ? "deletion"
-    : undefined;
+  if (tab !== "book" || access.kind !== "unavailable") return undefined;
+  return (
+    {
+      "deletion-pending": "deletion",
+      "support-required": "support",
+      unavailable: "unavailable",
+      "completion-required": undefined,
+    } as const satisfies Record<AccountNotice, TabGate | undefined>
+  )[access.notice];
 };
 
 /** A history row opens its status screen only when it names an order. */

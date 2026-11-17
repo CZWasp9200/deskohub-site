@@ -166,7 +166,11 @@ function ReservationsGate({ access }: { readonly access: ReservationsAccess }) {
     <ReservationsScreen refreshing={account.waiting} onRefresh={refresh}>
       {/* Kept mounted so assistive tech announces each change. */}
       <Notice tone="info" message={notice} />
-      <AsyncView result={account} onRetry={refresh}>
+      <AsyncView
+        result={account}
+        onRetry={refresh}
+        errorTitle={m.reservations_load_failed_title({}, { locale })}
+      >
         {() => gate !== undefined && <TabGateCard gate={gate} />}
       </AsyncView>
     </ReservationsScreen>
@@ -252,6 +256,7 @@ function ReservationsListView<E extends CustomerRequestFailure>({
       <AsyncView
         result={shown}
         onRetry={refresh}
+        errorTitle={m.reservations_load_failed_title({}, { locale })}
         loading={<ReservationsListSkeleton />}
       >
         {({ groups }) => (
