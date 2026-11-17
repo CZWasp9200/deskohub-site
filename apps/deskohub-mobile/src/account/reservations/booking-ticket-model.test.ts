@@ -120,8 +120,8 @@ describe("bookingTicketOf", () => {
     ).toBe("check-again");
   });
 
-  test("a failed or cancelled payment offers the retry until it is refused", () => {
-    for (const status of ["payment_failed", "cancelled"] as const) {
+  test("a failed, cancelled or expired payment offers the retry until it is refused", () => {
+    for (const status of ["payment_failed", "cancelled", "expired"] as const) {
       const offered = bookingTicketOf(status, "checking", noRecovery);
       expect(offered.badge).toBe("not-booked");
       expect(offered.stub).toEqual({ _tag: "RetryPayment" });
@@ -130,12 +130,10 @@ describe("bookingTicketOf", () => {
         refundNote: false,
       });
     }
-    // An expired payment or a refund books again.
-    for (const status of ["expired", "late_payment_refund"] as const) {
-      expect(bookingTicketOf(status, "checking", noRecovery).stub._tag).toBe(
-        "BookAgain"
-      );
-    }
+    // A refund books again.
+    expect(
+      bookingTicketOf("late_payment_refund", "checking", noRecovery).stub._tag
+    ).toBe("BookAgain");
   });
 
   test("confirmation under way moves through the steps", () => {

@@ -1,4 +1,5 @@
 import type {
+  CustomerBookableDates,
   CustomerBookedSelection,
   CustomerBookingSelection,
   CustomerOffering,
@@ -18,7 +19,6 @@ import {
   normalizeCoworkWorkstation,
   toCoworkSelection,
 } from "../selection/cowork-selection";
-import type { PragueDate } from "../selection/prague-date";
 import { quotableSelection } from "./booking-family-view";
 
 /** A draft the screen keeps, with the preselection it grew from. */
@@ -40,12 +40,10 @@ export const openingCoworkDraft = ({
   kept,
   preselection,
   offerings,
-  today,
 }: {
   readonly kept: Option.Option<KeptCoworkDraft>;
   readonly preselection: Option.Option<CustomerBookedSelection>;
   readonly offerings: ReadonlyArray<CustomerOffering>;
-  readonly today: PragueDate;
 }): CoworkDraft => {
   const seed = bookingPreselectionKey(preselection);
   return Option.filter(
@@ -55,7 +53,7 @@ export const openingCoworkDraft = ({
     Option.map(({ draft }) => draft),
     Option.orElse(() =>
       Option.flatMap(preselection, ({ selection }) =>
-        coworkDraftFromSelection(selection, offerings, today)
+        coworkDraftFromSelection(selection, offerings)
       )
     ),
     Option.getOrElse(() => defaultCoworkDraft(offerings)),
@@ -86,15 +84,18 @@ export const coworkBookingModel = ({
   draft,
   now,
   offerings,
+  bookableDates,
   availability,
 }: {
   readonly draft: CoworkDraft;
   readonly now: Date;
   readonly offerings: ReadonlyArray<CustomerOffering>;
-  /** Settled reads of `coworkAvailabilityQueries(draft, today)`. */
+  /** The drafted tier's bookable dates (`coworkBookableDates`). */
+  readonly bookableDates: CustomerBookableDates;
+  /** Settled reads of `coworkAvailabilityQueries(draft, bookableDates)`. */
   readonly availability: CoworkAvailability;
 }): CoworkBookingModel => {
-  const context = { now, offerings, availability };
+  const context = { now, offerings, bookableDates, availability };
   const read = coworkEnablement(draft, context);
   const fitted = normalizeCoworkWorkstation(draft, availability, read);
   // A fitted workstation changes the selection, whose availability the

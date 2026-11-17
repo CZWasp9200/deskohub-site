@@ -29,6 +29,7 @@ import {
   loadMeetingRoomStartTimes,
   loadMeetingRoomUnavailableDates,
 } from "@/features/reservation/backend/workspace-availability-loader";
+import { getBookableDates } from "@/features/reservation/bookable-dates";
 import {
   getOvernightStayTimes,
   overnightCoworkStayTier,
@@ -138,9 +139,7 @@ export const handleCustomerBookingCatalog = <R>(
                   ({ kind }) =>
                     kind !== "meeting-room" || listing.meetingRoomOffered
                 )
-                .map((offering) =>
-                  toCustomerOffering(offering, listing.overnightStayOffered)
-                ),
+                .map((offering) => toCustomerOffering(offering, listing)),
             })
           ),
           providePerRequest(offerings),
@@ -333,10 +332,17 @@ const toCustomerAvailability = ({
 
 const toCustomerOffering = (
   offering: PublicOffering,
-  overnightStayOffered: boolean
+  {
+    advertisedOn,
+    overnightStayOffered,
+  }: {
+    readonly advertisedOn: Temporal.PlainDate;
+    readonly overnightStayOffered: boolean;
+  }
 ): CustomerOffering => {
   const copy = Struct.pick(offering, ["name", "description", "usage"]);
   const advertisedPrice = offering.advertisedPrice;
+  const bookableDates = getBookableDates(offering.kind, advertisedOn);
 
   return Match.value(offering).pipe(
     Match.discriminatorsExhaustive("kind")({
@@ -347,6 +353,7 @@ const toCustomerOffering = (
         summary: cowork.summary,
         price: cowork.price,
         advertisedPrice,
+        bookableDates,
         addOns: cowork.addOns,
         ...(overnightStayOffered &&
           cowork.tier === overnightCoworkStayTier && {
@@ -361,6 +368,7 @@ const toCustomerOffering = (
         facts: meetingRoom.facts,
         price: meetingRoom.price,
         advertisedPrice,
+        bookableDates,
       }),
       office: (office): CustomerOffering => ({
         family: "office",
@@ -372,6 +380,7 @@ const toCustomerOffering = (
         }),
         maximumDurationHours: office.maximumDurationHours,
         advertisedPrice,
+        bookableDates,
       }),
     })
   );

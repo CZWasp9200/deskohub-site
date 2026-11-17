@@ -10,12 +10,19 @@ export type PriceLineSubject =
   /** The booked product, `product:<product key>`. */
   | { readonly _tag: "Product"; readonly product: string }
   /** An office product line's access part. */
-  | { readonly _tag: "OfficeAccess"; readonly dayCount: number }
+  | {
+      readonly _tag: "OfficeAccess";
+      readonly dayCount: number;
+      /** The access price of one day, where the quote gives it. */
+      readonly dailyRate?: Money;
+    }
   /** An office product line's seats part. */
   | {
       readonly _tag: "OfficeSeats";
       readonly seats: number;
       readonly dayCount: number;
+      /** The price of one seat for one day, where the quote gives it. */
+      readonly dailySeatRate?: Money;
     }
   | { readonly _tag: "Coffee" }
   | { readonly _tag: "Workstation" }
@@ -73,17 +80,17 @@ const totalKey = "total:final";
 
 /**
  * An office product line's two parts, both before discounts: access, and
- * `seatAmount` (one seat for the days booked) for each seat.
+ * `seatsAmount` (every seat for the days booked), as the answer totals them.
  */
 const officeCharges = (
   item: CustomerCheckoutSummaryItem
 ): ReadonlyArray<PriceLine> | undefined => {
-  const { key, dayCount, seats, accessAmount, seatAmount } = item;
+  const { key, dayCount, seats, accessAmount, seatsAmount } = item;
   if (
     dayCount === undefined ||
     seats === undefined ||
     accessAmount === undefined ||
-    seatAmount === undefined
+    seatsAmount === undefined
   ) {
     return undefined;
   }
@@ -98,7 +105,7 @@ const officeCharges = (
       _tag: "Charge",
       key: `${key}:seats`,
       subject: { _tag: "OfficeSeats", seats, dayCount },
-      amount: { ...seatAmount, value: seatAmount.value * seats },
+      amount: seatsAmount,
     },
   ];
 };

@@ -50,6 +50,7 @@ export {
   CustomerAvailability,
   CustomerAvailabilityNotice,
   CustomerAvailabilityQuery,
+  CustomerBookableDates,
   CustomerBookingOfferings,
   CustomerBookingQuote,
   CustomerLegalDocument,
