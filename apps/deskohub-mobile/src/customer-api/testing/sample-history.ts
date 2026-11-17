@@ -1,6 +1,10 @@
 import { CustomerAccountId } from "@deskohub/workspace-customer-api";
 import type { FakeWorkspace } from "./fake-workspace";
-import { sampleDeskReservation, sampleWholeDayDesk } from "./sample-fixtures";
+import {
+  sampleDeskReservation,
+  samplePaymentFailedReservation,
+  sampleWholeDayDesk,
+} from "./sample-fixtures";
 
 /**
  * Which reservations the sample-data mode lists, for evidence of the
@@ -18,6 +22,8 @@ import { sampleDeskReservation, sampleWholeDayDesk } from "./sample-fixtures";
  *   so their skeletons stay; for the account with nothing saved.
  * - `whole-day`: the next booking is a reserved desk for the whole of today,
  *   with a nine-digit PIN.
+ * - `payment-failed`: the fixtures, and a meeting room whose payment failed,
+ *   listed as the history answers it: not booked, at its booked time.
  */
 export const sampleHistories = [
   "today",
@@ -29,6 +35,7 @@ export const sampleHistories = [
   "offline-fresh",
   "loading",
   "whole-day",
+  "payment-failed",
 ] as const;
 export type SampleHistory = (typeof sampleHistories)[number];
 
@@ -59,6 +66,7 @@ export const withSampleHistory = (
     "offline-fresh": () => data.history.current,
     loading: () => data.history.current,
     "whole-day": () => [wholeDay.reservation, ...data.history.current],
+    "payment-failed": () => data.history.current,
   }[history]();
   workspace.data = {
     ...data,
@@ -81,7 +89,13 @@ export const withSampleHistory = (
     history:
       history === "empty"
         ? { current: [], past: [], unavailable: [] }
-        : { ...data.history, current },
+        : {
+            ...data.history,
+            current,
+            ...(history === "payment-failed" && {
+              past: [samplePaymentFailedReservation(now), ...data.history.past],
+            }),
+          },
   };
   if (history === "offline" || history === "offline-fresh") {
     workspace.fail("listReservations", "service-unavailable", 10_000);

@@ -11,6 +11,7 @@ import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accou
 import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
 import type { Locale } from "@/features/i18n";
+import { isEndedUnpaidPaymentState } from "@/features/order";
 import {
   ReservationAuthorizationService,
   type ReservationAuthorizationUnavailableError,
@@ -142,13 +143,6 @@ const refused = (
   state: "not_retryable",
   reason,
 });
-
-/** Payment states an order's payment can end unpaid in. */
-const endedPaymentStates: ReadonlySet<string> = new Set([
-  "failed",
-  "cancelled",
-  "expired",
-]);
 
 const unavailable = (message: string) => (cause: unknown) =>
   new PaymentRetryUnavailableError({ message, cause });
@@ -328,11 +322,11 @@ const implementation = Effect.gen(function* () {
       // The retry pays the order again after its newest attempt, the active
       // one or, once a retry was prepared, the one that retry cleared.
       const attempt = yield* paymentAttempts.findNewestForReservation(order.id);
-      if (!attempt || !endedPaymentStates.has(order.paymentState)) {
+      if (!attempt || !isEndedUnpaidPaymentState(order.paymentState)) {
         return refused("payment_in_progress");
       }
       if (
-        !endedPaymentStates.has(attempt.state) ||
+        !isEndedUnpaidPaymentState(attempt.state) ||
         (order.activePaymentAttemptId !== null &&
           order.activePaymentAttemptId !== attempt.id)
       ) {
