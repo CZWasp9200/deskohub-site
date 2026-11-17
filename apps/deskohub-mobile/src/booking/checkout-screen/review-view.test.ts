@@ -147,7 +147,7 @@ const reviewWith = (
 const retryDetails: CustomerPaymentRetryDetails = {
   bookingFor: "someone-else",
   contact: { name: "Synthetic Guest", email: testEmailAddress("guest") },
-  billing: { purpose: "personal", invoice: "requested", address },
+  billing: { purpose: "personal", invoice: "requested", city: address.city },
 };
 
 const retryReview = (checkout: CustomerCheckout): Run => {

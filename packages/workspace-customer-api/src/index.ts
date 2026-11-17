@@ -152,6 +152,7 @@ export {
   CustomerPaymentPageClosed,
   CustomerPaymentPageClosedReason,
   CustomerPaymentRetry,
+  CustomerPaymentRetryBilling,
   CustomerPaymentRetryDetails,
   CustomerPaymentRetryRefused,
   CustomerPaymentRetryRefusedReason,

@@ -973,7 +973,8 @@ describe("retryPayment", () => {
   } as const satisfies PaymentRetryDetails;
 
   const ready = async (
-    changedKeys?: PayStateCheckoutView["changedKeys"]
+    changedKeys?: PayStateCheckoutView["changedKeys"],
+    details: PaymentRetryDetails = retryDetails
   ): Promise<PaymentRetryPreparation> => {
     const checkout = await retryCheckout(changedKeys);
     return {
@@ -984,7 +985,7 @@ describe("retryPayment", () => {
         expiresAt: checkout.expiresAt,
       },
       checkout,
-      details: retryDetails,
+      details,
     };
   };
 
@@ -1000,15 +1001,73 @@ describe("retryPayment", () => {
     const response = await api.handle(customerApiRequest(retryPayment));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    const answer = await response.json();
+    expect(answer).toMatchObject({
       status: "ready",
       orderId,
       payStateToken: "retry-pay-state-token",
-      details: retryDetails,
+    });
+    expect(answer.details).toEqual({
+      bookingFor: retryDetails.bookingFor,
+      contact: retryDetails.contact,
+      billing: {
+        purpose: "business",
+        invoice: "required",
+        legalName: retryDetails.billing.buyer.legalName,
+      },
     });
     // The session alone authorizes it: no access cookie or link token.
     expect(prepare).toHaveBeenCalledWith({ orderId, locale: "cs-CZ" });
   });
+
+  test.each([
+    {
+      case: "no invoice",
+      billing: { purpose: "personal", invoice: "none" },
+      answered: { purpose: "personal", invoice: "none" },
+    },
+    {
+      case: "a personal invoice, by its city",
+      billing: {
+        purpose: "personal",
+        invoice: "requested",
+        address: {
+          line1: "Vinohradská 12",
+          city: "Brno",
+          postalCode: "602 00",
+          country: "CZ",
+        },
+      },
+      answered: { purpose: "personal", invoice: "requested", city: "Brno" },
+    },
+    {
+      case: "a business invoice, by the company's name",
+      billing: retryDetails.billing,
+      answered: {
+        purpose: "business",
+        invoice: "required",
+        legalName: retryDetails.billing.buyer.legalName,
+      },
+    },
+  ] satisfies ReadonlyArray<{
+    case: string;
+    billing: PaymentRetryDetails["billing"];
+    answered: unknown;
+  }>)(
+    "answers only the billing the review shows: $case",
+    async ({ billing, answered }) => {
+      const api = makeCustomerApiTestServer({
+        reservations: answering(
+          await ready(undefined, { ...retryDetails, billing })
+        ),
+      });
+
+      const response = await api.handle(customerApiRequest(retryPayment));
+
+      expect(response.status).toBe(200);
+      expect((await response.json()).details.billing).toEqual(answered);
+    }
+  );
 
   test("answers a changed price as a price review to accept first", async () => {
     const api = makeCustomerApiTestServer({

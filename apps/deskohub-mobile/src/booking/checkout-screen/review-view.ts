@@ -1,14 +1,16 @@
 import type {
   CustomerLegalDocument,
+  CustomerPaymentRetryBilling,
   Money,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { canClearCode, canPay } from "../checkout/checkout-machine";
-import type {
-  CheckoutDetails,
-  CodeStatus,
-  ReviewMutation,
-  ReviewState,
+import {
+  type CheckoutDetails,
+  type CodeStatus,
+  ReviewKind,
+  type ReviewMutation,
+  type ReviewState,
 } from "../checkout/checkout-state";
 import { type PriceBreakdown, priceBreakdown } from "../ui/price-breakdown";
 import { bookingOverviewOf } from "./booking-overview";
@@ -53,14 +55,33 @@ export const reviewParty = (
         bookerName,
       };
 
-export const reviewInvoice = ({
-  billing,
-}: Pick<CheckoutDetails, "billing">): ReviewInvoice => {
+/**
+ * A new booking's billing as the review shows it: the invoice's city or the
+ * company's name, the shape a retried order's kept billing already has.
+ */
+export const reviewBilling = (
+  billing: CheckoutDetails["billing"]
+): CustomerPaymentRetryBilling => {
   if (billing.purpose === "business") {
-    return { _tag: "Company", legalName: billing.buyer.legalName };
+    return {
+      purpose: "business",
+      invoice: "required",
+      legalName: billing.buyer.legalName,
+    };
   }
   return billing.invoice === "requested"
-    ? { _tag: "Personal", city: billing.address.city }
+    ? { purpose: "personal", invoice: "requested", city: billing.address.city }
+    : { purpose: "personal", invoice: "none" };
+};
+
+export const reviewInvoice = (
+  billing: CustomerPaymentRetryBilling
+): ReviewInvoice => {
+  if (billing.purpose === "business") {
+    return { _tag: "Company", legalName: billing.legalName };
+  }
+  return billing.invoice === "requested"
+    ? { _tag: "Personal", city: billing.city }
     : { _tag: "None" };
 };
 
@@ -278,7 +299,12 @@ export const reviewView = (
     retry,
     party: reviewParty(details, bookerName),
     earlySetup: withEarlySetup(review),
-    invoice: reviewInvoice(details),
+    invoice: reviewInvoice(
+      ReviewKind.$match(review.kind, {
+        NewBooking: ({ details }) => reviewBilling(details.billing),
+        PaymentRetry: ({ details }) => details.billing,
+      })
+    ),
     price: {
       breakdown: priceBreakdown(checkout.summary),
       was: sameMoney(quotedTotal, total)

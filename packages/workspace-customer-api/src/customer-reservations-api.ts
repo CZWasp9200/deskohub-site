@@ -7,7 +7,6 @@ import {
 import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
 import {
   CustomerCheckout,
-  CustomerCheckoutBilling,
   CustomerCheckoutReturnTarget,
 } from "./customer-booking-checkout-api";
 import {
@@ -424,6 +423,30 @@ export const RetryCustomerPayment = Schema.Struct({
 });
 
 /**
+ * What the order is for and the invoice it needs, as the review shows it:
+ * the city of a personal invoice, or the name of the company a business
+ * invoice is for.
+ */
+export const CustomerPaymentRetryBilling = Schema.Union([
+  Schema.Struct({
+    purpose: Schema.Literal("personal"),
+    invoice: Schema.Literal("none"),
+  }),
+  Schema.Struct({
+    purpose: Schema.Literal("personal"),
+    invoice: Schema.Literal("requested"),
+    city: Schema.String,
+  }),
+  Schema.Struct({
+    purpose: Schema.Literal("business"),
+    invoice: Schema.Literal("required"),
+    legalName: Schema.String,
+  }),
+]).annotate({ identifier: "CustomerPaymentRetryBilling" });
+export type CustomerPaymentRetryBilling =
+  typeof CustomerPaymentRetryBilling.Type;
+
+/**
  * Who the order is for and the invoice it needs, kept as it was booked, for
  * the review to show. `self`: the account's own profile is the contact;
  * `someone-else`: `contact` is the customer the account booked for.
@@ -431,7 +454,7 @@ export const RetryCustomerPayment = Schema.Struct({
 export const CustomerPaymentRetryDetails = Schema.Struct({
   bookingFor: Schema.Literals(["self", "someone-else"]),
   contact: Schema.Struct({ name: Schema.String, email: Schema.String }),
-  billing: CustomerCheckoutBilling,
+  billing: CustomerPaymentRetryBilling,
 }).annotate({ identifier: "CustomerPaymentRetryDetails" });
 export type CustomerPaymentRetryDetails =
   typeof CustomerPaymentRetryDetails.Type;
