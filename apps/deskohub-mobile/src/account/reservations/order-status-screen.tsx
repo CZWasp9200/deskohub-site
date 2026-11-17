@@ -26,6 +26,10 @@ import {
   CustomerViewError,
 } from "../../customer-api/customer-view-error";
 import { sharedViewErrorMessage } from "../../customer-api/customer-view-error-message";
+import {
+  DownloadShareFailure,
+  downloadShareFailureOf,
+} from "../../customer-api/share-downloaded-file";
 import type { AppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
@@ -40,10 +44,6 @@ import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import { color, space } from "../../ui/tokens";
-import {
-  InvoiceShareFailure,
-  invoiceShareFailureOf,
-} from "../invoices/invoice-pdf-share";
 import {
   BookingSteps,
   BookingTicket,
@@ -70,10 +70,10 @@ export const openContactPage = () => {
 };
 
 const invoiceFailureMessage = (
-  failure: InvoiceShareFailure,
+  failure: DownloadShareFailure,
   locale: AppLocale
 ) =>
-  InvoiceShareFailure.$match(failure, {
+  DownloadShareFailure.$match(failure, {
     Share: () => m.reservations_invoice_share_failed({}, { locale }),
     Download: ({ error }) =>
       Match.value(error).pipe(
@@ -106,7 +106,7 @@ function MoreActions({
   const calendar = useAtomValue(calendarShareAtom(order.orderId));
   const shareEvent = useAtomSet(calendarShareAtom(order.orderId));
   const failure = AsyncResult.isFailure(invoice)
-    ? invoiceShareFailureOf(invoice.cause)
+    ? downloadShareFailureOf(invoice.cause)
     : undefined;
   return (
     <>

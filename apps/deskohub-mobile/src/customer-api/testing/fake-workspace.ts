@@ -13,6 +13,7 @@ import {
   type CustomerCompaniesApi,
   type CustomerCompanyDetails,
   CustomerCompanyNotFound,
+  CustomerCompanyRegistryUnavailable,
   CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
   CustomerInvoiceNotFound,
@@ -64,6 +65,7 @@ import {
   type SampleAccountKind,
   sampleCompanies,
   sampleEstablishment,
+  sampleUnreachableCompanyId,
   sampleWorkspaceData,
 } from "./sample-fixtures";
 
@@ -733,8 +735,9 @@ const serverLayer = (workspace: FakeWorkspace) => {
         )
   );
 
-  // Any ID the sample companies lack is not found; an account awaiting
-  // deletion is refused, as the Workspace refuses it.
+  // Any ID the sample companies lack is not found, but for the one the
+  // registry never answers for; an account awaiting deletion is refused, as
+  // the Workspace refuses it.
   const companies = HttpApiBuilder.group(
     WorkspaceCustomerApi,
     "companies",
@@ -743,14 +746,20 @@ const serverLayer = (workspace: FakeWorkspace) => {
         Effect.suspend(
           (): Effect.Effect<
             CustomerCompanyDetails,
-            CustomerAccountLinkRequired | CustomerCompanyNotFound
+            | CustomerAccountLinkRequired
+            | CustomerCompanyNotFound
+            | CustomerCompanyRegistryUnavailable
           > => {
             if (workspace.data.account.kind === "deletion-pending") {
               return Effect.fail(
                 new CustomerAccountLinkRequired({ reason: "deletion-pending" })
               );
             }
-            const company = workspace.companies.get(params.companyId.trim());
+            const companyId = params.companyId.trim();
+            if (companyId === sampleUnreachableCompanyId) {
+              return Effect.fail(new CustomerCompanyRegistryUnavailable());
+            }
+            const company = workspace.companies.get(companyId);
             return company === undefined
               ? Effect.fail(new CustomerCompanyNotFound())
               : Effect.succeed(company);
