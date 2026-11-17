@@ -29,6 +29,8 @@
   "booking_details_city": "Місто",
   "booking_details_postal_code": "Поштовий індекс",
   "booking_details_country": "Країна",
+  "booking_details_country_search": "Пошук країни",
+  "booking_details_country_no_match": "Жодна країна не відповідає пошуку.",
   "booking_details_news_heading": "Новини від Deskohub",
   "booking_details_optional": "Необовʼязково",
   "booking_details_marketing_consent": "Надсилайте мені електронною поштою новини, події та пропозиції Deskohub Workspace. Відписатися можна будь-коли.",

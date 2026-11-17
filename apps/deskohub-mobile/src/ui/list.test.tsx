@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import Check from "lucide-react-native/icons/check";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import Mail from "lucide-react-native/icons/mail";
@@ -276,5 +277,27 @@ describe("ListRow", () => {
         .find((s) => s.flexWrap !== undefined)?.flexWrap;
     expect(body(false)).toBe("wrap");
     expect(body(true)).toBe("nowrap");
+  });
+
+  test("a pick-list row says whether it is chosen, and the chosen one ends in the action check", () => {
+    const pick = {
+      label: "l",
+      kind: "action" as const,
+      onPress: () => undefined,
+    };
+    const chosen = rowRoot({ ...pick, selected: true });
+    expect(chosen.props["aria-selected"]).toBe(true);
+    // Its name stays the row's text: the check is drawn, not read.
+    expect(chosen.props["aria-label"]).toBe("l");
+    const check = find<Parameters<typeof Icon>[0]>(
+      elementTree(ListRow, { ...pick, selected: true }),
+      Icon
+    )?.props;
+    expect(check?.icon).toBe(Check);
+    expect(check?.color).toBe(color.action);
+    const other = rowRoot({ ...pick, selected: false });
+    expect(other.props["aria-selected"]).toBe(false);
+    expect(trailingIcons({ ...pick, selected: false })).toEqual([]);
+    expect(rowRoot(pick).props["aria-selected"]).toBeUndefined();
   });
 });
