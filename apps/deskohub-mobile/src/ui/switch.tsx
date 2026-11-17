@@ -126,7 +126,11 @@ export function Switch({
       onBlur={() => setFocused(false)}
       // The track is 32 tall; its target stays 48.
       hitSlop={{ top: space.sm, bottom: space.sm }}
-      style={[styles.standalone, focused && styles.focused]}
+      style={[
+        styles.standalone,
+        label !== undefined && styles.labelled,
+        focused && styles.focused,
+      ]}
     >
       {label !== undefined && (
         <Text
@@ -225,6 +229,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: space.sm,
   },
+  // Beside a heading the label wraps rather than push the track out.
+  labelled: { flexShrink: 1 },
   label: { flexShrink: 1 },
   focused: {
     outlineColor: color.action,
@@ -234,6 +240,7 @@ const styles = StyleSheet.create({
   },
   track: {
     borderRadius: radius.pill,
+    flexShrink: 0,
     borderWidth: ring,
     height: trackHeight,
     width: trackWidth,
