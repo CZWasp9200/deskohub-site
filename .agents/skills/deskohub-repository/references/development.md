@@ -51,7 +51,7 @@ bun turbo build --filter=<package-name>
 
 ## Toolchain
 
-- Bun is pinned to 1.4.2 in `packageManager`, `@types/bun`, and every workflow's `bun-version`. Change them together and never go below 1.4.0. Bun 1.3 writes a self-referential `@typescript/old` record into `bun.lock`, and `bun install --force` keeps a bad record, so regenerate the lock only with Bun 1.4 or later.
+- Bun is pinned to 1.4.4 in `packageManager`, `@types/bun`, and every workflow's `bun-version`. Change them together and never go below 1.4.0. Bun 1.3 writes a self-referential `@typescript/old` record into `bun.lock`, and `bun install --force` keeps a bad record, so regenerate the lock only with Bun 1.4 or later.
 - `@typescript/native` (`npm:typescript@7.x`) provides `tsc`. The root `prepare` script patches it with `effect-tsgo`. `typescript` (`npm:@typescript/typescript6`) provides the TS6 API for typescript-eslint and Next.js and the `tsc6` CLI. Never add a plain `typescript` dependency or another package that provides a `tsc` bin.
 - Next apps set `experimental.useTypeScriptCli: false` because the TS6 wrapper has no `tsc` bin. Next type-checks Boardgame Bar builds through its TS6 API. The Workspace `typecheck` task, which CI and the production release workflow run, uses the patched native compiler.
 - Workspace test files aren't type-checked by design: `apps/deskohub-workspace/tsconfig.json` excludes `**/*.test.ts` and `**/*.test.tsx`. Don't add a test tsconfig or test typecheck task, and don't report this as a finding.
