@@ -3,7 +3,11 @@ import { testEmailAddress } from "@deskohub/test-email";
 import type { CustomerCheckout } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { BookingProblem } from "../checkout/booking-problem";
-import { startCheckout, step } from "../checkout/checkout-machine";
+import {
+  startCheckout,
+  startPaymentRetry,
+  step,
+} from "../checkout/checkout-machine";
 import {
   type CheckoutCommand,
   type CheckoutDetails,
@@ -135,6 +139,30 @@ const reviewWith = (
   };
 };
 
+/** An order paid again in place, at its review with the terms loaded. */
+const retryReview = (checkout: CustomerCheckout): Run => {
+  const started = startPaymentRetry(
+    {
+      checkoutSessionId: "session-3",
+      locale: "en-US",
+      selection,
+      advertisedPriceToken: "",
+      rememberedReferralCode: Option.none(),
+    },
+    checkout
+  );
+  return run(
+    started.state,
+    CheckoutEvent.LegalDocumentsLoaded({
+      operationId: operationOf(
+        { state: started.state, commands: started.commands },
+        "LoadLegalDocuments"
+      ),
+      documents,
+    })
+  );
+};
+
 const quoted = summary.total;
 const noBooker = Option.none<string>();
 const viewOf = (result: Run, bookerName = noBooker) =>
@@ -191,6 +219,38 @@ const meetingRoomReview = (earlySetup: boolean) => {
 };
 
 describe("reviewView", () => {
+  test("a retried order keeps its booking: no details rows, terms confirmed again, Pay waits for them", () => {
+    const view = viewOf(retryReview(held()));
+    expect(view.retry).toBe(true);
+    expect(view.consent.retry).toBe(true);
+    expect(view.party).toEqual(Option.none());
+    expect(view.invoice).toEqual(Option.none());
+    expect(view.payBlock).toEqual(Option.some("Agreement"));
+    const agreed = viewOf(
+      run(
+        retryReview(held()).state,
+        CheckoutEvent.ToggleConsent({ accepted: true })
+      )
+    );
+    expect(agreed.canPay).toBe(true);
+  });
+
+  test("a retried order whose price changed asks to accept it first", () => {
+    const view = viewOf(
+      retryReview(
+        held({
+          status: "price_review",
+          summary: discounted,
+          priceReview: {
+            changedKeys: { sectionKeys: ["total"], itemKeys: [] },
+          },
+        })
+      )
+    );
+    expect(Option.isSome(view.priceChange)).toBe(true);
+    expect(view.payBlock).toEqual(Option.some("AcceptPrice"));
+  });
+
   test("a meeting room booked with early setup says so; without it, or for a desk, it doesn't", () => {
     expect(viewOf(meetingRoomReview(true)).earlySetup).toBe(true);
     expect(viewOf(meetingRoomReview(false)).earlySetup).toBe(false);
@@ -199,8 +259,11 @@ describe("reviewView", () => {
 
   test("opens on the booking, the server's price and the quiet code row; Pay waits for the agreement", () => {
     const view = viewOf(reviewWith(held()));
-    expect(view.party).toEqual({ _tag: "Self", name: "Synthetic Booker" });
-    expect(view.invoice).toEqual({ _tag: "None" });
+    expect(view.party).toEqual(
+      Option.some({ _tag: "Self", name: "Synthetic Booker" })
+    );
+    expect(view.invoice).toEqual(Option.some({ _tag: "None" }));
+    expect(view.retry).toBe(false);
     expect(view.price.breakdown.total).toEqual(summary.total);
     expect(view.price.breakdown.lines.length).toBeGreaterThan(0);
     expect(view.price.was).toEqual(Option.none());
@@ -234,16 +297,17 @@ describe("reviewView", () => {
       }),
       Option.some("Synthetic Booker")
     );
-    expect(view.party).toEqual({
-      _tag: "SomeoneElse",
-      name: "Synthetic Guest",
-      email: testEmailAddress("guest"),
-      bookerName: Option.some("Synthetic Booker"),
-    });
-    expect(view.invoice).toEqual({
-      _tag: "Company",
-      legalName: "Synthetic Studio s.r.o.",
-    });
+    expect(view.party).toEqual(
+      Option.some({
+        _tag: "SomeoneElse",
+        name: "Synthetic Guest",
+        email: testEmailAddress("guest"),
+        bookerName: Option.some("Synthetic Booker"),
+      })
+    );
+    expect(view.invoice).toEqual(
+      Option.some({ _tag: "Company", legalName: "Synthetic Studio s.r.o." })
+    );
   });
 
   test("a personal invoice is shown by its city", () => {
@@ -255,7 +319,9 @@ describe("reviewView", () => {
         },
       })
     );
-    expect(view.invoice).toEqual({ _tag: "Personal", city: "Synthetic City" });
+    expect(view.invoice).toEqual(
+      Option.some({ _tag: "Personal", city: "Synthetic City" })
+    );
   });
 
   test("a changed price shows the quote's total and the new one, and Pay waits for the acceptance", () => {

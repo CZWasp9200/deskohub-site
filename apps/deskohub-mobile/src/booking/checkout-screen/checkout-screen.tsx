@@ -21,6 +21,7 @@ import { accountAtom } from "../../customer-api/customer-data-runtime";
 import { type AppLocale, isAppLocale } from "../../i18n/app-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
+import { openSitePage } from "../../routing/open-site-page";
 import { theme } from "../../theme";
 import { LoadingState } from "../../ui/async-states";
 import { Button } from "../../ui/controls";
@@ -32,6 +33,7 @@ import type {
   CheckoutRetryKind,
 } from "../checkout/booking-problem";
 import {
+  type BookingRequest,
   type CheckoutController,
   type CheckoutRequest,
   checkoutRequestAtom,
@@ -99,31 +101,58 @@ function CheckoutFlowScreen({
   if (state?._tag === "Review" && Option.getOrUndefined(lastReview) !== state) {
     setLastReview(Option.some(state));
   }
-  const ended = holdEndedReview(flow.view, lastReview);
-  useCheckoutNavigation(flow.view, family, Option.isSome(ended));
+  // A payment retry shows no hold timer (the server still ends its hold):
+  // one that runs out goes back to the order's ticket, without the dialog.
+  const retriedOrderId =
+    request._tag === "PaymentRetry" ? request.checkout.orderId : undefined;
+  const ended =
+    retriedOrderId === undefined
+      ? holdEndedReview(flow.view, lastReview)
+      : Option.none();
+  useCheckoutNavigation(
+    flow.view,
+    family,
+    Option.isSome(ended),
+    retriedOrderId
+  );
   // The details outlive this screen (back, a restarted hold) until the
   // booking is submitted.
   const setDraft = useAtomSet(detailsDraftAtom);
-  const submitted = state !== undefined && !keepsDetailsDraft(state);
+  // A payment retry never touched the draft of a booking in progress.
+  const submitted =
+    request._tag === "Booking" &&
+    state !== undefined &&
+    !keepsDetailsDraft(state);
   useEffect(() => {
     if (submitted) setDraft(Option.none());
   }, [submitted, setDraft]);
   const onDetails = state?._tag === "Details" || state?._tag === "Creating";
-  const review = state?._tag === "Review" ? Option.some(state) : ended;
+  // While the payment page opens, the review stays with Pay saying so.
+  const opening =
+    state?._tag === "Paying" && Option.isSome(state.opening)
+      ? Option.some(state.review)
+      : Option.none();
+  const review =
+    state?._tag === "Review"
+      ? Option.some(state)
+      : Option.orElse(opening, () => ended);
   // Set on every state: options a screen sets outlive the element.
   const title = (
     <Stack.Screen
       options={{
         title: checkoutTitle(onDetails, Option.isSome(review), locale),
-        headerRight: Option.match(review, {
-          onNone: () => undefined,
-          onSome: (shown) => () => (
-            <HoldChip
-              expiresAt={shown.checkout.holdExpiresAt}
-              locale={locale}
-            />
-          ),
-        }),
+        headerRight: Option.match(
+          Option.filter(review, () => retriedOrderId === undefined),
+          {
+            onNone: () => undefined,
+            onSome: (shown) => () => (
+              <HoldChip
+                expiresAt={shown.checkout.holdExpiresAt}
+                locale={locale}
+              />
+            ),
+          }
+        ),
       }}
     />
   );
@@ -134,6 +163,7 @@ function CheckoutFlowScreen({
         <ReviewForAccount
           review={review.value}
           ended={Option.isSome(ended)}
+          opening={Option.isSome(opening)}
           flow={flow}
           request={request}
           locale={locale}
@@ -141,7 +171,10 @@ function CheckoutFlowScreen({
       </>
     );
   }
-  if (state?._tag === "Details" || state?._tag === "Creating") {
+  if (
+    request._tag === "Booking" &&
+    (state?._tag === "Details" || state?._tag === "Creating")
+  ) {
     return (
       <>
         {title}
@@ -253,12 +286,15 @@ const checkoutTitle = (
 function ReviewForAccount({
   review,
   ended,
+  opening,
   flow,
   request,
   locale,
 }: {
   readonly review: ReviewState;
   readonly ended: boolean;
+  /** The payment page is opening over this review. */
+  readonly opening: boolean;
   readonly flow: CheckoutController;
   readonly request: CheckoutRequest;
   readonly locale: AppLocale;
@@ -283,15 +319,17 @@ function ReviewForAccount({
       <ReviewStep
         review={review}
         selection={request.selection}
-        quotedTotal={request.quote.summary.total}
+        quotedTotal={
+          request._tag === "Booking"
+            ? request.quote.summary.total
+            : request.previousTotal
+        }
         bookerName={bookerName}
-        send={ended ? ignoreIntent : flow.send}
+        send={ended || opening ? ignoreIntent : flow.send}
         onChangeBooking={() => backToSelection()}
         keyboardOffset={headerHeight}
         onOpenDocument={(document) =>
-          void WebBrowser.openBrowserAsync(
-            new URL(document.path, apiOrigin).href
-          )
+          void openSitePage(new URL(document.path, apiOrigin).href)
         }
         locale={locale}
       />
@@ -305,7 +343,10 @@ function ReviewForAccount({
   );
 }
 
-/** A review the hold ran out on takes no more intents. */
+/**
+ * A review the hold ran out on, or one the payment page is opening over,
+ * takes no more intents.
+ */
 const ignoreIntent = () => undefined;
 
 function DetailsForAccount({
@@ -318,7 +359,7 @@ function DetailsForAccount({
   readonly notice: DetailsState["notice"];
   readonly busy: boolean;
   readonly flow: CheckoutController;
-  readonly request: CheckoutRequest;
+  readonly request: BookingRequest;
   readonly locale: AppLocale;
 }) {
   const account = useAtomValue(accountAtom);
@@ -374,7 +415,7 @@ function DetailsWithProfile({
   readonly notice: DetailsState["notice"];
   readonly busy: boolean;
   readonly flow: CheckoutController;
-  readonly request: CheckoutRequest;
+  readonly request: BookingRequest;
   readonly locale: AppLocale;
 }) {
   const router = useRouter();

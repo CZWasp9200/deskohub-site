@@ -37,6 +37,7 @@ import {
   type HeldCheckout,
   LegalDocuments,
   type PayingState,
+  ReviewKind,
   type ReviewMutation,
   ReviewNotice,
   type ReviewState,
@@ -72,6 +73,26 @@ export const startCheckout = (input: CheckoutStartInput): CheckoutState =>
     details: Option.none(),
     notice: Option.none(),
   });
+
+/**
+ * The checkout of an order whose payment failed, was cancelled or expired,
+ * as the server handed it back (`retryPayment`): straight to its review,
+ * details kept, where the terms are confirmed again (a changed price is
+ * accepted first) and Pay starts the new payment.
+ */
+export const startPaymentRetry = (
+  input: CheckoutStartInput,
+  checkout: CustomerCheckout
+): CheckoutStep =>
+  enterReview(
+    {
+      ...input,
+      selection: withoutAbsentOptions(input.selection),
+      nextOperationId: 1,
+    },
+    ReviewKind.PaymentRetry(),
+    checkout
+  );
 
 export const step = (
   state: CheckoutState,
@@ -216,14 +237,16 @@ const created = (
     Match.discriminatorsExhaustive("status")({
       payment_disabled: () =>
         to(CheckoutState.Blocked({ reason: "payment-disabled" })),
-      ready: (checkout) => enterReview(flow, details, checkout),
-      price_review: (checkout) => enterReview(flow, details, checkout),
+      ready: (checkout) =>
+        enterReview(flow, ReviewKind.NewBooking({ details }), checkout),
+      price_review: (checkout) =>
+        enterReview(flow, ReviewKind.NewBooking({ details }), checkout),
     })
   );
 
 const enterReview = (
   flow: CheckoutFlow,
-  details: CheckoutDetails,
+  kind: ReviewKind,
   checkout: CustomerCheckout
 ): CheckoutStep => {
   const [operationId, next] = takeOperation(flow);
@@ -231,7 +254,7 @@ const enterReview = (
   return to(
     CheckoutState.Review({
       flow: withReferralUpdate(next, update),
-      details,
+      kind,
       checkout: heldCheckout(checkout),
       priceBefore: Option.none(),
       code: { input: "", status: CodeStatus.Idle() },
@@ -677,6 +700,7 @@ const submitted = (
         });
         return to(
           CheckoutState.Paying({
+            review,
             flow,
             orderId,
             paymentUrl,
@@ -1070,7 +1094,8 @@ const reopen = (paying: PayingState): CheckoutStep => {
   );
 };
 
-const retryKind = (problem: BookingProblem): CheckoutRetryKind =>
+/** The retry a problem offers; anything but a retryable one is a surprise. */
+export const retryKind = (problem: BookingProblem): CheckoutRetryKind =>
   BookingProblem.$match(problem, {
     Retryable: ({ kind }) => kind,
     Restart: unexpected,

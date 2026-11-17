@@ -185,6 +185,8 @@ export interface ConsentView {
   readonly disabled: boolean;
   /** The checkbox also requests starting before the withdrawal period ends. */
   readonly earlyPerformance: boolean;
+  /** The terms are confirmed again, for a retried payment. */
+  readonly retry: boolean;
 }
 
 /**
@@ -202,10 +204,18 @@ const payBlock = (
 };
 
 export interface ReviewView {
-  readonly party: ReviewParty;
+  /**
+   * An order paid again in place: its details are the server's, kept as
+   * booked, so nothing here changes them (no Change, no code entry), and the
+   * terms are confirmed again.
+   */
+  readonly retry: boolean;
+  /** For whom; unknown to the app for a retried order. */
+  readonly party: Option.Option<ReviewParty>;
   /** A meeting room booked with early setup: the room opens before the start. */
   readonly earlySetup: boolean;
-  readonly invoice: ReviewInvoice;
+  /** Who is invoiced; unknown to the app for a retried order. */
+  readonly invoice: Option.Option<ReviewInvoice>;
   readonly price: ReviewPriceView;
   readonly priceChange: Option.Option<PriceChangeView>;
   readonly code: CodeFieldView;
@@ -253,10 +263,16 @@ export const reviewView = (
     })
   );
   const consented = Option.isSome(review.consent);
+  const details =
+    review.kind._tag === "NewBooking"
+      ? Option.some(review.kind.details)
+      : Option.none();
+  const retry = review.kind._tag === "PaymentRetry";
   return {
-    party: reviewParty(review.details, bookerName),
+    retry,
+    party: Option.map(details, (booked) => reviewParty(booked, bookerName)),
     earlySetup: withEarlySetup(review),
-    invoice: reviewInvoice(review.details),
+    invoice: Option.map(details, reviewInvoice),
     price: {
       breakdown: priceBreakdown(checkout.summary),
       was: sameMoney(quotedTotal, total)
@@ -270,6 +286,7 @@ export const reviewView = (
       checked: consented,
       disabled: !idle || legal._tag !== "Loaded",
       earlyPerformance: checkout.earlyPerformanceConsent.required,
+      retry,
     },
     canPay: canPay(review),
     payBlock: payBlock(Option.isSome(priceChange), consented),

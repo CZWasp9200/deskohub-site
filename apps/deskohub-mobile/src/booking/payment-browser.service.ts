@@ -89,6 +89,11 @@ const appScheme = /^deskohub:/i;
  * the order.
  */
 export const paymentReturnUrl = (orderId: string, statusUrl: string): string =>
-  appScheme.test(statusUrl)
-    ? statusUrl
-    : `deskohub://reservations/${encodeURIComponent(orderId)}?after=payment`;
+  appScheme.test(statusUrl) ? statusUrl : appPaymentReturnUrl(orderId);
+
+/**
+ * The app's status screen for the order after payment, where the server
+ * returns a payment the app asked for (`native-app`).
+ */
+export const appPaymentReturnUrl = (orderId: string): string =>
+  `deskohub://reservations/${encodeURIComponent(orderId)}?after=payment`;

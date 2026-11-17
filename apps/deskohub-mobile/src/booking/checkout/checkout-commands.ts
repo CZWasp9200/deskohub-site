@@ -238,7 +238,7 @@ const answerless =
  * The failures the customer API layer hands over besides the checkout's own:
  * sessions, budgets, transport, timeouts and lost answers.
  */
-type SharedRequestFailure =
+export type SharedRequestFailure =
   | CustomerSessionRequired
   | CustomerRateLimited
   | CustomerRequestRejected
@@ -286,7 +286,7 @@ const answerOf =
  * applied is unconfirmed (`customerWrite` already told sent from unsent);
  * every other request failure proves nothing changed.
  */
-const checkoutFailure = (
+export const checkoutFailure = (
   failure: CheckoutFailure | SharedRequestFailure
 ): CheckoutFailure =>
   Match.value(failure).pipe(

@@ -31,6 +31,10 @@ export const bookProfileHref = "/book/profile" as const;
 export const reservationsHref = "/reservations" as const;
 
 /** The status screen a finished checkout opens (#991's reservations route). */
+/** An order's booking ticket, as the Reservations list opens it. */
+export const orderStatusHref = (orderId: string) =>
+  `/reservations/${encodeURIComponent(orderId)}` as const;
+
 export const paymentStatusHref = (orderId: string) =>
   `/reservations/${encodeURIComponent(orderId)}?after=payment` as const;
 

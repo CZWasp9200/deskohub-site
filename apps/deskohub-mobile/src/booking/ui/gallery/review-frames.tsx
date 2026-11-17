@@ -21,6 +21,7 @@ import {
   CodeStatus,
   type HeldCheckout,
   LegalDocuments,
+  ReviewKind,
   type ReviewState,
 } from "../../checkout/checkout-state";
 import { ReviewStep } from "../../checkout-screen/review-step";
@@ -171,6 +172,8 @@ interface ReviewSample {
   readonly code?: ReviewState["code"];
   readonly pending?: ReviewState["pending"];
   readonly consented?: boolean;
+  /** An order paid again in place (board 35b). */
+  readonly retry?: boolean;
 }
 
 const reviewOf = (
@@ -180,7 +183,11 @@ const reviewOf = (
 ): ReviewState =>
   CheckoutState.Review({
     flow,
-    details: (frame.details ?? selfDetails)(sample),
+    kind: frame.retry
+      ? ReviewKind.PaymentRetry()
+      : ReviewKind.NewBooking({
+          details: (frame.details ?? selfDetails)(sample),
+        }),
     checkout: {
       orderId: "gallery-order",
       payStateToken: "gallery-token",
@@ -226,7 +233,12 @@ function ReviewFrame({
       <AppBar
         title={m.booking_review_title({}, { locale })}
         onBack={onBack}
-        actions={<HoldChip expiresAt={holdExpiresAt} locale={locale} />}
+        // A payment retry shows no hold timer, as the checkout screen does.
+        actions={
+          frame.retry ? undefined : (
+            <HoldChip expiresAt={holdExpiresAt} locale={locale} />
+          )
+        }
       />
       <ReviewStep
         review={review}
@@ -264,6 +276,19 @@ const applying = (input: string) =>
       referralCode: Option.none(),
     })
   );
+
+const submitting = Option.some(
+  CheckoutCommand.SubmitCheckout({
+    operationId: 1,
+    request: {
+      locale: "en-US",
+      payStateToken: "gallery-token",
+      legalConsent: true,
+      acceptedLegalDocuments: [],
+    },
+    referralCode: Option.none(),
+  })
+);
 
 const frame =
   (sample: ReviewSample, ended = false): BoardFrame["Screen"] =>
@@ -347,6 +372,51 @@ export const reviewFrames: ReadonlyArray<BoardFrame> = [
         summary: withoutSale,
         priceReview: Option.some({ sectionKeys: ["total"], itemKeys: [] }),
       },
+    }),
+  },
+  {
+    key: "review-early-consent",
+    board: "34",
+    state: "Agreement with early start",
+    Screen: frame({
+      secondsLeft: 482,
+      checkout: {
+        earlyPerformanceConsent: {
+          required: true,
+          requiredFrom: "2026-12-10T09:00:00.000Z",
+        },
+      },
+    }),
+  },
+  {
+    key: "review-ready-to-pay",
+    board: "35",
+    state: "Ready to pay",
+    Screen: frame({
+      secondsLeft: 511,
+      consented: true,
+      checkout: welcome10Applied,
+    }),
+  },
+  {
+    key: "review-opening-payment",
+    board: "35",
+    state: "Leaving for payment",
+    Screen: frame({
+      secondsLeft: 509,
+      consented: true,
+      checkout: welcome10Applied,
+      pending: submitting,
+    }),
+  },
+  {
+    key: "review-payment-retry",
+    board: "35b",
+    state: "Payment cancelled or failed",
+    Screen: frame({
+      secondsLeft: 597,
+      checkout: welcome10Applied,
+      retry: true,
     }),
   },
 ];

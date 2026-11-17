@@ -50,6 +50,7 @@ describe("checkoutRequestOf", () => {
   test("hands checkout the selection with its quote token", () => {
     expect(checkoutRequestOf(complete)).toEqual(
       Option.some({
+        _tag: "Booking",
         locale: "cs-CZ",
         selection,
         advertisedPriceToken: "quote-token",
