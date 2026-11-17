@@ -8,7 +8,11 @@ import type {
   Money,
 } from "@deskohub/workspace-customer-api";
 import type { CoworkOvernightStay } from "../selection/cowork-selection";
-import { daysBetween, type PragueDate } from "../selection/prague-date";
+import {
+  daysBetween,
+  type PragueDate,
+  pragueInstant,
+} from "../selection/prague-date";
 
 /**
  * Synthetic booking catalog for the fake Workspace: offerings, prices and
@@ -211,6 +215,23 @@ interface PricedLine {
   readonly seatCrowns?: number;
 }
 
+/**
+ * When a meeting-room booking's early setup lets the customer in: 15
+ * minutes before its start, as the Workspace sets it.
+ */
+export const sampleEarlySetupStartsAt = (
+  selection: CustomerBookingSelection
+): string | undefined => {
+  if (selection.family !== "meeting-room" || selection.startTime === undefined)
+    return undefined;
+  const start = pragueInstant({
+    date: selection.date as PragueDate,
+    hour: Number(selection.startTime.slice(0, 2)),
+    minute: Number(selection.startTime.slice(3, 5)),
+  });
+  return new Date(start.getTime() - 15 * 60_000).toISOString();
+};
+
 /** Inclusive Prague days between two plain dates. */
 export const inclusiveDays = (from: PragueDate, to: PragueDate) =>
   daysBetween(from, to) + 1;
@@ -282,11 +303,14 @@ export const sampleSummary = ({
   discountShare = 0,
   discountLabel = "",
   surcharge = 0,
+  earlySetupStartsAt,
 }: {
   readonly lines: ReadonlyArray<PricedLine>;
   readonly discountShare?: number;
   readonly discountLabel?: string;
   readonly surcharge?: number;
+  /** A meeting room's early setup: when the customer may come in, for free. */
+  readonly earlySetupStartsAt?: string | undefined;
 }): CustomerCheckoutSummary => {
   const items = lines.map((line, index) => {
     const original = line.crowns + (index === 0 ? surcharge : 0);
@@ -299,7 +323,14 @@ export const sampleSummary = ({
             originalAmount: czk(original),
             discounts: [
               {
-                discount: { id: sampleDiscountId, label: discountLabel },
+                discount: {
+                  id: sampleDiscountId,
+                  label: discountLabel,
+                  adjustment: {
+                    kind: "percentage",
+                    basisPoints: Math.round(discountShare * 10_000),
+                  },
+                },
                 amount: czk(off),
               },
             ],
@@ -313,6 +344,17 @@ export const sampleSummary = ({
       ...(line.seatCrowns === undefined
         ? {}
         : { seatAmount: czk(line.seatCrowns) }),
+      ...(line.dayCount === undefined ||
+      line.accessCrowns === undefined ||
+      line.seatCrowns === undefined
+        ? {}
+        : {
+            dailyAccessRate: czk(line.accessCrowns / line.dayCount),
+            dailySeatRate: czk(line.seatCrowns / line.dayCount),
+          }),
+      ...(index === 0 && earlySetupStartsAt !== undefined
+        ? { earlySetup: { startsAt: earlySetupStartsAt, amount: czk(0) } }
+        : {}),
     };
   });
   const total = czk(

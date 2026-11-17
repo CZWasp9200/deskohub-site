@@ -152,15 +152,19 @@ export const meetingRoomUnavailableDatesAtom = customerDataRuntime
   )
   .pipe(Atom.setIdleTTL(catalogIdleTTL.availability));
 
-/** One selection priced in one language; equal when their keys are. */
+/**
+ * One selection priced in one language, with a meeting room's early setup
+ * when the customer asked for it; equal when their keys are.
+ */
 export class BookingQuoteRequest implements Equal.Equal {
   readonly key: string;
 
   constructor(
     readonly selection: CustomerBookingSelection,
-    readonly locale: CustomerLocale
+    readonly locale: CustomerLocale,
+    readonly earlySetup = false
   ) {
-    this.key = selectionKey(selection);
+    this.key = `${selectionKey(selection)}${earlySetup ? "\u0000early-setup" : ""}`;
   }
 
   [Equal.symbol](that: unknown) {
@@ -183,16 +187,14 @@ export class BookingQuoteRequest implements Equal.Equal {
 export const quoteRefreshInterval = Duration.minutes(4);
 
 /** The selection as a quote's query string carries it. */
-const quoteQuery = (
-  selection: CustomerBookingSelection,
-  locale: CustomerLocale
-) => {
+const quoteQuery = ({ selection, locale, earlySetup }: BookingQuoteRequest) => {
   const { coffee, ...fields } = withoutAbsentOptions(selection);
   return {
     ...fields,
     ...(coffee === undefined
       ? {}
       : { coffee: coffee ? ("true" as const) : ("false" as const) }),
+    ...(earlySetup && { earlySetup: "true" as const }),
     locale,
   };
 };
@@ -215,12 +217,11 @@ const refreshQuoteLater = (get: Atom.AtomContext) =>
     Effect.forkScoped
   );
 
-const quoteReadFamily = Atom.family(
-  ({ selection, locale }: BookingQuoteRequest) =>
+const quoteReadFamily = Atom.family((request: BookingQuoteRequest) =>
     customerDataRuntime
       .atom((get) =>
         Effect.flatMap(bookingApi, (booking) =>
-          booking.getQuote({ query: quoteQuery(selection, locale) })
+          booking.getQuote({ query: quoteQuery(request) })
         ).pipe(
           catalogRead,
           Effect.tap(() => refreshQuoteLater(get))
@@ -241,12 +242,14 @@ const quoteFamily = Atom.family((request: BookingQuoteRequest) =>
 
 /**
  * The anonymous quote of a complete selection, read again every
- * `quoteRefreshInterval` while mounted.
+ * `quoteRefreshInterval` while mounted. A meeting room's quote lists the
+ * early setup the customer asked for.
  */
 export const bookingQuoteAtom = (
   selection: CustomerBookingSelection,
-  locale: CustomerLocale
-) => quoteFamily(new BookingQuoteRequest(selection, locale));
+  locale: CustomerLocale,
+  { earlySetup = false }: { readonly earlySetup?: boolean } = {}
+) => quoteFamily(new BookingQuoteRequest(selection, locale, earlySetup));
 
 /** The terms and operating rules at their current versions. */
 export const legalDocumentsAtom = Atom.family((locale: CustomerLocale) =>

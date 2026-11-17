@@ -21,7 +21,11 @@ export interface PriceFixture {
 }
 
 const calendarDiscount = (crowns: number): CustomerCheckoutSummaryDiscount => ({
-  discount: { id: "calendar-sale-2026-11", label: "Calendar discount" },
+  discount: {
+    id: "calendar-sale-2026-11",
+    label: "Calendar discount",
+    adjustment: { kind: "percentage", basisPoints: 2000 },
+  },
   amount: czk(crowns),
 });
 
@@ -85,21 +89,37 @@ export const reservedDeskWithWorkstation: PriceFixture = {
   ),
 };
 
+const meetingRoomHourSelection: CustomerBookingSelection = {
+  family: "meeting-room",
+  date: "2026-11-26",
+  startTime: "14:00",
+  duration: "hour:1",
+};
+
+const meetingRoomHourLine = {
+  key: "product:meeting-room:hour:1",
+  amount: czk(280),
+  originalAmount: czk(350),
+  discounts: [calendarDiscount(70)],
+} as const satisfies CustomerCheckoutSummaryItem;
+
 /** The meeting room for an hour from 14:00 with a calendar discount: 350 − 70 = 280. */
 export const meetingRoomHour: PriceFixture = {
-  selection: {
-    family: "meeting-room",
-    date: "2026-11-26",
-    startTime: "14:00",
-    duration: "hour:1",
-  },
+  selection: meetingRoomHourSelection,
+  summary: summaryOf([meetingRoomHourLine], czk(280)),
+};
+
+/**
+ * The same hour with early setup: in from 13:45 Prague time, free, so the
+ * total stays 280.
+ */
+export const meetingRoomHourEarlySetup: PriceFixture = {
+  selection: meetingRoomHourSelection,
   summary: summaryOf(
     [
       {
-        key: "product:meeting-room:hour:1",
-        amount: czk(280),
-        originalAmount: czk(350),
-        discounts: [calendarDiscount(70)],
+        ...meetingRoomHourLine,
+        earlySetup: { startsAt: "2026-11-26T12:45:00Z", amount: czk(0) },
       },
     ],
     czk(280)
@@ -120,9 +140,11 @@ const officeParts = {
   seats: 6,
   accessAmount: czk(1590),
   seatAmount: czk(945),
+  dailyAccessRate: czk(530),
+  dailySeatRate: czk(315),
 } as const;
 
-/** A private office for 3 days with 6 seats: 1,590 + 6 × 945 = 7,260. */
+/** A private office for 3 days with 6 seats: 3 × 530 + 6 × 3 × 315 = 7,260. */
 export const officeSixSeats: PriceFixture = {
   selection: officeSelection,
   summary: summaryOf([{ ...officeParts, amount: czk(7260) }], czk(7260)),
@@ -139,7 +161,11 @@ export const officeSixSeatsDiscounted: PriceFixture = {
         originalAmount: czk(7260),
         discounts: [
           {
-            discount: { id: "office-week-10", label: "Office discount" },
+            discount: {
+              id: "office-week-10",
+              label: "Office discount",
+              adjustment: { kind: "percentage", basisPoints: 1000 },
+            },
             amount: czk(726),
           },
         ],
@@ -154,6 +180,7 @@ export const priceFixtures = {
   openSpaceWithCoffee,
   reservedDeskWithWorkstation,
   meetingRoomHour,
+  meetingRoomHourEarlySetup,
   officeSixSeats,
   officeSixSeatsDiscounted,
 } as const satisfies Record<string, PriceFixture>;

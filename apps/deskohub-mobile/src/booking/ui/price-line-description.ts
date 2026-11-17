@@ -1,10 +1,14 @@
 import type {
   CustomerBookingSelection,
+  CustomerDiscountAdjustment,
   CustomerMonitorOption,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
+import { formatInstant, parseInstant } from "../../i18n/date-time-format";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
+import { formatBasisPoints } from "../../i18n/percent-format";
 import { bookingOverviewOf } from "../checkout-screen/booking-overview";
 import { productLabel } from "../checkout-screen/checkout-copy";
 import type { PriceLine, PriceLineSubject } from "./price-breakdown";
@@ -98,15 +102,52 @@ const chargeDescription = (
         label: m.booking_checkout_line_workstation({}, { locale }),
         detail: monitorOptionName(subject.option),
       };
+    case "EarlySetup":
+      return {
+        label: m.booking_price_line_early_setup({}, { locale }),
+        detail: Option.match(parseInstant(subject.startsAt), {
+          onNone: () => undefined,
+          onSome: (startsAt) =>
+            m.booking_price_line_early_setup_from(
+              { time: formatInstant(startsAt, locale, "time") },
+              { locale }
+            ),
+        }),
+      };
     case "Other":
       return { label: m.booking_checkout_line_other({}, { locale }) };
   }
 };
 
+/** What a discount takes off, such as "20% off" or "CZK 50 off". */
+const adjustmentDetail = (
+  adjustment: CustomerDiscountAdjustment,
+  locale: AppLocale
+): string =>
+  m.booking_price_line_discount_off(
+    {
+      amount:
+        adjustment.kind === "percentage"
+          ? formatBasisPoints(adjustment.basisPoints, locale)
+          : formatMoney(adjustment.amount, locale),
+    },
+    { locale }
+  );
+
+/** A discount line: the pricing response's label, and what it takes off. */
+const reductionDescription = (
+  line: Extract<PriceLine, { readonly _tag: "Reduction" }>,
+  locale: AppLocale
+): PriceLineDescription => ({
+  label: line.label,
+  detail: adjustmentDetail(line.adjustment, locale),
+});
+
 /**
  * Names a booking's price lines, the one place that does: the product by
  * the booked selection, which is what the server priced, with what it
- * covers; add-ons by kind; a discount by the pricing response's own label.
+ * covers; add-ons by kind; a discount by the pricing response's own label,
+ * with what it takes off.
  * Counts read as "Days: 3", never as a plural form: the app's runtime has
  * no plural rules.
  */
@@ -119,7 +160,7 @@ export const describePriceLine =
   ) =>
   (line: PriceLine): PriceLineDescription =>
     line._tag === "Reduction"
-      ? { label: line.label }
+      ? reductionDescription(line, locale)
       : chargeDescription(
           line.subject,
           () => productDetail(selection, locale),
@@ -136,5 +177,5 @@ export const describeOfficePriceLine =
   (locale: AppLocale, productName: string) =>
   (line: PriceLine): PriceLineDescription =>
     line._tag === "Reduction"
-      ? { label: line.label }
+      ? reductionDescription(line, locale)
       : chargeDescription(line.subject, () => undefined, locale, productName);

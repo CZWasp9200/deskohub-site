@@ -1,6 +1,8 @@
 import type {
   CustomerCheckoutSummary,
+  CustomerCheckoutSummaryDiscount,
   CustomerCheckoutSummaryItem,
+  CustomerDiscountAdjustment,
   CustomerVatStatus,
   Money,
 } from "@deskohub/workspace-customer-api";
@@ -20,6 +22,8 @@ export type PriceLineSubject =
   | { readonly _tag: "Coffee" }
   | { readonly _tag: "Workstation" }
   | { readonly _tag: "Monitor"; readonly option: string }
+  /** A meeting room's early setup: the customer may come in at `startsAt`. */
+  | { readonly _tag: "EarlySetup"; readonly startsAt: string }
   | { readonly _tag: "Other"; readonly key: string };
 
 /** The subjects a summary item's key names on its own. */
@@ -42,6 +46,8 @@ export type PriceLine =
       readonly discountId: string;
       /** The discount's name as the pricing response gives it. */
       readonly label: string;
+      /** How the discount is worked out, such as 20% off. */
+      readonly adjustment: CustomerDiscountAdjustment;
       /** What the discount takes off, positive. */
       readonly amount: Money;
     };
@@ -103,6 +109,35 @@ const officeCharges = (
   ];
 };
 
+/** A summary discount as the reduction line it reads as. */
+export const discountLine = (
+  itemKey: string,
+  { discount, amount }: CustomerCheckoutSummaryDiscount
+): PriceLine => ({
+  _tag: "Reduction",
+  key: `${itemKey}:discount:${discount.id}`,
+  discountId: discount.id,
+  label: discount.label,
+  adjustment: discount.adjustment,
+  amount,
+});
+
+/** A meeting room's early setup, after the room's discounts: free, as priced. */
+const earlySetupLines = ({
+  key,
+  earlySetup,
+}: CustomerCheckoutSummaryItem): PriceLine[] =>
+  earlySetup === undefined
+    ? []
+    : [
+        {
+          _tag: "Charge",
+          key: `${key}:early-setup`,
+          subject: { _tag: "EarlySetup", startsAt: earlySetup.startsAt },
+          amount: earlySetup.amount,
+        },
+      ];
+
 const itemLines = (item: CustomerCheckoutSummaryItem): PriceLine[] => [
   ...(officeCharges(item) ?? [
     {
@@ -112,21 +147,15 @@ const itemLines = (item: CustomerCheckoutSummaryItem): PriceLine[] => [
       amount: item.originalAmount ?? item.amount,
     },
   ]),
-  ...(item.discounts ?? []).map(
-    ({ discount, amount }): PriceLine => ({
-      _tag: "Reduction",
-      key: `${item.key}:discount:${discount.id}`,
-      discountId: discount.id,
-      label: discount.label,
-      amount,
-    })
-  ),
+  ...(item.discounts ?? []).map((discount) => discountLine(item.key, discount)),
+  ...earlySetupLines(item),
 ];
 
 /**
  * The pricing response's itemized price, in its order: each line at its
- * price before discounts, followed by one reduction per discount on it, so
- * the lines add up to the response's total. The final total line is the
+ * price before discounts, followed by one reduction per discount on it, and
+ * a meeting room's free early setup last, so the lines add up to the
+ * response's total. The final total line is the
  * breakdown's `total`, not a line.
  */
 export const priceBreakdown = (
