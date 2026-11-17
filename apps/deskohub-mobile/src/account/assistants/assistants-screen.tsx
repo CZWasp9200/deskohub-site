@@ -135,9 +135,10 @@ export function AssistantsScreen() {
         visible={view.dialogOpen}
         title={m.assistants_disconnect_title({ name: targetName }, { locale })}
         body={m.assistants_disconnect_body({}, { locale })}
-        confirmLabel={m.assistants_disconnect_confirm({}, { locale })}
+        confirmLabel={m.assistants_disconnect({}, { locale })}
         cancelLabel={m.account_cancel({}, { locale })}
         destructive
+        irreversible
         busy={view.busy}
         busyMessage={m.assistants_disconnecting({}, { locale })}
         onConfirm={() => {

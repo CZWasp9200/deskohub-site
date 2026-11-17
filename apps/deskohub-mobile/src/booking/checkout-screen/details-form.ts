@@ -7,6 +7,7 @@ import { Option } from "effect";
 import type { CompanyDetailsField } from "../../company-lookup/company-lookup-model";
 import { invoiceCountryCodes } from "../../i18n/country-names";
 import type { CheckoutDetails } from "../checkout/checkout-state";
+import { defaultCountry } from "../../i18n/country-names";
 
 /**
  * The details step's form, as the site's contact and billing step asks it
@@ -82,9 +83,6 @@ const nonBlank = (value: string | null | undefined): Option.Option<string> =>
 /** The site shows the saved phone only when it's valid, else asks inline. */
 const savedPhone = (phone: string | null) =>
   nonBlank(phone).pipe(Option.filter(isPhoneNumber));
-
-/** The country a new address starts with, as on the site. */
-export const defaultCountry = "CZ";
 
 const emptyAddress: AddressDraft = {
   line1: "",

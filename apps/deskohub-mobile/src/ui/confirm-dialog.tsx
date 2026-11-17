@@ -19,6 +19,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   destructive = false,
+  irreversible = false,
   busy = false,
   busyMessage,
   children,
@@ -31,6 +32,12 @@ export function ConfirmDialog({
   readonly cancelLabel: string;
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
+  /**
+   * The confirmation is the dialog's point and can't be undone (boards 15
+   * and 18): a filled danger button first, Cancel outlined under it. A
+   * `destructive` one alone keeps the safe choice primary (board 00e).
+   */
+  readonly irreversible?: boolean;
   readonly destructive?: boolean;
   readonly busy?: boolean;
   readonly busyMessage?: string;
@@ -43,7 +50,7 @@ export function ConfirmDialog({
   const confirm = (
     <Button
       key="confirm"
-      variant={destructive ? "dangerText" : "primary"}
+      variant={irreversible ? "danger" : destructive ? "dangerText" : "primary"}
       label={confirmLabel}
       onPress={onConfirm}
       busy={busy}
@@ -52,7 +59,7 @@ export function ConfirmDialog({
   const cancel = (
     <Button
       key="cancel"
-      variant={destructive ? "primary" : "quiet"}
+      variant={irreversible ? "secondary" : destructive ? "primary" : "quiet"}
       label={cancelLabel}
       onPress={onCancel}
       disabled={busy}
@@ -67,7 +74,9 @@ export function ConfirmDialog({
       busy={busy}
       onDismiss={dismiss}
       actions={[
-        ...(destructive ? [cancel, confirm] : [confirm, cancel]),
+        ...(destructive && !irreversible
+          ? [cancel, confirm]
+          : [confirm, cancel]),
         <LiveMessage
           key="progress"
           role="status"

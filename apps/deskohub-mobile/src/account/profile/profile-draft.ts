@@ -11,6 +11,7 @@ import {
   customerProfileSchemas,
 } from "@deskohub/workspace-customer-api";
 import { Option, Result, SchemaIssue, SchemaParser } from "effect";
+import { defaultCountry } from "../../i18n/country-names";
 
 /** Which billing details the customer keeps: none, personal or business. */
 export type BillingChoice = "none" | "personal" | "business";
@@ -142,11 +143,16 @@ export const profileDraftOf = (
   country: profile.billing?.country ?? "",
 });
 
-/** A new customer's completion draft, prefilled with their invitation code. */
+/**
+ * A new customer's completion draft, prefilled with their invitation code;
+ * billing details start in the default country, as Account billing and the
+ * checkout do (board 07b).
+ */
 export const completionDraftOf = (
   invitationCode: string | undefined
 ): CompletionDraft => ({
   ...emptyProfileDraft,
+  country: defaultCountry,
   referralCode: invitationCode ?? "",
 });
 
