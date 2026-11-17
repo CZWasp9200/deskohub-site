@@ -10,16 +10,14 @@ import {
   failedStepAnnotation,
   runBrowserStep,
 } from "../case-runner.browser.test-utils";
-import { makeCoworkCheckoutData } from "../checkout/data";
 import type { HostedPaymentPage } from "../checkout/nexi-hosted-payment";
-import { toPrefilledReservation } from "../checkout/prefilled-reservation";
+import { retryPaymentInPlace } from "../checkout/payment-retry";
 import { workspaceE2ETimeouts } from "../timeouts";
 import { leaveRejectedHostedPayment } from "./checkout";
 import {
   assertReturnedTerminalStatusPage,
   assertTerminalStatusPage,
   getPaymentTerminalScenarios,
-  retryReservation,
 } from "./payment-terminal";
 
 const available = await playwrightChromiumAvailable();
@@ -83,7 +81,7 @@ const failed = (result: Result, kind: "error" | "timeout") => {
 };
 
 for (const scenario of getPaymentTerminalScenarios()) {
-  const body = `<main>${scenario.state === "failed" ? "Payment was not completed." : "Payment was cancelled."} <a href="/retry">Try again</a></main>`;
+  const body = `<main>${scenario.state === "failed" ? "Payment was not completed." : "Payment was cancelled."} <button id="checkout-status-try-payment-again">Try payment again</button></main>`;
   browserTest(
     `opens and validates the ${scenario.state} status page`,
     async () => {
@@ -150,50 +148,43 @@ browserTest("fails terminal copy that never offers a retry", async () => {
   failed(result, "timeout");
 });
 
-for (const problem of ["none", "contact-in-url", "wrong-selection"] as const) {
+for (const problem of ["none", "another-order", "no-terms"] as const) {
   browserTest(
-    `follows a contact-free retry with the original selection: ${problem}`,
+    `retries the payment on the same order's Pay page: ${problem}`,
     async () => {
-      const data = makeCoworkCheckoutData(
-        server.url.origin,
-        "2099-09-01",
-        `terminal-${problem}`
-      );
-      const expected = toPrefilledReservation(data);
-      if (expected.kind !== "cowork") throw new Error("expected cowork data");
-      const reservationPath = "/en-US/reservation/cowork";
-      const query = new URLSearchParams({
-        entryTier: expected.entryTier,
-        date: data.date,
-      });
-      if (problem === "contact-in-url") query.set("customer", "contact");
+      const payOrderId =
+        problem === "another-order" ? "another-order" : orderId;
+      const payPath = "/en-US/checkout/pay";
       documents.set(
         statusPath,
-        `<a id="checkout-status-reserve-again" href="${reservationPath}?${query}">Try again</a>
-      <script>document.querySelector('a').__reactProps$test = { onClick() {} };</script>`
+        `<button id="checkout-status-try-payment-again">Try payment again</button>
+      <script>
+        const button = document.querySelector('button');
+        button.__reactProps$test = { onClick() {} };
+        button.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') location.href = '${payPath}?payState=t&orderId=${payOrderId}';
+        });
+      </script>`
       );
       documents.set(
-        reservationPath,
-        `<main>
-      <input name="entryTier" type="radio" value="${expected.entryTier}" checked>
-      <input name="date" value="${problem === "wrong-selection" ? "2099-09-02" : data.date}">
-      <button role="switch" aria-checked="${expected.coffee}">${expected.coffeeSwitchLabel}</button>
-    </main>`
+        payPath,
+        problem === "no-terms"
+          ? "<main></main>"
+          : '<main><input id="checkout-pay-legal-consent" type="checkbox"></main>'
       );
       const result = await runBrowserStep({
         browser: requireBrowser(),
         prepare: open(statusPath),
         drive: ({ session }) =>
-          retryReservation({
-            data,
-            reservationPath,
-            scenario: getPaymentTerminalScenarios()[0]!,
+          retryPaymentInPlace({
+            label: "failed payment",
+            orderId,
             session,
             timeouts,
           }),
       });
       if (problem === "none") passed(result);
-      else failed(result, problem === "contact-in-url" ? "error" : "timeout");
+      else failed(result, problem === "another-order" ? "error" : "timeout");
     }
   );
 }

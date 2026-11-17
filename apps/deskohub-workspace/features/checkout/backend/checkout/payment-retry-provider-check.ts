@@ -62,36 +62,37 @@ export class PaymentRetryProviderCheck extends Context.Service<
     Effect.gen(function* () {
       const nexi = yield* NexiService;
       return PaymentRetryProviderCheck.of({
-        check: Effect.fn("PaymentRetryProviderCheck.check")(
-          function* ({ attempt, reservation }) {
-            if (!attempt.providerOrderId) return "no_provider_order" as const;
-            const order = yield* nexi
-              .getOrder({
-                orderId: attempt.providerOrderId,
-                correlationId: reservation.correlationId,
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new PaymentRetryUnavailableError({
-                      message: "The payment provider could not be asked.",
-                      cause,
-                    })
-                )
-              );
-            const state = getProviderState(order);
-            // Operation types and results only; never ids or tokens.
-            yield* Effect.logInfo("Payment retry provider state read", {
-              state,
-              lastOperationType: order.lastOperationType,
-              operations: order.operations.map(
-                ({ operationType, operationResult }) =>
-                  `${operationType ?? "?"}:${operationResult ?? "?"}`
-              ),
-            });
-            return state;
-          }
-        ),
+        check: Effect.fn("PaymentRetryProviderCheck.check")(function* ({
+          attempt,
+          reservation,
+        }) {
+          if (!attempt.providerOrderId) return "no_provider_order" as const;
+          const order = yield* nexi
+            .getOrder({
+              orderId: attempt.providerOrderId,
+              correlationId: reservation.correlationId,
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new PaymentRetryUnavailableError({
+                    message: "The payment provider could not be asked.",
+                    cause,
+                  })
+              )
+            );
+          const state = getProviderState(order);
+          // Operation types and results only; never ids or tokens.
+          yield* Effect.logInfo("Payment retry provider state read", {
+            state,
+            lastOperationType: order.lastOperationType,
+            operations: order.operations.map(
+              ({ operationType, operationResult }) =>
+                `${operationType ?? "?"}:${operationResult ?? "?"}`
+            ),
+          });
+          return state;
+        }),
       });
     })
   );

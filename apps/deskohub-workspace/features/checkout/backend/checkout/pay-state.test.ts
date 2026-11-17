@@ -625,7 +625,10 @@ const everyReissueOutcome = (
       referralCode,
       verdict: { status: "affirmed", priced },
     },
-    code_cleared: { kind: "code_cleared", verdict: { status: "affirmed", priced } },
+    code_cleared: {
+      kind: "code_cleared",
+      verdict: { status: "affirmed", priced },
+    },
     requested_code_cleared: { kind: "requested_code_cleared" },
   };
   return Object.values(outcomes);

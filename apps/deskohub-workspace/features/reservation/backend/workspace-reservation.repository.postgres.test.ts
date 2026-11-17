@@ -507,7 +507,10 @@ describe.skipIf(!testDatabase)(
       });
 
       test("records the cause when a claim starts the cancellation, and keeps it when a later claim retries it", async () => {
-        const fresh = await expiredHold({ reservation: "held", payment: "failed" });
+        const fresh = await expiredHold({
+          reservation: "held",
+          payment: "failed",
+        });
         const operatorFailed = await expiredHold(
           { reservation: "cancellation_failed", payment: "failed" },
           { cancellationCause: "operator" }
@@ -550,9 +553,10 @@ describe.skipIf(!testDatabase)(
           )
         );
 
-        expect(claims.map((claim) => claim?.reservationState ?? null)).toEqual(
-          [null, "cancelling"]
-        );
+        expect(claims.map((claim) => claim?.reservationState ?? null)).toEqual([
+          null,
+          "cancelling",
+        ]);
         expect((await readReservation(pending))?.reservationState).toBe("held");
       });
 

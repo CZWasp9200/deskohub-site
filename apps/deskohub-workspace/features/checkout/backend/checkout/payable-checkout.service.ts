@@ -29,8 +29,8 @@ import {
   type SignedPayState,
 } from "./pay-state";
 import {
-  getPayStateBinding,
   findPayStateAttemptRefusal,
+  getPayStateBinding,
 } from "./pay-state-contract";
 import { withPayStateHoldExpiry } from "./pay-state-hold";
 
@@ -131,9 +131,8 @@ export class PayableCheckout extends Context.Service<
           binding,
           reservation,
           binding.kind === "order"
-            ? ((yield* paymentAttempts.findNewestForReservation(
-                reservation.id
-              ))?.id ?? null)
+            ? ((yield* paymentAttempts.findNewestForReservation(reservation.id))
+                ?.id ?? null)
             : null
         );
         if (attemptRefusal) return yield* refuse(attemptRefusal);

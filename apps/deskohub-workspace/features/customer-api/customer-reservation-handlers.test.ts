@@ -38,6 +38,10 @@ import {
   type PaymentRetryPreparation,
   PaymentRetryUnavailableError,
 } from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
+import {
+  CheckoutStatusService,
+  type CheckoutStatusViewModel,
+} from "@/features/checkout/backend/checkout/checkout-status.service";
 import { buildSignedPayState } from "@/features/checkout/backend/checkout/pay-state";
 import {
   getPayStateCheckoutView,
@@ -45,10 +49,6 @@ import {
 } from "@/features/checkout/backend/checkout/pay-state-checkout-view";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
-import {
-  CheckoutStatusService,
-  type CheckoutStatusViewModel,
-} from "@/features/checkout/backend/checkout/checkout-status.service";
 import {
   ReservationAccessService,
   type ReservationAccessViewModel,

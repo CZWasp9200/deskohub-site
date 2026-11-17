@@ -4,11 +4,11 @@ import { type DotyposCustomerId, DotyposService } from "@deskohub/dotypos";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
-import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { readStoredBookingContact } from "@/features/account/backend/customer-account-contact.service";
 import { CustomerAccountLinkRepository } from "@/features/account/backend/customer-account-link.repository";
+import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
 import type { Locale } from "@/features/i18n";
 import {
@@ -51,8 +51,8 @@ import {
   toFreshPayState,
 } from "./pay-state";
 import {
-  type PayStateCheckoutView,
   getPayStateCheckoutView,
+  type PayStateCheckoutView,
 } from "./pay-state-checkout-view";
 import {
   toPayStateHoldExpiresAt,
@@ -73,7 +73,7 @@ export { PaymentRetryUnavailableError } from "./payment-retry-unavailable";
  * can't be rebuilt from the records that own them (`details_unavailable`);
  * or its records disagree in a way a person must look at (`needs_review`).
  */
-export type PaymentRetryRefusalReason =
+type PaymentRetryRefusalReason =
   | "paid"
   | "payment_in_progress"
   | "late_payment"
@@ -106,7 +106,7 @@ export type PaymentRetryPreparation =
   /** The provider shows the earlier payment may still settle. */
   | { readonly state: "payment_settling" };
 
-export type PaymentRetryInput = {
+type PaymentRetryInput = {
   readonly orderId: WorkspaceReservationId;
   /** The locale the retry's Pay page or app checkout continues in. */
   readonly locale: Locale;
@@ -135,7 +135,9 @@ export interface ICheckoutPaymentRetryService {
 }
 
 const notFound: PaymentRetryPreparation = { state: "not_found" };
-const refused = (reason: PaymentRetryRefusalReason): PaymentRetryPreparation => ({
+const refused = (
+  reason: PaymentRetryRefusalReason
+): PaymentRetryPreparation => ({
   state: "not_retryable",
   reason,
 });
@@ -310,9 +312,7 @@ const implementation = Effect.gen(function* () {
 
       // The retry pays the order again after its newest attempt, the active
       // one or, once a retry was prepared, the one that retry cleared.
-      const attempt = yield* paymentAttempts.findNewestForReservation(
-        order.id
-      );
+      const attempt = yield* paymentAttempts.findNewestForReservation(order.id);
       if (!attempt || !endedPaymentStates.has(order.paymentState)) {
         return refused("payment_in_progress");
       }
@@ -350,7 +350,9 @@ const implementation = Effect.gen(function* () {
           retriedAttemptId: attempt.id,
           recreated: retry.recreated,
         })
-        .pipe(Effect.mapError(unavailable("The order's hold could not be secured.")));
+        .pipe(
+          Effect.mapError(unavailable("The order's hold could not be secured."))
+        );
       if (hold.kind === "spot_unavailable") {
         return { state: "spot_unavailable" } as const;
       }
@@ -404,7 +406,9 @@ const implementation = Effect.gen(function* () {
           PayStateTokenError: (cause) =>
             cause.code === "invalid-token"
               ? Effect.succeed(undefined)
-              : Effect.fail(unavailable("The Pay state could not be sealed.")(cause)),
+              : Effect.fail(
+                  unavailable("The Pay state could not be sealed.")(cause)
+                ),
           PayStateIssueError: unavailable("The Pay state could not be sealed."),
         }),
         Effect.mapError((cause) =>

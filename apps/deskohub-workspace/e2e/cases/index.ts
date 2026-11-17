@@ -163,7 +163,6 @@ export const makeWorkspaceE2ECases = ({
             assertPaymentTerminalPath({
               config,
               data,
-              reservationPath: "/en-US/reservation/cowork",
               runStep,
               scenario,
               openSession,

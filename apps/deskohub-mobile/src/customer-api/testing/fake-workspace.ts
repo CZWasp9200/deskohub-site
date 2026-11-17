@@ -21,6 +21,7 @@ import {
   CustomerMarketingPreferencesRejected,
   type CustomerOrderStatus,
   CustomerPaymentPageClosed,
+  CustomerPaymentRetryRefused,
   type CustomerProfile,
   type CustomerProfileSave,
   CustomerRateLimited,
@@ -683,6 +684,20 @@ const serverLayer = (workspace: FakeWorkspace) => {
             order(params.orderId),
             Effect.fail(
               new CustomerPaymentPageClosed({ reason: "no_active_attempt" })
+            )
+          )
+        )
+        // No sample payment ended unpaid: a paid order answers as paid, any
+        // other as one whose reservation has ended, so the app books again.
+        .handle("retryPayment", ({ params }) =>
+          Effect.flatMap(order(params.orderId), (found) =>
+            Effect.fail(
+              new CustomerPaymentRetryRefused({
+                reason:
+                  found.state.paymentStatus === "paid"
+                    ? "paid"
+                    : "reservation_ended",
+              })
             )
           )
         )

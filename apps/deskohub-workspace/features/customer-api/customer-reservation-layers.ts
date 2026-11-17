@@ -6,8 +6,8 @@ import { ReservationInvoicePdfService } from "@/features/accounting/backend/rese
 import { CheckoutPaymentPageService } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
 import { CheckoutPaymentRetryService } from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
 import { CheckoutStatusService } from "@/features/checkout/backend/checkout/checkout-status.service";
-import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReferralReleaseGateForRun } from "@/features/referrals/referral-release-gate-run";
+import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 
 type AuthorizationLayerError = Layer.Error<

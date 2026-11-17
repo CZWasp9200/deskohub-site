@@ -36,12 +36,12 @@ import { postgresUuidV7 } from "@/db/uuid-v7";
 import { WorkspaceLocks } from "@/db/workspace-locks";
 import type { CustomerAgentClientId } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import { newestPaymentAttemptIdOf } from "@/features/checkout/backend/repositories/newest-payment-attempt";
 import type {
   CheckoutAttemptKey,
   CheckoutSessionKey,
   PaymentAttemptId,
 } from "@/features/checkout/checkout-identifiers";
-import { newestPaymentAttemptIdOf } from "@/features/checkout/backend/repositories/newest-payment-attempt";
 import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
 import type { DiscountClaimError } from "@/features/discounts/errors";
 import { PromotionClaims } from "@/features/discounts/promotion-claims";

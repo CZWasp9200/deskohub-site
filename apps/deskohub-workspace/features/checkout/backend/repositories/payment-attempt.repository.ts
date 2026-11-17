@@ -13,13 +13,13 @@ import {
 } from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
-import { newestPaymentAttemptsFirst } from "./newest-payment-attempt";
 import {
   type ReadLimitExceededError,
   readLimitSentinel,
   requireWithinReadLimit,
 } from "@/shared/backend/read-limit";
 import { type Money, moneyWithValue } from "@/shared/money/money";
+import { newestPaymentAttemptsFirst } from "./newest-payment-attempt";
 
 export const toPaymentAttempt = (attempt: PaymentAttemptRow) => {
   const { amountExponent, amountValue, currency, ...paymentAttempt } = attempt;
