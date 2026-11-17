@@ -47,6 +47,11 @@ export const CustomerCheckoutSummaryItem = Schema.Struct({
    */
   seatAmount: Schema.optionalKey(Money),
   /**
+   * Office product line only: every seat's price for the days booked; with
+   * `accessAmount` it makes the line's price before discounts.
+   */
+  seatsAmount: Schema.optionalKey(Money),
+  /**
    * Workstation line only: the monitor setup the workstation is configured
    * with. It is part of the line, not a line of its own.
    */

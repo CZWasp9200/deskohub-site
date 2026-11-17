@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type {
+  CustomerCheckoutSummary,
+  CustomerCheckoutSummaryItem,
+} from "@deskohub/workspace-customer-api";
 import {
   type PriceLine,
   priceBreakdown,
@@ -79,6 +83,39 @@ describe("priceBreakdown", () => {
         amount: { value: 567_000, exponent: 2, currency: "CZK" },
       },
     ]);
+  });
+
+  const officeLineWith = (
+    change: (item: CustomerCheckoutSummaryItem) => CustomerCheckoutSummaryItem
+  ): CustomerCheckoutSummary => ({
+    ...officeSixSeats.summary,
+    sections: officeSixSeats.summary.sections.map((section) => ({
+      ...section,
+      items: section.items.map((item) =>
+        item.key === "product:office:6:3" ? change(item) : item
+      ),
+    })),
+  });
+
+  test("shows the seats total the answer gives rather than multiplying a seat's price", () => {
+    const { lines } = priceBreakdown(
+      officeLineWith((item) => ({
+        ...item,
+        seatsAmount: { value: 500_000, exponent: 2, currency: "CZK" },
+      }))
+    );
+    expect(lines.find((line) => line.key.endsWith(":seats"))?.amount).toEqual({
+      value: 500_000,
+      exponent: 2,
+      currency: "CZK",
+    });
+  });
+
+  test("keeps an office line whole when the answer has no seats total", () => {
+    const { lines } = priceBreakdown(
+      officeLineWith(({ seatsAmount: _seatsAmount, ...item }) => item)
+    );
+    expect(lines.map((line) => line.key)).toEqual(["product:office:6:3"]);
   });
 
   test("follows a discounted office's parts with its discount", () => {

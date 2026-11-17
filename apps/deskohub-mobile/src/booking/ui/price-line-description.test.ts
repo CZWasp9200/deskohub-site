@@ -1,9 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { CustomerBookingSelection } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerBookingSelection,
+  Money,
+} from "@deskohub/workspace-customer-api";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
+import { formatMoney } from "../../i18n/money-format";
 import { productLabel } from "../checkout-screen/checkout-copy";
-import { type PriceLine, priceBreakdown } from "./price-breakdown";
+import {
+  type PriceLine,
+  type PriceLineSubject,
+  priceBreakdown,
+} from "./price-breakdown";
 import {
   describeOfficePriceLine,
   describePriceLine,
@@ -38,7 +46,7 @@ describe("describePriceLine", () => {
         "product:cowork:open-space",
         {
           label: productLabel(openSpaceWithCoffee.selection, locale),
-          detail: m.booking_price_line_one_day({}, { locale }),
+          detail: m.booking_price_line_days({ count: 1 }, { locale }),
         },
       ],
       [
@@ -104,23 +112,17 @@ describe("describePriceLine", () => {
         "product:office:6:3:access",
         {
           label: productLabel(officeSixSeatsDiscounted.selection, locale),
-          detail: m.booking_checkout_summary_office_days(
-            { count: 3 },
-            { locale }
-          ),
+          detail: m.booking_price_line_days({ count: 3 }, { locale }),
         },
       ],
       [
         "product:office:6:3:seats",
         {
-          label: m.booking_checkout_summary_office_seats(
-            { count: 6 },
-            { locale }
-          ),
-          detail: m.booking_checkout_summary_office_days(
-            { count: 3 },
-            { locale }
-          ),
+          label: m.booking_checkout_line_office_seats({}, { locale }),
+          detail: [
+            m.booking_price_line_seats({ count: 6 }, { locale }),
+            m.booking_price_line_days({ count: 3 }, { locale }),
+          ].join(" × "),
         },
       ],
       [
@@ -128,6 +130,48 @@ describe("describePriceLine", () => {
         { label: "Office discount" },
       ],
     ]);
+  });
+
+  test("multiplies an office's counts by the daily rate the quote gives", () => {
+    const rate = (value: number): Money => ({
+      value,
+      exponent: 0,
+      currency: "CZK",
+    });
+    const describe = describeOfficePriceLine(locale, "Private office");
+    const charge = (subject: PriceLineSubject): PriceLine => ({
+      _tag: "Charge",
+      key: subject._tag,
+      subject,
+      amount: rate(0),
+    });
+
+    expect(
+      describe(
+        charge({ _tag: "OfficeAccess", dayCount: 3, dailyRate: rate(530) })
+      ).detail
+    ).toBe(
+      [
+        m.booking_price_line_days({ count: 3 }, { locale }),
+        formatMoney(rate(530), locale),
+      ].join(" × ")
+    );
+    expect(
+      describe(
+        charge({
+          _tag: "OfficeSeats",
+          seats: 6,
+          dayCount: 3,
+          dailySeatRate: rate(315),
+        })
+      ).detail
+    ).toBe(
+      [
+        m.booking_price_line_seats({ count: 6 }, { locale }),
+        m.booking_price_line_days({ count: 3 }, { locale }),
+        formatMoney(rate(315), locale),
+      ].join(" × ")
+    );
   });
 
   test("names an office's lines before a selection the way it names them once quoted", () => {
@@ -174,5 +218,53 @@ describe("describePriceLine for an overnight stay", () => {
     expect(detail(overnight)).not.toBe(
       detail(reservedDeskWithWorkstation.selection)
     );
+  });
+});
+
+// One, few and many as Czech counts them (1, 2–4, 5 and up); English has
+// one and other. Each plural form is a different text, and a count reads in
+// the same form in an office's access and seats lines.
+describe.each([
+  ["cs-CZ", [1, 3, 5]],
+  ["en-US", [1, 3]],
+] as const)("an office's counts in %s", (countLocale, counts) => {
+  const describe = describeOfficePriceLine(countLocale, "Private office");
+  const detailFor = (subject: PriceLineSubject) =>
+    describe({
+      _tag: "Charge",
+      key: subject._tag,
+      subject,
+      amount: { value: 0, exponent: 0, currency: "CZK" },
+    }).detail;
+
+  test("read each plural form differently", () => {
+    const days = counts.map((count) =>
+      detailFor({ _tag: "OfficeAccess", dayCount: count })?.replace(
+        String(count),
+        "#"
+      )
+    );
+    const seats = counts.map((count) =>
+      detailFor({ _tag: "OfficeSeats", seats: count, dayCount: 1 })
+        ?.split(" × ")[0]
+        ?.replace(String(count), "#")
+    );
+    expect(new Set(days).size).toBe(counts.length);
+    expect(new Set(seats).size).toBe(counts.length);
+  });
+
+  test("read counts of the same form alike", () => {
+    const sameForm = (first: number, second: number) =>
+      [first, second].map((count) =>
+        detailFor({ _tag: "OfficeAccess", dayCount: count })?.replace(
+          String(count),
+          "#"
+        )
+      );
+    const [first, second] = sameForm(
+      counts.at(-1) ?? 0,
+      (counts.at(-1) ?? 0) + 1
+    );
+    expect(first).toBe(second);
   });
 });

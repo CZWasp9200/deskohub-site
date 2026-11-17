@@ -93,8 +93,8 @@ export type OrderChecking = "checking" | "stopped";
 /**
  * How the customer can still pay an unpaid order: its payment page can be
  * opened again (the server's `paymentPageReopenable` on its latest read,
- * unless reopening was refused since), and a failed or cancelled payment can
- * be retried in place until the server refuses the retry.
+ * unless reopening was refused since), and a failed, cancelled or expired
+ * payment can be retried in place until the server refuses the retry.
  */
 export interface PaymentRecovery {
   readonly pageReopenable: boolean;
@@ -248,9 +248,7 @@ export const bookingTicketOf = (
     paid_delivery_delayed: () => confirmed("email-late"),
     fulfilled: () => confirmed(),
     payment_failed: () => notBooked("payment-failed", "not-charged", retry),
-    // The website also retries an expired payment; the owner's decision
-    // offers the retry for a failed or cancelled one.
-    expired: () => notBooked("time-ran-out", "not-charged"),
+    expired: () => notBooked("time-ran-out", "not-charged", retry),
     cancelled: () => notBooked("cancelled", "not-charged", retry),
     late_payment_checking: () =>
       underWay(

@@ -38,6 +38,7 @@ describe("checkout summary schemas", () => {
       seats: 3,
       accessAmount: money(106_000),
       seatAmount: money(63_000),
+      seatsAmount: money(189_000),
       amount: money(295_000),
     };
 

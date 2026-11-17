@@ -18,6 +18,7 @@ const officeCheckoutSummaryProductItemBaseSchema = Schema.Struct({
   seats: officeSeatsSchema,
   accessAmount: positiveMoneyCodec,
   seatAmount: positiveMoneyCodec,
+  seatsAmount: positiveMoneyCodec,
 });
 
 const officeProductDetailsFilter = Schema.makeFilter(
