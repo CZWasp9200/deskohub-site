@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import type { Page } from "@playwright/test";
 import { Cause, Effect, Exit, Fiber } from "effect";
+import { outcomeOf } from "@/shared/testing/promise-outcome.test-utils";
 import {
   identifierNames,
   parseTrackedSource,
@@ -728,18 +729,20 @@ describe("workspace marketing preferences helper", () => {
       accountRouteUrl
     );
 
-    await expect(
-      navigateAuthenticatedWorkspaceE2EMarketingPreferences(
+    expect(
+      await navigateAuthenticatedWorkspaceE2EMarketingPreferences(
         landed.page,
         accountLegalUrl
       )
-    ).resolves.toBeUndefined();
-    await expect(
-      navigateAuthenticatedWorkspaceE2EMarketingPreferences(
-        redirected.page,
-        accountLegalUrl
+    ).toBeUndefined();
+    expect(
+      await outcomeOf(
+        navigateAuthenticatedWorkspaceE2EMarketingPreferences(
+          redirected.page,
+          accountLegalUrl
+        )
       )
-    ).rejects.toThrow("not the expected clean legal URL");
+    ).toThrow("not the expected clean legal URL");
   });
 
   test("turns navigation failures into a fixed error without a cause or raw URL", async () => {

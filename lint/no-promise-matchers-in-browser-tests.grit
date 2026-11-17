@@ -1,0 +1,29 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// Under `bun test`, `expect(promise).resolves` and `.rejects` settle a
+// Playwright promise up to seconds late, so the rule covers every Workspace
+// Bun test file and test helper (`*.test-utils.ts`) that imports Playwright.
+// Playwright runner specs (`*.pw.ts`) run on Node with Playwright's own
+// `expect` and stay out of scope.
+file($name, $body) where {
+  $name <: r".*apps/deskohub-workspace/.*\.test(?:-utils)?\.(?:ts|tsx)$",
+  $body <: r"(?s).*\b(?:resolves|rejects)\b.*",
+  $body <: r"(?s).*\bfrom\s*[\"'](?:playwright|playwright-core|@playwright/test)[\"'].*",
+  $body <: contains bubble {
+    // `expect(promise).resolves` and `expect(promise).not.resolves`; a plain
+    // property such as `counts.rejects` has no call before it.
+    JsStaticMemberExpression(object = $object, member = $member) where {
+      $member <: r"^(?:resolves|rejects)$",
+      $object <: or {
+        JsCallExpression(),
+        JsStaticMemberExpression(object = JsCallExpression(), member = r"^not$")
+      },
+      register_diagnostic(
+        span = $member,
+        message = "Await the promise before asserting: use expect(await promise), or outcomeOf or rejectionOf from @/shared/testing/promise-outcome.test-utils; under bun test, .resolves and .rejects settle Playwright promises up to seconds late.",
+        severity = "error"
+      )
+    }
+  }
+}

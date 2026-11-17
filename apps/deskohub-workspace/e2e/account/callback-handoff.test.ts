@@ -11,6 +11,10 @@ import * as fsPromises from "node:fs/promises";
 import { resolve } from "node:path";
 import type * as Playwright from "@playwright/test";
 import { encodeAuthCallbackReturn } from "@/features/account/routes";
+import {
+  outcomeOf,
+  rejectionOf,
+} from "@/shared/testing/promise-outcome.test-utils";
 import { workspaceE2ETimeouts } from "../timeouts";
 
 const baseUrl = "https://deskohub-workspace-review.example.test";
@@ -511,11 +515,13 @@ describe("account callback handoff review", () => {
   test("aborts capture when the case returns before the handler", async () => {
     const fakePage = makeCallbackFakePage();
 
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => {
-        void fakePage.dispatch(accountUrl);
-      })
-    ).rejects.toThrow(callbackHandoffFailureMessage);
+    expect(
+      await outcomeOf(
+        withCallbackHandoffReview(fakePage.page, review, async () => {
+          void fakePage.dispatch(accountUrl);
+        })
+      )
+    ).toThrow(callbackHandoffFailureMessage);
 
     expect(fakePage.screenshotCalls).toHaveLength(0);
     expect(fakePage.continueCallCount()).toBe(1);
@@ -549,7 +555,7 @@ describe("account callback handoff review", () => {
         }
       );
 
-      await expect(wrapped).rejects.toBe(runCaseFailure);
+      expect(await rejectionOf(wrapped)).toBe(runCaseFailure);
       expect(fakePage.screenshotCalls).toHaveLength(1);
       expect(fakePage.continueCallCount()).toBe(1);
       expect(fakePage.unrouteCallCount()).toBe(1);
@@ -625,11 +631,13 @@ describe("account callback handoff review", () => {
     test(`rejects ${name}`, async () => {
       const fakePage = makeCallbackFakePage();
 
-      await expect(
-        withCallbackHandoffReview(fakePage.page, review, async () => {
-          await fakePage.dispatch(accountUrl, requestOverrides);
-        })
-      ).rejects.toThrow(callbackHandoffFailureMessage);
+      expect(
+        await outcomeOf(
+          withCallbackHandoffReview(fakePage.page, review, async () => {
+            await fakePage.dispatch(accountUrl, requestOverrides);
+          })
+        )
+      ).toThrow(callbackHandoffFailureMessage);
 
       expect(fakePage.screenshotCalls).toHaveLength(0);
       expect(fakePage.continueCallCount()).toBe(1);
@@ -685,15 +693,17 @@ describe("account callback handoff review", () => {
     documentReviewControl.failValidate = true;
     documentReviewControl.timeline = fakePage.events() as string[];
 
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => {
-        await fakePage.dispatch(accountUrl, {
-          headers: {},
-          isNavigationRequest: true,
-          resourceType: "document",
-        });
-      })
-    ).rejects.toThrow(callbackHandoffFailureMessage);
+    expect(
+      await outcomeOf(
+        withCallbackHandoffReview(fakePage.page, review, async () => {
+          await fakePage.dispatch(accountUrl, {
+            headers: {},
+            isNavigationRequest: true,
+            resourceType: "document",
+          });
+        })
+      )
+    ).toThrow(callbackHandoffFailureMessage);
 
     expect(fakePage.events().indexOf("continue")).toBeLessThan(
       fakePage.events().indexOf("adapter-dispose")
@@ -712,15 +722,17 @@ describe("account callback handoff review", () => {
     documentReviewControl.failValidateFromCall = 3;
     documentReviewControl.timeline = fakePage.events() as string[];
 
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => {
-        await fakePage.dispatch(accountUrl, {
-          headers: {},
-          isNavigationRequest: true,
-          resourceType: "document",
-        });
-      })
-    ).rejects.toThrow(callbackHandoffFailureMessage);
+    expect(
+      await outcomeOf(
+        withCallbackHandoffReview(fakePage.page, review, async () => {
+          await fakePage.dispatch(accountUrl, {
+            headers: {},
+            isNavigationRequest: true,
+            resourceType: "document",
+          });
+        })
+      )
+    ).toThrow(callbackHandoffFailureMessage);
 
     // Calls 1-2 passed (pre-capture and pre-mkdir); only the final
     // revalidation before the write observes the invalidated context.
@@ -769,11 +781,13 @@ describe("account callback handoff review", () => {
     test(`rejects ${name} before capture`, async () => {
       const fakePage = makeCallbackFakePage();
 
-      await expect(
-        withCallbackHandoffReview(fakePage.page, review, async () => {
-          await fakePage.dispatch(accountUrl, { pageUrl });
-        })
-      ).rejects.toThrow(callbackHandoffFailureMessage);
+      expect(
+        await outcomeOf(
+          withCallbackHandoffReview(fakePage.page, review, async () => {
+            await fakePage.dispatch(accountUrl, { pageUrl });
+          })
+        )
+      ).toThrow(callbackHandoffFailureMessage);
 
       expect(fakePage.screenshotCalls).toHaveLength(0);
       expect(fakePage.continueCallCount()).toBe(1);
@@ -795,11 +809,13 @@ describe("account callback handoff review", () => {
     test(`rejects a held RSC handoff showing ${name}`, async () => {
       const fakePage = makeCallbackFakePage(options);
 
-      await expect(
-        withCallbackHandoffReview(fakePage.page, review, async () => {
-          await fakePage.dispatch(accountUrl);
-        })
-      ).rejects.toThrow(callbackHandoffFailureMessage);
+      expect(
+        await outcomeOf(
+          withCallbackHandoffReview(fakePage.page, review, async () => {
+            await fakePage.dispatch(accountUrl);
+          })
+        )
+      ).toThrow(callbackHandoffFailureMessage);
 
       expect(fakePage.screenshotCalls).toHaveLength(0);
       expect(writeFileSpy?.mock.calls).toHaveLength(0);
@@ -898,21 +914,23 @@ describe("account callback handoff review", () => {
     test(`does not hold the Czech destination ${name}`, async () => {
       const fakePage = makeCallbackFakePage({ card: czechCard });
 
-      await expect(
-        withCallbackHandoffReview(
-          fakePage.page,
-          review,
-          async () => {
-            await fakePage.dispatch(`${baseUrl}${destination}`, {
-              headers: {},
-              isNavigationRequest: true,
-              pageUrl: czechCallbackUrl,
-              resourceType: "document",
-            });
-          },
-          czechExpectation
+      expect(
+        await outcomeOf(
+          withCallbackHandoffReview(
+            fakePage.page,
+            review,
+            async () => {
+              await fakePage.dispatch(`${baseUrl}${destination}`, {
+                headers: {},
+                isNavigationRequest: true,
+                pageUrl: czechCallbackUrl,
+                resourceType: "document",
+              });
+            },
+            czechExpectation
+          )
         )
-      ).rejects.toThrow(callbackHandoffFailureMessage);
+      ).toThrow(callbackHandoffFailureMessage);
 
       expect(documentReviewControl.validateCalls).toBe(0);
       expect(writeFileSpy?.mock.calls).toHaveLength(0);
@@ -946,18 +964,20 @@ describe("account callback handoff review", () => {
     test(`rejects the Czech handoff on ${name}`, async () => {
       const fakePage = makeCallbackFakePage(options);
 
-      await expect(
-        withCallbackHandoffReview(
-          fakePage.page,
-          review,
-          async () => {
-            await fakePage.dispatch(`${baseUrl}${selection}&_rsc=synthetic`, {
-              pageUrl,
-            });
-          },
-          czechExpectation
+      expect(
+        await outcomeOf(
+          withCallbackHandoffReview(
+            fakePage.page,
+            review,
+            async () => {
+              await fakePage.dispatch(`${baseUrl}${selection}&_rsc=synthetic`, {
+                pageUrl,
+              });
+            },
+            czechExpectation
+          )
         )
-      ).rejects.toThrow(callbackHandoffFailureMessage);
+      ).toThrow(callbackHandoffFailureMessage);
 
       expect(fakePage.screenshotCalls).toHaveLength(0);
       expect(writeFileSpy?.mock.calls).toHaveLength(0);
@@ -969,16 +989,18 @@ describe("account callback handoff review", () => {
     const fakePage = makeCallbackFakePage({ card: czechCard });
     let runCaseCalls = 0;
 
-    await expect(
-      withCallbackHandoffReview(
-        fakePage.page,
-        review,
-        async () => {
-          runCaseCalls += 1;
-        },
-        { ...czechExpectation, returnTo: "//evil.example/cs-CZ" }
+    expect(
+      await outcomeOf(
+        withCallbackHandoffReview(
+          fakePage.page,
+          review,
+          async () => {
+            runCaseCalls += 1;
+          },
+          { ...czechExpectation, returnTo: "//evil.example/cs-CZ" }
+        )
       )
-    ).rejects.toThrow(callbackHandoffFailureMessage);
+    ).toThrow(callbackHandoffFailureMessage);
 
     expect(runCaseCalls).toBe(0);
     expect(fakePage.routeInstallArguments).toHaveLength(0);
@@ -987,9 +1009,11 @@ describe("account callback handoff review", () => {
   test("fails closed when no qualifying request is observed", async () => {
     const fakePage = makeCallbackFakePage();
 
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => undefined)
-    ).rejects.toThrow(callbackHandoffFailureMessage);
+    expect(
+      await outcomeOf(
+        withCallbackHandoffReview(fakePage.page, review, async () => undefined)
+      )
+    ).toThrow(callbackHandoffFailureMessage);
 
     expect(fakePage.screenshotCalls).toHaveLength(0);
     expect(fakePage.unrouteCallCount()).toBe(1);
@@ -1018,7 +1042,9 @@ describe("account callback handoff review", () => {
           );
           await fakePage.routeStarted;
           await advanceTo(workspaceE2ETimeouts.browserAction);
-          await expect(wrapped).rejects.toThrow(callbackHandoffFailureMessage);
+          expect(await outcomeOf(wrapped)).toThrow(
+            callbackHandoffFailureMessage
+          );
 
           expect(runCaseCalls).toBe(0);
           expect(fakePage.unrouteCallCount()).toBe(1);
@@ -1049,11 +1075,13 @@ describe("account callback handoff review", () => {
     ]) {
       const fakePage = makeCallbackFakePage(options);
 
-      await expect(
-        withCallbackHandoffReview(fakePage.page, review, async () => {
-          await fakePage.dispatch(accountUrl);
-        })
-      ).rejects.toThrow(callbackHandoffFailureMessage);
+      expect(
+        await outcomeOf(
+          withCallbackHandoffReview(fakePage.page, review, async () => {
+            await fakePage.dispatch(accountUrl);
+          })
+        )
+      ).toThrow(callbackHandoffFailureMessage);
 
       expect(fakePage.continueCallCount()).toBe(1);
       expect(fakePage.unrouteCallCount()).toBe(1);
@@ -1067,12 +1095,14 @@ describe("account callback handoff review", () => {
     });
     const runCaseFailure = new Error("original run case failure");
 
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => {
-        await fakePage.dispatch(accountUrl);
-        throw runCaseFailure;
-      })
-    ).rejects.toBe(runCaseFailure);
+    expect(
+      await rejectionOf(
+        withCallbackHandoffReview(fakePage.page, review, async () => {
+          await fakePage.dispatch(accountUrl);
+          throw runCaseFailure;
+        })
+      )
+    ).toBe(runCaseFailure);
 
     expect(fakePage.continueCallCount()).toBe(1);
     expect(fakePage.unrouteCallCount()).toBe(1);
@@ -1081,11 +1111,13 @@ describe("account callback handoff review", () => {
   test("catches loading DOM removal before forwarding", async () => {
     const fakePage = makeCallbackFakePage({ loadingConnected: false });
 
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => {
-        await fakePage.dispatch(accountUrl);
-      })
-    ).rejects.toThrow(callbackHandoffFailureMessage);
+    expect(
+      await outcomeOf(
+        withCallbackHandoffReview(fakePage.page, review, async () => {
+          await fakePage.dispatch(accountUrl);
+        })
+      )
+    ).toThrow(callbackHandoffFailureMessage);
 
     expect(fakePage.events().indexOf("dom-check")).toBeLessThan(
       fakePage.events().indexOf("continue")
@@ -1101,11 +1133,13 @@ describe("account callback handoff review", () => {
         onFontsReady: () => clock.advanceTo(workspaceE2ETimeouts.browserAction),
       });
 
-      await expect(
-        withCallbackHandoffReview(fakePage.page, review, async () => {
-          await fakePage.dispatch(accountUrl);
-        })
-      ).rejects.toThrow(callbackHandoffFailureMessage);
+      expect(
+        await outcomeOf(
+          withCallbackHandoffReview(fakePage.page, review, async () => {
+            await fakePage.dispatch(accountUrl);
+          })
+        )
+      ).toThrow(callbackHandoffFailureMessage);
 
       expect(fakePage.waitTimeouts.length).toBeGreaterThan(0);
       expect(
@@ -1166,7 +1200,7 @@ describe("account callback handoff review", () => {
           await advanceTo(workspaceE2ETimeouts.cleanupAction - 1);
           expect(settled).toBe(false);
           await advanceTo(workspaceE2ETimeouts.cleanupAction);
-          await expect(wrapped).rejects.toBe(runCaseFailure);
+          expect(await rejectionOf(wrapped)).toBe(runCaseFailure);
           expect(fakePage.continueCallCount()).toBe(1);
           expect(fakePage.unrouteCallCount()).toBe(1);
           expect(unhandledRejections).toHaveLength(0);

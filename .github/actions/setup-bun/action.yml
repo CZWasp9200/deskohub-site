@@ -3,7 +3,7 @@ description: Install a pinned Bun release from the Bun release cache, or from a 
 
 inputs:
   bun-version:
-    description: Exact Bun version to install, such as 1.4.2
+    description: Exact Bun version to install, such as 1.4.4
     required: true
   bun-sha256:
     description: SHA-256 of that release's bun-linux-x64.zip, as its SHASUMS256.txt lists it
