@@ -280,6 +280,19 @@ describe("sign-in attempts", () => {
 
     expect(await completed([attempt])).toBe(false);
   });
+
+  test("keep the link's lifetime when completed late", async () => {
+    const { sendForApp, verifyInApp, completed } = attemptsFor();
+    const sentAt = Date.now();
+    const { attempt, link } = await sendForApp();
+
+    setSystemTime(new Date(sentAt + 9 * 60 * 1000));
+    expect((await verifyInApp(link)).status).toBe(200);
+    expect(await completed([attempt])).toBe(true);
+
+    setSystemTime(new Date(sentAt + 10 * 60 * 1000 + 1000));
+    expect(await completed([attempt])).toBe(false);
+  });
 });
 
 describe("the sign-in attempt status", () => {

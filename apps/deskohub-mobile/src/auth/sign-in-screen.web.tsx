@@ -205,15 +205,36 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     }
   }, [finished, returnPath]);
 
+  // A passkey sign-in being finished routes on once it is done, so the
+  // session it created doesn't redirect before then.
+  const finishingPasskey = passkey.state.status === "running";
+
+  const continueAs =
+    session.status === "signed-in" &&
+    Option.isSome(nativeRequest) &&
+    !reauthenticate &&
+    !useAnotherAccount &&
+    !finishingPasskey &&
+    isFreshSignIn(session.signedInAt, Date.now()) &&
+    handoff.state.status !== "failed"
+      ? session.user.email
+      : undefined;
+  const step = signInStep(continueAs, sent);
+
   // While the page opened by the app waits on the email, it asks whether the
   // email's link signed in in the app, until the newest link expires. It
-  // stops once it finishes a sign-in itself or checks a code.
+  // asks only on the code and link steps, and stops once it checks a code,
+  // hands off, or finishes a sign-in itself, so it never closes the page
+  // during its own hand-off.
   const waitingForEmail =
     openedByApp &&
     sent !== undefined &&
+    (step === "code" || step === "link") &&
     attempts.length > 0 &&
     finished === undefined &&
     verify.state.status !== "running" &&
+    handoff.state.status !== "running" &&
+    !finishingPasskey &&
     !signedInInApp;
   const watchUntil = waitingForEmail
     ? sent.sentAt + Duration.toMillis(signInEmailLinkLifetime)
@@ -239,9 +260,6 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     };
   }, [watchUntil, attempts]);
 
-  // A passkey sign-in being finished routes on once it is done, so the
-  // session it created doesn't redirect before then.
-  const finishingPasskey = passkey.state.status === "running";
   if (
     session.status === "signed-in" &&
     Option.isNone(nativeRequest) &&
@@ -251,18 +269,6 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
   ) {
     return <Redirect href={returnPath} />;
   }
-
-  const continueAs =
-    session.status === "signed-in" &&
-    Option.isSome(nativeRequest) &&
-    !reauthenticate &&
-    !useAnotherAccount &&
-    !finishingPasskey &&
-    isFreshSignIn(session.signedInAt, Date.now()) &&
-    handoff.state.status !== "failed"
-      ? session.user.email
-      : undefined;
-  const step = signInStep(continueAs, sent);
 
   const failure = firstFailure(
     handoff.state,

@@ -57,6 +57,8 @@ let emailAnswers: Array<Answer> = [];
 let codeAnswers: Array<Answer> = [];
 let statusAnswers: Array<Answer> = [];
 let statusAsked: Array<unknown> = [];
+/** The hand-off mint's answer when a test holds it; else a server failure. */
+let mintAnswer: Promise<Answer> | undefined;
 let emailsSent = 0;
 let emailedTo: Array<string> = [];
 const next = (answers: Array<Answer>) => {
@@ -68,6 +70,7 @@ const next = (answers: Array<Answer>) => {
 mock.module("./auth-client.web", () => ({
   authClient: {
     $fetch: async (path: string, init?: { readonly body?: unknown }) => {
+      if (path === "/native-handoff/mint" && mintAnswer) return mintAnswer;
       if (path !== "/sign-in-attempt/status") return refused({ status: 500 });
       statusAsked.push(init?.body);
       return statusAnswers.shift() ?? ok({ completed: false });
@@ -153,6 +156,7 @@ describe("the web SignInScreen", () => {
     codeAnswers = [];
     statusAnswers = [];
     statusAsked = [];
+    mintAnswer = undefined;
     emailsSent = 0;
     emailedTo = [];
     passkeyOption.mockClear();
@@ -406,6 +410,30 @@ describe("the web SignInScreen", () => {
     codeAnswers.push(refused({ status: 400, code: "INVALID_OTP" }));
     await runInPage(() => shownStep(AppSignInCodeStep).onSubmit("000000"));
     await settle(() => shownStep(AppSignInCodeStep).invalid);
+  });
+
+  test("a page handing off itself stops asking, so it never closes mid hand-off", async () => {
+    await toCode(codeWithAttempt());
+    session = {
+      status: "signed-in",
+      user: { id: "user", email: testEmailAddress("app") },
+      signedInAt: new Date(),
+    };
+    await show();
+    let answerMint: (answer: Answer) => void = () => undefined;
+    mintAnswer = new Promise((resolve) => {
+      answerMint = resolve;
+    });
+    await runInPage(() => shownStep(AppSignInContinueStep).onContinue());
+    await settle(() => shownStep(AppSignInContinueStep).continuing);
+
+    statusAnswers.push(ok({ completed: true }));
+    await comesBackIntoView();
+
+    expect(statusAsked).toEqual([]);
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(Option.isSome(loadNativeHandoffRequest(Date.now()))).toBe(true);
+    answerMint(refused({ status: 500 }));
   });
 
   test("a resend asks about every email of the visit; starting over forgets them", async () => {

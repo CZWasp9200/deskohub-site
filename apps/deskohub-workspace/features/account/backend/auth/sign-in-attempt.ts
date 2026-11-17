@@ -60,7 +60,16 @@ const completedIdentifier = (attemptDigest: string) =>
 
 const createRow = (
   rows: SignInAttemptRows,
-  { identifier, value }: { readonly identifier: string; readonly value: string }
+  {
+    identifier,
+    value,
+    expiresAt,
+  }: {
+    readonly identifier: string;
+    readonly value: string;
+    /** Defaults to a full link lifetime from now. */
+    readonly expiresAt?: Date;
+  }
 ) =>
   store(() => {
     const now = Date.now();
@@ -69,7 +78,7 @@ const createRow = (
       data: {
         identifier,
         value,
-        expiresAt: new Date(now + attemptLifetimeMs),
+        expiresAt: expiresAt ?? new Date(now + attemptLifetimeMs),
         createdAt: new Date(now),
         updatedAt: new Date(now),
       },
@@ -126,14 +135,16 @@ const completeLinkAttempt = Effect.fn("SignInAttempt.completeLink")(function* ({
       where: [{ field: "identifier", value: identifier }],
     })
   );
-  const attemptDigest = Option.fromNullishOr(link).pipe(
-    Option.filter(({ expiresAt }) => new Date(expiresAt) > new Date()),
-    Option.map(({ value }) => value)
+  const live = Option.fromNullishOr(link).pipe(
+    Option.filter(({ expiresAt }) => new Date(expiresAt) > new Date())
   );
-  if (Option.isNone(attemptDigest)) return;
+  if (Option.isNone(live)) return;
+  // The answer lasts as long as the attempt's link would have: completing
+  // it never extends the attempt.
   yield* createRow(rows, {
-    identifier: completedIdentifier(attemptDigest.value),
+    identifier: completedIdentifier(live.value.value),
     value: "completed",
+    expiresAt: new Date(live.value.expiresAt),
   });
   yield* store(() =>
     rows.deleteMany({
