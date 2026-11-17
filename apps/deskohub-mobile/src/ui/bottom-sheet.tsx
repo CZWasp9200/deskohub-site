@@ -3,6 +3,7 @@ import {
   Animated,
   Easing,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,15 +20,23 @@ const slideMs = 240;
 
 /**
  * The space under a sheet's content: clear of the on-screen keyboard while
- * it's up, else of the bottom safe area.
+ * it's up, else of the bottom safe area. Android reports the keyboard's
+ * height above the navigation bar, which the edge-to-edge sheet still has to
+ * clear; iOS reports it from the screen's bottom edge.
  */
 export const sheetBottomInset = ({
   safeAreaBottom,
   keyboardHeight,
+  platform,
 }: {
   readonly safeAreaBottom: number;
   readonly keyboardHeight: number;
-}) => (keyboardHeight > 0 ? keyboardHeight : safeAreaBottom) + space.sm;
+  readonly platform: typeof Platform.OS;
+}) =>
+  (keyboardHeight === 0
+    ? safeAreaBottom
+    : keyboardHeight + (platform === "android" ? safeAreaBottom : 0)) +
+  space.sm;
 
 /**
  * A white sheet that slides up from the bottom over the navy scrim, for
@@ -100,6 +109,7 @@ export function BottomSheet({
               paddingBottom: sheetBottomInset({
                 safeAreaBottom: insets.bottom,
                 keyboardHeight,
+                platform: Platform.OS,
               }),
             },
             {

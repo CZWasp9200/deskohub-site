@@ -102,12 +102,28 @@ describe("BottomSheet", () => {
   });
 
   test("the sheet's bottom clears the keyboard while it's up, else the safe area", () => {
-    expect(sheetBottomInset({ safeAreaBottom: 20, keyboardHeight: 0 })).toBe(
-      20 + space.sm
-    );
-    expect(sheetBottomInset({ safeAreaBottom: 20, keyboardHeight: 300 })).toBe(
-      300 + space.sm
-    );
+    for (const platform of ["ios", "android"] as const) {
+      expect(
+        sheetBottomInset({ safeAreaBottom: 20, keyboardHeight: 0, platform })
+      ).toBe(20 + space.sm);
+    }
+    expect(
+      sheetBottomInset({
+        safeAreaBottom: 20,
+        keyboardHeight: 300,
+        platform: "ios",
+      })
+    ).toBe(300 + space.sm);
+  });
+
+  test("on Android the keyboard's height sits on top of the navigation bar", () => {
+    expect(
+      sheetBottomInset({
+        safeAreaBottom: 24,
+        keyboardHeight: 279,
+        platform: "android",
+      })
+    ).toBe(279 + 24 + space.sm);
   });
 
   test("without a title the content follows the handle", () => {
