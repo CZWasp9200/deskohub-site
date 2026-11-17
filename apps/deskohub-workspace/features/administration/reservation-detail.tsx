@@ -511,9 +511,11 @@ function ReservationAuthorFact({
                   />
                 </span>
               )}
-              <span className="mt-1 block break-all font-normal text-navy-blue/60">
-                {author.email}
-              </span>
+              {author.email && (
+                <span className="mt-1 block break-all font-normal text-navy-blue/60">
+                  {author.email}
+                </span>
+              )}
             </>
           ) : (
             {

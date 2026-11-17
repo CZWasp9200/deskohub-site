@@ -9,9 +9,10 @@ import {
 } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { testEmailAddress } from "@deskohub/test-email";
+import { AdministrationReservationAuthor } from "@deskohub/workspace-admin-api";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { Cause, Effect, Exit, Layer, Option } from "effect";
+import { Cause, Effect, Exit, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type ReservationAuthor,
@@ -3564,13 +3565,45 @@ describe("AdministrationService reservation author", () => {
         email: null,
         phone: null,
       });
-      // The author keeps their account's login email, which the API contract requires.
+      // The contract requires the author's email, so it is empty, never the login email.
       expect(detail?.author).toEqual({
         kind: "account",
         customerId: authorCustomerId,
         ...placeholder,
-        email: authorEmail,
+        email: "",
       });
+    }
+  );
+
+  test.each(["deleted", "expired"] as const)(
+    "keeps a %s author's login email off the administration API",
+    async (lifecycle) => {
+      const detail = await loadDetail({
+        accountId: authorAccountId,
+        customerFields:
+          lifecycle === "deleted"
+            ? { deleted: true }
+            : { expireDate: "2020-01-01T00:00:00Z" },
+        describe: describing({
+          kind: "active",
+          accountId: authorAccountId,
+          dotyposCustomerId: authorCustomerId,
+          email: authorEmail,
+          locale: null,
+        }),
+      });
+
+      const encoded = Schema.encodeSync(AdministrationReservationAuthor)(
+        detail?.author ?? { kind: "unavailable" }
+      );
+
+      expect(encoded).toEqual({
+        kind: "account",
+        customerId: authorCustomerId,
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        email: "",
+      });
+      expect(JSON.stringify(encoded)).not.toContain(authorEmail);
     }
   );
 

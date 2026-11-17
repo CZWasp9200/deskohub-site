@@ -440,7 +440,7 @@ type AdministrationReservationAuthor =
       readonly kind: "account";
       /** The author's own linked Dotypos customer, which names them. */
       readonly customerId: DotyposCustomerId | null;
-      /** The author's login email. */
+      /** The author's login email; empty when their customer is deleted or expired. */
       readonly email: string;
     })
   | { readonly kind: "deleted" }
@@ -1452,7 +1452,9 @@ export class AdministrationService extends Context.Service<
             kind: "account",
             customerId: author.dotyposCustomerId,
             ...name,
-            email: author.email,
+            // An inactive customer's contacts are never shown. The contract
+            // requires a string, so the login email becomes empty.
+            email: name.lifecycle === "active" ? author.email : "",
           } as const;
         },
         (effect, accountId) =>
