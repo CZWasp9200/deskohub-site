@@ -95,7 +95,7 @@ const chargeDescription = (
       return { label: m.booking_checkout_line_workstation({}, { locale }) };
     case "Monitor":
       return {
-        label: m.booking_price_line_monitor_setup({}, { locale }),
+        label: m.booking_checkout_line_workstation({}, { locale }),
         detail: monitorOptionName(subject.option),
       };
     case "Other":

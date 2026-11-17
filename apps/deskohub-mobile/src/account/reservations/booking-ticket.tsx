@@ -290,7 +290,11 @@ export function BookingSteps({
 
 const stepGlyphs = {
   done: { icon: Check, background: color.positiveInk, ink: color.white },
-  warning: { icon: TriangleAlert, background: color.warning, ink: "#3A2600" },
+  warning: {
+    icon: TriangleAlert,
+    background: color.warning,
+    ink: color.onWarning,
+  },
   failed: { icon: X, background: color.danger, ink: color.white },
 } as const;
 
@@ -453,7 +457,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   dash: {
-    borderColor: "#DDD7CB",
+    borderColor: color.perforation,
     borderStyle: "dashed",
     borderWidth: 1.5,
     height: 4,
@@ -490,7 +494,7 @@ const styles = StyleSheet.create({
     top: 26,
     width: 2,
   },
-  connectorDone: { backgroundColor: "#9FE3C8" },
+  connectorDone: { backgroundColor: color.stepConnectorDone },
   dot: {
     alignItems: "center",
     borderRadius: 12,

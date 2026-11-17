@@ -4,9 +4,8 @@ import {
   brandFonts,
   brandFontVariation,
 } from "@deskohub/brand-tokens";
-import { theme } from "../theme";
 import { localeTextStyle, textFontFamily } from "./text-style";
-import { typeScale } from "./tokens";
+import { color, typeScale } from "./tokens";
 
 describe("textFontFamily", () => {
   test("sets Latin-script locales in the brand face", () => {
@@ -25,7 +24,7 @@ describe("textFontFamily", () => {
 });
 
 describe("localeTextStyle", () => {
-  const body = { ...theme.type.bodyStrong, color: theme.colors.text };
+  const body = { ...typeScale.bodyStrong, color: color.navy };
 
   test("keeps a style as it is for a Latin-script locale", () => {
     expect(localeTextStyle(body, "de-DE")).toBe(body);
@@ -34,9 +33,9 @@ describe("localeTextStyle", () => {
   test("drops the brand face and its weight axis for another script", () => {
     expect(localeTextStyle([body, false, [{ marginTop: 4 }]], "uk-UA")).toEqual(
       {
-        color: theme.colors.text,
-        fontSize: theme.type.bodyStrong.fontSize,
-        fontWeight: brandFonts.weights.emphasis,
+        color: color.navy,
+        fontSize: typeScale.bodyStrong.fontSize,
+        fontWeight: typeScale.bodyStrong.fontWeight,
         marginTop: 4,
       }
     );

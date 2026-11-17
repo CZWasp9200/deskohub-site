@@ -16,7 +16,7 @@ import { ScrollScreen } from "../../../ui/scroll-screen";
 import { Text } from "../../../ui/text";
 import { color, radius, space } from "../../../ui/tokens";
 import { czk } from "../../testing/sample-booking-catalog";
-import { BookingBar, type BookingBarPrice } from "../booking-bar";
+import { BookingBar } from "../booking-bar";
 import { priceBreakdown } from "../price-breakdown";
 import { describePriceLine } from "../price-line-description";
 import { PriceLines } from "../price-lines";
@@ -25,24 +25,13 @@ import {
   officeSixSeats,
   officeSixSeatsDiscounted,
   openSpaceWithCoffee,
-  type PriceFixture,
   reservedDeskWithWorkstation,
 } from "../testing/price-fixtures";
+import { quotedPrice } from "./gallery-fixtures";
 
 type BarProps = ComponentProps<typeof BookingBar>;
 
 const noop = () => undefined;
-
-const quotedPrice = (
-  { selection, summary }: PriceFixture,
-  locale: AppLocale,
-  was?: PriceFixture["summary"]["total"]
-): BookingBarPrice => ({
-  kind: "quoted",
-  breakdown: priceBreakdown(summary),
-  describeLine: describePriceLine(selection, locale),
-  was,
-});
 
 /** Every bar state on boards 26–36, as fixture data. */
 const barStates = (
@@ -109,7 +98,7 @@ const barStates = (
       },
     },
     {
-      label: "Long Czech summary: only the grey line is cut",
+      label: "Long Czech summary: every line wraps",
       props: {
         locale: "cs-CZ",
         summary: {

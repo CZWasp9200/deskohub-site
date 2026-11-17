@@ -151,3 +151,28 @@ test("another account, an expired record or none continues nothing", () => {
   completeReauthentication(now);
   expect(take("ada")).toBe(false);
 });
+
+test("a confirmed reauthentication recorded for another purpose continues nothing", () => {
+  const stored = useMemoryStorage();
+  saveReauthenticatingUser(
+    { userId: "ada", returnPath: "/account/danger", purpose: "delete-account" },
+    now
+  );
+  completeReauthentication(now);
+  // The record as another screen's purpose would leave it.
+  let rewritten = 0;
+  for (const [key, value] of stored) {
+    const record: unknown = JSON.parse(value);
+    if (typeof record === "object" && record !== null && "purpose" in record) {
+      stored.set(key, JSON.stringify({ ...record, purpose: "add-passkey" }));
+      rewritten += 1;
+    }
+  }
+  expect(rewritten).toBe(1);
+  expect(
+    takeCompletedReauthentication(
+      { userId: "ada", purpose: "delete-account" },
+      now
+    )
+  ).toBe(false);
+});

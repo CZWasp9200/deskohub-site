@@ -3,8 +3,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAnalyticsConsent } from "../consent/use-analytics-consent";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
-import { theme } from "../theme";
 import { Text } from "../ui/text";
+import { color, radius, space, typeScale } from "../ui/tokens";
 import { updatePromptWaitsForConsent } from "./update-prompt";
 import { useUpdatePrompt } from "./use-update-prompt";
 
@@ -29,9 +29,9 @@ export function UpdateBanner() {
       style={[
         styles.overlay,
         {
-          paddingBottom: insets.bottom + theme.spacing.md,
-          paddingLeft: insets.left + theme.spacing.md,
-          paddingRight: insets.right + theme.spacing.md,
+          paddingBottom: insets.bottom + space.lg,
+          paddingLeft: insets.left + space.lg,
+          paddingRight: insets.right + space.lg,
         },
       ]}
     >
@@ -105,25 +105,25 @@ const styles = StyleSheet.create({
     right: 0,
   },
   card: {
-    backgroundColor: theme.colors.text,
-    borderRadius: theme.radius.md,
-    gap: theme.spacing.sm,
-    padding: theme.spacing.md,
+    backgroundColor: color.navy,
+    borderRadius: radius.field,
+    gap: space.sm,
+    padding: space.lg,
   },
-  message: { color: theme.colors.background, ...theme.type.body },
+  message: { color: color.paper, ...typeScale.body },
   actions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: theme.spacing.sm,
+    gap: space.sm,
     justifyContent: "flex-end",
   },
   action: {
-    borderRadius: theme.radius.md,
+    borderRadius: radius.field,
     justifyContent: "center",
     minHeight: 48,
-    paddingHorizontal: theme.spacing.md,
+    paddingHorizontal: space.lg,
   },
-  acceptAction: { backgroundColor: theme.colors.accent },
-  dismissLabel: { color: theme.colors.background, ...theme.type.body },
-  acceptLabel: { color: theme.colors.background, ...theme.type.bodyStrong },
+  acceptAction: { backgroundColor: color.action },
+  dismissLabel: { color: color.paper, ...typeScale.body },
+  acceptLabel: { color: color.paper, ...typeScale.bodyStrong },
 });

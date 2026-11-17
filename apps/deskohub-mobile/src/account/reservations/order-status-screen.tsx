@@ -62,6 +62,7 @@ import { invoiceShareAtom } from "./invoice-share";
 import { offersAccessLink, offersInvoice } from "./order-status-kind";
 import { focusGained, focusLost, orderStatusAtoms } from "./order-status-state";
 import { orderTicketView, reservationOfOrderAtom } from "./order-ticket-view";
+import { bookedSelectionOf } from "./payment-recovery";
 import { canRefreshManually, type StatusRefreshState } from "./status-refresh";
 import { AutomaticRefresh, type StatusVisit } from "./status-refresh-rules";
 import { usePaymentRecovery } from "./use-payment-recovery";
@@ -291,11 +292,7 @@ function OrderTicket({
   const locale = useAppLocale();
   const { order } = state;
   const reservation = useAtomValue(reservationOfOrderAtom(order.orderId));
-  // A failed payment's order has released its hold and no longer says what
-  // it books; its reservation in the list still does.
-  const booked =
-    order.bookedSelection ??
-    Option.getOrUndefined(reservation)?.bookedSelection;
+  const booked = bookedSelectionOf(order, reservation);
   const recovery = usePaymentRecovery(order, booked, {
     onCheckAgain,
     onPaymentPageLeft,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { appLocales } from "./app-locale";
 import {
+  bundledCountryName,
   countryName,
   invoiceCountries,
   invoiceCountryCodes,
@@ -31,5 +32,13 @@ describe("invoice countries", () => {
     expect(names).toEqual(
       [...names].sort((left, right) => left.localeCompare(right, "cs-CZ"))
     );
+  });
+
+  test("without Intl.DisplayNames, the home country keeps the website's short name", () => {
+    for (const locale of appLocales) {
+      expect(bundledCountryName("CZ", locale)).toBe(
+        new Intl.DisplayNames([locale], { type: "region" }).of("CZ") ?? ""
+      );
+    }
   });
 });

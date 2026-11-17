@@ -50,6 +50,18 @@ describe("AppSignInLayout", () => {
     expect(spacers[1]).toBeLessThan(action);
   });
 
+  test("under the text, the field starts below the link and all free space is under it", () => {
+    const elements = layout({ childrenPlacement: "under-text" });
+    const field = elements.findIndex(({ props }) => props.testID === "field");
+    const action = elements.findIndex(({ props }) => props.testID === "action");
+    const spacers = elements.flatMap((element, index) =>
+      element.type === "View" && grows(element.props) ? [index] : []
+    );
+    expect(spacers).toHaveLength(1);
+    expect(spacers[0]).toBeGreaterThan(field);
+    expect(spacers[0]).toBeLessThan(action);
+  });
+
   test("the content scrolls when it doesn't fit", () => {
     expect(layout().some(({ type }) => type === "ScrollView")).toBe(true);
   });
