@@ -3,6 +3,7 @@ import "@/shared/polyfills/temporal";
 
 import { expect, test } from "bun:test";
 import { nativeApp } from "@/features/account/backend/auth/native-app";
+import { getWorkspacePageUrl } from "@/features/i18n";
 import type { AndroidRelease } from "@/features/mobile-releases/backend/latest-android-release.server";
 import { serializeMarkdown } from "@/shared/markdown/markdown";
 import { markdownLinkUrls } from "@/shared/markdown/markdown.test-utils";
@@ -33,7 +34,7 @@ test("lists the release's facts and links", () => {
   const facts = getAndroidReleaseFacts(release, "en-US");
 
   expect(markdownLinkUrls(markdown)).toEqual([
-    release.apkUrl,
+    getWorkspacePageUrl("/android/download/deskohub-1.2.3.apk"),
     obtainiumImportUrl,
   ]);
   for (const value of [facts.version, facts.size, facts.date]) {

@@ -68,6 +68,7 @@ import {
   sampleDiscountId,
   sampleLegalDocuments,
   sampleOfferings,
+  sampleOvernightStay,
   sampleSummary,
 } from "./sample-booking-catalog";
 
@@ -1093,11 +1094,21 @@ const bookedReservation = (
 };
 
 /**
- * When a selection's reservation runs: a meeting room's hourly slot, else
- * whole Prague days (23 or 25 hours across a daylight-saving change) through
- * the last booked date.
+ * When a selection's reservation runs: a meeting room's hourly slot, an
+ * overnight stay from its start on the arrival date to its end the next
+ * day, else whole Prague days (23 or 25 hours across a daylight-saving
+ * change) through the last booked date.
  */
-const bookedTimes = (selection: CustomerBookingSelection) => {
+export const bookedTimes = (selection: CustomerBookingSelection) => {
+  if (selection.family === "cowork" && selection.stay === "overnight") {
+    return {
+      startsAt: pragueInstant(selection.date, sampleOvernightStay.startTime),
+      endsAt: pragueInstant(
+        addDays(selection.date, 1),
+        sampleOvernightStay.endTime
+      ),
+    };
+  }
   if (selection.family === "meeting-room" && selection.duration !== "day:1") {
     const { length } = meetingRoomSlots[selection.duration ?? "hour:1"];
     const startsAt = pragueInstant(

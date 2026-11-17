@@ -17,6 +17,8 @@ import { LandingPageHeroScrollScene } from "./landing-page-hero-scroll-scene";
 import { LandingPageHexagon } from "./landing-page-hexagon";
 
 type LandingPageHeroSectionProps = {
+  /** The offer to hand the reservation to an AI assistant, under the CTAs. */
+  agentBookingEntry?: ReactNode;
   locale: Locale;
   meetingRoomPageEnabled: boolean;
   overviewSectionId: string;
@@ -29,6 +31,7 @@ export const landingPageHeroVars: VariableStyle<"hero-bottom-section-height"> =
   };
 
 export function LandingPageHeroSection({
+  agentBookingEntry,
   locale,
   meetingRoomPageEnabled,
   overviewSectionId,
@@ -106,6 +109,7 @@ export function LandingPageHeroSection({
         >
           {m.landingHeroSecondaryCta({}, { locale })}
         </Link>
+        {agentBookingEntry}
       </div>
     </>
   );
