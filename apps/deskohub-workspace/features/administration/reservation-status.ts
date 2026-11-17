@@ -44,6 +44,7 @@ export const canCancelReservation = (
 export const canRestoreReservation = (
   reservation: Pick<
     WorkspaceReservationRow,
+    | "cancellationCause"
     | "dotyposReservationId"
     | "failureCode"
     | "paymentState"
@@ -58,6 +59,9 @@ export const canRestoreReservation = (
   }
 ) =>
   reservation.reservationState === "cancelled" &&
+  // An operator cancelled it; reservations cancelled before causes were
+  // recorded have none, and a paid confirmed one could only be an operator's.
+  (reservation.cancellationCause ?? "operator") === "operator" &&
   reservation.paymentState === "paid" &&
   reservation.reservationConfirmedAt !== null &&
   reservation.reservationCancelledAt !== null &&

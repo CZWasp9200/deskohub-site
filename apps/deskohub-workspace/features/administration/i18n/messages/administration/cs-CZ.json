@@ -721,7 +721,7 @@
   "administrationReservationRestorationFormLabel": "Znovu aktivovat tuto rezervaci",
   "administrationReservationRestorationInterrupted": "Odpověď na opětovnou aktivaci byla přerušena. Před dalším pokusem obnovte stránku.",
   "administrationReservationRestorationKeep": "Ponechat zrušenou",
-  "administrationReservationRestorationNewAccess": "Vydá se nový přístupový kód ke dveřím a dosavadní kód přestane platit.",
+  "administrationReservationRestorationNewAccess": "Vydá se nový přístupový kód ke dveřím.",
   "administrationReservationRestorationOpen": "Znovu aktivovat rezervaci",
   "administrationReservationRestorationRefundAcknowledgement": "Znovu aktivovat rezervaci i přes vrácenou platbu",
   "administrationReservationRestorationRefundAcknowledgementRequired": "Potvrďte, že chcete rezervaci znovu aktivovat i přes vrácenou platbu.",

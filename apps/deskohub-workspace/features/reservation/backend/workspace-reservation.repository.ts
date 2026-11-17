@@ -1576,6 +1576,7 @@ export class WorkspaceReservationRepository extends Context.Service<
               .set({
                 reservationState: "confirmed",
                 reservationCancelledAt: null,
+                cancellationCause: null,
                 cancellationEmailSentAt: null,
                 updatedAt: input.restoredAt,
               })
@@ -1586,6 +1587,10 @@ export class WorkspaceReservationRepository extends Context.Service<
                   eq(
                     workspaceReservations.reservationCancelledAt,
                     input.cancelledAt
+                  ),
+                  or(
+                    isNull(workspaceReservations.cancellationCause),
+                    eq(workspaceReservations.cancellationCause, "operator")
                   ),
                   eq(workspaceReservations.paymentState, "paid"),
                   isNotNull(workspaceReservations.reservationConfirmedAt),

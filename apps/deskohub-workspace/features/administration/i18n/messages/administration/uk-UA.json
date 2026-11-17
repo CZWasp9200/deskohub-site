@@ -734,7 +734,7 @@
   "administrationReservationRestorationFormLabel": "Поновити це бронювання",
   "administrationReservationRestorationInterrupted": "Відповідь на поновлення перервано. Перш ніж спробувати ще раз, оновіть сторінку.",
   "administrationReservationRestorationKeep": "Залишити скасованим",
-  "administrationReservationRestorationNewAccess": "Буде видано новий код доступу до дверей, а попередній код перестане діяти.",
+  "administrationReservationRestorationNewAccess": "Буде видано новий код доступу до дверей.",
   "administrationReservationRestorationOpen": "Поновити бронювання",
   "administrationReservationRestorationRefundAcknowledgement": "Поновити бронювання попри повернення коштів",
   "administrationReservationRestorationRefundAcknowledgementRequired": "Підтвердьте, що хочете поновити бронювання попри повернення коштів.",

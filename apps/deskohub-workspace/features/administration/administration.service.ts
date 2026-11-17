@@ -594,6 +594,7 @@ type SafeReservationRow = WithStoredReservationDetails<
     | "reservationCreatedAt"
     | "reservationConfirmedAt"
     | "reservationCancelledAt"
+    | "cancellationCause"
     | "reservationHoldExpiredAt"
     | "paidAt"
     | "fulfilledAt"
@@ -616,6 +617,7 @@ const safeReservationSelection = {
   reservationCreatedAt: workspaceReservations.reservationCreatedAt,
   reservationConfirmedAt: workspaceReservations.reservationConfirmedAt,
   reservationCancelledAt: workspaceReservations.reservationCancelledAt,
+  cancellationCause: workspaceReservations.cancellationCause,
   reservationHoldExpiredAt: workspaceReservations.reservationHoldExpiredAt,
   paidAt: workspaceReservations.paidAt,
   fulfilledAt: workspaceReservations.fulfilledAt,

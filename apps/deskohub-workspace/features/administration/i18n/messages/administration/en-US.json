@@ -708,7 +708,7 @@
   "administrationReservationRestorationFormLabel": "Restore this reservation",
   "administrationReservationRestorationInterrupted": "The restoration response was interrupted. Refresh before trying again.",
   "administrationReservationRestorationKeep": "Keep cancelled",
-  "administrationReservationRestorationNewAccess": "A new door access code will be issued, and the earlier code will stop working.",
+  "administrationReservationRestorationNewAccess": "A new door access code will be issued.",
   "administrationReservationRestorationOpen": "Restore reservation",
   "administrationReservationRestorationRefundAcknowledgement": "Restore the reservation despite the refund",
   "administrationReservationRestorationRefundAcknowledgementRequired": "Confirm that you want to restore the reservation despite the refund.",

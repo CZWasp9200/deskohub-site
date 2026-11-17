@@ -695,7 +695,7 @@
   "administrationReservationRestorationFormLabel": "Kích hoạt lại đặt chỗ này",
   "administrationReservationRestorationInterrupted": "Phản hồi về việc kích hoạt lại đã bị gián đoạn. Vui lòng tải lại trang trước khi thử lại.",
   "administrationReservationRestorationKeep": "Giữ trạng thái đã hủy",
-  "administrationReservationRestorationNewAccess": "Mã ra vào mới sẽ được cấp và mã hiện tại sẽ hết hiệu lực.",
+  "administrationReservationRestorationNewAccess": "Mã ra vào mới sẽ được cấp.",
   "administrationReservationRestorationOpen": "Kích hoạt lại đặt chỗ",
   "administrationReservationRestorationRefundAcknowledgement": "Kích hoạt lại đặt chỗ dù đã hoàn tiền",
   "administrationReservationRestorationRefundAcknowledgementRequired": "Vui lòng xác nhận muốn kích hoạt lại đặt chỗ dù đã hoàn tiền.",

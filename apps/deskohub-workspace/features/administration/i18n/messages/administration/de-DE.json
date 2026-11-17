@@ -708,7 +708,7 @@
   "administrationReservationRestorationFormLabel": "Diese Reservierung reaktivieren",
   "administrationReservationRestorationInterrupted": "Die Antwort auf die Reaktivierung wurde unterbrochen. Laden Sie die Seite neu, bevor Sie es erneut versuchen.",
   "administrationReservationRestorationKeep": "Storniert lassen",
-  "administrationReservationRestorationNewAccess": "Ein neuer Zugangscode für die Tür wird ausgestellt und der bisherige Code wird ungültig.",
+  "administrationReservationRestorationNewAccess": "Ein neuer Zugangscode für die Tür wird ausgestellt.",
   "administrationReservationRestorationOpen": "Reservierung reaktivieren",
   "administrationReservationRestorationRefundAcknowledgement": "Reservierung trotz Erstattung reaktivieren",
   "administrationReservationRestorationRefundAcknowledgementRequired": "Bestätigen Sie, dass Sie die Reservierung trotz Erstattung reaktivieren möchten.",

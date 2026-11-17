@@ -734,7 +734,7 @@
   "administrationReservationRestorationFormLabel": "Reaktivovať túto rezerváciu",
   "administrationReservationRestorationInterrupted": "Odpoveď na reaktiváciu sa prerušila. Pred ďalším pokusom obnovte stránku.",
   "administrationReservationRestorationKeep": "Ponechať zrušenú",
-  "administrationReservationRestorationNewAccess": "Vydá sa nový prístupový kód k dverám a doterajší kód prestane platiť.",
+  "administrationReservationRestorationNewAccess": "Vydá sa nový prístupový kód k dverám.",
   "administrationReservationRestorationOpen": "Reaktivovať rezerváciu",
   "administrationReservationRestorationRefundAcknowledgement": "Reaktivovať rezerváciu napriek vrátenej platbe",
   "administrationReservationRestorationRefundAcknowledgementRequired": "Potvrďte, že chcete rezerváciu reaktivovať napriek vrátenej platbe.",
