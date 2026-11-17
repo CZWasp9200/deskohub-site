@@ -1,7 +1,7 @@
 "use server";
 
 import { AdministrationWorkspaceReservationId } from "@deskohub/workspace-admin-api";
-import { Effect, Schema } from "effect";
+import { DateTime, Effect, Schema } from "effect";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
 import { AdministrationService } from "./administration.service";
@@ -74,10 +74,11 @@ const searchAdministrationCustomersAction = defineAdministrationAction(
   Effect.fn(function* (input) {
     const directory = yield* AdministrationCustomerDirectory;
     const { kind, customers } = yield* directory.search(input.query);
+    const now = yield* DateTime.nowAsDate;
     return {
       kind,
       customers: customers.map((customer) =>
-        describeAdministrationCustomer(customer)
+        describeAdministrationCustomer(customer, now)
       ),
     };
   })
