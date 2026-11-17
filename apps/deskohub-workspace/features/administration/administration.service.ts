@@ -7,7 +7,6 @@ import {
   DotyposService,
   type DotyposTable,
   type DotyposTableId,
-  getCustomerDisplayName,
 } from "@deskohub/dotypos";
 import type { NexiOrderId } from "@deskohub/nexi";
 import type {
@@ -33,7 +32,7 @@ import {
   sum,
 } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Data, Effect, Layer, Option, Schema } from "effect";
+import { Context, DateTime, Effect, Layer, Option, Schema } from "effect";
 import { unstable_rethrow } from "next/navigation";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
@@ -72,6 +71,7 @@ import { decodeBookedReservation } from "@/features/reservation/backend/booked-r
 import { loadEarlySetupDetails } from "@/features/reservation/backend/early-setup-details";
 import {
   StoredReservationDetails,
+  type WithStoredReservationDetails,
   type WorkspaceReservationDetailsMalformedError,
 } from "@/features/reservation/backend/stored-reservation-details.server";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -88,6 +88,12 @@ import {
   instantStringSchema,
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
+import { AdministrationCustomerDirectory } from "./customer-directory.service";
+import {
+  type AdministrationCustomer,
+  describeAdministrationCustomer,
+  nameAdministrationCustomer,
+} from "./customer-identity";
 import {
   type AdministrationCustomerName,
   unnamedCustomerDisplayName,
@@ -115,6 +121,13 @@ import {
   mergeReservationHistory,
   PostHogReservationHistory,
 } from "./posthog-reservation-history";
+import {
+  type AdministrationListSourceUnavailableError,
+  degradeProviderRead,
+  failProviderRead,
+  type ProviderReadPolicy,
+  recoverProviderRead,
+} from "./provider-read-policy";
 import {
   type EarlySetupDetailsById,
   getAdministrationReservationHeldRangeBounds,
@@ -206,23 +219,6 @@ export type AdministrationReservationExportInput = Omit<
   "page"
 >;
 
-/** The Dotypos data a list export can't do without. */
-type AdministrationListSource =
-  | "booking-dates"
-  | "booking-details"
-  | "customer-details";
-
-/**
- * A list export couldn't read Dotypos details its rows need. Pages show such
- * details as unavailable instead; an export fails rather than leave them out.
- */
-export class AdministrationListSourceUnavailableError extends Data.TaggedError(
-  "AdministrationListSourceUnavailableError"
-)<{
-  readonly source: AdministrationListSource;
-  readonly cause: unknown;
-}> {}
-
 /**
  * The customer list's criteria. `from` and `to` are inclusive Workspace
  * calendar dates: a customer belongs to the list only with a successful
@@ -254,16 +250,6 @@ export type AdministrationBookingListInput = {
 };
 
 type AdministrationBookingSort = "booking" | "status";
-
-type AdministrationCustomer = {
-  readonly id: DotyposCustomerId;
-  /** Never empty: the API and `dhw` show "Unnamed customer" when `hasName` is false. */
-  readonly displayName: string;
-  /** Whether Dotypos holds a personal or company name, so the Admin UI can name an unnamed customer in the operator's language. */
-  readonly hasName: boolean;
-  readonly email: string | null;
-  readonly phone: string | null;
-};
 
 export type AdministrationReservationSummary = {
   readonly id: WorkspaceReservationId;
@@ -465,7 +451,7 @@ type AdministrationReservationAuthor =
       readonly kind: "account";
       /** The author's own linked Dotypos customer, which names them. */
       readonly customerId: DotyposCustomerId | null;
-      /** The author's login email. */
+      /** The author's login email; empty when their customer is deleted or expired. */
       readonly email: string;
     })
   | { readonly kind: "deleted" }
@@ -490,7 +476,6 @@ export type AdministrationReservationDetail = {
   readonly canRestore: boolean;
   /** Null unless `canRestore`. */
   readonly restoration: AdministrationReservationRestoration | null;
-  readonly requiresProviderCredentialRemoval: boolean;
   readonly reservation: AdministrationReservationSummary;
   readonly booking: AdministrationBookingSummary | null;
   readonly lifecycle: ReturnType<typeof getAdministrationReservationLifecycle>;
@@ -595,26 +580,28 @@ export type AdministrationOverviewSource = {
   readonly rows: readonly AdministrationOverviewRow[];
 };
 
-type SafeReservationRow = Pick<
-  WorkspaceReservationRow,
-  | "id"
-  | "dotyposCustomerId"
-  | "dotyposReservationId"
-  | "reservationState"
-  | "paymentState"
-  | "fulfillmentState"
-  | "reservationDetails"
-  | "reservationPurpose"
-  | "reservationCreatedAt"
-  | "reservationConfirmedAt"
-  | "reservationCancelledAt"
-  | "reservationHoldExpiredAt"
-  | "paidAt"
-  | "fulfilledAt"
-  | "fulfillmentFailedAt"
-  | "failureCode"
-  | "createdAt"
-  | "updatedAt"
+type SafeReservationRow = WithStoredReservationDetails<
+  Pick<
+    WorkspaceReservationRow,
+    | "id"
+    | "dotyposCustomerId"
+    | "dotyposReservationId"
+    | "reservationState"
+    | "paymentState"
+    | "fulfillmentState"
+    | "reservationDetails"
+    | "reservationPurpose"
+    | "reservationCreatedAt"
+    | "reservationConfirmedAt"
+    | "reservationCancelledAt"
+    | "reservationHoldExpiredAt"
+    | "paidAt"
+    | "fulfilledAt"
+    | "fulfillmentFailedAt"
+    | "failureCode"
+    | "createdAt"
+    | "updatedAt"
+  >
 >;
 
 const safeReservationSelection = {
@@ -641,17 +628,6 @@ const safeReservationSelection = {
 const toIsoString = (instant: Temporal.Instant) => instant.toString();
 
 const decodeInstantString = Schema.decodeUnknownOption(instantStringSchema);
-
-const toCustomer = (customer: DotyposCustomer): AdministrationCustomer => {
-  const name = getCustomerDisplayName(customer);
-  return {
-    id: customer.id,
-    displayName: name || unnamedCustomerDisplayName,
-    hasName: Boolean(name),
-    email: customer.email?.trim() || null,
-    phone: customer.phone?.trim() || null,
-  };
-};
 
 type SafePaymentAttemptRow = {
   readonly id: PaymentAttemptId;
@@ -853,6 +829,7 @@ const toReservationSummary = ({
   recoveryState,
   latestPayment = null,
   live,
+  now,
   row,
 }: {
   readonly latePayment?: boolean;
@@ -863,6 +840,8 @@ const toReservationSummary = ({
   readonly recoveryState?: LatePaymentRecoveryState;
   readonly latestPayment?: AdministrationPaymentAttempt | null;
   readonly live: LiveReservationDetails;
+  /** When the live details were read, for the customer's lifecycle. */
+  readonly now: Date;
   readonly row: SafeReservationRow;
 }): AdministrationReservationSummary => {
   // An early-setup booking's Dotypos start is its setup start, so show the
@@ -879,7 +858,9 @@ const toReservationSummary = ({
     id: row.id,
     dotyposReservationId: row.dotyposReservationId,
     customerId: row.dotyposCustomerId,
-    customer: live.customer ? toCustomer(live.customer) : null,
+    customer: live.customer
+      ? describeAdministrationCustomer(live.customer, now)
+      : null,
     liveDetailsAvailable: Boolean(live.reservation),
     startsAt: Option.match(earlySetup, {
       onNone: () => live.reservation?.startDate ?? null,
@@ -959,11 +940,14 @@ const toLinkedReservation = (row: SafeReservationRow | null) =>
 const toBookingSummary = ({
   booking,
   customer,
+  now,
   row,
   table,
 }: {
   readonly booking: DotyposReservation;
   readonly customer: DotyposCustomer | null;
+  /** When the customer was read, for its lifecycle. */
+  readonly now: Date;
   readonly row: SafeReservationRow | null;
   readonly table: DotyposTable | null;
 }): AdministrationBookingSummary => {
@@ -973,7 +957,10 @@ const toBookingSummary = ({
   return {
     id: booking.id,
     customerId: customerId ?? null,
-    customer: customerId && customer ? toCustomer(customer) : null,
+    customer:
+      customerId && customer
+        ? describeAdministrationCustomer(customer, now)
+        : null,
     startsAt: getBookedStartsAt(booking, row?.reservationDetails),
     endsAt: booking.endDate,
     seats: booking.seats,
@@ -990,10 +977,12 @@ const toBookingSummary = ({
 /** The booking of a reservation's live Dotypos details, if it has one. */
 const toLinkedBookingSummary = ({
   live,
+  now,
   row,
   table,
 }: {
   readonly live: LiveReservationDetails;
+  readonly now: Date;
   readonly row: SafeReservationRow;
   readonly table: DotyposTable | null;
 }) =>
@@ -1001,6 +990,7 @@ const toLinkedBookingSummary = ({
     ? toBookingSummary({
         booking: { ...live.reservation, id: row.dotyposReservationId },
         customer: live.customer,
+        now,
         row,
         table,
       })
@@ -1062,19 +1052,6 @@ const toAccessGrantDetail = (
   createdAt: grant.createdAt.toString(),
   updatedAt: grant.updatedAt.toString(),
 });
-
-/**
- * Whether cancelling must remove a credential Igloohome may hold: a grant
- * issued, uncertain, or provisioning whose access hasn't ended.
- */
-const requiresProviderCredentialRemoval = (
-  grant: Pick<StoredReservationAccessGrant, "endsAt" | "state"> | null
-) =>
-  Boolean(
-    grant &&
-      ["issued", "uncertain", "provisioning"].includes(grant.state) &&
-      Temporal.Instant.compare(grant.endsAt, Temporal.Now.instant()) > 0
-  );
 
 const getDateRangeBounds = (startDate: string, endDate: string) => {
   const start = Temporal.PlainDate.from(startDate).toZonedDateTime({
@@ -1286,54 +1263,6 @@ const latePaymentCondition = (
     eq(webhookEvents.errorCode, "nexi_webhook_late_payment")
   );
 
-type ProviderReadFailure = {
-  /** What a failed read logs beside the cause, such as its date range. */
-  readonly annotations?: Readonly<Record<string, string | undefined>>;
-  readonly cause: unknown;
-  /** The warning a degrading read logs. */
-  readonly message: string;
-  readonly source: AdministrationListSource;
-};
-
-/**
- * How a list read treats a failed Dotypos read. A page degrades: it logs and
- * shows the details as unavailable. An export fails fast with
- * `AdministrationListSourceUnavailableError`. A read that succeeds without some
- * record isn't a failure under either.
- */
-type ProviderFailurePolicy<E> = {
-  readonly recover: <A>(
-    failure: ProviderReadFailure,
-    fallback: A
-  ) => Effect.Effect<A, E>;
-};
-
-const degradeOnProviderFailure: ProviderFailurePolicy<never> = {
-  recover: ({ annotations, cause, message }, fallback) =>
-    Effect.logWarning(message, { cause, ...annotations }).pipe(
-      Effect.as(fallback)
-    ),
-};
-
-const failOnProviderFailure: ProviderFailurePolicy<AdministrationListSourceUnavailableError> =
-  {
-    recover: ({ cause, source }) =>
-      Effect.fail(
-        new AdministrationListSourceUnavailableError({ cause, source })
-      ),
-  };
-
-const recoverProviderRead =
-  <A, E>(
-    policy: ProviderFailurePolicy<E>,
-    failure: Omit<ProviderReadFailure, "cause">,
-    fallback: A
-  ) =>
-  (cause: unknown) => {
-    unstable_rethrow(cause);
-    return policy.recover({ ...failure, cause }, fallback);
-  };
-
 /** The facts the reservation detail decides a restore from. */
 type ReservationRestorationSource = {
   readonly accessGrant: Pick<StoredReservationAccessGrant, "state"> | null;
@@ -1533,6 +1462,7 @@ export class AdministrationService extends Context.Service<
       const paymentAdministration = yield* PaymentAdministrationService;
       const reservationAuthors = yield* ReservationAuthorDirectory;
       const reservations = yield* WorkspaceReservationRepository;
+      const customerDirectory = yield* AdministrationCustomerDirectory;
 
       const loadLiveReservation = Effect.fn(
         "AdministrationService.loadLiveReservation"
@@ -1576,78 +1506,6 @@ export class AdministrationService extends Context.Service<
         );
       });
 
-      const loadCustomers = Effect.fn("AdministrationService.loadCustomers")(
-        function* <E = never>(
-          ids: readonly DotyposCustomerId[],
-          policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
-        ) {
-          yield* Effect.annotateCurrentSpan({
-            uniqueCustomerCount: new Set(ids).size,
-          });
-          const customersById = new Map(
-            yield* dotypos
-              .getCustomersByIds(ids, {
-                concurrency: 3,
-                ...(policy === degradeOnProviderFailure && {
-                  onBatchFailure: (cause) =>
-                    degradeOnProviderFailure.recover(
-                      {
-                        cause,
-                        message: "Batch customer details unavailable",
-                        source: "customer-details",
-                      },
-                      undefined
-                    ),
-                }),
-              })
-              .pipe(
-                Effect.catch(
-                  recoverProviderRead(
-                    policy,
-                    {
-                      message: "Batch customer details unavailable",
-                      source: "customer-details",
-                    },
-                    new Map<DotyposCustomerId, DotyposCustomer>()
-                  )
-                )
-              )
-          );
-          // Missing batch records, including degraded batches, retain the individual lookup fallback.
-          const unreturnedIds = [...new Set(ids)].filter(
-            (id) => !customersById.has(id)
-          );
-          const missingCustomers = yield* Effect.all(
-            unreturnedIds.map((id) =>
-              dotypos.getCustomer(id).pipe(
-                Effect.map(
-                  Option.match({
-                    onNone: () => null,
-                    onSome: (customer) => [id, customer] as const,
-                  })
-                ),
-                Effect.catch(
-                  recoverProviderRead(
-                    policy,
-                    {
-                      annotations: { customerId: id },
-                      message: "Customer details unavailable",
-                      source: "customer-details",
-                    },
-                    null
-                  )
-                )
-              )
-            ),
-            { concurrency: 5 }
-          );
-          for (const customer of missingCustomers) {
-            if (customer) customersById.set(...customer);
-          }
-          return customersById;
-        }
-      );
-
       const loadAuthor = Effect.fn("AdministrationService.loadAuthor")(
         function* (
           accountId: CustomerAccountId,
@@ -1660,20 +1518,25 @@ export class AdministrationService extends Context.Service<
           if (isCustomerOwnAuthor(author, customerId)) return null;
           if (author.kind === "deleted") return { kind: "deleted" } as const;
           const customer = author.dotyposCustomerId
-            ? (yield* loadCustomers([author.dotyposCustomerId])).get(
-                author.dotyposCustomerId
-              )
+            ? (yield* customerDirectory.findMany([
+                author.dotyposCustomerId,
+              ])).get(author.dotyposCustomerId)
             : undefined;
-          const name =
+          const name: AdministrationCustomerName =
             customer && author.dotyposCustomerId
-              ? toCustomer(customer)
-              : { displayName: unnamedCustomerDisplayName, hasName: false };
+              ? nameAdministrationCustomer(customer, yield* DateTime.nowAsDate)
+              : {
+                  displayName: unnamedCustomerDisplayName,
+                  hasName: false,
+                  lifecycle: "active",
+                };
           return {
             kind: "account",
             customerId: author.dotyposCustomerId,
-            displayName: name.displayName,
-            hasName: name.hasName,
-            email: author.email,
+            ...name,
+            // An inactive customer's contacts are never shown. The contract
+            // requires a string, so the login email becomes empty.
+            email: name.lifecycle === "active" ? author.email : "",
           } as const;
         },
         (effect, accountId) =>
@@ -1695,7 +1558,7 @@ export class AdministrationService extends Context.Service<
         knownReservations:
           | ReadonlyMap<DotyposReservationId, DotyposReservation>
           | undefined,
-        policy: ProviderFailurePolicy<E>
+        policy: ProviderReadPolicy<E>
       ) {
         const missingReservationIds = rows.flatMap((row) =>
           row.dotyposReservationId &&
@@ -1706,9 +1569,9 @@ export class AdministrationService extends Context.Service<
         const loadedReservations = yield* dotypos
           .getReservationsByIds(missingReservationIds, {
             concurrency: 3,
-            ...(policy === degradeOnProviderFailure && {
+            ...(policy.kind === "degrade" && {
               onBatchFailure: (cause) =>
-                degradeOnProviderFailure.recover(
+                degradeProviderRead.recover(
                   {
                     cause,
                     message: "Live booking details unavailable",
@@ -1744,7 +1607,10 @@ export class AdministrationService extends Context.Service<
             })
           ),
         ];
-        const customersById = yield* loadCustomers(customerIds, policy);
+        const customersById = yield* customerDirectory.findMany(
+          customerIds,
+          policy
+        );
 
         return rows.map((row) => {
           const reservation = row.dotyposReservationId
@@ -1768,7 +1634,7 @@ export class AdministrationService extends Context.Service<
             DotyposReservationId,
             DotyposReservation
           >,
-          policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+          policy: ProviderReadPolicy<E> = degradeProviderRead
         ) {
           if (rows.length === 0) return [];
           const { attemptRows, latePaymentRows, liveRows, recoveryRows } =
@@ -1838,6 +1704,7 @@ export class AdministrationService extends Context.Service<
             }
           }
 
+          const now = yield* DateTime.nowAsDate;
           return liveRows.map(({ live, row }) =>
             toReservationSummary({
               latestPayment: latestPaymentByReservation.get(row.id) ?? null,
@@ -1850,6 +1717,7 @@ export class AdministrationService extends Context.Service<
                 attemptsByReservation.get(row.id) ?? []
               ),
               live,
+              now,
               row,
             })
           );
@@ -1904,7 +1772,7 @@ export class AdministrationService extends Context.Service<
        */
       const loadReservationRangeMap = <E = never>(
         range: AdministrationReservationDateRange | undefined,
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) => {
         if (!range) return Effect.succeed(undefined);
         return dotypos
@@ -1973,7 +1841,7 @@ export class AdministrationService extends Context.Service<
           | ReadonlyMap<DotyposReservationId, DotyposReservation>
           | null
           | undefined,
-        policy: ProviderFailurePolicy<E>
+        policy: ProviderReadPolicy<E>
       ) {
         if (hasDateRange) {
           if (!dateReservations) return null;
@@ -2033,7 +1901,7 @@ export class AdministrationService extends Context.Service<
         "AdministrationService.loadReservationListScope"
       )(function* <E = never>(
         input: AdministrationReservationExportInput,
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) {
         const dateRange = getAdministrationReservationDateRange(input);
         const dateReservations = yield* loadReservationRangeMap(
@@ -2183,7 +2051,7 @@ export class AdministrationService extends Context.Service<
         "AdministrationService.exportReservations"
       )(function* (input: AdministrationReservationExportInput) {
         const { dateReservations, orderedProviderIds, where } =
-          yield* loadReservationListScope(input, failOnProviderFailure);
+          yield* loadReservationListScope(input, failProviderRead);
         const rows = yield* selectReservationListRows({
           direction: input.direction,
           orderedProviderIds,
@@ -2194,7 +2062,7 @@ export class AdministrationService extends Context.Service<
         return yield* enrichRows(
           rows,
           dateReservations ?? undefined,
-          failOnProviderFailure
+          failProviderRead
         );
       });
 
@@ -2416,6 +2284,7 @@ export class AdministrationService extends Context.Service<
           row,
         });
 
+        const now = yield* DateTime.nowAsDate;
         return {
           author,
           reservation: toReservationSummary({
@@ -2424,10 +2293,12 @@ export class AdministrationService extends Context.Service<
             recoveryState,
             refunded,
             live,
+            now,
             row,
           }),
           booking: toLinkedBookingSummary({
             live,
+            now,
             row,
             table: findBookingTable(tables, live.reservation?._tableId),
           }),
@@ -2479,8 +2350,6 @@ export class AdministrationService extends Context.Service<
           canCancel: canCancelReservation(row),
           canRestore: restoration !== null,
           restoration,
-          requiresProviderCredentialRemoval:
-            requiresProviderCredentialRemoval(accessGrant),
         } satisfies AdministrationReservationDetail;
       });
 
@@ -2613,7 +2482,7 @@ export class AdministrationService extends Context.Service<
           ];
           const { customersById, rows, tables } = yield* Effect.all(
             {
-              customersById: loadCustomers(customerIds),
+              customersById: customerDirectory.findMany(customerIds),
               rows:
                 bookingIds.length > 0
                   ? db
@@ -2642,10 +2511,12 @@ export class AdministrationService extends Context.Service<
             tables.map((table) => [table.id, table] as const)
           );
 
+          const now = yield* DateTime.nowAsDate;
           return {
             items: pageBookings.map((booking) =>
               toBookingSummary({
                 booking,
+                now,
                 customer: booking._customerId
                   ? (customersById.get(booking._customerId) ?? null)
                   : null,
@@ -2715,6 +2586,7 @@ export class AdministrationService extends Context.Service<
           const booking = toBookingSummary({
             booking: { ...reservation, id },
             customer,
+            now: yield* DateTime.nowAsDate,
             row: row ?? null,
             table: findBookingTable(tables, reservation._tableId),
           });
@@ -2762,7 +2634,7 @@ export class AdministrationService extends Context.Service<
         "AdministrationService.getCustomerListFilter"
       )(function* <E = never>(
         input: AdministrationCustomerExportInput,
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) {
         const dateRange = getAdministrationReservationDateRange({
           from: input.from,
@@ -2834,16 +2706,19 @@ export class AdministrationService extends Context.Service<
           readonly reservationCount: number;
           readonly lastActivityAt: Temporal.Instant | null;
         }[],
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) {
-        const customersById = yield* loadCustomers(
+        const customersById = yield* customerDirectory.findMany(
           rows.map(({ customerId }) => customerId),
           policy
         );
+        const now = yield* DateTime.nowAsDate;
         return rows.map((row): AdministrationCustomerSummary => {
           const customer = customersById.get(row.customerId);
           return {
-            customer: customer ? toCustomer(customer) : null,
+            customer: customer
+              ? describeAdministrationCustomer(customer, now)
+              : null,
             customerId: row.customerId,
             marketingConsent: row.marketingConsent,
             reservationCount: Number(row.reservationCount),
@@ -2888,13 +2763,10 @@ export class AdministrationService extends Context.Service<
       )(function* (input: AdministrationCustomerExportInput) {
         // A failed range read fails the export, so the filter is never left
         // unavailable here.
-        const { where } = yield* getCustomerListFilter(
-          input,
-          failOnProviderFailure
-        );
+        const { where } = yield* getCustomerListFilter(input, failProviderRead);
         const rows = yield* selectCustomerSummaryRows(input, where);
         yield* Effect.annotateCurrentSpan({ customerCount: rows.length });
-        return yield* toCustomerSummaries(rows, failOnProviderFailure);
+        return yield* toCustomerSummaries(rows, failProviderRead);
       });
 
       const loadCustomerReservations = Effect.fn(
@@ -2937,7 +2809,7 @@ export class AdministrationService extends Context.Service<
         "AdministrationService.loadCustomerActivity"
       )(function* <E = never>(
         customerId: DotyposCustomerId,
-        policy: ProviderFailurePolicy<E> = degradeOnProviderFailure
+        policy: ProviderReadPolicy<E> = degradeProviderRead
       ) {
         const { attemptRowsWithSentinel, marketingConsentRows, recentRows } =
           yield* Effect.all(
@@ -3421,7 +3293,9 @@ export class AdministrationService extends Context.Service<
                   earlySetupDetails: reservations.earlySetupDetails,
                 })
               : [];
-          const customersById = yield* loadCustomers(uniqueCustomerIds);
+          const customersById =
+            yield* customerDirectory.findMany(uniqueCustomerIds);
+          const now = yield* DateTime.nowAsDate;
           const newCustomerIds =
             reservations.kind === "available"
               ? getNewCustomerIds({
@@ -3442,7 +3316,9 @@ export class AdministrationService extends Context.Service<
             customers: metric.ids.slice(0, 3).map((customerId) => {
               const customer = customersById.get(customerId);
               return {
-                customer: customer ? toCustomer(customer) : null,
+                customer: customer
+                  ? describeAdministrationCustomer(customer, now)
+                  : null,
                 customerId,
               };
             }),
@@ -3487,9 +3363,7 @@ export class AdministrationService extends Context.Service<
         loadCustomerActivity,
         loadCustomerActivityStrict: Effect.fn(
           "AdministrationService.loadCustomerActivityStrict"
-        )((customerId) =>
-          loadCustomerActivity(customerId, failOnProviderFailure)
-        ),
+        )((customerId) => loadCustomerActivity(customerId, failProviderRead)),
         loadCustomerReservationActivity,
         loadReservationActivity,
         listOrders: paymentAdministration.listOrders,
@@ -3498,6 +3372,9 @@ export class AdministrationService extends Context.Service<
         loadOperation: paymentAdministration.loadOperation,
       };
     })
+  ).pipe(
+    // The directory has one implementation: tests substitute `DotyposService` beneath it.
+    Layer.provide(AdministrationCustomerDirectory.Default)
   );
 
   static Live = this.Default.pipe(

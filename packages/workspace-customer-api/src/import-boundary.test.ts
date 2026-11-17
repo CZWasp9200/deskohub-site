@@ -47,4 +47,21 @@ describe("customer API package imports", () => {
 
     expect(imports).toEqual(["@deskohub/i18n/locale-registry", "effect"]);
   });
+
+  test("the sign-in email entry point imports only Effect", async () => {
+    // The app takes it to pace sign-in emails; anything more would pull the
+    // HTTP API contract into its bundle.
+    const source = await Bun.file(
+      new URL("./sign-in-email.ts", import.meta.url)
+    ).text();
+    const imports = [...source.matchAll(/\bfrom\s+["']([^"']+)["']/g)].map(
+      ([, specifier]) => specifier
+    );
+
+    expect(imports).toEqual([
+      "effect",
+      "effect/unstable/reactivity/AsyncResult",
+      "effect/unstable/reactivity/Atom",
+    ]);
+  });
 });

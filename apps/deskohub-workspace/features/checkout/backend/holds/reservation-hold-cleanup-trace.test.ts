@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService, DotyposUnavailable } from "@deskohub/dotypos";
 import { Cause, Effect, Exit, Layer, Predicate } from "effect";
+import { makeRecordingAdvisoryLock } from "@/db/postgres-advisory-lock.test-utils";
 import {
   type EffectTrace,
   recordEffectTrace,
@@ -14,11 +15,16 @@ mock.module("server-only", () => ({}));
 const { ReservationHoldCleanupService } = await import(
   "./reservation-hold-cleanup.service"
 );
-const { UnpaidHoldRelease } = await import("./unpaid-hold-release.service");
+const { HoldCancellationInProgress, UnpaidHoldRelease } = await import(
+  "./unpaid-hold-release.service"
+);
 const { ProviderPaymentDeferral, ProviderPaymentFinalizationService } =
   await import("../payment/provider-payment-finalization.service");
-const { PaymentLifecycleRepository, PaymentLifecycleStateError } = await import(
+const { PaymentLifecycleRepository } = await import(
   "../repositories/payment-lifecycle.repository"
+);
+const { PaymentLifecycleStateError } = await import(
+  "../repositories/payment-lifecycle-state"
 );
 const { WorkspaceReservationRepository, WorkspaceReservationStateError } =
   await import(
@@ -45,6 +51,7 @@ interface Collaborators {
 
 const orderId = "reservation-id";
 const checkedAt = Temporal.Instant.from("2026-07-01T08:00:00.000Z");
+const holdExpiresAt = Temporal.Instant.from("2026-07-01T07:50:00.000Z");
 
 const heldOrder = {
   id: orderId,
@@ -52,9 +59,15 @@ const heldOrder = {
   paymentState: "pending",
   activePaymentAttemptId: "payment-attempt-id",
   dotyposReservationId: "dotypos-reservation-id",
+  reservationHoldExpiresAt: holdExpiresAt,
 };
 
-const cancellingOrder = { ...heldOrder, reservationState: "cancelling" };
+/** Claimed long ago, so another cleanup may take the claim over. */
+const cancellingOrder = {
+  ...heldOrder,
+  reservationState: "cancelling",
+  updatedAt: Temporal.Instant.from("2026-07-01T08:00:00.500Z"),
+};
 
 const succeed =
   <A>(value: A) =>
@@ -85,6 +98,7 @@ const cancellingCollaborators = (
   reservations: {
     findById: succeed(heldOrder),
     claimCancellation: succeed(cancellingOrder),
+    takeOverStaleCancellation: succeed(cancellingOrder),
     markCancelled: succeed(undefined),
     markCancellationFailed: succeed(undefined),
     recordHoldCleanupSkipped: succeed(undefined),
@@ -99,6 +113,7 @@ const cancellingCollaborators = (
     ...overrides.finalization,
   },
   dotypos: {
+    getReservationStatus: succeed("NEW"),
     cancelReservation: succeed(undefined),
     ...overrides.dotypos,
   },
@@ -115,12 +130,17 @@ const cancelOrderHold = async (
     const cleanup = yield* ReservationHoldCleanupService;
     return yield* recordEffectTrace(
       trace,
-      cleanup.cancelOrderHold({ orderId: orderId as never, ...input })
+      cleanup.cancelOrderHold({
+        orderId: orderId as never,
+        holdExpiresAt,
+        ...input,
+      })
     );
   }).pipe(
     Effect.provide(
       ReservationHoldCleanupService.Default.pipe(
         Layer.provide(UnpaidHoldRelease.Default),
+        Layer.provide(makeRecordingAdvisoryLock().layer),
         Layer.provide(
           Layer.mergeAll(
             Layer.mock(
@@ -182,7 +202,7 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
       ]
     `);
@@ -203,10 +223,10 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
       ]
     `);
@@ -223,13 +243,13 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Warn Reservation hold cancellation skipped: provider finalized paid {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Warn Reservation hold cancellation skipped: provider finalized paid {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
       ]
     `);
   });
@@ -248,13 +268,13 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation deferred: empty provider order is inside abandonment window (abandonmentCutoff=<Instant>) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation deferred: empty provider order is inside abandonment window (abandonmentCutoff=<Instant>) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
       ]
     `);
   });
@@ -270,22 +290,23 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation expiring payment attempt (reason=abandoned) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation expiring payment attempt (reason=abandoned) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call paymentLifecycle.markTerminal(id=payment-attempt-id, workspaceReservationId=reservation-id, state=expired, failureCode=payment_abandoned_after_provider_cutoff)",
-        "Info Reservation hold cancellation expired payment attempt (reason=abandoned) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentAttemptExpirationChanged,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation expired payment attempt (reason=abandoned) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentAttemptExpirationChanged,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentAttemptExpirationChanged,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentAttemptExpirationChanged,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
         "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
-        "Info Reservation hold marked cancelled {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentAttemptExpirationChanged,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
+        "Info Reservation hold marked cancelled {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentAttemptExpirationChanged,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call checkoutAnalytics.reservationAbandoned(reservation=<Object>, timestamp=<Instant>)",
       ]
     `);
@@ -303,16 +324,16 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation expiring payment attempt (reason=abandoned) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation expiring payment attempt (reason=abandoned) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call paymentLifecycle.markTerminal(id=payment-attempt-id, workspaceReservationId=reservation-id, state=expired, failureCode=payment_abandoned_after_provider_cutoff)",
-        "Warn Reservation hold cancellation payment attempt expiration failed (orderId=reservation-id, paymentAttemptId=payment-attempt-id, cause=<PaymentLifecycleStateError>) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Warn Reservation hold cancellation skipped: payment attempt state changed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Warn Reservation hold cancellation payment attempt expiration failed (orderId=reservation-id, paymentAttemptId=payment-attempt-id, cause=<PaymentLifecycleStateError>) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Warn Reservation hold cancellation skipped: payment attempt state changed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.recordHoldCleanupSkipped(id=reservation-id, holdExpiredAt=<Instant>, failureCode=payment_outcome_unconfirmed_before_cleanup)",
       ]
     `);
@@ -332,15 +353,15 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation expiring payment attempt (reason=abandoned) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation expiring payment attempt (reason=abandoned) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call paymentLifecycle.markTerminal(id=payment-attempt-id, workspaceReservationId=reservation-id, state=expired, failureCode=payment_abandoned_after_provider_cutoff)",
-        "Warn Reservation hold cancellation payment attempt expiration failed (orderId=reservation-id, paymentAttemptId=payment-attempt-id, cause=<Error>) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Warn Reservation hold cancellation payment attempt expiration failed (orderId=reservation-id, paymentAttemptId=payment-attempt-id, cause=<Error>) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
       ]
     `);
   });
@@ -356,13 +377,13 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Warn Reservation hold cancellation skipped: payment outcome unconfirmed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Warn Reservation hold cancellation skipped: payment outcome unconfirmed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.recordHoldCleanupSkipped(id=reservation-id, holdExpiredAt=<Instant>, failureCode=payment_outcome_unconfirmed_before_cleanup)",
       ]
     `);
@@ -384,13 +405,13 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Warn Reservation hold cancellation skipped: payment outcome unconfirmed {activePaymentAttemptId,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Warn Reservation hold cancellation skipped: payment outcome unconfirmed {abandonmentCutoff,activePaymentAttemptId,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
       ]
     `);
   });
@@ -411,13 +432,13 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Warn Reservation hold cancellation skipped: payment outcome unconfirmed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Warn Reservation hold cancellation skipped: payment outcome unconfirmed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.recordHoldCleanupSkipped(id=reservation-id, holdExpiredAt=<Instant>, failureCode=payment_outcome_unconfirmed_before_cleanup)",
       ]
     `);
@@ -433,19 +454,20 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {activePaymentAttemptId,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
         "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>, holdExpiredAt=undefined)",
-        "Info Reservation hold marked cancelled {activePaymentAttemptId,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>, holdExpiredAt=undefined)",
+        "Info Reservation hold marked cancelled {abandonmentCutoff,activePaymentAttemptId,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call checkoutAnalytics.reservationAbandoned(reservation=<Object>, timestamp=<Instant>)",
       ]
     `);
@@ -464,16 +486,17 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in unpaidHoldRelease.release",
         "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
-        "Info Reservation hold marked cancelled {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
+        "Info Reservation hold marked cancelled {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call checkoutAnalytics.reservationAbandoned(reservation=<Object>, timestamp=<Instant>)",
       ]
     `);
@@ -494,25 +517,25 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
       ]
     `);
   });
 
-  test("resumes a cancellation another run already claimed", async () => {
-    const findById = mock(succeed(heldOrder));
-    findById.mockImplementationOnce(succeed(null));
-    findById.mockImplementationOnce(succeed(cancellingOrder));
+  test("takes over a stale cancellation an interrupted run left", async () => {
     const { outcome, trace } = await cancelOrderHold(
       cancellingCollaborators({
-        reservations: { findById, claimCancellation: succeed(null) },
+        reservations: {
+          findById: succeed(cancellingOrder),
+          claimCancellation: succeed(null),
+        },
       })
     );
 
@@ -520,23 +543,65 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=false) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=false) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
+        "call reservations.takeOverStaleCancellation(id=reservation-id, staleBefore=<Instant>, expectedHold=<Object>)",
         "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
-        "Info Reservation hold marked cancelled {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
+        "Info Reservation hold marked cancelled {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call checkoutAnalytics.reservationAbandoned(reservation=<Object>, timestamp=<Instant>)",
       ]
     `);
   });
 
-  test("skips a missing order", async () => {
+  test("leaves a fresh cancellation to the run that claimed it", async () => {
+    const claimedAt = Temporal.Now.instant();
+    const { outcome, trace } = await cancelOrderHold(
+      cancellingCollaborators({
+        reservations: {
+          findById: succeed({ ...cancellingOrder, updatedAt: claimedAt }),
+          claimCancellation: succeed(null),
+        },
+      })
+    );
+
+    expect(outcome).toBeInstanceOf(HoldCancellationInProgress);
+    expect(
+      (
+        outcome as InstanceType<typeof HoldCancellationInProgress>
+      ).staleAt.toString()
+    ).toBe(claimedAt.add({ minutes: 10 }).toString());
+    expect(trace.some((entry) => entry.startsWith("call dotypos."))).toBe(
+      false
+    );
+  });
+
+  test("leaves an order whose hold was replaced since the cleanup was scheduled", async () => {
+    const { outcome, trace } = await cancelOrderHold(
+      cancellingCollaborators({
+        reservations: {
+          findById: succeed({
+            ...heldOrder,
+            reservationHoldExpiresAt: holdExpiresAt.add({ minutes: 20 }),
+          }),
+        },
+      })
+    );
+
+    expect(outcome).toBe("not_due");
+    expect(
+      trace.filter((entry) => entry.startsWith("call ")).map((entry) => entry)
+    ).toEqual(["call reservations.findById(reservation-id)"]);
+  });
+
+  test("does nothing for a missing order", async () => {
     const { outcome, trace } = await cancelOrderHold(
       cancellingCollaborators({
         reservations: {
@@ -546,18 +611,14 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
       })
     );
 
-    expect(outcome).toBe("skipped");
+    expect(outcome).toBe("not_due");
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=false) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in unpaidHoldRelease.release",
-        "call reservations.findById(reservation-id)",
-        "Warn Reservation hold cancellation skipped: claim not cancellable {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in unpaidHoldRelease.release",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation skipped: hold not due {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
       ]
     `);
   });
@@ -565,7 +626,7 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
   test("fails when an already claimed cancellation can't be reloaded", async () => {
     const dbDown = new Error("db down");
     const findById = mock(fail(dbDown));
-    findById.mockImplementationOnce(succeed(null));
+    findById.mockImplementationOnce(succeed(cancellingOrder));
     const { failure, trace } = await cancelOrderHold(
       cancellingCollaborators({
         reservations: { findById, claimCancellation: succeed(null) },
@@ -579,12 +640,12 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=false) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=false) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
       ]
     `);
@@ -606,16 +667,16 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
-        "Warn Reservation hold cancellation skipped: missing Dotypos reservation {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "Warn Reservation hold cancellation skipped: missing Dotypos reservation {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
       ]
     `);
   });
@@ -636,16 +697,16 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
-        "Warn Reservation hold cancellation skipped: reservation paid {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "Warn Reservation hold cancellation skipped: reservation paid {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
       ]
     `);
   });
@@ -661,19 +722,112 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
         "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancellationFailed(id=reservation-id, failureCode=dotypos_cancel_failed)",
-        "Error Dotypos reservation hold cancellation failed (cause=<DotyposUnavailable>) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call reservations.markCancellationFailed(id=reservation-id, claimedAt=<Instant>, failureCode=dotypos_cancel_failed)",
+        "Error Dotypos reservation hold cancellation failed (cause=<DotyposUnavailable>) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+      ]
+    `);
+  });
+
+  test("marks a hold Dotypos already cancelled as cancelled without cancelling it again", async () => {
+    const { outcome, trace } = await cancelOrderHold(
+      cancellingCollaborators({
+        dotypos: { getReservationStatus: succeed("CANCELLED") },
+      })
+    );
+
+    expect(outcome).toBe("cancelled");
+    expect(trace).toMatchInlineSnapshot(`
+      [
+        "span reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "call reservations.findById(reservation-id)",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "span unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
+        "Info Reservation hold marked cancelled {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call checkoutAnalytics.reservationAbandoned(reservation=<Object>, timestamp=<Instant>)",
+      ]
+    `);
+  });
+
+  test("skips a hold Dotypos confirmed, marking its cancellation failed without analytics", async () => {
+    const { outcome, trace } = await cancelOrderHold(
+      cancellingCollaborators({
+        dotypos: { getReservationStatus: succeed("CONFIRMED") },
+      })
+    );
+
+    expect(outcome).toBe("skipped");
+    expect(trace).toMatchInlineSnapshot(`
+      [
+        "span reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "call reservations.findById(reservation-id)",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "span unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
+        "call reservations.markCancellationFailed(id=reservation-id, claimedAt=<Instant>, failureCode=dotypos_cancel_failed)",
+        "Error Reservation hold cancellation refused: Dotypos kept the hold (orderId=reservation-id, dotyposStatus=CONFIRMED) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+      ]
+    `);
+  });
+
+  test("fails when the hold's Dotypos status can't be read, after marking its cancellation failed", async () => {
+    const statusUnavailable = new DotyposUnavailable({
+      operation: "getReservationStatus",
+      reason: "timeout",
+    });
+    const { failure, trace } = await cancelOrderHold(
+      cancellingCollaborators({
+        dotypos: { getReservationStatus: fail(statusUnavailable) },
+      })
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "ReservationHoldCleanupError",
+      cause: statusUnavailable,
+    });
+    expect(trace).toMatchInlineSnapshot(`
+      [
+        "span reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "call reservations.findById(reservation-id)",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "span unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
+        "call reservations.markCancellationFailed(id=reservation-id, claimedAt=<Instant>, failureCode=dotypos_cancel_failed)",
+        "Error Dotypos reservation hold cancellation failed (cause=<DotyposUnavailable>) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
       ]
     `);
   });
@@ -689,19 +843,20 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
         "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
-        "Warn Reservation hold cancellation marker skipped: reservation state changed (orderId=reservation-id) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
+        "Warn Reservation hold cancellation marker skipped: reservation state changed (orderId=reservation-id) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
       ]
     `);
   });
@@ -721,18 +876,19 @@ describe("ReservationHoldCleanupService.cancelOrderHold trace", () => {
     expect(trace).toMatchInlineSnapshot(`
       [
         "span reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation started {checkedAt,input,orderId} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation started {checkedAt,holdExpiresAt,orderId} in reservationHoldCleanup.cancelOrderHold",
         "call reservations.findById(reservation-id)",
-        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
-        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Debug Reservation hold cancellation active reservation loaded {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization started {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "call finalization.finalizePendingProviderPayment(orderId=reservation-id, paymentAttemptId=payment-attempt-id, abandonmentCheckedAt=<Instant>)",
-        "Info Reservation hold cancellation provider finalization completed {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
+        "Info Reservation hold cancellation provider finalization completed {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in reservationHoldCleanup.cancelOrderHold",
         "span unpaidHoldRelease.release",
-        "call reservations.claimCancellation(reservation-id)",
-        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,input,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
+        "call reservations.claimCancellation(id=reservation-id, expectedHold=<Object>, cause=hold_expired)",
+        "Debug Reservation hold cancellation claim completed (claimedFromNew=true) {abandonmentCutoff,activePaymentAttemptId,checkedAt,dotyposReservationId,fulfillmentState,holdExpiresAt,orderId,paymentState,providerFinalizationResult,reservationId,reservationState} in unpaidHoldRelease.release",
         "span dotyposHoldRelease.release",
+        "call dotypos.getReservationStatus(dotypos-reservation-id)",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>, holdExpiredAt=<Instant>)",
       ]
     `);
   });

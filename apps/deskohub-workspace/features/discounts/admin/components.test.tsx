@@ -64,9 +64,14 @@ mock.module("./actions", () => ({
   deleteDiscountAdminForm: mock(),
   deleteDiscountCodeAdminForm: mock(),
   mutateDiscountAdmin,
-  searchDiscountAdminCustomers: mock(),
   updateDiscountAdminForm: mock(),
   updateDiscountCodeAdminForm: mock(),
+}));
+mock.module("@/features/administration/actions", () => ({
+  cancelAdministrationReservation: mock(),
+  getAdministrationReservation: mock(),
+  mutateReservationAccess: mock(),
+  searchAdministrationCustomers: mock(),
 }));
 
 type DiscountAdminActionResult = {
@@ -654,24 +659,17 @@ describe("discount administration pages", () => {
     expect(table.getByText("Neomezeně")).toBeDefined();
   });
 
-  test("renders customer payments and claim releases in the operator's locale", async () => {
+  test("renders claim releases in the operator's locale", async () => {
     const { RouteLocaleProvider } = await import(
       "@/features/i18n/route-locale"
     );
-    const { ClaimHistoryTable, CustomerTransactionHistoryTable } = await import(
-      "./customer-admin-tables"
-    );
+    const { ClaimHistoryTable } = await import("./customer-admin-tables");
     const paidReservation = loadFixtureReservations({
       customerId: "customer-alex",
     }).items.find(({ latestPayment }) => latestPayment?.state === "paid");
-    const attempt = paidReservation?.latestPayment;
-    if (!paidReservation || !attempt) {
+    if (!paidReservation) {
       throw new Error("The fixtures have no paid reservation");
     }
-    const reservation = {
-      ...paidReservation,
-      product: { kind: "cowork", tier: "reserved-desk" },
-    } as const;
     const claim = {
       kind: "discount-code",
       appliedAmount: { value: 7500, exponent: 2, currency: "CZK" },
@@ -687,25 +685,6 @@ describe("discount administration pages", () => {
     } as const;
     const view = render(
       <RouteLocaleProvider locale="cs-CZ">
-        <CustomerTransactionHistoryTable
-          transactions={[
-            { attempt, reservation, updatedAtLabel: "1. 8. 2026 10:00" },
-            {
-              attempt: {
-                ...attempt,
-                id: `${attempt.id}-refunded`,
-                refundState: "refunded",
-                refundedAmount: {
-                  ...attempt.amount,
-                  value: attempt.amount.value / 2,
-                },
-                refundedAt: "2026-08-03T08:00:00Z",
-              },
-              reservation,
-              updatedAtLabel: "3. 8. 2026 10:00",
-            },
-          ]}
-        />
         <ClaimHistoryTable
           ariaLabel="Historie uplatnění"
           claims={[
@@ -724,16 +703,6 @@ describe("discount administration pages", () => {
         />
       </RouteLocaleProvider>
     );
-    const transactions = within(
-      view.getByRole("table", { name: "Historie transakcí zákazníka" })
-    );
-    const [paidRow, refundedRow] = transactions.getAllByRole("row").slice(1);
-
-    expect(within(paidRow!).getByText("Zaplaceno")).toBeDefined();
-    expect(within(refundedRow!).getByText(/^Částečně vráceno /)).toBeDefined();
-    expect(refundedRow?.textContent).toContain("před vrácením peněz");
-    expect(refundedRow?.textContent).toContain("po vrácení peněz");
-    expect(transactions.getAllByText("Vyhrazené místo")).toHaveLength(2);
 
     const claims = within(
       view.getByRole("table", { name: "Historie uplatnění" })
@@ -748,8 +717,8 @@ describe("discount administration pages", () => {
   });
 
   test("shows only explicit and unrestricted customer codes with guarded icon actions", async () => {
-    const { CustomerAdministrationDetailPage } = await import(
-      "./customer-admin-components"
+    const { CustomerDetailWithDiscounts } = await import(
+      "./customer-detail.test-utils"
     );
     const profile: AdminCustomerProfile = {
       customer: {
@@ -854,7 +823,7 @@ describe("discount administration pages", () => {
     expect(paidReservation?.latestPayment).toBeDefined();
     if (!paidReservation?.latestPayment) return;
     const view = render(
-      <CustomerAdministrationDetailPage
+      <CustomerDetailWithDiscounts
         locale="en-US"
         activity={{
           reservations,
@@ -1090,8 +1059,8 @@ describe("discount administration pages", () => {
     const { RouteLocaleProvider } = await import(
       "@/features/i18n/route-locale"
     );
-    const { CustomerAdministrationDetailPage } = await import(
-      "./customer-admin-components"
+    const { CustomerDetailWithDiscounts } = await import(
+      "./customer-detail.test-utils"
     );
     const { CustomerPromotionCodeAction } = await import(
       "./customer-admin-client"
@@ -1101,7 +1070,7 @@ describe("discount administration pages", () => {
     const locale = "cs-CZ";
     const view = render(
       <RouteLocaleProvider locale={locale}>
-        <CustomerAdministrationDetailPage
+        <CustomerDetailWithDiscounts
           activity={{
             reservations: [],
             reservationHistoryTruncated: false,
@@ -1149,7 +1118,7 @@ describe("discount administration pages", () => {
     );
 
     const reservationStat = view.getByText(
-      m.discountsCustomerStatReservations({}, { locale }),
+      m.administrationCustomerProfileStatReservations({}, { locale }),
       { selector: "dt" }
     ).nextElementSibling;
     expect(reservationStat?.textContent).toBe(formatCount(1250, locale));
@@ -1202,15 +1171,15 @@ describe("discount administration pages", () => {
     const { RouteLocaleProvider } = await import(
       "@/features/i18n/route-locale"
     );
-    const { CustomerAdministrationDetailPage } = await import(
-      "./customer-admin-components"
+    const { CustomerDetailWithDiscounts } = await import(
+      "./customer-detail.test-utils"
     );
     const { unnamedCustomerDisplayName } = await import(
       "@/features/administration/customer-name"
     );
     const view = render(
       <RouteLocaleProvider locale="cs-CZ">
-        <CustomerAdministrationDetailPage
+        <CustomerDetailWithDiscounts
           activity={{
             reservations: [],
             reservationHistoryTruncated: false,
@@ -2143,7 +2112,7 @@ describe("discount administration pages", () => {
       .closest("section")!;
     expect(
       within(panel).getByRole("searchbox", {
-        name: m.discountsCustomerSearchLabel({}, { locale: "en-US" }),
+        name: m.administrationCustomerSearchLabel({}, { locale: "en-US" }),
       })
     ).toBeDefined();
     expect(

@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
-import { MeetingRoomPageReleaseGateRequest } from "@/features/meeting-room/backend/meeting-room-page-release-gate.server";
+import { MeetingRoomReleaseGateRequest } from "@/features/meeting-room/backend/meeting-room-release-gate.server";
 import { OfficeReleaseGateRequest } from "@/features/office/backend/office-release-gate.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { createPublicPageMetadata } from "../page-metadata";
@@ -17,17 +17,16 @@ import { PublishedPublicPagesService } from "./published-public-pages.service";
 const PublishedPublicPagesRenderLayer =
   PublishedPublicPagesService.Default.pipe(
     Layer.provide(
-      Layer.mergeAll(
-        MeetingRoomPageReleaseGateRequest,
-        OfficeReleaseGateRequest
-      )
+      Layer.mergeAll(MeetingRoomReleaseGateRequest, OfficeReleaseGateRequest)
     )
   );
 
 /**
  * Renders the not-found page while production doesn't serve the public
  * page. A gated page calls it in both its metadata and its body, so
- * crawlers get a real 404 and browsers the not-found boundary.
+ * crawlers get a real 404 and browsers the not-found boundary. It rejects
+ * while PostHog can't decide the page's gate, so a regeneration fails and
+ * the last good copy stays; a closed gate is only ever PostHog's answer.
  *
  * A gate may read the request subject: on a Cache Components page, call it
  * inside the Suspense boundary after `connection()`. An ungated page reads
@@ -47,7 +46,8 @@ export async function requirePublishedPublicPage(pathname: PublicPagePathname) {
 /**
  * A public page's `generateMetadata`: its title and description in the
  * request locale, self-canonical and hreflang alternates, and the share
- * card. A gated page's metadata is not found while its gate is off.
+ * card. A gated page's metadata is not found while its gate is off, and
+ * rejects while PostHog can't decide it.
  */
 export const publicPageMetadata =
   (pathname: PublicPagePathname) => async (): Promise<Metadata> =>

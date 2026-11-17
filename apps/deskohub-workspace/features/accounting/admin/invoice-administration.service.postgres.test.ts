@@ -467,6 +467,23 @@ describe.skipIf(!testDatabase)(
         expect(result).toMatchObject({ changed: true });
         expect(calls.getCustomer).toHaveBeenCalledTimes(1);
         expect(calls.updateCustomerDetails).toHaveBeenCalledTimes(1);
+        expect(calls.updateCustomerDetails).toHaveBeenCalledWith(
+          "dotypos-customer-selected",
+          {
+            firstName: "Synthetic",
+            lastName: "Customer",
+            email: testEmailAddress("synthetic"),
+            phone: undefined,
+            addressLine1: "Test street 1",
+            addressLine2: "",
+            city: "Prague",
+            zip: "100 00",
+            country: "CZ",
+            companyName: "",
+            companyId: "",
+            vatId: "",
+          }
+        );
         expect(calls.createCustomer).not.toHaveBeenCalled();
         expect(calls.issueManual).toHaveBeenCalledWith(
           expect.objectContaining({

@@ -14,6 +14,7 @@ import {
 } from "@/features/account";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import {
   type DiscountAdvertisementInput,
@@ -24,6 +25,7 @@ import { DiscountServiceMock } from "@/features/discounts/discount.service.mock"
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { GoogleCalendarWorkspaceLimitationsService } from "@/features/reservation/backend/google-calendar-workspace-limitations.service";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -224,6 +226,7 @@ export const makeAgentToolTestServices = ({
       )
     ),
     officeFlag,
+    OvernightStayReleaseGate.fromDecision(false),
     TestSealedStateKeys
   );
 
@@ -244,6 +247,7 @@ type CustomerAgentAccountFakes = {
   readonly currentAccount?: Layer.PartialEffectful<
     CurrentCustomerAccount["Service"]
   >;
+  readonly profile?: Layer.PartialEffectful<CustomerProfileService["Service"]>;
   readonly ownership?: Layer.PartialEffectful<
     CustomerAccountReservationOwnership["Service"]
   >;
@@ -260,8 +264,14 @@ export const inMemoryCustomerAgentCallServices = (
 ) =>
   Layer.succeed(CustomerAgentCallServices, {
     forCaller: ({ grant }) => {
-      const { authentication, sections, contact, currentAccount, ownership } =
-        fakes(grant);
+      const {
+        authentication,
+        sections,
+        contact,
+        currentAccount,
+        profile,
+        ownership,
+      } = fakes(grant);
 
       return Layer.mergeAll(
         Layer.succeed(CurrentCustomerAgentGrant, grant),
@@ -269,6 +279,7 @@ export const inMemoryCustomerAgentCallServices = (
         Layer.mock(CustomerAccountSections, sections ?? {}),
         Layer.mock(CustomerAccountContactService, contact ?? {}),
         Layer.mock(CurrentCustomerAccount, currentAccount ?? {}),
+        Layer.mock(CustomerProfileService, profile ?? {}),
         Layer.mock(CustomerAccountReservationOwnership, ownership ?? {})
       );
     },

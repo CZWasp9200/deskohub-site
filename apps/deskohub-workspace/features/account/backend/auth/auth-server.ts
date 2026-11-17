@@ -8,6 +8,7 @@ import {
   passkey,
 } from "@better-auth/passkey";
 import { getLocaleFromPathname } from "@deskohub/i18n/pathname";
+import { NextSignInEmailAt } from "@deskohub/workspace-customer-api/sign-in-email";
 import {
   APIError,
   type AuthContext,
@@ -220,6 +221,7 @@ const magicLinkMetadataSchema = Schema.Struct({
 
 const signInCodeMetadataSchema = Schema.Struct({
   signInCode: Schema.Boolean,
+  nextSignInEmailAt: Schema.optional(Schema.String),
 });
 
 /**
@@ -230,6 +232,23 @@ const isSignInCodeRequested = (metadata: SignInEmail["metadata"]) =>
   Option.match(Schema.decodeUnknownOption(signInCodeMetadataSchema)(metadata), {
     onNone: () => false,
     onSome: ({ signInCode }) => signInCode,
+  });
+
+/**
+ * The sign-in email response: whether the email carries a code and, while
+ * codes are on, when the address takes its next email. The guard writes the
+ * instant whenever codes are on; with codes off a client value may remain in
+ * the metadata, so it is read only with the code.
+ */
+const signInEmailCompletion = (
+  metadata: SignInEmail["metadata"]
+): SignInEmailCompletion =>
+  Option.match(Schema.decodeUnknownOption(signInCodeMetadataSchema)(metadata), {
+    onNone: () => ({ status: true, signInCode: false }),
+    onSome: ({ signInCode, nextSignInEmailAt }) =>
+      signInCode && nextSignInEmailAt !== undefined
+        ? { status: true, signInCode, nextSignInEmailAt }
+        : { status: true, signInCode },
   });
 
 const makeBotDetectedError = () =>
@@ -267,11 +286,14 @@ const makeReviewAccountDeletionRefusedError = () =>
 const makeInvalidSignInCodeError = () =>
   new APIError("BAD_REQUEST", { code: "INVALID_OTP", message: "Invalid OTP" });
 
-const makeSignInEmailLimitError = () =>
+const makeSignInEmailLimitError = (nextSignInEmailAt: string) =>
   new APIError("TOO_MANY_REQUESTS", {
     code: "SIGN_IN_EMAIL_LIMIT_REACHED",
     message: "Too many sign-in emails were requested for this address.",
+    nextSignInEmailAt,
   });
+
+const encodeNextSignInEmailAt = Schema.encodeSync(NextSignInEmailAt);
 
 /** The initiating site locale in the magic-link metadata, else the default. */
 const decodeMagicLinkLocale = (
@@ -540,21 +562,29 @@ const requestedReviewLogin = ({ config, request }: AuthRequestGuard) =>
   );
 
 /**
- * The per-email limit counts sign-in emails that carry a code. Better Auth
- * rejects a missing or malformed email after the hook.
+ * The per-email limit counts sign-in emails that carry a code, and answers
+ * when the address takes its next one, on success and on refusal. Better
+ * Auth rejects a missing or malformed email after the hook.
  */
 const reserveSignInCodeEmail = ({ request }: AuthRequestGuard) =>
   Option.match(
     Schema.decodeUnknownOption(signInEmailBodySchema)(request.body),
     {
-      onNone: () => Effect.void,
+      onNone: () => Effect.succeedNone,
       onSome: ({ email }) =>
         reserveSignInEmail({
           verifications: request.context.adapter,
           email,
         }).pipe(
-          Effect.filterOrFail(Boolean, makeSignInEmailLimitError),
-          Effect.asVoid
+          Effect.map(({ admitted, nextSignInEmailAt }) => ({
+            admitted,
+            nextSignInEmailAt: encodeNextSignInEmailAt(nextSignInEmailAt),
+          })),
+          Effect.flatMap(({ admitted, nextSignInEmailAt }) =>
+            admitted
+              ? Effect.succeedSome(nextSignInEmailAt)
+              : Effect.fail(makeSignInEmailLimitError(nextSignInEmailAt))
+          )
         ),
     }
   );
@@ -563,18 +593,24 @@ const reserveSignInCodeEmail = ({ request }: AuthRequestGuard) =>
  * Evaluates `login_email_code` once for a sign-in email (fail closed) and
  * records the decision in the request metadata, replacing any client value,
  * so the email and the response follow one evaluation. While the flag is on,
- * the send also counts against the per-email limit.
+ * the send also counts against the per-email limit, and the metadata records
+ * when the address takes its next email.
  */
 const decideSignInCode = (guard: AuthRequestGuard) =>
   Effect.succeed(guard).pipe(
     Effect.bind("signInCode", () => readGate(SignInCodeReleaseGate.isOpen)),
-    Effect.tap(({ signInCode }) =>
-      reserveSignInCodeEmail(guard).pipe(
-        Effect.when(Effect.succeed(signInCode))
-      )
+    Effect.bind("nextSignInEmailAt", ({ signInCode }) =>
+      signInCode ? reserveSignInCodeEmail(guard) : Effect.succeedNone
     ),
-    Effect.map(({ signInCode }) => ({
-      context: { body: { metadata: { signInCode } } },
+    Effect.map(({ signInCode, nextSignInEmailAt }) => ({
+      context: {
+        body: {
+          metadata: {
+            signInCode,
+            nextSignInEmailAt: Option.getOrUndefined(nextSignInEmailAt),
+          },
+        },
+      },
     })),
     Effect.withSpan("WorkspaceAuth.decideSignInCode")
   );
@@ -878,6 +914,7 @@ const mirrorSessionAnalyticsConsent = ({
 type SignInEmailCompletion = {
   readonly status: true;
   readonly signInCode: boolean;
+  readonly nextSignInEmailAt?: string;
 };
 
 /** Better Auth's credential sign-in response, minus its redirect field. */
@@ -902,7 +939,8 @@ type CompletedAuthRequest = {
 
 /**
  * Returns the sign-in code decision with the sign-in email response, so the
- * client shows the code step only for an email that carries a code. A
+ * client shows the code step only for an email that carries a code, and,
+ * while codes are on, when the address takes its next email. A
  * password sign-in answers like a code sign-in, without Better Auth's
  * redirect instruction: the page continues through its callback itself, and
  * a reauthentication stays in its dialog.
@@ -910,10 +948,7 @@ type CompletedAuthRequest = {
 const completeAuthRequest = (ctx: CompletedAuthRequest) => {
   if (isAPIError(ctx.context.returned)) return undefined;
   if (ctx.path === "/sign-in/magic-link") {
-    return ctx.json({
-      status: true,
-      signInCode: isSignInCodeRequested(ctx.body?.metadata),
-    });
+    return ctx.json(signInEmailCompletion(ctx.body?.metadata));
   }
   if (ctx.path !== "/sign-in/email") return undefined;
   return Option.match(

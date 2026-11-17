@@ -10,11 +10,13 @@ import type {
   DiscountQuote,
   DiscountResolutionError,
 } from "@/features/discounts";
-import type {
-  CoworkAdvertisedPriceDetails,
-  CoworkAdvertisedPriceReservation,
-  CoworkReservationDetails,
-  NormalizedCoworkReservationOrder,
+import {
+  type CoworkAdvertisedPriceDetails,
+  type CoworkAdvertisedPriceReservation,
+  type CoworkReservationDetails,
+  coworkAdvertisedPriceReservationEquals,
+  getCoworkAdvertisedPriceReservation,
+  type NormalizedCoworkReservationOrder,
 } from "@/features/reservation/cowork-reservation";
 import type { MoneyUnitMismatch } from "@/shared/money/money";
 import {
@@ -23,10 +25,13 @@ import {
   type ReservationAdvertisementQuote,
   type ReservationAdvertisementQuoteInput,
   type ReservationCustomerQuoteInput,
+  type ReservationDiscountCodeClearInput,
+  type ReservationDiscountCodeClearResult,
   type ReservationDiscountCodePriceInput,
-  type ReservationDiscountCodePriceResult,
+  type ReservationDiscountCodeVerdict,
   type ReservationPaymentPriceAffirmation,
   type ReservationPaymentPriceAffirmationInput,
+  type ReservationPaymentRepricingInput,
   type ReservationPreparedCustomerQuote,
   reservationCheckoutPricing,
 } from "./reservation-checkout-pricing";
@@ -42,11 +47,14 @@ export type CoworkAdvertisementQuoteInput =
 export type CoworkAdvertisementAffirmationInput =
   ReservationAdvertisementAffirmationInput<
     CoworkAdvertisedPriceReservation,
+    NormalizedCoworkReservationOrder,
     CoworkReservationQuote
   >;
 
-export type CoworkCustomerQuoteInput =
-  ReservationCustomerQuoteInput<NormalizedCoworkReservationOrder>;
+export type CoworkCustomerQuoteInput = ReservationCustomerQuoteInput<
+  NormalizedCoworkReservationOrder,
+  CoworkReservationQuote
+>;
 
 export type CoworkPaymentPriceAffirmationInput =
   ReservationPaymentPriceAffirmationInput<
@@ -54,7 +62,22 @@ export type CoworkPaymentPriceAffirmationInput =
     CoworkReservationQuote
   >;
 
+export type CoworkPaymentRepricingInput = ReservationPaymentRepricingInput<
+  NormalizedCoworkReservationOrder,
+  CoworkReservationQuote
+>;
+
 export type CoworkDiscountCodePriceInput = ReservationDiscountCodePriceInput<
+  NormalizedCoworkReservationOrder,
+  CoworkReservationQuote
+>;
+
+export type CoworkDiscountCodeClearInput = ReservationDiscountCodeClearInput<
+  NormalizedCoworkReservationOrder,
+  CoworkReservationQuote
+>;
+
+export type CoworkDiscountCodeClearResult = ReservationDiscountCodeClearResult<
   NormalizedCoworkReservationOrder,
   CoworkReservationQuote
 >;
@@ -66,7 +89,7 @@ export type CoworkAdvertisementQuote = ReservationAdvertisementQuote<
 
 export type CoworkAdvertisementAffirmation =
   ReservationAdvertisementAffirmation<
-    CoworkAdvertisedPriceReservation,
+    NormalizedCoworkReservationOrder,
     CoworkReservationQuote
   >;
 
@@ -80,7 +103,7 @@ export type CoworkPaymentPriceAffirmation = ReservationPaymentPriceAffirmation<
   CoworkReservationQuote
 >;
 
-export type CoworkDiscountCodePriceResult = ReservationDiscountCodePriceResult<
+export type CoworkDiscountCodeVerdict = ReservationDiscountCodeVerdict<
   NormalizedCoworkReservationOrder,
   CoworkReservationQuote
 >;
@@ -133,6 +156,10 @@ export const coworkCheckoutPricing = reservationCheckoutPricing<
   never,
   MoneyUnitMismatch
 >({
+  advertised: {
+    project: getCoworkAdvertisedPriceReservation,
+    equals: coworkAdvertisedPriceReservationEquals,
+  },
   getPricingContext: getCoworkPricingContext,
   buildQuote: buildCoworkQuote,
   getCheckoutSummary: ({ quote, reservation }) =>

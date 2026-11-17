@@ -22,7 +22,10 @@ import {
   getReservationInvoiceBuyer,
   reservationBillingSelectionSchema,
 } from "@/features/reservation/reservation-billing";
-import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+import {
+  vatStatuses,
+  workspaceSiteConstants,
+} from "@/shared/utils/site-constants";
 import {
   instantStringSchema,
   plainDateStringSchema,
@@ -84,7 +87,7 @@ const accountingBuyerSchema = Schema.Union([
 const accountingSupplierSchema = Schema.Struct({
   legalName: Schema.NonEmptyString,
   companyId: companyRegistrationIdSchema,
-  vatStatus: Schema.Literal("not-vat-payer"),
+  vatStatus: Schema.Literals(vatStatuses),
   address: Schema.Struct({
     street: Schema.NonEmptyString,
     cityDistrict: Schema.NonEmptyString,

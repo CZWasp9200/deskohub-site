@@ -444,7 +444,6 @@ describe("WorkspaceAdminApiClient", () => {
           return Response.json({
             reservation,
             canCancel: true,
-            requiresProviderCredentialRemoval: false,
             booking,
             lifecycle: {
               currentStage: "complete",
@@ -478,8 +477,6 @@ describe("WorkspaceAdminApiClient", () => {
             `Bearer ${accessToken}`
           );
           expect(await request.json()).toEqual({
-            accessGrantUpdatedAt: null,
-            providerCredentialRemoved: false,
             sendCancellationEmail: true,
           });
           return Response.json({ outcome: "cancelled", email: "sent" });
@@ -824,8 +821,6 @@ describe("WorkspaceAdminApiClient", () => {
             Redacted.make(accessToken),
             reservation.id,
             {
-              accessGrantUpdatedAt: null,
-              providerCredentialRemoved: false,
               sendCancellationEmail: true,
             }
           )

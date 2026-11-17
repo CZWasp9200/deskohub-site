@@ -6,6 +6,7 @@ import { customerRead } from "../../customer-api/customer-request";
 import type { CustomerViewError } from "../../customer-api/customer-view-error";
 import { Clipboard, ShareSheet } from "../../customer-api/device-capabilities";
 import type { AppLocale } from "../../i18n/app-locale";
+import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
 
 /**
@@ -32,46 +33,152 @@ export const shareReferralLinkAtom = customerDataRuntime.fn(
 );
 
 /**
- * The referrer discount as the site shows it: a whole percentage rounded up,
- * such as "11%" for "10.25".
+ * A referral percentage exactly, such as "9.75%" for two invitees'
+ * compounded 5%, as the account's own rows show it.
  */
-export const formatReferralDiscount = (
+export const formatExactReferralDiscount = (
   discount: string,
   locale: AppLocale
-): string => {
-  const [whole = "0", fraction = ""] = discount.split(".");
-  const percent = Number(whole) + (/[1-9]/.test(fraction) ? 1 : 0);
-  return new Intl.NumberFormat(locale, {
+): string =>
+  new Intl.NumberFormat(locale, {
     style: "percent",
     maximumFractionDigits: 2,
-  }).format(percent / 100);
-};
+  }).format(Number(discount) / 100);
 
-/** What the Referrals screen shows for a summary. */
+/**
+ * The compounding behind the referrer discount, as the (i) on "Your
+ * discount" explains it: `perInvitee` for each of `referrals` friends adds
+ * up to `total`, not `referrals` × `perInvitee`. Before anyone counts, it
+ * shows one friend's worth.
+ */
+export interface ReferralDiscountExample {
+  readonly perInvitee: string;
+  readonly referrals: number;
+  readonly total: string;
+}
+
+/**
+ * Who joined, as one sentence: "3 people joined with your code; 2 count
+ * toward your discount", each count in its plural form.
+ */
+export const joinedSentence = (
+  joined: ReferralsView["joined"],
+  locale: AppLocale
+): string =>
+  joined.kind === "nobody"
+    ? m.referrals_joined_nobody({}, { locale })
+    : m.referrals_joined_some(
+        {
+          invitees: m.referrals_joined_invitees(
+            { count: joined.invitees },
+            { locale }
+          ),
+          eligible:
+            joined.eligibleInvitees === 0
+              ? m.referrals_joined_eligible_none({}, { locale })
+              : m.referrals_joined_eligible(
+                  { count: joined.eligibleInvitees },
+                  { locale }
+                ),
+        },
+        { locale }
+      );
+
+/** What the Invite friends screen shows for an overview. */
 export interface ReferralsView {
   readonly code: string;
   readonly shareUrl: string;
-  readonly eligibleInvitees: number;
-  readonly invitees: number;
-  /** Whether no one has joined with the referral yet. */
-  readonly noInvitees: boolean;
+  /** Who joined: nobody yet, or everyone and how many count now. */
+  readonly joined:
+    | { readonly kind: "nobody" }
+    | {
+        readonly kind: "some";
+        readonly invitees: number;
+        readonly eligibleInvitees: number;
+      };
+  /** The referrer discount exactly, such as "9.75%". */
   readonly discount: string;
-  /** One formatted total per currency; empty when nothing was saved. */
+  /**
+   * One formatted total per currency; with nothing saved, a zero in the
+   * server's currency, or nothing from a Workspace that doesn't say it.
+   */
   readonly savings: ReadonlyArray<string>;
+  /** The invited friend's first-booking discount, when the server says. */
+  readonly invitationDiscount: string | undefined;
+  /** The discount each friend who keeps visiting adds, when the server says. */
+  readonly discountPerInvitee: string | undefined;
+  readonly example: ReferralDiscountExample | undefined;
 }
 
-export const referralsView = (
-  { summary, shareUrl }: ReferralAccountOverview,
+const discountExample = (
+  perInvitee: string,
+  counted: number,
+  discount: string,
   locale: AppLocale
-): ReferralsView => ({
-  code: summary.code,
-  shareUrl,
-  eligibleInvitees: summary.eligibleInviteeCount,
-  invitees: summary.inviteeCount,
-  noInvitees: summary.inviteeCount === 0,
-  discount: formatReferralDiscount(summary.discount, locale),
-  savings: summary.savings.map((money) => formatMoney(money, locale)),
-});
+): ReferralDiscountExample =>
+  counted === 0
+    ? { perInvitee, referrals: 1, total: perInvitee }
+    : {
+        perInvitee,
+        referrals: counted,
+        total: formatExactReferralDiscount(discount, locale),
+      };
+
+/**
+ * The screen's numbers, every rate from the server's overview: an older
+ * Workspace may leave out a programme rate, and then the screen words that
+ * step without it.
+ */
+export const referralsView = (
+  {
+    summary,
+    shareUrl,
+    discountPerInvitee,
+    invitationDiscount,
+    savingsCurrency,
+  }: ReferralAccountOverview,
+  locale: AppLocale
+): ReferralsView => {
+  const counted = summary.eligibleInviteeCount;
+  const perInvitee =
+    discountPerInvitee === undefined
+      ? undefined
+      : formatExactReferralDiscount(discountPerInvitee, locale);
+  return {
+    code: summary.code,
+    shareUrl,
+    joined:
+      summary.inviteeCount === 0
+        ? { kind: "nobody" }
+        : {
+            kind: "some",
+            invitees: summary.inviteeCount,
+            eligibleInvitees: counted,
+          },
+    discount: formatExactReferralDiscount(summary.discount, locale),
+    savings:
+      summary.savings.length === 0 && savingsCurrency !== undefined
+        ? [
+            formatMoney(
+              { value: 0, exponent: 0, currency: savingsCurrency },
+              locale
+            ),
+          ]
+        : summary.savings.map((money) => formatMoney(money, locale)),
+    invitationDiscount:
+      invitationDiscount === undefined
+        ? undefined
+        : formatExactReferralDiscount(invitationDiscount, locale),
+    discountPerInvitee: perInvitee,
+    example:
+      perInvitee === undefined
+        ? undefined
+        : discountExample(perInvitee, counted, summary.discount, locale),
+  };
+};
+
+/** How long the copy button shows its check after a copy. */
+export const copiedFeedbackMs = 2000;
 
 /**
  * How the Referrals screen words a failed read: referrals not released, or

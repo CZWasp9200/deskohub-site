@@ -1007,7 +1007,6 @@ describe("reservation detail contract", () => {
       customerId: "customer-id",
     },
     canCancel: false,
-    requiresProviderCredentialRemoval: false,
   } as const;
 
   test("keeps a restorable detail readable by released dhw", () => {

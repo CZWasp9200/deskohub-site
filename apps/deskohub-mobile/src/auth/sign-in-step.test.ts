@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
+import { Option } from "effect";
 import { signInStep } from "./sign-in-step";
 
 describe("signInStep", () => {
@@ -10,15 +11,36 @@ describe("signInStep", () => {
   });
 
   test("asks for the code when the email carries one", () => {
-    expect(signInStep(undefined, { email, signInCode: true })).toBe("code");
+    expect(
+      signInStep(undefined, {
+        email,
+        signInCode: true,
+        sentAt: 0,
+        nextSignInEmailAt: Option.none(),
+      })
+    ).toBe("code");
   });
 
   test("points to the link alone when the email carries no code", () => {
-    expect(signInStep(undefined, { email, signInCode: false })).toBe("link");
+    expect(
+      signInStep(undefined, {
+        email,
+        signInCode: false,
+        sentAt: 0,
+        nextSignInEmailAt: Option.none(),
+      })
+    ).toBe("link");
   });
 
   test("offers to continue a fresh session first", () => {
     expect(signInStep(email, undefined)).toBe("continue");
-    expect(signInStep(email, { email, signInCode: false })).toBe("continue");
+    expect(
+      signInStep(email, {
+        email,
+        signInCode: false,
+        sentAt: 0,
+        nextSignInEmailAt: Option.none(),
+      })
+    ).toBe("continue");
   });
 });

@@ -22,11 +22,14 @@ import type { CustomerAccountSession } from "@/features/account/backend/customer
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import { CheckoutAnalytics } from "@/features/checkout/backend/analytics";
 import {
-  buildCheckoutPayPath,
-  buildSignedPayState,
+  type AdvertisementAffirmation,
   CheckoutPricingService,
-  type PayStateLinkOptions,
-  sealPayStateForUrl,
+  getPriceVerdictChangedKeys,
+  openSubmittedAdvertisedPriceState,
+  PayState,
+  type PreparedCustomerQuote,
+  type PriceVerdict,
+  toPayStateHoldExpiresAt,
 } from "@/features/checkout/backend/checkout";
 import {
   deriveCheckoutAttemptKeys,
@@ -38,15 +41,9 @@ import {
   addCheckoutReferralAppliedMarker,
   hasCheckoutReferralBenefit,
 } from "@/features/checkout/checkout-referral-notice";
-import {
-  type CheckoutSummaryChangedKeys,
-  getCheckoutSummaryChangedKeys,
-} from "@/features/checkout/checkout-summary";
-import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
-import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
-import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
+import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
 import { legalEvidenceMapSchema } from "@/features/checkout/legal-evidence";
-import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
+import { getCheckoutDetails } from "@/features/checkout/schemas/checkout-details";
 import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
 import { defaultPhoneRegion, type Locale, m } from "@/features/i18n";
 import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
@@ -63,30 +60,16 @@ import {
   RememberedReferral,
   type RememberedReferralForBooking,
 } from "@/features/referrals/remembered-referral.service";
-import {
-  getPreparedCoworkCheckoutDetails,
-  type PreparedCoworkAdvertisement,
-  type PreparedCoworkPayState,
-  prepareCoworkAdvertisement,
-} from "@/features/reservation/actions/prepare-cowork-pay-state";
-import {
-  getPreparedMeetingRoomCheckoutDetails,
-  type PreparedMeetingRoomAdvertisement,
-  type PreparedMeetingRoomPayState,
-  prepareMeetingRoomAdvertisement,
-} from "@/features/reservation/actions/prepare-meeting-room-pay-state";
-import {
-  getPreparedOfficeCheckoutDetails,
-  type PreparedOfficeAdvertisement,
-  type PreparedOfficePayState,
-  prepareOfficeAdvertisement,
-} from "@/features/reservation/actions/prepare-office-pay-state";
 import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import {
   AgentBookingPaymentInProgressError,
   AgentBookingProfileRequiredError,
   BookingAgent,
 } from "@/features/reservation/backend/booking-agent";
+import {
+  ensureCoworkStayOffered,
+  OvernightStayReleaseGate,
+} from "@/features/reservation/backend/overnight-stay-release-gate";
 import {
   getAgentHoldBookedAt,
   getDotyposCustomerId,
@@ -169,6 +152,7 @@ const bookingCapabilities = [
   SealedStateKeys,
   ReferralReleaseGate,
   OfficeReleaseGate,
+  OvernightStayReleaseGate,
 ] as const;
 
 type BookingCapabilities =
@@ -183,7 +167,8 @@ type BookingCapabilities =
   | ReviewSandbox
   | SealedStateKeys
   | ReferralReleaseGate
-  | OfficeReleaseGate;
+  | OfficeReleaseGate
+  | OvernightStayReleaseGate;
 
 /** Reservation submissions, booked into a hold and a Pay page. */
 export class ReservationBooking extends Context.Service<
@@ -204,7 +189,7 @@ export class ReservationBooking extends Context.Service<
   );
 
   /**
-   * The live booking, with the referral and office release gates left to the
+   * The live booking, with the referral, office and overnight-stay release gates left to the
    * caller: a request that decides them once, such as the customer HTTP API,
    * passes the gates it built, so booking shares that request's decisions.
    */
@@ -243,28 +228,26 @@ const decodeLegalEvidenceMap = Schema.decodeUnknownSync(
 );
 const emptyLegalEvidence = decodeLegalEvidenceMap({});
 
-type PreparedAdvertisement =
-  | PreparedCoworkAdvertisement
-  | PreparedMeetingRoomAdvertisement
-  | PreparedOfficeAdvertisement;
+type PreparedAdvertisement = PriceVerdict<AdvertisementAffirmation>;
 
 const prepareAdvertisement = Effect.fn("preparePayState.prepareAdvertisement")(
-  (
+  function* (
     // Advertising prices the selection; it never reads the consent label.
     input: Omit<PayStateSubmission, "marketingConsentSource"> & {
       readonly bookedAt: Temporal.Instant;
     }
-  ) =>
-    Match.value(input.reservation).pipe(
-      Match.discriminatorsExhaustive("kind")({
-        cowork: (reservation) =>
-          prepareCoworkAdvertisement({ ...input, reservation }),
-        "meeting-room": (reservation) =>
-          prepareMeetingRoomAdvertisement({ ...input, reservation }),
-        office: (reservation) =>
-          prepareOfficeAdvertisement({ ...input, reservation }),
-      })
-    )
+  ) {
+    const advertisement = yield* openSubmittedAdvertisedPriceState(
+      input.advertisedPriceToken
+    );
+    const pricing = yield* CheckoutPricingService;
+    return yield* pricing.affirmAdvertisement({
+      advertisement,
+      reservation: input.reservation,
+      locale: input.locale,
+      bookedAt: input.bookedAt,
+    });
+  }
 );
 
 const quotePreparedReservation = Effect.fn(
@@ -282,72 +265,27 @@ const quotePreparedReservation = Effect.fn(
       ? {}
       : { referralCode: input.referralCode };
 
-  const prepared = yield* pricing.quoteForCustomer({
-    ...input.advertisement,
+  const verdict = yield* pricing.quoteForCustomer({
+    advertisement: input.advertisement,
     dotyposCustomerId: input.dotyposCustomerId,
     locale: input.locale,
-    affirmedAdvertisement: input.advertisement.discountQuote,
     ...referral,
   });
-  const advertisedSummary = Match.value(input.advertisement).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (advertisement) =>
-        getCoworkCheckoutSummary(
-          advertisement.reservation,
-          advertisement.advertisedQuote
-        ),
-      "meeting-room": (advertisement) =>
-        getMeetingRoomCheckoutSummary(advertisement.advertisedQuote),
-      office: (advertisement) =>
-        getOfficeCheckoutSummary(advertisement.advertisedQuote),
-    })
-  );
-  const preparedSummary = Match.value(prepared).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (customerQuote) =>
-        getCoworkCheckoutSummary(
-          customerQuote.reservation,
-          customerQuote.quote
-        ),
-      "meeting-room": (customerQuote) =>
-        getMeetingRoomCheckoutSummary(customerQuote.quote),
-      office: (customerQuote) => getOfficeCheckoutSummary(customerQuote.quote),
-    })
-  );
-  const changedKeys =
-    input.advertisement.changedKeys || prepared.advertisedPriceChanged
-      ? getCheckoutSummaryChangedKeys(advertisedSummary, preparedSummary)
-      : undefined;
 
   return {
-    ...prepared,
+    ...verdict.priced,
     ...referral,
     requestedDiscountCode:
-      input.advertisement.requestedDiscountCode ?? input.referralCodePrefill,
-    changedKeys,
+      input.advertisement.priced.requestedDiscountCode ??
+      input.referralCodePrefill,
+    changedKeys: getPriceVerdictChangedKeys(verdict),
   };
 });
 
-type PreparedPayState =
-  | PreparedCoworkPayState
-  | PreparedMeetingRoomPayState
-  | PreparedOfficePayState;
-
-const getReservationCheckoutDetails = (input: {
-  readonly locale: Locale;
-  readonly prepared: PreparedPayState;
-  readonly legalEvidence: CheckoutDetails["legal"];
-}): CheckoutDetails =>
-  Match.value(input.prepared).pipe(
-    Match.discriminatorsExhaustive("kind")({
-      cowork: (prepared) =>
-        getPreparedCoworkCheckoutDetails({ ...input, prepared }),
-      "meeting-room": (prepared) =>
-        getPreparedMeetingRoomCheckoutDetails({ ...input, prepared }),
-      office: (prepared) =>
-        getPreparedOfficeCheckoutDetails({ ...input, prepared }),
-    })
-  );
+type PreparedPayState = PreparedCustomerQuote & {
+  readonly requestedDiscountCode?: CanonicalPromotionCode;
+  readonly referralCode?: CanonicalPromotionCode;
+};
 
 const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
   function* (input: {
@@ -356,6 +294,8 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
     readonly reservationId: WorkspaceReservationId;
     readonly checkoutSessionId: CheckoutSessionId;
     readonly bookedAt: Temporal.Instant;
+    /** The hold deadline stored with the reservation; the Pay state signs it. */
+    readonly holdExpiresAt: Temporal.Instant;
     readonly changedKeys?: CheckoutSummaryChangedKeys;
     /**
      * The customer the quote was priced for, when the booking carries the
@@ -369,10 +309,7 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
      */
     readonly stableLink?: boolean;
   }) {
-    const linkOptions: PayStateLinkOptions = input.stableLink
-      ? { issuedAt: input.bookedAt, deterministic: true }
-      : {};
-    const state = yield* buildSignedPayState(
+    const payState = yield* PayState.issue(
       {
         ...input.prepared,
         locale: input.locale,
@@ -380,30 +317,24 @@ const toReadyResult = Effect.fn("preparePayState.toReadyResult")(
         bookedAt: instantStringSchema.make(
           temporalInstantToIsoString(input.bookedAt)
         ),
+        holdExpiresAt: toPayStateHoldExpiresAt(input.holdExpiresAt),
         checkoutSessionId: input.checkoutSessionId,
         changedKeys: input.changedKeys,
       },
-      linkOptions
-    );
-    const sealedState = yield* sealPayStateForUrl(state, linkOptions);
-    const redirectUrl = buildCheckoutPayPath(input.locale, sealedState, {
-      orderId: input.reservationId,
-    });
-    // The Pay page accepts its sealed state until this instant.
-    const expiresAt = temporalInstantToIsoString(
-      Temporal.Instant.fromEpochMilliseconds(state.exp * 1000)
+      input.stableLink ? { stableAt: input.bookedAt } : {}
     );
     const referralApplied =
       input.referralCustomer !== undefined &&
       hasCheckoutReferralBenefit({
-        discounts: state.quote.payment.discounts,
+        discounts: input.prepared.quote.payment.discounts,
         dotyposCustomerId: input.referralCustomer,
       });
     const issued = {
       orderId: input.reservationId,
-      redirectUrl,
-      payStateToken: sealedState.token,
-      expiresAt,
+      redirectUrl: payState.payUrl,
+      payStateToken: payState.payStateToken,
+      // The Pay page accepts its sealed state until this instant.
+      expiresAt: payState.expiresAt,
       ...(referralApplied && { referralApplied: true as const }),
     };
 
@@ -545,8 +476,8 @@ const prepareReviewSandboxHold = Effect.fn(
     agentClientId: Option.getOrUndefined(
       Option.map(bookingAgent, (agent) => agent.clientId)
     ),
-    reservation: advertisement.reservation,
-    total: advertisement.advertisedQuote.payment.expectedPrice,
+    reservation: advertisement.priced.reservation,
+    total: advertisement.priced.advertisedQuote.payment.expectedPrice,
     bookedAt,
   });
 });
@@ -759,7 +690,10 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         yield* Ref.set(inReviewSandbox, reviewAccount);
         yield* Match.value(input.reservation).pipe(
           Match.discriminatorsExhaustive("kind")({
-            cowork: () => Effect.void,
+            cowork: (cowork) =>
+              ensureCoworkStayOffered(
+                "stay" in cowork ? cowork.stay : undefined
+              ),
             "meeting-room": () => Effect.void,
             office: () => ensureOfficeReservationsEnabled,
           })
@@ -792,19 +726,15 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         const referralCustomerFor = (pricedFor: DotyposCustomerId) =>
           accountReferral === undefined ? undefined : pricedFor;
 
+        const reservation = accountCustomer
+          ? { ...input.reservation, ...accountCustomer.contact }
+          : input.reservation;
         const advertiseAt = (at: Temporal.Instant) =>
-          prepareAdvertisement({
-            ...input,
-            ...(accountCustomer && {
-              reservation: { ...input.reservation, ...accountCustomer.contact },
-            }),
-            bookedAt: at,
-          });
+          prepareAdvertisement({ ...input, reservation, bookedAt: at });
         // Submission locks the price: calendar sales are evaluated at this
         // booking moment here and at every later checkout re-check.
         const bookedAt = yield* currentInstant;
         const advertisement = yield* advertiseAt(bookedAt);
-        const reservation = advertisement.reservation;
 
         const checkoutSessionKeys = yield* deriveCheckoutSessionKeys(
           input.checkoutSessionId
@@ -854,7 +784,9 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
           referralCodePrefill,
           referralCode: accountReferral?.referralCode,
         });
-        yield* Effect.annotateLogsScoped({ quote: prepared.quote });
+        yield* Effect.annotateLogsScoped({
+          quoteFingerprint: prepared.quote.fingerprint,
+        });
         yield* Effect.logDebug("Workspace reservation quote built");
 
         // An agent's hold is anchored at its booking instant, and a repeated
@@ -876,6 +808,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         const toHeldResult = Effect.fn("preparePayState.toHeldResult")(
           function* (held: {
             readonly reservation: WorkspaceReservation;
+            readonly holdExpiresAt: Temporal.Instant;
             readonly checkoutSessionId: CheckoutSessionId;
             readonly prepared: typeof prepared;
           }) {
@@ -889,6 +822,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
                 reservationId: held.reservation.id,
                 checkoutSessionId: held.checkoutSessionId,
                 bookedAt,
+                holdExpiresAt: held.holdExpiresAt,
                 changedKeys: held.prepared.changedKeys,
                 referralCustomer: referralCustomerFor(dotyposCustomerId),
               });
@@ -911,6 +845,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
               reservationId: held.reservation.id,
               checkoutSessionId: held.checkoutSessionId,
               bookedAt: holdBookedAt,
+              holdExpiresAt: held.holdExpiresAt,
               changedKeys: anchored.prepared.changedKeys,
               referralCustomer: referralCustomerFor(anchored.pricedFor),
               stableLink: true,
@@ -928,8 +863,17 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             "Workspace reservation with a pending payment kept for a repeated agent request",
             { reservationId: pending.reservation.id }
           );
+          const { reservationHoldExpiresAt } = pending.reservation;
+          // Payment never starts without a stored deadline; one missing
+          // leaves no hold to link to.
+          if (reservationHoldExpiresAt === null) {
+            return yield* new AgentBookingPaymentInProgressError({
+              reservationId: pending.reservation.id,
+            });
+          }
           const pendingResult = yield* toHeldResult({
             reservation: pending.reservation,
+            holdExpiresAt: reservationHoldExpiresAt,
             checkoutSessionId: pending.checkoutSessionId,
             prepared,
           });
@@ -964,6 +908,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             Effect.flatMap((reusedPrepared) =>
               toHeldResult({
                 reservation: reused.reservation,
+                holdExpiresAt: reused.reservation.reservationHoldExpiresAt,
                 checkoutSessionId: reused.checkoutSessionId,
                 prepared: reusedPrepared,
               })
@@ -987,9 +932,9 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
               onSome: (agent) => ({ agent }),
             }),
           },
-          checkoutDetails: getReservationCheckoutDetails({
+          checkoutDetails: getCheckoutDetails({
             locale: input.locale,
-            prepared,
+            priced: prepared,
             legalEvidence: emptyLegalEvidence,
           }),
         });
@@ -1012,6 +957,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
                 reservationId: created.reservationId,
                 checkoutSessionId: created.checkoutSessionId,
                 bookedAt,
+                holdExpiresAt: created.reservationHoldExpiresAt,
                 changedKeys: prepared.changedKeys,
                 referralCustomer: referralCustomerFor(dotyposCustomerId),
                 stableLink: Option.isSome(bookingAgent),

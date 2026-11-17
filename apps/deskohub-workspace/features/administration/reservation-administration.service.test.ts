@@ -51,8 +51,6 @@ test("operator cancellation cancels Dotypos, records the result, and optionally 
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
-      accessGrantUpdatedAt: "2026-08-10T10:00:00.000Z",
-      providerCredentialRemoved: true,
       reservationId: id,
       sendCancellationEmail: true,
     });
@@ -92,9 +90,7 @@ test("operator cancellation cancels Dotypos, records the result, and optionally 
     failureCode: null,
   });
   expect(claimAdministrationCancellation).toHaveBeenCalledWith({
-    accessGrantUpdatedAt: "2026-08-10T10:00:00.000Z",
     id,
-    providerCredentialRemoved: true,
     staleCancellingBefore: expect.any(Temporal.Instant),
   });
   expect(sendCancellationEmail).toHaveBeenCalledWith({ reservation: details });
@@ -255,9 +251,7 @@ test("forced operator cancellation terminalizes a pending payment before cancell
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
-      accessGrantUpdatedAt: null,
       force: true,
-      providerCredentialRemoved: false,
       reservationId: id,
       sendCancellationEmail: false,
     });
@@ -287,13 +281,11 @@ test("forced operator cancellation terminalizes a pending payment before cancell
 
   expect(result).toEqual({ outcome: "cancelled", email: "not_requested" });
   expect(claimAdministrationCancellation).toHaveBeenCalledWith({
-    accessGrantUpdatedAt: null,
     id,
     pendingPaymentCancellation: {
       paymentAttemptId: activePaymentAttemptId,
       failureCode: "admin_forced_payment_cancellation",
     },
-    providerCredentialRemoved: false,
     staleCancellingBefore: expect.any(Temporal.Instant),
   });
   expect(cancelReservation).toHaveBeenCalledWith("dotypos-pending");
@@ -329,8 +321,6 @@ test("retrying an already-cancelled reservation does not email again", async () 
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
-      accessGrantUpdatedAt: null,
-      providerCredentialRemoved: false,
       reservationId: id,
       sendCancellationEmail: true,
     });
@@ -393,8 +383,6 @@ test("refuses cancellation while the confirmation email is still delivering", as
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
-      accessGrantUpdatedAt: null,
-      providerCredentialRemoved: false,
       reservationId: id,
       sendCancellationEmail: true,
     });
@@ -465,8 +453,6 @@ test("does not adopt a pre-existing provider cancellation", async () => {
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
-      accessGrantUpdatedAt: null,
-      providerCredentialRemoved: false,
       reservationId: id,
       sendCancellationEmail: true,
     });
@@ -551,8 +537,6 @@ test("resumes a stale cancellation after an interrupted request", async () => {
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
-      accessGrantUpdatedAt: null,
-      providerCredentialRemoved: false,
       reservationId: id,
       sendCancellationEmail: false,
     });
@@ -584,9 +568,7 @@ test("resumes a stale cancellation after an interrupted request", async () => {
 
   expect(result).toEqual({ outcome: "cancelled", email: "not_requested" });
   expect(claimAdministrationCancellation).toHaveBeenCalledWith({
-    accessGrantUpdatedAt: null,
     id,
-    providerCredentialRemoved: false,
     staleCancellingBefore: expect.any(Temporal.Instant),
   });
   expect(markAdministrationCancelled).toHaveBeenCalledWith({
@@ -641,8 +623,6 @@ test("reconciles a duplicate provider failure after another worker cancelled", a
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
-      accessGrantUpdatedAt: null,
-      providerCredentialRemoved: false,
       reservationId: id,
       sendCancellationEmail: false,
     });
@@ -727,9 +707,7 @@ const cancelWith = async ({
   return Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
-      accessGrantUpdatedAt: null,
       ...(force !== undefined && { force }),
-      providerCredentialRemoved: false,
       reservationId: workspaceReservationIdSchema.make("reservation-refusal"),
       sendCancellationEmail: false,
     });

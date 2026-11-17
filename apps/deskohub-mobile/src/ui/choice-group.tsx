@@ -1,7 +1,11 @@
 import { type ComponentRef, useId, useRef } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import { theme } from "../theme";
+import { Pressable, View } from "react-native";
 import { choiceIndexForKey, tabStopIndex } from "./choice-group-keys";
+import {
+  RadioCardContent,
+  radioCardStyle,
+  radioGroupStyle,
+} from "./radio-card";
 import { Text } from "./text";
 
 export type Choice<T extends string> = {
@@ -39,8 +43,8 @@ export function ChoiceGroup<T extends string>({
     if (option !== undefined && option.value !== value) onChange(option.value);
   };
   return (
-    <View role="radiogroup" aria-labelledby={labelId} style={styles.group}>
-      <Text id={labelId} style={styles.label}>
+    <View role="radiogroup" aria-labelledby={labelId} style={radioGroupStyle}>
+      <Text id={labelId} variant="label">
         {label}
       </Text>
       {options.map((option, index) => {
@@ -70,62 +74,18 @@ export function ChoiceGroup<T extends string>({
               optionRefs.current[next]?.focus();
               choose(next);
             }}
-            style={({ pressed }) => [
-              styles.option,
-              checked && styles.checkedOption,
-              pressed && !disabled && styles.pressedOption,
-              disabled && styles.disabled,
-            ]}
+            style={({ pressed }) =>
+              radioCardStyle({ checked, disabled, pressed })
+            }
           >
-            <View
-              style={[styles.indicator, checked && styles.checkedIndicator]}
-            >
-              {checked && <View style={styles.indicatorDot} />}
-            </View>
-            <Text style={styles.optionLabel}>{option.label}</Text>
+            <RadioCardContent
+              label={option.label}
+              checked={checked}
+              disabled={disabled}
+            />
           </Pressable>
         );
       })}
     </View>
   );
 }
-
-const indicatorSize = 22;
-const indicatorDotSize = 10;
-
-const styles = StyleSheet.create({
-  group: { gap: theme.spacing.sm },
-  label: { color: theme.colors.text, ...theme.type.body },
-  option: {
-    alignItems: "center",
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: theme.spacing.sm + theme.spacing.xs,
-    minHeight: theme.touchTarget,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-  },
-  checkedOption: { borderColor: theme.colors.accent },
-  pressedOption: { backgroundColor: theme.colors.surfacePressed },
-  disabled: { opacity: 0.5 },
-  indicator: {
-    alignItems: "center",
-    borderColor: theme.colors.textMuted,
-    borderRadius: indicatorSize / 2,
-    borderWidth: 2,
-    height: indicatorSize,
-    justifyContent: "center",
-    width: indicatorSize,
-  },
-  checkedIndicator: { borderColor: theme.colors.accent },
-  indicatorDot: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: indicatorDotSize / 2,
-    height: indicatorDotSize,
-    width: indicatorDotSize,
-  },
-  optionLabel: { color: theme.colors.text, flex: 1, ...theme.type.body },
-});

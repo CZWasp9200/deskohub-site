@@ -7,14 +7,12 @@ import {
 } from "@deskohub/dotypos/types";
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Schema } from "effect";
-import { Minus, Plus, Search } from "lucide-react";
+import { Minus, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import { type DefaultValues, type FieldValues, useForm } from "react-hook-form";
-import { AdministrationLink as Link } from "@/features/administration/admin-link";
 import {
   type AdministrationHref,
-  administrationHref,
   localizeAdministrationHref,
 } from "@/features/administration/administration-href";
 import { m } from "@/features/administration/i18n";
@@ -49,10 +47,8 @@ import {
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
-import { mutateDiscountAdmin, searchDiscountAdminCustomers } from "./actions";
+import { mutateDiscountAdmin } from "./actions";
 import type { DiscountAdminMutation } from "./contracts";
-import { formatDiscountAdminCustomerContact } from "./customer-contact";
-import { formatDiscountAdminCustomerName } from "./customer-display-name";
 import {
   type CustomerPromotionCode,
   type CustomerPromotionCodeMutations,
@@ -64,10 +60,7 @@ import {
   customerPromotionDialogText,
   customerPromotionEligibilityCopy,
 } from "./customer-promotion-dialog";
-import type {
-  AdminCustomerSearchResult,
-  AdminDiscountGroup,
-} from "./discount-administration.service";
+import type { AdminDiscountGroup } from "./discount-administration.service";
 import {
   createCustomerCodeAudienceFormSchema,
   customerDiscountGroupFormSchema,
@@ -83,192 +76,8 @@ const decodeDotyposCustomerId = Schema.decodeUnknownSync(
   DotyposCustomerIdSchema
 );
 
-const createSearchFormSchema = (locale: Locale) =>
-  Schema.Struct({
-    query: Schema.String.check(
-      Schema.makeFilter((value) => value.trim().length >= 2, {
-        message: m.discountsValidationSearchQueryLength({}, { locale }),
-      })
-    ),
-  });
-
 const formatDiscountGroupPercentage = (basisPoints: number, locale: Locale) =>
   formatDiscountAdjustment({ kind: "percentage", basisPoints }, locale);
-
-type AdminCustomerSearchMatch = AdminCustomerSearchResult["customers"][number];
-
-/**
- * Searches Dotypos customers by name or email. Each match opens its customer
- * page unless `renderCustomerAction` offers another action for it.
- */
-export function CustomerSearch({
-  renderCustomerAction,
-  variant = "card",
-}: {
-  readonly renderCustomerAction?: (
-    customer: AdminCustomerSearchMatch
-  ) => ReactNode;
-  readonly variant?: "card" | "toolbar" | "inline";
-}) {
-  const locale = useRouteLocale();
-  const [result, setResult] = useState<AdminCustomerSearchResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const form = useForm<{ query: string }>({
-    defaultValues: { query: "" },
-    mode: "onSubmit",
-    reValidateMode: "onChange",
-    resolver: effectSchemaResolver(createSearchFormSchema(locale)),
-  });
-  const { execute, isExecuting } = useWorkspaceAction(
-    searchDiscountAdminCustomers,
-    {
-      onSuccess: ({ data }) => {
-        if (!data) return;
-        setError(null);
-        setResult(data);
-      },
-      onError: ({ error: actionError }) => {
-        setResult(null);
-        setError(
-          actionError.serverError ??
-            m.discountsCustomerSearchFailed({}, { locale })
-        );
-      },
-      onTransportError: () => {
-        setResult(null);
-        setError(m.discountsCustomerSearchFailed({}, { locale }));
-      },
-    }
-  );
-
-  return (
-    <div
-      className={
-        {
-          card: "space-y-4",
-          toolbar: "space-y-4",
-          inline: "@container space-y-4",
-        }[variant]
-      }
-    >
-      <Form {...form}>
-        <form
-          className={
-            {
-              card: "grid gap-3 rounded-xl border border-navy-blue/10 bg-white p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
-              toolbar:
-                "grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
-              inline:
-                "grid gap-3 @md:grid-cols-[minmax(0,1fr)_auto] @md:items-end",
-            }[variant]
-          }
-          noValidate
-          onSubmit={form.handleSubmit((values) => {
-            setError(null);
-            setResult(null);
-            const query = values.query.trim();
-            if (!query) return;
-            execute({ query });
-          })}
-        >
-          <FormField
-            control={form.control}
-            name="query"
-            render={({ field, fieldState }) => (
-              <FormItem className="grid gap-1.5">
-                <FormLabel>
-                  {m.discountsCustomerSearchLabel({}, { locale })}
-                </FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    autoComplete="off"
-                    minLength={2}
-                    placeholder={m.discountsCustomerSearchPlaceholder(
-                      {},
-                      { locale }
-                    )}
-                    required
-                    type="search"
-                    variant={fieldState.error ? "error" : "default"}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <Button disabled={isExecuting} type="submit">
-            <Search aria-hidden className="size-4" />
-            {isExecuting
-              ? m.discountsCustomerSearching({}, { locale })
-              : m.discountsCustomerSearchSubmit({}, { locale })}
-          </Button>
-        </form>
-      </Form>
-
-      {error && (
-        <AdministrationAlert
-          className="font-semibold"
-          role="alert"
-          status="error"
-        >
-          {error}
-        </AdministrationAlert>
-      )}
-      {result && (
-        <div
-          aria-live="polite"
-          className="rounded-xl border border-navy-blue/10 bg-white"
-        >
-          {result.customers.length === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-navy-blue/65">
-              {m.discountsCustomerSearchEmpty({}, { locale })}
-            </p>
-          ) : (
-            <>
-              {result.kind === "ambiguous" && (
-                <p className="border-b border-navy-blue/10 px-5 py-3 text-sm text-navy-blue/70">
-                  {m.discountsCustomerSearchAmbiguous({}, { locale })}
-                </p>
-              )}
-              <ul className="divide-y divide-navy-blue/10">
-                {result.customers.map((customer) => (
-                  <li
-                    className="flex flex-wrap items-center justify-between gap-4 px-5 py-4"
-                    key={customer.id}
-                  >
-                    <div>
-                      <p className="font-semibold">
-                        {formatDiscountAdminCustomerName(customer, locale)}
-                      </p>
-                      <p className="mt-1 text-sm text-navy-blue/65">
-                        {formatDiscountAdminCustomerContact(customer, locale)}
-                      </p>
-                    </div>
-                    {renderCustomerAction ? (
-                      renderCustomerAction(customer)
-                    ) : (
-                      <Button asChild size="sm" variant="secondary">
-                        <Link
-                          href={administrationHref(
-                            "/[locale]/admin/customers/[customerId]",
-                            { customerId: customer.id }
-                          )}
-                        >
-                          {m.discountsOpenCustomer({}, { locale })}
-                        </Link>
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function AddCodeCustomerForm({
   codeId,

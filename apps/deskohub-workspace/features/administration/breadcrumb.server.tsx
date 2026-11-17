@@ -9,10 +9,10 @@ import {
 } from "@/features/administration/administration-record-label";
 import {
   loadAdministrationBookingBreadcrumbLabel,
+  loadAdministrationCustomerBreadcrumbLabel,
   loadAdministrationReservationBreadcrumbLabel,
 } from "@/features/administration/page-data.server";
 import { requireDotyposCustomerRouteId } from "@/features/administration/route-identifiers.server";
-import { loadDiscountAdminCustomerBreadcrumbLabel } from "@/features/discounts/admin/page-data.server";
 import {
   loadAudienceBreadcrumbLabel,
   loadCampaignBreadcrumbLabel,
@@ -24,12 +24,10 @@ const recordLabelLoaders = new Map<
   AdministrationRecordLabelLoader
 >([
   ["bookings", loadAdministrationBookingBreadcrumbLabel],
-  // A customer directory would own this label; discount administration loads
-  // it until one exists.
   [
     "customers",
     (customerId, locale) =>
-      loadDiscountAdminCustomerBreadcrumbLabel(
+      loadAdministrationCustomerBreadcrumbLabel(
         requireDotyposCustomerRouteId(customerId),
         locale
       ),

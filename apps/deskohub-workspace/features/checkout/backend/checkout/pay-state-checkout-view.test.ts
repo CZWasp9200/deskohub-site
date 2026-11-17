@@ -6,14 +6,15 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import type { CheckoutSummaryChangedKeys } from "@/features/checkout/checkout-summary";
+import {
+  canonicalPromotionCodeSchema,
+  discountIdSchema,
+} from "@/features/discounts/contracts";
 import { getEarlyPerformanceRequestRequiredAt } from "@/features/legal/early-performance";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
-import {
-  buildSignedPayState,
-  getSignedPayStateCheckoutSummary,
-} from "./pay-state";
+import { buildSignedPayState, PayState } from "./pay-state";
 import { getPayStateCheckoutView } from "./pay-state-checkout-view";
 
 const reservation = {
@@ -32,8 +33,13 @@ const changedKeys: CheckoutSummaryChangedKeys = {
 };
 const issuedAt = Temporal.Instant.from("2026-07-01T10:00:00Z");
 
+const holdExpiresAt = instantStringSchema.make("2026-07-01T10:08:00.000Z");
+const submittedCode = canonicalPromotionCodeSchema.make("SPRING");
+const submittedCodeDiscountId = discountIdSchema.make("spring-discount");
+
 const buildState = (input?: {
   readonly changedKeys?: CheckoutSummaryChangedKeys;
+  readonly withSubmittedCode?: true;
 }) =>
   Effect.runPromise(
     buildSignedPayState(
@@ -43,8 +49,13 @@ const buildState = (input?: {
         quote: buildCoworkReservationQuote(reservation),
         orderId,
         bookedAt: instantStringSchema.make("2026-07-01T09:58:00.000Z"),
+        holdExpiresAt,
         checkoutSessionId: "checkout-session-id",
         changedKeys: input?.changedKeys,
+        ...(input?.withSubmittedCode && {
+          submittedCode,
+          submittedCodeDiscountId,
+        }),
       },
       { issuedAt }
     ).pipe(Effect.provide(TestSealedStateKeys))
@@ -58,8 +69,29 @@ describe("getPayStateCheckoutView", () => {
 
     expect(view.orderId).toBe(orderId);
     expect(view.expiresAt).toBe("2026-07-01T10:10:00.000Z");
-    expect(view.summary).toEqual(getSignedPayStateCheckoutSummary(state));
+    expect(view.summary).toEqual(PayState.summary(state));
     expect(view.changedKeys).toBeUndefined();
+  });
+
+  test("tells the hold deadline apart from the token expiry", async () => {
+    const view = getPayStateCheckoutView(await buildState(), issuedAt);
+
+    expect(view.holdExpiresAt).toBe(holdExpiresAt);
+    expect(view.expiresAt).not.toBe(view.holdExpiresAt);
+  });
+
+  test("names the entered code the price includes, and none without one", async () => {
+    const withCode = getPayStateCheckoutView(
+      await buildState({ withSubmittedCode: true }),
+      issuedAt
+    );
+    const withoutCode = getPayStateCheckoutView(await buildState(), issuedAt);
+
+    expect(withCode.appliedDiscountCode).toEqual({
+      code: submittedCode,
+      discountId: submittedCodeDiscountId,
+    });
+    expect(withoutCode).not.toHaveProperty("appliedDiscountCode");
   });
 
   test("carries the changed keys of a price review", async () => {

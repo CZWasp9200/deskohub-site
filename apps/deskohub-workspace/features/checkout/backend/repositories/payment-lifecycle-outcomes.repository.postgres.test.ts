@@ -16,6 +16,11 @@ import {
   vouchers,
 } from "@/db/schema";
 import { makeAccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
+import {
+  AccountingSnapshotKeyError,
+  AccountingSnapshotKeyService,
+} from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
@@ -131,7 +136,44 @@ describe.skipIf(!testDatabase)(
     });
 
     const repositoryLayer = PaymentLifecycleRepository.Default.pipe(
-      Layer.provide(testDatabase.layer)
+      Layer.provide(
+        Layer.merge(
+          testDatabase.layer,
+          testAccountingStorage(
+            testDatabase.layer,
+            AccountingSnapshotKeyService.Default
+          )
+        )
+      )
+    );
+    // The same repository with no active accounting snapshot key.
+    const keylessRepositoryLayer = PaymentLifecycleRepository.Default.pipe(
+      Layer.provide(
+        Layer.merge(
+          testDatabase.layer,
+          testAccountingStorage(
+            testDatabase.layer,
+            Layer.succeed(
+              AccountingSnapshotKeyService,
+              AccountingSnapshotKeyService.of({
+                getActive: Effect.fail(
+                  new AccountingSnapshotKeyError({
+                    keyId: "K209901",
+                    message: "Synthetic key is unavailable.",
+                  })
+                ),
+                getById: (keyId) =>
+                  Effect.fail(
+                    new AccountingSnapshotKeyError({
+                      keyId,
+                      message: "Synthetic key is unavailable.",
+                    })
+                  ),
+              })
+            )
+          )
+        )
+      )
     );
     const lateRecoveryLayer = LatePaymentRecoveryRepository.Default.pipe(
       Layer.provide(testDatabase.layer)
@@ -148,6 +190,35 @@ describe.skipIf(!testDatabase)(
           return yield* operation(yield* PaymentLifecycleRepository);
         }).pipe(Effect.provide(repositoryLayer), Effect.result)
       );
+
+    const keylessLifecycle = <A, E>(
+      operation: (
+        repository: IPaymentLifecycleRepository
+      ) => Effect.Effect<A, E>
+    ) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          return yield* operation(yield* PaymentLifecycleRepository);
+        }).pipe(Effect.provide(keylessRepositoryLayer), Effect.result)
+      );
+
+    const attemptsOf = async (reservation: WorkspaceReservationRow) =>
+      sql(
+        "select attempt.id, snapshot.payment_attempt_id as snapshot from payment_attempts attempt left join accounting_document_snapshots snapshot on snapshot.payment_attempt_id = attempt.id where attempt.workspace_reservation_id = $1",
+        [reservation.id]
+      );
+
+    const keyUnavailable = (reference: {
+      readonly type: "providerOrderId" | "workspaceReservationId";
+      readonly id: string;
+    }) => ({
+      _tag: "Failure",
+      failure: {
+        _tag: "AccountingRecordUnavailable",
+        operation: "encrypt",
+        reference,
+      },
+    });
 
     const lateRecovery = <A, E>(
       operation: (
@@ -734,6 +805,59 @@ describe.skipIf(!testDatabase)(
         expect(
           await admit(await heldReservation(customer), [referral.invitation()])
         ).toMatchObject(claimError("claim_conflict"));
+      });
+    });
+
+    describe("without an active snapshot key", () => {
+      test("refuses a Nexi attempt and leaves no attempt or snapshot", async () => {
+        const reservation = await heldReservation(newCustomer());
+        const providerOrderId = `order-${crypto.randomUUID()}`;
+
+        expect(
+          await keylessLifecycle((repository) =>
+            repository.createPendingNexiAttempt({
+              ...admission(reservation),
+              providerOrderId: providerOrderId as never,
+            })
+          )
+        ).toMatchObject(
+          keyUnavailable({ type: "providerOrderId", id: providerOrderId })
+        );
+        expect(await attemptsOf(reservation)).toEqual([]);
+      });
+
+      test("refuses a fresh internal payment and leaves no attempt or snapshot", async () => {
+        const reservation = await heldReservation(newCustomer());
+
+        expect(
+          await keylessLifecycle((repository) =>
+            repository.completeInternalPayment(
+              admission(reservation, [fullUnclaimedDiscount])
+            )
+          )
+        ).toMatchObject(
+          keyUnavailable({ type: "workspaceReservationId", id: reservation.id })
+        );
+        expect(await attemptsOf(reservation)).toEqual([]);
+      });
+
+      test("still repeats a completed internal payment unchanged", async () => {
+        const reservation = await heldReservation(newCustomer());
+        const input = admission(reservation, [fullUnclaimedDiscount]);
+        const first = await succeed(
+          lifecycle((repository) => repository.completeInternalPayment(input))
+        );
+
+        const again = await succeed(
+          keylessLifecycle((repository) =>
+            repository.completeInternalPayment(input)
+          )
+        );
+
+        expect(again).toMatchObject({
+          changed: false,
+          attempt: { id: first.attempt.id, state: "paid" },
+        });
       });
     });
 

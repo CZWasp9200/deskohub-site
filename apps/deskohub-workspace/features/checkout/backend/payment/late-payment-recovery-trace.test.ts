@@ -3,7 +3,8 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService, DotyposUnavailable } from "@deskohub/dotypos";
 import { Cause, Effect, Exit, Layer, Predicate } from "effect";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { makeRecordingAdvisoryLock } from "@/db/postgres-advisory-lock.test-utils";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import {
   makeCoworkInvoiceDocument,
   makeMeetingRoomInvoiceDocument,
@@ -59,6 +60,11 @@ interface Scenario {
   /** Overrides each `findById` in turn; later reads use the stateful row. */
   readonly findByIdSequence?: ReadonlyArray<Row | null>;
   readonly originalStatus?: string;
+  /** The original Dotypos reservation's bounds, read for its stay. */
+  readonly originalBounds?: {
+    readonly startDate: string;
+    readonly endDate: string;
+  };
   /** Each `hasNewerActiveReservation` answer in turn; the last one repeats. */
   readonly newerReservation?: ReadonlyArray<boolean>;
   readonly snapshot?: ReturnType<typeof makeCoworkInvoiceDocument> | null;
@@ -209,10 +215,15 @@ const recover = async (scenario: Scenario) => {
     markCancelled:
       scenario.markCancelled?.(row) ??
       setRow({ reservationState: "cancelled" }),
+    takeOverStaleCancellation: () => Effect.sync(() => row.current as never),
     markCancellationFailed: setRow({ reservationState: "cancellation_failed" }),
   });
   const dotypos = trace.recordCalls("dotypos", {
     getReservationStatus: succeed(scenario.originalStatus ?? "NEW"),
+    getReservationWithoutCustomer: succeed({
+      ...scenario.originalBounds,
+      seats: "1",
+    }),
     cancelReservation: scenario.cancelReservation ?? succeed(undefined),
     listActiveReservationsOverlapping: succeed(scenario.overlapping ?? []),
     createReservation: calls.createReservation,
@@ -234,14 +245,15 @@ const recover = async (scenario: Scenario) => {
     Effect.provide(
       LatePaymentRecoveryService.Default.pipe(
         Layer.provide(UnpaidHoldRelease.Default),
+        Layer.provide(makeRecordingAdvisoryLock().layer),
         Layer.provide(
           Layer.mergeAll(
             Layer.mock(LatePaymentRecoveryRepository, recoveries as never),
             Layer.mock(WorkspaceReservationRepository, reservations as never),
-            Layer.mock(AccountingDocumentSnapshotRepository, {
-              findByPaymentAttemptId: trace.recordCalls("snapshots", {
-                findByPaymentAttemptId: succeed(snapshot),
-              }).findByPaymentAttemptId,
+            Layer.mock(AccountingDocumentSnapshots, {
+              find: trace.recordCalls("snapshots", {
+                find: succeed(snapshot),
+              }).find,
             }),
             Layer.mock(WorkspaceAvailabilityService, {
               ensureAvailable: trace.recordCalls("availability", {
@@ -444,6 +456,46 @@ describe("LatePaymentRecoveryService.recover original hold reuse", () => {
     `);
   });
 
+  test("recreates an overnight Reserved Desk with the stay of its original Dotypos bounds", async () => {
+    const reservedDesk: Row = {
+      ...currentHeld,
+      reservationDetails: {
+        kind: "cowork",
+        entryTier: "reserved-desk",
+        coffee: true,
+      },
+    };
+    const recreate = (originalBounds: Scenario["originalBounds"]) =>
+      recover({
+        reservation: reservedDesk,
+        originalStatus: "CANCELLED",
+        originalBounds,
+      });
+    const assignment = (trace: ReadonlyArray<string>) =>
+      trace.find((line) =>
+        line.startsWith("call tableAssignments.assignTableId(")
+      );
+
+    // Prague winter time (UTC+1): noon on 2099-01-01 to noon on 2099-01-02.
+    const overnight = await recreate({
+      startDate: "2099-01-01T11:00:00Z",
+      endDate: "2099-01-02T11:00:00Z",
+    });
+    const day = await recreate({
+      startDate: "2098-12-31T23:00:00Z",
+      endDate: "2099-01-01T23:00:00Z",
+    });
+
+    expect(overnight.outcome).toBe("recovered");
+    expect(overnight.trace).toContain(
+      "call dotypos.getReservationWithoutCustomer(dotypos-reservation-id)"
+    );
+    expect(assignment(overnight.trace)).toContain("stay=overnight");
+    expect(day.outcome).toBe("recovered");
+    expect(assignment(day.trace)).toContain("entryTier=reserved-desk");
+    expect(assignment(day.trace)).not.toContain("stay=");
+  });
+
   test("recreates a current hold Dotypos already cancelled", async () => {
     const { outcome, trace } = await recover({
       reservation: currentHeld,
@@ -463,14 +515,14 @@ describe("LatePaymentRecoveryService.recover original hold reuse", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -550,10 +602,10 @@ describe("LatePaymentRecoveryService.recover original hold reuse", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_discount_unavailable, completedAt=<Instant>)",
       ]
     `);
@@ -614,13 +666,13 @@ describe("LatePaymentRecoveryService.recover original hold reuse", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_newer_reservation, completedAt=<Instant>)",
@@ -666,13 +718,13 @@ describe("LatePaymentRecoveryService.recover original hold reuse", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_newer_reservation, completedAt=<Instant>)",
@@ -749,10 +801,10 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "call reservations.findById(reservation-id)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -822,7 +874,7 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
     `);
   });
 
-  test("finishes a stale hold cancellation without claiming it again", async () => {
+  test("takes over a stale hold cancellation instead of claiming it again", async () => {
     const { outcome, trace } = await recover({
       reservation: { ...expiredHeld, reservationState: "cancelling" },
     });
@@ -839,15 +891,16 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
+        "call reservations.takeOverStaleCancellation(id=reservation-id, staleBefore=<Instant>)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -927,7 +980,7 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
       ]
     `);
   });
@@ -950,14 +1003,14 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -1002,10 +1055,10 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancellationFailed(id=reservation-id, failureCode=dotypos_cancel_failed)",
+        "call reservations.markCancellationFailed(id=reservation-id, claimedAt=<Instant>, failureCode=dotypos_cancel_failed)",
       ]
     `);
   });
@@ -1031,17 +1084,17 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -1081,10 +1134,10 @@ describe("LatePaymentRecoveryService.recover original hold release", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
       ]
     `);
@@ -1100,10 +1153,10 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
       [
         [
           {
+            "coffee": true,
             "date": "2099-01-01",
             "entryTier": "basic",
             "kind": "cowork",
-            "monitorOption": undefined,
           },
         ],
       ]
@@ -1141,16 +1194,16 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -1191,9 +1244,15 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
       [
         [
           {
+            "duration": {
+              "amount": 4,
+              "unit": "hour",
+            },
+            "earlySetup": true,
             "endsAt": "2099-02-03T12:00:00Z",
             "kind": "meeting-room",
-            "startsAt": "2099-02-03T07:45:00Z",
+            "reservationDate": "2099-02-03",
+            "startsAt": "2099-02-03T08:00:00Z",
           },
         ],
       ]
@@ -1238,10 +1297,10 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
       [
         [
           {
-            "endsAt": "2099-06-21T22:00:00Z",
+            "endsOn": "2099-06-21",
             "kind": "office",
             "seats": 3,
-            "startsAt": "2099-06-19T22:00:00Z",
+            "startsOn": "2099-06-20",
           },
         ],
       ]
@@ -1285,13 +1344,13 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_snapshot_unavailable, completedAt=<Instant>)",
       ]
     `);
@@ -1315,13 +1374,13 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_newer_reservation, completedAt=<Instant>)",
       ]
     `);
@@ -1344,13 +1403,13 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_snapshot_unavailable, completedAt=<Instant>)",
       ]
     `);
@@ -1377,13 +1436,13 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_reservation_ended, completedAt=<Instant>)",
       ]
@@ -1415,13 +1474,13 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.requireReview(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_replacement_ambiguous, completedAt=<Instant>)",
@@ -1453,13 +1512,13 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call dotypos.cancelReservation(replacement-id)",
@@ -1491,13 +1550,13 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.completeWithReplacement(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, recoveredDotyposReservationId=replacement-id, reservationState=held, completedAt=<Instant>)",
@@ -1530,13 +1589,13 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
         "call recoveries.completeWithReplacement(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, recoveredDotyposReservationId=replacement-id, reservationState=confirmed, completedAt=<Instant>)",
@@ -1568,16 +1627,16 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "call recoveries.requireRefund(paymentAttemptId=attempt-id, workspaceReservationId=reservation-id, failureCode=late_payment_reservation_unavailable, completedAt=<Instant>)",
       ]
     `);
@@ -1605,16 +1664,16 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -1640,16 +1699,16 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -1688,16 +1747,16 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -1739,16 +1798,16 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",
@@ -1787,16 +1846,16 @@ describe("LatePaymentRecoveryService.recover reservation recreation", () => {
         "span unpaidHoldRelease.release",
         "call reservations.findById(reservation-id)",
         "call dotypos.getReservationStatus(dotypos-reservation-id)",
-        "call reservations.claimCancellation(reservation-id)",
+        "call reservations.claimCancellation(id=reservation-id, cause=late_payment)",
         "span dotyposHoldRelease.release",
         "call dotypos.cancelReservation(dotypos-reservation-id)",
-        "call reservations.markCancelled(id=reservation-id, cancelledAt=<Instant>)",
+        "call reservations.markCancelled(id=reservation-id, claimedAt=<Instant>, cancelledAt=<Instant>)",
         "call reservations.findById(reservation-id)",
         "span latePaymentRecovery.recreateReservation",
-        "call snapshots.findByPaymentAttemptId(attempt-id)",
+        "call snapshots.find(attempt-id)",
         "span normalizeReservationIntervalFields",
         "call dotypos.listActiveReservationsOverlapping(startDate=<Date>, endDate=<Date>)",
-        "call availability.ensureAvailable(kind=cowork, date=2099-01-01, entryTier=basic, monitorOption=undefined)",
+        "call availability.ensureAvailable(kind=cowork, entryTier=basic, coffee=true, date=2099-01-01)",
         "span createWorkspaceDotyposReservation",
         "Info Workspace Dotypos reservation creation input received {date,entryTier,locale,paymentOrderId,reservationKind,reservationStatus} in createWorkspaceDotyposReservation",
         "span normalizeReservationIntervalFields",

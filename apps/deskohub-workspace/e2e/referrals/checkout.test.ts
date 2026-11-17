@@ -5,7 +5,7 @@ import { basename, dirname, resolve } from "node:path";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
-import { buildFreshCheckoutPayPath } from "@/features/checkout/backend/checkout/checkout-pay-url";
+import { PayState } from "@/features/checkout/backend/checkout/pay-state";
 import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
@@ -159,10 +159,8 @@ test("both ownership guards accept and constrain URLs from the real fresh-pay bu
   };
   const buildPayUrl = () =>
     Effect.runPromise(
-      buildFreshCheckoutPayPath(input, {}, { orderId }).pipe(
-        Effect.provide(TestSealedStateKeys)
-      )
-    ).then((path) => new URL(path, baseUrl).href);
+      PayState.issue(input).pipe(Effect.provide(TestSealedStateKeys))
+    ).then(({ payUrl }) => new URL(payUrl, baseUrl).href);
   const [previousUrl, freshUrl] = await Promise.all([
     buildPayUrl(),
     buildPayUrl(),

@@ -3,13 +3,14 @@ import "server-only";
 import { Effect, Option } from "effect";
 import { connection } from "next/server";
 import type { ReactNode } from "react";
+import { AgentBookingBanner } from "@/features/ai-assistants/components/agent-booking-banner";
+import { AgentBookingWhenEnabled } from "@/features/ai-assistants/components/agent-booking-when-enabled";
 import type {
   AdvertisedPriceRequest,
   PreloadedAdvertisedPrice,
 } from "@/features/checkout/advertised-price";
 import {
-  openPayState,
-  payStateContinuesOn,
+  PayState,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
@@ -54,7 +55,7 @@ import type {
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { getSearchParam, type SearchParamsRecord } from "@/shared/utils";
-import { ReservationPage } from "./reservation-page";
+import { ReservationPage, ReservationPageTitle } from "./reservation-page";
 
 type ReservationKind = ReservationOrderData["kind"];
 
@@ -196,8 +197,9 @@ type ReservationPageDefinition<
   ? { readonly loadPageData?: undefined }
   : {
       /**
-       * Loads data that depends on neither the visitor nor the restored
-       * reservation, alongside them. A rejection fails the page.
+       * Loads data that depends on neither the customer's account nor the
+       * restored reservation, such as a release gate, alongside them. A
+       * rejection fails the page.
        */
       readonly loadPageData: () => Promise<PageData>;
     });
@@ -216,17 +218,12 @@ export const loadRestoredReservation = Effect.fn(
   if (!token) return undefined;
 
   const payState = Option.getOrUndefined(
-    yield* openPayState(token).pipe(
+    yield* PayState.open(token, { locale, reservationKind: kind }).pipe(
       Effect.provide(SealedStateKeys.Default),
       Effect.option
     )
   );
-  if (
-    !payState ||
-    !payStateContinuesOn(payState, { locale, reservationKind: kind })
-  ) {
-    return undefined;
-  }
+  if (!payState) return undefined;
 
   return {
     checkoutSessionId: payState.checkoutSessionId,
@@ -262,19 +259,32 @@ export function createReservationPage<
   const generateMetadata = publicPageMetadata(definition.pathname);
 
   async function Page({ searchParams }: LocalizedReservationPageProps) {
-    return runWithRequestLocale(async (locale) => (
-      <ReservationPage
-        breadcrumbs={definition.breadcrumbs?.(locale)}
-        fallback={definition.fallback(locale)}
-        locale={locale}
-        title={publicPageDefinitions[definition.pathname].title({}, { locale })}
-      >
-        <ReservationPageRequestContent
-          definition={definition}
-          searchParams={searchParams}
-        />
-      </ReservationPage>
-    ));
+    return runWithRequestLocale(async (locale) => {
+      const title = publicPageDefinitions[definition.pathname].title(
+        {},
+        { locale }
+      );
+      return (
+        <ReservationPage
+          breadcrumbs={definition.breadcrumbs?.(locale)}
+          fallback={definition.fallback(locale)}
+          heading={
+            <AgentBookingWhenEnabled
+              fallback={<ReservationPageTitle title={title} />}
+            >
+              <ReservationPageTitle title={title} visuallyHidden />
+              <AgentBookingBanner locale={locale} />
+            </AgentBookingWhenEnabled>
+          }
+          locale={locale}
+        >
+          <ReservationPageRequestContent
+            definition={definition}
+            searchParams={searchParams}
+          />
+        </ReservationPage>
+      );
+    });
   }
 
   return {

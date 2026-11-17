@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
-import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import { ReservationFulfillment } from "@/features/checkout/backend/fulfillment";
 import { UnpaidHoldRelease } from "@/features/checkout/backend/holds";
 import {
@@ -18,16 +18,11 @@ import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 export const maxDuration = 300;
 
 const databaseRepositories = Layer.mergeAll(
-  LatePaymentRecoveryRepository.Default,
-  AccountingDocumentSnapshotRepository.Default,
-  WorkspaceReservationRepository.Default
-).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      WorkspaceDatabase.Default,
-      AccountingSnapshotKeyService.Default
-    )
-  )
+  Layer.mergeAll(
+    LatePaymentRecoveryRepository.Default,
+    WorkspaceReservationRepository.Default
+  ).pipe(Layer.provide(WorkspaceDatabase.Default)),
+  AccountingStorage.Live
 );
 
 const ConsumerLive = LatePaymentRecoveryService.Default.pipe(
@@ -41,6 +36,7 @@ const ConsumerLive = LatePaymentRecoveryService.Default.pipe(
     )
   ),
   Layer.provide(ReservationFulfillment.Live),
+  Layer.provide(WorkspaceDatabaseAdvisoryLock.Default),
   Layer.provide(WorkspaceDotyposLayer)
 );
 

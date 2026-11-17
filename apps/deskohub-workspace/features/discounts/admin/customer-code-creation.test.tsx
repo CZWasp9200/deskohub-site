@@ -50,9 +50,14 @@ mock.module("./actions", () => ({
   deleteDiscountAdminForm: mock(),
   deleteDiscountCodeAdminForm: mock(),
   mutateDiscountAdmin: mock(),
-  searchDiscountAdminCustomers: mock(),
   updateDiscountAdminForm: mock(),
   updateDiscountCodeAdminForm: mock(),
+}));
+mock.module("@/features/administration/actions", () => ({
+  cancelAdministrationReservation: mock(),
+  getAdministrationReservation: mock(),
+  mutateReservationAccess: mock(),
+  searchAdministrationCustomers: mock(),
 }));
 
 type ActionCallbacks = {

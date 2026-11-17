@@ -6,7 +6,9 @@ Workspace offers three reservation families: cowork, meeting room, and office. E
 
 The space is open 24/7, every day. Open Space is usable only from Prague-local
 midnight until 17:00 on the reserved date. Reserved Desk and office
-reservations have 24/7 code access for their reserved dates.
+reservations have 24/7 code access for their reserved dates. An overnight
+Reserved Desk stay has code access from noon on its arrival date until noon
+the next day.
 
 The public price page lists every bookable product at its catalog price, with
 the price of any public sale running that day, together with these opening
@@ -14,7 +16,7 @@ hours. The contact page also shows the opening hours.
 
 ## Cowork
 
-Cowork offers are exactly two, both for a single Prague calendar date:
+Cowork offers are exactly two, both booked for a single Prague date:
 
 - **Open Space** (CZK 290/day): a shared desk available Prague-local 00:00
   until 17:00 exclusive on the reserved date. An optional coffee addon costs
@@ -32,6 +34,33 @@ Cowork offers are exactly two, both for a single Prague calendar date:
   exact configuration. Reserved Desk cannot be selected when neither a bare
   desk nor any workstation configuration is available for the full calendar
   date.
+
+### Reserved Desk stay
+
+A Reserved Desk reservation has a **stay**: **Day** or **Overnight**. A day
+stay is the whole Prague calendar day described above. An overnight stay runs
+from 12:00 on the picked date, the arrival day, until 12:00 on the next day,
+Prague wall-clock time, so a night across a daylight-saving change lasts 23 or
+25 hours. Open Space has no overnight stay, and no stay spans more than one
+night.
+
+- An overnight stay costs the same as a Reserved Desk day, with the same
+  coffee, workstation addon, discount codes, promotions and Calendar sales. The
+  arrival day is its service date for every discount and sale rule.
+- An overnight stay on a date is available only when one desk, bare or in the
+  chosen workstation configuration, is free for the whole noon-to-noon stay,
+  and neither the arrival day nor the next day is closed as fully occupied in
+  the Calendar.
+- Arrival days follow the usual booking horizon, so a stay that arrives on
+  the last bookable day ends the day after it. Same-day booking follows the
+  rule for a Reserved Desk day.
+- Workspace doesn't record the stay separately: a Reserved Desk reservation
+  that runs from noon to noon the next day is an overnight stay, and any other
+  Reserved Desk reservation is a day stay.
+- Overnight stays are released behind one switch. While it is off, no booking
+  surface offers them and any request for one is refused; Day stays are
+  unaffected. Customers who don't choose a stay, including those on older app
+  versions, book a day stay.
 
 Historical entry tiers (basic, plus, profi) remain decodable for stored
 reservations and reporting but are no longer saleable. A whole-cowork discount

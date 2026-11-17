@@ -47,9 +47,7 @@ type ReservationCancellationResult = {
 export { ReservationAdministrationError } from "./reservation-administration-error";
 
 type ReservationCancellationInput = {
-  readonly accessGrantUpdatedAt: string | null;
   readonly force?: boolean;
-  readonly providerCredentialRemoved: boolean;
   readonly reservationId: WorkspaceReservationId;
   readonly sendCancellationEmail: boolean;
 };
@@ -83,7 +81,6 @@ export class ReservationAdministrationService extends Context.Service<
       const restoration = yield* ReservationRestorationService;
 
       const claimCancellation = Effect.fnUntraced(function* (
-        input: ReservationCancellationInput,
         current: WorkspaceReservation,
         forcedPendingPayment: boolean
       ) {
@@ -93,12 +90,10 @@ export class ReservationAdministrationService extends Context.Service<
         );
         const claimed = yield* reservations
           .claimAdministrationCancellation({
-            accessGrantUpdatedAt: input.accessGrantUpdatedAt,
             id: current.id,
             ...(pendingPaymentCancellation && {
               pendingPaymentCancellation,
             }),
-            providerCredentialRemoved: input.providerCredentialRemoved,
             staleCancellingBefore: Temporal.Now.instant().subtract({
               milliseconds: ADMINISTRATION_CANCELLATION_RETRY_AFTER_MS,
             }),
@@ -117,7 +112,7 @@ export class ReservationAdministrationService extends Context.Service<
             code: "not_cancellable",
             reason: "changed",
             message:
-              "The reservation changed while cancellation was starting, or an active door PIN still needs removal. Refresh and try again.",
+              "The reservation changed while cancellation was starting. Refresh and try again.",
           });
         }
         return claimed;
@@ -302,7 +297,6 @@ export class ReservationAdministrationService extends Context.Service<
             );
             if (refusal) return yield* refusal;
             const claimed = yield* claimCancellation(
-              input,
               current,
               forcedPendingPayment
             );

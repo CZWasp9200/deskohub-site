@@ -5,8 +5,8 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { BigDecimal, Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { env } from "@/env";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import { getCustomerInvoiceStatusLabel } from "@/features/accounting/customer-invoice";
 import { manualInvoiceInputSchema } from "@/features/accounting/manual-invoice";
@@ -33,8 +33,8 @@ import {
   userIdForEmail,
   verifyMagicLink,
 } from "./backend/auth/auth-handler.test-utils";
+import { CurrentCustomerAccount } from "./backend/current-customer-account";
 import { CustomerAccountLinkRepository } from "./backend/customer-account-link.repository";
-import { CustomerAccountResolver } from "./backend/customer-account-resolver.service";
 import { CustomerAccountSections } from "./backend/customer-account-sections";
 import {
   CustomerAuthentication,
@@ -70,9 +70,7 @@ const makeInvoiceService = (auth: TestAuth) => {
   const repositories = Layer.mergeAll(
     CustomerAccountLinkRepository.Default,
     ReviewAccounts.Default,
-    InvoiceRepository.Default.pipe(
-      Layer.provide(AccountingDocumentSnapshotRepository.Default)
-    )
+    testAccountingStorage(postgres!.layer, AccountingSnapshotKeyService.Default)
   ).pipe(Layer.provideMerge(storage));
   const requestSession = Layer.unwrap(
     Effect.map(currentRequestHeaders, (headers) =>
@@ -85,7 +83,7 @@ const makeInvoiceService = (auth: TestAuth) => {
       })
     )
   );
-  const resolver = CustomerAccountResolver.Default.pipe(
+  const currentAccount = CurrentCustomerAccount.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
         requestSession,
@@ -95,7 +93,7 @@ const makeInvoiceService = (auth: TestAuth) => {
     )
   );
   return CustomerInvoiceService.Default.pipe(
-    Layer.provide(resolver),
+    Layer.provide(currentAccount),
     Layer.provide(repositories)
   );
 };
@@ -164,14 +162,9 @@ const issueInvoice = async (
       invoices.issueManual({ ...input, issuedBy: issuer })
     ).pipe(
       Effect.provide(
-        InvoiceRepository.Default.pipe(
-          Layer.provide(AccountingDocumentSnapshotRepository.Default),
-          Layer.provide(
-            Layer.mergeAll(
-              postgres!.layer,
-              AccountingSnapshotKeyService.Default
-            )
-          )
+        testAccountingStorage(
+          postgres!.layer,
+          AccountingSnapshotKeyService.Default
         )
       )
     )

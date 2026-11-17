@@ -13,7 +13,7 @@ import {
 import {
   Context,
   Data,
-  type Duration,
+  Duration,
   Effect,
   Layer,
   Match,
@@ -66,7 +66,7 @@ export class ProviderPaymentDeferral extends Data.TaggedClass(
   readonly abandonmentCutoff: Temporal.Instant;
 }> {}
 
-type ProviderPaymentFinalizationResult =
+export type ProviderPaymentFinalizationResult =
   | "abandoned"
   | ProviderPaymentDeferral
   | "not_found"
@@ -74,9 +74,43 @@ type ProviderPaymentFinalizationResult =
   | "not_verifiable"
   | "provider_verification_failed"
   | "verification_mismatch"
+  | "awaiting_payment"
   | "pending"
   | "paid"
   | "terminal";
+
+/**
+ * A finalization result for log annotations: its outcome, and the
+ * abandonment cutoff of a deferral.
+ */
+export const providerPaymentFinalizationLogFields = (
+  result: ProviderPaymentFinalizationResult
+) =>
+  result instanceof ProviderPaymentDeferral
+    ? {
+        providerFinalizationResult: "deferred",
+        abandonmentCutoff: result.abandonmentCutoff.toString(),
+      }
+    : { providerFinalizationResult: result, abandonmentCutoff: undefined };
+
+/**
+ * A finalization request for log annotations: the ids it names, when it
+ * checks for abandonment, and its verification deadline in milliseconds.
+ */
+const providerPaymentFinalizationInputLogFields = (
+  input: Parameters<
+    IProviderPaymentFinalizationService["finalizePendingProviderPayment"]
+  >[0]
+) => ({
+  orderId: input.orderId,
+  paymentAttemptId: input.paymentAttemptId,
+  webhookEventId: input.webhookEventId,
+  abandonmentCheckedAt: input.abandonmentCheckedAt?.toString(),
+  verificationDeadlineMillis:
+    input.verificationDeadline === undefined
+      ? undefined
+      : Duration.toMillis(input.verificationDeadline),
+});
 
 export interface IProviderPaymentFinalizationService {
   readonly finalizePendingProviderPayment: (input: {
@@ -100,7 +134,7 @@ export class ProviderPaymentFinalizationService extends Context.Service<
 
   static Live = this.Default.pipe(
     Layer.provide(PaymentAttemptRepository.Default),
-    Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(PaymentLifecycleRepository.Live),
     Layer.provide(CheckoutAnalytics.Live),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
@@ -494,6 +528,17 @@ function makeProviderPaymentFinalizationServiceLayer(
           providerOrderCreatedAt: attempt.providerOrderCreatedAt,
           order: verification.provider,
         });
+        // Without an abandonment check, an operation-free order is still
+        // waiting for the customer's payment on its page.
+        if (
+          !input.abandonmentCheckedAt &&
+          !hasProviderPaymentActivity(verification.provider)
+        ) {
+          yield* Effect.logInfo(
+            "Payment finalization returned awaiting_payment"
+          );
+          return "awaiting_payment" as const;
+        }
         if (emptyOrder.state !== "not_empty") {
           yield* Effect.logInfo(
             "Payment finalization resolved empty provider order",
@@ -543,10 +588,8 @@ function makeProviderPaymentFinalizationServiceLayer(
 
         const metadata = getNexiPaymentMetadata(verification);
         yield* Effect.annotateLogsScoped({
-          providerMetadata: {
-            providerOperationId: metadata.providerOperationId,
-            providerStatus: metadata.providerStatus,
-          },
+          providerOperationId: metadata.providerOperationId,
+          providerStatus: metadata.providerStatus,
         });
         yield* Effect.logDebug(
           "Payment finalization provider metadata resolved"
@@ -566,7 +609,6 @@ function makeProviderPaymentFinalizationServiceLayer(
           "providerPaymentFinalization.finalizePendingProviderPayment"
         )(
           function* (input) {
-            yield* Effect.annotateLogsScoped({ input });
             yield* Effect.logInfo("Provider payment finalization started");
 
             const reservation = yield* loadReservation(input.orderId);
@@ -620,7 +662,9 @@ function makeProviderPaymentFinalizationServiceLayer(
                   result,
                 })
               ),
-              Effect.annotateLogs({ input })
+              Effect.annotateLogs(
+                providerPaymentFinalizationInputLogFields(input)
+              )
             )
         ),
       });

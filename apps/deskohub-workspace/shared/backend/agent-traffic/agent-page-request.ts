@@ -50,6 +50,7 @@ const agentPageRoutes = {
   "/[locale]/email-preview/reservation-notification": true,
   "/[locale]/faq": true,
   "/[locale]/gallery": true,
+  "/[locale]/in-app/[document]": true,
   "/[locale]/logo": true,
   "/[locale]/map-preview": true,
   "/[locale]/marketing-communications": true,

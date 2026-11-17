@@ -51,9 +51,11 @@ Tests, fixtures, E2E code, and visual scripts never contain a literal email addr
 
 ## Subprocesses
 
-Run subprocesses in Workspace code only through `runCommand` or `commandOutput` in `apps/deskohub-workspace/scripts/shared/command.ts`. They run under Bun (through `Bun.spawn`) and under Node, such as Playwright workers (through `node:child_process`); `command.node-fixture.mjs` covers the Node path. The `no-synchronous-subprocess` Grit rule rejects `Bun.spawnSync` and `node:child_process` `*Sync` calls because a Bun 1.4 bug can hang later synchronous spawns in the same test worker. Re-evaluate the rule after upgrading to a Bun release that includes oven-sh/bun#44581.
+Run subprocesses in Workspace code only through `runCommand` or `commandOutput` in `apps/deskohub-workspace/scripts/shared/command.ts`. They run under Bun (through `Bun.spawn`) and under Node, such as Playwright workers (through `node:child_process`); `command.node-fixture.mjs` covers the Node path. The `no-synchronous-subprocess` Grit rule rejects `Bun.spawnSync` and `node:child_process` `*Sync` calls because synchronous spawns can hang `bun test` workers. Bun 1.4.3 fixed the poll-count hang in oven-sh/bun#43697 with oven-sh/bun#44581, but the nested-tick synchronous spawn reported on that issue still hangs on 1.4.4. Re-evaluate the rule after upgrading to a Bun release whose notes include that fix.
 
 Settle a subprocess promise before you assert on it. `expect(pending).rejects` and `.resolves` run a nested event-loop tick that can drop the child's pipe events.
+
+The same nested tick sleeps through Playwright replies that have already arrived, so a Playwright-driven promise wrapped in `.resolves` or `.rejects` settles up to seconds late under `bun test` (measured on Bun 1.4.2 and 1.4.4). Timers, `fetch`, subprocesses, and in-memory promises weren't delayed in the same probe. The `no-promise-matchers-in-browser-tests` Grit rule rejects both matchers in Workspace `*.test.ts(x)` and `*.test-utils.ts` files that import Playwright. Assert on `expect(await promise)`, and for rejections use `outcomeOf` (for `toThrow`) or `rejectionOf` (for value matchers) from `apps/deskohub-workspace/shared/testing/promise-outcome.test-utils.ts`. Playwright runner specs (`*.pw.ts`) run on Node and keep Playwright's own `expect`.
 
 ## CI
 

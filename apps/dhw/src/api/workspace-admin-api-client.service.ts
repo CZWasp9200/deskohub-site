@@ -832,7 +832,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
               params: { reservationId },
             })
           ),
-          Effect.mapError(sanitizeResourceError)
+          Effect.mapError(sanitizeVersionedResourceError)
         )
     ),
     mutateReservationAccess: Effect.fn(
@@ -1108,7 +1108,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
               payload: input,
             })
           ),
-          Effect.mapError(sanitizeRejectedResourceError)
+          Effect.mapError(sanitizeVersionedRejectedResourceError)
         )
     ),
     restoreReservation: Effect.fn("WorkspaceAdminApiClient.restoreReservation")(
@@ -1172,7 +1172,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           Effect.flatMap((authorized) =>
             authorized.administration.getInvoice({ params: { invoiceId } })
           ),
-          Effect.mapError(sanitizeInvoiceError)
+          Effect.mapError(sanitizeVersionedResourceError)
         )
     ),
     getInvoicePdf: Effect.fn("WorkspaceAdminApiClient.getInvoicePdf")(
@@ -1937,8 +1937,9 @@ const sanitizeResourceError = (
   cause instanceof CliResourceNotFound ? cause : sanitizeSessionError(cause);
 
 /**
- * Invoice reads require a minimum `dhw`. The server refuses an older one
- * with `CliServiceUnavailable`, which released binaries already decode; a
+ * Invoice reads and the reservation detail and cancellation require a
+ * minimum `dhw`. The server refuses an older one with
+ * `CliServiceUnavailable`, which released binaries already decode; a
  * `CliInputInvalid` refusal keeps its message the same way.
  */
 const sanitizeInvoiceListError = (
@@ -1953,7 +1954,7 @@ const sanitizeInvoiceListError = (
     ? new CliApiRequestError({ message: cause.message })
     : sanitizeSessionError(cause);
 
-const sanitizeInvoiceError = (
+const sanitizeVersionedResourceError = (
   cause:
     | CliInputInvalid
     | CliResourceNotFound
@@ -1965,6 +1966,20 @@ const sanitizeInvoiceError = (
   cause instanceof CliInputInvalid
     ? new CliApiRequestError({ message: cause.message })
     : sanitizeResourceError(cause);
+
+const sanitizeVersionedRejectedResourceError = (
+  cause:
+    | CliInputInvalid
+    | CliMutationRejected
+    | CliResourceNotFound
+    | CliServiceUnavailable
+    | CliSessionUnauthorized
+    | HttpClientError.HttpClientError
+    | Schema.SchemaError
+) =>
+  cause instanceof CliInputInvalid
+    ? new CliApiRequestError({ message: cause.message })
+    : sanitizeRejectedResourceError(cause);
 
 const sanitizeMutationError = (
   cause:

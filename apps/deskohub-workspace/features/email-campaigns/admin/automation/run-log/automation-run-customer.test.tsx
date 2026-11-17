@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
+import { inactiveCustomerDisplayNames } from "@/features/administration/customer-name";
 import { m } from "@/features/administration/i18n";
 import type { Locale } from "@/features/i18n";
 import { RouteLocaleProvider } from "@/features/i18n/route-locale";
@@ -33,7 +34,71 @@ const renderCustomer = (
     </RouteLocaleProvider>
   );
 
+const inactiveMessages = {
+  deleted: m.administrationCustomerDeleted,
+  expired: m.administrationCustomerExpired,
+} as const;
+
 describe("AutomationRunCustomer", () => {
+  test.each([
+    ["deleted", "en-US"],
+    ["deleted", "cs-CZ"],
+    ["expired", "en-US"],
+    ["expired", "cs-CZ"],
+  ] as const)(
+    "shows a %s customer as the unlinked placeholder in %s",
+    (customerLifecycle, locale) => {
+      const view = renderCustomer(
+        automationRunFixture({
+          customerId,
+          customerName: inactiveCustomerDisplayNames[customerLifecycle],
+          customerLifecycle,
+        }),
+        locale
+      );
+
+      expect(within(view.container).queryByRole("link")).toBeNull();
+      const placeholder = view.container.querySelector(
+        `[data-customer-lifecycle="${customerLifecycle}"]`
+      );
+      expect(placeholder?.textContent).toBe(
+        inactiveMessages[customerLifecycle]({}, { locale })
+      );
+      expect(view.container.textContent).toBe(placeholder?.textContent);
+    }
+  );
+
+  test("keeps the ID under a deleted customer's placeholder when asked", () => {
+    const view = renderCustomer(
+      automationRunFixture({
+        customerId,
+        customerName: inactiveCustomerDisplayNames.deleted,
+        customerLifecycle: "deleted",
+      }),
+      "en-US",
+      true
+    );
+
+    expect(within(view.container).queryByRole("link")).toBeNull();
+    expect(
+      view.container.querySelector('[data-customer-lifecycle="deleted"]')
+    ).not.toBeNull();
+    expect(view.container.textContent).toContain(customerId);
+  });
+
+  test("links an active customer without the placeholder treatment", () => {
+    const view = renderCustomer(
+      automationRunFixture({ customerId, customerName, customerEmail })
+    );
+
+    expect(within(view.container).getByRole("link").textContent).toBe(
+      customerName
+    );
+    expect(
+      view.container.querySelector("[data-customer-lifecycle]")
+    ).toBeNull();
+  });
+
   test.each(["en-US", "cs-CZ"] as const)(
     "links a found name and email in %s",
     (locale) => {

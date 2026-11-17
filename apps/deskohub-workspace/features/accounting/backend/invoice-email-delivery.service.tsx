@@ -1,11 +1,9 @@
 import type { EmailMessage, EmailRecipient } from "@deskohub/email";
 import {
   EmailConfigTag,
-  EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
 import { Context, Data, Effect, Layer } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
 import { env } from "@/env";
 import { isManualInvoiceDocument } from "@/features/accounting/invoice";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
@@ -15,8 +13,8 @@ import {
   workspaceEmailRecipient,
 } from "@/shared/backend/email/workspace-email-recipients";
 import { censorLogValue } from "@/shared/backend/logging/censorship";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
-import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
+import { AccountingDocumentSnapshots } from "./accounting-document-snapshots";
+import { AccountingStorage } from "./accounting-storage";
 import { type Invoice, InvoiceRepository } from "./invoice.repository";
 import { renderInvoiceDeliveryEmail } from "./invoice-delivery-email";
 import {
@@ -68,7 +66,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
+      const accountingSnapshots = yield* AccountingDocumentSnapshots;
       const deliveries = yield* InvoiceEmailDeliveryRepository;
       const emailConfig = yield* EmailConfigTag;
       const emailService = yield* EmailServiceTag;
@@ -176,10 +174,6 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         };
 
         const sendResult = yield* emailService.send(message).pipe(
-          Effect.filterOrFail(
-            (result) => result.status !== "failed",
-            () => new EmailServiceError("Email provider rejected delivery.")
-          ),
           Effect.catch((cause) =>
             failDelivery({
               deliveries,
@@ -261,7 +255,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         const paymentAttemptId = invoice.paymentAttemptId;
 
         const source = yield* accountingSnapshots
-          .findByPaymentAttemptId(paymentAttemptIdSchema.make(paymentAttemptId))
+          .find(paymentAttemptIdSchema.make(paymentAttemptId))
           .pipe(
             Effect.mapError((cause) =>
               deliveryError({
@@ -380,27 +374,13 @@ export class InvoiceEmailDeliveryService extends Context.Service<
   );
 
   static Live = this.Default.pipe(
-    Layer.provide(getInvoiceEmailDeliveryDependencies())
-  );
-}
-
-function getInvoiceEmailDeliveryDependencies() {
-  const accountingStorage = Layer.merge(
-    WorkspaceDatabase.Default,
-    AccountingSnapshotKeyService.Default
-  );
-  const accountingSnapshots = AccountingDocumentSnapshotRepository.Default.pipe(
-    Layer.provide(accountingStorage)
-  );
-  const invoices = InvoiceRepository.Default.pipe(
-    Layer.provide(Layer.merge(accountingStorage, accountingSnapshots))
-  );
-
-  return Layer.mergeAll(
-    accountingSnapshots,
-    invoices,
-    InvoiceEmailDeliveryRepository.Live,
-    WorkspaceEmailLayer
+    Layer.provide(
+      Layer.mergeAll(
+        AccountingStorage.Live,
+        InvoiceEmailDeliveryRepository.Live,
+        WorkspaceEmailLayer
+      )
+    )
   );
 }
 

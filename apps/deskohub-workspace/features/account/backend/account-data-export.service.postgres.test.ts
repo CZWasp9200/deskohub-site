@@ -18,13 +18,14 @@ import {
   NexiOrderIdSchema,
   NexiWebhookEventIdSchema,
 } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { NodeCrypto } from "@effect/platform-node";
 import { eq } from "drizzle-orm";
 import { Effect, Layer, Schema } from "effect";
 import { unzipSync } from "fflate";
+import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import {
-  accountingDocumentSnapshots,
   customerMarketingConsents,
   discountApplications,
   invoiceEmailDeliveries,
@@ -35,17 +36,22 @@ import {
   reservationAccessGrants,
   workspaceReservations,
 } from "@/db/schema";
-import { accountingSnapshotKeyIdSchema } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import {
+  accountingSnapshotKeyIdSchema,
+  makeAccountingDocumentSnapshot,
+} from "@/features/accounting/accounting-document-snapshot";
+import { recordAccountingDocumentSnapshot } from "@/features/accounting/backend/accounting-document-snapshots.test-utils";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
-import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
+import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { InvoiceEmailDeliveryRepository } from "@/features/accounting/backend/invoice-email-delivery.repository";
 import { invoiceNumberSchema } from "@/features/accounting/invoice";
+import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { DiscountApplicationRepository } from "@/features/checkout/backend/repositories/discount-application.repository";
 import { LatePaymentRecoveryRepository } from "@/features/checkout/backend/repositories/late-payment-recovery.repository";
 import { LegalEvidenceEventRepository } from "@/features/checkout/backend/repositories/legal-evidence-event.repository";
 import { PaymentAttemptRepository } from "@/features/checkout/backend/repositories/payment-attempt.repository";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
+import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import { discountIdSchema } from "@/features/discounts/contracts";
 import { MarketingConsentLedger } from "@/features/legal/backend/marketing-consent-ledger";
 import { CustomerBookedReservations } from "@/features/reservation/backend/customer-booked-reservations";
@@ -65,8 +71,8 @@ import {
   AccountDataExportLimits,
   AccountDataExportService,
 } from "./account-data-export.service";
+import { CurrentCustomerAccount } from "./current-customer-account";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import { CustomerAccountResolver } from "./customer-account-resolver.service";
 import { CustomerAccountSections } from "./customer-account-sections";
 import { signedInAuthentication } from "./customer-authentication.test-utils";
 import { CustomerDotyposAdapter } from "./customer-dotypos-adapter.service";
@@ -331,6 +337,66 @@ const seedAccessGrant = (reservationId: WorkspaceReservationId) =>
       })
   );
 
+type SeededInvoiceSource = {
+  readonly reservationId: WorkspaceReservationId;
+  readonly dotyposReservationId: DotyposReservationId;
+  readonly paymentAttemptId: PaymentAttemptId;
+};
+
+/**
+ * The payment's source snapshot, sealed under a key the export can't name
+ * and holding a name it must never decrypt.
+ */
+const seedSourceSnapshot = (
+  customerId: DotyposCustomerId,
+  source: SeededInvoiceSource
+) => {
+  const coworkOrder = { entryTier: "open-space", coffee: false } as const;
+  const snapshot = makeAccountingDocumentSnapshot({
+    workspaceReservationId: source.reservationId,
+    dotyposReservationId: source.dotyposReservationId,
+    dotyposCustomerId: customerId,
+    locale: "en-US",
+    prepared: {
+      kind: "cowork",
+      reservation: {
+        kind: "cowork",
+        ...coworkOrder,
+        date: "2026-09-01",
+        name: sensitive("snapshot-name"),
+        email: testEmailAddress("account-data-export-snapshot"),
+        phone: "+420 700 000 000",
+      },
+      quote: buildCoworkReservationQuote(coworkOrder),
+    } as PreparedCustomerQuote,
+  });
+  const key = { id: sensitiveKeyId(), secret: sensitive("snapshot-key") };
+  return Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+    transaction(
+      recordAccountingDocumentSnapshot({
+        paymentAttemptId: source.paymentAttemptId,
+        snapshot,
+      })
+    )
+  ).pipe(
+    Effect.provide(
+      Layer.merge(
+        postgres!.layer,
+        testAccountingStorage(
+          postgres!.layer,
+          Layer.succeed(
+            AccountingSnapshotKeyService,
+            AccountingSnapshotKeyService.of({
+              getActive: Effect.succeed(key),
+              getById: () => Effect.succeed(key),
+            })
+          )
+        )
+      )
+    )
+  );
+};
+
 /**
  * An invoice for the customer with a customer delivery the provider
  * accepted and an internal delivery still processing. With a reservation, the
@@ -339,26 +405,14 @@ const seedAccessGrant = (reservationId: WorkspaceReservationId) =>
  */
 const seedInvoice = async (
   customerId: DotyposCustomerId,
-  source?: {
-    readonly reservationId: WorkspaceReservationId;
-    readonly paymentAttemptId: PaymentAttemptId;
-  }
+  source?: SeededInvoiceSource
 ) => {
   invoiceSequence += 1;
   const invoiceNumber = invoiceNumberSchema.make(
     `WS-FV-2026-${String(invoiceSequence).padStart(6, "0")}`
   );
   if (source) {
-    await run(
-      database()
-        .insert(accountingDocumentSnapshots)
-        .values({
-          paymentAttemptId: source.paymentAttemptId,
-          workspaceReservationId: source.reservationId,
-          keyId: sensitiveKeyId(),
-          encryptedSnapshot: Buffer.from(sensitive("snapshot")),
-        })
-    );
+    await run(seedSourceSnapshot(customerId, source));
   }
   const [invoice] = await run(
     database()
@@ -452,6 +506,7 @@ const seedReservationWithEverySection = async (
   await seedAccessGrant(reservation.id);
   const invoiceNumber = await seedInvoice(customer.customerId, {
     reservationId: reservation.id,
+    dotyposReservationId: reservation.dotyposReservationId,
     paymentAttemptId,
   });
   return {
@@ -514,8 +569,9 @@ const exportService = (
     LatePaymentRecoveryRepository.Default,
     DiscountApplicationRepository.Default,
     LegalEvidenceEventRepository.Default,
-    InvoiceRepository.Default.pipe(
-      Layer.provide(AccountingDocumentSnapshotRepository.Default)
+    testAccountingStorage(
+      postgres!.layer,
+      AccountingSnapshotKeyService.Default
     ),
     InvoiceEmailDeliveryRepository.Default,
     MarketingConsentLedger.Default,
@@ -528,7 +584,7 @@ const exportService = (
     })
   );
   return AccountDataExportService.Default.pipe(
-    Layer.provide(CustomerAccountResolver.Default),
+    Layer.provide(CurrentCustomerAccount.Default),
     Layer.provide(CustomerAccountSections.Default),
     Layer.provide(
       Layer.mergeAll(

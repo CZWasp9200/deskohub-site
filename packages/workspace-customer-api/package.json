@@ -6,8 +6,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
+    "./consent-banner": "./src/consent-banner.ts",
     "./customer-locale": "./src/customer-locale.ts",
-    "./referral-code": "./src/referral-code.ts"
+    "./referral-code": "./src/referral-code.ts",
+    "./sign-in-email": "./src/sign-in-email.ts"
   },
   "scripts": {
     "lint": "cd ../.. && biome check packages/workspace-customer-api/src --config-path biome.json --vcs-root .",

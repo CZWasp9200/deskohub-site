@@ -4,6 +4,7 @@ import {
   customerApiPathPrefix,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer } from "effect";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
 import {
   testCustomerSession,
   testLinkedAccount,
@@ -18,17 +19,20 @@ import { CustomerAgentConnections } from "@/features/account/backend/auth/custom
 import { CustomerPasskeys } from "@/features/account/backend/auth/customer-passkeys.service";
 import { CustomerRequestOrigins } from "@/features/account/backend/auth/customer-request-origins.service";
 import { CustomerAccountDeletionEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
-import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import { CompanyLookupService } from "@/features/account/backend/company-lookup.service";
+import {
+  CurrentCustomerAccount,
+  requireVerifiedIdentity,
+} from "@/features/account/backend/current-customer-account";
 import {
   type CustomerAccountSession,
   CustomerAuthentication,
 } from "@/features/account/backend/customer-authentication.service";
 import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
+import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
 import { CustomerLocalePreference } from "@/features/account/backend/customer-locale-preference.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
-import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
+import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import type { CustomerProfile } from "@/features/account/contracts";
 import {
   type CustomerAccountAccessError,
@@ -36,9 +40,11 @@ import {
 } from "@/features/account/customer-account";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { CheckoutService } from "@/features/checkout/backend/checkout";
+import { CheckoutPaymentPageService } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
+import { CheckoutPaymentRetryService } from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { CheckoutStatusService } from "@/features/checkout/backend/checkout/checkout-status.service";
-import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
+import { PayableCheckout } from "@/features/checkout/backend/checkout/payable-checkout.service";
 import {
   featureFlagsByRequestCohort,
   releaseGateForRunOverFlags,
@@ -48,11 +54,13 @@ import type { WorkspaceFeatureFlagService } from "@/features/feature-flags/backe
 import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
 import { MarketingConsentLedger } from "@/features/legal/backend/marketing-consent-ledger";
 import { MarketingPreferences } from "@/features/legal/backend/marketing-preferences.service";
+import { MeetingRoomReleaseGate } from "@/features/meeting-room/backend/meeting-room-release-gate";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
@@ -203,8 +211,20 @@ export const makeCustomerApiTestServer = (
 };
 
 const unusedAccountServices: CustomerAccountServiceLayers = {
-  currentAccount: Layer.mock(CurrentCustomerAccount, {}),
-  resolver: Layer.mock(CustomerAccountResolver, {}),
+  // Only the active-session check reads the request's session; reading the
+  // account's link fails the test.
+  currentAccount: Layer.effect(
+    CurrentCustomerAccount,
+    Effect.map(CustomerAuthentication, (authentication) =>
+      CurrentCustomerAccount.of({
+        peek: Effect.die("peek is not faked"),
+        resolve: Effect.die("resolve is not faked"),
+        requireActive: authentication.currentUser.pipe(
+          Effect.flatMap(requireVerifiedIdentity)
+        ),
+      })
+    )
+  ),
   profile: Layer.mock(CustomerProfileService, {}),
   avatar: Layer.mock(CustomerAvatarService, {}),
   passkeys: Layer.mock(CustomerPasskeys, {}),
@@ -212,20 +232,24 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
   reviewAccounts: ReviewAccountsMock({}),
   referrals: ReferralServiceMock({}),
   signupIntents: Layer.mock(ReferralSignupIntentRepository, {}),
-  contacts: Layer.mock(CustomerAccountContactService, {}),
   marketingPreferences: Layer.mock(MarketingPreferences, {}),
   consentLedger: Layer.mock(MarketingConsentLedger, {}),
   accountDeletion: Layer.mock(CustomerAccountDeletionEndpoint, {}),
   analyticsConsentLedger: Layer.mock(AnalyticsConsentLedger, {}),
   analyticsPersonAnonymisation: Layer.mock(AnalyticsPersonAnonymisation, {}),
   localePreference: Layer.mock(CustomerLocalePreference, {}),
+  dataExport: Layer.mock(AccountDataExportService, {}),
+  invoices: Layer.mock(CustomerInvoiceService, {}),
+  companyLookup: Layer.mock(CompanyLookupService, {}),
 };
 
 const unusedReservationServices: CustomerReservationServiceLayers = {
-  contacts: () => Layer.mock(CustomerAccountContactService, {}),
-  history: Layer.mock(CustomerReservationHistoryService, {}),
-  authorization: () => Layer.mock(ReservationAuthorizationService, {}),
+  currentAccount: Layer.mock(CurrentCustomerAccount, {}),
+  history: () => Layer.mock(CustomerReservationHistoryWithAccessService, {}),
+  authorization: Layer.mock(ReservationAuthorizationService, {}),
   checkoutStatus: Layer.mock(CheckoutStatusService, {}),
+  paymentPage: () => Layer.mock(CheckoutPaymentPageService, {}),
+  paymentRetry: () => Layer.mock(CheckoutPaymentRetryService, {}),
   access: () => Layer.mock(ReservationAccessService, {}),
   invoice: () => Layer.mock(ReservationInvoicePdfService, {}),
 };
@@ -238,6 +262,57 @@ export const testCustomerProfile: CustomerProfile = {
   billing: null,
 };
 
+/** A standing `CurrentCustomerAccount.resolve` reports. */
+type ResolvedStanding = Effect.Success<
+  CurrentCustomerAccount["Service"]["resolve"]
+>;
+
+/**
+ * The request session's standing: signed out without a session, awaiting
+ * deletion with its marker, and otherwise `resolved(session)`. `peek` reads
+ * an account resolution would link as unlinked, and `requireActive` reads
+ * the session as the module does.
+ */
+export const currentAccountResolving = (
+  resolved: (session: CustomerAccountSession) => ResolvedStanding
+) =>
+  Layer.effect(
+    CurrentCustomerAccount,
+    Effect.gen(function* () {
+      const authentication = yield* CustomerAuthentication;
+      const resolve = authentication.currentUser.pipe(
+        Effect.map((session): ResolvedStanding => {
+          if (session === null) return { kind: "signed-out" };
+          if (session.deletionRequested) {
+            return {
+              kind: "deletion-pending",
+              session,
+              reviewMarker: "absent",
+            };
+          }
+          return resolved(session);
+        })
+      );
+      return CurrentCustomerAccount.of({
+        resolve,
+        // Peek never consults Dotypos: what resolution would find is unlinked.
+        peek: Effect.map(resolve, (standing) =>
+          standing.kind === "profile-missing" ||
+          standing.kind === "support-required"
+            ? ({
+                kind: "unlinked",
+                session: standing.session,
+                reviewMarker: standing.reviewMarker,
+              } as const)
+            : standing
+        ),
+        requireActive: authentication.currentUser.pipe(
+          Effect.flatMap(requireVerifiedIdentity)
+        ),
+      });
+    })
+  );
+
 /**
  * Account services for the session's account, linked to its Dotypos
  * customer with `testCustomerProfile`, no avatar, passkeys or assistants,
@@ -247,38 +322,13 @@ export const linkedAccountServices: CustomerAccountServiceLayers = {
   ...unusedAccountServices,
   // The request's session, linked to `testLinkedAccount`'s customer unless
   // it is signed out or awaiting deletion.
-  currentAccount: Layer.effect(
-    CurrentCustomerAccount,
-    Effect.gen(function* () {
-      const authentication = yield* CustomerAuthentication;
-      return CurrentCustomerAccount.of({
-        resolve: authentication.currentUser.pipe(
-          Effect.map((session) => {
-            if (session === null) return { kind: "signed-out" } as const;
-            if (session.deletionRequested) {
-              return {
-                kind: "deletion-pending",
-                session,
-                reviewMarker: "absent",
-              } as const;
-            }
-            return {
-              kind: "linked",
-              session,
-              reviewMarker: "absent",
-              account: testLinkedAccount,
-              autoLinked: false,
-            } as const;
-          })
-        ),
-        peek: Effect.die("peek is not faked"),
-        requireActive: Effect.die("requireActive is not faked"),
-      });
-    })
-  ),
-  resolver: Layer.mock(CustomerAccountResolver, {
-    resolve: Effect.succeed(testLinkedAccount),
-  }),
+  currentAccount: currentAccountResolving((session) => ({
+    kind: "linked",
+    session,
+    reviewMarker: "absent",
+    account: testLinkedAccount,
+    autoLinked: false,
+  })),
   profile: Layer.mock(CustomerProfileService, {
     load: () => Effect.succeed(testCustomerProfile),
     update: () => Effect.succeed(testCustomerProfile),
@@ -306,12 +356,14 @@ const unusedBookingCatalog: CustomerBookingCatalogLayerSet = {
   inventory: Layer.mock(AdvisoryAvailabilityInventory, {}),
   availability: Layer.mergeAll(
     Layer.mock(WorkspaceAvailabilityService, {}),
-    Layer.mock(ReservationSupersessionService, {}),
+    Layer.mock(PayableCheckout, {}),
     TestSealedStateKeys
   ),
   sealedStateKeys: TestSealedStateKeys,
   releases: {
+    meetingRoom: MeetingRoomReleaseGate.fromDecision(true),
     office: OfficeReleaseGate.fromDecision(false),
+    overnightStay: OvernightStayReleaseGate.fromDecision(false),
     referral: ReferralReleaseGate.fromDecision(false),
   },
 };
@@ -322,6 +374,7 @@ const unusedBookingCheckout: CustomerBookingCheckoutLayerSet = {
   inventory: Layer.mock(AdvisoryAvailabilityInventory, {}),
   releases: {
     office: OfficeReleaseGate.fromDecision(false),
+    overnightStay: OvernightStayReleaseGate.fromDecision(false),
     referral: ReferralReleaseGate.fromDecision(false),
   },
 };

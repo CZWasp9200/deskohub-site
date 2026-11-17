@@ -1,13 +1,10 @@
 import { Effect } from "effect";
-import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
-  activateHydratedElement,
   openPage,
   readPageUrl,
   waitForPageCondition,
   waitForPageText,
-  waitForPageUrl,
 } from "../browser";
 import type {
   E2EBrowserSession,
@@ -19,9 +16,10 @@ import {
   submitPaymentAndWaitForHostedPage,
 } from "../checkout/payment";
 import {
-  isPrefilledReservation,
-  toPrefilledReservation,
-} from "../checkout/prefilled-reservation";
+  retryPaymentInPlace,
+  retryPaymentSelector,
+} from "../checkout/payment-retry";
+import { capturePaymentRetryReview } from "../checkout/payment-retry-review";
 import type { ReservationFormPreparation } from "../checkout/reservation-form-preparation";
 import type { WorkspaceE2EConfig } from "../config";
 import { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
@@ -33,11 +31,17 @@ import {
   requireProviderSessionRowAfterRedirect,
 } from "../integrations/database";
 import type { E2EDatabase } from "../integrations/database.service";
+import { pollUntil } from "../polling";
 import { assert, log, parseUrl } from "../runtime";
-import type { WorkspaceE2ETimeouts } from "../timeouts";
+import {
+  type WorkspaceE2ETimeouts,
+  workspaceE2EPollInitialIntervalMs,
+  workspaceE2EPollIntervalMs,
+} from "../timeouts";
 import type {
   CheckoutData,
   CheckoutFlowState,
+  CheckoutRow,
   PaymentTerminalScenario,
 } from "../types";
 import { makeUrl, setSearchParams } from "../urls";
@@ -66,7 +70,6 @@ export const getPaymentTerminalScenarios =
 export const assertPaymentTerminalPath = ({
   config,
   data,
-  reservationPath,
   runStep,
   scenario,
   openSession,
@@ -75,7 +78,6 @@ export const assertPaymentTerminalPath = ({
 }: {
   config: WorkspaceE2EConfig;
   data: CheckoutData;
-  reservationPath: string;
   runStep: WorkspaceE2EStepRunner;
   scenario: PaymentTerminalScenario;
   openSession: OpenE2EBrowserSession;
@@ -156,19 +158,61 @@ export const assertPaymentTerminalPath = ({
         timeoutMs: config.timeouts.uiTransition,
       });
     }
+    // The failed payment's case captures the retry for review; the
+    // cancelled one would only overwrite it.
+    const captureReview =
+      scenario.trigger === "hosted_authentication_failure"
+        ? capturePaymentRetryReview
+        : () => Effect.void;
     yield* runStep({
       execute: Effect.flatMap(openSession, (browser) =>
-        retryReservation({
-          data,
-          reservationPath,
-          scenario,
+        captureReview({
+          orderId,
           session: browser,
-          timeouts: config.timeouts,
-        })
+          target: "checkout-status-payment-retry",
+        }).pipe(
+          Effect.andThen(
+            retryPaymentInPlace({
+              label: `${scenario.state} payment`,
+              orderId,
+              session: browser,
+              timeouts: config.timeouts,
+            })
+          ),
+          Effect.andThen(
+            captureReview({
+              orderId,
+              session: browser,
+              target: "checkout-pay-retry",
+            })
+          )
+        )
       ),
-      id: "retry-reservation",
+      id: "retry-payment-in-place",
       timeoutMs: config.timeouts.uiTransition,
     });
+    if (scenario.trigger === "hosted_authentication_failure") {
+      // The same order, paid on the Nexi sandbox after its failed payment.
+      const failedAttemptId = state.checkoutRow?.payment_attempt_id ?? null;
+      yield* completeHostedCheckoutPayment({
+        config,
+        data,
+        orderId,
+        runStep,
+        openSession,
+        state,
+      });
+      // The status page reconciles the order with Nexi; no webhook replay.
+      state.checkoutRow = yield* runStep({
+        execute: waitForRetriedPayment({
+          failedAttemptId,
+          orderId,
+          timeouts: config.timeouts,
+        }),
+        id: "validate-retried-payment",
+        timeoutMs: config.timeouts.providerTransition,
+      });
+    }
 
     log(`Payment ${scenario.state} status e2e passed for order ${orderId}`);
   });
@@ -256,82 +300,38 @@ const preparePaymentTerminalState = ({
     yield* assertPaymentTerminalRow(checkoutRow, scenario);
   });
 
-/** The selection parameters the retry link must carry back to the form. */
-const getExpectedRetrySelection = (
-  data: CheckoutData
-): Readonly<Record<string, string>> => {
-  if (data.meetingRoom) {
-    return {
-      startDateTime: data.meetingRoom.startDateTime,
-      duration: getMeetingRoomReservationDurationKey(data.meetingRoom.duration),
-    };
-  }
-  if (data.office) {
-    return {
-      startsOn: data.office.startsOn,
-      seats: String(data.office.seats),
-    };
-  }
-  return data.expectedReservationDetails.kind === "cowork"
-    ? {
-        entryTier: data.expectedReservationDetails.entryTier,
-        date: data.date,
-      }
-    : { date: data.date };
-};
-
-const contactSearchParams = ["name", "email", "phone", "customer"];
-
-/** Whether a reservation page URL reopens the retried selection, contact-free. */
-const isRetryReservationUrl = (
-  value: string,
-  reservationPath: string,
-  expectedSelection: Readonly<Record<string, string>>
-) => {
-  const url = parseUrl(value);
-  return (
-    url?.pathname === reservationPath &&
-    Object.entries(expectedSelection).every(
-      ([name, expected]) => url.searchParams.get(name) === expected
-    ) &&
-    contactSearchParams.every((name) => !url.searchParams.has(name))
-  );
-};
-
-export const retryReservation = ({
-  data,
-  reservationPath,
-  scenario,
-  session,
+/** Waits until a newer attempt than the failed one paid the same order. */
+const waitForRetriedPayment = ({
+  failedAttemptId,
+  orderId,
   timeouts,
 }: {
-  data: CheckoutData;
-  reservationPath: string;
-  scenario: PaymentTerminalScenario;
-  session: E2EBrowserSession;
+  failedAttemptId: string | null;
+  orderId: WorkspaceReservationId;
   timeouts: WorkspaceE2ETimeouts;
-}): Effect.Effect<void, WorkspaceE2EError> =>
+}): Effect.Effect<CheckoutRow, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
-    const expectedSelection = getExpectedRetrySelection(data);
-    yield* activateHydratedElement(
-      session,
-      `#checkout-status-reserve-again[href^="${reservationPath}?"]`,
-      { timeoutMs: timeouts.uiTransition }
+    const row = yield* pollUntil(
+      readCheckoutRow(orderId).pipe(
+        Effect.map((value) =>
+          value?.payment_state === "paid" ? value : undefined
+        )
+      ),
+      {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
+        intervalMs: workspaceE2EPollIntervalMs.datasource,
+        label: "the retried order paid",
+        timeoutMs: timeouts.providerTransition,
+      }
     );
-    yield* waitForPageUrl({
-      description: `${scenario.state} payment retry page with the original selection`,
-      matches: (url) =>
-        isRetryReservationUrl(url, reservationPath, expectedSelection),
-      session,
-      timeoutMs: timeouts.uiTransition,
-    });
-    yield* waitForPageCondition(
-      session,
-      `${scenario.state} payment retry form shows the original selection`,
-      isPrefilledReservation,
-      toPrefilledReservation(data, { includeContact: false }),
-      { timeoutMs: timeouts.uiTransition }
+    yield* tryWorkspaceE2ESync("validate retried payment", () =>
+      assert(
+        row.payment_attempt_id !== null &&
+          row.payment_attempt_id !== failedAttemptId,
+        "the retried payment reused the failed attempt"
+      )
     );
+    return row;
   });
 
 export const assertTerminalStatusPage = ({
@@ -355,14 +355,27 @@ export const assertTerminalStatusPage = ({
     yield* openPage(session, config, url.toString(), { timeoutMs: 60_000 });
     yield* waitForPageText({
       description: `${scenario.state} checkout status copy`,
-      matches: (text) =>
-        scenario.titlePattern.test(text) && /Try again/i.test(text),
+      matches: (text) => scenario.titlePattern.test(text),
       session,
       timeoutMs: config.timeouts.uiTransition,
     });
+    yield* waitForRetryPaymentControl(session, scenario, config.timeouts);
 
     log(`Checkout ${scenario.state} status page validated`);
   });
+
+const waitForRetryPaymentControl = (
+  session: E2EBrowserSession,
+  scenario: PaymentTerminalScenario,
+  timeouts: WorkspaceE2ETimeouts
+) =>
+  waitForPageCondition(
+    session,
+    `${scenario.state} checkout status offers paying the order again`,
+    (selector) => document.querySelector(selector) !== null,
+    retryPaymentSelector,
+    { timeoutMs: timeouts.uiTransition }
+  );
 
 const isOrderStatusUrl = (value: string, orderId: WorkspaceReservationId) =>
   parseUrl(value)?.pathname.endsWith(`/reservation/status/${orderId}`) === true;
@@ -390,11 +403,11 @@ export const assertReturnedTerminalStatusPage = ({
     );
     yield* waitForPageText({
       description: `${scenario.state} checkout status copy after the Nexi return`,
-      matches: (text) =>
-        scenario.titlePattern.test(text) && /Try again/i.test(text),
+      matches: (text) => scenario.titlePattern.test(text),
       session,
       timeoutMs: timeouts.uiTransition,
     });
+    yield* waitForRetryPaymentControl(session, scenario, timeouts);
 
     log(
       `Checkout ${scenario.state} status page validated after the Nexi return`

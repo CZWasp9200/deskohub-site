@@ -1,5 +1,11 @@
-import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerAccountState,
+  CustomerCompanyDetails,
+  CustomerProfileBilling,
+} from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
+import type { CompanyDetailsField } from "../../company-lookup/company-lookup-model";
+import { invoiceCountryCodes } from "../../i18n/country-names";
 import type { CheckoutDetails } from "../checkout/checkout-state";
 
 /**
@@ -17,6 +23,39 @@ export interface SelfContact {
   readonly phone: Option.Option<string>;
 }
 
+/** An invoice address as create checkout sends it; `country` is ISO alpha-2. */
+export interface InvoiceAddress {
+  readonly line1: string;
+  readonly city: string;
+  readonly postalCode: string;
+  readonly country: string;
+}
+
+export type AddressDraft = InvoiceAddress;
+
+export interface CompanyDraft {
+  readonly legalName: string;
+  readonly companyId: string;
+  readonly vatId: string;
+  readonly address: AddressDraft;
+}
+
+/**
+ * What Account › Billing details already holds: a complete personal address
+ * "Invoice to me" offers as it is, and a business's details the company
+ * form starts from.
+ */
+export interface SavedBilling {
+  readonly address: Option.Option<InvoiceAddress>;
+  readonly company: Option.Option<CompanyDraft>;
+}
+
+/** Who books, and what the account saved for invoices. */
+export interface DetailsProfile {
+  readonly self: SelfContact;
+  readonly saved: SavedBilling;
+}
+
 /**
  * Whether the account can fill in the details step:
  * - `Ready`: a linked profile books as itself, or an account without one
@@ -25,7 +64,7 @@ export interface SelfContact {
  *   resolved, or its state couldn't be read.
  */
 export type DetailsAccess =
-  | { readonly _tag: "Ready"; readonly self: SelfContact }
+  | ({ readonly _tag: "Ready" } & DetailsProfile)
   | {
       readonly _tag: "Unavailable";
       readonly reason:
@@ -44,6 +83,66 @@ const nonBlank = (value: string | null | undefined): Option.Option<string> =>
 const savedPhone = (phone: string | null) =>
   nonBlank(phone).pipe(Option.filter(isPhoneNumber));
 
+const emptyAddress = (country: string): AddressDraft => ({
+  line1: "",
+  city: "",
+  postalCode: "",
+  country,
+});
+
+const text = (value: string | null) =>
+  Option.getOrElse(nonBlank(value), () => "");
+
+const savedCountry = (country: string | null) =>
+  nonBlank(country).pipe(
+    Option.map((code) => code.toUpperCase()),
+    Option.filter((code) => invoiceCountryCodes.includes(code))
+  );
+
+const savedAddressDraft = (billing: CustomerProfileBilling): AddressDraft => ({
+  line1: text(billing.addressLine1),
+  city: text(billing.city),
+  postalCode: text(billing.zip),
+  // Blank without a saved invoice country: `initialDetailsDraft` fills it.
+  country: Option.getOrElse(savedCountry(billing.country), () => ""),
+});
+
+const noSavedBilling: SavedBilling = {
+  address: Option.none(),
+  company: Option.none(),
+};
+
+/**
+ * The saved billing details: a personal address only when every part the
+ * invoice needs is there, and a business's details as far as they go.
+ */
+export const savedBillingOf = (
+  billing: CustomerProfileBilling | null
+): SavedBilling => {
+  if (billing === null) return noSavedBilling;
+  if (billing.kind === "business") {
+    return {
+      address: Option.none(),
+      company: Option.some({
+        legalName: text(billing.companyName),
+        companyId: text(billing.companyId),
+        vatId: text(billing.vatId),
+        address: savedAddressDraft(billing),
+      }),
+    };
+  }
+  const address = savedAddressDraft(billing);
+  const complete =
+    address.line1 !== "" &&
+    address.city !== "" &&
+    address.postalCode !== "" &&
+    Option.isSome(savedCountry(billing.country));
+  return {
+    address: complete ? Option.some(address) : Option.none(),
+    company: Option.none(),
+  };
+};
+
 export const detailsAccess = (account: CustomerAccountState): DetailsAccess => {
   switch (account.kind) {
     case "linked": {
@@ -58,6 +157,7 @@ export const detailsAccess = (account: CustomerAccountState): DetailsAccess => {
           name: nonBlank(name),
           phone: savedPhone(account.profile.phone),
         },
+        saved: savedBillingOf(account.profile.billing),
       };
     }
     case "completion-required":
@@ -69,6 +169,7 @@ export const detailsAccess = (account: CustomerAccountState): DetailsAccess => {
           name: Option.none(),
           phone: Option.none(),
         },
+        saved: noSavedBilling,
       };
     case "support-required":
     case "deletion-pending":
@@ -94,14 +195,6 @@ export const withRejectedSavedFields = (
 /** What the invoice needs: none, a personal invoice, or a business one. */
 export type BillingChoice = "none" | "personal-invoice" | "business";
 
-export interface AddressDraft {
-  readonly line1: string;
-  readonly line2: string;
-  readonly city: string;
-  readonly postalCode: string;
-  readonly country: string;
-}
-
 export interface DetailsDraft {
   readonly bookingFor: CheckoutDetails["bookingFor"];
   /** What the account enters about itself when the profile lacks it. */
@@ -110,48 +203,69 @@ export interface DetailsDraft {
   readonly someoneElse: {
     readonly name: string;
     readonly email: string;
-    readonly emailRepeat: string;
     readonly phone: string;
   };
   readonly billing: BillingChoice;
-  /** The invoice address, for a personal invoice or the business buyer. */
-  readonly address: AddressDraft;
-  readonly buyer: {
-    readonly legalName: string;
-    readonly companyId: string;
-    readonly vatId: string;
-  };
+  /** "Invoice to me" without a complete saved address. */
+  readonly personalAddress: AddressDraft;
+  /** "Invoice to a company"; kept apart, so switching keeps both. */
+  readonly company: CompanyDraft;
   /** Self only; unticked records nothing and withdraws nothing. */
   readonly marketingConsent: boolean;
 }
 
-/** The site's billing step starts on no invoice, with the country CZ. */
-export const emptyDetailsDraft: DetailsDraft = {
+/**
+ * The form a booking starts with: no invoice, as on the site; a saved
+ * address is offered, not chosen. The company form starts from the saved
+ * business details. An address without a country starts in `country`, the
+ * device's country (`detectedCountry`).
+ */
+export const initialDetailsDraft = (
+  saved: SavedBilling,
+  country: string
+): DetailsDraft => ({
   bookingFor: "self",
   self: { name: "", phone: "" },
-  someoneElse: { name: "", email: "", emailRepeat: "", phone: "" },
+  someoneElse: { name: "", email: "", phone: "" },
   billing: "none",
-  address: { line1: "", line2: "", city: "", postalCode: "", country: "CZ" },
-  buyer: { legalName: "", companyId: "", vatId: "" },
+  personalAddress: emptyAddress(country),
+  company: Option.match(saved.company, {
+    onNone: () => ({
+      legalName: "",
+      companyId: "",
+      vatId: "",
+      address: emptyAddress(country),
+    }),
+    onSome: (company) =>
+      company.address.country === ""
+        ? { ...company, address: { ...company.address, country } }
+        : company,
+  }),
   marketingConsent: false,
-};
+});
 
-/** A form field, named as the details step shows it. */
-export type DetailsField =
-  | "name"
-  | "email"
-  | "emailRepeat"
-  | "phone"
-  | "address.line1"
-  | "address.line2"
-  | "address.city"
-  | "address.postalCode"
-  | "address.country"
-  | "buyer.legalName"
-  | "buyer.companyId"
-  | "buyer.vatId";
+/** A form field, named as the details step shows it, in screen order. */
+export const detailsFields = [
+  "name",
+  "email",
+  "phone",
+  "buyer.legalName",
+  "buyer.companyId",
+  "buyer.vatId",
+  "address.line1",
+  "address.city",
+  "address.postalCode",
+  "address.country",
+] as const;
+export type DetailsField = (typeof detailsFields)[number];
+
+const contactFields: ReadonlyArray<DetailsField> = ["name", "email", "phone"];
+const billingFields: ReadonlyArray<DetailsField> = detailsFields.filter(
+  (field) => !contactFields.includes(field)
+);
 
 /**
+ * - `required`, `invalid_country`: each field says what to enter.
  * - `invalid`: the server rejected the field without saying why.
  */
 export type FieldProblem =
@@ -159,12 +273,144 @@ export type FieldProblem =
   | "too_short"
   | "too_long"
   | "invalid_email"
-  | "emails_differ"
   | "invalid_phone"
   | "invalid_country"
   | "invalid";
 
 export type DetailsFieldProblems = Partial<Record<DetailsField, FieldProblem>>;
+
+/** The problems in screen order, the first one to bring into view. */
+export const orderedProblems = (problems: DetailsFieldProblems) =>
+  detailsFields.flatMap((field) => {
+    const problem = problems[field];
+    return problem === undefined ? [] : [{ field, problem }];
+  });
+
+const without = (
+  problems: DetailsFieldProblems,
+  fields: ReadonlyArray<DetailsField>
+): DetailsFieldProblems =>
+  Object.fromEntries(
+    Object.entries(problems).filter(
+      ([field]) => !fields.includes(field as DetailsField)
+    )
+  );
+
+/**
+ * What a change does to the problems on show: problems belong to the form
+ * that was submitted, so typing in a field clears its own, and switching who
+ * the booking is for or the invoice type clears that part's (the other
+ * form's fields are no longer the ones being checked).
+ */
+/**
+ * Where each detail of the company lookup goes in the company form: its
+ * field, and the form with the detail in it. The form has no second address
+ * line, so the registry's is left out.
+ */
+const companyDetailTargets = {
+  companyName: {
+    field: "buyer.legalName",
+    put: (company, legalName) => ({ ...company, legalName }),
+  },
+  companyId: {
+    field: "buyer.companyId",
+    put: (company, companyId) => ({ ...company, companyId }),
+  },
+  vatId: {
+    field: "buyer.vatId",
+    put: (company, vatId) => ({ ...company, vatId }),
+  },
+  addressLine1: {
+    field: "address.line1",
+    put: (company, line1) => ({
+      ...company,
+      address: { ...company.address, line1 },
+    }),
+  },
+  city: {
+    field: "address.city",
+    put: (company, city) => ({
+      ...company,
+      address: { ...company.address, city },
+    }),
+  },
+  zip: {
+    field: "address.postalCode",
+    put: (company, postalCode) => ({
+      ...company,
+      address: { ...company.address, postalCode },
+    }),
+  },
+  country: {
+    field: "address.country",
+    put: (company, country) => ({
+      ...company,
+      address: { ...company.address, country },
+    }),
+  },
+} as const satisfies Partial<
+  Record<
+    CompanyDetailsField,
+    {
+      readonly field: DetailsField;
+      readonly put: (company: CompanyDraft, value: string) => CompanyDraft;
+    }
+  >
+>;
+
+type CompanyLookupField = keyof typeof companyDetailTargets;
+
+/** The details the company form takes from a company lookup, in its order. */
+export const companyLookupFields = Object.keys(
+  companyDetailTargets
+) as ReadonlyArray<CompanyLookupField>;
+
+/**
+ * The company form with a lookup's applied `details` in it, as if typed, and
+ * the fields that changed.
+ */
+export const companyWithDetails = (
+  company: CompanyDraft,
+  details: Partial<CustomerCompanyDetails>
+): {
+  readonly company: CompanyDraft;
+  readonly fields: ReadonlyArray<DetailsField>;
+} =>
+  companyLookupFields.reduce(
+    (applied, detail) => {
+      const value = details[detail];
+      if (value === undefined) return applied;
+      const target = companyDetailTargets[detail];
+      return {
+        company: target.put(applied.company, value),
+        fields: [...applied.fields, target.field],
+      };
+    },
+    { company, fields: [] as ReadonlyArray<DetailsField> }
+  );
+
+export type DetailsChange =
+  | { readonly _tag: "Field"; readonly field: DetailsField }
+  /** Several fields at once, as an applied company lookup changes them. */
+  | { readonly _tag: "Fields"; readonly fields: ReadonlyArray<DetailsField> }
+  | { readonly _tag: "BookingFor" }
+  | { readonly _tag: "Billing" };
+
+export const problemsAfterChange = (
+  problems: DetailsFieldProblems,
+  change: DetailsChange
+): DetailsFieldProblems => {
+  switch (change._tag) {
+    case "Field":
+      return without(problems, [change.field]);
+    case "Fields":
+      return without(problems, change.fields);
+    case "BookingFor":
+      return without(problems, contactFields);
+    case "Billing":
+      return without(problems, billingFields);
+  }
+};
 
 export type DetailsValidation =
   | { readonly _tag: "Valid"; readonly details: CheckoutDetails }
@@ -212,7 +458,7 @@ const email: Check = (value) =>
 const phone: Check = (value) =>
   isPhoneNumber(value) ? undefined : "invalid_phone";
 const country: Check = (value) =>
-  /^[A-Z]{2}$/.test(value) ? undefined : "invalid_country";
+  invoiceCountryCodes.includes(value) ? undefined : "invalid_country";
 
 const firstProblem = (value: string, checks: ReadonlyArray<Check>) =>
   checks.reduce<FieldProblem | undefined>(
@@ -234,9 +480,6 @@ const trimAll = <Fields extends { readonly [Key in keyof Fields]: string }>(
   Object.fromEntries(
     Object.entries<string>(fields).map(([key, value]) => [key, value.trim()])
   ) as { readonly [Key in keyof Fields]: string };
-
-const sameEmail = (left: string, right: string) =>
-  left.toLowerCase() === right.toLowerCase();
 
 interface ContactInput {
   readonly contact: CheckoutDetails["contact"];
@@ -268,11 +511,6 @@ const someoneElseInput = (draft: DetailsDraft): ContactInput => {
     problems: {
       name: firstProblem(entered.name, nameChecks),
       email: firstProblem(entered.email, emailChecks),
-      emailRepeat:
-        firstProblem(entered.emailRepeat, [required]) ??
-        (sameEmail(entered.email, entered.emailRepeat)
-          ? undefined
-          : "emails_differ"),
       phone: firstProblem(entered.phone, phoneChecks),
     },
   };
@@ -284,14 +522,7 @@ interface BillingInput {
 }
 
 const addressInput = (draft: AddressDraft) => {
-  const entered = trimAll(draft);
-  const address = {
-    line1: entered.line1,
-    ...(entered.line2 !== "" && { line2: entered.line2 }),
-    city: entered.city,
-    postalCode: entered.postalCode,
-    country: entered.country.toUpperCase(),
-  };
+  const address = trimAll(draft);
   return {
     address,
     problems: {
@@ -299,7 +530,6 @@ const addressInput = (draft: AddressDraft) => {
         required,
         maxLength(limits.line),
       ]),
-      "address.line2": firstProblem(entered.line2, [maxLength(limits.line)]),
       "address.city": firstProblem(address.city, [
         required,
         maxLength(limits.city),
@@ -308,12 +538,22 @@ const addressInput = (draft: AddressDraft) => {
         required,
         maxLength(limits.postalCode),
       ]),
-      "address.country": firstProblem(address.country, [required, country]),
+      "address.country": firstProblem(address.country, [country]),
     } satisfies DetailsFieldProblems,
   };
 };
 
-const billingInput = (draft: DetailsDraft): BillingInput => {
+/**
+ * Whether "Invoice to me" asks for an address: only without a complete
+ * saved one, which it then uses as it is.
+ */
+export const asksPersonalAddress = (saved: SavedBilling) =>
+  Option.isNone(saved.address);
+
+const billingInput = (
+  saved: SavedBilling,
+  draft: DetailsDraft
+): BillingInput => {
   switch (draft.billing) {
     case "none":
       return {
@@ -321,15 +561,22 @@ const billingInput = (draft: DetailsDraft): BillingInput => {
         problems: {},
       };
     case "personal-invoice": {
-      const { address, problems } = addressInput(draft.address);
+      const { address, problems } = Option.match(saved.address, {
+        onNone: () => addressInput(draft.personalAddress),
+        onSome: (savedAddress) => ({ address: savedAddress, problems: {} }),
+      });
       return {
         billing: { purpose: "personal", invoice: "requested", address },
         problems,
       };
     }
     case "business": {
-      const { address, problems } = addressInput(draft.address);
-      const buyer = trimAll(draft.buyer);
+      const { address, problems } = addressInput(draft.company.address);
+      const buyer = trimAll({
+        legalName: draft.company.legalName,
+        companyId: draft.company.companyId,
+        vatId: draft.company.vatId,
+      });
       return {
         billing: {
           purpose: "business",
@@ -370,18 +617,18 @@ const presentProblems = (
 
 /**
  * Checks the form as the site does and builds what create checkout sends.
- * Marketing consent is asked only when booking for oneself and sent only
- * when ticked.
+ * Only the fields on show are checked. Marketing consent is asked only when
+ * booking for oneself and sent only when ticked.
  */
 export function validateDetails(
-  self: SelfContact,
+  { self, saved }: DetailsProfile,
   draft: DetailsDraft
 ): DetailsValidation {
   const contactInput =
     draft.bookingFor === "self"
       ? selfContactInput(self, draft)
       : someoneElseInput(draft);
-  const { billing, problems: billingProblems } = billingInput(draft);
+  const { billing, problems: billingProblems } = billingInput(saved, draft);
   const problems = presentProblems({
     ...contactInput.problems,
     ...billingProblems,
@@ -406,7 +653,6 @@ const serverFields: ReadonlyMap<string, DetailsField> = new Map([
   ["contact.email", "email"],
   ["contact.phone", "phone"],
   ["billing.address.line1", "address.line1"],
-  ["billing.address.line2", "address.line2"],
   ["billing.address.city", "address.city"],
   ["billing.address.postalCode", "address.postalCode"],
   ["billing.address.country", "address.country"],
@@ -414,7 +660,6 @@ const serverFields: ReadonlyMap<string, DetailsField> = new Map([
   ["billing.buyer.companyId", "buyer.companyId"],
   ["billing.buyer.vatId", "buyer.vatId"],
   ["billing.buyer.address.line1", "address.line1"],
-  ["billing.buyer.address.line2", "address.line2"],
   ["billing.buyer.address.city", "address.city"],
   ["billing.buyer.address.postalCode", "address.postalCode"],
   ["billing.buyer.address.country", "address.country"],

@@ -11,6 +11,7 @@ import {
 import { WorkspaceLocks } from "@/db/workspace-locks";
 import { findActiveCustomerAccountByEmail } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
 import { censorLogValue } from "@/shared/backend/logging/censorship";
 import type { AdministratorAccountActor } from "../account-role";
@@ -279,7 +280,7 @@ export class LegacyAdministratorBackfill extends Context.Service<
       Layer.mergeAll(
         WorkspaceDatabase.Default,
         AccountRoleGrants.Live,
-        InvoiceRepository.Live
+        AccountingStorage.Live
       )
     )
   );

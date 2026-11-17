@@ -8,6 +8,7 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import {
   act,
   cleanup,
@@ -208,3 +209,24 @@ test("saves a signed-in customer's preference before a language link navigates",
 
   expect(window.location.pathname).toBe("/en-US/pricing");
 });
+
+test("states the company's VAT status from the one setting", async () => {
+  const view = await renderFooter();
+
+  expect(workspaceSiteConstants.company.vatStatus).toBe("not-vat-payer");
+  expect(
+    view.getByText(m.footerVatStatus({}, { locale: "cs-CZ" }))
+  ).toBeTruthy();
+});
+
+test.each(supportedLocales)(
+  "words the %s VAT statement only for a company that is not a VAT payer",
+  async (locale) => {
+    const { getFooterVatStatement } = await import("./public-site-footer");
+
+    expect(getFooterVatStatement("not-vat-payer", locale)).toBe(
+      m.footerVatStatus({}, { locale })
+    );
+    expect(getFooterVatStatement("vat-payer", locale)).toBeUndefined();
+  }
+);

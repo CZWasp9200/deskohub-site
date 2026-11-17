@@ -2,7 +2,7 @@ import type {
   CustomerReservationAccess,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
-import { Cause, Effect, Option, Stream } from "effect";
+import { Cause, Data, Duration, Effect, Option, Stream } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
@@ -73,6 +73,89 @@ export const copyAccessCodeAtom = Atom.family(
     )
 );
 
+/** How long a copy action shows that it copied, in place of its icon. */
+export const copyFeedbackDuration = Duration.seconds(2);
+
+/**
+ * Copies `text`, then reports `true` for `copyFeedbackDuration` and `false`
+ * after it: the copy action shows its check while the value is `true`.
+ */
+const copyWithFeedback = (text: string, sensitive: boolean) =>
+  Stream.fromEffect(
+    Effect.flatMap(Effect.service(Clipboard), (clipboard) =>
+      Effect.as(clipboard.copy(text, { sensitive }), true)
+    )
+  ).pipe(
+    Stream.concat(
+      Stream.fromEffect(Effect.as(Effect.sleep(copyFeedbackDuration), false))
+    )
+  );
+
+/**
+ * The access screen's Copy PIN action: copies the PIN, kept out of the
+ * system's clipboard preview, and confirms it in place for two seconds.
+ */
+export const copyPinWithFeedbackAtom = Atom.family(
+  (_orderId: CustomerReservationOrderId) =>
+    customerDataRuntime.fn((code: string) => copyWithFeedback(code, true))
+);
+
+/** Copies the space's address, confirming it in place for two seconds. */
+export const copyAddressAtom = customerDataRuntime.fn((address: string) =>
+  copyWithFeedback(address, false)
+);
+
+/** Whether a copy action shows its check now. */
+export const showsCopied = (
+  result: AsyncResult.AsyncResult<boolean, unknown>
+): boolean => AsyncResult.isSuccess(result) && result.value;
+
+/** What the access screen shows for its read and the window's state. */
+export type AccessScreenState = Data.TaggedEnum<{
+  /** The first read is under way. */
+  Loading: Record<never, never>;
+  /** The order has no PIN to show (not confirmed, or withdrawn). */
+  NoPin: Record<never, never>;
+  /** Any other failure without a PIN on screen; the shared error states. */
+  Failed: Record<never, never>;
+  /** The PIN and its window; where the window stands is `accessCountdownAtom`'s. */
+  Pin: { readonly access: CustomerReservationAccess };
+}>;
+
+export const AccessScreenState = Data.taggedEnum<AccessScreenState>();
+
+/**
+ * The screen's state from its access read, as `shownAccess` keeps it. A PIN
+ * on screen stays there through a failed refresh, under the shared notice.
+ */
+export const accessScreenStateOf = (
+  access: AsyncResult.AsyncResult<
+    CustomerReservationAccess,
+    CustomerRequestFailure
+  >
+): AccessScreenState => {
+  if (AsyncResult.isInitial(access)) return AccessScreenState.Loading();
+  return Option.match(AsyncResult.value(access), {
+    onSome: (shown) => AccessScreenState.Pin({ access: shown }),
+    onNone: () =>
+      AsyncResult.isFailure(access) &&
+      Option.exists(
+        Cause.findErrorOption(access.cause),
+        (failure) =>
+          toCustomerViewError(failure)._tag === "AccessCodeUnavailable"
+      )
+        ? AccessScreenState.NoPin()
+        : AccessScreenState.Failed(),
+  });
+};
+
+/**
+ * The header over the screen's state: navy over the PIN's navy band (and
+ * while it loads), the paper canvas's over No PIN, which has no band.
+ */
+export const accessHeaderTone = (state: AccessScreenState): "navy" | "paper" =>
+  AccessScreenState.$is("NoPin")(state) ? "paper" : "navy";
+
 const withdrawsAccess = (error: CustomerViewError) =>
   error._tag === "NotFound" || error._tag === "AccessCodeUnavailable";
 
@@ -92,16 +175,11 @@ export const shownAccess = <A, E extends CustomerRequestFailure>(
     ? AsyncResult.failure(result.cause, { waiting: result.waiting })
     : result;
 
-/** The access screen's own copy for the failures only it can explain. */
+/** The access screen's own copy for the failure only it can explain. */
 export const accessErrorMessage = (
   error: CustomerViewError,
   locale: AppLocale
 ): string | undefined =>
-  (
-    ({
-      NotFound: m.reservations_access_not_found,
-      AccessCodeUnavailable: m.reservations_access_unavailable,
-    }) as Partial<
-      Record<CustomerViewError["_tag"], typeof m.reservations_access_not_found>
-    >
-  )[error._tag]?.({}, { locale });
+  error._tag === "NotFound"
+    ? m.reservations_access_not_found({}, { locale })
+    : undefined;

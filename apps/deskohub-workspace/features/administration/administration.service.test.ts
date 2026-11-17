@@ -2,15 +2,17 @@ import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
 import "@/shared/testing/workspace-test-env";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
+  type DotyposCustomer,
   DotyposCustomerIdSchema,
   type DotyposService,
   DotyposUnavailable,
 } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { testEmailAddress } from "@deskohub/test-email";
+import { AdministrationReservationAuthor } from "@deskohub/workspace-admin-api";
 import type { SQL } from "drizzle-orm";
-import { PgDialect, type PgTable } from "drizzle-orm/pg-core";
-import { Cause, Effect, Exit, Layer, Option } from "effect";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { Cause, Effect, Exit, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   paymentAttempts,
@@ -31,9 +33,11 @@ import { WorkspaceReservationRepository } from "@/features/reservation/backend/w
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { workspaceSiteConstants } from "@/shared/utils";
 import {
+  type AdministrationReservationDetail,
   AdministrationService,
   getAdministrationReservationOverview,
 } from "./administration.service";
+import { inactiveCustomerDisplayNames } from "./customer-name";
 import { PaymentAdministrationServiceMock } from "./payment-administration.service.mock";
 import { PostHogReservationHistory } from "./posthog-reservation-history";
 
@@ -168,6 +172,89 @@ describe("AdministrationService", () => {
 
     expect(result.items).toHaveLength(24);
     expect(result.items[0]?.status).toBe("CANCELLED");
+  });
+
+  test("lists a booking's deleted or expired customer by the placeholder, without contact details", async () => {
+    const bookings = ["active", "deleted", "expired"].map((lifecycle) => ({
+      _branchId: "branch",
+      _cloudId: "cloud",
+      _customerId: `customer-${lifecycle}`,
+      id: `booking-${lifecycle}`,
+      startDate: "2026-08-10T10:00:00+02:00",
+      endDate: "2026-08-10T10:30:00+02:00",
+      seats: "1",
+      status: "NEW" as const,
+    }));
+    const contact = {
+      firstName: "Synthetic",
+      lastName: "Booker",
+      email: testEmailAddress("administration-booker"),
+      phone: "+420000000010",
+    };
+    const customers = [
+      { ...contact, id: "customer-active" },
+      { ...contact, id: "customer-deleted", deleted: true },
+      {
+        ...contact,
+        id: "customer-expired",
+        expireDate: "2020-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = await Effect.gen(function* () {
+      const administration = yield* AdministrationService;
+      return yield* administration.listBookings({
+        date: "2026-08-10",
+        page: 1,
+      });
+    }).pipe(
+      Effect.provide(
+        AdministrationService.Default.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(
+                WorkspaceDatabase,
+                WorkspaceDatabase.make({ select: () => makeQuery([]) } as never)
+              ),
+              DotyposServiceMock({
+                getCustomersByIds: (ids) =>
+                  makeInMemoryDotypos({ customers }).service.getCustomersByIds(
+                    ids
+                  ),
+                getTables: () => Effect.succeed([]),
+                listReservations: () => Effect.succeed(bookings),
+              }),
+              Layer.succeed(
+                PostHogReservationHistory,
+                PostHogReservationHistory.of({
+                  load: () => Effect.succeed({ kind: "unavailable" } as const),
+                })
+              ),
+              reservationAuthorsMock(),
+              PaymentAdministrationServiceMock({})
+            )
+          )
+        )
+      ),
+      Effect.runPromise
+    );
+
+    const customerOf = (id: string) =>
+      result.items.find((booking) => booking.id === id)?.customer;
+    expect(customerOf("booking-active")).toMatchObject({
+      displayName: "Synthetic Booker",
+      lifecycle: "active",
+      email: contact.email,
+    });
+    for (const lifecycle of ["deleted", "expired"] as const)
+      expect(customerOf(`booking-${lifecycle}`)).toEqual({
+        id: `customer-${lifecycle}`,
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        hasName: false,
+        lifecycle,
+        email: null,
+        phone: null,
+      });
   });
 
   test("lists early-setup bookings on their booked start", async () => {
@@ -1070,96 +1157,23 @@ describe("AdministrationService", () => {
     ]);
   });
 
-  test("falls back to item customer reads when a batch omits a customer", async () => {
-    const customerId = "dotypos-customer";
-    const rows = [
-      [{ value: 1 }],
-      [
-        {
-          customerId,
-          reservationCount: 2,
-          lastActivityAt: Temporal.Instant.from("2026-08-14T12:00:00Z"),
-        },
-      ],
-    ] as const;
-    let batchFails = false;
-    let selectCall = 0;
-    const itemCalls: string[] = [];
-
-    const loadCustomers = () =>
-      Effect.gen(function* () {
-        const administration = yield* AdministrationService;
-        return yield* administration.listCustomers({});
-      }).pipe(
-        Effect.provide(
-          testAdministrationLayer.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(
-                  WorkspaceDatabase,
-                  WorkspaceDatabase.make({
-                    select: () => makeQuery(rows[selectCall++] ?? []),
-                  } as never)
-                ),
-                DotyposServiceMock({
-                  getCustomer: (id) =>
-                    Effect.sync(() => {
-                      itemCalls.push(id);
-                      return Option.some({ firstName: "Ada", id });
-                    }),
-                  getCustomersByIds: (ids) =>
-                    (batchFails
-                      ? Effect.fail(
-                          new DotyposUnavailable({
-                            operation: "getCustomersByIds",
-                            reason: "server",
-                          })
-                        )
-                      : Effect.succeed([])
-                    ).pipe(
-                      Effect.flatMap((records) =>
-                        makeInMemoryDotypos({
-                          customers: records,
-                        }).service.getCustomersByIds(ids)
-                      )
-                    ),
-                }),
-                Layer.succeed(
-                  PostHogReservationHistory,
-                  PostHogReservationHistory.of({
-                    load: () =>
-                      Effect.succeed({ kind: "unavailable" } as const),
-                  })
-                ),
-                reservationAuthorsMock(),
-                PaymentAdministrationServiceMock({})
-              )
-            )
-          )
-        ),
-        Effect.runPromise
-      );
-
-    const result = await loadCustomers();
-    expect(result.items[0]?.customer?.displayName).toBe("Ada");
-    expect(itemCalls).toEqual([customerId]);
-
-    batchFails = true;
-    selectCall = 0;
-    itemCalls.length = 0;
-    expect((await loadCustomers()).items[0]?.customer?.displayName).toBe("Ada");
-    expect(itemCalls).toEqual([customerId]);
-  });
-
-  test("keeps an English customer name for the API and flags an unnamed customer", async () => {
+  test("keeps an English customer name for the API and flags unnamed, deleted and expired customers", async () => {
     const lastActivityAt = Temporal.Instant.from("2026-08-14T12:00:00Z");
     const rows = [
-      [{ value: 2 }],
+      [{ value: 4 }],
       [
         { customerId: "named-customer", reservationCount: 1, lastActivityAt },
         { customerId: "unnamed-customer", reservationCount: 1, lastActivityAt },
+        { customerId: "deleted-customer", reservationCount: 1, lastActivityAt },
+        { customerId: "expired-customer", reservationCount: 1, lastActivityAt },
       ],
     ] as const;
+    const formerContact = {
+      firstName: "Synthetic",
+      lastName: "Former",
+      email: testEmailAddress("former-customer"),
+      phone: "+420000000009",
+    };
     let selectCall = 0;
 
     const result = await Effect.gen(function* () {
@@ -1181,6 +1195,16 @@ describe("AdministrationService", () => {
                   Effect.succeed([
                     { companyName: " Acme Studio ", id: "named-customer" },
                     { companyName: " ", id: "unnamed-customer" },
+                    {
+                      ...formerContact,
+                      deleted: true,
+                      id: "deleted-customer",
+                    },
+                    {
+                      ...formerContact,
+                      expireDate: "2020-01-01T00:00:00Z",
+                      id: "expired-customer",
+                    },
                   ]).pipe(
                     Effect.flatMap((records) =>
                       makeInMemoryDotypos({
@@ -1214,6 +1238,15 @@ describe("AdministrationService", () => {
       displayName: "Unnamed customer",
       hasName: false,
     });
+    for (const lifecycle of ["deleted", "expired"] as const)
+      expect(customerNamed(`${lifecycle}-customer`)).toEqual({
+        id: `${lifecycle}-customer`,
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        hasName: false,
+        lifecycle,
+        email: null,
+        phone: null,
+      });
   });
 
   test("rethrows Next prerender interruptions instead of returning unavailable details", async () => {
@@ -1475,6 +1508,13 @@ describe("AdministrationService", () => {
                             : customerCreatedAt.get(id),
                         firstName: id.replace("customer-", ""),
                         id,
+                        // The Overview shows deleted and expired customers by their placeholder.
+                        ...(id === "customer-boundary-end" && {
+                          deleted: true,
+                        }),
+                        ...(id === "customer-boundary-start" && {
+                          expireDate: "2020-01-01T00:00:00Z",
+                        }),
                       }));
                     }).pipe(
                       Effect.flatMap((records) =>
@@ -1583,6 +1623,7 @@ describe("AdministrationService", () => {
           customer: {
             displayName: "new-a",
             hasName: true,
+            lifecycle: "active",
             email: null,
             id: "customer-new-a",
             phone: null,
@@ -1591,8 +1632,9 @@ describe("AdministrationService", () => {
         },
         {
           customer: {
-            displayName: "boundary-end",
-            hasName: true,
+            displayName: inactiveCustomerDisplayNames.deleted,
+            hasName: false,
+            lifecycle: "deleted",
             email: null,
             id: "customer-boundary-end",
             phone: null,
@@ -1601,8 +1643,9 @@ describe("AdministrationService", () => {
         },
         {
           customer: {
-            displayName: "boundary-start",
-            hasName: true,
+            displayName: inactiveCustomerDisplayNames.expired,
+            hasName: false,
+            lifecycle: "expired",
             email: null,
             id: "customer-boundary-start",
             phone: null,
@@ -1622,6 +1665,7 @@ describe("AdministrationService", () => {
           customer: {
             displayName: "new-a",
             hasName: true,
+            lifecycle: "active",
             email: null,
             id: "customer-new-a",
             phone: null,
@@ -1630,8 +1674,9 @@ describe("AdministrationService", () => {
         },
         {
           customer: {
-            displayName: "boundary-start",
-            hasName: true,
+            displayName: inactiveCustomerDisplayNames.expired,
+            hasName: false,
+            lifecycle: "expired",
             email: null,
             id: "customer-boundary-start",
             phone: null,
@@ -3336,12 +3381,15 @@ describe("AdministrationService reservation author", () => {
   const authorEmail = testEmailAddress("administration-author");
   const now = Temporal.Instant.from("2026-10-17T08:00:00Z");
 
-  const loadAuthor = async ({
+  const loadDetail = async ({
     accountId,
     describe,
+    customerFields = {},
   }: {
     readonly accountId: CustomerAccountId;
     readonly describe: ReservationAuthorDirectory["Service"]["describe"];
+    /** Applied to both the reservation's customer and the author's own customer. */
+    readonly customerFields?: Partial<DotyposCustomer>;
   }) => {
     let selectCall = 0;
     const row = {
@@ -3389,7 +3437,13 @@ describe("AdministrationService reservation author", () => {
               DotyposServiceMock({
                 getCustomer: (id) =>
                   Effect.succeed(
-                    Option.some({ id, firstName: "Bea", lastName: "Booked" })
+                    Option.some({
+                      id,
+                      firstName: "Bea",
+                      lastName: "Booked",
+                      email: testEmailAddress("administration-booked"),
+                      ...customerFields,
+                    })
                   ),
                 getCustomersByIds: (ids) =>
                   Effect.succeed(
@@ -3399,6 +3453,7 @@ describe("AdministrationService reservation author", () => {
                             id: authorCustomerId,
                             firstName: "Ada",
                             lastName: "Author",
+                            ...customerFields,
                           },
                         ]
                       : []
@@ -3438,6 +3493,13 @@ describe("AdministrationService reservation author", () => {
       ),
       Effect.runPromise
     );
+    return detail;
+  };
+
+  const loadAuthor = async (
+    input: Parameters<typeof loadDetail>[0]
+  ): Promise<AdministrationReservationDetail["author"] | undefined> => {
+    const detail = await loadDetail(input);
     expect(detail?.reservation.customer?.displayName).toBe("Bea Booked");
     return detail?.author;
   };
@@ -3481,9 +3543,81 @@ describe("AdministrationService reservation author", () => {
       customerId: authorCustomerId,
       displayName: "Ada Author",
       hasName: true,
+      lifecycle: "active",
       email: authorEmail,
     });
   });
+
+  test.each(["deleted", "expired"] as const)(
+    "shows a %s customer and author by the placeholder, without the customer's contact details",
+    async (lifecycle) => {
+      const detail = await loadDetail({
+        accountId: authorAccountId,
+        customerFields:
+          lifecycle === "deleted"
+            ? { deleted: true }
+            : { expireDate: "2020-01-01T00:00:00Z" },
+        describe: describing({
+          kind: "active",
+          accountId: authorAccountId,
+          dotyposCustomerId: authorCustomerId,
+          email: authorEmail,
+          locale: null,
+        }),
+      });
+      const placeholder = {
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        hasName: false,
+        lifecycle,
+      };
+
+      expect(detail?.reservation.customer).toEqual({
+        id: customerId,
+        ...placeholder,
+        email: null,
+        phone: null,
+      });
+      // The contract requires the author's email, so it is empty, never the login email.
+      expect(detail?.author).toEqual({
+        kind: "account",
+        customerId: authorCustomerId,
+        ...placeholder,
+        email: "",
+      });
+    }
+  );
+
+  test.each(["deleted", "expired"] as const)(
+    "keeps a %s author's login email off the administration API",
+    async (lifecycle) => {
+      const detail = await loadDetail({
+        accountId: authorAccountId,
+        customerFields:
+          lifecycle === "deleted"
+            ? { deleted: true }
+            : { expireDate: "2020-01-01T00:00:00Z" },
+        describe: describing({
+          kind: "active",
+          accountId: authorAccountId,
+          dotyposCustomerId: authorCustomerId,
+          email: authorEmail,
+          locale: null,
+        }),
+      });
+
+      const encoded = Schema.encodeSync(AdministrationReservationAuthor)(
+        detail?.author ?? { kind: "unavailable" }
+      );
+
+      expect(encoded).toEqual({
+        kind: "account",
+        customerId: authorCustomerId,
+        displayName: inactiveCustomerDisplayNames[lifecycle],
+        email: "",
+      });
+      expect(JSON.stringify(encoded)).not.toContain(authorEmail);
+    }
+  );
 
   test("names an author without a linked customer as unnamed", async () => {
     const author = await loadAuthor({
@@ -3502,6 +3636,7 @@ describe("AdministrationService reservation author", () => {
       customerId: null,
       displayName: "Unnamed customer",
       hasName: false,
+      lifecycle: "active",
       email: authorEmail,
     });
   });

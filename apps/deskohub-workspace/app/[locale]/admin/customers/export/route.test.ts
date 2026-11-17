@@ -14,12 +14,18 @@ import type {
   AdministrationCustomerExportInput,
   AdministrationCustomerSummary,
 } from "@/features/administration/administration.service";
+import { inactiveCustomerDisplayNames } from "@/features/administration/customer-name";
+import { m } from "@/features/administration/i18n";
 import { mockAdministratorAccess } from "@/features/administrators/server/administrator-access.test-utils";
 
 const access = mockAdministratorAccess();
 
-const { AdministrationListSourceUnavailableError, AdministrationService } =
-  await import("@/features/administration/administration.service");
+const { AdministrationService } = await import(
+  "@/features/administration/administration.service"
+);
+const { AdministrationListSourceUnavailableError } = await import(
+  "@/features/administration/provider-read-policy"
+);
 
 const exportInputs: AdministrationCustomerExportInput[] = [];
 let exportResult: Effect.Effect<
@@ -102,6 +108,49 @@ const readCsv = async (response: Response) => {
 };
 
 describe("GET /[locale]/admin/customers/export", () => {
+  test.each(["en-US", "cs-CZ"] as const)(
+    "exports deleted and expired customers by their placeholder in %s, without contact details",
+    async (locale) => {
+      exportResult = Effect.succeed(
+        (["deleted", "expired"] as const).map(
+          (lifecycle): AdministrationCustomerSummary => ({
+            customer: {
+              id: customerId(`dotypos-${lifecycle}`),
+              displayName: inactiveCustomerDisplayNames[lifecycle],
+              hasName: false,
+              lifecycle,
+              email: null,
+              phone: null,
+            },
+            customerId: customerId(`dotypos-${lifecycle}`),
+            marketingConsent: "absent",
+            reservationCount: 1,
+            lastActivityAt: "2026-08-01T07:35:00Z",
+          })
+        )
+      );
+
+      const { records } = await readCsv(await requestExport("", locale));
+
+      expect(
+        records.slice(1, 3).map((record) => record.split(",").slice(0, 4))
+      ).toEqual([
+        [
+          "dotypos-deleted",
+          m.administrationCustomerDeleted({}, { locale }),
+          "",
+          "",
+        ],
+        [
+          "dotypos-expired",
+          m.administrationCustomerExpired({}, { locale }),
+          "",
+          "",
+        ],
+      ]);
+    }
+  );
+
   test("hides the export from anyone the administrator guard refuses, before reading customers", async () => {
     access.set("not-administrator");
 

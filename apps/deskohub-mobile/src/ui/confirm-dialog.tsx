@@ -1,15 +1,31 @@
 import type { ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../theme";
 import { Button, LiveMessage } from "./controls";
-import { Text } from "./text";
+import { Dialog } from "./dialog";
+
+/** The two buttons' looks and order for each kind of confirmation. */
+const actionLook = (destructive: boolean, irreversible: boolean) => {
+  if (irreversible)
+    return {
+      confirm: "danger",
+      cancel: "secondary",
+      cancelFirst: false,
+    } as const;
+  if (destructive)
+    return {
+      confirm: "dangerText",
+      cancel: "primary",
+      cancelFirst: true,
+    } as const;
+  return { confirm: "primary", cancel: "quiet", cancelFirst: false } as const;
+};
 
 /**
- * Asks the customer to confirm an action before it runs. While `busy`, both
- * actions are disabled and the dialog can't be dismissed (back button or
- * backdrop), so the action's outcome stays on screen; `busyMessage` is
- * announced meanwhile.
+ * Asks the customer to confirm an action before it runs. A destructive
+ * confirmation leads with the safe way out (the primary cancel) and puts the
+ * crimson confirm below it; any other leads with the primary confirm and a
+ * quiet cancel. While `busy`, the confirm shows its progress, cancel is
+ * disabled and the dialog can't be dismissed (back button or scrim), so the
+ * action's outcome stays on screen; `busyMessage` is announced meanwhile.
  */
 export function ConfirmDialog({
   visible,
@@ -20,119 +36,73 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   destructive = false,
+  irreversible = false,
   busy = false,
   busyMessage,
   children,
 }: {
   readonly visible: boolean;
   readonly title: string;
-  readonly body: string;
+  /** What happens if they confirm, when the title alone doesn't say. */
+  readonly body?: string;
   readonly confirmLabel: string;
   readonly cancelLabel: string;
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
+  /**
+   * The confirmation is the dialog's point and can't be undone (boards 15
+   * and 18): a filled danger button first, Cancel outlined under it. A
+   * `destructive` one alone keeps the safe choice primary (board 00e).
+   */
+  readonly irreversible?: boolean;
   readonly destructive?: boolean;
   readonly busy?: boolean;
   readonly busyMessage?: string;
   /** Content between the body and the actions, such as a field or the last attempt's failure. */
   readonly children?: ReactNode;
 }) {
-  const insets = useSafeAreaInsets();
   const dismiss = () => {
     if (!busy) onCancel();
   };
+  const look = actionLook(destructive, irreversible);
+  const confirm = (
+    <Button
+      key="confirm"
+      variant={look.confirm}
+      label={confirmLabel}
+      onPress={onConfirm}
+      busy={busy}
+    />
+  );
+  const cancel = (
+    <Button
+      key="cancel"
+      variant={look.cancel}
+      label={cancelLabel}
+      onPress={onCancel}
+      disabled={busy}
+    />
+  );
   return (
-    <Modal
-      transparent
+    <Dialog
       visible={visible}
-      animationType="fade"
-      statusBarTranslucent
-      onRequestClose={dismiss}
+      role="alertdialog"
+      title={title}
+      body={body}
+      busy={busy}
+      onDismiss={dismiss}
+      actions={[
+        ...(destructive && !irreversible
+          ? [cancel, confirm]
+          : [confirm, cancel]),
+        <LiveMessage
+          key="progress"
+          role="status"
+          message={busy ? busyMessage : undefined}
+        />,
+      ]}
     >
-      <View
-        style={[
-          styles.backdrop,
-          {
-            paddingBottom: insets.bottom + theme.spacing.lg,
-            paddingTop: insets.top + theme.spacing.lg,
-          },
-        ]}
-      >
-        <Pressable
-          accessible={false}
-          importantForAccessibility="no"
-          onPress={dismiss}
-          style={StyleSheet.absoluteFill}
-        />
-        <View
-          role="alertdialog"
-          aria-modal
-          aria-label={title}
-          aria-busy={busy}
-          accessibilityViewIsModal
-          style={styles.dialog}
-        >
-          {/* Long copy or large text scrolls; the actions stay in view. */}
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.copy}>
-            <Text role="heading" style={styles.title}>
-              {title}
-            </Text>
-            <Text style={styles.body}>{body}</Text>
-            {children}
-          </ScrollView>
-          <LiveMessage role="status" message={busy ? busyMessage : undefined} />
-          <View style={styles.actions}>
-            <View style={styles.action}>
-              <Button
-                variant="secondary"
-                label={cancelLabel}
-                onPress={onCancel}
-                disabled={busy}
-              />
-            </View>
-            <View style={styles.action}>
-              <Button
-                variant={destructive ? "destructive" : "primary"}
-                label={confirmLabel}
-                onPress={onConfirm}
-                disabled={busy}
-              />
-            </View>
-          </View>
-        </View>
-      </View>
-    </Modal>
+      {children}
+    </Dialog>
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    alignItems: "center",
-    backgroundColor: theme.colors.scrim,
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: theme.spacing.lg,
-  },
-  dialog: {
-    backgroundColor: theme.colors.background,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    boxShadow: "0 12px 32px rgba(0, 0, 0, 0.45)",
-    gap: theme.spacing.md,
-    maxHeight: "100%",
-    maxWidth: 420,
-    padding: theme.spacing.lg,
-    width: "100%",
-  },
-  scroll: { flexGrow: 0, flexShrink: 1 },
-  copy: { gap: theme.spacing.md },
-  title: { color: theme.colors.text, ...theme.type.heading },
-  body: { color: theme.colors.textMuted, ...theme.type.body },
-  actions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing.sm,
-  },
-  action: { flexBasis: 140, flexGrow: 1 },
-});

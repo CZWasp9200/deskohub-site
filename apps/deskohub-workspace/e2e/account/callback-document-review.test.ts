@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type * as Playwright from "@playwright/test";
 import { encodeAuthCallbackReturn } from "@/features/account/routes";
+import { outcomeOf } from "@/shared/testing/promise-outcome.test-utils";
 import {
   callbackDocumentReviewViewport,
   collectCallbackDocumentSnapshot,
@@ -25,8 +26,7 @@ const englishCopy = {
 const czechCopy = {
   label: "Načítání přihlášení…",
   title: "Přihlášení proběhlo",
-  returning:
-    "Vracíme tě zpět. Dokončit můžeš přímo v tomto prohlížeči.",
+  returning: "Vracíme tě zpět. Dokončit můžeš přímo v tomto prohlížeči.",
 };
 
 type CdpHandler = (params: unknown) => Promise<unknown> | unknown;
@@ -546,9 +546,9 @@ describe("prepareCallbackDocumentReview", () => {
     expect(buffer[0]).toBe(0x89);
     // validate stays valid after capture while the same context persists.
     review.validate();
-    await expect(
-      review.capture({ deadline: Date.now() + 10_000 })
-    ).rejects.toThrow();
+    expect(
+      await outcomeOf(review.capture({ deadline: Date.now() + 10_000 }))
+    ).toThrow();
     await review.dispose();
     expect(viewports[viewports.length - 1]).toEqual({
       width: 800,
@@ -571,9 +571,9 @@ describe("prepareCallbackDocumentReview", () => {
     deliverReceipt(fake.fakeCdp);
 
     review.validate();
-    await expect(
-      review.capture({ deadline: Date.now() + 10_000 })
-    ).rejects.toThrow();
+    expect(
+      await outcomeOf(review.capture({ deadline: Date.now() + 10_000 }))
+    ).toThrow();
     await review.dispose();
 
     expect(fake.viewports).toEqual([{ width: 800, height: 600 }]);
@@ -693,15 +693,17 @@ describe("prepareCallbackDocumentReview", () => {
 
   test("rejects a return target without a callback encoding", async () => {
     const fake = makeFakePage();
-    await expect(
-      prepareCallbackDocumentReview(
-        fake.page,
-        baseOrigin,
-        { locale: "cs-CZ", returnTo: "/cs-CZ/rezervace-ř" },
-        null,
-        { deadline: Date.now() + 10_000 }
+    expect(
+      await outcomeOf(
+        prepareCallbackDocumentReview(
+          fake.page,
+          baseOrigin,
+          { locale: "cs-CZ", returnTo: "/cs-CZ/rezervace-ř" },
+          null,
+          { deadline: Date.now() + 10_000 }
+        )
       )
-    ).rejects.toThrow();
+    ).toThrow();
     expect(fake.fakeCdp.calls).toHaveLength(0);
   });
 
@@ -713,17 +715,19 @@ describe("prepareCallbackDocumentReview", () => {
     ];
     for (const method of methods) {
       const fakeCdp = makeFakeCdp({ failingMethods: new Set([method]) });
-      await expect(
-        prepareCallbackDocumentReview(
-          fakeCdp.page ?? makeFakePage({ cdp: fakeCdp }).page,
-          baseOrigin,
-          accountLanding,
-          viewport,
-          {
-            deadline: Date.now() + 10_000,
-          }
+      expect(
+        await outcomeOf(
+          prepareCallbackDocumentReview(
+            fakeCdp.page ?? makeFakePage({ cdp: fakeCdp }).page,
+            baseOrigin,
+            accountLanding,
+            viewport,
+            {
+              deadline: Date.now() + 10_000,
+            }
+          )
         )
-      ).rejects.toThrow();
+      ).toThrow();
       expect(fakeCdp.calls).toContain("detach");
     }
   });
@@ -731,17 +735,19 @@ describe("prepareCallbackDocumentReview", () => {
   test("a late CDP session resolution after prepare timeout does not leak", async () => {
     const fakeCdp = makeFakeCdp({ failingMethods: new Set() });
     const { page } = makeFakePage({ cdp: fakeCdp, sessionDelayMs: 300 });
-    await expect(
-      prepareCallbackDocumentReview(
-        page,
-        baseOrigin,
-        accountLanding,
-        viewport,
-        {
-          deadline: Date.now() + 50,
-        }
+    expect(
+      await outcomeOf(
+        prepareCallbackDocumentReview(
+          page,
+          baseOrigin,
+          accountLanding,
+          viewport,
+          {
+            deadline: Date.now() + 50,
+          }
+        )
       )
-    ).rejects.toThrow();
+    ).toThrow();
     expect(fakeCdp.calls).not.toContain("detach");
     await new Promise((resolve) => setTimeout(resolve, 450));
     expect(fakeCdp.calls).toContain("detach");
@@ -755,7 +761,7 @@ describe("prepareCallbackDocumentReview", () => {
       },
     });
     const { page, viewports, review } = await prepare({ cdp: fakeCdp });
-    await expect(review.dispose()).rejects.toThrow();
+    expect(await outcomeOf(review.dispose())).toThrow();
     expect(fakeCdp.calls).toContain("detach");
     expect(viewports[viewports.length - 1]).toEqual({
       width: 800,
@@ -796,9 +802,9 @@ describe("prepareCallbackDocumentReview", () => {
     admitMainContext(fakeCdp, mainContextId + 1);
     deliverReceipt(fakeCdp, { executionContextId: mainContextId + 1 });
     expect(() => review.validate()).toThrow();
-    await expect(
-      review.capture({ deadline: Date.now() + 10_000 })
-    ).rejects.toThrow();
+    expect(
+      await outcomeOf(review.capture({ deadline: Date.now() + 10_000 }))
+    ).toThrow();
   });
 
   test("replacement with a valid new receipt during capture fails the capture", async () => {
@@ -817,7 +823,7 @@ describe("prepareCallbackDocumentReview", () => {
     admitMainContext(fakeCdp, mainContextId + 1);
     deliverReceipt(fakeCdp, { executionContextId: mainContextId + 1 });
     releaseScreenshot({ data: Buffer.from([0x89, 0x50]).toString("base64") });
-    await expect(capturePromise).rejects.toThrow();
+    expect(await outcomeOf(capturePromise)).toThrow();
   });
 
   test("late viewport write after a completed restore still owes a second restoration", async () => {
@@ -853,7 +859,7 @@ describe("prepareCallbackDocumentReview", () => {
       }
     );
     setTimeout(() => controller.abort(), 30);
-    await expect(preparePromise).rejects.toThrow();
+    expect(await outcomeOf(preparePromise)).toThrow();
     // The abort-path cleanup performed one restoration while the original
     // write is still pending (the first entry is the previous viewport).
     expect(viewports).toEqual([
@@ -914,7 +920,7 @@ describe("prepareCallbackDocumentReview", () => {
     // intervening await, so the caller's assignment can never happen.
     releaseSession(fakeCdp.cdp);
     controller.abort();
-    await expect(preparePromise).rejects.toThrow();
+    expect(await outcomeOf(preparePromise)).toThrow();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fakeCdp.calls.filter((call) => call === "detach")).toHaveLength(1);
     expect(viewports[viewports.length - 1]).toEqual({
@@ -950,7 +956,7 @@ describe("prepareCallbackDocumentReview", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     releaseAddBinding[0]?.({});
     controller.abort();
-    await expect(preparePromise).rejects.toThrow();
+    expect(await outcomeOf(preparePromise)).toThrow();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(
       fakeCdp.calls.filter((call) => call === "Runtime.removeBinding")

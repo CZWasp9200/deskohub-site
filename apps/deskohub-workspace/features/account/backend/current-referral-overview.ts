@@ -3,12 +3,18 @@ import type { LinkedCustomerAccount } from "@/features/account/customer-account"
 import { ReferralService } from "@/features/referrals";
 import { getReferralShareUrl } from "@/features/referrals/client";
 import type { ReferralAccountOverview } from "@/features/referrals/contracts";
+import { referralInvitationDiscountBasisPoints } from "@/features/referrals/program";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
+import { formatReferrerDiscountPercentage } from "@/features/referrals/referrer-discount";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
+import { defaultWorkspaceCurrencyCode } from "@/shared/money/currencies";
 import { requireAccountFeature } from "./account-feature-withheld";
-import { CustomerAccountResolver } from "./customer-account-resolver.service";
+import { requireLinkedCustomerAccount } from "./linked-customer-account";
 
-/** The linked account's referral summary and absolute share link. */
+/**
+ * The linked account's referral summary, absolute share link and the
+ * programme's discounts per eligible invitee and for the invitee.
+ */
 export const accountReferralOverview = (account: LinkedCustomerAccount) =>
   Effect.flatMap(ReferralService, (service) =>
     service.getAccountSummary({
@@ -22,6 +28,11 @@ export const accountReferralOverview = (account: LinkedCustomerAccount) =>
           (origin): ReferralAccountOverview => ({
             summary,
             shareUrl: getReferralShareUrl(summary.code, origin),
+            discountPerInvitee: formatReferrerDiscountPercentage(1),
+            invitationDiscount: String(
+              referralInvitationDiscountBasisPoints / 100
+            ),
+            savingsCurrency: defaultWorkspaceCurrencyCode,
           })
         )
       )
@@ -41,9 +52,6 @@ export const currentReferralOverview = Effect.fn(
   "account.currentReferralOverview"
 )(function* () {
   yield* requireAccountFeature("referrals", ReferralReleaseGate.isOpen);
-  const account = yield* Effect.flatMap(
-    CustomerAccountResolver,
-    (resolver) => resolver.resolve
-  );
+  const account = yield* requireLinkedCustomerAccount;
   return yield* accountReferralOverview(account);
 });

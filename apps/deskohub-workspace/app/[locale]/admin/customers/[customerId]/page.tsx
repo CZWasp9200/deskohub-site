@@ -1,27 +1,22 @@
+import { Match } from "effect";
 import { Suspense } from "react";
-import { AdministrationLink as Link } from "@/features/administration/admin-link";
-import { administrationHref } from "@/features/administration/administration-href";
-import {
-  AdministrationNoticeBanner,
-  AdministrationPage,
-  AdministrationPageHeader,
-  ReservationTable,
-} from "@/features/administration/components";
-import { m } from "@/features/administration/i18n";
+import { AdministrationCustomerDetail } from "@/features/administration/customer-detail";
 import { AdministrationRouteLoading } from "@/features/administration/loading";
 import {
+  loadAdministrationCustomer,
   loadAdministrationCustomerActivity,
   loadAdministrationCustomerReservationActivity,
 } from "@/features/administration/page-data.server";
 import { requireDotyposCustomerRouteId } from "@/features/administration/route-identifiers.server";
-import { CustomerAdministrationDetailPage } from "@/features/discounts/admin/customer-admin-components";
+import { renderCustomerDiscountSlots } from "@/features/discounts/admin/customer-admin-components";
+import { toAdminDotyposCustomer } from "@/features/discounts/admin/discount-administration-reads";
 import {
   type DiscountAdminSearchParams,
-  loadOptionalDiscountAdminCustomerPageData,
+  loadDiscountCustomerSections,
 } from "@/features/discounts/admin/page-data.server";
 import { getRequestLocale } from "@/features/i18n/server/request-locale";
 
-export default function DiscountCustomerAdminDetailPage({
+export default function AdministrationCustomerDetailPage({
   params,
   searchParams,
 }: {
@@ -30,7 +25,7 @@ export default function DiscountCustomerAdminDetailPage({
 }) {
   return (
     <Suspense fallback={<AdministrationRouteLoading />}>
-      <DiscountCustomerAdminDetail
+      <AdministrationCustomerDetailContent
         params={params}
         searchParams={searchParams}
       />
@@ -38,71 +33,47 @@ export default function DiscountCustomerAdminDetailPage({
   );
 }
 
-export async function DiscountCustomerAdminDetail({
+export async function AdministrationCustomerDetailContent({
   params,
   searchParams,
 }: {
   readonly params: Promise<{ readonly customerId: string }>;
   readonly searchParams: DiscountAdminSearchParams;
 }) {
-  const { customerId } = await params;
+  const { customerId: routeCustomerId } = await params;
   const locale = await getRequestLocale();
-  const decodedCustomerId = requireDotyposCustomerRouteId(customerId);
-  const [liveData, activity, reservationActivity] = await Promise.all([
-    loadOptionalDiscountAdminCustomerPageData(decodedCustomerId, searchParams),
+  const customerId = requireDotyposCustomerRouteId(routeCustomerId);
+  const [lookup, discounts, activity, reservationActivity] = await Promise.all([
+    loadAdministrationCustomer(customerId),
+    loadDiscountCustomerSections(customerId, searchParams),
     loadAdministrationCustomerActivity(customerId),
     loadAdministrationCustomerReservationActivity(customerId),
   ]);
-  const { notice, profile } = liveData;
-
-  if (!profile) {
-    return (
-      <AdministrationPage>
-        <AdministrationPageHeader
-          description={m.administrationCustomerDetailUnavailableDescription(
-            {},
-            { locale }
-          )}
-          eyebrow={m.administrationCustomerDetailEyebrow({}, { locale })}
-          title={m.administrationCustomerDetailUnavailableTitle({}, { locale })}
-        />
-        <AdministrationNoticeBanner notice={notice} />
-        {activity.reservationHistoryTruncated && (
-          <p className="mb-3 text-sm text-navy-blue/65">
-            {m.administrationCustomerDetailReservationsTruncated(
-              {},
-              { locale }
-            )}{" "}
-            <Link
-              className="font-semibold underline underline-offset-4"
-              href={`${administrationHref(
-                "/[locale]/admin/reservations"
-              )}?customerId=${encodeURIComponent(customerId)}`}
-            >
-              {m.administrationCustomerDetailViewAllReservations(
-                {},
-                { locale }
-              )}
-            </Link>
-          </p>
-        )}
-        <ReservationTable
-          emptyMessage={m.administrationCustomerDetailNoReservations(
-            {},
-            { locale }
-          )}
-          reservations={activity.reservations}
-        />
-      </AdministrationPage>
-    );
-  }
+  // The full layout needs both the customer and the discount sections.
+  const profile = Match.value(lookup).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      found: ({ customer, readAt }) =>
+        discounts.sections && {
+          customer: toAdminDotyposCustomer(customer, readAt),
+          ...discounts.sections,
+        },
+      absent: () => null,
+      unavailable: () => null,
+    })
+  );
 
   return (
-    <CustomerAdministrationDetailPage
-      notice={notice}
-      profile={profile}
+    <AdministrationCustomerDetail
       activity={activity}
+      customerId={customerId}
       locale={locale}
+      notice={discounts.notice}
+      profile={
+        profile && {
+          customer: profile.customer,
+          discounts: renderCustomerDiscountSlots({ locale, profile }),
+        }
+      }
       reservationActivity={reservationActivity}
     />
   );

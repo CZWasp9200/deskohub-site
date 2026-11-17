@@ -63,6 +63,14 @@ export function CheckoutPayShell({ discountCodeForm }: { readonly discountCodeFo
 const nextConfig = { experimental: { externalDir: true }, reactCompiler: true };
 export default nextConfig;
 `,
+  "test-clear-action.ts": `
+"use server";
+
+export async function clearDiscountCodeForm(
+  _locale: string,
+  _payStateToken: string
+) {}
+`,
   "test-action.ts": `
 "use server";
 
@@ -132,6 +140,9 @@ test("clears the ordinary code after a fresh referral state in the compiled brow
       paths: {
         "@/env": ["./test-env.ts"],
         "@/features/checkout/actions/apply-discount-code": ["./test-action.ts"],
+        "@/features/checkout/actions/clear-discount-code": [
+          "./test-clear-action.ts",
+        ],
       },
     },
     async ({ exitCode, url: fixtureUrl }) => {

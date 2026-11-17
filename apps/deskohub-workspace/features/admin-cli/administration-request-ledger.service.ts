@@ -177,7 +177,8 @@ interface IAdministrationRequestLedger {
    * one transaction, so a failure or crash anywhere leaves no trace and
    * the request ID free for a retry. A retry after the commit replays the
    * stored result; a concurrent retry waits on the claim's row until the
-   * first commits or rolls back.
+   * first commits or rolls back. An Admin UI caller's mutation applies
+   * directly in the transaction, without a claim.
    */
   readonly applyOnce: <A extends CliStoredMutationResult, E, R>(
     mutation: DatabaseMutation<A, E, R>
@@ -196,7 +197,9 @@ interface IAdministrationRequestLedger {
    * the result is recorded after it, so a retry replays the stored result
    * and a concurrent retry finds the claim in progress. The recovery policy
    * decides what a failed or interrupted attempt leaves behind. Ledger
-   * storage failures answer `CliServiceUnavailable`.
+   * storage failures answer `CliServiceUnavailable`. An Admin UI caller's
+   * mutation applies directly, without a claim, and `afterSettled` follows
+   * its success.
    */
   readonly applyOnceWithEffects: <A, S extends CliStoredMutationResult, E, R>(
     mutation: MutationWithEffects<A, S, E, R>
@@ -346,7 +349,9 @@ export class AdministrationRequestLedger extends Context.Service<
         function* <A extends CliStoredMutationResult, E, R>(
           mutation: DatabaseMutation<A, E, R>
         ) {
-          const entry = yield* entryOf(mutation);
+          const scoped = yield* entryOf(mutation);
+          if (Option.isNone(scoped)) return yield* mutation.apply;
+          const entry = scoped.value;
           const claimed = yield* claim(entry);
           return yield* Match.value(claimed).pipe(
             Match.discriminatorsExhaustive("kind")({
@@ -469,7 +474,13 @@ export class AdministrationRequestLedger extends Context.Service<
       )(function* <A, S extends CliStoredMutationResult, E, R>(
         mutation: MutationWithEffects<A, S, E, R>
       ) {
-        const entry = yield* entryOf(mutation);
+        const scoped = yield* entryOf(mutation);
+        if (Option.isNone(scoped)) {
+          return yield* mutation.apply.pipe(
+            Effect.tap(() => mutation.afterSettled ?? Effect.void)
+          );
+        }
+        const entry = scoped.value;
         const claimed = yield* claim(entry).pipe(mapServiceFailure);
         return yield* Match.value(claimed).pipe(
           Match.discriminatorsExhaustive("kind")({
@@ -497,28 +508,36 @@ export class AdministrationRequestLedger extends Context.Service<
   static Live = this.Default.pipe(Layer.provide(WorkspaceDatabase.Default));
 }
 
-/** The request under the scope of the calling administrator's channel. */
+/**
+ * The request under the scope of the calling administrator's channel, or none
+ * for a channel without request IDs.
+ */
 const entryOf = (request: LedgerRequest) =>
-  Effect.map(
-    CurrentAdministrationCaller,
-    ({ channel }): LedgerEntry => ({
-      scope: scopeOf(channel),
-      requestId: request.requestId,
-      mutation: request.mutation,
-    })
+  Effect.map(CurrentAdministrationCaller, ({ channel }) =>
+    Option.map(
+      scopeOf(channel),
+      (scope): LedgerEntry => ({
+        scope,
+        requestId: request.requestId,
+        mutation: request.mutation,
+      })
+    )
   );
 
-const scopeOf = (channel: AdministrationChannel): AdministrationRequestScope =>
+/**
+ * An Admin UI caller has no scope: its requests apply directly, as server
+ * actions aren't retried automatically.
+ */
+const scopeOf = (
+  channel: AdministrationChannel
+): Option.Option<AdministrationRequestScope> =>
   Match.value(channel).pipe(
     Match.tagsExhaustive({
-      CliSession: ({ sessionId }) => ({
-        _tag: "CliSession" as const,
-        sessionId,
-      }),
-      AssistantConnection: ({ connectionId }) => ({
-        _tag: "AssistantConnection" as const,
-        connectionId,
-      }),
+      AdminUi: () => Option.none(),
+      CliSession: ({ sessionId }) =>
+        Option.some({ _tag: "CliSession" as const, sessionId }),
+      AssistantConnection: ({ connectionId }) =>
+        Option.some({ _tag: "AssistantConnection" as const, connectionId }),
     })
   );
 

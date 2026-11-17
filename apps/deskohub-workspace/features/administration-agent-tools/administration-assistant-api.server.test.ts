@@ -32,6 +32,7 @@ import {
 import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { AdministrationActionLog } from "@/features/admin-cli/administration-action-log.service";
 import { AdministrationRequestLedger } from "@/features/admin-cli/administration-request-ledger.service";
+import { GrantedAdministrator } from "@/features/admin-cli/cli-api.test-utils";
 import { CliAuthentication } from "@/features/admin-cli/cli-authentication.service";
 import { CliAuthenticationAdmission } from "@/features/admin-cli/cli-authentication-admission.service";
 import { CliClientCompatibilityLive } from "@/features/admin-cli/cli-client-version";
@@ -42,6 +43,7 @@ import {
   makeWorkspaceAdminApiLayer,
 } from "@/features/admin-cli/workspace-admin-api.server";
 import { AdministrationService } from "@/features/administration/administration.service";
+import { UnusedAdministrationCustomerDirectory } from "@/features/administration/customer-directory.test-utils";
 import { loadFixtureReservation } from "@/features/administration/fixtures";
 import { ReservationAccessAdministration } from "@/features/administration/reservation-access-administration.service";
 import { ReservationAdministrationService } from "@/features/administration/reservation-administration.service";
@@ -390,6 +392,8 @@ const makeInstanceServices = () => {
     }),
     Layer.succeed(ReservationAccessAdministration, {} as never),
     Layer.succeed(DiscountAdministration, {} as never),
+    GrantedAdministrator,
+    UnusedAdministrationCustomerDirectory,
     Layer.succeed(InvoiceAdministrationService, {} as never),
     Layer.succeed(StandaloneAccessCodeAdministration, {} as never),
     NodeHttpServer.layerHttpServices

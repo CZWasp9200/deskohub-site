@@ -23,6 +23,21 @@ export const CustomerBookableCoworkTier = Schema.Literals([
 ]).annotate({ identifier: "CustomerBookableCoworkTier" });
 export type CustomerBookableCoworkTier = typeof CustomerBookableCoworkTier.Type;
 
+/**
+ * How long a Reserved Desk is held from its arrival date: a whole Prague
+ * calendar day, or overnight from the offering's overnight start time on the
+ * arrival date to its end time the next date.
+ */
+export const CustomerCoworkStay = Schema.Literals([
+  "day",
+  "overnight",
+]).annotate({
+  identifier: "CustomerCoworkStay",
+  description:
+    "day (the arrival date's Prague calendar day) or overnight (noon on the arrival date to noon the next date, Prague time). Reserved Desk only.",
+});
+export type CustomerCoworkStay = typeof CustomerCoworkStay.Type;
+
 export const CustomerMonitorOption = Schema.Literals([
   "2x27-qhd",
   "2x32-qhd",
@@ -68,6 +83,11 @@ const selectionFields = {
   tier: Schema.optionalKey(CustomerBookableCoworkTier),
   /** Cowork Reserved Desk only: a monitor workstation configuration. */
   monitorOption: Schema.optionalKey(CustomerMonitorOption),
+  /**
+   * Cowork Reserved Desk only: the stay, while its offering advertises an
+   * overnight stay. Defaults to a day stay; `date` is the arrival date.
+   */
+  stay: Schema.optionalKey(CustomerCoworkStay),
 };
 
 /**

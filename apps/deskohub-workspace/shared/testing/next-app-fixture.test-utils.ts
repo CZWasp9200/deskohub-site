@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { commandOutput } from "@/scripts/shared/command";
@@ -13,6 +20,7 @@ const appRoot = resolve(import.meta.dir, "../..");
 const fixtureBuildTimeoutMs = 120_000;
 const fixtureStartupTimeoutMs = 45_000;
 const fixtureShutdownTimeoutMs = 5_000;
+const serverErrorTailLength = 2_000;
 
 type NextAppFixtureOptions = {
   /**
@@ -66,7 +74,10 @@ const fixtureTsconfig = (
         target: "ES2022",
       },
       include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-      exclude: ["node_modules"],
+      // `source` links the whole Workspace in for `@/*` imports. Left in the
+      // program it makes Next read every Workspace file's name from
+      // `tsc --showConfig` on each start; imports still resolve without it.
+      exclude: ["node_modules", "source"],
     },
     null,
     2
@@ -144,6 +155,12 @@ const childEnv = () => ({
   TMPDIR: process.env.TMPDIR ?? tmpdir(),
 });
 
+/** The end of what the fixture's server wrote to standard error, if anything. */
+const serverErrorTail = async (logPath: string): Promise<string> => {
+  const log = await readFile(logPath, "utf8").catch(() => "");
+  return log.trim().slice(-serverErrorTailLength);
+};
+
 const buildFixture = (
   fixtureRoot: string,
   nextCli: string,
@@ -170,6 +187,7 @@ export const withNextAppFixture = async <A>(
   const fixtureRoot = await mkdtemp(join(tmpdir(), `${options.name}-`));
   const fixtureUrl = `http://127.0.0.1:${port}`;
   const readinessUrl = `${fixtureUrl}/fixture-ready`;
+  const serverErrorLog = join(fixtureRoot, "server-error.log");
   let server: ReturnType<typeof Bun.spawn> | undefined;
   let serverExit: Promise<number> | undefined;
   let serverExitCode: number | undefined;
@@ -199,7 +217,7 @@ export const withNextAppFixture = async <A>(
       {
         cwd: fixtureRoot,
         env: childEnv(),
-        stderr: "ignore",
+        stderr: Bun.file(serverErrorLog),
         stdin: "ignore",
         stdout: "ignore",
       }
@@ -214,6 +232,12 @@ export const withNextAppFixture = async <A>(
       marker: readinessMarker,
       readyUrl: readinessUrl,
       timeoutMs: fixtureStartupTimeoutMs,
+    }).catch(async (cause: unknown) => {
+      const said = await serverErrorTail(serverErrorLog);
+      if (said === "") throw cause;
+      throw new Error(`Next fixture server never became ready:\n${said}`, {
+        cause,
+      });
     });
 
     result = await run({ exitCode: () => serverExitCode, url: fixtureUrl });

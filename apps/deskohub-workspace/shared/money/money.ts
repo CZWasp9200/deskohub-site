@@ -137,11 +137,14 @@ export const moneyFromBigDecimal = (
 };
 
 /**
- * The exact amount as plain decimal text with every minor digit, such as
- * "125.50" or "-0.05". Never rounds and never uses scientific notation.
+ * The exact amount as plain decimal text with every digit of its scale, such
+ * as "125.50", "-0.05" or "10000000000000000". Never rounds and never uses
+ * scientific notation, which `BigDecimal.format` switches to for large or
+ * small amounts.
  */
-export const moneyToDecimalString = (money: Money) => {
-  const { scale, value } = moneyToBigDecimal(money);
+export const toPlainDecimalString = (amount: BigDecimal.BigDecimal) => {
+  // A negative scale stands for trailing zeros; write them out.
+  const { scale, value } = BigDecimal.scale(amount, Math.max(amount.scale, 0));
   const sign = value < 0n ? "-" : "";
   const digits = (value < 0n ? -value : value)
     .toString()
@@ -150,6 +153,13 @@ export const moneyToDecimalString = (money: Money) => {
     ? `${sign}${digits}`
     : `${sign}${digits.slice(0, -scale)}.${digits.slice(-scale)}`;
 };
+
+/**
+ * The exact amount as plain decimal text with every minor digit, such as
+ * "125.50" or "-0.05". Never rounds and never uses scientific notation.
+ */
+export const moneyToDecimalString = (money: Money) =>
+  toPlainDecimalString(moneyToBigDecimal(money));
 
 /**
  * The amount in currency units as a JavaScript number, such as 125.5 for 12550

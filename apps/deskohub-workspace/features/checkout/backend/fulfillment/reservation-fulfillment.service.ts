@@ -137,6 +137,30 @@ const ignoredDelivery = (
   reason: ReservationDeliveryIgnoredReason
 ): ReservationDeliveryOutcome => ({ ignored: reason });
 
+/** An order a completion moved to fulfilled or found fulfilled. */
+type FulfilledOrder = Pick<WorkspaceReservation, "id">;
+
+/**
+ * How a path reaches fulfillment completion: the ledger transition that
+ * applies to it, which moves the order to fulfilled at `fulfilledAt` and
+ * returns the order it moved, or null when its fence matched nothing; or the
+ * order the path found already fulfilled.
+ */
+type FulfillmentCompletion<TransitionError> =
+  | {
+      readonly kind: "transition";
+      readonly fulfilledAt: Temporal.Instant;
+      readonly transition: (
+        fulfilledAt: Temporal.Instant
+      ) => Effect.Effect<FulfilledOrder | null, TransitionError>;
+    }
+  | { readonly kind: "already_fulfilled"; readonly order: FulfilledOrder };
+
+type FulfillmentCompletionOutcome =
+  | "completed"
+  | "already_fulfilled"
+  | "unchanged";
+
 export interface IReservationFulfillment {
   /**
    * Claims the paid order, confirms it in Dotypos, issues access, sends the
@@ -176,6 +200,16 @@ export interface IReservationFulfillment {
  * reclaimed can still settle the order. Delivery reports apply only to the
  * active delivery ID and only when strictly newer than the current outcome.
  * Change the fence only together with the invoice delivery lease's.
+ *
+ * Completion: every path that completes an order (acceptance, a delivered
+ * report, a run or report that finds the order fulfilled) runs one step:
+ * the transition into fulfilled, the "reservation fulfilled" capture, then
+ * the invoice. The capture follows only the transition that moved the order,
+ * so it goes out once per move into fulfilled: a redelivered report, a queue
+ * redelivery, a reclaimed run that lost the state fence, and an invoice retry
+ * never capture again. A crash between the transition and the capture loses
+ * the event, and an order that goes fulfilled, failed by a strictly newer
+ * bounce, then fulfilled again captures on each move.
  */
 export class ReservationFulfillment extends Context.Service<
   ReservationFulfillment,
@@ -218,21 +252,9 @@ export class ReservationFulfillment extends Context.Service<
 
       const processReservationInvoice = Effect.fn(
         "workspacePaidFulfillment.processReservationInvoice"
-      )(function* (
-        reservation: Pick<WorkspaceReservation, "activePaymentAttemptId" | "id">
-      ) {
-        if (!reservation.activePaymentAttemptId) {
-          yield* Effect.logWarning(
-            "Reservation invoice processing skipped: payment attempt missing",
-            { orderId: reservation.id }
-          );
-          return;
-        }
-
+      )(function* (reservation: Pick<WorkspaceReservation, "id">) {
         yield* reservationInvoices
-          .processByPaymentAttemptId({
-            paymentAttemptId: reservation.activePaymentAttemptId,
-          })
+          .issueAfterFulfillment({ reservationId: reservation.id })
           .pipe(
             Effect.tapError((cause) =>
               Effect.logFatal("Reservation invoice processing failed", {
@@ -298,21 +320,9 @@ export class ReservationFulfillment extends Context.Service<
       // recorded; the provider's retry of the report retries the invoice.
       const processDeliveredReservationInvoice = Effect.fn(
         "resendWebhook.processReservationInvoice"
-      )(function* (
-        reservation: Pick<WorkspaceReservation, "activePaymentAttemptId" | "id">
-      ) {
-        if (!reservation.activePaymentAttemptId) {
-          yield* Effect.logWarning(
-            "Reservation invoice processing skipped: payment attempt missing",
-            { workspaceReservationId: reservation.id }
-          );
-          return;
-        }
-
+      )(function* (reservation: Pick<WorkspaceReservation, "id">) {
         yield* reservationInvoices
-          .processByPaymentAttemptId({
-            paymentAttemptId: reservation.activePaymentAttemptId,
-          })
+          .issueAfterFulfillment({ reservationId: reservation.id })
           .pipe(
             Effect.mapError(
               (cause) =>
@@ -325,6 +335,40 @@ export class ReservationFulfillment extends Context.Service<
                 })
             )
           );
+      });
+
+      // The completion step of the class comment. A transition its fence
+      // rejected completes nothing; an order found already fulfilled retries
+      // its invoice alone. Each path supplies its invoice issuance, which
+      // keeps that path's span, log and error.
+      const completeFulfillment = Effect.fnUntraced(function* <
+        TransitionError = never,
+        InvoiceError = never,
+      >(
+        completion: FulfillmentCompletion<TransitionError>,
+        issueInvoice: (
+          order: FulfilledOrder
+        ) => Effect.Effect<void, InvoiceError>
+      ): Effect.fn.Return<
+        FulfillmentCompletionOutcome,
+        TransitionError | InvoiceError
+      > {
+        if (completion.kind === "already_fulfilled") {
+          yield* issueInvoice(completion.order);
+          return "already_fulfilled";
+        }
+
+        const fulfilled = yield* completion.transition(completion.fulfilledAt);
+        if (!fulfilled) {
+          return "unchanged";
+        }
+
+        yield* checkoutAnalytics.reservationFulfilled({
+          reservation: fulfilled,
+          timestamp: completion.fulfilledAt,
+        });
+        yield* issueInvoice(fulfilled);
+        return "completed";
       });
 
       // Settles an order this run must not claim, retrying a fulfilled
@@ -359,7 +403,10 @@ export class ReservationFulfillment extends Context.Service<
               reason: "already_fulfilled",
             }
           );
-          yield* processReservationInvoice(reservation);
+          yield* completeFulfillment(
+            { kind: "already_fulfilled", order: reservation },
+            processReservationInvoice
+          );
           return null;
         }
 
@@ -682,12 +729,23 @@ export class ReservationFulfillment extends Context.Service<
           customerEmailDeliveryId
         );
         if (env.VERCEL_ENV !== "production" || acceptedByConsole) {
-          yield* ledger.markFulfilled({
-            id: claimed.id,
-            fulfilledAt: Temporal.Now.instant(),
-            customerEmailDeliveryId,
-          });
-          yield* processReservationInvoice(claimed);
+          yield* completeFulfillment(
+            {
+              kind: "transition",
+              fulfilledAt: Temporal.Now.instant(),
+              // The ledger fails when the fence moved nothing, so success
+              // means this run moved the claimed order to fulfilled.
+              transition: (fulfilledAt) =>
+                ledger
+                  .markFulfilled({
+                    id: claimed.id,
+                    fulfilledAt,
+                    customerEmailDeliveryId,
+                  })
+                  .pipe(Effect.as(claimed)),
+            },
+            processReservationInvoice
+          );
           yield* Effect.logInfo(
             "Paid fulfillment completed after email provider acceptance",
             { acceptedByConsole }
@@ -782,11 +840,8 @@ export class ReservationFulfillment extends Context.Service<
         readonly workspaceReservationId: WorkspaceReservationId;
       }) {
         const { report, reservation, workspaceReservationId } = input;
-        if (reservation.fulfillmentState === "fulfilled") {
-          yield* processDeliveredReservationInvoice(reservation);
-          return ignoredDelivery("reservation_already_fulfilled");
-        }
-
+        // A fulfilled reservation never matches this failure check, so it
+        // reaches completion, which retries its invoice alone.
         if (
           reservation.fulfillmentState === "failed" &&
           reservation.fulfillmentFailureCode !== fulfillmentEmailFailureCode
@@ -802,26 +857,39 @@ export class ReservationFulfillment extends Context.Service<
           return ignoredDelivery("reservation_already_failed");
         }
 
-        const fulfilledAt = report.occurredAt;
-        const fulfilledReservation = yield* ledger
-          .markCustomerEmailDeliveryFulfilled({
-            customerEmailDeliveryId: report.deliveryId,
-            fulfilledAt,
-          })
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new ReservationDeliveryReportError({
-                  reason: "reservation_update_failed",
-                  message:
-                    "The reported delivery could not mark the reservation fulfilled.",
-                  workspaceReservationId,
-                  cause,
-                })
-            )
-          );
+        const completion = yield* completeFulfillment(
+          reservation.fulfillmentState === "fulfilled"
+            ? { kind: "already_fulfilled", order: reservation }
+            : {
+                kind: "transition",
+                fulfilledAt: report.occurredAt,
+                transition: (fulfilledAt) =>
+                  ledger
+                    .markCustomerEmailDeliveryFulfilled({
+                      customerEmailDeliveryId: report.deliveryId,
+                      fulfilledAt,
+                    })
+                    .pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new ReservationDeliveryReportError({
+                            reason: "reservation_update_failed",
+                            message:
+                              "The reported delivery could not mark the reservation fulfilled.",
+                            workspaceReservationId,
+                            cause,
+                          })
+                      )
+                    ),
+              },
+          processDeliveredReservationInvoice
+        );
 
-        if (!fulfilledReservation) {
+        if (completion === "already_fulfilled") {
+          return ignoredDelivery("reservation_already_fulfilled");
+        }
+
+        if (completion === "unchanged") {
           yield* Effect.logInfo(
             "Resend delivery success ignored: reservation delivery state is newer or changed concurrently",
             {
@@ -832,12 +900,6 @@ export class ReservationFulfillment extends Context.Service<
 
           return ignoredDelivery("reservation_delivery_state_changed");
         }
-
-        yield* checkoutAnalytics.reservationFulfilled({
-          reservation: fulfilledReservation,
-          timestamp: fulfilledAt,
-        });
-        yield* processDeliveredReservationInvoice(fulfilledReservation);
 
         return appliedDelivery;
       });
@@ -886,7 +948,6 @@ export class ReservationFulfillment extends Context.Service<
         run: Effect.fn("workspacePaidFulfillment.fulfillPaidOrder")(
           function* (orderId) {
             const input = { orderId };
-            yield* Effect.annotateLogsScoped({ input });
             yield* Effect.logInfo("Paid fulfillment started");
 
             yield* Effect.logDebug(

@@ -27,6 +27,7 @@ import type {
   OpenE2EBrowserSession,
 } from "../browser-session";
 import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../case-runner";
+import { retireRejectedAttempt } from "../checkout/lifecycle-fixtures";
 import {
   formatNexiBuildFailureCodes,
   parseNexiBuildFailures,
@@ -46,6 +47,7 @@ import {
   submitPaymentAndWaitForHostedPage,
   submitReservationForPayPage,
 } from "../checkout/payment";
+import { retryPaymentInPlace } from "../checkout/payment-retry";
 import {
   findRepeatReservationProblem,
   toRepeatReservation,
@@ -62,7 +64,6 @@ import {
   markPreviewFulfillmentDeliveredForE2E,
   replayNexiWebhook,
   requireProviderSessionRowAfterRedirect,
-  retireRejectedPaymentAttemptForE2E,
   validateDiscountApplications,
   validatePostgres,
 } from "../integrations/database";
@@ -110,7 +111,7 @@ export const executeCheckoutFlow = ({
   state: CheckoutFlowState;
   payPageSteps?: (
     orderId: CheckoutRow["reservation_id"]
-  ) => readonly WorkspaceE2EStep<void>[];
+  ) => readonly WorkspaceE2EStep<void, E2EDatabase>[];
   beforeReservationSubmit?: Effect.Effect<void, WorkspaceE2EError>;
   expectedDiscounts?: readonly ExpectedDiscountApplication[];
   // Checks on the fulfilled reservation beyond the status page, before any
@@ -463,7 +464,7 @@ export const assertFreshPaymentAttempt = (
 };
 
 // Decides whether the rejected payment may restart. If so, retires the rejected attempt, leaves the hosted page, and
-// reopens the checkout pay page, which starts a fresh attempt and Nexi order.
+// retries the payment from the order's status page, whose Pay page starts a fresh attempt and Nexi order.
 const restartSandboxRejectedPayment = (
   { config, orderId, openSession, state }: HostedCheckoutPaymentOptions,
   rejected: Extract<HostedPaymentAttempt, { kind: "sandbox-rejected" }>
@@ -490,17 +491,44 @@ const restartSandboxRejectedPayment = (
     log(
       `Nexi sandbox rejected the hosted payment (${rejected.rejection.diagnosticCode}; Nexi codes: ${nexiCodes}); restarting once with a fresh payment attempt`
     );
-    state.checkoutRow = yield* retireRejectedPaymentAttemptForE2E(
-      orderId,
-      paymentAttemptId
-    );
+    state.checkoutRow = yield* retireRejectedAttempt(orderId, paymentAttemptId);
 
+    // Paying an ended payment again is a payment retry: its status page's
+    // "Try payment again" opens the same order's Pay page.
+    const statusPageUrl = yield* getOrderStatusPageUrl(
+      rejected.hostedPaymentPage.checkoutPageUrl,
+      orderId
+    );
     yield* leaveRejectedHostedPayment({
       config,
-      hostedPaymentPage: rejected.hostedPaymentPage,
+      hostedPaymentPage: {
+        ...rejected.hostedPaymentPage,
+        checkoutPageUrl: statusPageUrl,
+      },
       session: browser,
     });
+    yield* retryPaymentInPlace({
+      label: "sandbox-rejected payment",
+      orderId,
+      session: browser,
+      timeouts: config.timeouts,
+    });
     return true;
+  });
+
+/** The order's status page, in the locale and origin of its Pay page. */
+const getOrderStatusPageUrl = (
+  checkoutPageUrl: string,
+  orderId: CheckoutRow["reservation_id"]
+) =>
+  tryWorkspaceE2ESync("build the order's status page URL", () => {
+    const payUrl = parseUrl(checkoutPageUrl);
+    const locale = payUrl?.pathname.split("/")[1];
+    assert(payUrl && locale, "the checkout pay page URL has no locale");
+    return new URL(
+      `/${locale}/reservation/status/${orderId}`,
+      payUrl.origin
+    ).toString();
   });
 
 /**

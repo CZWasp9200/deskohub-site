@@ -103,7 +103,7 @@ const reservationOf = (api: CustomerApi["Service"], orderId: string) =>
     status: api.reservations.getReservationStatus({
       params: { orderId: CustomerReservationOrderId.make(orderId) },
     }),
-    history: api.reservations.listReservations(),
+    history: api.reservations.listReservations({ query: {} }),
   }).pipe(
     Effect.map(({ status, history }) => ({
       status,
@@ -233,7 +233,9 @@ describe("sample booking", () => {
     expect(await openSamplePayment(paymentUrl, returnUrl)).toMatchObject({
       success: "returned",
     });
-    const history = await run((api) => api.reservations.listReservations());
+    const history = await run((api) =>
+      api.reservations.listReservations({ query: {} })
+    );
     expect(
       history.current.filter((row) => row.orderId === submission.orderId)
     ).toEqual([paid.row as NonNullable<typeof paid.row>]);
@@ -311,7 +313,7 @@ describe("booking services in sample-data mode", () => {
   const flag = process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_DATA;
 
   afterEach(() => {
-    delete globals.__DEV__;
+    globals.__DEV__ = false;
     if (flag === undefined) delete process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_DATA;
     else process.env.EXPO_PUBLIC_ACCOUNT_SAMPLE_DATA = flag;
   });

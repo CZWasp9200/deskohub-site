@@ -19,6 +19,7 @@ import {
   type HostProps,
   hostTree,
 } from "./testing/element-tree";
+import { color } from "./tokens";
 
 const { render } = clientRoot();
 const accessibility = AccessibilityInfo as unknown as {
@@ -110,7 +111,7 @@ describe("the web LoadingIndicator", () => {
     expect(requested.size).toBe(0);
     expect(indicator.faces()).toEqual([...still.faces]);
     expect(indicator.group().transform).toBe(still.transform);
-    expect(indicator.group().fill).toBe("#ffffff");
+    expect(indicator.group().fill).toBe(color.white);
   });
 
   test("plays the loop at the motion's frame rate while motion is allowed", async () => {

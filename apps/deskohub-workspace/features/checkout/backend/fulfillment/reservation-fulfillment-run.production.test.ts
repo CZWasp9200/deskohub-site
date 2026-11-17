@@ -155,7 +155,7 @@ describe("ReservationFulfillment.run production email acceptance", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: processInvoice,
+                issueAfterFulfillment: processInvoice,
               })
             )
           )
@@ -269,7 +269,7 @@ describe("ReservationFulfillment.run production email acceptance", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: processInvoice,
+                issueAfterFulfillment: processInvoice,
               })
             )
           )
@@ -296,7 +296,7 @@ describe("ReservationFulfillment.run production email acceptance", () => {
       })
     );
     expect(processInvoice).toHaveBeenCalledWith({
-      paymentAttemptId: "payment-attempt-id",
+      reservationId: "reservation-id",
     });
   });
 
@@ -391,7 +391,7 @@ describe("ReservationFulfillment.run production email acceptance", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() =>
+                issueAfterFulfillment: mock(() =>
                   Effect.die("production acceptance must not process invoices")
                 ),
               })
@@ -547,7 +547,7 @@ describe("ReservationFulfillment.run production email acceptance", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() =>
+                issueAfterFulfillment: mock(() =>
                   Effect.die("production acceptance must not process invoices")
                 ),
               })
@@ -684,7 +684,7 @@ describe("ReservationFulfillment.run production email acceptance", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() =>
+                issueAfterFulfillment: mock(() =>
                   Effect.die("production acceptance must not process invoices")
                 ),
               })
@@ -794,7 +794,7 @@ describe("ReservationFulfillment.run production email acceptance", () => {
               }),
               recordCheckoutAnalytics().layer,
               Layer.mock(ReservationInvoiceService, {
-                processByPaymentAttemptId: mock(() =>
+                issueAfterFulfillment: mock(() =>
                   Effect.die("production acceptance must not process invoices")
                 ),
               })

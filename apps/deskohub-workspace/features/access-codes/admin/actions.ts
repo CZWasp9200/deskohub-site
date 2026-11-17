@@ -2,8 +2,8 @@
 
 import { Effect, Predicate, Result } from "effect";
 import { StandaloneAccessCodeAdministration } from "@/features/access-codes";
+import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { m } from "@/features/administration/i18n";
-import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import {
   type CreateStandaloneAccessCodeInput,
@@ -15,13 +15,12 @@ import {
 const createStandaloneAccessCodeWorkflow = Effect.fn(
   "access-codes.createStandaloneAccessCode"
 )(function* (input: CreateStandaloneAccessCodeInput) {
-  const actor = yield* CurrentAdministrator;
+  const provenance = yield* currentAdministrationProvenance;
   const administration = yield* StandaloneAccessCodeAdministration;
   const attempted = yield* administration
     .create({
       attemptId: input.attemptId,
-      actor,
-      source: "admin-ui",
+      ...provenance,
       request: {
         name: input.name,
         startsAt: input.startsAt,

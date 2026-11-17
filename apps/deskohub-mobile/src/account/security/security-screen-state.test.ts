@@ -319,14 +319,14 @@ describe("announcements", () => {
 });
 
 describe("adding a passkey", () => {
-  test("holds the passkey controls and says to follow the prompt", () => {
+  test("holds the passkey controls and clears the last announcement", () => {
     const state = run(
       SecurityScreenEvent.RenameOpened({ passkey }),
       SecurityScreenEvent.WriteEnded({ outcome: "succeeded" }),
       SecurityScreenEvent.PasskeyAddStarted()
     );
     expect(state.adding).toBe(true);
-    expect(state.announcement).toBe("adding");
+    expect(state.announcement).toBeUndefined();
   });
 
   test.each([

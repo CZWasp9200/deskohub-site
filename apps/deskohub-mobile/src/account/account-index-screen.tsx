@@ -1,53 +1,42 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
-import { SignOutFailure, signOut } from "../auth/sign-out";
-import { standaloneTaskRuntime, useAuthTask } from "../auth/use-auth-task";
+import { StyleSheet, View } from "react-native";
 import { AsyncView } from "../customer-api/async-view";
 import { accountAtom } from "../customer-api/customer-data-runtime";
 import type { AppLocale } from "../i18n/app-locale";
 import { useAppLocale } from "../i18n/locale-context";
 import { m } from "../i18n/messages";
-import { LiveMessage } from "../ui/controls";
+import { AppBar } from "../ui/app-bar";
+import { FocusedStatusBar } from "../ui/focused-status-bar";
 import { ListGroup, ListRow } from "../ui/list";
+import { Masthead } from "../ui/masthead";
 import { Notice } from "../ui/notice";
 import { ScrollScreen } from "../ui/scroll-screen";
+import { SkeletonGroup, SkeletonRow } from "../ui/skeleton";
+import { Text } from "../ui/text";
+import { space } from "../ui/tokens";
+import { type AccountNotice, accountIndexModel } from "./account-gating";
+import { AccountIdentityView } from "./account-identity-view";
+import { useAccountRelease } from "./account-release";
 import {
-  type AccountNotice,
-  type AccountSection,
-  accountIndexModel,
-  accountSectionHref,
-} from "./account-gating";
+  AccountRootGroups,
+  ProfileCompletionCard,
+} from "./account-root-groups";
+import { accountRootModel } from "./account-root-model";
 import { SignupReferralNotice } from "./profile/signup-referral-notice";
-
-const runSignOut = () => signOut;
-const unexpectedSignOutFailure = () => new SignOutFailure();
-
-const sectionLabel = (section: AccountSection, locale: AppLocale) =>
-  ({
-    referrals: m.account_section_referrals,
-    complete: m.account_section_complete,
-    profile: m.account_section_profile,
-    language: m.account_section_language,
-    security: m.account_section_security,
-    assistants: m.account_section_assistants,
-    billing: m.account_section_billing,
-    legal: m.account_section_legal,
-    danger: m.account_section_danger,
-  })[section]({}, { locale });
+import { SignOutButton } from "./sign-out-button";
 
 const noticeContent: Record<
-  AccountNotice,
+  // The completion card says it for an account without a profile.
+  Exclude<AccountNotice, "completion-required">,
   {
     readonly tone: "info" | "warning";
     readonly message: (locale: AppLocale) => string;
   }
 > = {
-  "completion-required": {
-    tone: "info",
-    message: (locale) => m.account_notice_completion_required({}, { locale }),
-  },
   "support-required": {
     tone: "warning",
     message: (locale) => m.account_notice_support_required({}, { locale }),
@@ -62,97 +51,121 @@ const noticeContent: Record<
   },
 };
 
+/** The installed build's version, as app.json gives it to the native build. */
+const appVersion = Constants.expoConfig?.version;
+
 /**
- * The Account tab: the account's sections in the site's order, gated by the
- * account's state (GET /account), then sign-out.
+ * The Account tab: the signed-in identity on the navy masthead with the
+ * sign-out icon, then the account's sections as rows that say their current
+ * state, gated by the account's state (GET /account), and the app version.
+ * Once the masthead scrolls away an app bar keeps the title and sign-out.
  */
 export function AccountIndexScreen() {
   const locale = useAppLocale();
-  const router = useRouter();
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
-  const signingOut = useAuthTask(
-    standaloneTaskRuntime,
-    runSignOut,
-    unexpectedSignOutFailure
-  );
-
-  const notice = Option.getOrUndefined(
-    Option.flatMapNullishOr(
-      AsyncResult.value(account),
-      (current) => accountIndexModel(current).notice
-    )
-  );
+  const release = useAccountRelease();
+  const current = Option.getOrUndefined(AsyncResult.value(account));
+  const notice =
+    current === undefined ? undefined : accountIndexModel(current).notice;
+  const shownNotice =
+    notice === undefined || notice === "completion-required"
+      ? undefined
+      : noticeContent[notice];
+  const title = m.account_tab_account({}, { locale });
 
   return (
-    <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
+    <ScrollScreen
+      masthead={
+        <Masthead compact title={title} actions={<SignOutButton />}>
+          <AccountIdentityView
+            identity={
+              current === undefined
+                ? undefined
+                : accountRootModel(current).identity
+            }
+            loading={AsyncResult.isInitial(account)}
+            noProfile={current?.kind === "completion-required"}
+          />
+        </Masthead>
+      }
+      collapsedHeader={
+        <>
+          <FocusedStatusBar style="dark" />
+          <AppBar title={title} raised actions={<SignOutButton />} />
+        </>
+      }
+      // The first load shows the skeleton alone.
+      refreshing={account.waiting && !AsyncResult.isInitial(account)}
+      onRefresh={refresh}
+    >
       {/* Kept mounted so assistive tech announces each change. */}
       <Notice
-        tone={notice === undefined ? "info" : noticeContent[notice].tone}
-        message={
-          notice === undefined
-            ? undefined
-            : noticeContent[notice].message(locale)
-        }
+        tone={shownNotice?.tone ?? "info"}
+        message={shownNotice?.message(locale)}
       />
-      <AsyncView result={account} onRetry={refresh}>
-        {(current) => (
-          <>
-            <SignupReferralNotice account={current} />
-            <ListGroup>
-              {accountIndexModel(current).sections.map((section) => (
-                <ListRow
-                  key={section}
-                  label={sectionLabel(section, locale)}
-                  destructive={section === "danger"}
-                  onPress={() => router.push(accountSectionHref[section])}
-                />
-              ))}
-            </ListGroup>
-            <ListGroup>
-              <ListRow
-                label={m.account_signed_in_as(
-                  { email: current.email },
-                  { locale }
-                )}
-              />
-            </ListGroup>
-          </>
-        )}
+      <AsyncView
+        result={account}
+        onRetry={refresh}
+        loading={
+          <SkeletonGroup label={m.account_loading({}, { locale })}>
+            <View style={styles.skeleton}>
+              <ListGroup>
+                <SkeletonRow />
+                <SkeletonRow />
+                <SkeletonRow />
+                <SkeletonRow />
+              </ListGroup>
+              <ListGroup>
+                <SkeletonRow />
+              </ListGroup>
+            </View>
+          </SkeletonGroup>
+        }
+      >
+        {(loaded) => {
+          const model = accountRootModel(loaded, release);
+          return (
+            <>
+              {model.completionCard && <ProfileCompletionCard />}
+              <SignupReferralNotice account={loaded} />
+              <AccountRootGroups groups={model.groups} />
+            </>
+          );
+        }}
       </AsyncView>
-      {/* Sign-out works even when the account couldn't be read. */}
-      <ListGroup>
-        <ListRow
-          kind="action"
-          label={m.account_sign_out({}, { locale })}
-          disabled={signingOut.state.status === "running"}
-          onPress={() => void signingOut.start()}
-        />
-      </ListGroup>
-      <LiveMessage
-        role="status"
-        message={
-          signingOut.state.status === "running"
-            ? m.account_signing_out({}, { locale })
-            : undefined
-        }
-      />
-      <LiveMessage
-        role="alert"
-        message={
-          signingOut.state.status === "failed"
-            ? m.account_sign_out_failed({}, { locale })
-            : undefined
-        }
-      />
-      {__DEV__ && (
-        <ListGroup>
-          <ListRow
-            label={m.account_dev_smoke_link({}, { locale })}
-            onPress={() => router.push("/dev/effect-smoke")}
-          />
-        </ListGroup>
+      {appVersion !== undefined && (
+        <Text variant="caption" tone="muted" style={styles.version}>
+          {m.account_app_version({ version: appVersion }, { locale })}
+        </Text>
       )}
+      {__DEV__ && <DevelopmentRows locale={locale} />}
     </ScrollScreen>
   );
 }
+
+/** Development builds only: the smoke checks and the component galleries. */
+function DevelopmentRows({ locale }: { readonly locale: AppLocale }) {
+  const router = useRouter();
+  return (
+    <ListGroup>
+      <ListRow
+        label={m.account_dev_smoke_link({}, { locale })}
+        onPress={() => router.push("/dev/effect-smoke")}
+      />
+      <ListRow
+        label={m.account_dev_design_system_link({}, { locale })}
+        onPress={() => router.push("/dev/design-system")}
+      />
+      <ListRow
+        label={m.account_dev_booking_components_link({}, { locale })}
+        onPress={() => router.push("/dev/booking-components")}
+      />
+    </ListGroup>
+  );
+}
+
+const styles = StyleSheet.create({
+  skeleton: { gap: space.xxl },
+  version: { marginTop: space.sm, textAlign: "center" },
+});

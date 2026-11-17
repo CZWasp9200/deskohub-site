@@ -11,8 +11,10 @@ The app's client and data layer are in the `deskohub-mobile` skill
 - Contract: `packages/workspace-customer-api` (portable: Effect only, no
   Next, Node, React, Better Auth, or `@/` imports; `import-boundary.test.ts`
   enforces it). `workspace-customer-api.ts` composes the `account`,
-  `reservations`, and `booking` groups into `WorkspaceCustomerApi`; each group
-  has its own file (`customer-reservations-api.ts`, `customer-booking-api.ts`).
+  `reservations`, `booking`, and `invoices` groups into
+  `WorkspaceCustomerApi`, with `companies`; each group has its own file
+  (`customer-reservations-api.ts`, `customer-booking-api.ts`,
+  `customer-invoices-api.ts`, `customer-companies-api.ts`).
   `./client` holds the typed client factories, `./referral-code` the
   browser-safe `ReferralCode` brand.
 - Adapter: `features/customer-api/`. `customer-api.server.ts` builds the
@@ -38,8 +40,9 @@ The app's client and data layer are in the `deskohub-mobile` skill
    version it instead.
 3. Implement it in the group's `HttpApiBuilder.group` in the adapter, in the
    group's own handlers module (`customer-account-handlers.ts`,
-   `customer-reservation-handlers.ts`, `customer-booking-handlers.ts`, which
-   joins `customer-booking-catalog-handlers.ts` and
+   `customer-reservation-handlers.ts`, `customer-invoice-handlers.ts`,
+   `customer-booking-handlers.ts`, which joins
+   `customer-booking-catalog-handlers.ts` and
    `customer-booking-checkout-handlers.ts`).
 4. Classify it in `customerRequestBudgetClasses`. The Record is exhaustive
    over the contract, so an unclassified endpoint is a type error, and
@@ -50,7 +53,8 @@ The app's client and data layer are in the `deskohub-mobile` skill
    and may reactivate an expired one). A GET the app repeats on every load,
    history visit or status poll (the account, the reservation history, an
    order's status and its door code) is `account-read` (40 per 30 minutes);
-   any other Dotypos-backed GET (consent, referrals, the invoice) is
+   any other Dotypos-backed GET (consent, referrals, an order's invoice, the
+   invoice list and an invoice's PDF, the data archive) is
    `dotypos-read` (20 per 30 minutes); any other method is `dotypos-mutation`
    (15 per 30 minutes, which account edits and checkout steps share; two
    bookings fit). Each has its own per-account budget so reads can't use up
@@ -66,7 +70,9 @@ The app's client and data layer are in the `deskohub-mobile` skill
    `catalog-read` (120 per 10 minutes): they read the shared snapshots, which
    call Dotypos only on a miss, and a booking compares several dates before it
    checks out, so they keep off the account read budget. `workspace-only` reads or writes only the Workspace database
-   and Better Auth, as the account's language save (`updateLocale`) does. Account reads count as Dotypos-backed: they read Dotypos live,
+   and Better Auth, as the account's language save (`updateLocale`) does, or
+   also calls a public provider no site budget tracks, as the company lookup
+   asks the ARES registry; it spends only the general budget. Account reads count as Dotypos-backed: they read Dotypos live,
    with no response cache. If the
    endpoint changes the Dotypos call rate, recheck the budget numbers against
    the site's shared 150 requests per 30 minutes. Per-account budgets bound one account's share;
@@ -117,16 +123,22 @@ The app's client and data layer are in the `deskohub-mobile` skill
   `runToCompletion` (`shared/backend/run-to-completion.ts`).
 - A file download declares its success as bytes with
   `HttpApiSchema.asUint8Array({ contentType })`, so the OpenAPI document and
-  the typed client treat the body as binary. Return an
-  `HttpServerResponse.uint8Array` when the file needs a header the success
-  schema can't carry, such as `Content-Disposition`, as `getReservationInvoice`
-  does; the router still marks it private and uncached. Describe that header
+  the typed client treat the body as binary. Answer it with
+  `answerFileDownload(contentType)` (`customer-file-download.ts`), which
+  returns an `HttpServerResponse.uint8Array` with the `Content-Disposition`
+  the success schema can't carry, as `getReservationInvoice` and
+  `getDataExport` do; the router still marks it private and uncached. Describe that header
   in the OpenAPI document with `.annotateMerge(responseHeaders(200, { ... }))`
   (`src/openapi-response-headers.ts`) and regenerate the golden.
 - A reservation service that decides who may see an order takes the
-  authorization the handler built from the session's authentication
-  (`ReservationAuthorizationService.withAuthentication`), through the
-  service's `withAuthorization`, never `ReservationAuthorizationService.Live`.
+  authorization the handler built over the session's authentication
+  (`ReservationAuthorizationService.ForProvidedAuthentication` with the
+  request's `CustomerAuthentication` provided), through the service's
+  `withAuthorization`, never `ReservationAuthorizationService.Live`.
+- A handler seam that reads the signed-in account is a Layer requiring
+  `CustomerAuthentication`; the handler group provides the authentication
+  the session middleware read (account skill,
+  `account-domain-and-routes.md#authentication-supply`).
 - Don't validate an upload from the endpoint's multipart part stream: Effect
   lets the body's end overwrite a parser failure from the same chunk, and its
   part limit counts the part's headers. Parse the handler's `request` body as
@@ -158,13 +170,47 @@ The app's client and data layer are in the `deskohub-mobile` skill
   stays open so a locale added later never breaks an older app's decoding,
   while the request stays strict.
 
+## Invoices
+
+The `invoices` group (`GET /invoices`, `GET /invoices/:invoiceId/pdf`) adapts
+`CustomerInvoiceService`, the account page's invoice reader, built from
+`CustomerAccountLayers`' `invoices` over the request's `currentAccount`. The
+service owns authorization and ownership (checkout skill, accounting
+documents); the handlers only map. A refused account carries its
+`CustomerAccountAccessError` on `CustomerInvoicesUnavailableError.account`
+and answers as the account endpoints do; any id the service can't find,
+another customer's included, answers 404 `CustomerInvoiceNotFound`. Totals stay
+exact decimal text, as issued. An order's invoice carries `reservation`:
+the product's catalog name in the optional `?locale` (as `listReservations`
+names it), an office's seats, and the start and exclusive end, all from the
+service's summary; a manual invoice has none. An order's own invoice stays
+`getReservationInvoice`, authorized by the order.
+
+## Company lookup
+
+The `companies` group (`GET /companies/:companyId`, `workspace-only`) adapts
+`CompanyLookupService`
+(`features/account/backend/company-lookup.service.ts`), the port the
+website's `lookupAresBusiness` action also adapts: it refuses a session
+awaiting deletion with `requireActive` and never resolves the account (a
+resolution can reactivate and claim a Dotypos profile), then makes one ARES
+request through `@deskohub/ares`, which checks the IČO format and check digit
+first, and maps the company onto the business billing fields
+(`ares-business-draft.ts`). The handler only maps its outcomes: found answers
+`CustomerCompanyDetails` with the fields present, an invalid ID 400
+`CustomerCompanyIdInvalid`, an unknown company 404 `CustomerCompanyNotFound`,
+a registry that didn't answer 503 `CustomerCompanyRegistryUnavailable`, a
+deletion 409 `deletion-pending`. The action words the same outcomes in the
+locale.
+
 ## Booking checkout
 
 The booking group's checkout endpoints (`customer-booking-checkout-api.ts`,
 handlers in `customer-booking-checkout-handlers.ts`) call the same shared
 operations the site's booking form, Pay page and agent tools call:
-`prepareWorkspacePayState`, `applyDiscountCodeToPayState`, the Pay state
-price acceptance, and `CheckoutService.createHostedPaymentCheckout`.
+`prepareWorkspacePayState`, `applyDiscountCodeToPayState`,
+`clearDiscountCodeFromPayState`, the Pay state price acceptance, and
+`CheckoutService.createHostedPaymentCheckout`.
 
 Flow:
 
@@ -180,7 +226,10 @@ Flow:
    leaves the checkout usable; when the server signed a replacement that keeps
    the attempted code, the error carries its token. An unknown Calendar
    discount or a provider outage, the referral store's included, answers 503,
-   never a price review or a rejected code.
+   never a price review or a rejected code. `clearCheckoutDiscountCode`
+   removes the entered code, and the intended one with it, and answers the
+   checkout as a `price_review` without it; a checkout without a code comes
+   back as it is. Its unavailable answers are entry's, without the 422.
 4. A `price_review` checkout shows the new summary and calls
    `acceptCheckoutPriceChange`, the same continuation the Pay page's link
    issues. Acceptance needs only the token: it doesn't renew the hold, so the
@@ -211,10 +260,10 @@ Flow:
    when the lookup fails; nothing in its query picks the destination. The
    app's status call (`returnOutcome: "unknown"`) reconciles the payment.
 
-Author check: discount-code, price-acceptance and submit open the token and
-answer 404 `CustomerCheckoutNotFound` unless the signed-in account authored
-the held reservation (`authorAccountId`), so a token alone never acts for
-another account. A repository failure answers 503.
+Author check: discount-code entry and removal, price-acceptance and submit
+open the token and answer 404 `CustomerCheckoutNotFound` unless the
+signed-in account authored the held reservation (`authorAccountId`), so a
+token alone never acts for another account. A repository failure answers 503.
 
 Referral fields: the client keeps the remembered referral code and sends it in
 `x-deskohub-referral-code`. `RememberedReferral.fromClient` writes nothing, so
@@ -248,10 +297,57 @@ keys, and services that can't be built answer 503. A checkout state the
 server fails to seal or sign also answers 503, never `expired`: only the
 client's own token can expire. Mutations keep their site
 actions' deadlines (`getPreparePayStateDeadline`,
-`getApplyDiscountCodeDeadline`, `getCheckoutSubmitDeadline`); one that runs
+`getDiscountCodeChangeDeadline`, `getCheckoutSubmitDeadline`); one that runs
 out answers 503. Handler tests fake `CustomerCheckoutOperations` and
 `CheckoutService` through the `bookingCheckout` option of
 `makeCustomerApiTestServer`.
+
+## Reservation list, status and door codes
+
+The reservations group's handlers (`customer-reservation-handlers.ts`) only
+project what the reservation services return.
+
+- `listReservations` loads `CustomerReservationHistoryWithAccessService`
+  (`features/account/backend/customer-reservation-history-with-access.service.ts`),
+  the account history the account page shows, built by the same
+  `makeCustomerReservationHistory`. Its optional `?locale` (`CustomerLocale`,
+  the default locale when absent) names `productName` with
+  `getReservationProductName` (`features/account/reservation-product-name.ts`),
+  the website history's own names. Typed clients call it with
+  `{ query: {} }` at least: the client types accept `{}`, but Effect's
+  `HttpApiClient` then encodes an absent query as `undefined` and fails
+  before sending (a request without a query string still decodes on the
+  server, so older apps keep working). A website order carries
+  `accessStartsAt`/`accessEndsAt`, the span Dotypos holds (early setup
+  included), from which issuance derives the code's window. An entry whose
+  stored product can still be booked carries `bookedSelection`
+  (`{ selection: CustomerBookingSelection, earlySetup? }`, what
+  `createCheckout` takes), from `getStoredRebookingSelection`
+  (`features/reservation/backend/booking-selection.ts`) over
+  `getBookedSelection` (`features/reservation/booked-selection.ts`), which the
+  status page's retry link also uses. A review account's sandbox entries get
+  names and selections too.
+- Today's door code: a confirmed order whose access span starts by today's
+  Prague date and hasn't ended carries `todayAccess` (the access endpoint's
+  `CustomerReservationAccess`). The history resolves it with
+  `ReservationAccessService.getAccessWithLiveRecord`, the same authorization,
+  paid-and-confirmed check, `CONFIRMED` check and issuance as `getAccess`,
+  but from the Dotypos record the history just listed, so the list reads
+  Dotypos no more than before. The variant builds its records from
+  `ReservationRecords.Provider` itself, so it never sees the shared
+  snapshots customers' AI agents read; keep it that way, since a snapshot can
+  predate a cancellation. A code that can't be shown now leaves the entry
+  without one and never fails the list; the app asks the access endpoint,
+  which answers why. A review account never gets one. Resolution can issue
+  a code at the lock provider and store it, so the handler runs to
+  completion. The list stays one `account-read`.
+- `getReservationStatus` carries the same `bookedSelection`, computed from
+  the stored details and the Dotypos reservation the summary already read,
+  while the summary is known.
+- `getEstablishment` (`GET /reservations/establishment`, `workspace-only`)
+  answers the space's name, address, coordinates and Google Maps links from
+  `workspaceSiteConstants.location` and `shared/utils/workspace-location-map.ts`;
+  never restate them.
 
 ## Tests
 

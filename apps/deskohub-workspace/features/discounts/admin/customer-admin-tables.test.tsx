@@ -27,7 +27,6 @@ const locale = "en-US";
 
 mock.module("./actions", () => ({
   mutateDiscountAdmin: mock(),
-  searchDiscountAdminCustomers: mock(),
 }));
 
 describe("claim history table", () => {

@@ -1,8 +1,12 @@
 import type { DotyposWriteFailure } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Match, Predicate } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { toStoredInstant } from "@/db/instant";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
+import { WorkspaceLockSections } from "@/db/workspace-locks";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import {
+  type ExpectedReservationHold,
   reservationLogFields,
   type WorkspaceReservation,
   WorkspaceReservationRepository,
@@ -13,9 +17,13 @@ import { CheckoutAnalytics } from "../analytics/checkout-analytics.service";
 import {
   ProviderPaymentDeferral,
   ProviderPaymentFinalizationService,
+  providerPaymentFinalizationLogFields,
 } from "../payment/provider-payment-finalization.service";
 import { PaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
-import { UnpaidHoldRelease } from "./unpaid-hold-release.service";
+import {
+  HoldCancellationInProgress,
+  UnpaidHoldRelease,
+} from "./unpaid-hold-release.service";
 
 class ReservationHoldCleanupError extends Data.TaggedError(
   "ReservationHoldCleanupError"
@@ -37,14 +45,66 @@ const pendingProviderPayment = (active: WorkspaceReservation | null) =>
     ? { orderId: active.id, paymentAttemptId: active.activePaymentAttemptId }
     : null;
 
+const dueReservationStates: ReadonlySet<string> = new Set([
+  "held",
+  "cancelling",
+  "cancellation_failed",
+]);
+
+/**
+ * The hold a cleanup scheduled for `holdExpiresAt` may release: the order's
+ * current hold while it is unpaid, still has that deadline, and the deadline
+ * has passed. Nothing once the order is paid, released, or carries another
+ * deadline, as it does after its hold was replaced.
+ */
+const dueHold = (
+  reservation: WorkspaceReservation | null,
+  holdExpiresAt: Temporal.Instant,
+  now: Temporal.Instant
+): ExpectedReservationHold | undefined => {
+  if (
+    !reservation ||
+    !dueReservationStates.has(reservation.reservationState) ||
+    reservation.paymentState === "paid" ||
+    !reservation.dotyposReservationId ||
+    !reservation.reservationHoldExpiresAt ||
+    !toStoredInstant(reservation.reservationHoldExpiresAt).equals(
+      toStoredInstant(holdExpiresAt)
+    ) ||
+    Temporal.Instant.compare(reservation.reservationHoldExpiresAt, now) > 0
+  ) {
+    return undefined;
+  }
+  return {
+    dotyposReservationId: reservation.dotyposReservationId,
+    reservationHoldExpiresAt: reservation.reservationHoldExpiresAt,
+  };
+};
+
+/**
+ * - `not_due`: the order no longer carries the expired hold the cleanup was
+ *   for, so it did nothing.
+ * - `HoldCancellationInProgress`: another run's fresh claim is releasing the
+ *   hold; cleanup comes back once that claim is stale.
+ */
 export type ReservationHoldCleanupOutcome =
   | "cancelled"
   | ProviderPaymentDeferral
+  | HoldCancellationInProgress
+  | "not_due"
   | "skipped";
 
 export interface IReservationHoldCleanupService {
+  /**
+   * Releases the order's expired hold under the order's lock section, which
+   * late-payment recovery also holds: settles a pending provider payment
+   * first, then claims and cancels the hold. `holdExpiresAt` is the deadline
+   * the cleanup was scheduled for, rechecked under the lock and required by
+   * the claim.
+   */
   readonly cancelOrderHold: (input: {
     readonly orderId: WorkspaceReservationId;
+    readonly holdExpiresAt: Temporal.Instant;
     readonly checkedAt?: Temporal.Instant;
   }) => Effect.Effect<
     ReservationHoldCleanupOutcome,
@@ -72,10 +132,11 @@ export class ReservationHoldCleanupService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(UnpaidHoldRelease.Default),
     Layer.provide(ProviderPaymentFinalizationService.Live),
-    Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(PaymentLifecycleRepository.Live),
     Layer.provide(CheckoutAnalytics.Live),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
+    Layer.provide(WorkspaceDatabaseAdvisoryLock.Default),
     Layer.provide(WorkspaceDotyposLayer)
   );
 }
@@ -91,6 +152,7 @@ function makeReservationHoldCleanupServiceLayer(
       const finalization = yield* ProviderPaymentFinalizationService;
       const holdRelease = yield* UnpaidHoldRelease;
       const checkoutAnalytics = yield* CheckoutAnalytics;
+      const advisoryLock = yield* WorkspaceDatabaseAdvisoryLock;
 
       const loadOrder = (orderId: WorkspaceReservationId) =>
         reservations
@@ -206,9 +268,9 @@ function makeReservationHoldCleanupServiceLayer(
               )
             )
           );
-        yield* Effect.annotateLogsScoped({
-          providerFinalizationResult: result,
-        });
+        yield* Effect.annotateLogsScoped(
+          providerPaymentFinalizationLogFields(result)
+        );
         yield* Effect.logInfo(
           "Reservation hold cancellation provider finalization completed"
         );
@@ -253,16 +315,20 @@ function makeReservationHoldCleanupServiceLayer(
           )
         );
 
-      // Hold cleanup releases whatever it claims without the live Dotypos
-      // NEW check that supersession and late payment apply.
+      // Cleanup claims the hold, then cancels it only while Dotypos still
+      // keeps it NEW. A hold Dotypos kept is left for an operator: the
+      // release moved it to `cancellation_failed`, and the skip acknowledges
+      // the cleanup so nothing retries it.
       const releaseExpiredHold = Effect.fnUntraced(function* (input: {
         readonly orderId: WorkspaceReservationId;
+        readonly expectedHold: ExpectedReservationHold;
         readonly checkedAt?: Temporal.Instant;
       }) {
         const outcome = yield* holdRelease
           .release({
             reason: "hold_expired",
             reservationId: input.orderId,
+            expectedHold: input.expectedHold,
             holdExpiredAt: input.checkedAt,
           })
           .pipe(
@@ -286,7 +352,17 @@ function makeReservationHoldCleanupServiceLayer(
             { orderId: input.orderId }
           );
         }
-        if (Predicate.isString(outcome) || !("released" in outcome)) {
+        if (Predicate.isString(outcome)) {
+          return "skipped" as const;
+        }
+        if (outcome instanceof HoldCancellationInProgress) {
+          return outcome;
+        }
+        if ("refused" in outcome) {
+          yield* Effect.logError(
+            "Reservation hold cancellation refused: Dotypos kept the hold",
+            { orderId: input.orderId, dotyposStatus: outcome.refused }
+          );
           return "skipped" as const;
         }
         yield* Effect.logInfo("Reservation hold marked cancelled");
@@ -302,9 +378,9 @@ function makeReservationHoldCleanupServiceLayer(
       )(
         function* (input: {
           readonly orderId: WorkspaceReservationId;
+          readonly holdExpiresAt: Temporal.Instant;
           readonly checkedAt?: Temporal.Instant;
         }) {
-          yield* Effect.annotateLogsScoped({ input });
           yield* Effect.logInfo("Reservation hold cancellation started");
 
           const active = yield* loadOrder(input.orderId);
@@ -312,6 +388,17 @@ function makeReservationHoldCleanupServiceLayer(
           yield* Effect.logDebug(
             "Reservation hold cancellation active reservation loaded"
           );
+          const expectedHold = dueHold(
+            active,
+            input.holdExpiresAt,
+            input.checkedAt ?? Temporal.Now.instant()
+          );
+          if (!expectedHold) {
+            yield* Effect.logInfo(
+              "Reservation hold cancellation skipped: hold not due"
+            );
+            return "not_due" as const;
+          }
 
           const pendingPayment = pendingProviderPayment(active);
           if (pendingPayment) {
@@ -324,10 +411,23 @@ function makeReservationHoldCleanupServiceLayer(
             }
           }
 
-          return yield* releaseExpiredHold(input);
+          return yield* releaseExpiredHold({ ...input, expectedHold });
         },
         (effect, input) =>
-          effect.pipe(Effect.scoped, Effect.annotateLogs(input))
+          effect.pipe(
+            WorkspaceLockSections.reservationOrder(input.orderId),
+            Effect.provideService(WorkspaceDatabaseAdvisoryLock, advisoryLock),
+            Effect.mapError((cause) =>
+              cause instanceof ReservationHoldCleanupError
+                ? cause
+                : new ReservationHoldCleanupError({
+                    message: "The order's lock section could not be held.",
+                    cause,
+                  })
+            ),
+            Effect.scoped,
+            Effect.annotateLogs(input)
+          )
       );
 
       return ReservationHoldCleanupService.of({
@@ -336,7 +436,6 @@ function makeReservationHoldCleanupServiceLayer(
           "reservationHoldCleanup.sweepExpiredHolds"
         )(
           function* (input) {
-            yield* Effect.annotateLogsScoped({ input });
             yield* Effect.logInfo("Expired reservation hold sweep started");
 
             const orders = yield* reservations.selectExpiredHolds(input).pipe(
@@ -369,8 +468,14 @@ function makeReservationHoldCleanupServiceLayer(
                   orderId: order.id,
                 }
               );
+              // The selection only returns holds with a deadline.
+              if (!order.reservationHoldExpiresAt) {
+                skipped += 1;
+                continue;
+              }
               const result = yield* cancelOrderHold({
                 orderId: order.id,
+                holdExpiresAt: order.reservationHoldExpiresAt,
                 checkedAt: input.now,
               }).pipe(Effect.result);
               yield* Match.value(result).pipe(

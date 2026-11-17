@@ -27,8 +27,6 @@ const execute = mock();
 
 interface CancelActionInput {
   readonly reservationId: string;
-  readonly accessGrantUpdatedAt: string | null;
-  readonly providerCredentialRemoved: boolean;
   readonly sendCancellationEmail: boolean;
 }
 
@@ -86,8 +84,6 @@ const fixtureReservationId = "01980000-0000-7000-8000-00000000abcd";
 const renderCancellation = async (
   props?: Partial<{
     canCancel: boolean;
-    accessGrantUpdatedAt: string | null;
-    requiresProviderCredentialRemoval: boolean;
     reservationId: string;
   }>,
   locale: "cs-CZ" | "en-US" = "en-US"
@@ -98,9 +94,7 @@ const renderCancellation = async (
   return render(
     <RouteLocaleProvider locale={locale}>
       <ReservationCancellation
-        accessGrantUpdatedAt="2026-09-28T10:00:00.000Z"
         canCancel={true}
-        requiresProviderCredentialRemoval={false}
         reservationId={fixtureReservationId}
         {...props}
       />
@@ -127,47 +121,13 @@ const submitDialog = async (view: ReturnType<typeof render>) => {
 };
 
 describe("ReservationCancellation", () => {
-  test("submits exact action args without provider credential removal", async () => {
+  test("offers only the email choice and submits exact action args", async () => {
     withActionOptions();
-    const view = await renderCancellation({
-      accessGrantUpdatedAt: "2026-09-28T10:00:00.000Z",
-    });
-    await openDialog(view);
-
-    await submitDialog(view);
-
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0][0]).toEqual({
-      accessGrantUpdatedAt: "2026-09-28T10:00:00.000Z",
-      providerCredentialRemoved: false,
-      reservationId: fixtureReservationId,
-      sendCancellationEmail: true,
-    });
-  });
-
-  test("keeps the execute button disabled until the lock removal is confirmed", async () => {
-    withActionOptions();
-    const view = await renderCancellation({
-      requiresProviderCredentialRemoval: true,
-    });
+    const view = await renderCancellation();
     await openDialog(view);
 
     const dialog = within(view.getByRole("dialog"));
-    const confirmCheckbox = dialog.getByRole("checkbox", {
-      name: "I removed the active door PIN from the lock in Igloohome",
-    });
-    expect(confirmCheckbox.getAttribute("aria-checked")).toBe("false");
-    expect(
-      dialog
-        .getByRole("button", { name: "Cancel reservation" })
-        .hasAttribute("disabled")
-    ).toBe(true);
-
-    await submitDialog(view);
-    expect(execute).not.toHaveBeenCalled();
-
-    fireEvent.click(confirmCheckbox);
-    expect(confirmCheckbox.getAttribute("aria-checked")).toBe("true");
+    expect(dialog.getAllByRole("checkbox")).toHaveLength(1);
     expect(
       dialog
         .getByRole("button", { name: "Cancel reservation" })
@@ -175,16 +135,17 @@ describe("ReservationCancellation", () => {
     ).toBe(false);
 
     await submitDialog(view);
+
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0][0]).toMatchObject({
-      providerCredentialRemoved: true,
+    expect(execute.mock.calls[0][0]).toEqual({
+      reservationId: fixtureReservationId,
       sendCancellationEmail: true,
     });
   });
 
   test("submits the unchecked email checkbox when the operator opts out", async () => {
     withActionOptions();
-    const view = await renderCancellation({ accessGrantUpdatedAt: null });
+    const view = await renderCancellation();
     await openDialog(view);
 
     fireEvent.click(
@@ -195,8 +156,6 @@ describe("ReservationCancellation", () => {
 
     await submitDialog(view);
     expect(execute.mock.calls[0][0]).toEqual({
-      accessGrantUpdatedAt: null,
-      providerCredentialRemoved: false,
       reservationId: fixtureReservationId,
       sendCancellationEmail: false,
     });
@@ -222,12 +181,9 @@ describe("ReservationCancellation", () => {
     ).toBeNull();
   });
 
-  test("speaks Czech on a Czech route, including validation and outcome", async () => {
+  test("speaks Czech on a Czech route, including the outcome", async () => {
     withActionOptions();
-    const view = await renderCancellation(
-      { requiresProviderCredentialRemoval: true },
-      "cs-CZ"
-    );
+    const view = await renderCancellation({}, "cs-CZ");
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Zrušit rezervaci" }));
     });
@@ -244,12 +200,7 @@ describe("ReservationCancellation", () => {
         dialog.getByRole("form", { name: "Zrušit tuto rezervaci" })
       );
     });
-    expect(
-      await dialog.findByText(
-        "Potvrďte, že byl PIN ke dveřím odebrán ze zámku."
-      )
-    ).toBeDefined();
-    expect(execute).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledTimes(1);
 
     act(() => {
       actionOptions?.onSuccess({ data: { email: "sent" } });

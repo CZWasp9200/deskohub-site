@@ -152,7 +152,14 @@ Keep these settings unless a reviewed decision changes them:
   email send is BotID-checked, matching the client `protect` list. While the
   flag is on, sends are also capped at five per address per rolling
   hour (`SIGN_IN_EMAIL_LIMIT_REACHED`, 429), one verification row per send
-  keyed by a digest of the address. Logic: `sign-in-code.ts`.
+  keyed by a digest of the address. `reserveSignInEmail` also answers when
+  the address takes its next email (now while under the limit, else the
+  expiry that brings it back under), a snapshot; the `before` hook writes it
+  into the metadata, and both the send answer (`nextSignInEmailAt`, only
+  while codes are on) and the 429 body carry it as the ISO instant of
+  `NextSignInEmailAt` (`@deskohub/workspace-customer-api/sign-in-email`, which
+  also holds the client's 60-second resend cooldown and countdown atom for
+  the site and the app). Logic: `sign-in-code.ts`.
 - Native app sign-in (`native-sign-in.ts`, plugin `native-sign-in`, before
   `expo()`). A `/sign-in/magic-link` whose callback is exactly
   `/app/auth/callback`, with no new-user or error callback, emails the App

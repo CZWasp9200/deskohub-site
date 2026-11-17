@@ -1176,6 +1176,7 @@ describe.skipIf(!testDatabase)(
           customerId: authorCustomerId,
           displayName: "Ada Author",
           hasName: true,
+          lifecycle: "active",
           email: author.email,
         });
         expect(self?.author).toBeNull();

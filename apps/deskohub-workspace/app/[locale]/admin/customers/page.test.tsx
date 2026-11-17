@@ -58,7 +58,7 @@ mock.module("@/features/administration/page-data.server", () => ({
   }),
 }));
 
-mock.module("@/features/discounts/admin/customer-admin-client", () => ({
+mock.module("@/features/administration/customer-search", () => ({
   CustomerSearch: () => null,
 }));
 

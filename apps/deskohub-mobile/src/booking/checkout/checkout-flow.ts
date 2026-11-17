@@ -1,6 +1,9 @@
 import type {
+  CustomerBookingQuote,
   CustomerBookingSelection,
+  CustomerCheckout,
   CustomerLocale,
+  CustomerOffering,
 } from "@deskohub/workspace-customer-api";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
@@ -29,8 +32,12 @@ import {
   bookingServicesLayer,
 } from "../data/booking-services-layer";
 import { RememberedReferralCode } from "../remembered-referral.service";
+import {
+  type CoworkOvernightStay,
+  coworkOvernightStay,
+} from "../selection/cowork-selection";
 import { isSideEffect, runCheckoutCommand } from "./checkout-commands";
-import { startCheckout, step } from "./checkout-machine";
+import { startCheckout, startPaymentRetry, step } from "./checkout-machine";
 import {
   CheckoutCommand,
   type CheckoutDetails,
@@ -40,16 +47,64 @@ import {
 } from "./checkout-state";
 
 /**
+ * What the checkout screen starts from: a new booking a family screen
+ * quoted, or an order to pay again that the booking ticket asked for.
+ */
+export type CheckoutRequest = BookingRequest | PaymentRetryRequest;
+
+/**
  * What a family screen hands the checkout screen: the selection it quoted
  * and the quote's advertised price token.
  */
-export interface CheckoutRequest {
+export interface BookingRequest {
+  readonly _tag: "Booking";
   readonly locale: CustomerLocale;
   readonly selection: CustomerBookingSelection;
   readonly advertisedPriceToken: string;
+  /**
+   * The same quote's price, which the booking bar shows until checkout holds
+   * the order: its lines and the price without the sale.
+   */
+  readonly quote: Pick<CustomerBookingQuote, "summary" | "regularPrice">;
   /** Meeting room only. */
   readonly earlySetup?: boolean;
+  /**
+   * Overnight Reserved Desk only: the stay's times from the catalog, which
+   * the booking bar shows.
+   */
+  readonly overnightStay?: CoworkOvernightStay;
 }
+
+/**
+ * An order whose payment failed, was cancelled or expired, with the
+ * checkout the server handed back for paying it again (`retryPayment`).
+ */
+export interface PaymentRetryRequest {
+  readonly _tag: "PaymentRetry";
+  readonly locale: CustomerLocale;
+  /** The order's booked selection. */
+  readonly selection: CustomerBookingSelection;
+  readonly earlySetup?: boolean;
+  readonly checkout: CustomerCheckout;
+  /** What the order cost before, which a changed price is shown against. */
+  readonly previousTotal: CustomerCheckout["summary"]["total"];
+}
+
+/**
+ * The overnight stay's times the checkout shows: a new booking's own, or,
+ * for an order paid again, which carries none, the catalog's while it has
+ * loaded.
+ */
+export const checkoutOvernightStay = (
+  request: CheckoutRequest,
+  offerings: Option.Option<ReadonlyArray<CustomerOffering>>
+): CoworkOvernightStay | undefined =>
+  request._tag === "Booking"
+    ? request.overnightStay
+    : offerings.pipe(
+        Option.flatMap(coworkOvernightStay),
+        Option.getOrUndefined
+      );
 
 /**
  * The checkout the customer is about to start. A family screen sets it and
@@ -67,6 +122,7 @@ export type CheckoutIntent = Extract<
     readonly _tag:
       | "CodeChanged"
       | "ApplyCode"
+      | "ClearCode"
       | "AcceptPrice"
       | "ToggleConsent"
       | "Pay"
@@ -272,7 +328,7 @@ const checkoutFlow = (
       ),
       Effect.tap(({ inputs }) => tickHoldClock(inputs)),
       Effect.tap(({ inputs }) => followRefocus(inputs, focus.regained)),
-      Effect.map(({ started, inputs, commands, held, owed }) => {
+      Effect.flatMap(({ started, inputs, commands, held, owed }) => {
         const send = (input: CheckoutFlowInput) =>
           void Queue.offerUnsafe(inputs, input);
         const run = (command: CheckoutCommand) =>
@@ -331,9 +387,9 @@ const checkoutFlow = (
             : Ref.set(owed, true).pipe(
                 Effect.when(Effect.succeed(awaitsPayment(after)))
               );
-        return Stream.fromQueue(inputs).pipe(
+        const flow = Stream.fromQueue(inputs).pipe(
           Stream.mapAccumEffect(
-            () => started,
+            () => started.view,
             (view, input) =>
               input._tag === "Refocused"
                 ? release(view).pipe(Effect.as([view, []] as const))
@@ -352,8 +408,13 @@ const checkoutFlow = (
                     Effect.map(({ view: next }) => [next, [next]] as const)
                   )
           ),
-          Stream.prepend([started]),
+          Stream.prepend([started.view]),
           Stream.map((view): RunningCheckout => ({ ...view, send }))
+        );
+        // Their answers queue up for the stream.
+        return Effect.as(
+          Effect.forEach(started.commands, launch, { discard: true }),
+          flow
         );
       })
     )
@@ -392,7 +453,12 @@ const stillOpening = (state: CheckoutState, opening: OpenPaymentCommand) =>
     (current) => current.operationId === opening.operationId
   );
 
-/** Reads the remembered referral code and makes the flow's session id. */
+/**
+ * Makes the flow's session id and reads the remembered referral code, then
+ * starts the request's checkout: a booking at its details, a payment retry
+ * at its review (which loads the terms at once). A retry pays an order whose
+ * price the server already set, so no referral code rides along.
+ */
 const startFlow = (request: CheckoutRequest) =>
   Effect.Do.pipe(
     Effect.bind("checkoutSessionId", () =>
@@ -406,16 +472,46 @@ const startFlow = (request: CheckoutRequest) =>
     ),
     Effect.bind("now", () => Clock.currentTimeMillis),
     Effect.map(
-      ({ checkoutSessionId, rememberedReferralCode, now }): FlowView => ({
-        state: startCheckout({
-          ...request,
+      ({ checkoutSessionId, rememberedReferralCode, now }): StartedFlow => {
+        const input = {
           checkoutSessionId,
-          rememberedReferralCode,
-        }),
-        now,
-      })
+          locale: request.locale,
+          selection: request.selection,
+          ...(request.earlySetup === undefined
+            ? {}
+            : { earlySetup: request.earlySetup }),
+        };
+        const started =
+          request._tag === "Booking"
+            ? {
+                state: startCheckout({
+                  ...input,
+                  advertisedPriceToken: request.advertisedPriceToken,
+                  rememberedReferralCode,
+                }),
+                commands: [],
+              }
+            : startPaymentRetry(
+                {
+                  ...input,
+                  advertisedPriceToken: "",
+                  rememberedReferralCode: Option.none(),
+                },
+                request.checkout
+              );
+        return {
+          view: { state: started.state, now },
+          commands: started.commands,
+        };
+      }
     )
   );
+
+interface StartedFlow {
+  readonly view: FlowView;
+  /** What the first state starts, such as a retry's terms. */
+  readonly commands: ReadonlyArray<CheckoutCommand>;
+}
 
 /** The machine event an input stands for; a details form gets a new attempt id. */
 const eventOf = (input: CheckoutFlowInput) =>

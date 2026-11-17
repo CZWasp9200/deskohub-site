@@ -12,6 +12,7 @@ import {
   invoicesMinimumDhwVersion,
   MinimumDhwVersion,
   OutdatedDhwRefusal,
+  reservationsMinimumDhwVersion,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
 import { NodeHttpServer } from "@effect/platform-node";
@@ -38,6 +39,8 @@ const groupMinimums: Partial<Record<string, DhwVersion>> = {
 const endpointMinimums: Partial<Record<string, DhwVersion>> = {
   "administration.listInvoices": invoicesMinimumDhwVersion,
   "administration.getInvoice": invoicesMinimumDhwVersion,
+  "administration.getReservation": reservationsMinimumDhwVersion,
+  "administration.cancelReservation": reservationsMinimumDhwVersion,
 };
 
 // A test-local API exercises header edge cases through the same middleware.
@@ -76,6 +79,18 @@ const TestApi = HttpApi.make("testApi")
           .annotate(MinimumDhwVersion, Option.some(minimum))
           .annotate(OutdatedDhwRefusal, "CliServiceUnavailable")
       )
+      .add(
+        HttpApiEndpoint.post("cancelReservation", "/cancellations", {
+          payload: Schema.Struct({
+            sendCancellationEmail: Schema.Boolean,
+          }).annotate({
+            parseOptions: { errors: "all", onExcessProperty: "error" },
+          }),
+          success: Schema.String,
+        })
+          .annotate(MinimumDhwVersion, Option.some(minimum))
+          .annotate(OutdatedDhwRefusal, "CliServiceUnavailable")
+      )
   )
   .middleware(CliClientCompatibility);
 
@@ -93,6 +108,7 @@ const handleTestRequest = HttpRouter.toWebHandler(
           handlers
             .handle("listReservations", () => Effect.succeed("listed"))
             .handle("listInvoices", () => Effect.succeed("listed"))
+            .handle("cancelReservation", () => Effect.succeed("cancelled"))
         )
       )
     ),
@@ -158,6 +174,24 @@ describe("dhw client version", () => {
     }
   );
 
+  test("refuses an older version's payload before decoding it strictly", async () => {
+    const response = await handleTestRequest(
+      new Request("https://workspace.deskohub.test/cancellations", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [dhwVersionHeader]: "1.19.9",
+        },
+        body: JSON.stringify({ sendCancellationEmail: true, unknown: true }),
+      })
+    );
+
+    expect(response.status).toBe(503);
+    expect(
+      Schema.decodeUnknownSync(CliServiceUnavailable)(await response.json())
+    ).toBeInstanceOf(CliServiceUnavailable);
+  });
+
   test("serves the minimum where an operation refuses with a service error", async () => {
     const response = await request("GET", "/invoices", "1.20.0");
 
@@ -194,10 +228,11 @@ describe("dhw client version", () => {
       "campaigns.listCampaigns": minimum,
       "campaigns.createCampaign": minimum,
       "administration.listInvoices": minimum,
+      "administration.cancelReservation": minimum,
     });
   });
 
-  test("reports the campaign, automation and invoice minimums and none elsewhere", async () => {
+  test("reports the campaign, automation, invoice and reservation minimums and none elsewhere", async () => {
     const expectedMinimums: Record<string, DhwVersion> = {};
     HttpApi.reflect(WorkspaceAdminApi, {
       onGroup: () => undefined,

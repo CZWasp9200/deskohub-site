@@ -7,22 +7,30 @@ import {
   asc,
   desc,
   eq,
+  gt,
   inArray,
   isNotNull,
   isNull,
   lte,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Option } from "effect";
 import type { SqlError } from "effect/unstable/sql";
-import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  type WorkspaceDatabaseClient,
+  WorkspaceTransaction,
+} from "@/db/database.service";
 import { retryDatabaseRead } from "@/db/retry-database-read";
 import {
   customerEvents,
+  latePaymentRecoveries,
   type PaymentAttemptRow,
   paymentAttempts,
+  type ReservationCancellationCause,
   reservationAccessGrants,
   type WorkspaceReservationRow,
   workspaceReservations,
@@ -32,7 +40,7 @@ import { postgresUuidV7 } from "@/db/uuid-v7";
 import { WorkspaceLocks } from "@/db/workspace-locks";
 import type { CustomerAgentClientId } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
-import { releaseCodeClaim } from "@/features/checkout/backend/repositories/payment-lifecycle.repository";
+import { newestPaymentAttemptIdOf } from "@/features/checkout/backend/repositories/newest-payment-attempt";
 import type {
   CheckoutAttemptKey,
   CheckoutSessionKey,
@@ -40,6 +48,8 @@ import type {
 } from "@/features/checkout/checkout-identifiers";
 import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
 import type { DiscountClaimError } from "@/features/discounts/errors";
+import { PromotionClaims } from "@/features/discounts/promotion-claims";
+import { ReferralInvitationLedger } from "@/features/referrals/referral-invitation-ledger";
 import type { AgentSelectionKey } from "@/features/reservation/backend/booking-agent";
 import { withCoworkProductFields } from "@/features/reservation/cowork-reservation-product";
 import type {
@@ -47,7 +57,6 @@ import type {
   WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
 import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
-import { reservationAccessProvisioningStaleAfterMilliseconds } from "@/features/reservation-access";
 import { recordCustomerEvent } from "@/shared/backend/customer-events/customer-event-outbox";
 import {
   type ReadLimitExceededError,
@@ -57,10 +66,13 @@ import {
 import { supersedableReservationPaymentStates } from "./reservation-supersession";
 import {
   StoredReservationDetails,
+  type WithStoredReservationDetails,
   type WorkspaceReservationDetailsMalformedError,
 } from "./stored-reservation-details.server";
 
-const withReservationKindFields = (reservation: WorkspaceReservationRow) => {
+const withReservationKindFields = (
+  reservation: WithStoredReservationDetails<WorkspaceReservationRow>
+) => {
   const reservationWithCoworkFields = withCoworkProductFields(reservation);
 
   // Compose field enrichments for additional reservation kinds here.
@@ -68,6 +80,53 @@ const withReservationKindFields = (reservation: WorkspaceReservationRow) => {
 };
 
 export type WorkspaceReservation = ReturnType<typeof withReservationKindFields>;
+
+/**
+ * The causes of a cancellation a payment retry may book again: only the
+ * order's own unpaid hold, released because it expired or for the retry.
+ * An operator's cancellation, a superseded checkout or one of unknown origin
+ * never is.
+ */
+export const retryReacquirableCancellationCauses = [
+  "hold_expired",
+  "payment_retry",
+] as const satisfies readonly ReservationCancellationCause[];
+
+/**
+ * The order's active attempt is still `retriedAttemptId`, its payment ended
+ * without settling, and no late payment is being recovered for it.
+ */
+/** Payment states of an order whose payment ended unpaid. */
+const endedPaymentStates = ["failed", "cancelled", "expired"] as const;
+
+/**
+ * The order's payment ended unpaid on the retried attempt, which is still
+ * its active attempt, or, once a retry cleared it, still its newest one with
+ * none active; no late payment is being recovered for it.
+ */
+const retriedAttemptEnded = (
+  db: WorkspaceDatabaseClient,
+  retriedAttemptId: PaymentAttemptId
+) =>
+  and(
+    or(
+      eq(workspaceReservations.activePaymentAttemptId, retriedAttemptId),
+      and(
+        isNull(workspaceReservations.activePaymentAttemptId),
+        sql`(${newestPaymentAttemptIdOf(db, workspaceReservations.id)}) = ${retriedAttemptId}`
+      )
+    ),
+    inArray(workspaceReservations.paymentState, endedPaymentStates),
+    notExists(
+      sql`(select 1 from ${latePaymentRecoveries} where ${latePaymentRecoveries.workspaceReservationId} = ${workspaceReservations.id})`
+    )
+  );
+
+/** The cancellation causes an unpaid-hold release records. */
+type UnpaidHoldReleaseCause = Extract<
+  ReservationCancellationCause,
+  "hold_expired" | "late_payment" | "payment_retry"
+>;
 
 /**
  * The reservation's identifiers and states for log annotations. Scoped
@@ -142,6 +201,16 @@ export interface CreateWorkspaceReservationDraftInput
   readonly checkoutSessionLockKey: bigint;
   readonly acceptedCheckoutSessionKeys: readonly CheckoutSessionKey[];
   readonly acceptedCheckoutAttemptKeys: readonly CheckoutAttemptKey[];
+}
+
+/**
+ * The Dotypos hold a cancellation claim is for. A claim given one takes the
+ * reservation only while it still carries that hold and deadline, so a claim
+ * made for a hold never takes the hold that replaced it.
+ */
+export interface ExpectedReservationHold {
+  readonly dotyposReservationId: DotyposReservationId;
+  readonly reservationHoldExpiresAt: Temporal.Instant;
 }
 
 export interface IWorkspaceReservationRepository {
@@ -259,9 +328,70 @@ export interface IWorkspaceReservationRepository {
     void,
     EffectDrizzleQueryError | WorkspaceReservationStateError
   >;
-  readonly claimCancellation: (
-    id: WorkspaceReservationId
-  ) => Effect.Effect<
+  /**
+   * Moves an unpaid `held`, `hold_expired` or `cancellation_failed`
+   * reservation to `cancelling`. The returned reservation's `updatedAt` is the
+   * claim's stamp: only a caller holding it may record the cancellation's
+   * outcome.
+   */
+  readonly claimCancellation: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly expectedHold?: ExpectedReservationHold;
+    /**
+     * Why the hold is released; recorded as the cancellation's cause when
+     * this claim starts the cancellation. Claiming a `cancellation_failed`
+     * reservation again keeps the cause its first claim recorded, so a
+     * retried release never relabels another cancellation. A
+     * `payment_retry` claim also requires the order's payment to have ended
+     * unpaid.
+     */
+    readonly cause: UnpaidHoldReleaseCause;
+  }) => Effect.Effect<
+    WorkspaceReservation | null,
+    EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+  >;
+  /**
+   * Takes over an unpaid `cancelling` reservation whose claim was stamped at
+   * or before `staleBefore`, restamping it, so the interrupted claimant can no
+   * longer record an outcome. A fresher claim is left to its claimant.
+   */
+  readonly takeOverStaleCancellation: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly staleBefore: Temporal.Instant;
+    readonly expectedHold?: ExpectedReservationHold;
+  }) => Effect.Effect<
+    WorkspaceReservation | null,
+    EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+  >;
+  /**
+   * Prepares an order's payment retry on the hold it still carries: clears
+   * its active attempt when that is still the retried one, whose payment
+   * ended (failed, cancelled or expired), the hold is unexpired and held, and
+   * no late payment is being recovered for it. From then on a late payment on
+   * the retried attempt settles as a refund and never touches this hold.
+   * Null when the order no longer matches.
+   */
+  readonly releaseRetriedAttempt: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly retriedAttemptId: PaymentAttemptId;
+    readonly heldUntilAfter: Temporal.Instant;
+  }) => Effect.Effect<
+    WorkspaceReservation | null,
+    EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+  >;
+  /**
+   * Puts a new Dotypos hold on an order whose own unpaid hold was released
+   * for expiry or for this retry, clearing the retried attempt as
+   * `releaseRetriedAttempt` does and every trace of the cancellation. Null
+   * when the order is no longer that cancelled, unpaid order of the retried
+   * attempt, or a late payment is being recovered for it.
+   */
+  readonly attachRetryHold: (input: {
+    readonly id: WorkspaceReservationId;
+    readonly retriedAttemptId: PaymentAttemptId;
+    readonly dotyposReservationId: DotyposReservationId;
+    readonly reservationHoldExpiresAt: Temporal.Instant;
+  }) => Effect.Effect<
     WorkspaceReservation | null,
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
   >;
@@ -272,13 +402,11 @@ export interface IWorkspaceReservationRepository {
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
   >;
   readonly claimAdministrationCancellation: (input: {
-    readonly accessGrantUpdatedAt: string | null;
     readonly id: WorkspaceReservationId;
     readonly pendingPaymentCancellation?: {
       readonly paymentAttemptId: PaymentAttemptId;
       readonly failureCode: string;
     };
-    readonly providerCredentialRemoved: boolean;
     readonly staleCancellingBefore: Temporal.Instant;
   }) => Effect.Effect<
     WorkspaceReservation | null,
@@ -288,8 +416,10 @@ export interface IWorkspaceReservationRepository {
     | WorkspaceReservationDetailsMalformedError
     | WorkspaceReservationStateError
   >;
+  /** Records the cancellation of the claim stamped `claimedAt`. */
   readonly markCancelled: (input: {
     readonly id: WorkspaceReservationId;
+    readonly claimedAt: Temporal.Instant;
     readonly cancelledAt: Temporal.Instant;
     readonly holdExpiredAt?: Temporal.Instant;
   }) => Effect.Effect<
@@ -360,8 +490,10 @@ export interface IWorkspaceReservationRepository {
     | WorkspaceReservationDetailsMalformedError
     | WorkspaceReservationStateError
   >;
+  /** Records the failure of the claim stamped `claimedAt`. */
   readonly markCancellationFailed: (input: {
     readonly id: WorkspaceReservationId;
+    readonly claimedAt: Temporal.Instant;
     readonly failureCode: string;
   }) => Effect.Effect<
     void,
@@ -505,7 +637,9 @@ const recordReservationDraft = Effect.fnUntraced(function* (
       reservationState: "draft",
       paymentState: "not_started",
       fulfillmentState: "not_started",
-      reservationDetails: input.reservationDetails,
+      reservationDetails: yield* StoredReservationDetails.encode(
+        input.reservationDetails
+      ),
       locale: input.locale,
       reservationHoldExpiresAt: input.reservationHoldExpiresAt,
     })
@@ -522,9 +656,6 @@ const lockAccessGrantOfReservation = Effect.fnUntraced(function* (
     .select({
       id: reservationAccessGrants.id,
       state: reservationAccessGrants.state,
-      accessEndsAt: reservationAccessGrants.accessEndsAt,
-      provisioningStartedAt: reservationAccessGrants.provisioningStartedAt,
-      updatedAt: reservationAccessGrants.updatedAt,
     })
     .from(reservationAccessGrants)
     .where(eq(reservationAccessGrants.workspaceReservationId, reservationId))
@@ -536,40 +667,19 @@ type LockedAccessGrant = Effect.Success<
   ReturnType<typeof lockAccessGrantOfReservation>
 >[number];
 
-/** A credential whose access hasn't ended may still open the door. */
-const mayAccessCredentialBeLive = (
-  grant: LockedAccessGrant | undefined,
-  now: Temporal.Instant
-): grant is LockedAccessGrant =>
-  grant !== undefined &&
-  isLiveAccessGrantState(grant.state) &&
-  Temporal.Instant.compare(grant.accessEndsAt, now) > 0;
-
-/** Provisioning that started recently enough may still issue a credential. */
-const isProvisioningLive = (grant: LockedAccessGrant, now: Temporal.Instant) =>
-  grant.state === "provisioning" &&
-  grant.provisioningStartedAt !== null &&
-  Temporal.Instant.compare(
-    grant.provisioningStartedAt,
-    now.subtract({
-      milliseconds: reservationAccessProvisioningStaleAfterMilliseconds,
-    })
-  ) > 0;
-
-/**
- * An administrator may cancel a reservation with a possibly live credential
- * only after the provider removed it from the grant revision they saw and no
- * provisioning is still running.
- */
-const refusesAdministrationCancellation = (
-  grant: LockedAccessGrant | undefined,
-  input: AdministrationCancellationClaim,
-  now: Temporal.Instant
-) =>
-  mayAccessCredentialBeLive(grant, now) &&
-  (!input.providerCredentialRemoved ||
-    input.accessGrantUpdatedAt !== grant.updatedAt.toString() ||
-    isProvisioningLive(grant, now));
+/** Matches a reservation still carrying `expected`, or any without one. */
+const carriesExpectedHold = (expected: ExpectedReservationHold | undefined) =>
+  expected &&
+  and(
+    eq(
+      workspaceReservations.dotyposReservationId,
+      expected.dotyposReservationId
+    ),
+    eq(
+      workspaceReservations.reservationHoldExpiresAt,
+      expected.reservationHoldExpiresAt
+    )
+  );
 
 /**
  * Moves the reservation to `cancelling` from a cancellable state or a stale
@@ -584,6 +694,10 @@ const recordAdministrationCancellationClaim = Effect.fnUntraced(function* (
     .update(workspaceReservations)
     .set({
       reservationState: "cancelling",
+      // An administrator's cancellation is never the customer's to retry. A
+      // cancellation another claim started, now resumed by an administrator,
+      // keeps the cause that claim recorded (null when unknown).
+      cancellationCause: sql`case when ${workspaceReservations.reservationState} in ('held', 'hold_expired', 'confirmed') then 'operator' else ${workspaceReservations.cancellationCause} end`,
       ...(input.pendingPaymentCancellation && {
         paymentState: "cancelled" as const,
         failureCode: input.pendingPaymentCancellation.failureCode,
@@ -622,8 +736,30 @@ const recordAdministrationCancellationClaim = Effect.fnUntraced(function* (
 });
 
 /**
+ * Takes the referral lock that releasing a payment attempt's invitation claim
+ * runs under, as every payment transition that releases one does. It ranks
+ * first, so the cancellation takes it before any row lock.
+ */
+const lockReferralClaimRelease = Effect.fnUntraced(function* (
+  reservationId: WorkspaceReservationId
+) {
+  const { db } = yield* WorkspaceTransaction;
+  const [reservation] = yield* db
+    .select({ dotyposCustomerId: workspaceReservations.dotyposCustomerId })
+    .from(workspaceReservations)
+    .where(eq(workspaceReservations.id, reservationId))
+    .limit(1);
+  if (!reservation) return;
+  yield* ReferralInvitationLedger.lockFirstBooking({
+    dotyposCustomerId: reservation.dotyposCustomerId,
+    records: "nothing",
+  });
+});
+
+/**
  * Cancels the reservation's active payment attempt and releases its discount
- * claims; fails when the attempt can no longer be cancelled.
+ * and referral invitation claims, under `lockReferralClaimRelease`; fails when
+ * the attempt can no longer be cancelled.
  */
 const cancelPendingPaymentAttempt = Effect.fnUntraced(function* (
   reservationId: WorkspaceReservationId,
@@ -653,11 +789,13 @@ const cancelPendingPaymentAttempt = Effect.fnUntraced(function* (
       message: "The active payment attempt could not be cancelled.",
     });
   }
-  yield* releaseCodeClaim(
-    pendingPaymentCancellation.paymentAttemptId,
-    now,
-    pendingPaymentCancellation.failureCode
-  );
+  const release = {
+    paymentAttemptId: pendingPaymentCancellation.paymentAttemptId,
+    releasedAt: now,
+    releaseReason: pendingPaymentCancellation.failureCode,
+  };
+  yield* PromotionClaims.release(release);
+  yield* ReferralInvitationLedger.release(release);
 });
 
 /** The statement gave the checkout session a second active reservation. */
@@ -924,7 +1062,9 @@ export class WorkspaceReservationRepository extends Context.Service<
           const updated = yield* db
             .update(workspaceReservations)
             .set({
-              reservationDetails: input.reservationDetails,
+              reservationDetails: yield* StoredReservationDetails.encode(
+                input.reservationDetails
+              ),
               locale: input.locale,
               updatedAt: Temporal.Now.instant(),
             })
@@ -1082,27 +1222,107 @@ export class WorkspaceReservationRepository extends Context.Service<
           );
         }),
         claimCancellation: Effect.fn("workspaceReservations.claimCancellation")(
-          function* (id) {
+          function* (input) {
             const [claimed] = yield* db
               .update(workspaceReservations)
               .set({
                 reservationState: "cancelling",
+                cancellationCause: sql`case when ${workspaceReservations.reservationState} in ('held', 'hold_expired') then ${input.cause} else ${workspaceReservations.cancellationCause} end`,
                 updatedAt: Temporal.Now.instant(),
               })
               .where(
                 and(
-                  eq(workspaceReservations.id, id),
+                  eq(workspaceReservations.id, input.id),
                   inArray(workspaceReservations.reservationState, [
                     "held",
                     "hold_expired",
                     "cancellation_failed",
                   ]),
                   sql`${workspaceReservations.paymentState} <> 'paid'`,
-                  sql`${workspaceReservations.reservationState} <> 'confirmed'`
+                  sql`${workspaceReservations.reservationState} <> 'confirmed'`,
+                  // A retry releases only the hold of a payment that ended,
+                  // never one a payment admitted meanwhile is using.
+                  input.cause === "payment_retry"
+                    ? inArray(
+                        workspaceReservations.paymentState,
+                        endedPaymentStates
+                      )
+                    : undefined,
+                  carriesExpectedHold(input.expectedHold)
                 )
               )
               .returning();
             return yield* decodeOptionalWorkspaceReservation(claimed);
+          }
+        ),
+        takeOverStaleCancellation: Effect.fn(
+          "workspaceReservations.takeOverStaleCancellation"
+        )(function* (input) {
+          const [claimed] = yield* db
+            .update(workspaceReservations)
+            .set({ updatedAt: Temporal.Now.instant() })
+            .where(
+              and(
+                eq(workspaceReservations.id, input.id),
+                eq(workspaceReservations.reservationState, "cancelling"),
+                lte(workspaceReservations.updatedAt, input.staleBefore),
+                sql`${workspaceReservations.paymentState} <> 'paid'`,
+                carriesExpectedHold(input.expectedHold)
+              )
+            )
+            .returning();
+          return yield* decodeOptionalWorkspaceReservation(claimed);
+        }),
+        releaseRetriedAttempt: Effect.fn(
+          "workspaceReservations.releaseRetriedAttempt"
+        )(function* (input) {
+          const [released] = yield* db
+            .update(workspaceReservations)
+            .set({
+              activePaymentAttemptId: null,
+              updatedAt: Temporal.Now.instant(),
+            })
+            .where(
+              and(
+                eq(workspaceReservations.id, input.id),
+                eq(workspaceReservations.reservationState, "held"),
+                gt(
+                  workspaceReservations.reservationHoldExpiresAt,
+                  input.heldUntilAfter
+                ),
+                retriedAttemptEnded(db, input.retriedAttemptId)
+              )
+            )
+            .returning();
+          return yield* decodeOptionalWorkspaceReservation(released);
+        }),
+        attachRetryHold: Effect.fn("workspaceReservations.attachRetryHold")(
+          function* (input) {
+            const [attached] = yield* db
+              .update(workspaceReservations)
+              .set({
+                reservationState: "held",
+                dotyposReservationId: input.dotyposReservationId,
+                reservationHoldExpiresAt: input.reservationHoldExpiresAt,
+                reservationHoldExpiredAt: null,
+                reservationCancelledAt: null,
+                cancellationCause: null,
+                failureCode: null,
+                activePaymentAttemptId: null,
+                updatedAt: Temporal.Now.instant(),
+              })
+              .where(
+                and(
+                  eq(workspaceReservations.id, input.id),
+                  eq(workspaceReservations.reservationState, "cancelled"),
+                  inArray(workspaceReservations.cancellationCause, [
+                    ...retryReacquirableCancellationCauses,
+                  ]),
+                  retriedAttemptEnded(db, input.retriedAttemptId)
+                )
+              )
+              .returning();
+            return yield* decodeOptionalWorkspaceReservation(attached);
           }
         ),
         claimSupersessionCancellation: Effect.fn(
@@ -1112,6 +1332,7 @@ export class WorkspaceReservationRepository extends Context.Service<
             .update(workspaceReservations)
             .set({
               reservationState: "cancelling",
+              cancellationCause: "checkout_superseded",
               updatedAt: Temporal.Now.instant(),
             })
             .where(
@@ -1133,11 +1354,10 @@ export class WorkspaceReservationRepository extends Context.Service<
           const claim = transaction(
             Effect.gen(function* () {
               const now = Temporal.Now.instant();
-              const [grant] = yield* lockAccessGrantOfReservation(input.id);
-              if (refusesAdministrationCancellation(grant, input, now)) {
-                return null;
+              if (input.pendingPaymentCancellation) {
+                yield* lockReferralClaimRelease(input.id);
               }
-
+              const [grant] = yield* lockAccessGrantOfReservation(input.id);
               const [claimed] = yield* recordAdministrationCancellationClaim(
                 input,
                 now
@@ -1174,6 +1394,7 @@ export class WorkspaceReservationRepository extends Context.Service<
                 and(
                   eq(workspaceReservations.id, input.id),
                   eq(workspaceReservations.reservationState, "cancelling"),
+                  eq(workspaceReservations.updatedAt, input.claimedAt),
                   sql`${workspaceReservations.paymentState} <> 'paid'`,
                   sql`${workspaceReservations.reservationConfirmedAt} is null`
                 )
@@ -1183,7 +1404,7 @@ export class WorkspaceReservationRepository extends Context.Service<
               updated,
               "workspaceReservations.markCancelled",
               input.id,
-              "Only unpaid cancelling reservations can be marked cancelled."
+              "Only an unpaid reservation still cancelling under the claim can be marked cancelled."
             );
           }
         ),
@@ -1296,7 +1517,9 @@ export class WorkspaceReservationRepository extends Context.Service<
                   reservationState: "draft",
                   paymentState: "not_started",
                   fulfillmentState: "not_started",
-                  reservationDetails: input.replacement.reservationDetails,
+                  reservationDetails: yield* StoredReservationDetails.encode(
+                    input.replacement.reservationDetails
+                  ),
                   locale: input.replacement.locale,
                   reservationHoldExpiresAt:
                     input.replacement.reservationHoldExpiresAt,
@@ -1331,6 +1554,7 @@ export class WorkspaceReservationRepository extends Context.Service<
               and(
                 eq(workspaceReservations.id, input.id),
                 eq(workspaceReservations.reservationState, "cancelling"),
+                eq(workspaceReservations.updatedAt, input.claimedAt),
                 sql`${workspaceReservations.paymentState} <> 'paid'`
               )
             )
@@ -1339,7 +1563,7 @@ export class WorkspaceReservationRepository extends Context.Service<
             updated,
             "workspaceReservations.markCancellationFailed",
             input.id,
-            "Workspace reservation was not found."
+            "Only an unpaid reservation still cancelling under the claim can be marked failed."
           );
         }),
         markAdministrationRestored: Effect.fn(

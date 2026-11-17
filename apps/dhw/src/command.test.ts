@@ -444,7 +444,6 @@ describe("dhw mutation commands", () => {
         "reservations",
         "cancel",
         reservationId,
-        "--confirm-access-credential-removed",
         "--force",
         "--send-cancellation-email",
         "--yes",
@@ -456,9 +455,7 @@ describe("dhw mutation commands", () => {
       {
         id: reservationId,
         input: {
-          accessGrantUpdatedAt: "2026-08-10T10:00:00.000Z",
           force: true,
-          providerCredentialRemoved: true,
           sendCancellationEmail: true,
         },
       },
@@ -638,6 +635,12 @@ describe("dhw mutation commands", () => {
         displayName: "Ada Author",
         email: testEmailAddress("ada-author"),
       },
+      {
+        kind: "account" as const,
+        customerId: null,
+        displayName: "Inactive Author",
+        email: "",
+      },
       { kind: "deleted" as const },
       { kind: "unavailable" as const },
       null,
@@ -651,8 +654,13 @@ describe("dhw mutation commands", () => {
       ).pipe(Effect.runPromise);
     }
 
-    expect(output.filter((line) => line.startsWith("Booked by"))).toEqual([
-      `Booked by: Ada Author <${testEmailAddress("ada-author")}>`,
+    const authorLines = output.filter((line) => line.startsWith("Booked by"));
+    expect(authorLines).toHaveLength(4);
+    const [withEmail, withoutEmail, ...others] = authorLines;
+    expect(withEmail).toContain(`<${testEmailAddress("ada-author")}>`);
+    expect(withoutEmail).toEndWith("Inactive Author");
+    expect(withoutEmail).not.toContain("<");
+    expect(others).toEqual([
       "Booked by: deleted account",
       "Booked by: unavailable",
     ]);

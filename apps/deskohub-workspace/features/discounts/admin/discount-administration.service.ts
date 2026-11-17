@@ -30,7 +30,8 @@ import {
   findViolatedConstraint,
   isDatabaseQueryError,
 } from "@/db/sql-constraint";
-import type { AdministrationCustomerName } from "@/features/administration/customer-name";
+import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
+import type { AdministrationCustomer } from "@/features/administration/customer-identity";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DiscountGroupListing } from "@/features/discounts/discount-groups";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
@@ -55,6 +56,7 @@ import type {
   VoucherClaimId,
   VoucherId,
 } from "../persistence-contracts";
+import { getAvailableVoucherCredit } from "../promotion-availability";
 import {
   getServiceDateWindowIssue,
   type ServiceDateWindow,
@@ -67,7 +69,6 @@ import type {
   CreateDiscountAdminInput,
   CreateManagedDiscountCodeAdminInput,
   CreateVoucherAdminInput,
-  DiscountAdminCustomerSearch,
   UpdateDiscountAdminInput,
   UpdateDiscountCodeAdminInput,
   UpdateVoucherAdminInput,
@@ -128,14 +129,7 @@ export type AdminVoucher = {
   readonly updatedAt: Temporal.Instant;
 };
 
-export type AdminDotyposCustomer = {
-  readonly id: DotyposCustomerId;
-  /** Never empty: the API and `dhw` show "Unnamed customer" when `hasName` is false. */
-  readonly displayName: string;
-  /** Whether Dotypos holds a name or contact detail, so the Admin UI can name an unnamed customer in the operator's language. */
-  readonly hasName: boolean;
-  readonly email: string | null;
-  readonly phone: string | null;
+export type AdminDotyposCustomer = AdministrationCustomer & {
   readonly discountGroupId: DotyposDiscountGroupId | null;
 };
 
@@ -196,6 +190,10 @@ type AdminCustomerCode = AdminDiscountCode & {
 
 export type AdminCustomerProfile = {
   readonly customer: AdminDotyposCustomer;
+} & AdminCustomerDiscountSections;
+
+/** What the customer detail's discount sections show of one customer. */
+export type AdminCustomerDiscountSections = {
   readonly discountGroups: readonly AdminDiscountGroup[];
   readonly codes: readonly AdminCustomerCode[];
   readonly claims: readonly AdminDiscountCodeClaim[];
@@ -210,11 +208,6 @@ type AdminCustomerCodeCreation = {
 
 type AdminCustomerVoucherCreation = {
   readonly customer: AdminDotyposCustomer;
-};
-
-export type AdminCustomerSearchResult = {
-  readonly kind: "matched" | "not-found" | "ambiguous";
-  readonly customers: readonly AdminDotyposCustomer[];
 };
 
 export type AdminCalendarSale = {
@@ -388,9 +381,6 @@ export interface IDiscountAdministration {
     AdminDiscountCodeDetail,
     EffectDrizzleQueryError | SqlError | DiscountAdminNotFoundError
   >;
-  readonly searchCustomers: (
-    input: DiscountAdminCustomerSearch
-  ) => Effect.Effect<AdminCustomerSearchResult, DotyposReadFailure>;
   /** Every Dotypos discount group, for choosing one by name. */
   readonly listDiscountGroups: () => Effect.Effect<
     readonly DiscountGroupListing[],
@@ -405,11 +395,11 @@ export interface IDiscountAdministration {
     | DotyposReadFailure
     | DiscountAdminNotFoundError
   >;
-  readonly loadCustomerBreadcrumbLabel: (input: {
+  readonly loadCustomerDiscountSections: (input: {
     readonly customerId: DotyposCustomerId;
   }) => Effect.Effect<
-    AdministrationCustomerName,
-    DotyposReadFailure | DiscountAdminNotFoundError
+    AdminCustomerDiscountSections,
+    EffectDrizzleQueryError | SqlError | DotyposReadFailure
   >;
   readonly loadCustomerCodeCreation: (input: {
     readonly customerId: DotyposCustomerId;
@@ -836,7 +826,9 @@ export class DiscountAdministration extends Context.Service<
                 )
                 .where(eq(voucherRedemptions.voucherId, input.id));
               const usedValue = usage?.value ?? 0;
-              if (usedValue > input.credit.value) {
+              if (
+                getAvailableVoucherCredit(input.credit, usedValue).value < 0
+              ) {
                 return yield* new DiscountAdminConflictError({
                   reason: "voucher-credit-below-usage",
                   message:
@@ -1208,6 +1200,9 @@ export class DiscountAdministration extends Context.Service<
         updateVoucher: withDiscountAdminConflict(updateVoucher),
       } satisfies IDiscountAdministration;
     })
+  ).pipe(
+    // The directory has one implementation: tests substitute `DotyposService` beneath it.
+    Layer.provide(AdministrationCustomerDirectory.Default)
   );
 
   static Live = this.Default.pipe(

@@ -96,7 +96,7 @@ test("sends an unmatched dotted path outside the locales to the locale redirect"
   }
 });
 
-test("leaves locale, API, build asset and undotted paths to their routes", async () => {
+test("leaves locale, API, build asset, APK download and undotted paths to their routes", async () => {
   for (const path of [
     "/cs-CZ/nope.html",
     "/en-US/a/b.php",
@@ -108,6 +108,7 @@ test("leaves locale, API, build asset and undotted paths to their routes", async
     "/_vercel/insights/script.js",
     "/page-markdown/cs-CZ/faq.md",
     "/workspace-location-map/wide.webp",
+    "/android/download/deskohub-1.2.3.apk",
     "/nope",
   ]) {
     expect(await resolveRewrite(path)).toBeNull();
@@ -188,6 +189,11 @@ test("fails a production compile without the mobile web export", async () => {
   } finally {
     rmSync(projectDir, { recursive: true, force: true });
   }
+});
+
+test("compiles React components natively inside Turbopack", () => {
+  expect(nextConfig.reactCompiler).toBe(true);
+  expect(nextConfig.experimental?.turbopackRustReactCompiler).toBe(true);
 });
 
 test("keeps Turbopack's build cache out of Vercel's build cache", () => {

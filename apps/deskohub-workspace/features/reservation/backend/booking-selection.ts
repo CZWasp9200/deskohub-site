@@ -1,9 +1,11 @@
-import { Data, Effect, Match, Schema } from "effect";
+import { Data, Effect, Match, Option, Schema } from "effect";
 import type { AdvertisedPriceRequest } from "@/features/checkout/advertised-price";
 import {
   type CoworkCoffeeAddonAvailability,
   getCoworkTierCoffeeAddon,
   getCoworkTierWorkstationAddon,
+  isWorkspaceCoworkCurrentProductTier,
+  isWorkspaceProductMonitorOption,
   type WorkspaceCoworkCurrentTier,
   type WorkspaceProductMonitorOption,
   workspaceCoworkCurrentTiers,
@@ -11,10 +13,21 @@ import {
 import type { Locale } from "@/features/i18n";
 import { loadAdvisoryOfficeSeatCapacity } from "@/features/office/backend/office-advisory-seat-capacity";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
+import {
+  type BookableDates,
+  getBookableDates,
+} from "@/features/reservation/bookable-dates";
+import { getBookedSelection } from "@/features/reservation/booked-selection";
 import {
   getCoworkAdvertisedPriceReservation,
   isCoworkOpenSpaceDayCutoffReached,
 } from "@/features/reservation/cowork-reservation";
+import {
+  type CoworkStay,
+  isOvernightCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import { getMeetingRoomDurationAdvertisedPriceRequests } from "@/features/reservation/meeting-room-advertised-price";
 import { meetingRoomStartDateTimeSchema } from "@/features/reservation/meeting-room-reservation";
 import {
@@ -29,17 +42,22 @@ import {
   getMeetingRoomReservationInterval,
 } from "@/features/reservation/meeting-room-reservation-time";
 import { getOfficeAdvertisedPriceRequest } from "@/features/reservation/office-advertised-price";
-import {
-  getOfficeReservationMaximumDayCount,
-  getOfficeReservationMaximumEndsOn,
-} from "@/features/reservation/office-reservation";
+import { getOfficeReservationMaximumDayCount } from "@/features/reservation/office-reservation";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { hasReservationIntervalEnded } from "@/features/reservation/reservation-interval";
 import type { ReservationInterval } from "@/features/reservation/reservation-interval-domain";
-import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
+import {
+  coworkReservationKind,
+  meetingRoomReservationKind,
+  officeReservationKind,
+  type WorkspaceReservationKind,
+} from "@/features/reservation/reservation-kind";
 import type { ReservationSelection } from "@/features/reservation/selection-path";
-import { getWorkspaceAvailabilityRange } from "@/features/reservation/workspace-availability";
-import { getPlainDatesBetween, type PlainDate } from "@/shared/utils/temporal";
+import {
+  getPlainDatesBetween,
+  type PlainDate,
+  plainDateStringSchema,
+} from "@/shared/utils/temporal";
 
 /**
  * What a customer or their agent names when choosing a booking. Fields that
@@ -58,6 +76,8 @@ export type BookingSelectionInput = {
   /** Office only. Defaults to 1. */
   readonly seats?: number;
   readonly tier?: WorkspaceCoworkCurrentTier;
+  /** Reserved Desk only: the stay. Defaults to a day stay. */
+  readonly stay?: CoworkStay;
   readonly coffee?: boolean;
   readonly monitorOption?: WorkspaceProductMonitorOption;
 };
@@ -108,6 +128,8 @@ export type SelectedReservation =
       readonly entryTier: WorkspaceCoworkCurrentTier;
       readonly coffee: boolean;
       readonly monitorOption?: WorkspaceProductMonitorOption;
+      /** Present only for an overnight Reserved Desk stay. */
+      readonly stay?: "overnight";
     }
   | {
       readonly kind: "meeting-room";
@@ -131,6 +153,44 @@ export type QuoteSelection = {
   /** Names every quoted option, so the page fills nothing from history. */
   readonly reservationSelection: ReservationSelection;
   readonly reservation: SelectedReservation;
+};
+
+/**
+ * What booking a reservation again sends: the booking selection, and beside
+ * it the early setup a meeting-room booking adds, as checkout takes them.
+ */
+export type RebookingSelection = {
+  readonly selection: BookingSelectionInput;
+  readonly earlySetup?: true;
+};
+
+/**
+ * The booking that repeats a reservation-page selection, with only the options
+ * booking accepts for it: coffee where it is an option rather than included,
+ * and a monitor setup where the tier offers a workstation. `undefined` while
+ * the selection leaves open a field booking needs, as a link may.
+ */
+export const getRebookingSelection = (
+  selection: ReservationSelection
+): RebookingSelection | undefined =>
+  Match.value(selection).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      cowork: getCoworkRebooking,
+      "meeting-room": getMeetingRoomRebooking,
+      office: getOfficeRebooking,
+    }),
+    Option.getOrUndefined
+  );
+
+/**
+ * What booking a stored reservation again sends: its booked selection
+ * (`getBookedSelection`) as booking takes it.
+ */
+export const getStoredRebookingSelection = (
+  stored: Parameters<typeof getBookedSelection>[0]
+): RebookingSelection | undefined => {
+  const selection = getBookedSelection(stored);
+  return selection && getRebookingSelection(selection);
 };
 
 type QuoteSelectionRequest = {
@@ -182,7 +242,7 @@ export const resolveCoworkDates = Effect.fn(
       Effect.tap(() =>
         ensureWithin({
           dates: [date, endDate],
-          ...getWorkspaceAvailabilityRange(today.toString()),
+          ...getBookableDates(coworkReservationKind, today),
         })
       ),
       Effect.let("dates", () =>
@@ -271,15 +331,14 @@ export const resolveOfficeRange = Effect.fn(
   }) =>
     Effect.Do.pipe(
       Effect.tap(() => ensureDateOrder({ date, endDate })),
-      Effect.let("maximumEndsOn", () =>
-        getOfficeReservationMaximumEndsOn(today)
+      Effect.let("bookableDates", () =>
+        getBookableDates(officeReservationKind, today)
       ),
-      Effect.tap(({ maximumEndsOn }) =>
-        ensureWithin({
-          dates: [date],
-          from: today.toString(),
-          to: maximumEndsOn.toString(),
-        })
+      Effect.tap(({ bookableDates }) =>
+        ensureWithin({ dates: [date], ...bookableDates })
+      ),
+      Effect.let("maximumEndsOn", ({ bookableDates }) =>
+        Temporal.PlainDate.from(bookableDates.latest)
       ),
       Effect.let("latest", ({ maximumEndsOn }) =>
         Temporal.PlainDate.from(date)
@@ -294,7 +353,7 @@ export const resolveOfficeRange = Effect.fn(
           .toString()
       ),
       Effect.tap(({ latest }) =>
-        ensureWithin({ dates: [endDate], from: date, to: latest })
+        ensureWithin({ dates: [endDate], earliest: date, latest })
       ),
       Effect.map(() => ({
         startsOn: date,
@@ -318,6 +377,9 @@ const getCoworkQuoteSelection = Effect.fn(
       resolveCoworkDates({ date: selection.date, today })
     ),
     Effect.tap(ensureCoworkOfferOpen),
+    Effect.tap(({ selection, entryTier }) =>
+      ensureCoworkStayOpen({ stay: selection.stay, entryTier })
+    ),
     Effect.let("coffeeAddon", ({ entryTier }) =>
       getCoworkTierCoffeeAddon(entryTier)
     ),
@@ -369,11 +431,35 @@ const ensureCoworkOfferOpen = ({
     Effect.filterOrFail(isCoworkOfferOpen, () =>
       BookingSelectionRejected.dateOutOfRange({
         earliest: today.add({ days: 1 }).toString(),
-        latest: getWorkspaceAvailabilityRange(today.toString()).to,
+        latest: getBookableDates(coworkReservationKind, today).latest,
       })
     ),
     Effect.asVoid
   );
+
+/**
+ * An overnight stay needs a Reserved Desk and an open overnight-stay gate;
+ * either failure rejects the `stay` field. A day stay never reads the gate.
+ */
+export const ensureCoworkStayOpen = ({
+  stay,
+  entryTier,
+}: {
+  readonly stay: CoworkStay | undefined;
+  readonly entryTier: WorkspaceCoworkCurrentTier | undefined;
+}) => {
+  if (stay !== "overnight") return Effect.void;
+  if (entryTier !== overnightCoworkStayTier) {
+    return Effect.fail(BookingSelectionRejected.invalidField("stay"));
+  }
+  return OvernightStayReleaseGate.isOpen.pipe(
+    Effect.filterOrFail(
+      (open) => open,
+      () => BookingSelectionRejected.invalidField("stay")
+    ),
+    Effect.asVoid
+  );
+};
 
 const ensureCoworkAddonsOffered = ({
   selection,
@@ -412,6 +498,9 @@ const toCoworkOffer = ({
   coffee: coffeeAddon === "included" || (selection.coffee ?? false),
   ...(selection.monitorOption !== undefined && {
     monitorOption: selection.monitorOption,
+  }),
+  ...(isOvernightCoworkStay(entryTier, selection.stay) && {
+    stay: "overnight" as const,
   }),
 });
 
@@ -575,16 +664,19 @@ const ensureMeetingRoomSelectionOpen = (input: {
   readonly now: Temporal.Instant;
 }) =>
   Effect.succeed(
-    getWorkspaceAvailabilityRange(getCurrentWorkspaceDate(input.now).toString())
+    getBookableDates(
+      meetingRoomReservationKind,
+      getCurrentWorkspaceDate(input.now)
+    )
   ).pipe(
     Effect.filterOrFail(
-      (range) =>
+      ({ latest }) =>
         !hasReservationIntervalEnded(input.interval, input.now) &&
-        input.date <= range.to,
-      (range) =>
+        input.date <= latest,
+      ({ latest }) =>
         BookingSelectionRejected.dateOutOfRange({
           earliest: getFirstOpenMeetingRoomDate(input.duration, input.now),
-          latest: range.to,
+          latest,
         })
     ),
     Effect.asVoid
@@ -618,18 +710,112 @@ const ensureDateOrder = ({
 
 const ensureWithin = ({
   dates,
-  from,
-  to,
-}: {
-  readonly dates: ReadonlyArray<string>;
-  readonly from: string;
-  readonly to: string;
-}) =>
+  earliest,
+  latest,
+}: BookableDates & { readonly dates: ReadonlyArray<string> }) =>
   Effect.succeed(dates).pipe(
     Effect.filterOrFail(
-      (candidates) => candidates.every((date) => date >= from && date <= to),
-      () =>
-        BookingSelectionRejected.dateOutOfRange({ earliest: from, latest: to })
+      (candidates) =>
+        candidates.every((date) => date >= earliest && date <= latest),
+      () => BookingSelectionRejected.dateOutOfRange({ earliest, latest })
     ),
     Effect.asVoid
+  );
+
+const decodePlainDate = Schema.decodeUnknownOption(plainDateStringSchema);
+
+const parsePlainDateTime = Option.liftThrowable((value: string) =>
+  Temporal.PlainDateTime.from(value)
+);
+
+const getCoworkRebooking = ({
+  entryTier,
+  date,
+  coffee,
+  monitorOption,
+  stay,
+}: Extract<ReservationSelection, { readonly kind: "cowork" }>) =>
+  Option.all({
+    tier: Option.liftPredicate(entryTier, isWorkspaceCoworkCurrentProductTier),
+    date: decodePlainDate(date),
+  }).pipe(
+    Option.map(
+      ({ tier, date }): RebookingSelection => ({
+        selection: {
+          family: "cowork",
+          date,
+          tier,
+          ...(coffee !== undefined &&
+            getCoworkTierCoffeeAddon(tier) === "optional" && { coffee }),
+          ...(isWorkspaceProductMonitorOption(monitorOption) &&
+            getCoworkTierWorkstationAddon(tier) !== "unavailable" && {
+              monitorOption,
+            }),
+          ...(isOvernightCoworkStay(tier, stay) && { stay }),
+        },
+      })
+    )
+  );
+
+const getMeetingRoomRebooking = ({
+  startDateTime,
+  duration,
+  earlySetup,
+}: Extract<ReservationSelection, { readonly kind: "meeting-room" }>) =>
+  Option.all({
+    start: Option.flatMap(
+      Option.fromUndefinedOr(startDateTime),
+      parsePlainDateTime
+    ),
+    duration: Option.fromUndefinedOr(duration),
+  }).pipe(
+    Option.flatMap(({ start, duration }) =>
+      Option.map(
+        decodePlainDate(start.toPlainDate().toString()),
+        (date): RebookingSelection => ({
+          selection: {
+            family: "meeting-room",
+            date,
+            duration,
+            // A whole day starts at midnight whatever time it names.
+            ...(!isMeetingRoomWholeDayReservationDuration(
+              getMeetingRoomReservationDuration(duration)
+            ) && {
+              startTime: start
+                .toPlainTime()
+                .toString({ smallestUnit: "minute" }),
+            }),
+          },
+          ...(earlySetup === true && { earlySetup }),
+        })
+      )
+    )
+  );
+
+const getOfficeRebooking = ({
+  startsOn,
+  dayCount,
+  seats,
+}: Extract<ReservationSelection, { readonly kind: "office" }>) =>
+  Option.all({
+    date: Option.flatMap(Option.fromUndefinedOr(startsOn), decodePlainDate),
+    dayCount: Option.fromUndefinedOr(dayCount),
+  }).pipe(
+    Option.flatMap(({ date, dayCount }) =>
+      Option.map(
+        decodePlainDate(
+          Temporal.PlainDate.from(date)
+            .add({ days: dayCount - 1 })
+            .toString()
+        ),
+        (endDate): RebookingSelection => ({
+          selection: {
+            family: "office",
+            date,
+            ...(endDate !== date && { endDate }),
+            ...(seats !== undefined && { seats }),
+          },
+        })
+      )
+    )
   );

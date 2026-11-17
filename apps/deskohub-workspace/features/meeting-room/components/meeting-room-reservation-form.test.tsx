@@ -221,6 +221,7 @@ const startTimesResponse = {
       earlySetupAvailable: time !== "14:00",
     };
   }),
+  unavailableStartTimes: [],
 };
 
 const isStartTimesRequest = (request: RequestInfo | URL) =>
@@ -1038,6 +1039,7 @@ describe("MeetingRoomReservationForm", () => {
             earlySetupAvailable: false,
           },
         ],
+        unavailableStartTimes: [],
       };
       const fetchCalls = mock((request: RequestInfo | URL) => {
         if (!isStartTimesRequest(request)) {

@@ -100,9 +100,16 @@ const sectionPanel = (section: AccountSection) => {
       );
     case "legal":
       return createElement(
-        "a",
-        { href: "/en-US/privacy-policy" },
-        "Privacy policy"
+        "section",
+        { "aria-labelledby": "account-legal-title" },
+        createElement(
+          "h2",
+          { id: "account-legal-title" },
+          accountSectionLabel("legal", "en-US")
+        ),
+        // The real section links to the privacy policy more than once.
+        createElement("a", { href: "/en-US/privacy-policy" }, "Privacy policy"),
+        createElement("a", { href: "/en-US/privacy-policy" }, "privacy policy")
       );
     case "danger":
       return createElement(

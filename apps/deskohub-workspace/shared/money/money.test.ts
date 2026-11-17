@@ -17,6 +17,7 @@ import {
   positiveMoneyCodec,
   sameMoneyUnit,
   sumMoney,
+  toPlainDecimalString,
 } from "./money";
 
 const czk = (value: number): Money => ({ value, exponent: 2, currency: "CZK" });
@@ -167,6 +168,20 @@ describe("exact decimal conversion", () => {
     expect(
       moneyToDecimalString({ value: 7, exponent: 3, currency: "BHD" })
     ).toBe("0.007");
+  });
+});
+
+describe("plain decimal text", () => {
+  test("writes amounts BigDecimal.format would write in scientific notation", () => {
+    const plain = (text: string) =>
+      toPlainDecimalString(BigDecimal.fromStringUnsafe(text));
+
+    expect(plain("1e+16")).toBe("10000000000000000");
+    expect(plain("-1.5e+20")).toBe("-150000000000000000000");
+    expect(plain("1e-17")).toBe("0.00000000000000001");
+    expect(plain("450.5")).toBe("450.5");
+    expect(plain("410.00")).toBe("410.00");
+    expect(plain("0")).toBe("0");
   });
 });
 

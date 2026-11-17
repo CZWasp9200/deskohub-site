@@ -1,4 +1,4 @@
-import { describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, describe, expect, mock, spyOn, test } from "bun:test";
 import { RegistryContext } from "@effect/atom-react";
 import { Layer } from "effect";
 import { createElement, type ReactNode } from "react";
@@ -24,7 +24,8 @@ import { marketingPreferencesAtom } from "./marketing-preferences";
 mock.module("expo-router", () => expoRouterStandIn());
 // A static render can't take the pressed-state functions a Pressable's style
 // and children may be; they render unpressed.
-const reactNative = await import("react-native");
+// A copy: the module's own namespace turns into the mock once it is mocked.
+const reactNative = { ...(await import("react-native")) };
 mock.module("react-native", () => ({
   ...reactNative,
   Pressable: ({
@@ -46,12 +47,18 @@ mock.module("react-native", () => ({
       typeof children === "function" ? children({ pressed: false }) : children
     ),
 }));
+// Module mocks outlive this file: hand later files the preload's
+// react-native back, whose Pressable takes its pressed-state functions.
+afterAll(() => {
+  mock.module("react-native", () => reactNative);
+});
 // The document links only need the origin, not the native auth client.
 mock.module("../../auth/auth-client", () => ({
   apiOrigin: "https://workspace.test",
 }));
 
 const { LegalScreen } = await import("./legal-screen");
+const { ToastProvider } = await import("../../ui/toast");
 
 const label = m.legal_analytics_switch_label({}, { locale: "en-US" });
 const unavailable = m.legal_analytics_unavailable({}, { locale: "en-US" });
@@ -99,7 +106,9 @@ const legalScreen = async (kind: SampleAccountKind) => {
     return renderToStaticMarkup(
       <AppLocaleProvider locale="en-US">
         <RegistryContext value={registry}>
-          <LegalScreen />
+          <ToastProvider>
+            <LegalScreen />
+          </ToastProvider>
         </RegistryContext>
       </AppLocaleProvider>
     );
@@ -109,10 +118,11 @@ const legalScreen = async (kind: SampleAccountKind) => {
   }
 };
 
+// A switch row is one pressable switch that reads its own text.
 const analyticsSwitches = (markup: string) =>
-  [...markup.matchAll(/<Switch[^>]*aria-label="([^"]*)"[^>]*>/g)]
-    .map((match) => match[1])
-    .filter((name) => name === label).length;
+  [...markup.matchAll(/<Pressable role="switch"[^>]*>(.*?)<\/Pressable>/gs)]
+    .map((match) => match[1] ?? "")
+    .filter((content) => content.includes(label)).length;
 
 // The analytics preference belongs to the signed-in account, not to its
 // Dotypos profile: the site shows it to every signed-in account, so the app
@@ -131,19 +141,26 @@ describe("the Legal screen's analytics preference", () => {
   }
 });
 
-// The app doesn't offer the site's data export: every signed-in account sees
-// the archive section's row saying so.
+// A linked account can download its data archive; an account without a
+// customer of its own sees the archive section's row saying it can't.
 describe("the Legal screen's personal data archive", () => {
   const archiveRow = m.legal_archive_unavailable({}, { locale: "en-US" });
+  const downloadRow = m.legal_data_download({}, { locale: "en-US" });
+
+  test("offers a linked account the download", async () => {
+    const markup = await legalScreen("linked");
+    expect(markup).toContain(downloadRow);
+    expect(markup).not.toContain(archiveRow);
+  });
 
   for (const kind of [
-    "linked",
     "completion-required",
     "authenticated-unavailable",
   ] as const) {
     test(`keeps its archive row (${kind})`, async () => {
       const markup = await legalScreen(kind);
       expect(markup).toContain(archiveRow);
+      expect(markup).not.toContain(downloadRow);
     });
   }
 });

@@ -20,7 +20,8 @@ import { budgetKeyDigest } from "@/shared/backend/request-budget/request-budget-
 
 /**
  * What an endpoint costs beyond its general request budget:
- * `workspace-only` reads only the Workspace database and Better Auth;
+ * `workspace-only` reads only the Workspace database and Better Auth, or
+ * also calls a public provider whose allowance no site budget tracks;
  * `catalog-read` reads the booking catalog's shared snapshots;
  * `account-read`, `dotypos-read` and `dotypos-mutation` may call Dotypos,
  * whose allowance the whole site shares, and spend that kind's budget.
@@ -78,6 +79,8 @@ export const customerRequestBudgetClasses = {
     // Referral standing and savings follow the account's Dotypos customer.
     getReferrals: "dotypos-read",
     acknowledgeSignupReferral: "dotypos-mutation",
+    // The archive reads the Dotypos profile and pages the reservations.
+    getDataExport: "dotypos-read",
     // Deletion expires the Dotypos customer.
     requestDeletion: "dotypos-mutation",
     // The analytics consent ledger and Better Auth; a withdrawal's PostHog
@@ -88,12 +91,31 @@ export const customerRequestBudgetClasses = {
   },
   reservations: {
     // Reservation details are read live from Dotypos; the status refresh
-    // and the door code also call the payment and lock providers.
+    // and the door code also call the payment and lock providers, as the
+    // history does for today's door codes, from the records it read.
     listReservations: "account-read",
     getReservationStatus: "account-read",
     getReservationAccess: "account-read",
     // Authorizing the invoice can resolve the account's Dotypos customer.
     getReservationInvoice: "dotypos-read",
+    // Authorizes like the invoice, then records the page's return target.
+    reopenPaymentPage: "dotypos-mutation",
+    // May book the order's spot again in Dotypos and asks the payment provider.
+    retryPayment: "dotypos-mutation",
+    // The space's address is the site's own constant.
+    getEstablishment: "workspace-only",
+  },
+  invoices: {
+    // Authorizing either read can resolve the account's Dotypos customer;
+    // the app reads them when the customer opens or downloads an invoice.
+    listInvoices: "dotypos-read",
+    getInvoicePdf: "dotypos-read",
+  },
+  companies: {
+    // One request to the public business registry (ARES), which needs no
+    // account resolution and no Dotypos call; the general budget bounds it,
+    // as the website's lookup has no budget of its own.
+    lookupCompany: "workspace-only",
   },
   booking: {
     // The office's seat maximum reads the shared table snapshot, which
@@ -103,14 +125,17 @@ export const customerRequestBudgetClasses = {
     // miss.
     getAvailability: "catalog-read",
     getMeetingRoomStartTimes: "catalog-read",
+    getMeetingRoomUnavailableDates: "catalog-read",
     // An office quote checks the seats against the shared table snapshot.
     getQuote: "catalog-read",
     // The published documents' versions.
     listLegalDocuments: "workspace-only",
     // A booking spends two to four Dotypos mutations: the hold, an
     // optional code, the submission, and one retry after a price change.
+    // Removing a code reprices like entering one.
     createCheckout: "dotypos-mutation",
     applyCheckoutDiscountCode: "dotypos-mutation",
+    clearCheckoutDiscountCode: "dotypos-mutation",
     submitCheckout: "dotypos-mutation",
     // Reseals the signed checkout state only.
     acceptCheckoutPriceChange: "workspace-only",

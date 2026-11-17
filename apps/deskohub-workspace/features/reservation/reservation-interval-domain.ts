@@ -54,6 +54,33 @@ export const isSingleDayReservationInterval = (interval: {
   return isFullPragueCalendarDay(start, end);
 };
 
+const isOvernightStay = (
+  start: Temporal.PlainDateTime,
+  end: Temporal.PlainDateTime
+) => {
+  const changeover = Temporal.PlainTime.from(
+    workspaceSiteConstants.openingHours.overnightStayChangeover
+  );
+  return (
+    start.toPlainTime().equals(changeover) &&
+    end.toPlainTime().equals(changeover) &&
+    end.toPlainDate().equals(start.toPlainDate().add({ days: 1 }))
+  );
+};
+
+/**
+ * Whether an interval runs from the overnight changeover time on one Prague
+ * date to the same wall-clock time on the next, including 23- and 25-hour
+ * daylight-saving nights.
+ */
+export const isOvernightStayInterval = (interval: {
+  readonly startsAt: ReservationInterval["startsAt"] | Temporal.Instant;
+  readonly endsAt: ReservationInterval["endsAt"] | Temporal.Instant;
+}) => {
+  const { start, end } = getPragueLocalDateTimes(interval);
+  return isOvernightStay(start, end);
+};
+
 export const isCoworkReservationInterval = (interval: {
   readonly startsAt: ReservationInterval["startsAt"] | Temporal.Instant;
   readonly endsAt: ReservationInterval["endsAt"] | Temporal.Instant;
@@ -61,13 +88,15 @@ export const isCoworkReservationInterval = (interval: {
   const { start, end } = getPragueLocalDateTimes(interval);
 
   // Reserved Desk and historical cowork tiers use a full Prague calendar day.
-  // Open Space ends at 17:00 on that same Prague date.
+  // Open Space ends at 17:00 on that same Prague date. An overnight Reserved
+  // Desk stay runs from noon on its arrival date to noon the next date.
   return (
     isFullPragueCalendarDay(start, end) ||
     (isMidnight(start) &&
       end.hour === 17 &&
       isWholeHour(end) &&
-      end.toPlainDate().equals(start.toPlainDate()))
+      end.toPlainDate().equals(start.toPlainDate())) ||
+    isOvernightStay(start, end)
   );
 };
 

@@ -11,7 +11,7 @@ import {
 import { Container } from "@/shared/components/container";
 import { GuardedLink as Link } from "@/shared/components/guarded-link";
 import { LanguageLinks } from "@/shared/components/locale-switcher";
-import { workspaceSiteConstants } from "@/shared/utils";
+import { type VatStatus, workspaceSiteConstants } from "@/shared/utils";
 
 type PublicSiteFooterProps = {
   /** The header's preference saving, shared so one session check serves both. */
@@ -25,6 +25,10 @@ export async function PublicSiteFooter({
   const copyrightYear = await getCopyrightYear(locale);
   const localePath = `/${locale}`;
   const companyExtractPath = "/official-company-extract.pdf";
+  const vatStatement = getFooterVatStatement(
+    workspaceSiteConstants.company.vatStatus,
+    locale
+  );
   const companyAddress = `${workspaceSiteConstants.location.address.street}, ${workspaceSiteConstants.location.address.postalCode} ${workspaceSiteConstants.location.address.city} - ${workspaceSiteConstants.location.address.cityDistrict}`;
 
   return (
@@ -46,7 +50,7 @@ export async function PublicSiteFooter({
               <p>
                 {m.footerCompanyAddressLabel({}, { locale })}: {companyAddress}
               </p>
-              <p>{m.footerVatStatus({}, { locale })}</p>
+              {vatStatement !== undefined && <p>{vatStatement}</p>}
               <p>{m.footerCommercialRegisterDisclosure({}, { locale })}</p>
               <p>
                 <a
@@ -210,6 +214,18 @@ export async function PublicSiteFooter({
     </footer>
   );
 }
+
+const footerVatStatements: Readonly<
+  Record<VatStatus, ((locale: Locale) => string) | undefined>
+> = {
+  "not-vat-payer": (locale) => m.footerVatStatus({}, { locale }),
+  // No footer wording exists for a VAT payer yet.
+  "vat-payer": undefined,
+};
+
+/** The company details' statement of the company's VAT status, if any. */
+export const getFooterVatStatement = (vatStatus: VatStatus, locale: Locale) =>
+  footerVatStatements[vatStatus]?.(locale);
 
 async function getCopyrightYear(locale: Locale) {
   "use cache";

@@ -37,6 +37,7 @@ import {
   type HeldCheckout,
   LegalDocuments,
   type PayingState,
+  ReviewKind,
   type ReviewMutation,
   ReviewNotice,
   type ReviewState,
@@ -51,8 +52,9 @@ import {
  *
  * Rules, mirroring the booking pages:
  * - One write runs at a time: create, code, price acceptance, submit.
- * - Every checkout answer replaces the token, summary, expiry, price review
- *   and early-performance requirement together.
+ * - Every checkout answer replaces the token, summary, hold end, applied
+ *   code, price review and early-performance requirement together. A code
+ *   or a price acceptance renews the token but never moves the hold's end.
  * - Consent is bound to the loaded documents' versions and cleared whenever
  *   they change.
  * - A write whose answer was lost waits in `Uncertain` for an identical
@@ -71,6 +73,26 @@ export const startCheckout = (input: CheckoutStartInput): CheckoutState =>
     details: Option.none(),
     notice: Option.none(),
   });
+
+/**
+ * The checkout of an order whose payment failed, was cancelled or expired,
+ * as the server handed it back (`retryPayment`): straight to its review,
+ * details kept, where the terms are confirmed again (a changed price is
+ * accepted first) and Pay starts the new payment.
+ */
+export const startPaymentRetry = (
+  input: CheckoutStartInput,
+  checkout: CustomerCheckout
+): CheckoutStep =>
+  enterReview(
+    {
+      ...input,
+      selection: withoutAbsentOptions(input.selection),
+      nextOperationId: 1,
+    },
+    ReviewKind.PaymentRetry(),
+    checkout
+  );
 
 export const step = (
   state: CheckoutState,
@@ -124,6 +146,7 @@ const onDetails = (details: DetailsState, event: CheckoutEvent) =>
       ),
     CodeChanged: () => stay(details),
     ApplyCode: () => stay(details),
+    ClearCode: () => stay(details),
     AcceptPrice: () => stay(details),
     ToggleConsent: () => stay(details),
     Pay: () => stay(details),
@@ -132,6 +155,7 @@ const onDetails = (details: DetailsState, event: CheckoutEvent) =>
     CheckoutCreated: () => stay(details),
     LegalDocumentsLoaded: () => stay(details),
     CodeApplied: () => stay(details),
+    CodeCleared: () => stay(details),
     PriceAccepted: () => stay(details),
     Submitted: () => stay(details),
     PaymentEnded: () => stay(details),
@@ -180,7 +204,7 @@ const onCreating = (creating: CreatingState, event: CheckoutEvent) =>
   Event.$match(event, {
     CheckoutCreated: ({ operationId, start }) =>
       answers(creating.command, operationId)
-        ? created(creating.flow, start)
+        ? created(creating.flow, creating.details, start)
         : stay(creating),
     CommandFailed: ({ operationId, problem }) =>
       answers(creating.command, operationId)
@@ -189,6 +213,7 @@ const onCreating = (creating: CreatingState, event: CheckoutEvent) =>
     Continue: () => stay(creating),
     CodeChanged: () => stay(creating),
     ApplyCode: () => stay(creating),
+    ClearCode: () => stay(creating),
     AcceptPrice: () => stay(creating),
     ToggleConsent: () => stay(creating),
     Pay: () => stay(creating),
@@ -197,23 +222,31 @@ const onCreating = (creating: CreatingState, event: CheckoutEvent) =>
     HoldTimerElapsed: () => stay(creating),
     LegalDocumentsLoaded: () => stay(creating),
     CodeApplied: () => stay(creating),
+    CodeCleared: () => stay(creating),
     PriceAccepted: () => stay(creating),
     Submitted: () => stay(creating),
     PaymentEnded: () => stay(creating),
   });
 
-const created = (flow: CheckoutFlow, start: CustomerCheckoutStart) =>
+const created = (
+  flow: CheckoutFlow,
+  details: CheckoutDetails,
+  start: CustomerCheckoutStart
+) =>
   Match.value(start).pipe(
     Match.discriminatorsExhaustive("status")({
       payment_disabled: () =>
         to(CheckoutState.Blocked({ reason: "payment-disabled" })),
-      ready: (checkout) => enterReview(flow, checkout),
-      price_review: (checkout) => enterReview(flow, checkout),
+      ready: (checkout) =>
+        enterReview(flow, ReviewKind.NewBooking({ details }), checkout),
+      price_review: (checkout) =>
+        enterReview(flow, ReviewKind.NewBooking({ details }), checkout),
     })
   );
 
 const enterReview = (
   flow: CheckoutFlow,
+  kind: ReviewKind,
   checkout: CustomerCheckout
 ): CheckoutStep => {
   const [operationId, next] = takeOperation(flow);
@@ -221,7 +254,9 @@ const enterReview = (
   return to(
     CheckoutState.Review({
       flow: withReferralUpdate(next, update),
+      kind,
       checkout: heldCheckout(checkout),
+      priceBefore: Option.none(),
       code: { input: "", status: CodeStatus.Idle() },
       legal: LegalDocuments.Loading({ operationId }),
       consent: Option.none(),
@@ -309,6 +344,7 @@ const onReview = (review: ReviewState, event: CheckoutEvent) =>
           onSome: (code) => applyCode(review, code),
         })
       ),
+    ClearCode: () => (canClearCode(review) ? clearCode(review) : stay(review)),
     AcceptPrice: () =>
       whenIdle(review, () => review.checkout.priceReview).pipe(
         Option.match({
@@ -362,6 +398,13 @@ const onReview = (review: ReviewState, event: CheckoutEvent) =>
         Option.match({
           onNone: () => stay(review),
           onSome: () => codeApplied(review, result),
+        })
+      ),
+    CodeCleared: ({ operationId, checkout }) =>
+      pendingAnswer(review, "ClearDiscountCode", operationId).pipe(
+        Option.match({
+          onNone: () => stay(review),
+          onSome: () => codeCleared(review, checkout),
         })
       ),
     PriceAccepted: ({ operationId, checkout }) =>
@@ -418,6 +461,29 @@ const applyCode = (review: ReviewState, code: string) => {
         code,
       },
       referralCode: flow.rememberedReferralCode,
+    })
+  );
+};
+
+/**
+ * Whether the customer can remove the entered code: no write runs, a code
+ * is in the price, and no changed price waits (the server refuses that).
+ */
+export const canClearCode = (review: ReviewState): boolean =>
+  Option.isNone(review.pending) &&
+  Option.isSome(review.checkout.appliedDiscountCode) &&
+  Option.isNone(review.checkout.priceReview);
+
+const clearCode = (review: ReviewState) => {
+  const [operationId, flow] = takeOperation(review.flow);
+  return sendMutation(
+    CheckoutState.Review({ ...review, flow }),
+    Command.ClearDiscountCode({
+      operationId,
+      request: {
+        locale: flow.locale,
+        payStateToken: review.checkout.payStateToken,
+      },
     })
   );
 };
@@ -564,8 +630,34 @@ const codeApplied = (
   );
 
 /**
+ * A cleared code leaves the field empty. Its answer is a price review when
+ * the code was in the price, which blocks Pay until the customer accepts it.
+ */
+const codeCleared = (review: ReviewState, checkout: CustomerCheckout) =>
+  replaceCheckout(
+    CheckoutState.Review({
+      ...review,
+      code: { input: "", status: CodeStatus.Idle() },
+    }),
+    checkout
+  );
+
+/**
+ * The total the customer saw before an answer that asks them to accept a
+ * new price: the one shown when the review began, kept across answers
+ * while it waits.
+ */
+const priceBeforeOf = (review: ReviewState, checkout: CustomerCheckout) => {
+  if (checkout.priceReview === undefined) return Option.none();
+  return Option.isSome(review.checkout.priceReview)
+    ? review.priceBefore
+    : Option.some(review.checkout.summary.total);
+};
+
+/**
  * Takes a checkout answer as the whole truth about the held order: token,
- * summary, expiry, price review and early-performance requirement.
+ * summary, hold end, applied code, price review and early-performance
+ * requirement.
  */
 const replaceCheckout = (
   review: ReviewState,
@@ -577,6 +669,7 @@ const replaceCheckout = (
       ...review,
       flow: withReferralUpdate(review.flow, update),
       checkout: heldCheckout(checkout),
+      priceBefore: priceBeforeOf(review, checkout),
       // The checkbox asks to start early only while that's required, so a
       // tick given before doesn't cover it.
       consent:
@@ -607,6 +700,7 @@ const submitted = (
         });
         return to(
           CheckoutState.Paying({
+            review,
             flow,
             orderId,
             paymentUrl,
@@ -747,10 +841,11 @@ const reviewRetryable = (
     })
   );
 
+/** A rejection's replacement token; the hold's end stays. */
 const withReplacementToken = (
   checkout: HeldCheckout,
-  { payStateToken, expiresAt }: CheckoutReplacementToken
-): HeldCheckout => ({ ...checkout, payStateToken, expiresAt });
+  { payStateToken }: CheckoutReplacementToken
+): HeldCheckout => ({ ...checkout, payStateToken });
 
 // Uncertain
 
@@ -785,6 +880,10 @@ const onUncertain = (
       answersResend(uncertain, operationId)
         ? settleWith(uncertain.resume, event)
         : stay(uncertain),
+    CodeCleared: ({ operationId }) =>
+      answersResend(uncertain, operationId)
+        ? settleWith(uncertain.resume, event)
+        : stay(uncertain),
     PriceAccepted: ({ operationId }) =>
       answersResend(uncertain, operationId)
         ? settleWith(uncertain.resume, event)
@@ -798,6 +897,7 @@ const onUncertain = (
     Continue: () => stay(uncertain),
     CodeChanged: () => stay(uncertain),
     ApplyCode: () => stay(uncertain),
+    ClearCode: () => stay(uncertain),
     AcceptPrice: () => stay(uncertain),
     ToggleConsent: () => stay(uncertain),
     Pay: () => stay(uncertain),
@@ -960,6 +1060,7 @@ const onPaying = (paying: PayingState, event: CheckoutEvent) =>
     Continue: () => stay(paying),
     CodeChanged: () => stay(paying),
     ApplyCode: () => stay(paying),
+    ClearCode: () => stay(paying),
     AcceptPrice: () => stay(paying),
     ToggleConsent: () => stay(paying),
     Pay: () => stay(paying),
@@ -969,6 +1070,7 @@ const onPaying = (paying: PayingState, event: CheckoutEvent) =>
     CheckoutCreated: () => stay(paying),
     LegalDocumentsLoaded: () => stay(paying),
     CodeApplied: () => stay(paying),
+    CodeCleared: () => stay(paying),
     PriceAccepted: () => stay(paying),
     Submitted: () => stay(paying),
   });
@@ -992,7 +1094,8 @@ const reopen = (paying: PayingState): CheckoutStep => {
   );
 };
 
-const retryKind = (problem: BookingProblem): CheckoutRetryKind =>
+/** The retry a problem offers; anything but a retryable one is a surprise. */
+export const retryKind = (problem: BookingProblem): CheckoutRetryKind =>
   BookingProblem.$match(problem, {
     Retryable: ({ kind }) => kind,
     Restart: unexpected,
@@ -1044,7 +1147,7 @@ const expireHold = (
   holdExpiredAt(checkout, now) ? restartExpired() : stay(state);
 
 const holdExpiredAt = (checkout: HeldCheckout, now: number) =>
-  Date.parse(checkout.expiresAt) <= now;
+  Date.parse(checkout.holdExpiresAt) <= now;
 
 const restartExpired = () =>
   to(CheckoutState.Restart({ reason: "hold_expired" }));
@@ -1059,8 +1162,9 @@ const showStatus = (review: ReviewState) =>
 const heldCheckout = (checkout: CustomerCheckout): HeldCheckout => ({
   orderId: checkout.orderId,
   payStateToken: checkout.payStateToken,
-  expiresAt: checkout.expiresAt,
+  holdExpiresAt: checkout.holdExpiresAt,
   summary: checkout.summary,
+  appliedDiscountCode: Option.fromUndefinedOr(checkout.appliedDiscountCode),
   priceReview: Option.fromUndefinedOr(checkout.priceReview).pipe(
     Option.map(({ changedKeys }) => changedKeys)
   ),

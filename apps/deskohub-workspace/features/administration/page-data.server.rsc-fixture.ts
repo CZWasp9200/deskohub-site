@@ -5,7 +5,12 @@ import "@/shared/testing/workspace-test-env";
 import "@/shared/testing/flight-request-storage";
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import type {
+  DotyposCustomer,
+  DotyposCustomerId,
+  DotyposReadFailure,
+} from "@deskohub/dotypos";
+import { Effect, Layer, Option } from "effect";
 import React, { Suspense } from "react";
 import type {
   AdministrationOverview,
@@ -107,6 +112,80 @@ AdministrationService.Live = Layer.succeed(AdministrationService, {
   loadOperation: unused,
 } satisfies AdministrationServiceType["Service"]);
 
+const { failedCustomerRead } = await import("./customer-directory.test-utils");
+const { DotyposServiceMock } = await import(
+  "@deskohub/dotypos/backend/service.mock"
+);
+const { AdministrationCustomerDirectory } = await import(
+  "./customer-directory.service"
+);
+const originalDirectoryLive = AdministrationCustomerDirectory.Live;
+const customerId = "customer-synthetic" as DotyposCustomerId;
+const namedCustomer = {
+  id: customerId,
+  firstName: "Synthetic",
+  lastName: "Customer",
+  deleted: false,
+} as DotyposCustomer;
+let customerReads = 0;
+let readCustomer: () => Effect.Effect<
+  Option.Option<DotyposCustomer>,
+  DotyposReadFailure
+> = () => Effect.succeed(Option.some(namedCustomer));
+// The real directory over a Dotypos that counts its customer reads.
+AdministrationCustomerDirectory.Live =
+  AdministrationCustomerDirectory.Default.pipe(
+    Layer.provide(
+      DotyposServiceMock({
+        getCustomer: () =>
+          Effect.suspend(() => {
+            customerReads += 1;
+            return readCustomer();
+          }),
+      })
+    )
+  );
+
+/** Renders the customer detail and its breadcrumb in one request, as the page and its slot do. */
+const renderCustomerRequest = async () => {
+  const {
+    loadAdministrationCustomer,
+    loadAdministrationCustomerBreadcrumbLabel,
+  } = await import("./page-data.server");
+
+  const Breadcrumb = async () =>
+    React.createElement(
+      "span",
+      null,
+      `label:${(await loadAdministrationCustomerBreadcrumbLabel(customerId, "en-US")) ?? "none"}`
+    );
+  const Detail = async () =>
+    React.createElement(
+      "span",
+      null,
+      `lookup:${(await loadAdministrationCustomer(customerId)).kind}`
+    );
+  const Page = () =>
+    React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(
+        Suspense,
+        { fallback: "breadcrumb-loading" },
+        React.createElement(Breadcrumb)
+      ),
+      React.createElement(
+        Suspense,
+        { fallback: "detail-loading" },
+        React.createElement(Detail)
+      )
+    );
+
+  return new Response(
+    renderToReadableStream(React.createElement(Page), {})
+  ).text();
+};
+
 const renderRequest = async () => {
   const { loadAdministrationOverview, loadAdministrationReservationOverview } =
     await import("./page-data.server");
@@ -197,6 +276,46 @@ describe("administration overview page data RSC fixture", () => {
     await new Response(stream).text();
     expect(sourceCalls).toBe(0);
     expect(overviewCalls).toBe(0);
+  });
+});
+
+describe("administration customer lookup RSC fixture", () => {
+  afterEach(() => {
+    customerReads = 0;
+    readCustomer = () => Effect.succeed(Option.some(namedCustomer));
+  });
+  afterAll(() => {
+    AdministrationCustomerDirectory.Live = originalDirectoryLive;
+  });
+
+  test("reads the customer once for the page and its breadcrumb in a request", async () => {
+    const html = await renderCustomerRequest();
+
+    expect(customerReads).toBe(1);
+    expect(html).toContain("lookup:found");
+    expect(html).toContain("label:Synthetic Customer");
+
+    await renderCustomerRequest();
+    expect(customerReads).toBe(2);
+  });
+
+  test("leaves the breadcrumb unlabelled when the customer is deleted", async () => {
+    readCustomer = () =>
+      Effect.succeed(Option.some({ ...namedCustomer, deleted: true }));
+    const html = await renderCustomerRequest();
+
+    expect(customerReads).toBe(1);
+    expect(html).toContain("lookup:absent");
+    expect(html).toContain("label:none");
+  });
+
+  test("leaves the breadcrumb unlabelled and the page unavailable when Dotypos fails", async () => {
+    readCustomer = failedCustomerRead;
+    const html = await renderCustomerRequest();
+
+    expect(customerReads).toBe(1);
+    expect(html).toContain("lookup:unavailable");
+    expect(html).toContain("label:none");
   });
 });
 

@@ -5,7 +5,7 @@ import type {
   CustomerMeetingRoomDuration,
 } from "@deskohub/workspace-customer-api";
 import { customerAvailabilityReplacementHeader } from "@deskohub/workspace-customer-api";
-import { Duration, Effect, Equal, Hash } from "effect";
+import { Clock, Duration, Effect, Equal, Hash } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import { CustomerApi } from "../../customer-api/customer-api.service";
 import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
@@ -14,6 +14,11 @@ import {
   selectionKey,
   withoutAbsentOptions,
 } from "../selection/booking-selection";
+import {
+  addDays,
+  type PragueDate,
+  pragueMidnight,
+} from "../selection/prague-date";
 
 /**
  * What the booking selection and review screens read before checkout, on the
@@ -77,13 +82,53 @@ const bookingApi = Effect.map(
   (api) => api.booking
 );
 
-/** Every offering with its advertised price, in the customer's language. */
+/**
+ * The shortest wait before offerings are read again for a new Prague day,
+ * so a server still answering for the day before (its clock a little behind
+ * the device's) is asked again at the booking clock's pace, not in a loop.
+ */
+export const offeringsRolloverRetryDelay = Duration.seconds(30);
+
+/**
+ * Schedules the offerings' next read for the Prague midnight that ends
+ * their `advertisedOn`, in the atom's lifetime: their prices and bookable
+ * dates are for that day, so a screen never keeps a window past midnight.
+ * Like a quote's refresh, a read falling due while no screen shows the
+ * offerings only marks them stale.
+ */
+const refreshOfferingsAfter = (
+  get: Atom.AtomContext,
+  advertisedOn: PragueDate
+) =>
+  Clock.currentTimeMillis.pipe(
+    Effect.map((now) =>
+      Duration.millis(
+        Math.max(
+          pragueMidnight(addDays(advertisedOn, 1)).getTime() - now,
+          Duration.toMillis(offeringsRolloverRetryDelay)
+        )
+      )
+    ),
+    Effect.flatMap(Effect.sleep),
+    Effect.andThen(Effect.sync(() => get.refreshSelf())),
+    Effect.forkScoped
+  );
+
+/**
+ * Every offering with its advertised price and bookable dates, in the
+ * customer's language, read again once the Prague day they're for ends.
+ */
 export const bookingOfferingsAtom = Atom.family((locale: CustomerLocale) =>
   customerDataRuntime
-    .atom(
+    .atom((get) =>
       Effect.flatMap(bookingApi, (booking) =>
         booking.listOfferings({ query: { locale } })
-      ).pipe(catalogRead)
+      ).pipe(
+        catalogRead,
+        Effect.tap(({ advertisedOn }) =>
+          refreshOfferingsAfter(get, advertisedOn)
+        )
+      )
     )
     .pipe(Atom.setIdleTTL(catalogIdleTTL.offerings))
 );
@@ -139,6 +184,18 @@ export const meetingRoomStartTimesAtom = Atom.family(
       )
       .pipe(Atom.setIdleTTL(catalogIdleTTL.availability))
 );
+
+/**
+ * The meeting-room calendar over the booking range: the days with no free
+ * start of any length, and per length the days without a free start of it.
+ */
+export const meetingRoomUnavailableDatesAtom = customerDataRuntime
+  .atom(
+    Effect.flatMap(bookingApi, (booking) =>
+      booking.getMeetingRoomUnavailableDates({ query: {}, headers: {} })
+    ).pipe(catalogRead)
+  )
+  .pipe(Atom.setIdleTTL(catalogIdleTTL.availability));
 
 /** One selection priced in one language; equal when their keys are. */
 export class BookingQuoteRequest implements Equal.Equal {

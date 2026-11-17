@@ -24,6 +24,8 @@ import {
   BookingStatusBadge,
   formatAdministrationDateTime,
 } from "@/features/administration/components";
+import { isInactiveAdministrationCustomer } from "@/features/administration/customer-name";
+import { AdministrationCustomerNameLabel } from "@/features/administration/customer-name-label";
 import { getAdministrationCustomerName } from "@/features/administration/customer-presentation";
 import { m } from "@/features/administration/i18n";
 import { AdministrationDetailLoading } from "@/features/administration/loading";
@@ -211,6 +213,20 @@ function RelatedBookingCustomer({
   readonly booking: AdministrationBookingSummary;
   readonly locale: Locale;
 }) {
+  // A deleted or expired customer has no detail page to link to.
+  if (booking.customer && isInactiveAdministrationCustomer(booking.customer))
+    return (
+      <RelatedBookingEntity
+        title={m.administrationBookingRelatedCustomer({}, { locale })}
+      >
+        <p className="px-3 py-3">
+          <AdministrationCustomerNameLabel
+            customer={booking.customer}
+            locale={locale}
+          />
+        </p>
+      </RelatedBookingEntity>
+    );
   return (
     <RelatedBookingEntity
       title={m.administrationBookingRelatedCustomer({}, { locale })}

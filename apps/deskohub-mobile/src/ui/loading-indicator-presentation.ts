@@ -3,8 +3,7 @@ import {
   type LoadingDieMotion,
   loadingDieBox,
 } from "@deskohub/brand-motion/loading-die";
-import { brandColors } from "@deskohub/brand-tokens";
-import { theme } from "../theme";
+import { color } from "./tokens";
 
 /**
  * Where the indicator stands: `inline` next to text or inside a button,
@@ -59,8 +58,8 @@ export const loadingIndicatorFill = (
   tone: LoadingIndicatorTone
 ): LoadingDieFill => {
   if (tone === "brand") return { kind: "brand" };
-  if (tone === "white") return { kind: "solid", color: theme.colors.text };
-  if (tone === "navy") return { kind: "solid", color: brandColors.navyBlue };
+  if (tone === "white") return { kind: "solid", color: color.white };
+  if (tone === "navy") return { kind: "solid", color: color.navy };
   return { kind: "solid", color: tone.color };
 };
 

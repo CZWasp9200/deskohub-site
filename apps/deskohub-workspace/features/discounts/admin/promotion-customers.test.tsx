@@ -44,16 +44,21 @@ mock.module("next/navigation", () => ({
 }));
 
 const mutateDiscountAdmin = mock();
-const searchDiscountAdminCustomers = mock();
+const searchAdministrationCustomers = mock();
 mock.module("./actions", () => ({
   createDiscountAdminForm: mock(),
   createDiscountCodeAdminForm: mock(),
   deleteDiscountAdminForm: mock(),
   deleteDiscountCodeAdminForm: mock(),
   mutateDiscountAdmin,
-  searchDiscountAdminCustomers,
   updateDiscountAdminForm: mock(),
   updateDiscountCodeAdminForm: mock(),
+}));
+mock.module("@/features/administration/actions", () => ({
+  cancelAdministrationReservation: mock(),
+  getAdministrationReservation: mock(),
+  mutateReservationAccess: mock(),
+  searchAdministrationCustomers,
 }));
 
 type ActionCallbacks = {
@@ -65,7 +70,7 @@ type ActionCallbacks = {
 
 type WorkspaceAction =
   | typeof mutateDiscountAdmin
-  | typeof searchDiscountAdminCustomers;
+  | typeof searchAdministrationCustomers;
 const actionCallbacks = new Map<WorkspaceAction, ActionCallbacks>();
 const executions = new Map<WorkspaceAction, ReturnType<typeof mock>>();
 
@@ -112,21 +117,21 @@ const findCustomer = async (
 ) => {
   fireEvent.change(
     view.getByRole("searchbox", {
-      name: m.discountsCustomerSearchLabel({}, { locale }),
+      name: m.administrationCustomerSearchLabel({}, { locale }),
     }),
     { target: { value: "Test" } }
   );
   fireEvent.click(
     view.getByRole("button", {
-      name: m.discountsCustomerSearchSubmit({}, { locale }),
+      name: m.administrationCustomerSearchSubmit({}, { locale }),
     })
   );
   await waitFor(() => {
-    expect(executeOf(searchDiscountAdminCustomers)).toHaveBeenCalledWith({
+    expect(executeOf(searchAdministrationCustomers)).toHaveBeenCalledWith({
       query: "Test",
     });
   });
-  await report(searchDiscountAdminCustomers, {
+  await report(searchAdministrationCustomers, {
     data: { kind: "matched", customers: [searchMatch] },
   });
 };
@@ -382,7 +387,7 @@ describe("promotion customers panel", () => {
     ).toBeDefined();
     expect(
       view.getByRole("searchbox", {
-        name: m.discountsCustomerSearchLabel({}, { locale }),
+        name: m.administrationCustomerSearchLabel({}, { locale }),
       })
     ).toBeDefined();
     expect(

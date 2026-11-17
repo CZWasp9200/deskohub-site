@@ -11,7 +11,6 @@ import {
 import { CustomerAgentConnections } from "@/features/account/backend/auth/customer-agent-connections.service";
 import { CustomerPasskeys } from "@/features/account/backend/auth/customer-passkeys.service";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
 import {
   type CustomerAccountSession,
   CustomerAuthentication,
@@ -145,7 +144,7 @@ const capabilities = () =>
     referralRelease: ReferralReleaseGate.fromDecision(true),
     rememberedReferral: Layer.suspend(() =>
       RememberedReferral.fromClient(clientReferralCode)
-    ).pipe(Layer.provide(Layer.mock(CustomerAccountContactService, {}))),
+    ).pipe(Layer.provide(Layer.mock(CurrentCustomerAccount, {}))),
     passkeyRelease: PasskeyReleaseGate.fromDecision(true),
     avatarRelease: AccountAvatarReleaseGate.fromDecision(true),
     ...layerOverrides,
@@ -215,6 +214,9 @@ describe("loadAccountState", () => {
       referrals: {
         summary,
         shareUrl: expect.stringContaining(summary.code),
+        discountPerInvitee: "5",
+        invitationDiscount: "15",
+        savingsCurrency: "CZK",
       },
     });
     expect(state).not.toHaveProperty("history");

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import { CustomerSearch } from "@/features/discounts/admin/customer-admin-client";
 import { getRequestLocale } from "@/features/i18n/server/request-locale";
+import { CustomerSearch } from "./customer-search";
 import { m } from "./i18n";
 import {
   AdministrationCustomerMetricsLoading,

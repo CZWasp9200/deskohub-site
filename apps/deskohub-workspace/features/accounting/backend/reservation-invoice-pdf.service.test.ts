@@ -21,8 +21,8 @@ import {
   InvoiceRepository,
   type ReservationInvoice,
 } from "./invoice.repository";
-import { InvoiceStorageError } from "./invoice-reads";
 import { ReservationInvoicePdfService } from "./reservation-invoice-pdf.service";
+import { AccountingRecordUnavailable } from "./sealed-accounting-json";
 
 const orderId = workspaceReservationIdSchema.make("reservation-1");
 const signedInAccountId = customerAccountIdSchema.make("account-id");
@@ -67,9 +67,9 @@ const runGetPdf = async (options: {
   const findByReservationId = mock(() =>
     options.invoice === "unreadable"
       ? Effect.fail(
-          new InvoiceStorageError({
+          new AccountingRecordUnavailable({
             operation: "decrypt",
-            paymentAttemptId: orderId,
+            reference: { type: "workspaceReservationId", id: orderId },
             message: "Synthetic decryption failure.",
           })
         )
@@ -227,7 +227,7 @@ describe("ReservationInvoicePdfService", () => {
 
     expect(result).toMatchObject({
       _tag: "Failure",
-      failure: { _tag: "InvoiceStorageError", operation: "decrypt" },
+      failure: { _tag: "AccountingRecordUnavailable", operation: "decrypt" },
     });
   });
 });

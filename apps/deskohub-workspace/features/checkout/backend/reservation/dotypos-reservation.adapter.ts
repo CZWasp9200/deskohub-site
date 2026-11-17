@@ -34,6 +34,16 @@ import {
 } from "./workspace-table-assignment.service";
 import type { InvalidDotyposTableSeats } from "./workspace-table-selection";
 
+/**
+ * A Dotypos reservation for log annotations: its id and status. Scoped
+ * annotations reach every later row, query rows included, so never annotate
+ * the record.
+ */
+export const dotyposReservationLogFields = (reservation: Reservation) => ({
+  dotyposReservationId: reservation.id,
+  dotyposReservationStatus: reservation.status,
+});
+
 export interface CreateWorkspaceDotyposReservationInput {
   readonly paymentOrderId: WorkspaceReservationId;
   readonly dotyposCustomerId: DotyposCustomerId;
@@ -89,10 +99,7 @@ export const createWorkspaceDotyposReservation: (
 
     yield* Effect.logInfo("Workspace Dotypos reservation creation started");
     const reservation = yield* dotypos.createReservation(reservationInput);
-    yield* Effect.annotateLogsScoped({
-      dotyposReservationId: reservation.id,
-      dotyposReservationStatus: reservation.status,
-    });
+    yield* Effect.annotateLogsScoped(dotyposReservationLogFields(reservation));
     yield* Effect.logInfo("Workspace Dotypos reservation creation completed");
 
     return reservation;
@@ -223,7 +230,11 @@ const getReservationLogAnnotations = (
 ) =>
   Match.value(reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
-      cowork: ({ date, entryTier }) => ({ entryTier, date }),
+      cowork: ({ date, entryTier, stay }) => ({
+        entryTier,
+        date,
+        ...(stay && { stay }),
+      }),
       "meeting-room": (meetingRoomReservation) => ({
         date: getReservationDate({
           interval: meetingRoomReservation,

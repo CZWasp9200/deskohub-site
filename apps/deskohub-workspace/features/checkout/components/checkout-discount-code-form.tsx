@@ -6,6 +6,7 @@ import { AlertTriangle } from "lucide-react";
 import { type FormEvent, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { applyDiscountCodeForm } from "@/features/checkout/actions/apply-discount-code";
+import { clearDiscountCodeForm } from "@/features/checkout/actions/clear-discount-code";
 import {
   type DiscountCodeRejection,
   getDiscountCodeRejectionMessage,
@@ -16,6 +17,7 @@ import { type Locale, m } from "@/features/i18n";
 import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
+import { CheckoutDiscountCodeRemoveButton } from "./checkout-discount-code-remove-button";
 import { CheckoutDiscountCodeSubmitButton } from "./checkout-discount-code-submit-button";
 import { DiscountRejectionAnalytics } from "./discount-rejection-analytics";
 
@@ -81,14 +83,31 @@ export function CheckoutDiscountCodeForm({
 
   if (appliedAdjustment) {
     return (
-      <output className="block rounded-2xl border border-aquamarine-green/40 bg-aquamarine-green/12 px-4 py-3 text-sm font-semibold text-aquamarine-ink ring-1 ring-aquamarine-green/10">
-        {m.checkoutDiscountCodeApplied(
-          {
-            discount: formatDiscountAdjustment(appliedAdjustment, locale),
-          },
-          { locale }
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl border border-aquamarine-green/40 bg-aquamarine-green/12 px-4 py-3 text-sm font-semibold text-aquamarine-ink ring-1 ring-aquamarine-green/10">
+        <output>
+          {m.checkoutDiscountCodeApplied(
+            {
+              discount: formatDiscountAdjustment(appliedAdjustment, locale),
+            },
+            { locale }
+          )}
+        </output>
+        <form
+          action={clearDiscountCodeForm.bind(null, locale, payStateToken)}
+          data-checkout-discount-code-remove
+        >
+          <CheckoutDiscountCodeRemoveButton locale={locale} />
+        </form>
+        {rejection && (
+          <div className="basis-full">
+            <DiscountCodeRejectionMessage
+              locale={locale}
+              rejection={rejection}
+              rejectionId={rejectionId}
+            />
+          </div>
         )}
-      </output>
+      </div>
     );
   }
 
@@ -134,24 +153,43 @@ export function CheckoutDiscountCodeForm({
           />
         </div>
         {rejection && (
-          <>
-            <DiscountRejectionAnalytics key={rejectionId} />
-            <p
-              className="flex items-start gap-2 rounded-2xl border border-burned-orange/20 bg-burned-orange/8 px-4 py-3 text-sm leading-6 text-burned-orange-ink"
-              id="checkout-discount-code-error"
-              role="alert"
-            >
-              <AlertTriangle
-                aria-hidden="true"
-                className="mt-0.5 size-4 shrink-0 text-burned-orange"
-              />
-              <span className="min-w-0">
-                {getDiscountCodeRejectionMessage(rejection, locale)}
-              </span>
-            </p>
-          </>
+          <DiscountCodeRejectionMessage
+            locale={locale}
+            rejection={rejection}
+            rejectionId={rejectionId}
+          />
         )}
       </form>
+    </>
+  );
+}
+
+/** The field error for a code change the server refused. */
+function DiscountCodeRejectionMessage({
+  locale,
+  rejection,
+  rejectionId,
+}: {
+  readonly locale: Locale;
+  readonly rejection: DiscountCodeRejection;
+  readonly rejectionId?: string;
+}) {
+  return (
+    <>
+      <DiscountRejectionAnalytics key={rejectionId} />
+      <p
+        className="flex items-start gap-2 rounded-2xl border border-burned-orange/20 bg-burned-orange/8 px-4 py-3 text-sm leading-6 text-burned-orange-ink"
+        id="checkout-discount-code-error"
+        role="alert"
+      >
+        <AlertTriangle
+          aria-hidden="true"
+          className="mt-0.5 size-4 shrink-0 text-burned-orange"
+        />
+        <span className="min-w-0">
+          {getDiscountCodeRejectionMessage(rejection, locale)}
+        </span>
+      </p>
     </>
   );
 }

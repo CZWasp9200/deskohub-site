@@ -11,7 +11,7 @@ const navItemVariants = cva(
         row: "min-h-10 w-full justify-start rounded-2xl px-3 py-2 text-left leading-snug whitespace-normal focus-visible:ring-inset",
         tab: "min-h-11 justify-center rounded-none px-3 whitespace-nowrap focus-visible:ring-inset md:rounded-2xl",
         icon: "size-10 justify-center rounded-full p-0 focus-visible:ring-inset",
-        step: "flex min-w-0 rounded-2xl border px-4 py-3 text-sm uppercase tracking-[0.14em] lg:gap-2 lg:px-3 lg:text-xs lg:tracking-[0.08em]",
+        step: "flex h-full min-w-0 rounded-2xl border px-4 py-3 text-sm uppercase tracking-[0.14em] lg:gap-2 lg:px-3 lg:text-xs lg:tracking-[0.08em]",
       },
       tone: {
         neutral: "",

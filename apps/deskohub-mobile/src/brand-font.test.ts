@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { brandFontFamilies, brandFonts } from "@deskohub/brand-tokens";
 import appJson from "../app.json";
+import { fontWeights } from "./ui/tokens";
 
 const appRoot = join(import.meta.dir, "..");
 const brandFontPath = "./assets/fonts/Sculpin.ttf";
@@ -45,7 +46,7 @@ const readFontFamilyName = (font: Buffer): string => {
 };
 
 describe("brand font", () => {
-  test("embeds the brand face on iOS and Android under the family and weights the theme uses", () => {
+  test("embeds the brand face on iOS and Android under the family and every weight the app draws", () => {
     expect(fontPluginOptions()).toEqual({
       ios: { fonts: [brandFontPath] },
       android: {
@@ -53,10 +54,15 @@ describe("brand font", () => {
           {
             fontFamily: brandFontFamilies.native,
             path: brandFontPath,
-            // One face per weight the brand text uses, drawn at that weight.
+            // One face per weight the type scale or the legacy theme draws.
             fontDefinitions: [
-              ...new Set(Object.values(brandFonts.weights)),
-            ].map((weight) => ({ weight })),
+              ...new Set<number>([
+                ...fontWeights,
+                ...Object.values(brandFonts.weights),
+              ]),
+            ]
+              .sort((a, b) => a - b)
+              .map((weight) => ({ weight })),
           },
         ],
       },

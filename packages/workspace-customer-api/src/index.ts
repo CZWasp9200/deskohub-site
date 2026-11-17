@@ -1,6 +1,7 @@
 export {
   AccountPasskey,
   CustomerAccountApi,
+  CustomerAccountDataExport,
   CustomerAccountDeletionResult,
   CustomerAccountFeature,
   CustomerAccountLinkRequired,
@@ -15,6 +16,7 @@ export {
   CustomerAvatarRejected,
   CustomerAvatarRejectionReason,
   CustomerAvatarUpload,
+  CustomerDataExportUnavailable,
   CustomerFeatureUnavailable,
   CustomerLocaleUpdated,
   CustomerMarketingConsentStatus,
@@ -48,18 +50,22 @@ export {
   CustomerAvailability,
   CustomerAvailabilityNotice,
   CustomerAvailabilityQuery,
+  CustomerBookableDates,
   CustomerBookingOfferings,
   CustomerBookingQuote,
   CustomerLegalDocument,
   CustomerLegalDocuments,
   CustomerMeetingRoomStartTimes,
+  CustomerMeetingRoomUnavailableDates,
   CustomerOffering,
   CustomerOfferingAddOn,
+  CustomerOfferingFact,
   customerAvailabilityReplacementHeader,
 } from "./customer-booking-catalog-api";
 export {
   AcceptCustomerCheckoutPriceChange,
   ApplyCustomerCheckoutDiscountCode,
+  ClearCustomerCheckoutDiscountCode,
   CreateCustomerCheckout,
   CustomerCheckout,
   CustomerCheckoutBilling,
@@ -87,6 +93,7 @@ export {
   CustomerBookingSelection,
   CustomerBookingSelectionInvalid,
   CustomerBookingSelectionQuery,
+  CustomerCoworkStay,
   CustomerMeetingRoomDuration,
   CustomerMonitorOption,
   CustomerOfferingUnavailable,
@@ -98,7 +105,24 @@ export {
   CustomerCheckoutSummary,
   CustomerCheckoutSummaryDiscount,
   CustomerCheckoutSummaryItem,
+  CustomerVatStatus,
 } from "./customer-checkout-summary";
+export {
+  CustomerCompaniesApi,
+  CustomerCompanyDetails,
+  CustomerCompanyIdInvalid,
+  CustomerCompanyNotFound,
+  CustomerCompanyRegistryUnavailable,
+} from "./customer-companies-api";
+export {
+  CustomerInvoice,
+  CustomerInvoicedReservation,
+  CustomerInvoiceId,
+  CustomerInvoiceList,
+  CustomerInvoiceNotFound,
+  CustomerInvoicesApi,
+  CustomerInvoiceTotal,
+} from "./customer-invoices-api";
 export { CustomerLocale, customerSignInLocaleHeader } from "./customer-locale";
 export {
   accountPhoneRegion,
@@ -116,13 +140,20 @@ export {
 } from "./customer-profile";
 export {
   CustomerAccessCodeUnavailable,
+  CustomerBookedSelection,
   CustomerCoworkTier,
+  CustomerEstablishment,
   CustomerInvoiceNotIssued,
   CustomerInvoicePdf,
   CustomerOrderFulfillmentStatus,
   CustomerOrderPaymentStatus,
   CustomerOrderState,
   CustomerOrderStatus,
+  CustomerPaymentPage,
+  CustomerPaymentPageClosed,
+  CustomerPaymentPageClosedReason,
+  CustomerPaymentRetryRefused,
+  CustomerPaymentRetryRefusedReason,
   CustomerReservationAccess,
   CustomerReservationHistory,
   CustomerReservationKind,
@@ -133,6 +164,8 @@ export {
   CustomerReservationStatus,
   CustomerReservationSummary,
   CustomerReservationsApi,
+  ReopenCustomerPaymentPage,
+  RetryCustomerPayment,
 } from "./customer-reservations-api";
 export {
   CurrentCustomerSession,

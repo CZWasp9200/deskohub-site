@@ -1,11 +1,15 @@
 import { Stack } from "expo-router";
+import { accountStackAnchor } from "../../../../src/account/account-root";
+import { SignOutButton } from "../../../../src/account/sign-out-button";
 import { useAppLocale } from "../../../../src/i18n/locale-context";
 import { m } from "../../../../src/i18n/messages";
 import { stackScreenOptions } from "../../../../src/ui/navigation";
 
-// A link straight to a deeper screen, such as a reservation from a payment
-// return, keeps this stack's index behind it for Back.
-export const unstable_settings = { anchor: "index" };
+const renderSignOutButton = () => <SignOutButton />;
+
+// A link straight to a section, such as billing or referrals, keeps the
+// Account root behind it for Back (see `accountStackAnchor`).
+export const unstable_settings = { anchor: accountStackAnchor };
 
 export default function AccountSectionsLayout() {
   const locale = useAppLocale();
@@ -13,11 +17,18 @@ export default function AccountSectionsLayout() {
     <Stack screenOptions={stackScreenOptions(locale)}>
       <Stack.Screen
         name="index"
-        options={{ title: m.account_tab_account({}, { locale }) }}
+        options={{
+          title: m.account_tab_account({}, { locale }),
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="profile"
-        options={{ title: m.account_section_profile({}, { locale }) }}
+        options={{
+          title: m.account_section_profile({}, { locale }),
+          // Checkout's own route to the profile leaves it out.
+          headerRight: renderSignOutButton,
+        }}
       />
       <Stack.Screen
         name="language"
@@ -28,8 +39,8 @@ export default function AccountSectionsLayout() {
         options={{ title: m.account_section_billing({}, { locale }) }}
       />
       <Stack.Screen
-        name="complete"
-        options={{ title: m.account_section_complete({}, { locale }) }}
+        name="invoices"
+        options={{ title: m.account_section_invoices({}, { locale }) }}
       />
       <Stack.Screen
         name="security"

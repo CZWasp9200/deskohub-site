@@ -5,14 +5,12 @@ import {
   type AdministrationHref,
   administrationHref,
 } from "@/features/administration/administration-href";
+import { CustomerSearch } from "@/features/administration/customer-search";
 import { m } from "@/features/administration/i18n";
 import { useRouteLocale } from "@/features/i18n/route-locale";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
-import {
-  CustomerPromotionCodeAction,
-  CustomerSearch,
-} from "./customer-admin-client";
+import { CustomerPromotionCodeAction } from "./customer-admin-client";
 import { formatDiscountAdminCustomerName } from "./customer-display-name";
 import type { CustomerPromotionCode } from "./customer-promotion-dialog";
 

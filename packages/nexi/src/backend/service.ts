@@ -16,7 +16,10 @@ import type {
   OrderResponse,
   OrderStatus,
 } from "../generated/effect.gen";
-import { isNexiRefundOperation } from "../refunds";
+import {
+  isFailedNexiPaymentOperation,
+  isNexiFailureResult,
+} from "../payment-operations";
 import type {
   CreateHostedPaymentPageInput,
   GetNexiOperationInput,
@@ -68,17 +71,6 @@ const decodeNexiOperationId = decodeProviderIdentifier(
   NexiOperationIdSchema,
   "NexiService.decodeOperationId"
 );
-
-const failureOperationResults = new Set([
-  "DECLINED",
-  "DENIED_BY_RISK",
-  "DENIED",
-  "THREEDS_FAILED",
-  "FAILED",
-  "CANCELED",
-  "VOIDED",
-  "REFUNDED",
-]);
 
 const isRetryableNexiError = (error: ExternalAPIError | NetworkError) =>
   Match.value(error).pipe(
@@ -386,9 +378,6 @@ export class NexiService extends Context.Service<
   );
 }
 
-const isFailureStatus = (status: string | undefined) =>
-  status ? failureOperationResults.has(status.toUpperCase()) : false;
-
 const isPaymentOperationType = (operationType: string | undefined) =>
   operationType === AUTHORIZATION_OPERATION_TYPE ||
   operationType === CAPTURE_OPERATION_TYPE;
@@ -436,17 +425,10 @@ const isExecutedPaymentOperation = (operation: Operation) =>
   isPaymentOperationType(operation.operationType) &&
   operation.operationResult === EXECUTED_OPERATION_RESULT;
 
-// A refund's result describes money going back, not the payment outcome: a
-// back-office refund before settlement reports `VOIDED`, which must never
-// read as a failed payment.
-const isFailedPaymentOperation = (operation: Operation) =>
-  !isNexiRefundOperation(operation) &&
-  isFailureStatus(operation.operationResult);
-
 /** The first executed payment operation and the first failed one. */
 const selectPaymentOperations = (operations: readonly Operation[]) => ({
   executedPaymentOperation: operations.find(isExecutedPaymentOperation),
-  failedOperation: operations.find(isFailedPaymentOperation),
+  failedOperation: operations.find(isFailedNexiPaymentOperation),
 });
 
 type PaymentOperations = ReturnType<typeof selectPaymentOperations>;
@@ -532,7 +514,7 @@ const resolvePaymentOutcomeStatus = ({
 }): PaymentOutcomeStatus => {
   if (mismatches.length > 0) return "failure";
   if (executedPaymentOperation) return "success";
-  if (failedOperation || isFailureStatus(providerStatus)) return "failure";
+  if (failedOperation || isNexiFailureResult(providerStatus)) return "failure";
   return "pending";
 };
 

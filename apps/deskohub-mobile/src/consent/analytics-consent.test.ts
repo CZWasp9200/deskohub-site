@@ -7,6 +7,7 @@ import {
   type ConsentStorage,
   consentChoiceMark,
   createAnalyticsConsent,
+  decisionToTake,
   type StoredConsent,
   withAnalyticsChoice,
 } from "./analytics-consent";
@@ -324,5 +325,52 @@ describe("consentChoiceMark", () => {
     expect(consentChoiceMark(undefined)).not.toBe(
       consentChoiceMark({ kind: "undecided" })
     );
+  });
+});
+
+describe("decisionToTake", () => {
+  const decidedAt = "2026-11-09T07:15:30.123Z";
+  const grant = { analytics: true, decidedAt };
+  const withdrawal = { analytics: false, decidedAt };
+  const accepted: StoredConsent = {
+    kind: "decided",
+    categories: ["necessary", "analytics"],
+  };
+  const refused: StoredConsent = { kind: "decided", categories: ["necessary"] };
+
+  test("takes a grant only where there was no choice", () => {
+    expect(decisionToTake({ kind: "undecided" }, grant)).toBe(grant);
+    expect(decisionToTake(accepted, grant)).toBeUndefined();
+    expect(decisionToTake(refused, grant)).toBeUndefined();
+  });
+
+  test("takes a withdrawal only over a choice that accepted analytics", () => {
+    expect(decisionToTake(accepted, withdrawal)).toBe(withdrawal);
+    expect(decisionToTake(refused, withdrawal)).toBeUndefined();
+    expect(decisionToTake({ kind: "undecided" }, withdrawal)).toBeUndefined();
+  });
+});
+
+describe("applyAppDecision", () => {
+  test("stores the app's answer dated as given, announced as the app's", async () => {
+    const { storage, writes } = memoryStorage({ kind: "undecided" });
+    const consent = create(storage);
+    const changes: ConsentChange[] = [];
+    consent.subscribe((change) => changes.push(change));
+
+    await consent.applyAppDecision({
+      analytics: true,
+      decidedAt: "2026-11-02T10:30:00+01:00",
+    });
+
+    expect(writes).toEqual([
+      {
+        categories: ["necessary", "analytics"],
+        decidedAt: "2026-11-02T10:30:00+01:00",
+        locale: "cs-CZ",
+      },
+    ]);
+    expect(changes).toEqual(["app"]);
+    expect(consent.status()).toBe("granted");
   });
 });

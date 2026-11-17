@@ -48,7 +48,7 @@ describe("initialCalendarMonth", () => {
 });
 
 describe("monthCalendarModel", () => {
-  test("marks days before the earliest and after the latest as outside the range", () => {
+  test("marks days before the earliest as past and after the latest as outside the range", () => {
     const states = statesByDate(
       monthCalendarModel({
         month: { year: 2026, month: 11 },
@@ -57,7 +57,7 @@ describe("monthCalendarModel", () => {
       })
     );
 
-    expect(states.get("2026-11-06")).toBe("outside-range");
+    expect(states.get("2026-11-06")).toBe("past");
     expect(states.get("2026-11-07")).toBe("available");
     expect(states.get("2026-11-20")).toBe("available");
     expect(states.get("2026-11-21")).toBe("outside-range");
@@ -80,6 +80,7 @@ describe("monthCalendarModel", () => {
       "2026-11-30",
       "outside-range",
     ],
+    ["a selected day in the past", "2026-11-03", "2026-11-03", "past"],
   ])("gives %s its state", (_, date, selected, expected) => {
     const states = statesByDate(
       monthCalendarModel({
@@ -90,6 +91,19 @@ describe("monthCalendarModel", () => {
     );
 
     expect(states.get(date)).toBe(expected);
+  });
+
+  test("selects no day without a selection", () => {
+    const states = statesByDate(
+      monthCalendarModel({
+        month: { year: 2026, month: 11 },
+        dates: dateChoice("2026-11-10", "2026-11-30", ["2026-11-20"]),
+        selected: undefined,
+        today: "2026-11-10",
+      })
+    );
+
+    expect([...states.values()]).not.toContain("selected");
   });
 
   test("selects only the selected day", () => {
@@ -162,7 +176,7 @@ describe("monthCalendarModel", () => {
     expect(weeks).toHaveLength(5);
     expect(weeks.every((week) => week.length === 7)).toBe(true);
     expect(firstWeek.slice(0, 6).every(Option.isNone)).toBe(true);
-    expect(Option.getOrUndefined(firstWeek[6] ?? Option.none())).toEqual({
+    expect(Option.getOrUndefined(firstWeek[6] ?? Option.none())).toMatchObject({
       date: "2026-02-01",
       day: 1,
       state: "available",
@@ -182,5 +196,97 @@ describe("monthCalendarModel", () => {
         .flatMap((cell) => Option.toArray(cell))
         .map((day) => day.day)
     ).toEqual(Array.from({ length: 28 }, (_, index) => index + 1));
+  });
+
+  const days = (model: ReturnType<typeof monthCalendarModel>) =>
+    new Map(
+      model.weeks
+        .flat()
+        .flatMap((cell) => Option.toArray(cell))
+        .map((day) => [day.date, day] as const)
+    );
+
+  test("marks today alone, whatever its state", () => {
+    const november = days(
+      monthCalendarModel({
+        month: { year: 2026, month: 11 },
+        dates: dateChoice("2026-11-11", "2026-11-30"),
+        selected: undefined,
+        today: "2026-11-10",
+      })
+    );
+
+    expect(
+      [...november.values()].filter((day) => day.today).map((day) => day.date)
+    ).toEqual(["2026-11-10"]);
+    expect(november.get("2026-11-10")?.state).toBe("past");
+  });
+
+  test("bands an inclusive range from its start to its end", () => {
+    const november = days(
+      monthCalendarModel({
+        month: { year: 2026, month: 11 },
+        dates: dateChoice("2026-11-10", "2026-11-30"),
+        selected: "2026-11-23",
+        range: { start: "2026-11-23", end: "2026-11-25" },
+      })
+    );
+    const part = (date: PragueDate) =>
+      Option.getOrUndefined(november.get(date)?.range ?? Option.none());
+
+    expect(
+      [
+        "2026-11-22",
+        "2026-11-23",
+        "2026-11-24",
+        "2026-11-25",
+        "2026-11-26",
+      ].map(part)
+    ).toEqual([undefined, "start", "middle", "end", undefined]);
+  });
+
+  test("draws no band for a range of one day", () => {
+    const november = days(
+      monthCalendarModel({
+        month: { year: 2026, month: 11 },
+        dates: dateChoice("2026-11-10", "2026-11-30"),
+        selected: "2026-11-23",
+        range: { start: "2026-11-23", end: "2026-11-23" },
+      })
+    );
+
+    expect([...november.values()].some((day) => Option.isSome(day.range))).toBe(
+      false
+    );
+  });
+
+  test("keeps an unavailable day in a range unavailable and out of the band", () => {
+    const day = days(
+      monthCalendarModel({
+        month: { year: 2026, month: 11 },
+        dates: dateChoice("2026-11-10", "2026-11-30", ["2026-11-24"]),
+        selected: "2026-11-23",
+        range: { start: "2026-11-23", end: "2026-11-25" },
+      })
+    ).get("2026-11-24");
+
+    expect(day?.state).toBe("unavailable");
+    expect(day && Option.isNone(day.range)).toBe(true);
+  });
+
+  test("focuses only the focused day, leaving its state as it is", () => {
+    const november = days(
+      monthCalendarModel({
+        month: { year: 2026, month: 11 },
+        dates: dateChoice("2026-11-10", "2026-11-30", ["2026-11-20"]),
+        selected: undefined,
+        focused: "2026-11-20",
+      })
+    );
+
+    expect(
+      [...november.values()].filter((day) => day.focused).map((day) => day.date)
+    ).toEqual(["2026-11-20"]);
+    expect(november.get("2026-11-20")?.state).toBe("unavailable");
   });
 });

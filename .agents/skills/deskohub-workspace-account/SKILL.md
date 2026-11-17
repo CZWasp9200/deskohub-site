@@ -1,6 +1,6 @@
 ---
 name: deskohub-workspace-account
-description: Workspace customer account, current customer account standing, CurrentCustomerAccount, Better Auth, magic link, sign-in, session, auth persistence, customer account link, durable customer account, customer_accounts, deleted-account tombstone, reservation author storage, profile, avatar, account deletion, account data export, reservation history, /account/legal preferences, account analytics preference, analytics opt-out, saved language preference, signed-in locale, auth retention or PII, PostHog identity, OAuth server, MCP authorization, customer HTTP API, /api/customer, AI agent or assistant connection, consent page, CIMD, access token, well-known discovery, data transfers outside the EU, third-country transfer, DPF, SCC, provider region.
+description: Workspace customer account, current customer account standing, CurrentCustomerAccount, Better Auth, magic link, sign-in, session, auth persistence, customer account link, durable customer account, customer_accounts, deleted-account tombstone, reservation author storage, profile, avatar, account deletion, account data export, reservation history, /account/legal preferences, account analytics preference, analytics opt-out, saved language preference, signed-in locale, auth retention or PII, PostHog identity, OAuth server, MCP authorization, customer HTTP API, /api/customer, AI agent or assistant connection, consent page, CIMD, access token, well-known discovery, data transfers outside the EU, third-country transfer, DPF, SCC, provider region, email processor.
 ---
 
 # Workspace customer accounts
@@ -57,7 +57,15 @@ Paths are relative to `apps/deskohub-workspace` unless they start with
   `withOptionalAccount`, read the contact with
   `CustomerAccountContactService.current` or the standing with
   `CurrentCustomerAccount.peek`, and never resolve through
-  `CustomerAccountResolver` or `CurrentCustomerAccount.resolve`.
+  `CurrentCustomerAccount.resolve` or `requireLinkedCustomerAccount`.
+- Supply a channel's `CustomerAuthentication` to the account services in
+  one place: agents through `customerAgentAccountServices`, customer API
+  handlers to Layer seams, site callers through `Live` or one
+  `CustomerAuthentication.Default` over `ForProvidedAuthentication` Layers
+  (see [authentication supply](references/account-domain-and-routes.md#authentication-supply)).
+  A signed-in agent tool call builds its account services in its own memo
+  map (`local: true` in `defineSignedInAgentTool`); never take a caller's
+  account service from the MCP route's services, which are browser-backed.
 - Keep Drizzle as the only migration authority. Never run Better Auth runtime
   migrations.
 - Prefer Better Auth, Effect, and Next built-in APIs over hand-rolled
@@ -77,7 +85,8 @@ Paths are relative to `apps/deskohub-workspace` unless they start with
 Read the reference that matches your change before editing:
 
 - [Account domain and routes](references/account-domain-and-routes.md):
-  account standing (`CurrentCustomerAccount`), customer resolution, link claims, the durable customer account and
+  account standing (`CurrentCustomerAccount`), customer resolution, how each
+  channel supplies the account services' authentication, link claims, the durable customer account and
   reservation authors, the public error contract, account pages
   and modals, the `/account/legal` preferences (account analytics
   preference, opt-out, cross-device withdrawal), header sign-in state,
@@ -100,7 +109,8 @@ Read the reference that matches your change before editing:
   consent pages, the token-to-customer adapter, revocation, and cleanup.
 - [Privacy and retention](references/privacy-and-retention.md): what each
   system retains, the transfers-outside-the-EU inventory, Neon preview copies,
-  Resend, Dotypos expiry, and privacy-copy obligations.
+  Resend and PostHog as email processors, Dotypos expiry, and privacy-copy
+  obligations.
 - [Customer HTTP API](references/customer-http-api.md): adding an endpoint
   to `/api/customer` and `@deskohub/workspace-customer-api` (the native app's
   API), its handler group, budget class, origin and client-header checks,
@@ -112,7 +122,8 @@ Read the reference that matches your change before editing:
   staging, promotion, recovery, and deletion ordering.
 - [PostHog identity and privacy](references/posthog-identity-privacy.md):
   analytics consent, identity transitions, event and property limits, flag
-  requests, ingest host isolation, and the Dotypos customer warehouse source.
+  requests, ingest host isolation, the Dotypos customer warehouse source, and
+  campaign email through PostHog (send identity, engagement events).
 
 Upstream docs: [Next.js integration](https://better-auth.com/docs/integrations/next),
 [Drizzle adapter](https://better-auth.com/docs/adapters/drizzle),

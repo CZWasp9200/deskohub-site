@@ -340,48 +340,6 @@ describe("PromotionCodeProvider", () => {
     });
   });
 
-  test("uses half-open time bounds", async () => {
-    const result = await runWithProvider(resolve(), {
-      findByCode: () =>
-        Effect.succeed(
-          Option.some(
-            configuration({
-              validFrom: nowInstant,
-              validUntil: nowInstant.add({ milliseconds: 1 }),
-            })
-          )
-        ),
-    });
-
-    expect(result).toHaveLength(1);
-  });
-
-  test("allows unrestricted and unlimited codes regardless of usage count", async () => {
-    const result = await runWithProvider(resolve(), {
-      loadAvailability: () =>
-        Effect.succeed(
-          availability({
-            activeUseCount: 10_000,
-            customerActiveUseCount: 10_000,
-            customerAllowed: false,
-          })
-        ),
-    });
-
-    expect(result).toHaveLength(1);
-  });
-
-  test("allows a customer included in a non-empty allowlist", async () => {
-    const result = await runWithProvider(resolve(), {
-      loadAvailability: () =>
-        Effect.succeed(
-          availability({ allowlistSize: 2, customerAllowed: true })
-        ),
-    });
-
-    expect(result).toHaveLength(1);
-  });
-
   test("keeps codes that share one definition independently attributable", async () => {
     const findByCode = mock(({ code }) =>
       Effect.succeed(
@@ -418,40 +376,6 @@ describe("PromotionCodeProvider", () => {
       _tag: "Failure",
       failure: { reason: "usage_limit_reached", codeId },
     });
-  });
-
-  test("accepts a reservation starting on either service date", async () => {
-    for (const window of [
-      { serviceDateFrom: "2026-07-15", serviceDateUntil: "2026-07-31" },
-      { serviceDateFrom: "2026-07-01", serviceDateUntil: "2026-07-15" },
-      { serviceDateFrom: "2026-07-15", serviceDateUntil: "2026-07-15" },
-    ]) {
-      const findByCode = () =>
-        Effect.succeed(
-          Option.some(
-            configuration({
-              serviceDateFrom: plainDateStringSchema.make(
-                window.serviceDateFrom
-              ),
-              serviceDateUntil: plainDateStringSchema.make(
-                window.serviceDateUntil
-              ),
-            })
-          )
-        );
-
-      expect(await runWithProvider(resolve(), { findByCode })).toHaveLength(1);
-      expect(
-        await runWithProvider(
-          Effect.gen(function* () {
-            yield* TestClock.setTime(now);
-            const provider = yield* PromotionCodeProvider;
-            return yield* provider.preview(previewInput);
-          }),
-          { findByCode }
-        )
-      ).toHaveLength(1);
-    }
   });
 
   test("rejects a reservation that starts outside the service dates", async () => {

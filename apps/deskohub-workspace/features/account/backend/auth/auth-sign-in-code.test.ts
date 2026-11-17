@@ -38,6 +38,7 @@ type AuthRequestBody = {
   readonly metadata?: {
     readonly locale?: string;
     readonly signInCode?: boolean;
+    readonly nextSignInEmailAt?: string;
   };
   readonly name?: string;
   readonly image?: string;
@@ -353,9 +354,80 @@ describe("sign-in code gate", () => {
       metadata: { locale: "cs-CZ", signInCode: false },
     });
 
-    expect(await response.json()).toEqual({ status: true, signInCode: true });
+    expect(await response.json()).toEqual({
+      status: true,
+      signInCode: true,
+      nextSignInEmailAt: expect.any(String),
+    });
     expect(sentLinks[0]!.code).toMatch(/^\d{6}$/);
     expect(sentLinks[0]!.url).toContain("/magic-link/verify");
+  });
+
+  test("answers when the address takes its next email while codes are on", async () => {
+    const { auth } = makeMemoryTestAuth({
+      sentLinks: [],
+      signInCodeFlag: Effect.succeed(true),
+    });
+    const email = uniqueEmail("code-next-email");
+    const nextEmailAt = async (response: Response) =>
+      Date.parse(
+        ((await response.json()) as { readonly nextSignInEmailAt: string })
+          .nextSignInEmailAt
+      );
+
+    const sentFrom = Date.now();
+    // The server's instant replaces any the client sends.
+    const first = await sendSignInEmail(auth, email, {
+      metadata: {
+        locale: "en-US",
+        nextSignInEmailAt: "2000-01-01T00:00:00.000Z",
+      },
+    });
+    const sentUntil = Date.now();
+    expect(first.status).toBe(200);
+    const firstNext = await nextEmailAt(first);
+    expect(firstNext).toBeGreaterThanOrEqual(sentFrom);
+    expect(firstNext).toBeLessThanOrEqual(sentUntil);
+
+    for (let send = 1; send < signInEmailLimit.max - 1; send += 1) {
+      expect((await sendSignInEmail(auth, email)).status).toBe(200);
+    }
+    const reachingLimit = await sendSignInEmail(auth, email);
+    expect(reachingLimit.status).toBe(200);
+    const oldestExpiry = await nextEmailAt(reachingLimit);
+    expect(oldestExpiry).toBeGreaterThanOrEqual(
+      sentFrom + signInEmailLimit.window * 1000
+    );
+    expect(oldestExpiry).toBeLessThanOrEqual(
+      sentUntil + signInEmailLimit.window * 1000
+    );
+
+    const refused = await sendSignInEmail(auth, email);
+    expect(refused.status).toBe(429);
+    const refusal = (await refused.json()) as {
+      readonly code?: string;
+      readonly nextSignInEmailAt?: string;
+    };
+    expect(refusal.code).toBe("SIGN_IN_EMAIL_LIMIT_REACHED");
+    expect(new Date(refusal.nextSignInEmailAt!).toISOString()).toBe(
+      refusal.nextSignInEmailAt!
+    );
+    expect(Date.parse(refusal.nextSignInEmailAt!)).toBe(oldestExpiry);
+  });
+
+  test("omits the next email instant with codes off, whatever the client sends", async () => {
+    const { auth } = makeMemoryTestAuth({ sentLinks: [] });
+
+    const response = await sendSignInEmail(auth, uniqueEmail("code-off-next"), {
+      metadata: {
+        locale: "en-US",
+        signInCode: true,
+        nextSignInEmailAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: true, signInCode: false });
   });
 
   test("returns 404 for every email-OTP endpoint except code sign-in", async () => {
@@ -494,7 +566,11 @@ describe.skipIf(!testDatabase)(
         email,
         callbackURL,
       });
-      expect(await sent.json()).toEqual({ status: true, signInCode: true });
+      expect(await sent.json()).toEqual({
+        status: true,
+        signInCode: true,
+        nextSignInEmailAt: expect.any(String),
+      });
       const response = await nativePost("/sign-in/email-otp", {
         email,
         otp: sentLinks[0]!.code,
@@ -524,9 +600,17 @@ describe.skipIf(!testDatabase)(
         callbackURL,
         metadata: { locale: "cs-CZ" },
       });
-      expect(await sent.json()).toEqual({ status: true, signInCode: true });
+      expect(await sent.json()).toEqual({
+        status: true,
+        signInCode: true,
+        nextSignInEmailAt: expect.any(String),
+      });
       const [captured] = sentLinks;
-      expect(captured?.metadata).toEqual({ locale: "cs-CZ", signInCode: true });
+      expect(captured?.metadata).toEqual({
+        locale: "cs-CZ",
+        signInCode: true,
+        nextSignInEmailAt: expect.any(String),
+      });
 
       const { text } = await Effect.runPromise(
         renderMagicLinkEmail({
@@ -620,8 +704,8 @@ describe.skipIf(!testDatabase)(
       const auth = makeCodeAuth(sentLinks);
       const email = uniqueEmail("code-resend");
 
-      await sendSignInEmail(auth, email);
-      await sendSignInEmail(auth, email);
+      expect((await sendSignInEmail(auth, email)).status).toBe(200);
+      expect((await sendSignInEmail(auth, email)).status).toBe(200);
       const [first, second] = sentLinks;
 
       expect(await verificationIdentifierCount(`sign-in-otp-${email}`)).toBe(1);
@@ -917,13 +1001,26 @@ describe.skipIf(!testDatabase)(
       });
       const email = uniqueEmail("code-cap-on");
 
+      const sentFrom = Date.now();
       for (let send = 0; send < signInEmailLimit.max; send += 1) {
         const accepted = await sendSignInEmail(auth, email);
         expect(accepted.status).toBe(200);
       }
       const capped = await sendSignInEmail(auth, email.toUpperCase());
       expect(capped.status).toBe(429);
-      expect(await errorCode(capped)).toBe("SIGN_IN_EMAIL_LIMIT_REACHED");
+      const refusal = (await capped.json()) as {
+        readonly code?: string;
+        readonly nextSignInEmailAt?: string;
+      };
+      expect(refusal.code).toBe("SIGN_IN_EMAIL_LIMIT_REACHED");
+      // The oldest send's expiry, read back from the database.
+      const nextEmailAt = Date.parse(refusal.nextSignInEmailAt!);
+      expect(nextEmailAt).toBeGreaterThanOrEqual(
+        sentFrom + signInEmailLimit.window * 1000
+      );
+      expect(nextEmailAt).toBeLessThanOrEqual(
+        Date.now() + signInEmailLimit.window * 1000
+      );
       expect(sentLinks).toHaveLength(signInEmailLimit.max);
       expect(checks).toEqual(
         Array.from(

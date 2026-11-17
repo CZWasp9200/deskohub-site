@@ -5,6 +5,10 @@ import { DotyposReservationIdSchema } from "@deskohub/dotypos";
 import { m } from "@/features/i18n";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import {
+  formatReservationDisplayDate,
+  formatReservationDisplayDateTimeRange,
+} from "@/features/reservation/reservation-date";
+import {
   type ReservationEmailReservation,
   reservationEmailDetails,
 } from "./reservation-email-details";
@@ -57,6 +61,38 @@ describe("reservation email details", () => {
     expect(rows).toContainEqual({
       label: m.reservationEmailSeatsLabel({}, { locale: "en-US" }),
       value: "3",
+    });
+  });
+
+  test("dates an overnight Reserved Desk stay from its start to its end", () => {
+    const dateLabel = m.reservationEmailDateLabel({}, { locale: "en-US" });
+    const reservedDesk = {
+      kind: "cowork",
+      entryTier: "reserved-desk",
+      coffee: false,
+    } as const;
+    const overnight = makeReservation({
+      reservationDetails: reservedDesk,
+      reservedFrom: Temporal.Instant.from("2026-06-12T10:00:00Z"),
+      reservedUntil: Temporal.Instant.from("2026-06-13T10:00:00Z"),
+    });
+    const day = makeReservation({
+      reservationDetails: reservedDesk,
+      reservedFrom: Temporal.Instant.from("2026-06-11T22:00:00Z"),
+      reservedUntil: Temporal.Instant.from("2026-06-12T22:00:00Z"),
+    });
+
+    expect(reservationEmailDetails(overnight, "en-US")).toContainEqual({
+      label: dateLabel,
+      value: formatReservationDisplayDateTimeRange(
+        overnight.reservedFrom,
+        overnight.reservedUntil,
+        "en-US"
+      ),
+    });
+    expect(reservationEmailDetails(day, "en-US")).toContainEqual({
+      label: dateLabel,
+      value: formatReservationDisplayDate(day.reservedFrom, "en-US"),
     });
   });
 

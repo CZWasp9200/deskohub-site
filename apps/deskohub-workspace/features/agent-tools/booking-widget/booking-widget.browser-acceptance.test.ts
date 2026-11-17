@@ -350,13 +350,15 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
           .getByRole("status")
           .getByText(m.bookingWidgetHeld({ expiresAt }, { locale }))
           .waitFor();
-        await expect(
-          view.getByText(reservationResult().pay_url, { exact: true }).count()
-        ).resolves.toBe(1);
+        expect(
+          await view
+            .getByText(reservationResult().pay_url, { exact: true })
+            .count()
+        ).toBe(1);
         await capture(page, `reserve-held-${locale}`);
 
         await payLink.click();
-        await expect(linkOpened).resolves.toBe(reservationResult().pay_url);
+        expect(await linkOpened).toBe(reservationResult().pay_url);
       } finally {
         await page.close();
       }
@@ -374,16 +376,18 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
             name: m.bookingWidgetOpenReservationPage({}, { locale }),
           })
           .waitFor();
-        await expect(
-          view
+        expect(
+          await view
             .getByRole("button", {
               name: m.bookingWidgetReserve({}, { locale }),
             })
             .count()
-        ).resolves.toBe(0);
-        await expect(
-          view.getByText(quoteResult().reservation_url, { exact: true }).count()
-        ).resolves.toBe(1);
+        ).toBe(0);
+        expect(
+          await view
+            .getByText(quoteResult().reservation_url, { exact: true })
+            .count()
+        ).toBe(1);
         expect(calls.map(({ name }) => name)).not.toContain(
           "start_reservation"
         );
@@ -402,36 +406,36 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
           chatgptBridge: true,
         });
         try {
-          await expect(
-            view.locator("html").getAttribute("data-theme")
-          ).resolves.toBe(theme);
+          expect(await view.locator("html").getAttribute("data-theme")).toBe(
+            theme
+          );
           await checkAvailability(view, locale);
           const reservationPageLink = view.getByRole("link", {
             name: m.bookingWidgetOpenReservationPage({}, { locale }),
           });
           await reservationPageLink.waitFor();
-          await expect(
-            view
+          expect(
+            await view
               .getByRole("link")
               .evaluateAll((links) =>
                 links.map((link) => link.getAttribute("href"))
               )
-          ).resolves.toEqual([quoteResult().reservation_url]);
-          await expect(
-            view
+          ).toEqual([quoteResult().reservation_url]);
+          expect(
+            await view
               .getByRole("button", {
                 name: m.bookingWidgetReserve({}, { locale }),
               })
               .count()
-          ).resolves.toBe(0);
+          ).toBe(0);
           // ChatGPT's directory admits no checkout copy.
-          await expect(view.locator("body").innerText()).resolves.not.toMatch(
+          expect(await view.locator("body").innerText()).not.toMatch(
             /\bpa(y|id)|payment|zaplat|platb/i
           );
           await capture(page, `chatgpt-reservation-page-${theme}-${locale}`);
 
           await reservationPageLink.click();
-          await expect(linkOpened).resolves.toBe(quoteResult().reservation_url);
+          expect(await linkOpened).toBe(quoteResult().reservation_url);
           expect(calls.map(({ name }) => name)).toEqual([
             "check_availability",
             "get_quote",
@@ -478,11 +482,11 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
       await checkAvailability(view, "en-US");
       // Off the button, which shows its hover tint after the click.
       await page.mouse.move(0, 0);
-      await expect(colors(body)).resolves.toEqual([
+      expect(await colors(body)).toEqual([
         "rgb(255, 255, 255)",
         "rgb(31, 30, 29)",
       ]);
-      await expect(colors(checkButton)).resolves.toEqual([
+      expect(await colors(checkButton)).toEqual([
         "rgb(184, 59, 6)",
         "rgb(255, 255, 255)",
       ]);
@@ -490,18 +494,18 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
 
       // In a dark host the accent turns light and the text on it dark.
       await changeTheme("dark");
-      await expect(colors(body)).resolves.toEqual([
+      expect(await colors(body)).toEqual([
         "rgb(38, 38, 36)",
         "rgb(245, 244, 239)",
       ]);
-      await expect(colors(checkButton)).resolves.toEqual([
+      expect(await colors(checkButton)).toEqual([
         "rgb(240, 138, 75)",
         "rgb(20, 21, 42)",
       ]);
       await capture(page, "host-styles-dark-en-US");
 
       await changeTheme("light");
-      await expect(colors(checkButton)).resolves.toEqual([
+      expect(await colors(checkButton)).toEqual([
         "rgb(184, 59, 6)",
         "rgb(255, 255, 255)",
       ]);
@@ -526,7 +530,7 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
         args: { locale: "cs-CZ" },
       });
       const html = view.locator("html");
-      await expect(html.getAttribute("data-theme")).resolves.toBe("dark");
+      expect(await html.getAttribute("data-theme")).toBe("dark");
 
       // ChatGPT announces a theme change on its bridge.
       await html.evaluate(() => {
@@ -537,7 +541,7 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
           })
         );
       });
-      await expect(html.getAttribute("data-theme")).resolves.toBe("light");
+      expect(await html.getAttribute("data-theme")).toBe("light");
     } finally {
       await page.close();
     }
@@ -622,13 +626,13 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
           exact: true,
         })
         .click();
-      await expect(
-        view
+      expect(
+        await view
           .getByRole("radio", {
             name: m.bookingWidgetFamilyMeetingRoom({}, { locale: "en-US" }),
           })
           .isChecked()
-      ).resolves.toBe(true);
+      ).toBe(true);
       await view
         .getByRole("button", {
           name: m.bookingWidgetCheck({}, { locale: "en-US" }),
@@ -640,9 +644,7 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
       await view
         .getByText(m.bookingWidgetStartTimeRequired({}, { locale: "en-US" }))
         .waitFor();
-      await expect(startTime.getAttribute("aria-invalid")).resolves.toBe(
-        "true"
-      );
+      expect(await startTime.getAttribute("aria-invalid")).toBe("true");
       expect(calls).toEqual([]);
     } finally {
       await page.close();
@@ -681,21 +683,21 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
           .click();
         await startTime.fill("11:00");
         await checkAvailability(view, locale);
-        await expect(earlySetup.isDisabled()).resolves.toBe(true);
-        await expect(earlySetup.isChecked()).resolves.toBe(false);
+        expect(await earlySetup.isDisabled()).toBe(true);
+        expect(await earlySetup.isChecked()).toBe(false);
         await capture(page, `early-setup-taken-${locale}`);
 
         await startTime.fill("09:00");
         await checkAvailability(view, locale);
-        await expect(earlySetup.isEnabled()).resolves.toBe(true);
-        await expect(earlySetup.isChecked()).resolves.toBe(false);
+        expect(await earlySetup.isEnabled()).toBe(true);
+        expect(await earlySetup.isChecked()).toBe(false);
         await capture(page, `early-setup-free-${locale}`);
         await earlySetup.check();
         await capture(page, `early-setup-chosen-${locale}`);
 
         await startTime.fill("10:00");
         await checkAvailability(view, locale);
-        await expect(earlySetup.isChecked()).resolves.toBe(true);
+        expect(await earlySetup.isChecked()).toBe(true);
 
         await view
           .getByRole("button", { name: m.bookingWidgetReserve({}, { locale }) })
@@ -715,11 +717,11 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
             locale,
           },
         });
-        await expect(earlySetup.isChecked()).resolves.toBe(true);
-        await expect(earlySetup.isDisabled()).resolves.toBe(true);
+        expect(await earlySetup.isChecked()).toBe(true);
+        expect(await earlySetup.isDisabled()).toBe(true);
         await capture(page, `early-setup-held-${locale}`);
         await payLink.click();
-        await expect(linkOpened).resolves.toBe(reservationResult().pay_url);
+        expect(await linkOpened).toBe(reservationResult().pay_url);
       } finally {
         await page.close();
       }
@@ -752,9 +754,7 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
         .getByRole("alert")
         .getByText(m.bookingWidgetStartFailed({}, { locale: "cs-CZ" }))
         .waitFor();
-      await expect(view.locator("html").getAttribute("lang")).resolves.toBe(
-        "cs-CZ"
-      );
+      expect(await view.locator("html").getAttribute("lang")).toBe("cs-CZ");
       await capture(page, "startup-error-cs-CZ");
     } finally {
       await page.close();
@@ -775,7 +775,7 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
           name: m.bookingWidgetOpenReservationPage({}, { locale: "en-US" }),
         })
         .click();
-      await expect(externalOpened).resolves.toEqual({
+      expect(await externalOpened).toEqual({
         href: quoteResult().reservation_url,
         redirectUrl: false,
       });
@@ -798,10 +798,10 @@ describe.skipIf(!chromiumAvailable)("booking view", () => {
       const link = view.getByRole("link", {
         name: m.bookingWidgetOpenReservationPage({}, { locale: "en-US" }),
       });
-      await expect(link.getAttribute("href")).resolves.toBe(
+      expect(await link.getAttribute("href")).toBe(
         quoteResult().reservation_url
       );
-      await expect(link.getAttribute("target")).resolves.toBe("_blank");
+      expect(await link.getAttribute("target")).toBe("_blank");
       await view
         .getByText(quoteResult().reservation_url, { exact: true })
         .waitFor();

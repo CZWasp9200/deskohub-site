@@ -14,8 +14,8 @@ import {
 import type {
   SiteHeaderAccountEntry,
   SiteHeaderAdministratorEntry,
-  SiteHeaderMenuItem,
 } from "@/shared/components/site-header-config";
+import type { SiteHeaderMenuItem } from "@/shared/components/site-header-links";
 import { SiteHeaderLogo } from "@/shared/components/site-header-logo";
 import { Button } from "@/shared/components/ui/button";
 import { NavItem } from "@/shared/components/ui/nav-item";
@@ -140,7 +140,7 @@ function NavigationLink({
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className="text-balance text-center text-sm uppercase tracking-[0.08em] text-white/76 transition-colors hover:text-sunset-yellow xl:max-2xl:text-xs xl:max-2xl:tracking-[0.05em]"
+      className="whitespace-nowrap text-sm uppercase tracking-[0.08em] text-white/76 transition-colors hover:text-sunset-yellow xl:max-2xl:text-xs xl:max-2xl:tracking-[0.02em]"
       onClick={onClick}
     >
       {label}
@@ -181,7 +181,7 @@ export function SiteHeader({
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 h-(--site-header-height) border-b border-white/10 bg-navy-blue/92 text-white backdrop-blur-md">
-      <div className="mx-auto flex h-full w-full max-w-8xl items-center justify-between gap-3 px-3 sm:gap-4 sm:px-6 lg:px-8 xl:gap-2 xl:px-6 2xl:gap-3">
+      <div className="mx-auto flex h-full w-full max-w-8xl items-center justify-between gap-3 px-3 sm:gap-4 sm:px-6 lg:px-8 xl:gap-2 xl:px-4 2xl:gap-3 2xl:px-6">
         <Link
           href={`/${currentLocale}`}
           aria-label="Deskohub Workspace"
@@ -193,7 +193,7 @@ export function SiteHeader({
 
         <nav
           aria-label={primaryNavigationLabel}
-          className="hidden items-center gap-2.5 xl:flex 2xl:gap-3"
+          className="hidden items-center gap-2.5 xl:flex xl:max-2xl:gap-1.5 2xl:gap-3"
         >
           {links.map((link) => (
             <CurrentPageNavigationLink

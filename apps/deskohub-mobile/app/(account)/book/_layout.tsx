@@ -3,14 +3,14 @@ import { useAppLocale } from "../../../src/i18n/locale-context";
 import { m } from "../../../src/i18n/messages";
 import { stackScreenOptions } from "../../../src/ui/navigation";
 
+/**
+ * Booking a space and its checkout, above the tabs so the tab bar is
+ * hidden. The choice of spaces is the Book tab (`(tabs)/book`).
+ */
 export default function BookLayout() {
   const locale = useAppLocale();
   return (
     <Stack screenOptions={stackScreenOptions(locale)}>
-      <Stack.Screen
-        name="index"
-        options={{ title: m.booking_stack_title({}, { locale }) }}
-      />
       <Stack.Screen
         name="cowork"
         options={{ title: m.booking_family_cowork_title({}, { locale }) }}
@@ -26,6 +26,10 @@ export default function BookLayout() {
       <Stack.Screen
         name="checkout"
         options={{ title: m.booking_stack_checkout_title({}, { locale }) }}
+      />
+      <Stack.Screen
+        name="profile"
+        options={{ title: m.account_section_profile({}, { locale }) }}
       />
     </Stack>
   );

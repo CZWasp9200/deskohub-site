@@ -12,12 +12,17 @@ import { CustomerApi } from "../../customer-api/customer-api.service";
 import { fakeCustomerApiLayer } from "../../customer-api/testing/fake-customer-data";
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
 import {
+  bookedTimes,
   type FakeBookingApi,
   fakeBooking,
   fakeBookingCodes,
   fakeHoldDuration,
+  fakePayStateDuration,
 } from "./fake-booking-api";
-import { sampleLegalDocuments } from "./sample-booking-catalog";
+import {
+  sampleLegalDocuments,
+  sampleOvernightStay,
+} from "./sample-booking-catalog";
 
 const harness = (
   kind: Parameters<typeof FakeWorkspace.forKind>[0] = "linked"
@@ -205,6 +210,33 @@ describe("fake booking catalog", () => {
   });
 });
 
+describe("fake booking reservations", () => {
+  test("an overnight stay runs from its start to its end the next day", () => {
+    const { startsAt, endsAt } = bookedTimes({
+      family: "cowork",
+      date: "2026-11-23",
+      tier: "reserved-desk",
+      stay: "overnight",
+    });
+    const day = bookedTimes({
+      family: "cowork",
+      date: "2026-11-23",
+      tier: "reserved-desk",
+    });
+    // Prague is UTC+1 in November.
+    const utc = (date: string, time: string) => {
+      const [hours = 0, minutes = 0] = time.split(":").map(Number);
+      return new Date(
+        Date.UTC(2026, 10, Number(date.slice(8)), hours - 1, minutes)
+      ).toISOString();
+    };
+    expect(startsAt).toBe(utc("2026-11-23", sampleOvernightStay.startTime));
+    expect(endsAt).toBe(utc("2026-11-24", sampleOvernightStay.endTime));
+    expect(day.startsAt).toBe(utc("2026-11-23", "00:00"));
+    expect(day.endsAt).toBe(utc("2026-11-24", "00:00"));
+  });
+});
+
 describe("fake booking checkout", () => {
   test("holds a quoted selection for ten minutes", async () => {
     const { run, booking } = harness();
@@ -215,7 +247,8 @@ describe("fake booking checkout", () => {
     const checkout = result.success;
     expect(checkout).toMatchObject({
       status: "ready",
-      expiresAt: new Date(now.getTime() + fakeHoldDuration).toISOString(),
+      expiresAt: new Date(now.getTime() + fakePayStateDuration).toISOString(),
+      holdExpiresAt: new Date(now.getTime() + fakeHoldDuration).toISOString(),
       summary: { total: { value: 40_000 } },
     });
     if (checkout.status === "payment_disabled") return;
@@ -421,10 +454,10 @@ describe("fake booking pay state", () => {
     expect(lost).toMatchObject({ failure: { _tag: "HttpClientError" } });
     expect(retried).toMatchObject({
       status: "ready",
-      expiresAt: new Date(start + fakeHoldDuration).toISOString(),
+      holdExpiresAt: new Date(start + fakeHoldDuration).toISOString(),
     });
     expect(next).toMatchObject({
-      expiresAt: new Date(now + fakeHoldDuration).toISOString(),
+      holdExpiresAt: new Date(now + fakeHoldDuration).toISOString(),
     });
     expect(next.orderId).not.toBe(retried.orderId);
   });
@@ -517,7 +550,7 @@ describe("fake booking scripting", () => {
     });
     expect(accepted.status).toBe("ready");
     expect(accepted.priceReview).toBeUndefined();
-    expect(accepted.expiresAt).toBe(checkout.expiresAt);
+    expect(accepted.holdExpiresAt).toBe(checkout.holdExpiresAt);
     expect(submitted).toMatchObject({
       success: { status: "payment_required" },
     });
@@ -695,5 +728,186 @@ describe("fake booking scripting", () => {
       failure: { _tag: "HttpClientError" },
     });
     expect(booking.checkout(result.success.orderId)?.status).toBe("submitted");
+  });
+});
+
+describe("fake booking hold and code removal", () => {
+  /** A held checkout, minutes passing on `booking.now` between steps. */
+  const clock = (booking: FakeBookingApi) => {
+    const start = Date.parse("2026-11-09T09:00:00Z");
+    let now = start;
+    booking.now = () => new Date(now);
+    return {
+      start,
+      advance: (millis: number) => {
+        now += millis;
+      },
+    };
+  };
+  const readyCheckout = (
+    api: CustomerApi["Service"]["booking"],
+    booking: FakeBookingApi
+  ) =>
+    Effect.flatMap(held(api, coworkSelection(booking)), (start) =>
+      start.status === "payment_disabled"
+        ? Effect.die("payment disabled")
+        : Effect.succeed(start)
+    );
+  const applying = (
+    api: CustomerApi["Service"]["booking"],
+    payStateToken: string,
+    code: string
+  ) =>
+    api.applyCheckoutDiscountCode({
+      payload: { locale: "en-US", payStateToken, code },
+      headers: {},
+    });
+  const clearing = (
+    api: CustomerApi["Service"]["booking"],
+    payStateToken: string
+  ) =>
+    api.clearCheckoutDiscountCode({
+      payload: { locale: "en-US", payStateToken },
+    });
+
+  test("the hold's end stays across a code, a rejection and a removal; each token gets its own expiry", async () => {
+    const { run, booking } = harness();
+    const { start, advance } = clock(booking);
+    const result = await run((api) =>
+      Effect.gen(function* () {
+        const created = yield* readyCheckout(api, booking);
+        advance(60_000);
+        const rejected = yield* Effect.flip(
+          applying(
+            api,
+            created.payStateToken,
+            fakeBookingCodes.expiredWithReplacement
+          )
+        );
+        advance(60_000);
+        const applied = yield* applying(
+          api,
+          created.payStateToken,
+          fakeBookingCodes.discount
+        );
+        advance(60_000);
+        const cleared = yield* clearing(api, applied.payStateToken);
+        return { created, rejected, applied, cleared };
+      })
+    );
+    if (result._tag !== "Success") throw new Error("expected the flow to run");
+    const { created, rejected, applied, cleared } = result.success;
+    const holdExpiresAt = new Date(start + fakeHoldDuration).toISOString();
+    const tokenExpiry = (issuedAfter: number) =>
+      new Date(start + issuedAfter + fakePayStateDuration).toISOString();
+    expect(created.holdExpiresAt).toBe(holdExpiresAt);
+    expect(rejected).toMatchObject({
+      _tag: "CustomerDiscountCodeRejected",
+      expiresAt: tokenExpiry(60_000),
+    });
+    expect(applied).toMatchObject({
+      holdExpiresAt,
+      expiresAt: tokenExpiry(120_000),
+      appliedDiscountCode: {
+        code: fakeBookingCodes.discount,
+        discountId: "sample-code",
+      },
+    });
+    expect(
+      applied.summary.sections
+        .flatMap((section) => section.items)
+        .flatMap((item) => item.discounts ?? [])
+        .map(({ discount }) => discount.id)
+    ).toContain("sample-code");
+    expect(cleared).toMatchObject({
+      holdExpiresAt,
+      expiresAt: tokenExpiry(180_000),
+    });
+  });
+
+  test("removing an applied code answers a price review without it, to accept before paying", async () => {
+    const { run, booking } = harness();
+    const result = await run((api) =>
+      Effect.gen(function* () {
+        const created = yield* readyCheckout(api, booking);
+        const applied = yield* applying(
+          api,
+          created.payStateToken,
+          fakeBookingCodes.discount
+        );
+        const cleared = yield* clearing(api, applied.payStateToken);
+        const again = yield* clearing(api, cleared.payStateToken);
+        const resent = yield* clearing(api, applied.payStateToken);
+        const accepted = yield* api.acceptCheckoutPriceChange({
+          payload: { locale: "en-US", payStateToken: cleared.payStateToken },
+        });
+        return { created, applied, cleared, again, resent, accepted };
+      })
+    );
+    if (result._tag !== "Success") throw new Error("expected the flow to run");
+    const { created, applied, cleared, again, resent, accepted } =
+      result.success;
+    expect(cleared.status).toBe("price_review");
+    expect(cleared.priceReview).toBeDefined();
+    expect(cleared.appliedDiscountCode).toBeUndefined();
+    expect(cleared.payStateToken).not.toBe(applied.payStateToken);
+    expect(cleared.summary.total).toEqual(created.summary.total);
+    // Nothing is entered on the new token, so removing again returns it as is.
+    expect(again).toEqual(cleared);
+    // A resend after a lost answer carries the old token, and clears again.
+    expect(resent).toMatchObject({
+      status: "price_review",
+      holdExpiresAt: applied.holdExpiresAt,
+      summary: cleared.summary,
+    });
+    expect(resent.appliedDiscountCode).toBeUndefined();
+    expect(accepted.status).toBe("ready");
+    expect(accepted.appliedDiscountCode).toBeUndefined();
+  });
+
+  test("removing with no code entered answers the checkout as it is, with the same token", async () => {
+    const { run, booking } = harness();
+    const result = await run((api) =>
+      Effect.gen(function* () {
+        const created = yield* readyCheckout(api, booking);
+        const referral = yield* applying(
+          api,
+          created.payStateToken,
+          fakeBookingCodes.referral
+        );
+        const cleared = yield* clearing(api, referral.payStateToken);
+        return { referral, cleared };
+      })
+    );
+    if (result._tag !== "Success") throw new Error("expected the flow to run");
+    const { referral, cleared } = result.success;
+    // A referral code isn't an entered code, so its benefit stays.
+    expect(referral.appliedDiscountCode).toBeUndefined();
+    expect(cleared).toMatchObject({
+      status: "ready",
+      payStateToken: referral.payStateToken,
+      referralApplied: true,
+      summary: referral.summary,
+    });
+  });
+
+  test("a removal after the hold ended is refused as expired", async () => {
+    const { run, booking } = harness();
+    const { advance } = clock(booking);
+    const result = await run((api) =>
+      Effect.gen(function* () {
+        const created = yield* readyCheckout(api, booking);
+        const applied = yield* applying(
+          api,
+          created.payStateToken,
+          fakeBookingCodes.discount
+        );
+        advance(fakeHoldDuration);
+        return yield* Effect.flip(clearing(api, applied.payStateToken));
+      })
+    );
+    expect(result).toMatchObject({
+      success: { _tag: "CustomerCheckoutUnavailable", reason: "expired" },
+    });
   });
 });

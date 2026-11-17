@@ -7,36 +7,13 @@ import { createLocalePreferenceSaving } from "@/features/account/server/locale-p
 import { isCurrentAccountAdministrator } from "@/features/administrators/server/current-account-administrator.server";
 import { type Locale, m } from "@/features/i18n";
 import { languageNames } from "@/features/i18n/language-labels";
-import { isMeetingRoomPageEnabled } from "@/features/meeting-room/backend/meeting-room-page-release-gate.server";
+import { isMeetingRoomPageEnabled } from "@/features/meeting-room/backend/meeting-room-release-gate.server";
 import { isOfficePageEnabled } from "@/features/office/backend/office-release-gate.server";
+import { getCoworkReservationPath } from "@/features/reservation/routes";
 import {
-  getCoworkReservationPath,
-  getOfficeReservationPath,
-} from "@/features/reservation/routes";
-
-const siteHeaderSectionIds = {
-  overview: "overview",
-  ttrpg: "ttrpg",
-  events: "events",
-  locationMap: "location-map",
-} as const;
-
-type SiteHeaderMenuItemId =
-  | "locationMap"
-  | "coworking"
-  | "meetingRoom"
-  | "office"
-  | "pricing"
-  | "gallery"
-  | "team"
-  | "faq"
-  | "contact";
-
-export type SiteHeaderMenuItem = {
-  readonly id: SiteHeaderMenuItemId;
-  readonly label: string;
-  readonly href: string;
-};
+  createSiteHeaderLinks,
+  type DisabledSiteHeaderMenuItems,
+} from "@/shared/components/site-header-links";
 
 export type SiteHeaderAccountEntry = {
   readonly label: string;
@@ -52,10 +29,6 @@ export type SiteHeaderAdministratorEntry = {
   readonly href: string;
   readonly label: string;
 };
-
-type DisabledSiteHeaderMenuItems = Partial<
-  Record<SiteHeaderMenuItemId, boolean>
->;
 
 export const getSiteHeaderAccessibilityLabels = (locale: Locale) => ({
   closeNavigationMenuLabel: m.closeNavigationMenuLabel({}, { locale }),
@@ -90,62 +63,12 @@ const createSiteHeaderConfig = (
     readonly disabledMenuItems: DisabledSiteHeaderMenuItems;
   }
 ) => {
-  const localePath = `/${locale}`;
-  const localizedHash = (hash: string) => `${localePath}${hash}`;
-  const links = [
-    {
-      id: "locationMap",
-      label: m.landingNavWhereToFindUs({}, { locale }),
-      href: localizedHash(`#${siteHeaderSectionIds.locationMap}`),
-    },
-    {
-      id: "coworking",
-      label: m.landingNavCoworking({}, { locale }),
-      href: `${localePath}/coworking`,
-    },
-    {
-      id: "meetingRoom",
-      label: m.landingNavMeetingRoom({}, { locale }),
-      href: `${localePath}/meeting-room`,
-    },
-    {
-      id: "office",
-      label: m.landingNavPrivateOffice({}, { locale }),
-      href: getOfficeReservationPath(locale),
-    },
-    {
-      id: "pricing",
-      label: m.landingNavPricing({}, { locale }),
-      href: `${localePath}/pricing`,
-    },
-    {
-      id: "gallery",
-      label: m.landingNavGallery({}, { locale }),
-      href: `${localePath}/gallery`,
-    },
-    {
-      id: "team",
-      label: m.landingNavOurTeam({}, { locale }),
-      href: `${localePath}/team`,
-    },
-    {
-      id: "faq",
-      label: m.landingNavFaq({}, { locale }),
-      href: `${localePath}/faq`,
-    },
-    {
-      id: "contact",
-      label: m.landingNavContactLabel({}, { locale }),
-      href: `${localePath}/contact`,
-    },
-  ] satisfies SiteHeaderMenuItem[];
-
   return {
     ...getSiteHeaderAccessibilityLabels(locale),
     account: createSiteHeaderAccountEntry(locale),
     administrator: createSiteHeaderAdministratorEntry(locale),
     localePreference: createLocalePreferenceSaving(),
-    links: links.filter(({ id }) => disabledMenuItems[id] !== true),
+    links: createSiteHeaderLinks(locale, disabledMenuItems),
     contactLabel: m.reservationNavCta({}, { locale }),
     contactHref: getCoworkReservationPath(locale),
   };
@@ -174,5 +97,3 @@ const createSiteHeaderAdministratorEntry = (
   href: `/${locale}/admin`,
   label: m.siteHeaderAdminLabel({}, { locale }),
 });
-
-export { siteHeaderSectionIds };

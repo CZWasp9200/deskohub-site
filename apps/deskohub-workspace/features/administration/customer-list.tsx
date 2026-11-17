@@ -1,9 +1,9 @@
 import { Suspense } from "react";
-import { CustomerSearch } from "@/features/discounts/admin/customer-admin-client";
 import type { Locale } from "@/features/i18n";
 import { getRequestLocale } from "@/features/i18n/server/request-locale";
 import { AdministrationCustomerTable, Pagination } from "./components";
 import { customerListQuery } from "./customer-list-query";
+import { CustomerSearch } from "./customer-search";
 import { CustomersAdministrationFilterForm } from "./filter-forms";
 import { m } from "./i18n";
 import {

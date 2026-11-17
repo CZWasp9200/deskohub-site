@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { serializeCsv } from "@/shared/utils/csv";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import {
@@ -8,10 +9,13 @@ import {
   getCustomerInvoiceCsvColumns,
   getCustomerInvoiceStatusLabel,
   getCustomerInvoiceSummary,
+  getInvoicedReservation,
 } from "./customer-invoice";
-import type { InvoiceDocument } from "./invoice";
+import { type InvoiceDocument, isManualInvoiceDocument } from "./invoice";
 import {
   makeCoworkInvoiceDocument,
+  makeMeetingRoomInvoiceDocument,
+  makeOfficeInvoiceDocument,
   makeTestManualInvoiceDocument,
 } from "./invoice.test-utils";
 import {
@@ -24,8 +28,19 @@ const date = plainDateStringSchema.make;
 const invoiceId = invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb31");
 const issuedAt = Temporal.Instant.from("2026-08-20T10:00:00Z");
 
-const summarize = (document: InvoiceDocument, today = date("2026-08-25")) =>
-  getCustomerInvoiceSummary({ id: invoiceId, issuedAt, document }, today);
+const reservationId = workspaceReservationIdSchema.make(
+  "019edbcf-5026-7ecc-821b-eda46998eaaa"
+);
+
+const summarize = (
+  document: InvoiceDocument,
+  today = date("2026-08-25"),
+  workspaceReservationId: string | null = null
+) =>
+  getCustomerInvoiceSummary(
+    { id: invoiceId, workspaceReservationId, issuedAt, document },
+    today
+  );
 
 const dueManual = makeTestManualInvoiceDocument("en-US", "450.50", {
   status: "due",
@@ -36,21 +51,32 @@ describe("customer invoice summary", () => {
   test("reads a reservation invoice as paid at its quoted total", () => {
     const document = makeCoworkInvoiceDocument("en-US");
 
-    expect(summarize(document)).toEqual({
+    expect(summarize(document, date("2026-08-25"), reservationId)).toEqual({
       id: invoiceId,
       invoiceNumber: document.invoiceNumber,
+      workspaceReservationId: reservationId,
       issuedOn: date("2026-08-20"),
       total: getInvoiceTotal(document),
       paymentStatus: "paid",
       dueDate: null,
+      reservation: getInvoicedReservation(document),
     });
   });
 
-  test("keeps the exact total of a manual invoice", () => {
-    expect(summarize(dueManual).total).toEqual({
+  test("keeps the exact total of a manual invoice, which invoices no reservation", () => {
+    const summary = summarize(dueManual);
+
+    expect(summary.total).toEqual({
       amount: dueManual.total,
       currency: dueManual.currency,
     });
+    expect(summary.workspaceReservationId).toBeNull();
+  });
+
+  test("writes a large manual total as plain decimal text", () => {
+    const large = makeTestManualInvoiceDocument("en-US", "10000000000000000");
+
+    expect(summarize(large).total.amount).toBe("10000000000000000");
   });
 
   test.each([
@@ -91,6 +117,7 @@ describe("customer invoice summary", () => {
     const summary = getCustomerInvoiceSummary(
       {
         id: invoiceId,
+        workspaceReservationId: null,
         issuedAt: Temporal.Instant.from("2026-08-31T22:30:00Z"),
         document: dueManual,
       },
@@ -161,5 +188,82 @@ describe("customer invoice CSV", () => {
     expect(czech.slice(1).map((row) => row.slice(0, -1))).toEqual(
       english.slice(1).map((row) => row.slice(0, -1))
     );
+  });
+});
+
+describe("invoiced reservation", () => {
+  const instant = (value: string) => Temporal.Instant.from(value);
+  const pragueMidnight = (day: string) =>
+    Temporal.PlainDate.from(day)
+      .toZonedDateTime({ timeZone: "Europe/Prague" })
+      .toInstant();
+
+  test("a cowork day spans that day's Prague midnights", () => {
+    const document = makeCoworkInvoiceDocument("en-US");
+    if (
+      isManualInvoiceDocument(document) ||
+      document.reservation.kind !== "cowork"
+    )
+      throw new Error("a cowork invoice");
+    const day = Temporal.PlainDate.from(document.reservation.date);
+
+    const reservation = getInvoicedReservation(document);
+
+    expect(reservation?.product.kind).toBe("cowork");
+    expect(reservation?.seats).toBeNull();
+    expect(instant(reservation?.startsAt ?? "")).toEqual(
+      pragueMidnight(day.toString())
+    );
+    expect(instant(reservation?.endsAt ?? "")).toEqual(
+      pragueMidnight(day.add({ days: 1 }).toString())
+    );
+  });
+
+  test("a meeting room keeps the instants it was booked for", () => {
+    const document = makeMeetingRoomInvoiceDocument("en-US");
+    if (
+      isManualInvoiceDocument(document) ||
+      document.reservation.kind !== "meeting-room"
+    )
+      throw new Error("a meeting-room invoice");
+
+    const reservation = getInvoicedReservation(document);
+
+    expect(reservation?.product).toEqual({ kind: "meeting-room" });
+    expect(reservation?.seats).toBeNull();
+    expect(instant(reservation?.startsAt ?? "")).toEqual(
+      instant(document.reservation.startsAt)
+    );
+    expect(instant(reservation?.endsAt ?? "")).toEqual(
+      instant(document.reservation.endsAt)
+    );
+  });
+
+  test("an office spans its first day through the end of its last, with its seats", () => {
+    const document = makeOfficeInvoiceDocument("en-US");
+    if (
+      isManualInvoiceDocument(document) ||
+      document.reservation.kind !== "office"
+    )
+      throw new Error("an office invoice");
+    const { startsOn, endsOn, seats } = document.reservation;
+
+    const reservation = getInvoicedReservation(document);
+
+    expect(reservation?.product).toEqual({ kind: "office" });
+    expect(reservation?.seats).toBe(seats);
+    expect(instant(reservation?.startsAt ?? "")).toEqual(
+      pragueMidnight(startsOn)
+    );
+    expect(instant(reservation?.endsAt ?? "")).toEqual(
+      pragueMidnight(
+        Temporal.PlainDate.from(endsOn).add({ days: 1 }).toString()
+      )
+    );
+  });
+
+  test("a manual invoice invoices no reservation", () => {
+    expect(getInvoicedReservation(dueManual)).toBeNull();
+    expect(summarize(dueManual).reservation).toBeNull();
   });
 });

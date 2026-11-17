@@ -19,6 +19,7 @@ import {
   requireWithinReadLimit,
 } from "@/shared/backend/read-limit";
 import { type Money, moneyWithValue } from "@/shared/money/money";
+import { newestPaymentAttemptsFirst } from "./newest-payment-attempt";
 
 export const toPaymentAttempt = (attempt: PaymentAttemptRow) => {
   const { amountExponent, amountValue, currency, ...paymentAttempt } = attempt;
@@ -82,6 +83,13 @@ export interface IPaymentAttemptRepository {
   readonly findByProviderOrderId: (
     providerOrderId: NexiOrderId
   ) => Effect.Effect<PaymentAttempt | null, EffectDrizzleQueryError>;
+  /**
+   * The reservation's newest payment attempt, whatever its state: the one
+   * a payment retry pays the order again after.
+   */
+  readonly findNewestForReservation: (
+    workspaceReservationId: WorkspaceReservationId
+  ) => Effect.Effect<PaymentAttempt | null, EffectDrizzleQueryError>;
   readonly findDisplayableForReservation: (input: {
     readonly workspaceReservationId: WorkspaceReservationId;
     readonly activePaymentAttemptId?: PaymentAttemptId;
@@ -134,6 +142,20 @@ export class PaymentAttemptRepository extends Context.Service<
               eq(paymentAttempts.providerOrderId, providerOrderId)
             )
           )
+          .limit(1);
+        return attempt ? toPaymentAttempt(attempt) : null;
+      });
+
+      const findNewestForReservation = Effect.fn(
+        "PaymentAttemptRepository.findNewestForReservation"
+      )(function* (workspaceReservationId: WorkspaceReservationId) {
+        const [attempt] = yield* db
+          .select()
+          .from(paymentAttempts)
+          .where(
+            eq(paymentAttempts.workspaceReservationId, workspaceReservationId)
+          )
+          .orderBy(...newestPaymentAttemptsFirst)
           .limit(1);
         return attempt ? toPaymentAttempt(attempt) : null;
       });
@@ -240,6 +262,7 @@ export class PaymentAttemptRepository extends Context.Service<
       return {
         findById,
         findByProviderOrderId,
+        findNewestForReservation,
         findDisplayableForReservation,
         listForReservations,
       } satisfies IPaymentAttemptRepository;

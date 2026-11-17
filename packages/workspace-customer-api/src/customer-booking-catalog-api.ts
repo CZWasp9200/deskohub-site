@@ -6,11 +6,13 @@ import {
   CustomerBookingDateOutOfRange,
   CustomerBookingSelectionInvalid,
   CustomerBookingSelectionQuery,
+  CustomerCoworkStay,
   CustomerMeetingRoomDuration,
   CustomerMonitorOption,
   CustomerOfferingUnavailable,
   CustomerPlainDate,
   CustomerReservationFamily,
+  CustomerStartTime,
 } from "./customer-booking-selection";
 import { CustomerCheckoutSummary } from "./customer-checkout-summary";
 import { CustomerLocale } from "./customer-locale";
@@ -43,6 +45,26 @@ const offeringCopyFields = {
   usage: Schema.String,
 };
 
+/**
+ * One key fact about a space, in the customer's language, such as how many
+ * people it holds or the equipment it has; `kind` says which.
+ */
+export const CustomerOfferingFact = Schema.Struct({
+  kind: Schema.Literals(["capacity", "equipment"]),
+  text: Schema.String,
+}).annotate({ identifier: "CustomerOfferingFact" });
+export type CustomerOfferingFact = typeof CustomerOfferingFact.Type;
+
+/**
+ * The first and last Prague dates a booking of the offering can use; for an
+ * office, both the first and the last day of the stay.
+ */
+export const CustomerBookableDates = Schema.Struct({
+  earliest: CustomerPlainDate,
+  latest: CustomerPlainDate,
+}).annotate({ identifier: "CustomerBookableDates" });
+export type CustomerBookableDates = typeof CustomerBookableDates.Type;
+
 /** An optional or included extra of a cowork offering. */
 export const CustomerOfferingAddOn = Schema.Struct({
   id: Schema.Literals(["coffee", "workstation"]),
@@ -64,19 +86,39 @@ export const CustomerOffering = Schema.Union([
     family: Schema.Literal("cowork"),
     tier: CustomerBookableCoworkTier,
     ...offeringCopyFields,
-    /** Per Prague calendar day. */
+    /**
+     * The tier in one line, as the booking page's offer card says it.
+     * Optional while servers that don't send it are still deployed.
+     */
+    summary: Schema.optionalKey(Schema.String),
+    /** Per Prague calendar day, or per overnight stay. */
     price: Money,
     advertisedPrice: CustomerAdvertisedPrice,
+    bookableDates: CustomerBookableDates,
     addOns: Schema.Array(CustomerOfferingAddOn),
+    /**
+     * Present only while the offering can be booked as an overnight stay
+     * (`stay: "overnight"`): it starts at `startTime` on the arrival date and
+     * ends at `endTime` on the next date, Prague time, at the same price.
+     */
+    overnightStay: Schema.optionalKey(
+      Schema.Struct({
+        startTime: CustomerStartTime,
+        endTime: CustomerStartTime,
+      })
+    ),
   }),
   Schema.Struct({
     family: Schema.Literal("meeting-room"),
     duration: CustomerMeetingRoomDuration,
     durationLabel: Schema.String,
     ...offeringCopyFields,
+    /** The room's key facts, as the room's page lists them. */
+    facts: Schema.Array(CustomerOfferingFact),
     /** Per booking of the duration. */
     price: Money,
     advertisedPrice: CustomerAdvertisedPrice,
+    bookableDates: CustomerBookableDates,
   }),
   Schema.Struct({
     family: Schema.Literal("office"),
@@ -91,6 +133,7 @@ export const CustomerOffering = Schema.Union([
     maximumDurationHours: Schema.Int,
     /** One office day with one seat. */
     advertisedPrice: CustomerAdvertisedPrice,
+    bookableDates: CustomerBookableDates,
   }),
 ]).annotate({ identifier: "CustomerOffering" });
 export type CustomerOffering = typeof CustomerOffering.Type;
@@ -140,6 +183,11 @@ export const CustomerAvailabilityQuery = Schema.Struct({
   entryTier: Schema.optionalKey(CustomerBookableCoworkTier),
   /** Cowork only. */
   monitorOption: Schema.optionalKey(CustomerMonitorOption),
+  /**
+   * Cowork Reserved Desk only: the stay to check. An overnight stay keeps
+   * the dates as arrival dates. Defaults to a day stay.
+   */
+  stay: Schema.optionalKey(CustomerCoworkStay),
   /** Meeting room: one booking's interval. Office: the first day. */
   startsAt: Schema.optionalKey(reservationTimestamp),
   /** Meeting room: one booking's interval. Office: the end of the last day. */
@@ -180,11 +228,14 @@ export const CustomerAvailability = Schema.Struct({
 }).annotate({ identifier: "CustomerAvailability" });
 export type CustomerAvailability = typeof CustomerAvailability.Type;
 
-/** Every free meeting-room start on one Prague date for one duration. */
+/**
+ * Every meeting-room start the booking form offers on one Prague date for
+ * one duration: the free ones and the taken ones.
+ */
 export const CustomerMeetingRoomStartTimes = Schema.Struct({
   date: CustomerPlainDate,
   duration: CustomerMeetingRoomDuration,
-  /** In chronological order, each with the interval it books. */
+  /** Free starts in chronological order, each with the interval it books. */
   startTimes: Schema.Array(
     Schema.Struct({
       /** Prague local date-time. */
@@ -195,9 +246,41 @@ export const CustomerMeetingRoomStartTimes = Schema.Struct({
       earlySetupAvailable: Schema.Boolean,
     })
   ),
+  /**
+   * Taken starts in chronological order, each with the interval it would
+   * book. Starts already past are in neither list.
+   */
+  unavailableStartTimes: Schema.Array(
+    Schema.Struct({
+      /** Prague local date-time. */
+      startDateTime: Schema.String,
+      startsAt: isoInstant,
+      endsAt: isoInstant,
+    })
+  ),
 }).annotate({ identifier: "CustomerMeetingRoomStartTimes" });
 export type CustomerMeetingRoomStartTimes =
   typeof CustomerMeetingRoomStartTimes.Type;
+
+/**
+ * The meeting-room calendar for a date range: the dates without a free start
+ * of any length, and for each duration the dates without a free start of it.
+ */
+export const CustomerMeetingRoomUnavailableDates = Schema.Struct({
+  from: CustomerPlainDate,
+  to: CustomerPlainDate,
+  /** Dates no duration has a free start on. */
+  unavailableDates: Schema.Array(CustomerPlainDate),
+  /** One entry per duration the booking form offers. */
+  durations: Schema.Array(
+    Schema.Struct({
+      duration: CustomerMeetingRoomDuration,
+      unavailableDates: Schema.Array(CustomerPlainDate),
+    })
+  ),
+}).annotate({ identifier: "CustomerMeetingRoomUnavailableDates" });
+export type CustomerMeetingRoomUnavailableDates =
+  typeof CustomerMeetingRoomUnavailableDates.Type;
 
 // Quote
 
@@ -268,6 +351,23 @@ export const customerBookingCatalogEndpoints = [
       }),
       headers: AvailabilityReplacementHeaders,
       success: CustomerMeetingRoomStartTimes,
+      error: [
+        CustomerBookingSelectionInvalid.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    }
+  ),
+  HttpApiEndpoint.get(
+    "getMeetingRoomUnavailableDates",
+    "/availability/meeting-room-dates",
+    {
+      /** Omitted dates default to the current booking range. */
+      query: Schema.Struct({
+        from: Schema.optionalKey(CustomerPlainDate),
+        to: Schema.optionalKey(CustomerPlainDate),
+      }),
+      headers: AvailabilityReplacementHeaders,
+      success: CustomerMeetingRoomUnavailableDates,
       error: [
         CustomerBookingSelectionInvalid.schema,
         CustomerServiceUnavailable.schema,

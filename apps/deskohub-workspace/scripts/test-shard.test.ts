@@ -157,11 +157,11 @@ describe("shard preconditions", () => {
   });
 
   test("runs only under the pinned Bun", () => {
-    expect(() => requirePinnedBun("bun@1.4.2", "1.4.2")).not.toThrow();
-    expect(() => requirePinnedBun("bun@1.4.2", "1.4.3")).toThrow(
-      "pinned bun@1.4.2"
+    expect(() => requirePinnedBun("bun@1.4.4", "1.4.4")).not.toThrow();
+    expect(() => requirePinnedBun("bun@1.4.4", "1.4.3")).toThrow(
+      "pinned bun@1.4.4"
     );
-    expect(() => requirePinnedBun("npm@11.0.0", "1.4.2")).toThrow();
+    expect(() => requirePinnedBun("npm@11.0.0", "1.4.4")).toThrow();
     expect(() =>
       requirePinnedBun(rootPackage.packageManager, Bun.version)
     ).not.toThrow();

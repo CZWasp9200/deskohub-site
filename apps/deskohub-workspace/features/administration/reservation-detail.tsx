@@ -18,7 +18,10 @@ import {
   ReservationReferences,
   ReservationTimeline,
 } from "./components";
-import { getAdministrationCustomerName } from "./customer-presentation";
+import {
+  AdministrationCustomerNameLabel,
+  AdministrationCustomerNameLink,
+} from "./customer-name-label";
 import {
   AdministrationDetailSection,
   AdministrationFact,
@@ -187,11 +190,7 @@ function ReservationSummarySection({
             </span>
           )}
           <ReservationCancellation
-            accessGrantUpdatedAt={detail.accessGrant?.updatedAt ?? null}
             canCancel={detail.canCancel}
-            requiresProviderCredentialRemoval={
-              detail.requiresProviderCredentialRemoval
-            }
             reservationId={reservation.id}
           />
           <ReservationRestoration
@@ -284,14 +283,12 @@ function ReservationCustomerSection({
       title={m.administrationReservationDetailCustomer({}, { locale })}
     >
       {reservation.customer ? (
-        <Link
+        <AdministrationCustomerNameLink
           className="font-semibold underline decoration-navy-blue/20 underline-offset-4"
-          href={administrationHref("/[locale]/admin/customers/[customerId]", {
-            customerId: reservation.customerId,
-          })}
-        >
-          {getAdministrationCustomerName(reservation.customer, locale)}
-        </Link>
+          customer={reservation.customer}
+          customerId={reservation.customerId}
+          locale={locale}
+        />
       ) : (
         <p className="font-medium">
           {m.administrationReservationCustomerDetailsUnavailable(
@@ -507,23 +504,25 @@ function ReservationAuthorFact({
           author.kind === "account" ? (
             <>
               {author.customerId ? (
-                <Link
+                <AdministrationCustomerNameLink
                   className="font-semibold underline decoration-navy-blue/20 underline-offset-4"
-                  href={administrationHref(
-                    "/[locale]/admin/customers/[customerId]",
-                    { customerId: author.customerId }
-                  )}
-                >
-                  {getAdministrationCustomerName(author, locale)}
-                </Link>
+                  customer={author}
+                  customerId={author.customerId}
+                  locale={locale}
+                />
               ) : (
                 <span className="font-semibold">
-                  {getAdministrationCustomerName(author, locale)}
+                  <AdministrationCustomerNameLabel
+                    customer={author}
+                    locale={locale}
+                  />
                 </span>
               )}
-              <span className="mt-1 block break-all font-normal text-navy-blue/60">
-                {author.email}
-              </span>
+              {author.email && (
+                <span className="mt-1 block break-all font-normal text-navy-blue/60">
+                  {author.email}
+                </span>
+              )}
             </>
           ) : (
             {

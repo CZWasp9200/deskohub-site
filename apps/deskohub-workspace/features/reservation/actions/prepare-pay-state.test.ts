@@ -1,4 +1,5 @@
 import type { Locale } from "@/features/i18n";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
@@ -19,7 +20,16 @@ import { EmailRecipientDomainServiceMock } from "@deskohub/email/backend/recipie
 import { testEmailAddress } from "@deskohub/test-email";
 import { eq } from "drizzle-orm";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Duration, Effect, Fiber, Layer, Option, Schema } from "effect";
+import {
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  References,
+  Schema,
+} from "effect";
 import { TestClock } from "effect/testing";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
@@ -27,16 +37,24 @@ import {
   type WorkspaceReservationRow,
 } from "@/db/schema";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
+import {
+  type CurrentLinkedAccount,
+  CustomerAccountContactService,
+} from "@/features/account/backend/customer-account-contact.service";
 import type { CustomerAccountSectionsFixture } from "@/features/account/backend/customer-account-sections.test-utils";
 import type { CustomerAccountSession } from "@/features/account/backend/customer-authentication.service";
 import { testSessionProfile } from "@/features/account/backend/customer-authentication.test-utils";
 import {
   CustomerAccountAccessError,
+  type CustomerAccountId,
   customerAccountIdSchema,
   customerAccountUnavailable,
 } from "@/features/account/customer-account";
-import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
+import type { ICheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import {
+  CheckoutPricingServiceMock,
+  customerQuotePricingFrom,
+} from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import { WorkspaceTableAssignmentServiceMock } from "@/features/checkout/backend/reservation/workspace-table-assignment.service.mock";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import { getWorkspaceMeetingRoomPriceForDuration } from "@/features/checkout/product-catalog";
@@ -86,6 +104,11 @@ import { NoReviewAccounts } from "@/features/review-accounts/backend/review-acco
 import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
 import { customerAgentNames } from "@/shared/bot-protection/customer-agents";
 import { savedConsentCookie } from "@/shared/testing/consent-cookie.test-utils";
+import {
+  captureLogAnnotationsWithExit,
+  expectScalarLogAnnotations,
+  type LogRowAnnotations,
+} from "@/shared/testing/log-annotations.test-utils";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
@@ -102,9 +125,15 @@ mock.module("next/headers", () => ({
   headers: async () => new Headers({ referer: "https://deskohub.test/en-US" }),
 }));
 
-type ContactAccount = Effect.Success<
-  CustomerAccountContactService["Service"]["currentAccount"]
->;
+/** The session's account as the fixtures below describe it. */
+type ContactAccount =
+  | { readonly status: "signed-out" }
+  | {
+      readonly status: "unlinked";
+      readonly accountId: CustomerAccountId;
+      readonly email: CustomerAccountSession["email"];
+    }
+  | ({ readonly status: "linked" } & CurrentLinkedAccount);
 type PeekedStanding = Effect.Success<CurrentCustomerAccount["Service"]["peek"]>;
 
 /** The standing behind a contact reader's account, with no review marker. */
@@ -137,7 +166,7 @@ const inertRememberedReferral = () =>
       Layer.mergeAll(
         ReferralReleaseGate.fromDecision(true),
         WithheldReferralService,
-        Layer.mock(CustomerAccountContactService, {})
+        Layer.mock(CurrentCustomerAccount, {})
       )
     )
   );
@@ -358,24 +387,42 @@ const affirmAdvertisementQuote = (
 ): AffirmedDiscountAdvertisementQuote =>
   affirmedDiscountAdvertisementQuoteCodec.make(quote);
 
-const makeAdvertisementAffirmation = (basisPoints?: number) => {
-  const discountQuote = affirmAdvertisementQuote(
-    makeAdvertisementQuote(basisPoints)
-  );
-  return {
-    kind: "cowork" as const,
-    reservation: {
-      kind: "cowork" as const,
-      details: {
-        kind: "cowork" as const,
-        entryTier: reservation.entryTier,
-        coffee: reservation.coffee,
-        date: reservation.date,
-      },
-    },
+type AdvertisementAffirmationCall = Parameters<
+  ICheckoutPricingService["affirmAdvertisement"]
+>[0];
+
+type CustomerQuoteCall = Parameters<
+  ICheckoutPricingService["quoteForCustomer"]
+>[0];
+
+/** The customer quote of the advertisement's affirmed discounts alone. */
+const quoteAdvertisedDiscounts = ({ advertisement }: CustomerQuoteCall) =>
+  buildQuoteFromAdvertisement(advertisement.priced.discountQuote);
+
+/**
+ * The pricing service's verdict on a snapshot whose discounts re-evaluate to
+ * `discountQuote`: the price changed when the re-evaluated quote's
+ * fingerprint differs from the snapshot's.
+ */
+const advertisementVerdict = (
+  affirmation: AdvertisementAffirmationCall,
+  discountQuote = affirmAdvertisementQuote(makeAdvertisementQuote())
+) => {
+  const priced = {
+    kind: affirmation.reservation.kind,
+    reservation: affirmation.reservation,
+    advertisedQuote: affirmation.advertisement.quote,
     discountQuote,
-    quote: buildQuoteFromAdvertisement(discountQuote),
+    requestedDiscountCode: affirmation.advertisement.requestedDiscountCode,
   };
+  return affirmation.advertisement.quote.fingerprint ===
+    buildQuoteFromAdvertisement(discountQuote).fingerprint
+    ? { status: "affirmed" as const, priced }
+    : {
+        status: "pricing_changed" as const,
+        priced,
+        changedKeys: { sectionKeys: [], itemKeys: [] },
+      };
 };
 
 /** The account the activity fixture signs in, and so the author it resumes. */
@@ -522,13 +569,16 @@ const runReusableReservationScenario = async (input: {
   };
   readonly accountAuthority?: Parameters<typeof accountAuthorityFixture>[0];
   readonly customer?: "account";
-  /** The session's account as the contact reader reports it. */
-  readonly account?: CustomerAccountContactService["Service"]["currentAccount"];
+  /** The session's account, from which its standing follows. */
+  readonly account?: Effect.Effect<ContactAccount, CustomerAccountAccessError>;
   /** The standing booking peeks at; by default the one `account` reports. */
   readonly standing?: CurrentCustomerAccount["Service"]["peek"];
   readonly linkedContact?: ReturnType<typeof mock>;
   readonly completeProfile?: ReturnType<typeof mock>;
-  readonly linkedAccount?: CustomerAccountContactService["Service"]["currentLinkedAccount"];
+  readonly linkedAccount?: Effect.Effect<
+    CurrentLinkedAccount | null,
+    CustomerAccountAccessError
+  >;
   readonly rememberedReferralCode?: string;
   readonly evaluateCheckoutReferral?: ReturnType<typeof mock>;
   readonly findAvailableCode?: ReturnType<typeof mock>;
@@ -551,6 +601,8 @@ const runReusableReservationScenario = async (input: {
    * operation without BotID or an agent.
    */
   readonly serverCaller?: boolean;
+  /** Records every row's log annotations, Debug rows included. */
+  readonly captureLogAnnotations?: boolean;
 }) => {
   const holdsProvided = input.holdForAttempt !== undefined;
   const prepareFromReservationForm = await loadReservationFormPreparation(
@@ -627,21 +679,13 @@ const runReusableReservationScenario = async (input: {
     input.markCancellationFailed ?? mock(() => Effect.void);
   const affirmAdvertisement =
     input.affirmAdvertisement ??
-    mock(() => Effect.succeed(makeAdvertisementAffirmation()));
+    mock((affirmation: AdvertisementAffirmationCall) =>
+      Effect.succeed(advertisementVerdict(affirmation))
+    );
   const quoteForCustomer =
     input.quoteForCustomer ??
-    mock(({ affirmedAdvertisement }) =>
-      Effect.succeed(buildQuoteFromAdvertisement(affirmedAdvertisement))
-    );
-  const quoteForCustomerResult = (
-    pricingInput: Parameters<typeof quoteForCustomer>[0]
-  ) =>
-    quoteForCustomer(pricingInput).pipe(
-      Effect.map((quote) => ({
-        kind: pricingInput.reservation.kind,
-        reservation: pricingInput.reservation,
-        quote,
-      }))
+    mock((quoteCall: CustomerQuoteCall) =>
+      Effect.succeed(quoteAdvertisedDiscounts(quoteCall))
     );
   const findOrCreateCustomer =
     input.findOrCreateCustomer ??
@@ -694,10 +738,11 @@ const runReusableReservationScenario = async (input: {
     input.hasSettledReferral ?? mock(() => Effect.succeed(false));
   const rememberedReferralCookie = { value: input.rememberedReferralCode };
   const contacts = Layer.mock(CustomerAccountContactService, {
-    currentAccount: Effect.suspend(() => readAccount()),
     linkedContact: linkedContact as never,
     completeProfile: completeProfile as never,
-    currentLinkedAccount: Effect.suspend(() => readLinkedAccount()),
+  });
+  const currentAccount = Layer.mock(CurrentCustomerAccount, {
+    peek: Effect.suspend(() => peekStanding()),
   });
   const referrals =
     input.referralService ??
@@ -710,22 +755,20 @@ const runReusableReservationScenario = async (input: {
     TestSealedStateKeys,
     accountAuthority.layer,
     contacts,
-    Layer.mock(CurrentCustomerAccount, {
-      peek: Effect.suspend(() => peekStanding()),
-    }),
+    currentAccount,
     referrals,
     RememberedReferral.inMemory(rememberedReferralCookie).pipe(
       Layer.provide(
         Layer.mergeAll(
           ReferralReleaseGate.fromDecision(true),
           referrals,
-          contacts
+          currentAccount
         )
       )
     ),
     CheckoutPricingServiceMock({
-      affirmCoworkAdvertisement: affirmAdvertisement,
-      quoteForCustomer: quoteForCustomerResult as never,
+      affirmAdvertisement: affirmAdvertisement as never,
+      ...customerQuotePricingFrom(quoteForCustomer as never),
     }),
     EmailRecipientDomainServiceMock({ check: checkContactEmailDomain }),
     Layer.mock(WorkspaceAvailabilityService, {
@@ -825,14 +868,29 @@ const runReusableReservationScenario = async (input: {
         TestClock.setTime(Date.now()).pipe(Effect.andThen(bookingPreparation))
       )
     : bookingPreparation;
-  const result = await (input.now
-    ? withInstant(input.now, timedPreparation)
-    : timedPreparation
-  ).pipe(Effect.result, Effect.runPromise);
+  const preparation = (
+    input.now ? withInstant(input.now, timedPreparation) : timedPreparation
+  ).pipe(Effect.result);
+  const { result, logAnnotations } = await (input.captureLogAnnotations
+    ? captureLogAnnotationsWithExit(
+        Effect.provideService(preparation, References.MinimumLogLevel, "Debug")
+      ).pipe(
+        Effect.flatMap(({ rows, exit }) =>
+          Exit.isSuccess(exit)
+            ? Effect.succeed({ result: exit.value, logAnnotations: rows })
+            : Effect.failCause(exit.cause)
+        )
+      )
+    : Effect.map(preparation, (result) => ({
+        result,
+        logAnnotations: [] as readonly LogRowAnnotations[],
+      }))
+  ).pipe(Effect.runPromise);
 
   return {
     result: result._tag === "Success" ? result.success : undefined,
     error: result._tag === "Failure" ? (result.failure as unknown) : undefined,
+    logAnnotations,
     guardEvents: accountAuthority.events,
     enqueueCleanup,
     updateReservationDetails,
@@ -1138,7 +1196,7 @@ describe("prepareWorkspacePayState", () => {
   );
 
   test("carries the advertised requested discount code into the signed pay state", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const scenario = await runMeetingRoomNewHoldScenario(undefined, {
@@ -1154,7 +1212,7 @@ describe("prepareWorkspacePayState", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
 
     expect(state.requestedDiscountCode).toBe("CAMPAIGN10");
@@ -1201,7 +1259,8 @@ describe("prepareWorkspacePayState", () => {
                 isEnabled: mock(() => Effect.succeed(false)),
               })
             )
-          )
+          ),
+          OvernightStayReleaseGate.fromDecision(false)
         )
       )
     ) as Effect.Effect<never, unknown, never>;
@@ -1216,17 +1275,15 @@ describe("prepareWorkspacePayState", () => {
   });
 
   test("keeps meeting-room timing transient while creating its hold", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const scenario = await runMeetingRoomNewHoldScenario();
     const { startsAt, endsAt } = scenario.meetingRoomReservation;
 
-    expect(scenario.ensureAvailable).toHaveBeenCalledWith({
-      kind: "meeting-room",
-      startsAt,
-      endsAt,
-    });
+    expect(scenario.ensureAvailable).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "meeting-room", startsAt, endsAt })
+    );
     expect(scenario.createDraft).toHaveBeenCalledWith(
       expect.objectContaining({
         checkoutSessionKey: expect.stringMatching(storedLookupKeyPattern),
@@ -1291,7 +1348,7 @@ describe("prepareWorkspacePayState", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.checkoutSessionId).toBe("meeting-room-session-id");
     expect(state.reservation).toMatchObject({
@@ -1347,7 +1404,7 @@ describe("prepareWorkspacePayState", () => {
     const prepareFromReservationForm = await loadReservationFormPreparation({
       holds: "provided",
     });
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const { MarketingConsentLedger } = await import(
@@ -1369,6 +1426,9 @@ describe("prepareWorkspacePayState", () => {
         eventOrder.push("bot-verification");
       })
     );
+    const createdHoldExpiresAt = Temporal.Instant.from(
+      "2030-07-01T10:08:00.000Z"
+    );
     // The hold lands in a session other than the submitted one, as after a
     // rotation, so the Pay state must carry the hold's session.
     const holdForAttempt = mock(() =>
@@ -1378,6 +1438,7 @@ describe("prepareWorkspacePayState", () => {
           kind: "created" as const,
           reservationId: "reservation-id",
           checkoutSessionId: "hold-session-id",
+          reservationHoldExpiresAt: createdHoldExpiresAt,
         };
       })
     );
@@ -1388,36 +1449,27 @@ describe("prepareWorkspacePayState", () => {
         return { id: "customer-id" };
       })
     );
-    const affirmAdvertisement = mock(() =>
-      Effect.sync(() => {
-        eventOrder.push("advertisement");
-        return makeAdvertisementAffirmation();
-      })
+    const affirmAdvertisement = mock(
+      (affirmation: AdvertisementAffirmationCall) =>
+        Effect.sync(() => {
+          eventOrder.push("advertisement");
+          return advertisementVerdict(affirmation);
+        })
     );
-    const quoteForCustomer = mock(({ affirmedAdvertisement }) =>
+    const quoteForCustomer = mock((quoteCall: CustomerQuoteCall) =>
       Effect.sync(() => {
         eventOrder.push("quote");
-        return buildQuoteFromAdvertisement(affirmedAdvertisement);
+        return quoteAdvertisedDiscounts(quoteCall);
       })
     );
-    const quoteForCustomerResult = (
-      pricingInput: Parameters<typeof quoteForCustomer>[0]
-    ) =>
-      quoteForCustomer(pricingInput).pipe(
-        Effect.map((quote) => ({
-          kind: pricingInput.reservation.kind,
-          reservation: pricingInput.reservation,
-          quote,
-        }))
-      );
     const { layer: accountAuthorityLayer } = await accountAuthorityFixture();
     const testLayer = Layer.mergeAll(
       TestSealedStateKeys,
       accountAuthorityLayer,
       inertRememberedReferral(),
       CheckoutPricingServiceMock({
-        affirmCoworkAdvertisement: affirmAdvertisement,
-        quoteForCustomer: quoteForCustomerResult as never,
+        affirmAdvertisement: affirmAdvertisement as never,
+        ...customerQuotePricingFrom(quoteForCustomer),
       }),
       BotProtectionServiceMock({ verifyHuman }),
       EmailRecipientDomainServiceMock({
@@ -1478,10 +1530,11 @@ describe("prepareWorkspacePayState", () => {
     expect(redirectUrl.searchParams.get("orderId")).toBe("reservation-id");
     expect(token).toBeTruthy();
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.orderId).toBe("reservation-id");
     expect(state.checkoutSessionId).toBe("hold-session-id");
+    expect(state.holdExpiresAt).toBe("2030-07-01T10:08:00.000Z");
     expect(state.submittedCode).toBeUndefined();
     // A site tool reports when the prepared Pay URL stops working.
     expect(result.expiresAt).toBe(new Date(state.exp * 1000).toISOString());
@@ -1493,7 +1546,7 @@ describe("prepareWorkspacePayState", () => {
   });
 
   test("returns the sealed Pay state token its URL carries", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const scenario = await runReusableReservationScenario({
@@ -1509,11 +1562,41 @@ describe("prepareWorkspacePayState", () => {
     ).searchParams.get(payStateTokenQueryParam);
     expect(scenario.result.payStateToken).toBe(urlToken ?? "");
     const state = Effect.runSync(
-      openPayState(scenario.result.payStateToken).pipe(
+      PayState.open(scenario.result.payStateToken).pipe(
         Effect.provide(TestSealedStateKeys)
       )
     );
     expect(state.orderId).toBe(scenario.result.orderId);
+  });
+
+  test("signs a reused hold's stored deadline into its Pay state", async () => {
+    const { PayState } = await import("@/features/checkout/backend/checkout");
+    const scenario = await runReusableReservationScenario({
+      holdForAttempt: reuseHold(makeReusableReservation()),
+    });
+
+    if (scenario.result?.status !== "ready") {
+      throw new Error("Expected ready result");
+    }
+    const state = Effect.runSync(
+      PayState.open(scenario.result.payStateToken).pipe(
+        Effect.provide(TestSealedStateKeys)
+      )
+    );
+    expect(state.holdExpiresAt).toBe("2030-07-01T12:00:00.000Z");
+  });
+
+  test("annotates the booking's rows with its quote fingerprint, never the quote", async () => {
+    const scenario = await runReusableReservationScenario({
+      holdForAttempt: reuseHold(makeReusableReservation()),
+      captureLogAnnotations: true,
+    });
+
+    expect(scenario.result?.status).toBe("ready");
+    expectScalarLogAnnotations(scenario.logAnnotations);
+    expect(scenario.logAnnotations).toContainEqual(
+      expect.objectContaining({ quoteFingerprint: expect.any(String) })
+    );
   });
 
   test("quotes a hold another request created for the customer it holds", async () => {
@@ -1561,10 +1644,10 @@ describe("prepareWorkspacePayState", () => {
         })
       ),
       serverCaller: true,
-      quoteForCustomer: mock(({ affirmedAdvertisement, dotyposCustomerId }) =>
-        dotyposCustomerId === "conflict-customer-id"
+      quoteForCustomer: mock((quoteCall: CustomerQuoteCall) =>
+        quoteCall.dotyposCustomerId === "conflict-customer-id"
           ? Effect.fail(repricingFailure)
-          : Effect.succeed(buildQuoteFromAdvertisement(affirmedAdvertisement))
+          : Effect.succeed(quoteAdvertisedDiscounts(quoteCall))
       ),
     });
 
@@ -2562,6 +2645,30 @@ describe("prepareWorkspacePayState", () => {
         expect(retry.result?.orderId).toBe("agent-live-hold-id");
       });
 
+      test("signs the stored deadline into both links of a reused agent hold", async () => {
+        const { PayState } = await import(
+          "@/features/checkout/backend/checkout"
+        );
+        const { initial, retry } = await runLiveHoldRetry(
+          Temporal.Instant.from("2026-10-20T12:10:01Z")
+        );
+        const signedHoldExpiresAt = (payStateToken: string | undefined) =>
+          Effect.runSync(
+            PayState.open(payStateToken ?? "").pipe(
+              Effect.provide(TestSealedStateKeys)
+            )
+          ).holdExpiresAt;
+
+        // The deadline stored when the hold was created, not ten minutes
+        // after the retry.
+        expect(signedHoldExpiresAt(initial.first.result?.payStateToken)).toBe(
+          "2026-10-20T12:19:59.000Z"
+        );
+        expect(signedHoldExpiresAt(retry.result?.payStateToken)).toBe(
+          "2026-10-20T12:19:59.000Z"
+        );
+      });
+
       test("returns a byte-identical Pay URL for a same-time identical retry", async () => {
         const { initial, retry } = await runLiveHoldRetry(
           Temporal.Instant.from("2026-10-20T12:09:59Z")
@@ -3171,7 +3278,8 @@ describe("prepareWorkspacePayState", () => {
 
       expect(scenario.result?.status).toBe("ready");
       expect(
-        scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
+        scenario.quoteForCustomer.mock.calls[0]?.[0].advertisement.priced
+          .reservation
       ).toMatchObject({
         name: "Grace Hopper",
         email: testEmailAddressForGrace,
@@ -3363,7 +3471,7 @@ describe("prepareWorkspacePayState", () => {
       const signedStateOf = async (
         result: { readonly redirectUrl?: string } | object | undefined
       ) => {
-        const { openPayState, payStateTokenQueryParam } = await import(
+        const { PayState, payStateTokenQueryParam } = await import(
           "@/features/checkout/backend/checkout"
         );
         const redirectUrl =
@@ -3374,7 +3482,7 @@ describe("prepareWorkspacePayState", () => {
         ).searchParams.get(payStateTokenQueryParam);
         return token
           ? Effect.runSync(
-              openPayState(token).pipe(Effect.provide(TestSealedStateKeys))
+              PayState.open(token).pipe(Effect.provide(TestSealedStateKeys))
             )
           : undefined;
       };
@@ -3411,15 +3519,11 @@ describe("prepareWorkspacePayState", () => {
             linkedAccount: linkedAccount(),
             rememberedReferralCode: "RFL12345",
             evaluateCheckoutReferral,
-            quoteForCustomer: mock(
-              ({ affirmedAdvertisement, referralCode }) => {
-                order.push("quote");
-                quotedReferralCodes.push(referralCode);
-                return Effect.succeed(
-                  buildQuoteFromAdvertisement(affirmedAdvertisement)
-                );
-              }
-            ),
+            quoteForCustomer: mock((quoteCall: CustomerQuoteCall) => {
+              order.push("quote");
+              quotedReferralCodes.push(quoteCall.referralCode);
+              return Effect.succeed(quoteAdvertisedDiscounts(quoteCall));
+            }),
           });
 
           expect(scenario.result?.status).toBe("ready");
@@ -3624,7 +3728,7 @@ describe("prepareWorkspacePayState", () => {
       const redirectUrlOf = (result: PreparedResult) =>
         result && "redirectUrl" in result ? result.redirectUrl : undefined;
       const requestedCodeOf = async (result: PreparedResult) => {
-        const { openPayState, payStateTokenQueryParam } = await import(
+        const { PayState, payStateTokenQueryParam } = await import(
           "@/features/checkout/backend/checkout"
         );
         const token = new URL(
@@ -3632,7 +3736,7 @@ describe("prepareWorkspacePayState", () => {
           "https://deskohub.test"
         ).searchParams.get(payStateTokenQueryParam);
         return Effect.runSync(
-          openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+          PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
         ).requestedDiscountCode;
       };
 
@@ -3869,7 +3973,8 @@ describe("prepareWorkspacePayState", () => {
         dotyposCustomerId: "customer-id",
       });
       expect(
-        scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
+        scenario.quoteForCustomer.mock.calls[0]?.[0].advertisement.priced
+          .reservation
       ).toMatchObject({ name: reservation.name, email: reservation.email });
     });
   });
@@ -4200,6 +4305,12 @@ describe("prepareWorkspacePayState", () => {
     const { BotProtectionServiceMock } = await import(
       "@/shared/backend/bot-protection/bot-protection.service.mock"
     );
+    const { CheckoutPricingService } = await import(
+      "@/features/checkout/backend/checkout/checkout-pricing.service"
+    );
+    const { DiscountServiceMock } = await import(
+      "@/features/discounts/discount.service.mock"
+    );
     const { layer: accountAuthorityLayer } = await accountAuthorityFixture();
     const effect = prepareFromReservationForm({
       locale: "en-US",
@@ -4213,7 +4324,10 @@ describe("prepareWorkspacePayState", () => {
           accountAuthorityLayer,
           inertRememberedReferral(),
           BotProtectionServiceMock({ verifyHuman: () => Effect.void }),
-          CheckoutPricingServiceMock({}),
+          // The snapshot is checked before any discount is affirmed.
+          CheckoutPricingService.Default.pipe(
+            Layer.provide(DiscountServiceMock({}))
+          ),
           recordCheckoutAnalytics().layer,
           TestSealedStateKeys
         )
@@ -4232,7 +4346,7 @@ describe("prepareWorkspacePayState", () => {
   });
 
   test("returns a usable pricing_changed summary when an advertised sale disappears", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const advertisedDiscount = makeAdvertisementQuote(5000);
@@ -4241,8 +4355,8 @@ describe("prepareWorkspacePayState", () => {
       advertisedPriceToken: await buildAdvertisedPriceToken(
         buildQuoteFromAdvertisement(advertisedDiscount)
       ),
-      affirmAdvertisement: mock(() =>
-        Effect.succeed(makeAdvertisementAffirmation())
+      affirmAdvertisement: mock((affirmation: AdvertisementAffirmationCall) =>
+        Effect.succeed(advertisementVerdict(affirmation))
       ),
     });
 
@@ -4258,7 +4372,7 @@ describe("prepareWorkspacePayState", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.changedKeys?.itemKeys).toContain("product:cowork:open-space");
     expect(state.quote.payment.discounts).toEqual([]);
@@ -4266,7 +4380,7 @@ describe("prepareWorkspacePayState", () => {
   });
 
   test("allows the customer discount to first appear on a ready summary", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const customerQuote = makeAdvertisementQuote(1000, "Customer discount");
@@ -4286,7 +4400,7 @@ describe("prepareWorkspacePayState", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.changedKeys).toBeUndefined();
     expect(state.quote.payment.discounts).toHaveLength(1);

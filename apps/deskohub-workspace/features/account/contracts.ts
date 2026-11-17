@@ -6,6 +6,7 @@ import { Option, Schema } from "effect";
 import type { CustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
 import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
 import { defaultPhoneRegion, type Locale } from "@/features/i18n";
+import type { RebookingSelection } from "@/features/reservation/backend/booking-selection";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 
 /*
@@ -91,6 +92,32 @@ export type CustomerReservationSummary = {
   readonly setupStartsAt?: string;
   readonly seats: number | null;
   readonly status: CustomerReservationStatus;
+  /**
+   * The catalog name of `product` in the history's locale, so every client
+   * names a booking alike.
+   */
+  readonly productName?: string;
+  /**
+   * When the door code of a website order works: the span Dotypos holds,
+   * early setup included, which the code's issuance covers. Absent while
+   * that span can't be read.
+   */
+  readonly accessStartsAt?: string;
+  readonly accessEndsAt?: string;
+  /**
+   * The booking that books this reservation again, when its stored product
+   * can still be booked.
+   */
+  readonly bookedSelection?: RebookingSelection;
+  /**
+   * The door code of a confirmed booking whose access starts by today in
+   * Prague and hasn't ended, when a history that resolves codes could show it.
+   */
+  readonly todayAccess?: {
+    readonly code: string;
+    readonly accessStartsAt: string;
+    readonly accessEndsAt: string;
+  };
 };
 
 export type CustomerReservationGroups = {

@@ -1,7 +1,7 @@
 "use server";
 
 import { AdministrationWorkspaceReservationId } from "@deskohub/workspace-admin-api";
-import { Effect, Schema } from "effect";
+import { DateTime, Effect, Schema } from "effect";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
 import { AdministrationService } from "./administration.service";
@@ -14,6 +14,9 @@ import {
   reservationLookupStandardSchema,
   reservationRestorationStandardSchema,
 } from "./contracts";
+import { AdministrationCustomerDirectory } from "./customer-directory.service";
+import { describeAdministrationCustomer } from "./customer-identity";
+import { customerSearchQuerySchema } from "./customer-search-query";
 import { m } from "./i18n";
 import {
   ReservationAccessAdministration,
@@ -59,6 +62,35 @@ export const getAdministrationReservation: typeof getAdministrationReservationAc
   async (...args: Parameters<typeof getAdministrationReservationAction>) => {
     "use server";
     return await getAdministrationReservationAction(...args);
+  };
+
+const searchAdministrationCustomersAction = defineAdministrationAction(
+  {
+    operation: "administration.search-customers",
+    failureCopy,
+    schema: customerSearchQuerySchema,
+    logInput: false,
+    capabilities: AdministrationCustomerDirectory.Live,
+    publicFailure: (_, locale) =>
+      m.administrationCustomerSearchUnavailable({}, { locale }),
+  },
+  Effect.fn(function* (input) {
+    const directory = yield* AdministrationCustomerDirectory;
+    const { kind, customers } = yield* directory.search(input.query);
+    const now = yield* DateTime.nowAsDate;
+    return {
+      kind,
+      customers: customers.map((customer) =>
+        describeAdministrationCustomer(customer, now)
+      ),
+    };
+  })
+);
+
+export const searchAdministrationCustomers: typeof searchAdministrationCustomersAction =
+  async (...args: Parameters<typeof searchAdministrationCustomersAction>) => {
+    "use server";
+    return await searchAdministrationCustomersAction(...args);
   };
 
 const reservationPath = ({ reservationId }: { reservationId: string }) => [

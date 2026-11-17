@@ -2,9 +2,19 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { DotyposService } from "@deskohub/dotypos";
+import { DotyposService, DotyposUnavailable } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
+import { makeRecordingAdvisoryLock } from "@/db/postgres-advisory-lock.test-utils";
 import type { ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType } from "../payment/provider-payment-finalization.service";
+
+/** The deadline every cleanup below was scheduled for, before `checkedAt`. */
+const holdExpiresAt = Temporal.Instant.from("2026-06-02T09:50:00.000Z");
+/** The expired hold the cleanups below find on their order. */
+const dueHold = {
+  dotyposReservationId: "dotypos-reservation-id",
+  reservationHoldExpiresAt: holdExpiresAt,
+};
+const claimStamp = Temporal.Instant.from("2026-06-02T10:00:00.500Z");
 
 describe("ReservationHoldCleanupService", () => {
   test("does not cancel an expired hold when the pending provider payment finalizes paid", async () => {
@@ -41,6 +51,7 @@ describe("ReservationHoldCleanupService", () => {
           reservationState: "held",
           paymentState: "pending",
           activePaymentAttemptId: attemptId,
+          ...dueHold,
         })
       ),
       claimCancellation,
@@ -53,12 +64,14 @@ describe("ReservationHoldCleanupService", () => {
       const cleanup = yield* ReservationHoldCleanupService;
       return yield* cleanup.cancelOrderHold({
         orderId,
+        holdExpiresAt,
         checkedAt: Temporal.Instant.from("2026-06-02T10:00:00.000Z"),
       });
     }).pipe(
       Effect.provide(
         ReservationHoldCleanupService.Default.pipe(
           Layer.provide(UnpaidHoldRelease.Default),
+          Layer.provide(makeRecordingAdvisoryLock().layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -111,6 +124,7 @@ describe("ReservationHoldCleanupService", () => {
       reservationState: "held",
       paymentState: "pending",
       activePaymentAttemptId: attemptId,
+      ...dueHold,
     };
     const selectExpiredHolds = mock(() =>
       Effect.succeed([activeReservation] as never)
@@ -139,6 +153,7 @@ describe("ReservationHoldCleanupService", () => {
         Effect.provide(
           ReservationHoldCleanupService.Default.pipe(
             Layer.provide(UnpaidHoldRelease.Default),
+            Layer.provide(makeRecordingAdvisoryLock().layer),
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(ProviderPaymentFinalizationService, finalization),
@@ -206,6 +221,7 @@ describe("ReservationHoldCleanupService", () => {
       paymentState: "expired",
       dotyposReservationId: "dotypos-reservation-id",
       dotyposCustomerId: "dotypos-customer-id",
+      updatedAt: claimStamp,
     };
     const claimCancellation = mock(() => Effect.succeed(claimed));
     const cancelReservation = mock(() => Effect.void);
@@ -220,11 +236,16 @@ describe("ReservationHoldCleanupService", () => {
     const analytics = recordCheckoutAnalytics();
     await Effect.gen(function* () {
       const cleanup = yield* ReservationHoldCleanupService;
-      return yield* cleanup.cancelOrderHold({ orderId, checkedAt });
+      return yield* cleanup.cancelOrderHold({
+        orderId,
+        holdExpiresAt,
+        checkedAt,
+      });
     }).pipe(
       Effect.provide(
         ReservationHoldCleanupService.Default.pipe(
           Layer.provide(UnpaidHoldRelease.Default),
+          Layer.provide(makeRecordingAdvisoryLock().layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {
@@ -242,6 +263,7 @@ describe("ReservationHoldCleanupService", () => {
                     reservationState: "held",
                     paymentState: "pending",
                     activePaymentAttemptId: attemptId,
+                    ...dueHold,
                   })
                 ),
                 claimCancellation,
@@ -249,6 +271,9 @@ describe("ReservationHoldCleanupService", () => {
               }),
               analytics.layer,
               Layer.mock(DotyposService, {
+                getReservationStatus: mock(() =>
+                  Effect.succeed("NEW" as const)
+                ),
                 cancelReservation,
               })
             )
@@ -265,10 +290,15 @@ describe("ReservationHoldCleanupService", () => {
       failureCode: "payment_abandoned_after_provider_cutoff",
     });
 
-    expect(claimCancellation).toHaveBeenCalledWith(orderId);
+    expect(claimCancellation).toHaveBeenCalledWith({
+      id: orderId,
+      expectedHold: dueHold,
+      cause: "hold_expired",
+    });
     expect(cancelReservation).toHaveBeenCalledWith("dotypos-reservation-id");
     expect(markCancelled).toHaveBeenCalledWith({
       id: orderId,
+      claimedAt: claimStamp,
       cancelledAt: expect.any(Temporal.Instant),
       holdExpiredAt: checkedAt,
     });
@@ -306,11 +336,12 @@ describe("ReservationHoldCleanupService", () => {
 
     await Effect.gen(function* () {
       const cleanup = yield* ReservationHoldCleanupService;
-      return yield* cleanup.cancelOrderHold({ orderId });
+      return yield* cleanup.cancelOrderHold({ orderId, holdExpiresAt });
     }).pipe(
       Effect.provide(
         ReservationHoldCleanupService.Default.pipe(
           Layer.provide(UnpaidHoldRelease.Default),
+          Layer.provide(makeRecordingAdvisoryLock().layer),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(ProviderPaymentFinalizationService, {
@@ -328,6 +359,7 @@ describe("ReservationHoldCleanupService", () => {
                     reservationState: "held",
                     paymentState: "pending",
                     activePaymentAttemptId: attemptId,
+                    ...dueHold,
                   })
                 ),
                 claimCancellation,
@@ -346,5 +378,144 @@ describe("ReservationHoldCleanupService", () => {
     expect(markTerminalForReservation).not.toHaveBeenCalled();
     expect(claimCancellation).not.toHaveBeenCalled();
     expect(cancelReservation).not.toHaveBeenCalled();
+  });
+
+  test("sweeps expired holds under their live Dotypos status", async () => {
+    const { ProviderPaymentFinalizationService } = await import(
+      "../payment/provider-payment-finalization.service"
+    );
+    const { PaymentLifecycleRepository } = await import(
+      "../repositories/payment-lifecycle.repository"
+    );
+    const { ReservationHoldCleanupService } = await import(
+      "./reservation-hold-cleanup.service"
+    );
+    const { UnpaidHoldRelease } = await import("./unpaid-hold-release.service");
+    const { WorkspaceReservationRepository } = await import(
+      "@/features/reservation/backend/workspace-reservation.repository"
+    );
+    const { recordCheckoutAnalytics } = await import(
+      "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
+    );
+
+    // One expired hold per live Dotypos status, and one whose status can't
+    // be read. None has a pending payment, so each goes straight to release.
+    const statuses = {
+      "reservation-sweep-new": "NEW",
+      "reservation-sweep-cancelled": "CANCELLED",
+      "reservation-sweep-confirmed": "CONFIRMED",
+      "reservation-sweep-unreadable": undefined,
+    } as const;
+    type OrderId = keyof typeof statuses;
+    const orderIds = Object.keys(statuses) as OrderId[];
+    const holdOf = (id: OrderId) => `dotypos-${id}`;
+    const orderOf = (id: OrderId) => ({
+      id,
+      reservationState: "held",
+      paymentState: "not_started",
+      activePaymentAttemptId: null,
+      dotyposReservationId: holdOf(id),
+      dotyposCustomerId: "dotypos-customer-id",
+      reservationHoldExpiresAt: holdExpiresAt,
+      updatedAt: claimStamp,
+    });
+    const orderIdOfHold = (hold: string) =>
+      orderIds.find((id) => holdOf(id) === hold)!;
+
+    const markCancelled = mock((_: { readonly id: string }) => Effect.void);
+    const markCancellationFailed = mock(
+      (_: { readonly id: string; readonly failureCode: string }) => Effect.void
+    );
+    const cancelReservation = mock((_: string) => Effect.void);
+    const getReservationStatus = mock((hold: string) => {
+      const status = statuses[orderIdOfHold(hold)];
+      return status
+        ? Effect.succeed(status)
+        : Effect.fail(
+            new DotyposUnavailable({
+              operation: "getReservationStatus",
+              reason: "server",
+            })
+          );
+    });
+    const analytics = recordCheckoutAnalytics();
+
+    const summary = await Effect.gen(function* () {
+      const cleanup = yield* ReservationHoldCleanupService;
+      return yield* cleanup.sweepExpiredHolds({
+        now: Temporal.Instant.from("2026-06-02T10:00:00.000Z"),
+        limit: orderIds.length,
+      });
+    }).pipe(
+      Effect.provide(
+        ReservationHoldCleanupService.Default.pipe(
+          Layer.provide(UnpaidHoldRelease.Default),
+          Layer.provide(makeRecordingAdvisoryLock().layer),
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(ProviderPaymentFinalizationService, {
+                finalizePendingProviderPayment: mock(() =>
+                  Effect.die("not used")
+                ),
+              } satisfies ProviderPaymentFinalizationServiceType),
+              Layer.mock(PaymentLifecycleRepository, {
+                markTerminal: mock(() => Effect.die("not used")),
+              }),
+              Layer.mock(WorkspaceReservationRepository, {
+                selectExpiredHolds: mock(() =>
+                  Effect.succeed(orderIds.map(orderOf) as never)
+                ),
+                findById: mock((id: string) =>
+                  Effect.succeed(orderOf(id as OrderId) as never)
+                ),
+                claimCancellation: mock((input: { readonly id: string }) =>
+                  Effect.succeed({
+                    ...orderOf(input.id as OrderId),
+                    reservationState: "cancelling",
+                  } as never)
+                ),
+                markCancelled,
+                markCancellationFailed,
+              }),
+              analytics.layer,
+              Layer.mock(DotyposService, {
+                getReservationStatus,
+                cancelReservation,
+              } as never)
+            )
+          )
+        )
+      ),
+      Effect.runPromise
+    );
+
+    expect(summary).toEqual({ cancelled: 2, skipped: 1, failed: 1 });
+    expect(getReservationStatus).toHaveBeenCalledTimes(orderIds.length);
+    expect(cancelReservation.mock.calls).toEqual([
+      [holdOf("reservation-sweep-new")],
+    ]);
+    expect(markCancelled.mock.calls.map(([marker]) => marker.id)).toEqual([
+      "reservation-sweep-new",
+      "reservation-sweep-cancelled",
+    ]);
+    expect(markCancellationFailed.mock.calls.map(([marker]) => marker)).toEqual(
+      [
+        {
+          id: "reservation-sweep-confirmed",
+          claimedAt: claimStamp,
+          failureCode: "dotypos_cancel_failed",
+        },
+        {
+          id: "reservation-sweep-unreadable",
+          claimedAt: claimStamp,
+          failureCode: "dotypos_cancel_failed",
+        },
+      ]
+    );
+    expect(
+      analytics.messages
+        .filter(({ event }) => event === "reservation abandoned")
+        .map(({ distinctId }) => distinctId)
+    ).toEqual(["reservation-sweep-new", "reservation-sweep-cancelled"]);
   });
 });

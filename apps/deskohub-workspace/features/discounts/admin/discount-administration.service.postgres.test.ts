@@ -178,6 +178,8 @@ describe.skipIf(!testDatabase)(
         AdministrationDotyposCustomerId
       )(`synthetic-dates-${suffix}`);
       const dotypos = DotyposServiceMock({
+        // Audiences read customers in a batch; an empty batch reads each one on its own.
+        getCustomersByIds: () => Effect.succeed(new Map()),
         getCustomer: (id) =>
           Effect.succeed(Option.some({ id, deleted: false })),
       });
@@ -393,6 +395,8 @@ describe.skipIf(!testDatabase)(
         typeof AdministrationDotyposCustomerId.Type,
       ];
       const dotypos = DotyposServiceMock({
+        // Audiences read customers in a batch; an empty batch reads each one on its own.
+        getCustomersByIds: () => Effect.succeed(new Map()),
         getCustomer: (id) =>
           Effect.succeed(Option.some({ id, deleted: false })),
       });

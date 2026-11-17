@@ -18,21 +18,29 @@ const moduleStubs: Readonly<Record<string, string>> = {
   `,
 };
 
-/** Replaces the discount administration's Server Actions module only. */
-const discountActionsStubPlugin: Bun.BunPlugin = {
-  name: "discount-admin-actions-stub",
+/**
+ * The Server Actions modules the dialogs reach, keyed by the directory whose
+ * files import them as `./actions`: discount administration's, and the
+ * administration's customer search.
+ */
+const serverActionStubs: Readonly<Record<string, string>> = {
+  [import.meta.dir]: "export const mutateDiscountAdmin = async () => ({});",
+  [resolve(appDirectory, "features/administration")]:
+    "export const searchAdministrationCustomers = async () => ({});",
+};
+
+/** Replaces those Server Actions modules only. */
+const serverActionsStubPlugin: Bun.BunPlugin = {
+  name: "server-actions-stub",
   setup(build) {
-    const namespace = "discount-admin-actions-stub";
+    const namespace = "server-actions-stub";
     build.onResolve({ filter: /^\.\/actions$/ }, (args) =>
-      dirname(args.importer) === import.meta.dir
-        ? { namespace, path: args.path }
+      Object.hasOwn(serverActionStubs, dirname(args.importer))
+        ? { namespace, path: dirname(args.importer) }
         : undefined
     );
-    build.onLoad({ filter: /.*/, namespace }, () => ({
-      contents: `
-        export const mutateDiscountAdmin = async () => ({});
-        export const searchDiscountAdminCustomers = async () => ({});
-      `,
+    build.onLoad({ filter: /.*/, namespace }, (args) => ({
+      contents: serverActionStubs[args.path] ?? "",
       loader: "js",
     }));
   },
@@ -61,10 +69,7 @@ export const buildDiscountDialogsBrowserPage =
       minify: true,
       naming: "[name]-[hash].[ext]",
       outdir: directory,
-      plugins: [
-        discountActionsStubPlugin,
-        browserModuleStubPlugin(moduleStubs),
-      ],
+      plugins: [serverActionsStubPlugin, browserModuleStubPlugin(moduleStubs)],
       target: "browser",
     });
     if (!build.success) {

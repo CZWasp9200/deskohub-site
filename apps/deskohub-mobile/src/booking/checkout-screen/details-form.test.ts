@@ -1,14 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import type { CustomerAccountState } from "@deskohub/workspace-customer-api";
+import type {
+  CustomerAccountState,
+  CustomerProfileBilling,
+} from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { sampleWorkspaceData } from "../../customer-api/testing/sample-fixtures";
 import {
   type DetailsDraft,
+  type DetailsProfile,
   detailsAccess,
   detailsFieldOf,
-  emptyDetailsDraft,
+  initialDetailsDraft,
+  orderedProblems,
+  problemsAfterChange,
+  type SavedBilling,
   type SelfContact,
+  savedBillingOf,
   validateDetails,
   withRejectedSavedFields,
 } from "./details-form";
@@ -21,27 +29,51 @@ const linkedAccount = (
   return { ...account, profile: { ...account.profile, ...profile } };
 };
 
+const noSaved: SavedBilling = {
+  address: Option.none(),
+  company: Option.none(),
+};
+
 const profileSelf: SelfContact = {
   email: testEmailAddress("booker"),
   name: Option.some("Synthetic Booker"),
   phone: Option.some("+420 700 000 000"),
 };
 
+const as = (
+  self: SelfContact,
+  saved: SavedBilling = noSaved
+): DetailsProfile => ({ self, saved });
+
 const draft = (patch: Partial<DetailsDraft> = {}): DetailsDraft => ({
-  ...emptyDetailsDraft,
+  ...initialDetailsDraft(noSaved, "CZ"),
   ...patch,
 });
 
 const address = {
   line1: " Vodičkova 1 ",
-  line2: "",
   city: "Praha",
   postalCode: "110 00",
-  country: "cz",
+  country: "CZ",
 };
 
+const billing = (
+  patch: Partial<CustomerProfileBilling>
+): CustomerProfileBilling => ({
+  kind: "personal",
+  addressLine1: null,
+  addressLine2: null,
+  city: null,
+  zip: null,
+  country: null,
+  companyName: null,
+  companyId: null,
+  vatId: null,
+  ...patch,
+});
+
 const problemsOf = (self: SelfContact, form: DetailsDraft) => {
-  const validation = validateDetails(self, form);
+  const validation = validateDetails(as(self), form);
   return validation._tag === "Invalid" ? validation.problems : {};
 };
 
@@ -88,7 +120,7 @@ describe("detailsAccess", () => {
 
 describe("validateDetails", () => {
   test("self with a full profile sends the profile's contact and no invoice", () => {
-    expect(validateDetails(profileSelf, draft())).toEqual({
+    expect(validateDetails(as(profileSelf), draft())).toEqual({
       _tag: "Valid",
       details: {
         bookingFor: "self",
@@ -104,21 +136,20 @@ describe("validateDetails", () => {
 
   test("marketing consent is sent only when ticked, and only for oneself", () => {
     const ticked = validateDetails(
-      profileSelf,
+      as(profileSelf),
       draft({ marketingConsent: true })
     );
     expect(ticked._tag === "Valid" && ticked.details.marketingConsent).toBe(
       true
     );
     const forSomeoneElse = validateDetails(
-      profileSelf,
+      as(profileSelf),
       draft({
         bookingFor: "someone-else",
         marketingConsent: true,
         someoneElse: {
           name: "Guest Person",
           email: testEmailAddress("guest"),
-          emailRepeat: testEmailAddress("guest").toUpperCase(),
           phone: "777 123 456",
         },
       })
@@ -138,7 +169,7 @@ describe("validateDetails", () => {
       problemsOf(noPhone, draft({ self: { name: "", phone: "12ab" } }))
     ).toEqual({ phone: "invalid_phone" });
     const entered = validateDetails(
-      noPhone,
+      as(noPhone),
       draft({ self: { name: "", phone: " 777 123 456 " } })
     );
     expect(entered._tag === "Valid" && entered.details.contact.phone).toBe(
@@ -157,15 +188,10 @@ describe("validateDetails", () => {
     ).toEqual({ name: "too_short" });
   });
 
-  test("someone else needs every field and the same email twice", () => {
+  test("someone else needs a name, one email and a phone", () => {
     expect(
       problemsOf(profileSelf, draft({ bookingFor: "someone-else" }))
-    ).toEqual({
-      name: "required",
-      email: "required",
-      emailRepeat: "required",
-      phone: "required",
-    });
+    ).toEqual({ name: "required", email: "required", phone: "required" });
     expect(
       problemsOf(
         profileSelf,
@@ -174,15 +200,14 @@ describe("validateDetails", () => {
           someoneElse: {
             name: "Guest Person",
             email: "guest@example",
-            emailRepeat: testEmailAddress("other"),
             phone: "777123456",
           },
         })
       )
-    ).toEqual({ email: "invalid_email", emailRepeat: "emails_differ" });
+    ).toEqual({ email: "invalid_email" });
   });
 
-  test("a personal invoice needs an address, sent trimmed with the country uppercased", () => {
+  test("a personal invoice without a saved address asks for one, sent trimmed", () => {
     expect(
       problemsOf(profileSelf, draft({ billing: "personal-invoice" }))
     ).toEqual({
@@ -191,8 +216,8 @@ describe("validateDetails", () => {
       "address.postalCode": "required",
     });
     const valid = validateDetails(
-      profileSelf,
-      draft({ billing: "personal-invoice", address })
+      as(profileSelf),
+      draft({ billing: "personal-invoice", personalAddress: address })
     );
     expect(valid._tag === "Valid" && valid.details.billing).toEqual({
       purpose: "personal",
@@ -206,21 +231,46 @@ describe("validateDetails", () => {
     });
   });
 
+  test("a personal invoice uses the saved address as it is, whatever was typed", () => {
+    const saved = {
+      ...noSaved,
+      address: Option.some({ ...address, line1: "Křižíkova 12" }),
+    };
+    const valid = validateDetails(
+      as(profileSelf, saved),
+      draft({ billing: "personal-invoice" })
+    );
+    expect(valid._tag === "Valid" && valid.details.billing).toEqual({
+      purpose: "personal",
+      invoice: "requested",
+      address: { ...address, line1: "Křižíkova 12" },
+    });
+  });
+
   test("a business invoice needs the buyer; the VAT id is optional and capped", () => {
+    const company = (patch: Partial<DetailsDraft["company"]>) => ({
+      legalName: "",
+      companyId: "",
+      vatId: "",
+      address,
+      ...patch,
+    });
     expect(
-      problemsOf(profileSelf, draft({ billing: "business", address }))
+      problemsOf(
+        profileSelf,
+        draft({ billing: "business", company: company({}) })
+      )
     ).toEqual({ "buyer.legalName": "required", "buyer.companyId": "required" });
     expect(
       problemsOf(
         profileSelf,
         draft({
           billing: "business",
-          address: { ...address, country: "Czechia" },
-          buyer: {
+          company: company({
             legalName: "Firma s.r.o.",
             companyId: "1".repeat(65),
-            vatId: "",
-          },
+            address: { ...address, country: "" },
+          }),
         })
       )
     ).toEqual({
@@ -228,11 +278,10 @@ describe("validateDetails", () => {
       "buyer.companyId": "too_long",
     });
     const valid = validateDetails(
-      profileSelf,
+      as(profileSelf),
       draft({
         billing: "business",
-        address,
-        buyer: { legalName: "Firma s.r.o.", companyId: "12345678", vatId: "" },
+        company: company({ legalName: "Firma s.r.o.", companyId: "12345678" }),
       })
     );
     expect(valid._tag === "Valid" && valid.details.billing).toEqual({
@@ -251,6 +300,146 @@ describe("validateDetails", () => {
       },
     });
   });
+
+  test("only the chosen invoice's fields are checked", () => {
+    const leftOver = draft({
+      billing: "none",
+      company: {
+        legalName: "",
+        companyId: "",
+        vatId: "",
+        address: { ...address, line1: "" },
+      },
+    });
+    expect(validateDetails(as(profileSelf), leftOver)._tag).toBe("Valid");
+  });
+});
+
+describe("problemsAfterChange (stale errors, board 31)", () => {
+  const submitted = {
+    "address.line1": "required",
+    "address.city": "required",
+    "buyer.legalName": "required",
+    phone: "invalid_phone",
+  } as const;
+
+  test("switching the invoice type clears every invoice field's problem", () => {
+    expect(problemsAfterChange(submitted, { _tag: "Billing" })).toEqual({
+      phone: "invalid_phone",
+    });
+  });
+
+  test("switching who the booking is for clears the contact's problems", () => {
+    expect(problemsAfterChange(submitted, { _tag: "BookingFor" })).toEqual({
+      "address.line1": "required",
+      "address.city": "required",
+      "buyer.legalName": "required",
+    });
+  });
+
+  test("typing in a field clears only that field's problem", () => {
+    expect(
+      problemsAfterChange(submitted, { _tag: "Field", field: "address.city" })
+    ).toEqual({
+      "address.line1": "required",
+      "buyer.legalName": "required",
+      phone: "invalid_phone",
+    });
+  });
+
+  test("an applied company lookup clears the problems of the fields it filled", () => {
+    expect(
+      problemsAfterChange(submitted, {
+        _tag: "Fields",
+        fields: ["buyer.legalName", "address.city"],
+      })
+    ).toEqual({ "address.line1": "required", phone: "invalid_phone" });
+  });
+
+  test("problems are counted and brought into view in screen order", () => {
+    expect(orderedProblems(submitted).map(({ field }) => field)).toEqual([
+      "phone",
+      "buyer.legalName",
+      "address.line1",
+      "address.city",
+    ]);
+  });
+});
+
+describe("savedBillingOf", () => {
+  test("offers a complete personal address", () => {
+    const saved = savedBillingOf(
+      billing({
+        addressLine1: "Křižíkova 12",
+        city: "Praha",
+        zip: "186 00",
+        country: "cz",
+      })
+    );
+    expect(saved.address).toEqual(
+      Option.some({
+        line1: "Křižíkova 12",
+        city: "Praha",
+        postalCode: "186 00",
+        country: "CZ",
+      })
+    );
+    expect(Option.isNone(saved.company)).toBe(true);
+  });
+
+  test("an incomplete or unknown-country address isn't offered", () => {
+    expect(
+      Option.isNone(
+        savedBillingOf(billing({ addressLine1: "Křižíkova 12", city: "Praha" }))
+          .address
+      )
+    ).toBe(true);
+    expect(
+      Option.isNone(
+        savedBillingOf(
+          billing({
+            addressLine1: "Křižíkova 12",
+            city: "Praha",
+            zip: "186 00",
+            country: "Czechia",
+          })
+        ).address
+      )
+    ).toBe(true);
+  });
+
+  test("saved business details start the company form, not a personal invoice", () => {
+    const saved = savedBillingOf(
+      billing({
+        kind: "business",
+        companyName: "Firma s.r.o.",
+        companyId: "12345678",
+        city: "Brno",
+      })
+    );
+    expect(Option.isNone(saved.address)).toBe(true);
+    const start = initialDetailsDraft(saved, "AT");
+    expect(start.billing).toBe("none");
+    expect(start.company.legalName).toBe("Firma s.r.o.");
+    expect(start.company.address.city).toBe("Brno");
+    // Saved without a country, the address starts in the device's.
+    expect(start.company.address.country).toBe("AT");
+  });
+
+  test("a saved business country is kept; new addresses start in the device's country", () => {
+    const saved = savedBillingOf(
+      billing({ kind: "business", companyName: "Firma s.r.o.", country: "sk" })
+    );
+    const start = initialDetailsDraft(saved, "AT");
+    expect(start.company.address.country).toBe("SK");
+    expect(start.personalAddress.country).toBe("AT");
+    expect(
+      initialDetailsDraft(
+        { address: Option.none(), company: Option.none() },
+        "PL"
+      ).company.address.country
+    ).toBe("PL");
+  });
 });
 
 describe("withRejectedSavedFields", () => {
@@ -259,7 +448,7 @@ describe("withRejectedSavedFields", () => {
     expect(rejected.name).toEqual(profileSelf.name);
     expect(problemsOf(rejected, draft())).toEqual({ phone: "required" });
     const corrected = validateDetails(
-      rejected,
+      as(rejected),
       draft({ self: { name: "", phone: "+420 777 123 456" } })
     );
     expect(corrected._tag === "Valid" && corrected.details.contact.phone).toBe(

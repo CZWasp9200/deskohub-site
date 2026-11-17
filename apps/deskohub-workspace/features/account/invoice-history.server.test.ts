@@ -16,6 +16,7 @@ import {
   CustomerInvoicesLoadError,
   CustomerInvoicesUnavailableError,
 } from "./backend/customer-invoice.service";
+import { CustomerAccountAccessError } from "./customer-account";
 import {
   loadCustomerInvoiceHistory,
   loadInvoiceHistory,
@@ -28,27 +29,31 @@ import {
 const dueInvoice: CustomerInvoiceSummary = {
   id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb23"),
   invoiceNumber: invoiceNumberSchema.make("WS-FV-2026-000042"),
+  workspaceReservationId: null,
   issuedOn: plainDateStringSchema.make("2026-08-20"),
   total: { amount: "450.50", currency: "CZK" },
   paymentStatus: "due",
   dueDate: plainDateStringSchema.make("2026-09-01"),
+  reservation: null,
 };
 const paidInvoice: CustomerInvoiceSummary = {
   id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb24"),
   invoiceNumber: invoiceNumberSchema.make("WS-FV-2026-000041"),
+  workspaceReservationId: null,
   issuedOn: plainDateStringSchema.make("2026-08-10"),
   total: { amount: "1200", currency: "CZK" },
   paymentStatus: "paid",
   dueDate: null,
+  reservation: null,
 };
 
 const loadWith = (
-  list: CustomerInvoiceService["Service"]["list"],
+  list: ReturnType<CustomerInvoiceService["Service"]["list"]>,
   locale: "cs-CZ" | "en-US" = "cs-CZ"
 ) =>
   Effect.runPromise(
     loadInvoiceHistory(locale).pipe(
-      Effect.provide(Layer.mock(CustomerInvoiceService, { list }))
+      Effect.provide(Layer.mock(CustomerInvoiceService, { list: () => list }))
     )
   );
 
@@ -106,7 +111,15 @@ describe("loadInvoiceHistory", () => {
 
   test("is unavailable when the session may see no invoices", async () => {
     expect(
-      await loadWith(Effect.fail(new CustomerInvoicesUnavailableError()))
+      await loadWith(
+        Effect.fail(
+          new CustomerInvoicesUnavailableError({
+            account: new CustomerAccountAccessError({
+              reason: "unauthenticated",
+            }),
+          })
+        )
+      )
     ).toEqual({ kind: "unavailable" });
   });
 
@@ -130,7 +143,7 @@ describe("loadCustomerInvoiceHistory", () => {
     expect(
       await loadCustomerInvoiceHistory(
         "en-US",
-        Layer.mock(CustomerInvoiceService, { list: Effect.succeed([]) })
+        Layer.mock(CustomerInvoiceService, { list: () => Effect.succeed([]) })
       )
     ).toEqual({ kind: "empty" });
   });

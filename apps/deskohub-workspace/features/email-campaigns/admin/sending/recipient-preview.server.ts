@@ -4,7 +4,7 @@ import type {
   AdministrationCampaignAudienceType,
   AdministrationCampaignDetailType,
   AdministrationCampaignRecipientPreviewType,
-  CampaignOperationError,
+  AdministrationOperationError,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Match, Option } from "effect";
 import { redirect } from "next/navigation";
@@ -60,11 +60,11 @@ type RecipientPreviewQuery =
  * The Draft lost its audience after it was read: someone cleared it, or the
  * audience was deleted.
  */
-const isAudienceGone = (error: CampaignOperationError) =>
+const isAudienceGone = (error: AdministrationOperationError) =>
   error._tag === "OperationConflict" ||
   (error._tag === "OperationNotFound" && error.code === "audience-not-found");
 
-const isResolutionUnavailable = (error: CampaignOperationError) =>
+const isResolutionUnavailable = (error: AdministrationOperationError) =>
   error._tag === "OperationUnavailable" &&
   error.code === "recipient-resolution-unavailable";
 

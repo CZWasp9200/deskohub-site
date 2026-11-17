@@ -1,7 +1,5 @@
-import type { DotyposCustomerBillingDetails } from "@deskohub/dotypos";
 import { Effect, Match, Schema } from "effect";
 import {
-  type BusinessInvoiceBuyer,
   businessInvoiceBuyerSchema,
   type InvoiceBuyer,
   invoiceBuyerAddressSchema,
@@ -91,39 +89,5 @@ export const getReservationInvoiceBuyer = (input: {
       })
     ),
     Match.when({ purpose: "business" }, ({ buyer }) => buyer),
-    Match.exhaustive
-  );
-
-export const getDotyposCustomerBillingDetails = (
-  billing: ReservationBillingSelection
-): DotyposCustomerBillingDetails | undefined =>
-  Match.value(billing).pipe(
-    Match.when({ purpose: "personal", invoice: "none" }, () => undefined),
-    Match.when(
-      { purpose: "personal", invoice: "requested" },
-      ({ address }) => ({
-        addressLine1: address.line1,
-        addressLine2: address.line2 ?? "",
-        city: address.city,
-        zip: address.postalCode,
-        country: address.country,
-        companyName: "",
-        companyId: "",
-        vatId: "",
-      })
-    ),
-    Match.when(
-      { purpose: "business" },
-      ({ buyer }: { readonly buyer: BusinessInvoiceBuyer }) => ({
-        addressLine1: buyer.address.line1,
-        addressLine2: buyer.address.line2 ?? "",
-        city: buyer.address.city,
-        zip: buyer.address.postalCode,
-        country: buyer.address.country,
-        companyName: buyer.legalName,
-        companyId: buyer.companyId,
-        vatId: buyer.vatId ?? "",
-      })
-    ),
     Match.exhaustive
   );

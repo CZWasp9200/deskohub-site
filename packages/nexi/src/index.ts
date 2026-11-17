@@ -3,6 +3,11 @@ export { NexiService } from "./backend/service";
 export type { NexiRuntimeConfigObj } from "./config";
 export { NexiRuntimeConfig } from "./config";
 export { ExternalAPIError, NetworkError } from "./errors";
+export {
+  isDeclinedNexiPaymentOperation,
+  isFailedNexiPaymentOperation,
+  isNexiFailureResult,
+} from "./payment-operations";
 export type { NexiRefundSummary } from "./refunds";
 export {
   isNexiRefundOperation,

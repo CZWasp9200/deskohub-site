@@ -1,7 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { Effect, Option } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import type { WorkspaceReservationRow } from "@/db/schema";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { StoredReservationDetails } from "./stored-reservation-details.server";
@@ -83,6 +83,34 @@ describe("StoredReservationDetails", () => {
   test("projects a malformed document as none", () => {
     for (const document of malformed) {
       expect(StoredReservationDetails.project(document)).toEqual(Option.none());
+    }
+  });
+
+  test("encodes every family's document to a value that decodes unchanged", async () => {
+    for (const document of Object.values(documents)) {
+      const written = await Effect.runPromise(
+        StoredReservationDetails.encode(document)
+      );
+      expect(written).toEqual(document);
+      expect(
+        await Effect.runPromise(
+          StoredReservationDetails.decode(reservationId, written)
+        )
+      ).toEqual(document);
+    }
+  });
+
+  test("refuses to encode a document a read would reject", async () => {
+    // The type only admits valid documents, so an invalid one is a defect in
+    // the code that built it.
+    for (const document of malformed) {
+      const exit = await Effect.runPromiseExit(
+        StoredReservationDetails.encode(document)
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+      }
     }
   });
 });

@@ -9,3 +9,6 @@ export const paymentBrowserLayer: Layer.Layer<PaymentBrowser> =
   PaymentBrowser.fromLocation({
     assign: (url) => globalThis.location.assign(url),
   });
+
+/** The web app's payment page replaces the app's page: nothing to warm up. */
+export const usePaymentBrowserWarmUp = () => undefined;

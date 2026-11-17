@@ -46,43 +46,43 @@ const backfillStatements = async () =>
         statement.trimStart().startsWith('UPDATE "payment_attempts"')
     );
 
+type ScratchDatabase = {
+  readonly pool: Pool;
+  readonly reservation: (input: ReservationFixtureInput) => Promise<string>;
+  readonly migrateRemaining: () => Promise<void>;
+};
+
 /**
- * Seeds with the fixtures, which write every column the current schema has:
- * the reservation columns later migrations add exist only while `seed`
- * runs, so the database stays as it was before the migration.
+ * Seeds with today's fixtures, which name every reservation column today's
+ * schema has: the columns the database before the migration lacks are added
+ * as plain nullable columns for the seed and dropped again right after it, so
+ * the later migrations that create them still run.
  */
-const withLaterReservationColumns = async <A>(
+const seedWithLaterReservationColumns = async <A>(
   pool: Pool,
   seed: () => Promise<A>
 ) => {
-  const { rows } = await pool.query<{ column_name: string }>(
-    `select column_name from information_schema.columns
-     where table_schema = 'public' and table_name = 'workspace_reservations'`
+  const { rows } = await pool.query<{ readonly column_name: string }>(
+    "select column_name from information_schema.columns where table_name = 'workspace_reservations'"
   );
-  const existing = new Set(rows.map(({ column_name }) => column_name));
-  const later = Object.values(getTableColumns(workspaceReservations)).filter(
-    ({ name }) => !existing.has(name)
-  );
-  for (const column of later) {
+  const present = new Set(rows.map((row) => row.column_name));
+  const later = Object.values(getTableColumns(workspaceReservations))
+    .map((column) => column.name)
+    .filter((name) => !present.has(name));
+  for (const name of later) {
     await pool.query(
-      `alter table workspace_reservations add column "${column.name}" ${column.getSQLType()}`
+      `alter table workspace_reservations add column "${name}" text`
     );
   }
   try {
     return await seed();
   } finally {
-    for (const column of later) {
+    for (const name of later) {
       await pool.query(
-        `alter table workspace_reservations drop column "${column.name}"`
+        `alter table workspace_reservations drop column "${name}"`
       );
     }
   }
-};
-
-type ScratchDatabase = {
-  readonly pool: Pool;
-  readonly reservation: (input: ReservationFixtureInput) => Promise<string>;
-  readonly migrateRemaining: () => Promise<void>;
 };
 
 /**
@@ -111,7 +111,7 @@ const beforeMigration = async (
     await run({
       pool,
       reservation: (input) =>
-        withLaterReservationColumns(
+        seedWithLaterReservationColumns(
           pool,
           async () => (await Effect.runPromise(fixtures.reservation(input))).id
         ),

@@ -1,3 +1,5 @@
+import "@/shared/polyfills/temporal";
+
 import {
   type DotyposReservationId,
   type DotyposReservationStatus,
@@ -21,9 +23,10 @@ type DotyposHoldReleaseFailureCode =
  * What a release requires of the live Dotypos status before it cancels:
  *
  * - `require_new`: read it, cancel only `NEW`, take `CANCELLED` as already
- *   released, and refuse any other status. Session supersession.
- * - `unchecked`: cancel without reading it. Hold cleanup cancels every hold it
- *   claims, and late payment read `NEW` itself before claiming.
+ *   released, and refuse any other status. Hold cleanup and session
+ *   supersession.
+ * - `unchecked`: cancel without reading it. Late payment read `NEW` itself
+ *   before claiming.
  */
 type DotyposHoldLiveStatusRule = "require_new" | "unchecked";
 
@@ -47,6 +50,8 @@ interface IDotyposHoldRelease {
    */
   readonly release: (input: {
     readonly reservationId: WorkspaceReservationId;
+    /** The caller's claim stamp, which the failure marker requires. */
+    readonly claimedAt: Temporal.Instant;
     readonly dotyposReservationId: DotyposReservationId;
     readonly liveStatus: DotyposHoldLiveStatusRule;
     readonly failureCode: DotyposHoldReleaseFailureCode;
@@ -67,11 +72,13 @@ export class DotyposHoldRelease extends Context.Service<
       // outcome, and the claim stays `cancelling` for a later run.
       const markReleaseFailed = (input: {
         readonly reservationId: WorkspaceReservationId;
+        readonly claimedAt: Temporal.Instant;
         readonly failureCode: DotyposHoldReleaseFailureCode;
       }) =>
         reservations
           .markCancellationFailed({
             id: input.reservationId,
+            claimedAt: input.claimedAt,
             failureCode: input.failureCode,
           })
           .pipe(

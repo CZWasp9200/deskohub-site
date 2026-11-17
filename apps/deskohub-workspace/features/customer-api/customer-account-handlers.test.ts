@@ -7,6 +7,18 @@ import {
   customerReferralCodeHeader,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Option, Schema } from "effect";
+import { unzipSync } from "fflate";
+import {
+  accountDataExportManifestPath,
+  accountDataExportSections,
+} from "@/features/account/account-data-export-sections";
+import { AccountDataExportService } from "@/features/account/backend/account-data-export.service";
+import {
+  accountDataExportRefusals,
+  fakeAccountDataExportSources,
+  SyntheticSourceFailure,
+  syntheticExportSources,
+} from "@/features/account/backend/account-data-export.test-utils";
 import {
   testCustomerSession,
   testLinkedAccount,
@@ -22,8 +34,14 @@ import {
   CustomerAccountDeletionEndpoint,
   type CustomerAccountDeletionEndpointResult,
 } from "@/features/account/backend/auth/delete-account-endpoint";
-import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import {
+  CurrentCustomerAccount,
+  requireVerifiedIdentity,
+} from "@/features/account/backend/current-customer-account";
+import {
+  type CustomerAccountSession,
+  CustomerAuthentication,
+} from "@/features/account/backend/customer-authentication.service";
 import {
   CustomerAvatarProviderError,
   CustomerAvatarService,
@@ -38,7 +56,6 @@ import type { CustomerAccountId } from "@/features/account/customer-account";
 import {
   CustomerAccountAccessError,
   customerAccountUnavailable,
-  type LinkedCustomerAccount,
 } from "@/features/account/customer-account";
 import {
   type AnalyticsConsentDecisionRecord,
@@ -58,11 +75,13 @@ import type { MarketingConsentStatus } from "@/features/legal/marketing-consent-
 import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
+import { ReadLimitExceededError } from "@/shared/backend/read-limit";
 import type { CustomerAccountServiceLayers } from "./customer-account-layers";
 import {
   accountReleasesOver,
   answerInEachReleaseCohort,
   type CustomerApiCall,
+  currentAccountResolving,
   customerApiRequest,
   expectEachCohortAnsweredAlone,
   inReleaseCohort,
@@ -73,10 +92,17 @@ import {
 } from "./customer-api.test-utils";
 
 /** An account without a Dotypos customer yet. */
-const profileMissing = new CustomerAccountAccessError({
-  reason: "link-required",
-  linkReason: "not-found",
-});
+/** The session's account, which no Dotypos customer matches yet. */
+const profileMissingStanding = (session: CustomerAccountSession) =>
+  ({ kind: "profile-missing", session, reviewMarker: "absent" }) as const;
+
+/** The session's account, found awaiting deletion. */
+const deletionPendingStanding = (session: CustomerAccountSession) =>
+  ({
+    kind: "deletion-pending",
+    session: { ...session, deletionRequested: true },
+    reviewMarker: "absent",
+  }) as const;
 
 describe("getAccount", () => {
   const getAccount: CustomerApiCall = { method: "GET", path: "/account" };
@@ -427,14 +453,7 @@ describe("updateProfile", () => {
     const api = makeCustomerApiTestServer({
       services: {
         ...services,
-        resolver: Layer.mock(CustomerAccountResolver, {
-          resolve: Effect.fail(
-            new CustomerAccountAccessError({
-              reason: "link-required",
-              linkReason: "deletion-requested",
-            })
-          ),
-        }),
+        currentAccount: currentAccountResolving(deletionPendingStanding),
       },
     });
 
@@ -553,9 +572,7 @@ describe("completeProfile", () => {
     const created: CustomerProfileSave[] = [];
     const services = {
       ...linkedAccountServices,
-      resolver: Layer.mock(CustomerAccountResolver, {
-        resolve: Effect.fail(profileMissing),
-      }),
+      currentAccount: currentAccountResolving(profileMissingStanding),
       profile: Layer.mock(CustomerProfileService, {
         create: (_accountId, profileInput) =>
           Effect.sync(() => {
@@ -664,14 +681,7 @@ describe("completeProfile", () => {
     const api = makeCustomerApiTestServer({
       services: {
         ...services,
-        resolver: Layer.mock(CustomerAccountResolver, {
-          resolve: Effect.fail(
-            new CustomerAccountAccessError({
-              reason: "link-required",
-              linkReason: "deletion-requested",
-            })
-          ),
-        }),
+        currentAccount: currentAccountResolving(deletionPendingStanding),
       },
     });
 
@@ -879,19 +889,16 @@ describe("listAssistantConnections", () => {
 /**
  * The account-scoped marketing preferences the API serves, over a consent
  * ledger that starts with `status` and records each choice, for the
- * session's linked account unless `resolve` answers otherwise.
+ * session's linked account unless `resolved` answers otherwise.
  */
 const marketingServices = ({
   status = "absent",
   ledgerUnavailable = false,
-  resolve = Effect.succeed(testLinkedAccount),
+  resolved,
 }: {
   readonly status?: MarketingConsentStatus;
   readonly ledgerUnavailable?: boolean;
-  readonly resolve?: Effect.Effect<
-    LinkedCustomerAccount,
-    CustomerAccountAccessError
-  >;
+  readonly resolved?: Parameters<typeof currentAccountResolving>[0];
 } = {}) => {
   const records: MarketingConsentRecord[] = [];
   const unavailable = Effect.fail(
@@ -899,7 +906,7 @@ const marketingServices = ({
   );
   const services = {
     ...linkedAccountServices,
-    resolver: Layer.mock(CustomerAccountResolver, { resolve }),
+    ...(resolved && { currentAccount: currentAccountResolving(resolved) }),
     marketingPreferences: MarketingPreferences.AccountScoped,
     consentLedger: Layer.mock(MarketingConsentLedger, {
       status: () => (ledgerUnavailable ? unavailable : Effect.succeed(status)),
@@ -946,7 +953,7 @@ describe("getMarketingPreferences", () => {
 
   test("asks an account without a Dotypos profile to complete it", async () => {
     const api = makeCustomerApiTestServer(
-      marketingServices({ resolve: Effect.fail(profileMissing) })
+      marketingServices({ resolved: profileMissingStanding })
     );
 
     const response = await api.handle(
@@ -1025,7 +1032,7 @@ describe("saveMarketingPreferences", () => {
 
   test("asks an account without a Dotypos profile to complete it", async () => {
     const { records, services } = marketingServices({
-      resolve: Effect.fail(profileMissing),
+      resolved: profileMissingStanding,
     });
     const api = makeCustomerApiTestServer({ services });
 
@@ -1085,6 +1092,10 @@ describe("getReferrals", () => {
     expect(response.status).toBe(200);
     const overview = await response.json();
     expect(overview.summary).toEqual(summary);
+    // The programme's rate, so the app never hard-codes it.
+    expect(overview.discountPerInvitee).toBe("5");
+    expect(overview.invitationDiscount).toBe("15");
+    expect(overview.savingsCurrency).toBe("CZK");
     expect(new URL(overview.shareUrl).searchParams.size).toBe(1);
     expect([...new URL(overview.shareUrl).searchParams.values()]).toEqual([
       summary.code,
@@ -1317,6 +1328,136 @@ const deletionPending = {
   _tag: "CustomerAccountLinkRequired",
   reason: "deletion-pending",
 };
+
+describe("getDataExport", () => {
+  const getDataExport: CustomerApiCall = {
+    method: "GET",
+    path: "/account/data-export",
+  };
+
+  /** The website's archive service over synthetic sources. */
+  const exportServices = (
+    refuse: (
+      sources: ReturnType<typeof syntheticExportSources>
+    ) => ReturnType<typeof syntheticExportSources> = (sources) => sources
+  ) => ({
+    services: {
+      dataExport: AccountDataExportService.Default.pipe(
+        Layer.provide(
+          fakeAccountDataExportSources(
+            () => refuse(syntheticExportSources()),
+            []
+          )
+        )
+      ),
+    },
+  });
+
+  testCustomerEndpointGuards(getDataExport);
+
+  test("downloads the account's archive as a private ZIP attachment", async () => {
+    const api = makeCustomerApiTestServer(exportServices());
+
+    const response = await api.handle(customerApiRequest(getDataExport));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+    expect(response.headers.get("content-disposition")).toMatch(
+      /^attachment; filename="deskohub-account-data-\d{4}-\d{2}-\d{2}\.zip"$/
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const entries = Object.keys(
+      unzipSync(new Uint8Array(await response.arrayBuffer()))
+    );
+    expect(entries.toSorted()).toEqual(
+      [
+        accountDataExportManifestPath,
+        ...accountDataExportSections.map(({ path }) => path),
+      ].toSorted()
+    );
+  });
+
+  test("builds the archive under the session the request was authenticated with", async () => {
+    const api = makeCustomerApiTestServer({
+      services: {
+        dataExport: Layer.effect(
+          AccountDataExportService,
+          Effect.map(CustomerAuthentication, (authentication) =>
+            AccountDataExportService.of({
+              download: authentication.currentUser.pipe(
+                Effect.flatMap(requireVerifiedIdentity),
+                Effect.orDie,
+                Effect.map(({ accountId }) => ({
+                  bytes: new TextEncoder().encode(accountId),
+                  fileName: "deskohub-account-data-2026-11-15.zip",
+                }))
+              ),
+            })
+          )
+        ),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(getDataExport));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(testCustomerSession.accountId);
+  });
+
+  test.each(accountDataExportRefusals)(
+    "refuses %s as the website does, without a body of data",
+    async (_name, refuse) => {
+      const api = makeCustomerApiTestServer(exportServices(refuse));
+
+      const response = await api.handle(customerApiRequest(getDataExport));
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        _tag: "CustomerDataExportUnavailable",
+      });
+    }
+  );
+
+  test.each([
+    ["a source that can't be read", new SyntheticSourceFailure()],
+    [
+      "a source over the export's limit",
+      new ReadLimitExceededError({ limit: 500 }),
+    ],
+  ])("answers unavailable for %s", async (_name, failure) => {
+    const api = makeCustomerApiTestServer(
+      exportServices((sources) => ({
+        ...sources,
+        invoices: Effect.fail(failure),
+      }))
+    );
+
+    const response = await api.handle(customerApiRequest(getDataExport));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+
+  test("answers unavailable when the archive service can't be built", async () => {
+    const api = makeCustomerApiTestServer({
+      services: {
+        dataExport: Layer.effect(
+          AccountDataExportService,
+          Effect.fail(new SyntheticSourceFailure())
+        ),
+      },
+    });
+
+    const response = await api.handle(customerApiRequest(getDataExport));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+});
 
 describe("syncAnalyticsConsent", () => {
   const syncAnalyticsConsent = (
@@ -1687,9 +1828,7 @@ describe("overlapping requests in different release cohorts", () => {
       },
       services: {
         ...linkedAccountServices,
-        resolver: Layer.mock(CustomerAccountResolver, {
-          resolve: Effect.fail(profileMissing),
-        }),
+        currentAccount: currentAccountResolving(profileMissingStanding),
         profile: Layer.mock(CustomerProfileService, {
           create: () =>
             Effect.succeed({

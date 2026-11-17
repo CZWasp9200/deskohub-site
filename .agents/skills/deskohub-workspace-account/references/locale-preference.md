@@ -1,7 +1,10 @@
 # Saved language preference
 
 The saved language is the nullable Better Auth user field `locale`
-(`auth.user.locale`, CHECK `en-US`/`cs-CZ`, `input: false`). It's both the
+(`auth.user.locale`, `input: false`). Its CHECK allows the registry's
+supported locales (`packages/i18n/src/locale-registry.ts`); the migration that
+adds a locale widens it, most recently
+`db/migrations/20261109162017_supported_locales_de_uk_sk`. It's both the
 email language and the signed-in site locale. NULL means no preference:
 accounts that predate the field have none until their next sign-in. Never
 backfill or invent a default.
@@ -104,7 +107,8 @@ Rules:
 - `findLocaleBoundContinuation` (`features/checkout/locale-bound-continuation.ts`)
   matches the URL shape without secrets. `continuesInIssuedLocale`
   (`features/checkout/backend/locale-bound-continuation.server.ts`) verifies it
-  with `openPayState` and `payStateContinuesOn`, which the pages also use, or
+  with `PayState.open` given the page (locale and reservation kind), as the
+  pages open it, or
   with `openReservationAccessToken`. `pageLocalePreference` loads the verifier
   lazily, and only when the preference would move a candidate URL.
 - The Pay state fixes the language of the accepted terms, operating rules, and

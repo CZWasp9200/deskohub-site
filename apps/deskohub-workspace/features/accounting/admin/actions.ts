@@ -1,14 +1,14 @@
 "use server";
 
 import {
-  AdministrationCustomerSearchQuery,
   AdministrationInvoiceCreateInput,
   AdministrationInvoiceId,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Match, Schema } from "effect";
 import { administrationHref } from "@/features/administration/administration-href";
+import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
+import { customerSearchQuerySchema } from "@/features/administration/customer-search-query";
 import { m } from "@/features/administration/i18n";
-import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
 import { InvoiceAdministrationService } from "./invoice-administration.service";
@@ -55,11 +55,11 @@ const createInvoiceAction = defineAdministrationAction(
       invoicePaths(invoiceId),
   },
   Effect.fn(function* (input) {
-    const administrator = yield* CurrentAdministrator;
+    const { actor, source } = yield* currentAdministrationProvenance;
     const administration = yield* InvoiceAdministrationService;
     return yield* administration.create(input, {
-      source: "admin-ui",
-      administrator,
+      source,
+      administrator: actor,
     });
   })
 );
@@ -74,11 +74,11 @@ const previewInvoiceAction = defineAdministrationAction(
     capabilities: InvoiceAdministrationService.Live,
   },
   Effect.fn(function* (input) {
-    const administrator = yield* CurrentAdministrator;
+    const { actor, source } = yield* currentAdministrationProvenance;
     const administration = yield* InvoiceAdministrationService;
     const pdf = yield* administration.preview(input, {
-      source: "admin-ui",
-      administrator,
+      source,
+      administrator: actor,
     });
     return {
       dataUrl: `data:application/pdf;base64,${Buffer.from(pdf).toString("base64")}`,
@@ -90,9 +90,7 @@ const searchCustomersAction = defineAdministrationAction(
   {
     operation: "invoice-administration.search-customers",
     failureCopy,
-    schema: Schema.toStandardSchemaV1(AdministrationCustomerSearchQuery, {
-      parseOptions: strict,
-    }),
+    schema: customerSearchQuerySchema,
     logInput: false,
     fallback: m.accountingInvoiceCustomerSearchUnavailable,
     capabilities: InvoiceAdministrationService.Live,

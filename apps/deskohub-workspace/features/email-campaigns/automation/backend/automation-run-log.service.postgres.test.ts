@@ -11,10 +11,7 @@ import {
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
 import { testEmailAddress } from "@deskohub/test-email";
-import type {
-  AutomationRunListInputType as AutomationRunListInput,
-  AutomationRunSummaryType as AutomationRunSummary,
-} from "@deskohub/workspace-admin-api";
+import type { AutomationRunListInputType as AutomationRunListInput } from "@deskohub/workspace-admin-api";
 import { sql } from "drizzle-orm";
 import { Effect, type Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -37,7 +34,10 @@ import type {
   AutomationVersionId,
 } from "../automation-identifiers";
 import type { AutomationRunOutcome } from "../automation-states";
-import { AutomationRunLog } from "./automation-run-log.service";
+import {
+  AutomationRunLog,
+  type AutomationRunSummaryWithLifecycle,
+} from "./automation-run-log.service";
 
 /**
  * The suite swaps a table constraint, so it runs on a database of its own.
@@ -306,6 +306,7 @@ describe.skipIf(!testDatabase)(
         customerName: null,
         customerEmail: null,
         customerProfileStatus: "not-found",
+        customerLifecycle: null,
         triggerKind: "account-created",
         triggerAt: minutes(4).toString(),
         state: "active",
@@ -645,7 +646,7 @@ describe.skipIf(!testDatabase)(
         },
       });
       const contactsOf = (page: {
-        readonly runs: readonly AutomationRunSummary[];
+        readonly runs: readonly AutomationRunSummaryWithLifecycle[];
       }) =>
         page.runs.map(
           ({
@@ -653,11 +654,13 @@ describe.skipIf(!testDatabase)(
             customerName,
             customerEmail,
             customerProfileStatus,
+            customerLifecycle,
           }) => ({
             customerId,
             customerName,
             customerEmail,
             customerProfileStatus,
+            customerLifecycle,
           })
         );
       const ana = {
@@ -665,18 +668,21 @@ describe.skipIf(!testDatabase)(
         customerName: `Ana ${anaLastName}`,
         customerEmail: anaEmail,
         customerProfileStatus: "found",
+        customerLifecycle: "active",
       };
       const bob = {
         customerId: customerId("bob"),
         customerName: "Bob Test s.r.o.",
         customerEmail: null,
         customerProfileStatus: "found",
+        customerLifecycle: "active",
       };
       const ghost = {
         customerId: customerId("ghost"),
         customerName: null,
         customerEmail: null,
         customerProfileStatus: "not-found",
+        customerLifecycle: null,
       };
 
       // One service instance: each operation reads Dotypos afresh.
@@ -758,6 +764,7 @@ describe.skipIf(!testDatabase)(
           customerName: null,
           customerEmail: null,
           customerProfileStatus: "unavailable",
+          customerLifecycle: null,
         });
       }
     });

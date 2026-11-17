@@ -419,10 +419,14 @@ export type AdministratorActor = {
 };
 
 /**
- * How an administrator reached the administration API: a `dhw` session, or an
- * AI assistant the administrator connected, identified by its OAuth client.
+ * How an administrator reached an administration operation: the Admin UI, a
+ * `dhw` session, or an AI assistant the administrator connected, identified
+ * by its OAuth client. Only the latter two reach the administration API.
  */
 export type AdministrationChannel =
+  | {
+      readonly _tag: "AdminUi";
+    }
   | {
       readonly _tag: "CliSession";
       readonly sessionId: CliSessionId;
@@ -1691,15 +1695,12 @@ export const AdministrationReservationDetail = Schema.Struct({
   restoration: Schema.NullOr(AdministrationReservationRestoration).pipe(
     Schema.withDecodingDefaultTypeKey(Effect.succeed(null))
   ),
-  requiresProviderCredentialRemoval: Schema.Boolean,
 });
 export type AdministrationReservationDetail =
   typeof AdministrationReservationDetail.Type;
 
 export const AdministrationReservationCancellationInput = Schema.Struct({
-  accessGrantUpdatedAt: Schema.NullOr(Schema.String),
   force: Schema.optionalKey(Schema.Boolean),
-  providerCredentialRemoved: Schema.Boolean,
   sendCancellationEmail: Schema.Boolean,
 }).annotate({
   parseOptions: { errors: "all", onExcessProperty: "error" },
@@ -2646,6 +2647,15 @@ export const AdminCliApi = HttpApiGroup.make("cli")
  */
 export const invoicesMinimumDhwVersion = DhwVersion.make("1.25.0");
 
+/**
+ * The first `dhw` that decodes the reservation detail and sends the
+ * cancellation input in their current shape. Released binaries before it
+ * decode a different detail and send a different input, and declared no
+ * `CliInputInvalid` on either operation, so an older one is refused with a
+ * `CliServiceUnavailable` it prints.
+ */
+export const reservationsMinimumDhwVersion = DhwVersion.make("1.36.1");
+
 export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
   .add(
     HttpApiEndpoint.get("getOverview", "/overview", {
@@ -2670,7 +2680,9 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
       params: { reservationId: AdministrationWorkspaceReservationId },
       success: AdministrationReservationDetail,
       error: CliResourceNotFound.schema,
-    }).annotate(AdministrationOperationBehavior, readOperation)
+    })
+      .annotate(AdministrationOperationBehavior, readOperation)
+      .pipe(requiresDhw(reservationsMinimumDhwVersion, "CliServiceUnavailable"))
   )
   .add(
     HttpApiEndpoint.post(
@@ -2686,13 +2698,15 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
           CliServiceUnavailable.schema,
         ],
       }
-    ).annotate(
-      AdministrationOperationBehavior,
-      destructiveOperation({
-        idempotent: false,
-        preview: readPreview("administration.getReservation"),
-      })
     )
+      .annotate(
+        AdministrationOperationBehavior,
+        destructiveOperation({
+          idempotent: false,
+          preview: readPreview("administration.getReservation"),
+        })
+      )
+      .pipe(requiresDhw(reservationsMinimumDhwVersion, "CliServiceUnavailable"))
   )
   .add(
     HttpApiEndpoint.post(

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { loadingDieBox } from "@deskohub/brand-motion/loading-die";
 import { brandColors } from "@deskohub/brand-tokens";
-import { theme } from "../theme";
 import {
   loadingIndicatorFill,
   loadingIndicatorLayout,
   loadingIndicatorSemantics,
 } from "./loading-indicator-presentation";
+import { color as palette } from "./tokens";
 
 describe("loadingIndicatorLayout", () => {
   test.each([
@@ -38,7 +38,7 @@ describe("loadingIndicatorFill", () => {
   });
 
   test.each([
-    ["white", theme.colors.text],
+    ["white", palette.white],
     ["navy", brandColors.navyBlue],
   ] as const)("fills the %s tone with its theme colour", (tone, color) => {
     expect(loadingIndicatorFill(tone)).toEqual({ kind: "solid", color });

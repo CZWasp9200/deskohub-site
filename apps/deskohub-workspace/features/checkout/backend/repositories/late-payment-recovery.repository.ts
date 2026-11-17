@@ -17,9 +17,10 @@ import {
   type WorkspaceReservationRow,
   workspaceReservations,
 } from "@/db/schema";
-import { WorkspaceLocks } from "@/db/workspace-locks";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DiscountClaimError } from "@/features/discounts/errors";
+import { PromotionClaims } from "@/features/discounts/promotion-claims";
+import { ReferralInvitationLedger } from "@/features/referrals/referral-invitation-ledger";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { recordCustomerEvent } from "@/shared/backend/customer-events/customer-event-outbox";
 import {
@@ -27,12 +28,6 @@ import {
   readLimitSentinel,
   requireWithinReadLimit,
 } from "@/shared/backend/read-limit";
-import {
-  attemptRecordsReferral,
-  ensureReferralFirstPaidTransition,
-  redeemCodeClaim,
-  redeemReferralInvitationClaim,
-} from "./payment-lifecycle.repository";
 
 /**
  * Availability and table assignment treat an unpaid hold past its deadline as
@@ -205,7 +200,7 @@ export class LatePaymentRecoveryRepository extends Context.Service<
 
               if (input.state === "recovered") {
                 yield* requireNoNewerCheckoutReservation(input, reservation);
-                yield* ensureReferralFirstPaidTransition({
+                yield* ReferralInvitationLedger.ensureFirstPaid({
                   dotyposCustomerId: reservation.dotyposCustomerId,
                   workspaceReservationId: input.workspaceReservationId,
                   paymentAttemptId: input.paymentAttemptId,
@@ -215,17 +210,17 @@ export class LatePaymentRecoveryRepository extends Context.Service<
               yield* markLatePaymentAttemptPaid(input, recovery);
 
               if (input.state === "recovered") {
-                yield* redeemCodeClaim(
-                  input.paymentAttemptId,
-                  recovery.verifiedPaidAt,
-                  true
-                );
-                yield* redeemReferralInvitationClaim(
-                  input.paymentAttemptId,
-                  input.workspaceReservationId,
-                  recovery.verifiedPaidAt,
-                  true
-                );
+                yield* PromotionClaims.redeem({
+                  paymentAttemptId: input.paymentAttemptId,
+                  redeemedAt: recovery.verifiedPaidAt,
+                  readmitReleased: true,
+                });
+                yield* ReferralInvitationLedger.redeem({
+                  paymentAttemptId: input.paymentAttemptId,
+                  workspaceReservationId: input.workspaceReservationId,
+                  redeemedAt: recovery.verifiedPaidAt,
+                  readmitReleased: true,
+                });
               }
 
               if (isActiveAttempt) {
@@ -293,7 +288,10 @@ export class LatePaymentRecoveryRepository extends Context.Service<
                   "start",
                   input
                 );
-                yield* WorkspaceLocks.referralFirstBooking(dotyposCustomerId);
+                yield* ReferralInvitationLedger.lockFirstBooking({
+                  dotyposCustomerId,
+                  records: "nothing",
+                });
                 // Lock the attempt before looking for an existing recovery so
                 // a concurrent webhook and status-page verification serialize
                 // here and the later one observes the committed recovery.
@@ -498,12 +496,10 @@ const lockSettlementRecovery = Effect.fnUntraced(function* (
 ) {
   const { db } = yield* WorkspaceTransaction;
   const dotyposCustomerId = yield* findRecoveryCustomer("settle", input);
-  // A transition that may record a referral attribution takes the
-  // graph lock first, matching acceptReferral's lock order.
-  if (yield* attemptRecordsReferral(input.paymentAttemptId)) {
-    yield* WorkspaceLocks.referralGraph();
-  }
-  yield* WorkspaceLocks.referralFirstBooking(dotyposCustomerId);
+  yield* ReferralInvitationLedger.lockFirstBooking({
+    dotyposCustomerId,
+    records: { claimOf: input.paymentAttemptId },
+  });
 
   const [recovery] = yield* db
     .select()

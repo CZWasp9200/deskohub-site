@@ -1,13 +1,15 @@
 import type {
   CustomerAvailability,
   CustomerBookableCoworkTier,
+  CustomerBookableDates,
   CustomerBookingSelection,
+  CustomerCoworkStay,
   CustomerMonitorOption,
   CustomerOffering,
 } from "@deskohub/workspace-customer-api";
 import { Array as Arr, Data, Option } from "effect";
 import type { AvailabilityQuery, DateChoice } from "./booking-selection";
-import { addMonths, type PragueDate, pragueDateTimeAt } from "./prague-date";
+import { type PragueDate, pragueDateTimeAt } from "./prague-date";
 
 /**
  * Where a Reserved Desk's workstation came from: the customer chose it, or
@@ -19,7 +21,13 @@ export type CoworkWorkstationOrigin = "customer" | "requirement";
 /** A cowork booking the customer is putting together. */
 export type CoworkDraft = {
   readonly tier: CustomerBookableCoworkTier;
-  readonly date: PragueDate;
+  /**
+   * Reserved Desk only, while its offering advertises an overnight stay;
+   * `date` is then the arrival date. A day otherwise.
+   */
+  readonly stay: CustomerCoworkStay;
+  /** None until the customer picks a day; the screen never picks one. */
+  readonly date: Option.Option<PragueDate>;
   /** Open Space only; a Reserved Desk includes coffee. */
   readonly coffee: boolean;
   /** Reserved Desk only: the monitor workstation. */
@@ -29,23 +37,42 @@ export type CoworkDraft = {
   }>;
 };
 
-type CoworkOffering = Extract<CustomerOffering, { readonly family: "cowork" }>;
+export type CoworkOffering = Extract<
+  CustomerOffering,
+  { readonly family: "cowork" }
+>;
+
+/** When an overnight stay starts on its arrival date and ends the next day. */
+export type CoworkOvernightStay = NonNullable<CoworkOffering["overnightStay"]>;
 
 // Bookable from 00:00 to 17:00 Prague time; same-day booking ends with it.
 const openSpaceClosingHour = 17;
-const horizonMonths = 6;
+/** When Open Space access ends, Prague HH:mm. */
+export const openSpaceClosingTime = `${openSpaceClosingHour}:00`;
 
-const coworkOfferings = (offerings: ReadonlyArray<CustomerOffering>) =>
+/** The cowork tiers the catalog offers, in catalog order. */
+export const coworkOfferings = (offerings: ReadonlyArray<CustomerOffering>) =>
   offerings.filter(
     (offering): offering is CoworkOffering => offering.family === "cowork"
   );
 
 /**
- * The draft a cowork screen opens with: Open Space today without coffee,
- * or the first cowork tier offered when Open Space isn't.
+ * The overnight stay the catalog's Reserved Desk advertises; none while it
+ * can only be booked by the day.
+ */
+export const coworkOvernightStay = (
+  offerings: ReadonlyArray<CustomerOffering>
+): Option.Option<CoworkOvernightStay> =>
+  Option.fromNullishOr(
+    coworkOfferings(offerings).find(({ tier }) => tier === "reserved-desk")
+      ?.overnightStay
+  );
+
+/**
+ * The draft a cowork screen opens with: Open Space without a date or
+ * coffee, or the first cowork tier offered when Open Space isn't.
  */
 export const defaultCoworkDraft = (
-  today: PragueDate,
   offerings: ReadonlyArray<CustomerOffering>
 ): CoworkDraft => {
   const tiers = coworkOfferings(offerings).map((offering) => offering.tier);
@@ -53,21 +80,104 @@ export const defaultCoworkDraft = (
     tier: tiers.includes("open-space")
       ? "open-space"
       : (tiers[0] ?? "open-space"),
-    date: today,
+    stay: "day",
+    date: Option.none(),
     coffee: false,
     workstation: Option.none(),
   };
 };
 
-/** The draft with another tier; Open Space drops the workstation. */
+/**
+ * The draft a cowork screen opens with for a booked selection ("Book
+ * again"): its tier and extras, and its day while that can still be booked.
+ * None for another family or a tier the catalog no longer offers; a
+ * workstation the catalog no longer offers is left out.
+ */
+export const coworkDraftFromSelection = (
+  selection: CustomerBookingSelection,
+  offerings: ReadonlyArray<CustomerOffering>
+): Option.Option<CoworkDraft> => {
+  const { tier } = selection;
+  const offering = coworkOfferings(offerings).find(
+    (candidate) => candidate.tier === tier
+  );
+  if (selection.family !== "cowork" || tier === undefined || !offering) {
+    return Option.none();
+  }
+  const { earliest, latest } = offering.bookableDates;
+  const offeredWorkstations =
+    offering.addOns.find(({ id }) => id === "workstation")?.options ?? [];
+  return Option.some(
+    fitCoworkStay(
+      {
+        tier,
+        stay: selection.stay ?? "day",
+        date: Option.liftPredicate(
+          selection.date,
+          (date) => date >= earliest && date <= latest
+        ),
+        coffee: tier === "open-space" && selection.coffee === true,
+        workstation: Option.fromNullishOr(selection.monitorOption).pipe(
+          Option.filter((option) =>
+            offeredWorkstations.some(({ id }) => id === option)
+          ),
+          Option.map((option) => ({ option, origin: "customer" as const }))
+        ),
+      },
+      offerings
+    )
+  );
+};
+
+/**
+ * The draft with a stay its tier and the catalog offer: an overnight stay
+ * falls back to a day off a Reserved Desk, or once the catalog no longer
+ * advertises one. The same draft when it already fits.
+ */
+export const fitCoworkStay = (
+  draft: CoworkDraft,
+  offerings: ReadonlyArray<CustomerOffering>
+): CoworkDraft =>
+  draft.stay === "day" ||
+  (draft.tier === "reserved-desk" &&
+    Option.isSome(coworkOvernightStay(offerings)))
+    ? draft
+    : { ...draft, stay: "day" };
+
+/** The draft on the day the customer picked. */
+export const selectCoworkDate = (
+  draft: CoworkDraft,
+  date: PragueDate
+): CoworkDraft => ({ ...draft, date: Option.some(date) });
+
+/**
+ * The draft with another tier; Open Space drops the workstation and goes
+ * back to a day.
+ */
 export const selectCoworkTier = (
   draft: CoworkDraft,
   tier: CustomerBookableCoworkTier
 ): CoworkDraft => ({
   ...draft,
   tier,
+  stay: tier === "reserved-desk" ? draft.stay : "day",
   workstation: tier === "reserved-desk" ? draft.workstation : Option.none(),
 });
+
+/** The draft as a day or an overnight stay from its date. */
+export const selectCoworkStay = (
+  draft: CoworkDraft,
+  stay: CustomerCoworkStay
+): CoworkDraft => ({ ...draft, stay });
+
+/**
+ * The stay as the booking contract takes it: only an overnight Reserved
+ * Desk names one, so a day books as it always has.
+ */
+const coworkStayFields = (draft: Pick<CoworkDraft, "tier" | "stay">) =>
+  draft.tier === "reserved-desk" && draft.stay === "overnight"
+    ? { stay: "overnight" as const }
+    : {};
 
 /** The draft with the customer's own workstation choice, or none. */
 export const selectCoworkWorkstation = (
@@ -81,49 +191,65 @@ export const selectCoworkWorkstation = (
   })),
 });
 
-/** The booking the draft names, as the quote and checkout take it. */
+/**
+ * The booking the draft names, as the quote and checkout take it; none
+ * until it has a date.
+ */
 export const toCoworkSelection = (
   draft: CoworkDraft
-): CustomerBookingSelection => ({
-  family: "cowork",
-  date: draft.date,
-  tier: draft.tier,
-  ...(draft.tier === "open-space"
-    ? { coffee: draft.coffee }
-    : Option.match(draft.workstation, {
-        onNone: () => ({}),
-        onSome: ({ option }) => ({ monitorOption: option }),
-      })),
-});
+): Option.Option<CustomerBookingSelection> =>
+  Option.map(
+    draft.date,
+    (date): CustomerBookingSelection => ({
+      family: "cowork",
+      date,
+      tier: draft.tier,
+      ...coworkStayFields(draft),
+      ...(draft.tier === "open-space"
+        ? { coffee: draft.coffee }
+        : Option.match(draft.workstation, {
+            onNone: () => ({}),
+            onSome: ({ option }) => ({ monitorOption: option }),
+          })),
+    })
+  );
 
 /** The availability queries a cowork screen reads for its draft. */
 export type CoworkAvailabilityQueries = {
-  /** The tier's six-month calendar. */
+  /** The tier's calendar over its bookable dates. */
   readonly range: AvailabilityQuery;
-  /** The drafted offer on its date alone. */
-  readonly selection: AvailabilityQuery;
-  /** Reserved Desk only: whether the date needs a workstation. */
+  /** The drafted offer on its date alone, once it has one. */
+  readonly selection: Option.Option<AvailabilityQuery>;
+  /** Reserved Desk with a date only: whether it needs a workstation. */
   readonly workstationRequirement: Option.Option<AvailabilityQuery>;
 };
 
-/** The calendar a cowork draft may pick from: today through six months. */
-const coworkDateRange = (today: PragueDate) => ({
-  earliest: today,
-  latest: addMonths(today, horizonMonths),
-});
+/** The cowork offerings, one per tier; none while the catalog offers no tier. */
+export const offeredCoworkTiers = (
+  offerings: ReadonlyArray<CustomerOffering>
+): Option.Option<Arr.NonEmptyReadonlyArray<CoworkOffering>> => {
+  const tiers = coworkOfferings(offerings);
+  return Arr.isReadonlyArrayNonEmpty(tiers)
+    ? Option.some(tiers)
+    : Option.none();
+};
+
+/**
+ * The dates a cowork draft may pick from: its tier's offering's bookable
+ * dates, else the first tier's while the catalog no longer offers the
+ * drafted one.
+ */
+export const coworkBookableDates = (
+  tiers: Arr.NonEmptyReadonlyArray<CoworkOffering>,
+  tier: CustomerBookableCoworkTier
+): CustomerBookableDates =>
+  (tiers.find((offering) => offering.tier === tier) ?? tiers[0]).bookableDates;
 
 export const coworkAvailabilityQueries = (
   draft: CoworkDraft,
-  today: PragueDate
+  { earliest, latest }: CustomerBookableDates
 ): CoworkAvailabilityQueries => {
-  const { earliest, latest } = coworkDateRange(today);
-  const selectedDate: AvailabilityQuery = {
-    kind: "cowork",
-    from: draft.date,
-    to: draft.date,
-    entryTier: draft.tier,
-    date: draft.date,
-  };
+  const selectedDate = Option.map(draft.date, coworkDayQuery(draft));
   const isReservedDesk = draft.tier === "reserved-desk";
   return {
     range: {
@@ -131,19 +257,35 @@ export const coworkAvailabilityQueries = (
       from: earliest,
       to: latest,
       entryTier: draft.tier,
+      ...coworkStayFields(draft),
     },
-    selection: Option.match(
-      Option.filter(draft.workstation, () => isReservedDesk),
-      {
-        onNone: () => selectedDate,
-        onSome: ({ option }) => ({ ...selectedDate, monitorOption: option }),
-      }
+    selection: Option.map(selectedDate, (query) =>
+      Option.match(
+        Option.filter(draft.workstation, () => isReservedDesk),
+        {
+          onNone: () => query,
+          onSome: ({ option }) => ({ ...query, monitorOption: option }),
+        }
+      )
     ),
-    workstationRequirement: isReservedDesk
-      ? Option.some(selectedDate)
-      : Option.none(),
+    workstationRequirement: Option.filter(selectedDate, () => isReservedDesk),
   };
 };
+
+/**
+ * One day's availability as seen from a tier and stay: its
+ * `unavailableCoworkTiers` say which tiers are taken that day.
+ */
+export const coworkDayQuery =
+  (draft: Pick<CoworkDraft, "tier" | "stay">) =>
+  (date: PragueDate): AvailabilityQuery => ({
+    kind: "cowork",
+    from: date,
+    to: date,
+    entryTier: draft.tier,
+    ...coworkStayFields(draft),
+    date,
+  });
 
 /**
  * Availability settled for the current `coworkAvailabilityQueries`; none
@@ -157,6 +299,8 @@ export type CoworkAvailability = {
 
 /** Why a cowork draft can't continue to checkout. */
 export type CoworkBlocker = Data.TaggedEnum<{
+  /** No day picked yet. */
+  DateRequired: Record<never, never>;
   /** A query the draft needs hasn't settled. */
   AvailabilityPending: Record<never, never>;
   DateOutOfRange: Record<never, never>;
@@ -201,9 +345,12 @@ export type CoworkEnablement = {
  * Whether a cowork offer can be booked on its date: a Reserved Desk stays
  * bookable on a date that only requires a workstation.
  */
-const isOfferAvailable = (
+export const isOfferAvailable = (
   availability: CustomerAvailability,
-  draft: Pick<CoworkDraft, "date" | "tier">
+  draft: {
+    readonly date: PragueDate;
+    readonly tier: CustomerBookableCoworkTier;
+  }
 ) =>
   !(
     availability.unavailableCoworkTiers.includes(draft.tier) ||
@@ -222,12 +369,14 @@ export const coworkEnablement = (
   context: {
     readonly now: Date;
     readonly offerings: ReadonlyArray<CustomerOffering>;
+    /** The drafted tier's bookable dates (`coworkBookableDates`). */
+    readonly bookableDates: CustomerBookableDates;
     readonly availability: CoworkAvailability;
   }
 ): CoworkEnablement => {
   const { range, selection, workstationRequirement } = context.availability;
   const today = pragueDateTimeAt(context.now).date;
-  const { earliest, latest } = coworkDateRange(today);
+  const { earliest, latest } = context.bookableDates;
   const isReservedDesk = draft.tier === "reserved-desk";
 
   const workstations = Arr.findFirst(
@@ -249,7 +398,9 @@ export const coworkEnablement = (
   const workstationRequired =
     isReservedDesk &&
     Option.exists(workstationRequirement, (availability) =>
-      availability.reservedDeskWorkstationRequiredDates.includes(draft.date)
+      Option.exists(draft.date, (date) =>
+        availability.reservedDeskWorkstationRequiredDates.includes(date)
+      )
     );
   const requiredWorkstation = workstationRequired
     ? Arr.findFirst(
@@ -265,27 +416,32 @@ export const coworkEnablement = (
   );
 
   const blockers: Array<CoworkBlocker> = [];
+  if (Option.isNone(draft.date)) blockers.push(CoworkBlocker.DateRequired());
   if (
     Option.isNone(range) ||
-    Option.isNone(selection) ||
-    (isReservedDesk && Option.isNone(workstationRequirement))
+    (Option.isSome(draft.date) &&
+      (Option.isNone(selection) ||
+        (isReservedDesk && Option.isNone(workstationRequirement))))
   ) {
     blockers.push(CoworkBlocker.AvailabilityPending());
   }
-  if (draft.date < earliest || draft.date > latest) {
+  if (Option.exists(draft.date, (date) => date < earliest || date > latest)) {
     blockers.push(CoworkBlocker.DateOutOfRange());
   }
   if (
     draft.tier === "open-space" &&
-    draft.date === today &&
+    Option.contains(draft.date, today) &&
     openSpaceClosedToday
   ) {
     blockers.push(CoworkBlocker.OpenSpaceClosedToday());
   }
   if (
-    Option.exists(
-      selection,
-      (availability) => !isOfferAvailable(availability, draft)
+    Option.exists(draft.date, (date) =>
+      Option.exists(
+        selection,
+        (availability) =>
+          !isOfferAvailable(availability, { date, tier: draft.tier })
+      )
     )
   ) {
     blockers.push(CoworkBlocker.OfferUnavailable());
@@ -329,7 +485,9 @@ export const coworkEnablement = (
     notices: Option.match(selection, {
       onNone: () => [],
       onSome: (availability) =>
-        availability.notices.filter((notice) => notice.date === draft.date),
+        availability.notices.filter((notice) =>
+          Option.contains(draft.date, notice.date)
+        ),
     }),
     blockers,
   };
@@ -349,6 +507,7 @@ export const normalizeCoworkWorkstation = (
 ): CoworkDraft => {
   const settled =
     draft.tier === "reserved-desk" &&
+    Option.isSome(draft.date) &&
     Option.isSome(availability.selection) &&
     Option.isSome(availability.workstationRequirement);
   if (!settled) return draft;
@@ -377,3 +536,18 @@ export const normalizeCoworkWorkstation = (
         : draft,
   });
 };
+
+/**
+ * Why a day the calendar shows full is full for the drafted tier, read for
+ * that day alone: whether another tier the catalog offers is still free.
+ */
+export const freeCoworkTierOn = (
+  day: CustomerAvailability,
+  offerings: ReadonlyArray<CustomerOffering>,
+  fullTier: CustomerBookableCoworkTier
+): Option.Option<CoworkOffering> =>
+  Arr.findFirst(
+    coworkOfferings(offerings),
+    ({ tier }) =>
+      tier !== fullTier && !day.unavailableCoworkTiers.includes(tier)
+  );

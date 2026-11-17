@@ -12,7 +12,6 @@ import { asc, eq, sql } from "drizzle-orm";
 import { Data, Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
-  accountingDocumentSnapshots,
   invoiceNumberCounters,
   invoices,
   manualInvoiceActors,
@@ -21,6 +20,7 @@ import {
 } from "@/db/schema";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import {
+  type AccountingDocumentSnapshot,
   accountingSnapshotKeyIdSchema,
   companyRegistrationIdSchema,
   makeAccountingDocumentSnapshot,
@@ -47,14 +47,14 @@ import {
   type WorkspacePostgresSuiteDatabase,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
-import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
+import { recordAccountingDocumentSnapshot } from "./accounting-document-snapshots.test-utils";
 import {
   type AccountingSnapshotKey,
   AccountingSnapshotKeyError,
   AccountingSnapshotKeyService,
   type IAccountingSnapshotKeyService,
 } from "./accounting-snapshot-key.service";
-import { encryptAccountingSnapshot } from "./accounting-snapshot-sql";
+import { testAccountingStorage } from "./accounting-storage.test-utils";
 import {
   type IInvoiceRepository,
   InvoiceRepository,
@@ -128,21 +128,11 @@ const runRepository = <A, E>(
   operation: (repository: IInvoiceRepository) => Effect.Effect<A, E>,
   keys: IAccountingSnapshotKeyService = makeKeyService()
 ): Promise<A> => {
-  const baseLayer = Layer.merge(
+  const repositoryLayer = testAccountingStorage(
     testDatabase!.layer,
     Layer.succeed(
       AccountingSnapshotKeyService,
       AccountingSnapshotKeyService.of(keys)
-    )
-  );
-  const repositoryLayer = InvoiceRepository.Default.pipe(
-    Layer.provide(
-      Layer.merge(
-        baseLayer,
-        AccountingDocumentSnapshotRepository.Default.pipe(
-          Layer.provide(baseLayer)
-        )
-      )
     )
   );
 
@@ -153,6 +143,24 @@ const runRepository = <A, E>(
     )
   );
 };
+
+// Records a payment attempt's source snapshot under the test key, joining the
+// caller's transaction.
+const insertSourceSnapshot = (input: {
+  readonly paymentAttemptId: PaymentAttemptId;
+  readonly snapshot: AccountingDocumentSnapshot;
+}) =>
+  recordAccountingDocumentSnapshot(input).pipe(
+    Effect.provide(
+      testAccountingStorage(
+        testDatabase!.layer,
+        Layer.succeed(
+          AccountingSnapshotKeyService,
+          AccountingSnapshotKeyService.of(makeKeyService())
+        )
+      )
+    )
+  );
 
 const issue = (
   paymentAttemptId: PaymentAttemptId,
@@ -228,15 +236,7 @@ const createPaidFixture = async (
             amountExponent: source.quote.payment.expectedPrice.exponent,
             currency: source.quote.payment.expectedPrice.currency,
           });
-          yield* db.insert(accountingDocumentSnapshots).values({
-            paymentAttemptId,
-            workspaceReservationId: reservation.id,
-            keyId: testKey.id,
-            encryptedSnapshot: encryptAccountingSnapshot(
-              JSON.stringify(source),
-              testKey.secret
-            ),
-          });
+          yield* insertSourceSnapshot({ paymentAttemptId, snapshot: source });
           return reservation.id;
         })
       )
@@ -281,15 +281,7 @@ const createAdditionalFailedAttempt = async (fixture: PaidFixture) => {
             amountExponent: source.quote.payment.expectedPrice.exponent,
             currency: source.quote.payment.expectedPrice.currency,
           });
-          yield* db.insert(accountingDocumentSnapshots).values({
-            paymentAttemptId,
-            workspaceReservationId: fixture.reservationId,
-            keyId: testKey.id,
-            encryptedSnapshot: encryptAccountingSnapshot(
-              JSON.stringify(source),
-              testKey.secret
-            ),
-          });
+          yield* insertSourceSnapshot({ paymentAttemptId, snapshot: source });
         })
       )
     ).pipe(Effect.provide(testDatabase!.layer))
@@ -751,9 +743,9 @@ describe.skipIf(!testDatabase)(
       );
 
       expect(error).toMatchObject({
-        _tag: "InvoiceStorageError",
+        _tag: "AccountingRecordUnavailable",
         operation: "validate",
-        paymentAttemptId: copiedInvoiceId,
+        reference: { type: "invoiceId", id: copiedInvoiceId },
       });
     });
 
@@ -772,9 +764,9 @@ describe.skipIf(!testDatabase)(
       });
 
       expect(error).toMatchObject({
-        _tag: "InvoiceStorageError",
+        _tag: "AccountingRecordUnavailable",
         operation: "encrypt",
-        paymentAttemptId: fixture.paymentAttemptId,
+        reference: { type: "paymentAttemptId", id: fixture.paymentAttemptId },
       });
       expect(await readCounters()).toEqual(before);
     });
@@ -795,7 +787,7 @@ describe.skipIf(!testDatabase)(
       );
 
       expect(insertError).toMatchObject({
-        _tag: "InvoiceStorageError",
+        _tag: "AccountingRecordUnavailable",
         operation: "encrypt",
         cause: { _tag: "EffectDrizzleQueryError" },
       });
@@ -808,22 +800,6 @@ describe.skipIf(!testDatabase)(
       expect(sequenceOf(successful.invoice.invoiceNumber)).toBe(
         (before.get(numberingYear) ?? 0) + 1
       );
-
-      const decryptError = await runRepository(
-        (repository) =>
-          Effect.flip(
-            repository.findByPaymentAttemptId(fixture.paymentAttemptId)
-          ),
-        makeKeyService({
-          ...testKey,
-          secret: "different synthetic accounting snapshot secret!",
-        })
-      );
-      expect(decryptError).toMatchObject({
-        _tag: "InvoiceStorageError",
-        operation: "decrypt",
-        cause: { _tag: "EffectDrizzleQueryError" },
-      });
     });
 
     describe("customer reads", () => {
@@ -923,7 +899,10 @@ describe.skipIf(!testDatabase)(
             (repository) => Effect.flip(repository.findById(otherInvoice.id)),
             ownerOnlyKeys
           )
-        ).toMatchObject({ _tag: "InvoiceStorageError", operation: "decrypt" });
+        ).toMatchObject({
+          _tag: "AccountingRecordUnavailable",
+          operation: "decrypt",
+        });
         expect(
           await runRepository(
             (repository) => repository.listForCustomer(owner),

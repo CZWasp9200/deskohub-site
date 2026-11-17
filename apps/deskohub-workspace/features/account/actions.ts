@@ -1,16 +1,17 @@
 "use server";
 
-import { type AresLookupFailure, AresLookupService } from "@deskohub/ares";
-import { Effect, Layer, Match, Result, Schema } from "effect";
+import { Effect, Layer, Match, Schema } from "effect";
 import { revalidatePath } from "next/cache";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { accountActionError } from "@/features/account/account-action-guards";
 import type { AresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
-import { toAresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import { CustomerAccountDeletionEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
+import {
+  type CompanyLookupOutcome,
+  CompanyLookupService,
+} from "@/features/account/backend/company-lookup.service";
 import { requestCurrentAccountDeletion } from "@/features/account/backend/current-account-deletion";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAccountSections } from "@/features/account/backend/customer-account-sections";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { saveAccountLocalePreference } from "@/features/account/backend/customer-locale-preference";
@@ -25,10 +26,7 @@ import {
   completeCustomerProfileStandardSchema,
   updateCustomerProfileStandardSchema,
 } from "@/features/account/contracts";
-import {
-  CustomerAccountAccessError,
-  type CustomerAccountId,
-} from "@/features/account/customer-account";
+import type { CustomerAccountId } from "@/features/account/customer-account";
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { locales, m } from "@/features/i18n";
@@ -58,8 +56,7 @@ const localePreferenceSchema = Schema.toStandardSchemaV1(
  * referral release decision.
  */
 const profileSavingLayer = Layer.mergeAll(
-  CustomerAuthentication.Default,
-  CustomerAccountResolver.Live,
+  CurrentCustomerAccount.Live,
   CustomerProfileService.Live,
   ReferralService.Live,
   ReferralSignupIntentRepository.Live
@@ -68,23 +65,30 @@ const profileSavingLayer = Layer.mergeAll(
 /** The browser's remembered referral code, forgotten once settled. */
 const rememberedReferralLayer = RememberedReferral.Cookies.pipe(
   Layer.provide(
-    Layer.mergeAll(ReferralService.Live, CustomerAccountContactService.Live)
+    Layer.mergeAll(ReferralService.Live, CurrentCustomerAccount.Live)
   )
 );
 
 /**
  * Saves the locale preference of the verified account under the account lock.
+ * It requires the verified session, not an active account: the section's
+ * recheck refuses a pending deletion under the lock, so a lock or recheck
+ * failure there reports itself rather than the deletion.
  * The preference is also the site locale for the signed-in customer, so the
  * caller navigates to the page under the saved locale, and the proxy moves the
  * locale cookie on that page's response. The action leaves cookies alone: a
  * cookie write makes Next re-render the referring page, still under the old
  * locale, while the document navigation is leaving it. The Dotypos profile is
- * never touched.
+ * never touched. The sections read the session through the authentication
+ * the action provides.
  */
 const saveLocalePreference = (accountId: CustomerAccountId, locale: Locale) =>
   saveAccountLocalePreference(accountId, locale).pipe(
     Effect.provide(
-      Layer.mergeAll(WorkspaceDatabase.Default, CustomerAccountSections.Live)
+      Layer.mergeAll(
+        WorkspaceDatabase.Default,
+        CustomerAccountSections.ForProvidedAuthentication
+      )
     )
   );
 
@@ -140,7 +144,7 @@ const acknowledgeSignupReferralNoticeAction = defineWorkspaceAction(
       Effect.mapError(accountActionError(locale)),
       Effect.provide(
         Layer.mergeAll(
-          CustomerAccountResolver.Live,
+          CurrentCustomerAccount.Live,
           ReferralSignupIntentRepository.Live,
           ReferralReleaseGateRequest
         )
@@ -207,62 +211,33 @@ export type AresBusinessLookupResult =
   | { readonly status: "not-found"; readonly message: string }
   | { readonly status: "unavailable"; readonly message: string };
 
-const aresLookupFailureResult = (
-  failure: AresLookupFailure,
+/** The lookup's outcome as the profile forms show it, worded in the locale. */
+const aresLookupResult = (
+  outcome: CompanyLookupOutcome,
   locale: Locale
 ): AresBusinessLookupResult =>
-  Match.value(failure).pipe(
-    Match.discriminatorsExhaustive("reason")({
-      InvalidIco: () => ({
-        status: "invalid-ico" as const,
+  Match.value(outcome).pipe(
+    Match.withReturnType<AresBusinessLookupResult>(),
+    Match.discriminatorsExhaustive("status")({
+      found: (found) => found,
+      "invalid-ico": () => ({
+        status: "invalid-ico",
         message: m.accountAresLookupInvalidIco({}, { locale }),
       }),
-      NotFound: () => ({
-        status: "not-found" as const,
+      "not-found": () => ({
+        status: "not-found",
         message: m.accountAresLookupNotFound({}, { locale }),
       }),
-      Unavailable: () => ({
-        status: "unavailable" as const,
+      unavailable: () => ({
+        status: "unavailable",
         message: m.accountAresLookupUnavailable({}, { locale }),
       }),
     })
   );
 
-const lookupAresBusinessWorkflow = Effect.fn(function* (
-  input: { ico: string },
-  locale: Locale
-) {
-  const user = yield* requireVerifiedSession;
-  if (user.deletionRequested) {
-    // The read-only lookup never resolves the customer account: resolution
-    // may reactivate and claim an expired provider profile, which is a
-    // provider write, and it rejects accounts whose profile link is not
-    // settled. The durable deletion marker on the verified session is the
-    // same authority the activity guard consults, checked here explicitly.
-    return yield* new CustomerAccountAccessError({
-      reason: "link-required",
-      linkReason: "deletion-requested",
-    });
-  }
-
-  const ares = yield* AresLookupService;
-  const lookup = yield* Effect.result(ares.lookup(input.ico.trim()));
-
-  if (Result.isFailure(lookup)) {
-    return aresLookupFailureResult(lookup.failure, locale);
-  }
-  return {
-    status: "found" as const,
-    company: toAresBusinessBillingDraft(lookup.success),
-  };
-});
-
 /**
  * Looks up one Czech company in the public ARES registry for the business
- * billing form. Runs behind the verified session and the durable deletion
- * marker, and performs exactly one provider request per
- * invocation without any retry loop and without any customer classify,
- * reactivate, claim, create, update, or other provider write.
+ * billing form, through `CompanyLookupService`.
  */
 const lookupAresBusinessAction = defineWorkspaceAction(
   {
@@ -271,11 +246,12 @@ const lookupAresBusinessAction = defineWorkspaceAction(
     logInput: false,
   },
   (input, { locale }) =>
-    lookupAresBusinessWorkflow(input, locale).pipe(
+    Effect.flatMap(CompanyLookupService, (companies) =>
+      companies.lookup(input.ico)
+    ).pipe(
+      Effect.map((outcome) => aresLookupResult(outcome, locale)),
       Effect.mapError(accountActionError(locale)),
-      Effect.provide(
-        Layer.mergeAll(CustomerAuthentication.Default, AresLookupService.Live)
-      )
+      Effect.provide(CompanyLookupService.Live)
     )
 );
 

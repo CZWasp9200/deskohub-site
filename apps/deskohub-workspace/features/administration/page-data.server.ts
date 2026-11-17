@@ -1,6 +1,7 @@
 import "server-only";
 
-import { Effect, Layer, Option, Schema } from "effect";
+import type { DotyposCustomer, DotyposCustomerId } from "@deskohub/dotypos";
+import { DateTime, Effect, Layer, Match, Option, Schema } from "effect";
 import { cache } from "react";
 import type { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
 import {
@@ -18,7 +19,10 @@ import {
   getAdministrationReservationOverview,
 } from "./administration.service";
 import { bookingListQuery } from "./booking-list-query";
+import { AdministrationCustomerDirectory } from "./customer-directory.service";
+import { nameAdministrationCustomer } from "./customer-identity";
 import { customerListQuery } from "./customer-list-query";
+import { getAdministrationCustomerName } from "./customer-presentation";
 import { formatAdministrationDateTime } from "./formatters";
 import { listPageParam } from "./list-query";
 import { operationListQuery } from "./operation-list-query";
@@ -258,30 +262,98 @@ export const loadAdministrationCustomerReservations = (
     })
   );
 
-export const loadAdministrationCustomerActivity = cache((customerId: string) =>
-  runAdministration(
-    "administration.customer-activity",
-    Effect.gen(function* () {
-      const decodedCustomerId = yield* decodeDotyposCustomerRouteId(customerId);
-      const administration = yield* AdministrationService;
-      return yield* administration.loadCustomerActivity(decodedCustomerId);
-    })
-  )
+export const loadAdministrationCustomerActivity = cache(
+  (customerId: DotyposCustomerId) =>
+    runAdministration(
+      "administration.customer-activity",
+      Effect.gen(function* () {
+        const administration = yield* AdministrationService;
+        return yield* administration.loadCustomerActivity(customerId);
+      })
+    )
 );
 
 export const loadAdministrationCustomerReservationActivity = cache(
-  (customerId: string) =>
+  (customerId: DotyposCustomerId) =>
     runAdministration(
       "administration.customer-reservation-activity",
       Effect.gen(function* () {
-        const decodedCustomerId =
-          yield* decodeDotyposCustomerRouteId(customerId);
         const administration = yield* AdministrationService;
         return yield* administration.loadCustomerReservationActivity(
-          decodedCustomerId
+          customerId
         );
       })
     )
+);
+
+/** What the customer detail page and its breadcrumb know of one Dotypos customer. */
+export type AdministrationCustomerLookup =
+  | {
+      readonly kind: "found";
+      readonly customer: DotyposCustomer;
+      /** When the customer was read, for naming it. */
+      readonly readAt: Date;
+    }
+  /** Dotypos has no such customer, or it is deleted or expired. */
+  | { readonly kind: "absent" }
+  /** The Dotypos read failed; the failure is logged. */
+  | { readonly kind: "unavailable" };
+
+const unavailableCustomer: AdministrationCustomerLookup = {
+  kind: "unavailable",
+};
+
+/**
+ * One Dotypos customer, read once per request: the customer detail page and
+ * its breadcrumb share the lookup. A failing read resolves to `unavailable`
+ * rather than rejecting, so neither caller sees the other's failure.
+ */
+export const loadAdministrationCustomer = cache(
+  (customerId: DotyposCustomerId) =>
+    runAdministrationPage(
+      "administration.customer",
+      Effect.gen(function* () {
+        const directory = yield* AdministrationCustomerDirectory;
+        const found = yield* directory.find(customerId);
+        const readAt = yield* DateTime.nowAsDate;
+        return Option.match(found, {
+          onNone: (): AdministrationCustomerLookup => ({ kind: "absent" }),
+          onSome: (customer): AdministrationCustomerLookup => ({
+            kind: "found",
+            customer,
+            readAt,
+          }),
+        });
+      }).pipe(
+        // The lookup is unavailable even when the directory itself can't start.
+        Effect.provide(AdministrationCustomerDirectory.Live),
+        Effect.catch((cause) =>
+          Effect.logWarning("Customer administration details unavailable", {
+            cause,
+            customerId,
+          }).pipe(Effect.as(unavailableCustomer))
+        )
+      ),
+      Layer.empty
+    )
+);
+
+/** The customer's name for the breadcrumb, or none when the lookup found no customer. */
+export const loadAdministrationCustomerBreadcrumbLabel = cache(
+  async (customerId: DotyposCustomerId, locale: Locale) => {
+    const lookup = await loadAdministrationCustomer(customerId);
+    return Match.value(lookup).pipe(
+      Match.discriminatorsExhaustive("kind")({
+        found: ({ customer, readAt }) =>
+          getAdministrationCustomerName(
+            nameAdministrationCustomer(customer, readAt),
+            locale
+          ),
+        absent: () => undefined,
+        unavailable: () => undefined,
+      })
+    );
+  }
 );
 
 const getAdministrationOrderRange = async (

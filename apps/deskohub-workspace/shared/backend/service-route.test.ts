@@ -133,6 +133,28 @@ describe("Workspace cron routes", () => {
     expect(parseLogged(completed?.attributes?.result)).toEqual({ swept: 3 });
   });
 
+  test("keeps the input off the rows its job logs", async () => {
+    const GET = defineWorkspaceCron({
+      operation: "test.cron.job-rows",
+      failureMessage: "Test job failed",
+      input: () => ({ limit: 25 }),
+      run: () => Effect.logInfo("Test job row").pipe(Effect.as({ swept: 0 })),
+    });
+
+    await GET(cronRequest(`Bearer ${cronSecret}`));
+
+    const rows = workspaceLogs
+      .records()
+      .filter(
+        ({ attributes }) => attributes?.operation === "test.cron.job-rows"
+      );
+    expect(rows).toHaveLength(3);
+    const [started, jobRow, completed] = rows;
+    expect(started?.attributes).toHaveProperty("input");
+    expect(jobRow?.attributes).not.toHaveProperty("input");
+    expect(completed?.attributes).toHaveProperty("input");
+  });
+
   test("runs a job without input", async () => {
     const GET = defineWorkspaceCron({
       operation: "test.cron.no-input",
@@ -270,6 +292,29 @@ describe("Webhook routes", () => {
     expect(await response.text()).toBe(
       '{"error":"Unauthorized","message":"Missing signature"}'
     );
+  });
+
+  test("logs a logs-only code without answering it", async () => {
+    const operation = "test.webhook.logs-only";
+    const POST = defineWebhookRoute(
+      { operation, failureMessage: "Test failed" },
+      () =>
+        Effect.fail(
+          new WebhookRefusal({
+            disposition: { kind: "retry", severity: "error" },
+            code: "test_secret_missing",
+            codeVisibility: "logs-only",
+          })
+        )
+    );
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(500);
+    expect(Object.keys(JSON.parse(await response.text()))).toEqual(["error"]);
+    expect(fieldsAt(operation, "error")).toMatchObject({
+      errorCode: "test_secret_missing",
+    });
   });
 
   test("answers an unclassified failure with the route's failure message", async () => {

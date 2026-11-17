@@ -8,6 +8,7 @@ import type {
 import { type Context, Effect, Layer, Logger, References } from "effect";
 import type { CheckoutAnalytics } from "@/features/checkout/backend/analytics/checkout-analytics.service";
 import type { IWorkspaceReservationRepository as WorkspaceReservationRepositoryType } from "@/features/reservation/backend/workspace-reservation.repository";
+import { expectScalarLogAnnotations } from "@/shared/testing/log-annotations.test-utils";
 import {
   type IReservationFulfillment,
   WorkspacePaidFulfillmentError,
@@ -349,7 +350,7 @@ describe("NexiWebhookService", () => {
 
   test("accepts a declined notification for an attempt that is no longer pending", async () => {
     const { PaymentLifecycleStateError } = await import(
-      "../repositories/payment-lifecycle.repository"
+      "../repositories/payment-lifecycle-state"
     );
     const markProcessed = mock(() => Effect.void);
     const markFailed = mock(() => Effect.void);
@@ -822,7 +823,7 @@ describe("NexiWebhookService", () => {
       )
     );
 
-    expect(annotations.length).toBeGreaterThan(0);
+    expectScalarLogAnnotations(annotations);
     for (const row of annotations) {
       for (const key of [
         "payload",
