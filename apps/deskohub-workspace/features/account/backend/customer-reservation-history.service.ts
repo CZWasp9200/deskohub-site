@@ -23,6 +23,11 @@ import {
   type ReservationRecordsError,
 } from "@/features/reservation/backend/reservation-records";
 import {
+  type OnSiteReservation,
+  ReservationOnSite,
+  type ReservationOnSiteDetails,
+} from "@/features/reservation/backend/reservation-on-site-details";
+import {
   type ListedReservation,
   ReservationWithdrawalAvailability,
 } from "@/features/reservation/backend/reservation-withdrawals";
@@ -231,7 +236,8 @@ const toReservationSummary = (
   { reservation, row, booked }: HistoryEntry,
   party: CustomerReservationParty | undefined,
   todayAccess: CustomerReservationSummary["todayAccess"],
-  withdrawal: CustomerReservationSummary["withdrawal"]
+  withdrawal: CustomerReservationSummary["withdrawal"],
+  onSite: CustomerReservationSummary["onSite"]
 ): CustomerReservationSummary => {
   const bookedSelection = row && getRebookingSelectionOf(row, booked);
   return {
@@ -248,6 +254,7 @@ const toReservationSummary = (
     ...(bookedSelection && { bookedSelection }),
     ...(todayAccess && { todayAccess }),
     ...(withdrawal && { withdrawal }),
+    ...(onSite && { onSite }),
   };
 };
 
@@ -337,6 +344,7 @@ const toReservationHistory = ({
   names,
   access,
   withdrawals,
+  onSite,
 }: {
   readonly entries: readonly HistoryEntry[];
   readonly names: ReadonlyMap<DotyposCustomerId, string>;
@@ -345,6 +353,7 @@ const toReservationHistory = ({
     WorkspaceReservationId,
     WithdrawalAvailability
   >;
+  readonly onSite: ReadonlyMap<WorkspaceReservationId, ReservationOnSiteDetails>;
 }): CustomerReservationHistory => ({
   kind: "available",
   groups: groupCustomerReservations(
@@ -353,11 +362,30 @@ const toReservationHistory = ({
         entry,
         entry.relation && toReservationParty(entry.relation, names),
         entry.row && access.get(entry.row.id),
-        entry.row && withdrawals.get(entry.row.id)
+        entry.row && withdrawals.get(entry.row.id),
+        entry.row && onSite.get(entry.row.id)
       )
     )
   ),
 });
+
+/**
+ * A history entry whose table and Wi-Fi its customer was emailed: a
+ * confirmed website order.
+ */
+const toOnSiteReservation = ({
+  reservation,
+  row,
+}: HistoryEntry): readonly OnSiteReservation[] =>
+  row?.reservationDetails && getReservationStatus(reservation, row) === "confirmed"
+    ? [
+        {
+          id: row.id,
+          reservationDetails: row.reservationDetails,
+          dotyposReservation: reservation,
+        },
+      ]
+    : [];
 
 /** A history entry the withdrawal entry point can assess: a booked website order. */
 const toListedReservation = ({
@@ -473,6 +501,8 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
   const withdrawalAvailability = yield* Effect.serviceOption(
     ReservationWithdrawalAvailability
   );
+  // Likewise the table and Wi-Fi of confirmed bookings.
+  const reservationOnSite = yield* Effect.serviceOption(ReservationOnSite);
 
   const logUnavailableParty = (code: string) =>
     Effect.logWarning("Reservation history party unavailable").pipe(
@@ -651,6 +681,20 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
         }),
     });
 
+  const readOnSite = ({
+    entries,
+  }: {
+    readonly entries: readonly HistoryEntry[];
+  }) =>
+    Option.match(reservationOnSite, {
+      onNone: () =>
+        Effect.succeed(
+          new Map<WorkspaceReservationId, ReservationOnSiteDetails>()
+        ),
+      onSome: (onSite) =>
+        onSite.forReservations(entries.flatMap(toOnSiteReservation)),
+    });
+
   const loadRecorded = (
     account: ReservationHistoryAccount,
     options: ReservationHistoryOptions & { readonly locale: Locale }
@@ -669,6 +713,7 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
             names: readPartyNames(input),
             access: readAccess(input),
             withdrawals: readWithdrawals(input),
+            onSite: readOnSite(input),
           },
           { concurrency: "inherit" }
         )

@@ -14,6 +14,9 @@ import { CustomerReservationHistoryService } from "@/features/account/backend/cu
 import { PasskeyReleaseGateRequest } from "@/features/account/server/account-release-gates.server";
 import { ReferralReleaseGateRequest } from "@/features/referrals/referral-release-gate.server";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import { WorkspaceCheckoutNetworkDetailsService } from "@/features/checkout/backend/fulfillment/network-details.service";
+import { SharedAvailabilityInventoryLive } from "@/features/reservation/backend/availability-inventory-cache.server";
+import { ReservationOnSite } from "@/features/reservation/backend/reservation-on-site-details";
 import { ReservationWithdrawalAvailability } from "@/features/reservation/backend/reservation-withdrawals";
 import { WithdrawalReleaseGateRequest } from "@/features/withdrawal/backend/withdrawal-release-gate.server";
 
@@ -37,10 +40,22 @@ export type AccountPageLayers = AccountStateLayers & {
 export const liveAccountPageLayers: AccountPageLayers = {
   ...liveAccountServiceLayers,
   // The online withdrawal entry points show while their gate is open.
+  // Confirmed bookings show the table and Wi-Fi their email sent, with the
+  // tables read from the status page's shared snapshot.
   history: CustomerReservationHistoryService.Live.pipe(
     Layer.provide(
-      ReservationWithdrawalAvailability.ForProvidedGate.pipe(
-        Layer.provide(WithdrawalReleaseGateRequest)
+      Layer.mergeAll(
+        ReservationWithdrawalAvailability.ForProvidedGate.pipe(
+          Layer.provide(WithdrawalReleaseGateRequest)
+        ),
+        ReservationOnSite.Live.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              SharedAvailabilityInventoryLive,
+              WorkspaceCheckoutNetworkDetailsService.Default
+            )
+          )
+        )
       )
     )
   ),

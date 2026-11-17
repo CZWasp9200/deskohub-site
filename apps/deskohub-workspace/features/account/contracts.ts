@@ -8,6 +8,7 @@ import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-cat
 import { defaultPhoneRegion, type Locale } from "@/features/i18n";
 import type { RebookingSelection } from "@/features/reservation/backend/booking-selection";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { ReservationOnSiteDetails } from "@/features/reservation/backend/reservation-on-site-details";
 import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
 
 /*
@@ -124,6 +125,11 @@ export type CustomerReservationSummary = {
    * account authored, while the withdrawal function is released.
    */
   readonly withdrawal?: WithdrawalAvailability;
+  /**
+   * The table and Wi-Fi of a confirmed website booking, as its confirmation
+   * email sends them, when the history's caller provides them.
+   */
+  readonly onSite?: ReservationOnSiteDetails;
 };
 
 export type CustomerReservationGroups = {
