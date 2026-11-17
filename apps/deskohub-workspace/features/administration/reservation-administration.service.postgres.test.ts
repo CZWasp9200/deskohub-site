@@ -193,6 +193,15 @@ describe.skipIf(!testDatabase)(
           { cause: "reservation_cancellation", source: "dhw-cli" },
         ],
       });
+      // The reservation keeps its own record of why it was cancelled beside
+      // the invoice's cancellation cause.
+      const [reservationCause] = await kit.query<{
+        cancellation_cause: string | null;
+      }>(
+        "select cancellation_cause from workspace_reservations where id = $1",
+        [reservation.id]
+      );
+      expect(reservationCause?.cancellation_cause).toBe("operator");
       expect(deliver).toHaveBeenCalledTimes(1);
       expect(deliver.mock.calls[0]![0].invoiceId).toBe(invoice.id);
     });
