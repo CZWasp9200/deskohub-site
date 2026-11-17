@@ -3,6 +3,7 @@ import { Option } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import Coffee from "lucide-react-native/icons/coffee";
 import Monitor from "lucide-react-native/icons/monitor";
+import Moon from "lucide-react-native/icons/moon";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import { type ComponentRef, type ReactNode, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
@@ -16,6 +17,7 @@ import { CheckboxRow } from "../../../ui/checkbox";
 import { FocusedStatusBar } from "../../../ui/focused-status-bar";
 import { useSample } from "../../../ui/gallery/gallery-kit";
 import { Notice } from "../../../ui/notice";
+import { Switch } from "../../../ui/switch";
 import { color, radius, space } from "../../../ui/tokens";
 import {
   type DetailsDraft,
@@ -54,6 +56,7 @@ import { BookingSectionHeading } from "../booking-section-heading";
 import { type BookingStep, BookingSteps } from "../booking-steps";
 import { type HoldStatus, HoldStatusChip } from "../hold-timer";
 import { MonthCalendar } from "../month-calendar";
+import { OvernightStayTimes } from "../overnight-stay-times";
 import {
   meetingRoomHour,
   officeSixSeats,
@@ -312,6 +315,62 @@ function CoworkChosen({
         onToggle={ignore}
         price="+ CZK 50"
       />
+    </FlowScreen>
+  );
+}
+
+/** Reserved Desk with the overnight stay offered; the switch toggles it. */
+function CoworkOvernight({ onBack }: { readonly onBack: () => void }) {
+  const locale = useAppLocale();
+  const sample = useSample();
+  const [overnight, setOvernight] = useState(true);
+  return (
+    <FlowScreen
+      title={sample("Cowork desk")}
+      step="choose"
+      locale={locale}
+      onBack={onBack}
+      at="end"
+      bar={
+        <BookingBar
+          locale={locale}
+          summary={{
+            title: sample(
+              overnight
+                ? "Thu 26 Nov 12:00 → Fri 27 Nov 12:00"
+                : "Thu 26 Nov, 08:00–18:00"
+            ),
+            detail: sample("Reserved Desk"),
+            price: {
+              kind: "from",
+              amount: czk(328),
+              unit: sample(overnight ? "per night" : "per day"),
+            },
+          }}
+          action={next(sample("Continue"))}
+        />
+      }
+    >
+      <BookingSectionHeading title={sample("Desk type")} first />
+      <DeskCards locale={locale} selected="reserved-desk" />
+      <BookingSectionHeading
+        title={sample("Date")}
+        control={
+          <Switch
+            label={sample("Overnight")}
+            accessibilityLabel={sample("Overnight")}
+            icon={Moon}
+            value={overnight}
+            onValueChange={setOvernight}
+          />
+        }
+      />
+      <Calendar locale={locale} selected={chosenDay} />
+      {overnight && (
+        <OvernightStayTimes
+          times={sample("Thu 26 Nov 12:00 → Fri 27 Nov 12:00")}
+        />
+      )}
     </FlowScreen>
   );
 }
@@ -1110,6 +1169,12 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     board: "26",
     state: "Date and extras chosen",
     Screen: CoworkChosen,
+  },
+  {
+    key: "cowork-overnight",
+    board: "26",
+    state: "Reserved Desk overnight",
+    Screen: CoworkOvernight,
   },
   {
     key: "cowork-full-day",
