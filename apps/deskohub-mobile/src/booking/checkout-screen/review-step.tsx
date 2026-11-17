@@ -26,6 +26,10 @@ import { ErrorState, LoadingState } from "../../ui/async-states";
 import { Card } from "../../ui/card";
 import { Checkbox } from "../../ui/checkbox";
 import { Button, TextField } from "../../ui/controls";
+import {
+  FocusedFieldContext,
+  useFocusedFieldScroll,
+} from "../../ui/focused-field-scroll";
 import { Icon } from "../../ui/icon";
 import { LoadingIndicator } from "../../ui/loading-indicator";
 import { Notice } from "../../ui/notice";
@@ -105,6 +109,7 @@ export function ReviewStep({
   const keyboardShown = useKeyboardShown();
   const [raised, setRaised] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
+  const focusedField = useFocusedFieldScroll(scroll);
   return (
     <KeyboardAvoidingView
       behavior="padding"
@@ -121,90 +126,93 @@ export function ReviewStep({
           />
         </View>
       )}
-      <ScrollView
-        ref={scroll}
-        style={styles.body}
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        scrollEventThrottle={32}
-        onScroll={({ nativeEvent }) =>
-          setRaised(nativeEvent.contentOffset.y > 0)
-        }
-      >
-        {view.retry && (
-          <View style={styles.retryNotice}>
-            <Notice
-              tone="warning"
-              title={m.booking_checkout_retry_title({}, { locale })}
-              message={m.booking_checkout_retry_lead({}, { locale })}
-            />
-          </View>
-        )}
-        <BookingSectionHeading
-          title={m.booking_review_booking_heading({}, { locale })}
-          action={
-            view.retry
-              ? undefined
-              : {
-                  label: m.booking_review_change({}, { locale }),
-                  onPress: onChangeBooking,
-                  disabled: view.busy,
-                }
+      <FocusedFieldContext value={focusedField.tracker}>
+        <ScrollView
+          ref={scroll}
+          onLayout={focusedField.onLayout}
+          style={styles.body}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={32}
+          onScroll={({ nativeEvent }) =>
+            setRaised(nativeEvent.contentOffset.y > 0)
           }
-          first={!view.retry}
-        />
-        <BookingCard
-          selection={selection}
-          earlySetup={view.earlySetup}
-          overnightStay={overnightStay}
-          party={view.party}
-          invoice={view.invoice}
-          locale={locale}
-        />
-        <BookingSectionHeading
-          title={m.booking_review_price_heading({}, { locale })}
-        />
-        <Card padding="none">
-          <View style={styles.priceCard}>
-            {Option.isSome(view.priceChange) && (
-              <PriceChange
-                change={view.priceChange.value}
-                busy={view.busy}
-                send={send}
-                onChangeBooking={view.retry ? undefined : onChangeBooking}
-                locale={locale}
+        >
+          {view.retry && (
+            <View style={styles.retryNotice}>
+              <Notice
+                tone="warning"
+                title={m.booking_checkout_retry_title({}, { locale })}
+                message={m.booking_checkout_retry_lead({}, { locale })}
               />
-            )}
-            <PriceLines
-              breakdown={view.price.breakdown}
-              describeLine={describePriceLine(selection, locale)}
-              locale={locale}
-              variant="card"
-              total={{
-                label: m.booking_review_total({}, { locale }),
-                was: Option.getOrUndefined(view.price.was),
-              }}
-            />
-          </View>
-        </Card>
-        {!view.retry && (
-          <View style={styles.code}>
-            <CodeRow code={view.code} send={send} locale={locale} />
-          </View>
-        )}
-        <LegalConsent
-          consent={view.consent}
-          send={send}
-          onOpenDocument={onOpenDocument}
-          locale={locale}
-        />
-        <ReviewNoticeView
-          notice={review.notice}
-          idle={!view.busy}
-          send={send}
-          locale={locale}
-        />
-      </ScrollView>
+            </View>
+          )}
+          <BookingSectionHeading
+            title={m.booking_review_booking_heading({}, { locale })}
+            action={
+              view.retry
+                ? undefined
+                : {
+                    label: m.booking_review_change({}, { locale }),
+                    onPress: onChangeBooking,
+                    disabled: view.busy,
+                  }
+            }
+            first={!view.retry}
+          />
+          <BookingCard
+            selection={selection}
+            earlySetup={view.earlySetup}
+            overnightStay={overnightStay}
+            party={view.party}
+            invoice={view.invoice}
+            locale={locale}
+          />
+          <BookingSectionHeading
+            title={m.booking_review_price_heading({}, { locale })}
+          />
+          <Card padding="none">
+            <View style={styles.priceCard}>
+              {Option.isSome(view.priceChange) && (
+                <PriceChange
+                  change={view.priceChange.value}
+                  busy={view.busy}
+                  send={send}
+                  onChangeBooking={view.retry ? undefined : onChangeBooking}
+                  locale={locale}
+                />
+              )}
+              <PriceLines
+                breakdown={view.price.breakdown}
+                describeLine={describePriceLine(selection, locale)}
+                locale={locale}
+                variant="card"
+                total={{
+                  label: m.booking_review_total({}, { locale }),
+                  was: Option.getOrUndefined(view.price.was),
+                }}
+              />
+            </View>
+          </Card>
+          {!view.retry && (
+            <View style={styles.code}>
+              <CodeRow code={view.code} send={send} locale={locale} />
+            </View>
+          )}
+          <LegalConsent
+            consent={view.consent}
+            send={send}
+            onOpenDocument={onOpenDocument}
+            locale={locale}
+          />
+          <ReviewNoticeView
+            notice={review.notice}
+            idle={!view.busy}
+            send={send}
+            locale={locale}
+          />
+        </ScrollView>
+      </FocusedFieldContext>
       <BookingBar
         locale={locale}
         action={payAction(view, send, locale)}

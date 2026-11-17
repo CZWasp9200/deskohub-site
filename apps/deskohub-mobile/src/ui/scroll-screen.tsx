@@ -12,6 +12,10 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import {
+  FocusedFieldContext,
+  useFocusedFieldScroll,
+} from "./focused-field-scroll";
 import { LoadingIndicator } from "./loading-indicator";
 import { color, radius, shadow, space, tabBarRaisedOverhang } from "./tokens";
 
@@ -55,7 +59,8 @@ export function MastheadClearance() {
  * masthead's title and actions (and a dark `FocusedStatusBar`), takes the
  * top of the screen under the status bar once the masthead has scrolled
  * away. `overlap={false}` starts the content below a band that ends with
- * its own content, such as the access PIN's.
+ * its own content, such as the access PIN's. A focused field scrolls whole
+ * above whatever follows the screen, such as an `ActionFooter`.
  */
 export function ScrollScreen({
   children,
@@ -84,64 +89,68 @@ export function ScrollScreen({
     () => scrollView.current?.scrollTo({ y: 0, animated: false }),
     []
   );
+  const focusedField = useFocusedFieldScroll(scrollView);
   const withMasthead = masthead !== undefined;
   const overlapping = withMasthead && overlap;
   return (
     <SafeAreaView edges={["left", "right"]} style={styles.screen}>
-      <ScrollView
-        ref={scrollView}
-        // A tap on a button, or on a row of a sheet opened from this screen,
-        // acts while the keyboard is up; elsewhere it closes the keyboard.
-        // The responder system follows the React tree, so a modal sheet's
-        // rows sit inside this ScrollView too.
-        keyboardShouldPersistTaps="handled"
-        scrollEventThrottle={collapsedHeader === undefined ? undefined : 16}
-        onScroll={
-          collapsedHeader === undefined || mastheadHeight === undefined
-            ? undefined
-            : (event) =>
-                setCollapsed(
-                  event.nativeEvent.contentOffset.y >= mastheadHeight
-                )
-        }
-        // A masthead clears the status bar itself.
-        contentInsetAdjustmentBehavior={withMasthead ? "never" : "automatic"}
-        refreshControl={
-          onRefresh && (
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={hiddenSpinner}
-              colors={[hiddenSpinner]}
-              progressBackgroundColor={hiddenSpinner}
-            />
-          )
-        }
-      >
-        <ScrollScreenContext value={scrollToTop}>
-          {masthead !== undefined && (
-            <View
-              onLayout={(event) =>
-                setMastheadHeight(event.nativeEvent.layout.height)
-              }
-            >
-              {masthead}
+      <FocusedFieldContext value={focusedField.tracker}>
+        <ScrollView
+          ref={scrollView}
+          onLayout={focusedField.onLayout}
+          // A tap on a button, or on a row of a sheet opened from this screen,
+          // acts while the keyboard is up; elsewhere it closes the keyboard.
+          // The responder system follows the React tree, so a modal sheet's
+          // rows sit inside this ScrollView too.
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={collapsedHeader === undefined ? undefined : 16}
+          onScroll={
+            collapsedHeader === undefined || mastheadHeight === undefined
+              ? undefined
+              : (event) =>
+                  setCollapsed(
+                    event.nativeEvent.contentOffset.y >= mastheadHeight
+                  )
+          }
+          // A masthead clears the status bar itself.
+          contentInsetAdjustmentBehavior={withMasthead ? "never" : "automatic"}
+          refreshControl={
+            onRefresh && (
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={hiddenSpinner}
+                colors={[hiddenSpinner]}
+                progressBackgroundColor={hiddenSpinner}
+              />
+            )
+          }
+        >
+          <ScrollScreenContext value={scrollToTop}>
+            {masthead !== undefined && (
+              <View
+                onLayout={(event) =>
+                  setMastheadHeight(event.nativeEvent.layout.height)
+                }
+              >
+                {masthead}
+              </View>
+            )}
+            <View style={styles.page}>
+              {overlapping && <View aria-hidden style={styles.overlap} />}
+              <View
+                style={[
+                  styles.content,
+                  overlapping && styles.overlapping,
+                  withMasthead && !overlap && styles.belowBand,
+                ]}
+              >
+                {children}
+              </View>
             </View>
-          )}
-          <View style={styles.page}>
-            {overlapping && <View aria-hidden style={styles.overlap} />}
-            <View
-              style={[
-                styles.content,
-                overlapping && styles.overlapping,
-                withMasthead && !overlap && styles.belowBand,
-              ]}
-            >
-              {children}
-            </View>
-          </View>
-        </ScrollScreenContext>
-      </ScrollView>
+          </ScrollScreenContext>
+        </ScrollView>
+      </FocusedFieldContext>
       {collapsed && collapsedHeader !== undefined && (
         <View style={[styles.collapsedHeader, { paddingTop: insets.top }]}>
           {collapsedHeader}
