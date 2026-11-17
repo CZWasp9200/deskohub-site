@@ -70,7 +70,7 @@ Next: the app bundles for Hermes and the browser.
 - The root `biome.json` override for `apps/deskohub-mobile/**` bans `next`,
   `next/**`, `@deskohub/next-effect` and `@deskohub/i18n/{next,action,request-locale}`
   through `style/noRestrictedImports`. The `@deskohub/i18n` root, `core`,
-  `pathname`, `translatable`, `effect` and `currency` entries are allowed.
+  `pathname`, `translatable`, `effect`, `currency` and `search-text` entries are allowed.
   `lint/import-ban.test.ts` pins banned and allowed specifiers; extend both
   when a new server-bound entry appears.
 - Hermes lacks some `Intl` APIs. `@deskohub/i18n/currency` falls back to the
