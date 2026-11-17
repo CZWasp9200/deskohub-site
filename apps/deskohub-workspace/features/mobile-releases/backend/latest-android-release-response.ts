@@ -3,7 +3,7 @@ import { AndroidReleases } from "./android-releases.service";
 
 // Both answers come from a release lookup shared for ten minutes, so the edge
 // may keep them as long and serve them stale while it revalidates.
-const sharedCaching = {
+export const sharedCaching = {
   "Cache-Control": "public, s-maxage=600, stale-while-revalidate=3600",
 };
 

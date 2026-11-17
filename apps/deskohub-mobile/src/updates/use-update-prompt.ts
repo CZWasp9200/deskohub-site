@@ -5,6 +5,7 @@ import * as Linking from "expo-linking";
 import * as Updates from "expo-updates";
 import { useEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
+import { installingPackageName } from "../../modules/install-source";
 import { trackUpdateApplied } from "../analytics/events";
 import { deviceCapabilitiesLayer } from "../customer-api/device-capabilities-layer";
 import { recordAppliedUpdate } from "./applied-update";
@@ -48,7 +49,7 @@ const restartIntoUpdate = Effect.tryPromise(() => Updates.reloadAsync());
  * Records an update this launch applied, then checks for a downloaded JS
  * update, a rollback and a newer APK on launch and on each return to the
  * foreground, and returns the one prompt to show. Accepting restarts into
- * the downloaded or embedded update, or opens the `/android` download page;
+ * the downloaded or embedded update, or downloads the latest APK;
  * dismissing hides that offer for the rest of the session.
  */
 export function useUpdatePrompt(): {
@@ -67,6 +68,7 @@ export function useUpdatePrompt(): {
     const plan = planUpdateCheck({
       platform: Platform.OS,
       otaUpdatesEnabled: Updates.isEnabled && !__DEV__,
+      installingPackageName: installingPackageName(),
     });
     if (!(plan.otaUpdate || plan.nativeRelease)) {
       return;

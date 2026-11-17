@@ -9,7 +9,9 @@ export const workspaceUpdateUrls = (
   apiOrigin: string
 ): WorkspaceUpdateUrls => ({
   latestReleaseUrl: `${apiOrigin}/api/mobile/releases/latest`,
-  androidDownloadUrl: `${apiOrigin}/android`,
+  // Redirects to the latest APK on GitHub; the link stays on the
+  // Workspace's domain.
+  androidDownloadUrl: `${apiOrigin}/android/download`,
 });
 
 /**
