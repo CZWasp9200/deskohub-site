@@ -7,7 +7,6 @@ import { useRef, useState } from "react";
 import {
   type GestureResponderEvent,
   LayoutAnimation,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -114,10 +113,6 @@ export const swipeIntent = ({
   if (dy >= swipeDistance) return "close";
   return undefined;
 };
-
-// The grey arrow on the bar's top edge (`.bk-grab`).
-const chevronColor = "#A9A59B";
-const chevronSize = 22;
 
 // The board's arrow strip, and how far the content under it moves up.
 const grabStrip = 20;
@@ -278,19 +273,11 @@ export function BookingBar({
 
 /** The grey arrow: up while closed, down while open. Drawn at the board's 22, hidden as the toggle names itself. */
 function Chevron({ open }: { readonly open: boolean }) {
-  const Glyph = open ? ChevronDown : ChevronUp;
   return (
-    <Glyph
-      size={chevronSize}
-      color={chevronColor}
-      strokeWidth={2}
-      {...Platform.select({
-        web: { "aria-hidden": true },
-        default: {
-          accessible: false,
-          importantForAccessibility: "no-hide-descendants" as const,
-        },
-      })}
+    <Icon
+      icon={open ? ChevronDown : ChevronUp}
+      size={22}
+      color={color.grabArrow}
     />
   );
 }

@@ -32,13 +32,6 @@ import {
   monthCalendarModel,
 } from "./month-calendar-model";
 
-// The calendar's own greys (board 26): days that can't be booked (past, or
-// after the last bookable date), struck-through days and their strike, and
-// a page arrow that can't page.
-const pastInk = "#A9ADB8";
-const unavailableInk = "#8F94A3";
-const pageDisabledInk = "#C4C1BA";
-
 // Noon UTC on the calendar date, formatted in UTC, names the same day in
 // every device time zone.
 const utcNoon = (year: number, month: number, day: number) =>
@@ -339,7 +332,7 @@ function PageButton({
         pressed && !disabled && styles.pressedDisc,
       ]}
     >
-      <Icon icon={icon} color={disabled ? pageDisabledInk : color.navy} />
+      <Icon icon={icon} color={disabled ? color.pageArrowDisabled : color.navy} />
     </Pressable>
   );
 }
@@ -425,8 +418,8 @@ const styles = StyleSheet.create({
     fontVariationSettings: brandFontVariation(500),
     fontWeight: "500",
   },
-  pastNumber: { color: pastInk },
-  unavailableNumber: { color: unavailableInk },
+  pastNumber: { color: color.calendarPast },
+  unavailableNumber: { color: color.calendarUnavailable },
   bandNumber: {
     color: color.actionPressed,
     fontVariationSettings: brandFontVariation(600),
@@ -439,7 +432,7 @@ const styles = StyleSheet.create({
   },
   // A short diagonal line through the day number.
   strike: {
-    backgroundColor: unavailableInk,
+    backgroundColor: color.calendarUnavailable,
     height: 1.5,
     left: 11,
     position: "absolute",

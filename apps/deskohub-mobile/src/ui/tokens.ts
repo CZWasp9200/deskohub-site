@@ -72,6 +72,14 @@ export const color = {
   handle: "#C9CCDA",
   /** The dashed outline of an empty state. */
   dashed: "#D3CDC0",
+  /** The arrow on the booking bar's top edge. */
+  grabArrow: "#A9A59B",
+  /** Calendar days that can't be booked: past, or after the last bookable day. */
+  calendarPast: "#A9ADB8",
+  /** Calendar days that are full, and their strike. */
+  calendarUnavailable: "#8F94A3",
+  /** A calendar page arrow that can't page. */
+  pageArrowDisabled: "#C4C1BA",
   /** The one-tone line drawings on paper, such as the sign-in shield. */
   illustration: "#B5B0A6",
   white: "#FFFFFF",
