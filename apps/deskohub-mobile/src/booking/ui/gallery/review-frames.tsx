@@ -26,6 +26,7 @@ import {
   type ReviewState,
 } from "../../checkout/checkout-state";
 import { ReviewStep } from "../../checkout-screen/review-step";
+import { reviewBilling } from "../../checkout-screen/review-view";
 import {
   czk,
   sampleLegalDocuments,
@@ -199,14 +200,15 @@ const reviewOf = (
   sample: Sample,
   holdExpiresAt: string,
   frame: ReviewSample
-): ReviewState =>
-  CheckoutState.Review({
+): ReviewState => {
+  const details = (frame.details ?? selfDetails)(sample);
+  return CheckoutState.Review({
     flow,
     kind: frame.retry
-      ? ReviewKind.PaymentRetry()
-      : ReviewKind.NewBooking({
-          details: (frame.details ?? selfDetails)(sample),
-        }),
+      ? ReviewKind.PaymentRetry({
+          details: { ...details, billing: reviewBilling(details.billing) },
+        })
+      : ReviewKind.NewBooking({ details }),
     checkout: {
       orderId: "gallery-order",
       payStateToken: "gallery-token",
@@ -230,6 +232,7 @@ const reviewOf = (
     pending: frame.pending ?? Option.none(),
     notice: Option.none(),
   });
+};
 
 function ReviewFrame({
   onBack,
