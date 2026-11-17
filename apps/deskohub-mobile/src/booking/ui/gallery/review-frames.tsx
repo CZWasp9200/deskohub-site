@@ -51,7 +51,11 @@ const overnightSelection: CustomerBookingSelection = {
 const noonToNoon = { startTime: "12:00", endTime: "12:00" };
 
 const calendar: CustomerCheckoutSummaryDiscount = {
-  discount: { id: "calendar-sale-2026-11", label: "Calendar discount" },
+  discount: {
+    id: "calendar-sale-2026-11",
+    label: "Calendar discount",
+    adjustment: { kind: "percentage", basisPoints: 2000 },
+  },
   amount: czk(58),
 };
 
@@ -60,7 +64,11 @@ const discount = (
   label: string,
   crowns: number
 ): CustomerCheckoutSummaryDiscount => ({
-  discount: { id, label },
+  discount: {
+    id,
+    label,
+    adjustment: { kind: "percentage", basisPoints: 1000 },
+  },
   amount: czk(crowns),
 });
 

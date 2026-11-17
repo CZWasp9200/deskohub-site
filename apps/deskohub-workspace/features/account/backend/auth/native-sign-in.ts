@@ -36,6 +36,17 @@ const nativeAppCallbackPath = "/app/auth/callback";
 
 const nativeAppReturnURI = `${nativeAppOrigin}auth/callback`;
 
+/** Whether a callback names exactly the app callback on this origin. */
+const isNativeAppCallback = (callback: string, origin: string) => {
+  const target = URL.parse(callback, origin);
+  return (
+    target?.origin === origin &&
+    target.pathname === nativeAppCallbackPath &&
+    target.search === "" &&
+    target.hash === ""
+  );
+};
+
 /**
  * The App Link for a magic link sent for the app callback, else the
  * verification URL unchanged. Better Auth validated the callback before it
@@ -49,15 +60,11 @@ export const nativeAppLinkFor = (verificationURL: string): string => {
   const onlyTokenAndCallback = [...url.searchParams.keys()].every(
     (key) => key === "token" || key === "callbackURL"
   );
-  if (!token || callback === null || !onlyTokenAndCallback) {
-    return verificationURL;
-  }
-  const target = URL.parse(callback, url.origin);
   if (
-    target?.origin !== url.origin ||
-    target.pathname !== nativeAppCallbackPath ||
-    target.search !== "" ||
-    target.hash !== ""
+    !token ||
+    callback === null ||
+    !onlyTokenAndCallback ||
+    !isNativeAppCallback(callback, url.origin)
   ) {
     return verificationURL;
   }
@@ -65,6 +72,34 @@ export const nativeAppLinkFor = (verificationURL: string): string => {
   link.searchParams.set("token", token);
   return link.toString();
 };
+
+const signInEmailCallbacks = Schema.Struct({
+  callbackURL: Schema.String,
+  newUserCallbackURL: Schema.optional(Schema.Unknown),
+  errorCallbackURL: Schema.optional(Schema.Unknown),
+});
+
+type SignInEmailRequest = {
+  readonly body?: unknown;
+  readonly context: { readonly baseURL: string };
+};
+
+/**
+ * Whether a `/sign-in/magic-link` request gets the App Link: Better Auth puts
+ * its callbacks on the verification URL on `baseURL`'s origin, and
+ * `nativeAppLinkFor` turns that URL into the App Link.
+ */
+export const sendsNativeAppLink = ({
+  body,
+  context,
+}: SignInEmailRequest): boolean =>
+  Option.exists(
+    Schema.decodeUnknownOption(signInEmailCallbacks)(body),
+    ({ callbackURL, newUserCallbackURL, errorCallbackURL }) =>
+      !newUserCallbackURL &&
+      !errorCallbackURL &&
+      isNativeAppCallback(callbackURL, new URL(context.baseURL).origin)
+  );
 
 /**
  * The requests that can create an account from the app: the `/app/` page's

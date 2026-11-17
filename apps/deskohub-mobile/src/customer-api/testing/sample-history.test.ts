@@ -40,6 +40,18 @@ describe("withSampleHistory", () => {
     expect(loading.nextOutcome("getReservationStatus")).toBe("hang");
   });
 
+  test("payment-failed lists the failed order as not booked at its time", () => {
+    const { history, orders } = workspace("payment-failed").data;
+    const [failed] = history.past;
+    expect(failed?.status).toBe("cancelled");
+    expect(failed?.startsAt).toBeTruthy();
+    expect(
+      failed?.orderId === undefined
+        ? undefined
+        : orders.get(failed.orderId)?.state.status
+    ).toBe("payment_failed");
+  });
+
   test("an unknown variant reads as today", () => {
     expect(sampleHistoryOf(undefined)).toBe("today");
     expect(sampleHistoryOf("nonsense")).toBe("today");

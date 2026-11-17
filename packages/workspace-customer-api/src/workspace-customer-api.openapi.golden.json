@@ -2629,6 +2629,15 @@
             "required": false
           },
           {
+            "name": "earlySetup",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"]
+            },
+            "required": false
+          },
+          {
             "name": "locale",
             "in": "query",
             "schema": {
@@ -6218,6 +6227,38 @@
         "required": ["locale"],
         "additionalProperties": false
       },
+      "CustomerDiscountAdjustment": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["percentage"]
+              },
+              "basisPoints": {
+                "type": "integer"
+              }
+            },
+            "required": ["kind", "basisPoints"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["fixed"]
+              },
+              "amount": {
+                "$ref": "#/components/schemas/Money"
+              }
+            },
+            "required": ["kind", "amount"],
+            "additionalProperties": false
+          }
+        ]
+      },
       "CustomerCheckoutSummaryDiscount": {
         "type": "object",
         "properties": {
@@ -6230,6 +6271,9 @@
               "label": {
                 "type": "string"
               },
+              "adjustment": {
+                "$ref": "#/components/schemas/CustomerDiscountAdjustment"
+              },
               "expiresAt": {
                 "type": "string",
                 "description": "ISO 8601 instant."
@@ -6239,7 +6283,7 @@
                 "description": "ISO 8601 instant."
               }
             },
-            "required": ["id", "label"],
+            "required": ["id", "label", "adjustment"],
             "additionalProperties": false
           },
           "amount": {
@@ -6281,6 +6325,26 @@
           },
           "seatsAmount": {
             "$ref": "#/components/schemas/Money"
+          },
+          "dailyAccessRate": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "dailySeatRate": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "earlySetup": {
+            "type": "object",
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              "amount": {
+                "$ref": "#/components/schemas/Money"
+              }
+            },
+            "required": ["startsAt", "amount"],
+            "additionalProperties": false
           },
           "monitorOption": {
             "$ref": "#/components/schemas/CustomerMonitorOption"
@@ -6495,6 +6559,12 @@
           },
           "saleLastDay": {
             "$ref": "#/components/schemas/CustomerPlainDate"
+          },
+          "discounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerCheckoutSummaryDiscount"
+            }
           }
         },
         "required": ["price", "discount"],

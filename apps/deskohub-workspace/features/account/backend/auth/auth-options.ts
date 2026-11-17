@@ -101,6 +101,14 @@ const betterAuthNativeHandoffRateLimits = {
 } as const;
 
 /**
+ * Per-IP limit on sign-in attempt statuses: the `/app/` page asks every five
+ * seconds while it waits, and again each time it comes back into view.
+ */
+const betterAuthSignInAttemptRateLimit = {
+  "/sign-in-attempt/status": { window: 60, max: 30 },
+} as const;
+
+/**
  * Connectionless Better Auth options shared between schema generation and the
  * runtime instance. The runtime singleton adds the database adapter, dynamic
  * `baseURL`, secrets, plugins, and lifecycle hooks on top of this object.
@@ -148,6 +156,7 @@ export const authOptions = {
       ...betterAuthPasswordSignInRateLimit,
       ...betterAuthPasskeyRateLimits,
       ...betterAuthNativeHandoffRateLimits,
+      ...betterAuthSignInAttemptRateLimit,
     },
   },
   advanced: {
