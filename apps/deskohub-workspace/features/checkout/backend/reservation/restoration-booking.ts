@@ -21,7 +21,10 @@ import type { StoredWorkspaceReservationDetails } from "@/features/reservation/p
 import { getWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { ReservationInterval } from "@/features/reservation/reservation-interval";
 import { temporalInstantToDate } from "@/shared/utils/temporal";
-import { getOrderCoworkStay, rebuildAcceptedReservation } from "./order-dotypos-reservation";
+import {
+  getOrderCoworkStay,
+  rebuildAcceptedReservation,
+} from "./order-dotypos-reservation";
 import {
   getWorkspaceReservationInterval,
   getWorkspaceReservationSeats,
@@ -244,18 +247,15 @@ export const getRestorationBooking = Effect.fn("getRestorationBooking")(
     const snapshot =
       reservation.activePaymentAttemptId === null
         ? null
-        : yield* snapshots
-            .find(reservation.activePaymentAttemptId)
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new RestorationBookingUnreadable({
-                    message:
-                      "The payment's accounting snapshot can't be loaded.",
-                    cause,
-                  })
-              )
-            );
+        : yield* snapshots.find(reservation.activePaymentAttemptId).pipe(
+            Effect.mapError(
+              (cause) =>
+                new RestorationBookingUnreadable({
+                  message: "The payment's accounting snapshot can't be loaded.",
+                  cause,
+                })
+            )
+          );
 
     if (snapshot) {
       const booking = yield* getCreationBooking({

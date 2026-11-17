@@ -215,8 +215,7 @@ const run = (input: {
       }),
       Effect.provide(
         Layer.mock(AccountingDocumentSnapshots, {
-          find:
-            input.findSnapshot ?? (() => Effect.succeed(null)),
+          find: input.findSnapshot ?? (() => Effect.succeed(null)),
         })
       )
     )
