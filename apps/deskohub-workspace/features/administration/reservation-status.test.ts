@@ -4,8 +4,8 @@ import type {
   PaymentState,
   ReservationState,
 } from "@/db/schema";
+import { canCancelReservation } from "@/features/reservation/reservation-cancellation-policy";
 import {
-  canCancelReservation,
   getAdministrationReservationLifecycle,
   getAdministrationReservationStatus,
   getAdministrationReservationStatusNoteFields,

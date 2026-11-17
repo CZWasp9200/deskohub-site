@@ -149,9 +149,9 @@ import {
   type AdministrationReservationProduct,
   getAdministrationReservationProduct,
 } from "./reservation-product";
+import { canCancelReservation } from "@/features/reservation/reservation-cancellation-policy";
 import {
   type AdministrationReservationStatusNote,
-  canCancelReservation,
   getAdministrationReservationLifecycle,
   getAdministrationReservationStatus,
   getAdministrationReservationStatusNoteFields,

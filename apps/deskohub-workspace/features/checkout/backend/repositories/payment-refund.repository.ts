@@ -27,12 +27,15 @@ import {
 
 /**
  * `recorded` stores a new or larger refund, `unchanged` means the attempt
- * already holds this refund total, and `not_applicable` means the attempt is
- * not a paid Nexi attempt that can carry a refund.
+ * already holds this refund total, `below_target` means a partial refund is
+ * owed and Nexi's total hasn't reached it yet, so it stays required, and
+ * `not_applicable` means the attempt is not a paid Nexi attempt that can carry
+ * a refund.
  */
 export type PaymentRefundRecordResult =
   | "recorded"
   | "unchanged"
+  | "below_target"
   | "not_applicable";
 
 export interface RefundablePaymentAttempt {
@@ -263,6 +266,16 @@ export class PaymentRefundRepository extends Context.Service<
                     paymentAttempts.refundedAmountValue,
                     input.refundedAmountValue
                   )
+                ),
+                // A required partial refund settles only once Nexi has
+                // refunded at least the amount owed.
+                or(
+                  ne(paymentAttempts.refundState, "required"),
+                  isNull(paymentAttempts.refundTargetValue),
+                  lte(
+                    paymentAttempts.refundTargetValue,
+                    input.refundedAmountValue
+                  )
                 )
               )
             )
@@ -270,12 +283,17 @@ export class PaymentRefundRepository extends Context.Service<
           if (updated) return "recorded" as const;
 
           const [existing] = yield* db
-            .select({ refundState: paymentAttempts.refundState })
+            .select({
+              refundState: paymentAttempts.refundState,
+              refundTargetValue: paymentAttempts.refundTargetValue,
+            })
             .from(paymentAttempts)
             .where(eq(paymentAttempts.id, input.id))
             .limit(1);
-          return existing?.refundState === "refunded"
-            ? ("unchanged" as const)
+          if (existing?.refundState === "refunded") return "unchanged" as const;
+          return existing?.refundState === "required" &&
+            existing.refundTargetValue !== null
+            ? ("below_target" as const)
             : ("not_applicable" as const);
         },
         (effect, input) => effect.pipe(Effect.annotateLogs({ ...input }))

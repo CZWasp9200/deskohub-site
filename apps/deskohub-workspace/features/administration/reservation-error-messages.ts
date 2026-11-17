@@ -1,7 +1,7 @@
 import type { Locale } from "@/features/i18n";
 import { m } from "./i18n";
 import type { ReservationAccessAdministrationError } from "./reservation-access-administration.service";
-import type { ReservationCancellationFailureReason } from "./reservation-administration.service";
+import type { ReservationCancellationFailureReason } from "@/features/reservation/backend/reservation-cancellation.service";
 
 /** The operator-facing reason a reservation cancellation stopped. */
 export const getReservationCancellationErrorMessage = (

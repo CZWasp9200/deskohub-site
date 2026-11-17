@@ -375,8 +375,13 @@ export interface IWorkspaceReservationRepository {
     WorkspaceReservation | null,
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
   >;
-  readonly claimAdministrationCancellation: (input: {
+  /**
+   * Claims a cancellation an administrator or the customer requested, moving
+   * the reservation to `cancelling` and expiring its live access grant.
+   */
+  readonly claimRequestedCancellation: (input: {
     readonly id: WorkspaceReservationId;
+    readonly cause: RequestedCancellationCause;
     readonly pendingPaymentCancellation?: {
       readonly paymentAttemptId: PaymentAttemptId;
       readonly failureCode: string;
@@ -400,14 +405,24 @@ export interface IWorkspaceReservationRepository {
     void,
     EffectDrizzleQueryError | WorkspaceReservationStateError
   >;
-  readonly markAdministrationCancelled: (input: {
+  /**
+   * Records a requested cancellation the claim stamped `claimedAt` completed,
+   * marking its paid Nexi payment for refund: the whole payment, or `refund`'s
+   * target when less is owed. A full refund that releases promotions gives
+   * the payment's code, voucher and referral claims back.
+   */
+  readonly completeRequestedCancellation: (input: {
     readonly id: WorkspaceReservationId;
     readonly cancelledAt: Temporal.Instant;
     readonly claimedAt: Temporal.Instant;
     readonly failureCode: string | null;
+    readonly refund?: RequestedCancellationRefund;
   }) => Effect.Effect<
     void,
-    EffectDrizzleQueryError | SqlError.SqlError | WorkspaceReservationStateError
+    | DiscountClaimError
+    | EffectDrizzleQueryError
+    | SqlError.SqlError
+    | WorkspaceReservationStateError
   >;
   readonly completeSupersessionAndCreateDraft: (input: {
     readonly cancelledReservationId: WorkspaceReservationId;
@@ -429,7 +444,7 @@ export interface IWorkspaceReservationRepository {
     void,
     EffectDrizzleQueryError | WorkspaceReservationStateError
   >;
-  readonly markAdministrationCancellationFailed: (input: {
+  readonly markRequestedCancellationFailed: (input: {
     readonly id: WorkspaceReservationId;
     readonly claimedAt: Temporal.Instant;
     readonly failureCode: string;
@@ -525,12 +540,26 @@ export const ensureUpdated = (
         })
       );
 
-type AdministrationCancellationClaim = Parameters<
-  IWorkspaceReservationRepository["claimAdministrationCancellation"]
+/** Who asked for a cancellation that isn't the checkout's own hold release. */
+export type RequestedCancellationCause = Extract<
+  ReservationCancellationCause,
+  "operator" | "customer_withdrawal"
+>;
+
+/** What a requested cancellation owes back on the reservation's payment. */
+export type RequestedCancellationRefund = {
+  /** Minor units owed when less than the whole payment; absent for all of it. */
+  readonly targetValue?: number;
+  /** Whether the payment's code, voucher and referral claims are given back. */
+  readonly releasesPromotions: boolean;
+};
+
+type RequestedCancellationClaim = Parameters<
+  IWorkspaceReservationRepository["claimRequestedCancellation"]
 >[0];
 
 type PendingPaymentCancellation = NonNullable<
-  AdministrationCancellationClaim["pendingPaymentCancellation"]
+  RequestedCancellationClaim["pendingPaymentCancellation"]
 >;
 
 /** Grant states whose door credential Igloohome may still hold. */
@@ -615,8 +644,8 @@ const carriesExpectedHold = (expected: ExpectedReservationHold | undefined) =>
  * Moves the reservation to `cancelling` from a cancellable state or a stale
  * cancellation, cancelling its pending payment when the claim forces that.
  */
-const recordAdministrationCancellationClaim = Effect.fnUntraced(function* (
-  input: AdministrationCancellationClaim,
+const recordRequestedCancellationClaim = Effect.fnUntraced(function* (
+  input: RequestedCancellationClaim,
   now: Temporal.Instant
 ) {
   const { db } = yield* WorkspaceTransaction;
@@ -624,10 +653,10 @@ const recordAdministrationCancellationClaim = Effect.fnUntraced(function* (
     .update(workspaceReservations)
     .set({
       reservationState: "cancelling",
-      // An administrator's cancellation is never the customer's to retry. A
-      // cancellation another claim started, now resumed by an administrator,
-      // keeps the cause that claim recorded (null when unknown).
-      cancellationCause: sql`case when ${workspaceReservations.reservationState} in ('held', 'hold_expired', 'confirmed') then 'operator' else ${workspaceReservations.cancellationCause} end`,
+      // A requested cancellation is never the checkout's to retry. A
+      // cancellation another claim started, now resumed, keeps the cause that
+      // claim recorded (null when unknown).
+      cancellationCause: sql`case when ${workspaceReservations.reservationState} in ('held', 'hold_expired', 'confirmed') then ${input.cause} else ${workspaceReservations.cancellationCause} end`,
       ...(input.pendingPaymentCancellation && {
         paymentState: "cancelled" as const,
         failureCode: input.pendingPaymentCancellation.failureCode,
@@ -714,7 +743,7 @@ const cancelPendingPaymentAttempt = Effect.fnUntraced(function* (
     .returning({ id: paymentAttempts.id });
   if (!attempt) {
     return yield* new WorkspaceReservationStateError({
-      operation: "workspaceReservations.claimAdministrationCancellation",
+      operation: "workspaceReservations.claimRequestedCancellation",
       reservationId,
       message: "The active payment attempt could not be cancelled.",
     });
@@ -1269,8 +1298,8 @@ export class WorkspaceReservationRepository extends Context.Service<
             .returning();
           return yield* decodeOptionalWorkspaceReservation(claimed);
         }),
-        claimAdministrationCancellation: Effect.fn(
-          "workspaceReservations.claimAdministrationCancellation"
+        claimRequestedCancellation: Effect.fn(
+          "workspaceReservations.claimRequestedCancellation"
         )(function* (input) {
           const claim = transaction(
             Effect.gen(function* () {
@@ -1279,7 +1308,7 @@ export class WorkspaceReservationRepository extends Context.Service<
                 yield* lockReferralClaimRelease(input.id);
               }
               const [grant] = yield* lockAccessGrantOfReservation(input.id);
-              const [claimed] = yield* recordAdministrationCancellationClaim(
+              const [claimed] = yield* recordRequestedCancellationClaim(
                 input,
                 now
               );
@@ -1329,11 +1358,14 @@ export class WorkspaceReservationRepository extends Context.Service<
             );
           }
         ),
-        markAdministrationCancelled: Effect.fn(
-          "workspaceReservations.markAdministrationCancelled"
+        completeRequestedCancellation: Effect.fn(
+          "workspaceReservations.completeRequestedCancellation"
         )(function* (input) {
           const cancellation = transaction(
             Effect.gen(function* () {
+              if (input.refund?.releasesPromotions) {
+                yield* lockReferralClaimRelease(input.id);
+              }
               const updatedAt = Temporal.Now.instant();
               const updated = yield* db
                 .update(workspaceReservations)
@@ -1358,9 +1390,9 @@ export class WorkspaceReservationRepository extends Context.Service<
                 });
               yield* ensureUpdated(
                 updated,
-                "workspaceReservations.markAdministrationCancelled",
+                "workspaceReservations.completeRequestedCancellation",
                 input.id,
-                "Only an operator-cancelled reservation can be marked cancelled."
+                "Only a reservation still cancelling under the claim can be marked cancelled."
               );
               const [cancelled] = updated;
               // Only a booked reservation's cancellation is a customer event;
@@ -1375,7 +1407,11 @@ export class WorkspaceReservationRepository extends Context.Service<
               }
               yield* db
                 .update(paymentAttempts)
-                .set({ refundState: "required", updatedAt })
+                .set({
+                  refundState: "required",
+                  refundTargetValue: input.refund?.targetValue ?? null,
+                  updatedAt,
+                })
                 .where(
                   and(
                     eq(paymentAttempts.workspaceReservationId, input.id),
@@ -1385,6 +1421,9 @@ export class WorkspaceReservationRepository extends Context.Service<
                     eq(paymentAttempts.refundState, "not_required")
                   )
                 );
+              if (input.refund?.releasesPromotions) {
+                yield* releasePaidPromotions(input.id, input.cancelledAt);
+              }
             })
           );
           yield* cancellation;
@@ -1487,8 +1526,8 @@ export class WorkspaceReservationRepository extends Context.Service<
             "Only an unpaid reservation still cancelling under the claim can be marked failed."
           );
         }),
-        markAdministrationCancellationFailed: Effect.fn(
-          "workspaceReservations.markAdministrationCancellationFailed"
+        markRequestedCancellationFailed: Effect.fn(
+          "workspaceReservations.markRequestedCancellationFailed"
         )(function* (input) {
           const updated = yield* db
             .update(workspaceReservations)
@@ -1507,7 +1546,7 @@ export class WorkspaceReservationRepository extends Context.Service<
             .returning({ id: workspaceReservations.id });
           yield* ensureUpdated(
             updated,
-            "workspaceReservations.markAdministrationCancellationFailed",
+            "workspaceReservations.markRequestedCancellationFailed",
             input.id,
             "Workspace reservation was not being cancelled."
           );
