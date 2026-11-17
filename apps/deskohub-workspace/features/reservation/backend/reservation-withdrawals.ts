@@ -144,8 +144,12 @@ export class ReservationWithdrawals extends Context.Service<
             .cancel({
               reservationId: reservationId.value,
               cause: "customer_withdrawal",
+              // Every withdrawal owes exactly its refund, so a smaller Nexi
+              // refund never settles it; a zero-total payment owes nothing.
               refund: {
-                ...(!full && { targetValue: refundAmount.value }),
+                ...(refundAmount.value > 0 && {
+                  targetValue: refundAmount.value,
+                }),
                 releasesPromotions: full,
               },
             })

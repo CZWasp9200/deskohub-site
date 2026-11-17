@@ -409,6 +409,23 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    test("keeps a full withdrawal's refund required until Nexi refunds all of it", async () => {
+      const paymentAttemptId = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+        refundTargetValue: 29_000,
+      });
+
+      expect(await record(paymentAttemptId, 2900)).toBe("below_target");
+      expect((await readAttempt(paymentAttemptId))?.refundState).toBe(
+        "required"
+      );
+      expect(await record(paymentAttemptId, 29_000)).toBe("recorded");
+      expect((await readAttempt(paymentAttemptId))?.refundState).toBe(
+        "refunded"
+      );
+    });
+
     test("settles an owed refund without a target on any successful refund", async () => {
       const paymentAttemptId = await insertCheckout({
         attemptState: "paid",
