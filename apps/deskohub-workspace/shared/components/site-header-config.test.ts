@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect } from "effect";
 import { locales } from "@/features/i18n";
 import { languageNames } from "@/features/i18n/language-labels";
-import { MeetingRoomPageReleaseGate } from "@/features/meeting-room/backend/meeting-room-page-release-gate";
+import { MeetingRoomReleaseGate } from "@/features/meeting-room/backend/meeting-room-release-gate";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 
 const isMeetingRoomPageEnabled = mock();
@@ -25,11 +25,11 @@ mock.module(
 );
 
 mock.module(
-  "@/features/meeting-room/backend/meeting-room-page-release-gate.server",
+  "@/features/meeting-room/backend/meeting-room-release-gate.server",
   () => ({
     isMeetingRoomPageEnabled,
-    MeetingRoomPageReleaseGateRequest:
-      MeetingRoomPageReleaseGate.fromEvaluation(
+    MeetingRoomReleaseGateRequest:
+      MeetingRoomReleaseGate.fromEvaluation(
         Effect.promise(() => isMeetingRoomPageEnabled())
       ),
   })

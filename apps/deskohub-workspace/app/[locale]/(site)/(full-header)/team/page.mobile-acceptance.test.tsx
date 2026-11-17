@@ -3,7 +3,7 @@ import { type Browser, chromium } from "@playwright/test";
 import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToReadableStream } from "react-dom/server";
 import { type Locale, m } from "@/features/i18n";
-import { MeetingRoomPageReleaseGate } from "@/features/meeting-room/backend/meeting-room-page-release-gate";
+import { MeetingRoomReleaseGate } from "@/features/meeting-room/backend/meeting-room-release-gate";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
 import { compileWorkspaceAppStyles } from "@/shared/testing/workspace-app-styles.test-utils";
@@ -41,11 +41,11 @@ mock.module("@/features/account/actions", () => ({
   updateLocalePreference: async () => undefined,
 }));
 mock.module(
-  "@/features/meeting-room/backend/meeting-room-page-release-gate.server",
+  "@/features/meeting-room/backend/meeting-room-release-gate.server",
   () => ({
     isMeetingRoomPageEnabled: async () => false,
-    MeetingRoomPageReleaseGateRequest:
-      MeetingRoomPageReleaseGate.fromDecision(false),
+    MeetingRoomReleaseGateRequest:
+      MeetingRoomReleaseGate.fromDecision(false),
   })
 );
 const officeFeatureFlag = await import(

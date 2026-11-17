@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect } from "effect";
 import { ReleaseGateUnavailableError } from "@/features/feature-flags/backend/release-gate";
 import { type Locale, locales } from "@/features/i18n";
-import { MeetingRoomPageReleaseGate } from "@/features/meeting-room/backend/meeting-room-page-release-gate";
+import { MeetingRoomReleaseGate } from "@/features/meeting-room/backend/meeting-room-release-gate";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { publicSiteShareImage } from "../page-metadata";
@@ -38,15 +38,15 @@ mock.module("next/root-params", () => ({
   locale: () => Promise.resolve(requestLocale),
 }));
 const meetingRoomFeatureFlag = await import(
-  "@/features/meeting-room/backend/meeting-room-page-release-gate.server"
+  "@/features/meeting-room/backend/meeting-room-release-gate.server"
 );
 mock.module(
-  "@/features/meeting-room/backend/meeting-room-page-release-gate.server",
+  "@/features/meeting-room/backend/meeting-room-release-gate.server",
   () => ({
     ...meetingRoomFeatureFlag,
     isMeetingRoomPageEnabled,
-    MeetingRoomPageReleaseGateRequest:
-      MeetingRoomPageReleaseGate.fromEvaluation(
+    MeetingRoomReleaseGateRequest:
+      MeetingRoomReleaseGate.fromEvaluation(
         Effect.promise(isMeetingRoomPageEnabled),
         decisionOf("meeting-room-page")
       ),

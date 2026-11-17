@@ -1,5 +1,6 @@
 import { Context, Layer } from "effect";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import { MeetingRoomReleaseGateForRun } from "@/features/meeting-room/backend/meeting-room-release-gate-run";
 import { OfficeReleaseGateForRun } from "@/features/office/backend/office-release-gate-run";
 import { ReferralReleaseGateForRun } from "@/features/referrals/referral-release-gate-run";
 import { SharedAvailabilityInventoryLive } from "@/features/reservation/backend/availability-inventory-cache.server";
@@ -24,6 +25,7 @@ const liveCatalogLayers = {
    * reads one builds it per request.
    */
   releases: {
+    meetingRoom: MeetingRoomReleaseGateForRun,
     office: OfficeReleaseGateForRun,
     overnightStay: OvernightStayReleaseGateForRun,
     referral: ReferralReleaseGateForRun,

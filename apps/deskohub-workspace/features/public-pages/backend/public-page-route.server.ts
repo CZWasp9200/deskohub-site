@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
-import { MeetingRoomPageReleaseGateRequest } from "@/features/meeting-room/backend/meeting-room-page-release-gate.server";
+import { MeetingRoomReleaseGateRequest } from "@/features/meeting-room/backend/meeting-room-release-gate.server";
 import { OfficeReleaseGateRequest } from "@/features/office/backend/office-release-gate.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { createPublicPageMetadata } from "../page-metadata";
@@ -18,7 +18,7 @@ const PublishedPublicPagesRenderLayer =
   PublishedPublicPagesService.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
-        MeetingRoomPageReleaseGateRequest,
+        MeetingRoomReleaseGateRequest,
         OfficeReleaseGateRequest
       )
     )

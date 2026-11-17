@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { Suspense } from "react";
 import type { Locale } from "@/features/i18n";
-import { isMeetingRoomPageEnabled } from "@/features/meeting-room/backend/meeting-room-page-release-gate.server";
+import { isMeetingRoomPageEnabled } from "@/features/meeting-room/backend/meeting-room-release-gate.server";
 import { OfficeReleaseGateRequest } from "@/features/office/backend/office-release-gate.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { getActiveLandingPageSaleBanner } from "../landing-page-sale-banner.server";
