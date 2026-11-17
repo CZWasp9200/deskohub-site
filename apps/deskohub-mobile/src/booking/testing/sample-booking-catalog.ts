@@ -8,6 +8,7 @@ import type {
   CustomerOffering,
   Money,
 } from "@deskohub/workspace-customer-api";
+import type { CoworkOvernightStay } from "../selection/cowork-selection";
 import {
   addMonths,
   daysBetween,
@@ -41,6 +42,27 @@ export const samplePrices = {
   officeDay: 1200,
   officeSeat: 250,
 } as const;
+
+/** When the sample Reserved Desk's overnight stay starts and ends. */
+export const sampleOvernightStay: CoworkOvernightStay = {
+  startTime: "12:00",
+  endTime: "12:00",
+};
+
+/**
+ * `offerings` with the Reserved Desk's overnight stay set to `overnightStay`,
+ * or removed without one, for a test that needs a day-only catalog.
+ */
+export const withReservedDeskOvernightStay = (
+  offerings: ReadonlyArray<CustomerOffering>,
+  overnightStay: CoworkOvernightStay | undefined
+): ReadonlyArray<CustomerOffering> =>
+  offerings.map((offering) => {
+    if (offering.family !== "cowork" || offering.tier !== "reserved-desk")
+      return offering;
+    const { overnightStay: _sampled, ...day } = offering;
+    return overnightStay === undefined ? day : { ...day, overnightStay };
+  });
 
 export const sampleOfficeMaximumSeats = 6;
 export const sampleOfficeMaximumDurationHours = 672;
@@ -128,6 +150,7 @@ export const sampleOfferings = (
           ],
         },
       ],
+      overnightStay: sampleOvernightStay,
     },
     ...(["hour:1", "hour:4", "day:1"] as const).map(
       (duration): CustomerOffering => ({

@@ -46,6 +46,9 @@ Paths are relative to `apps/deskohub-mobile`.
 - `modules/trusted-web-activity/` is a local Expo module in Kotlin (Android
   Browser Helper): TWA provider detection, launch and release for the sign-in
   page; other platforms get an unsupported stub.
+- `modules/install-source/` is a local Expo module in Kotlin that reads which
+  app installed this one (`getInstallSourceInfo`, `getInstallerPackageName`
+  below API 30); other platforms and builds without it read `null`.
 - `plugins/android-asset-statements.cjs` writes the Android
   `asset_statements` resource, the app's half of the Digital Asset Links
   association used by TWA verification and the site's

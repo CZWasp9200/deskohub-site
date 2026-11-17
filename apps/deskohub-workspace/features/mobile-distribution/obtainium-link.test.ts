@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { nativeApp } from "@/features/account/backend/auth/native-app";
 import { getWorkspacePageUrl } from "@/features/i18n";
+import { androidApkPath, latestAndroidApkPath } from "./android-download";
 import { obtainiumImportUrl } from "./obtainium-link";
 
 interface ObtainiumApp {
@@ -57,16 +58,15 @@ test("finds the APK link and reads its version from the file name", () => {
   const settings: ObtainiumSettings = JSON.parse(
     decodePayload(obtainiumImportUrl).additionalSettings
   );
-  const apkUrl =
-    "https://github.com/totalolage/deskohub-site/releases/download/mobile-v1.2.3/deskohub-1.2.3.apk";
+  const apkUrl = getWorkspacePageUrl(androidApkPath("1.2.3"));
+  const linkFilter = new RegExp(settings.customLinkFilterRegex);
 
-  expect(new RegExp(settings.customLinkFilterRegex).test(apkUrl)).toBe(true);
-  expect(
-    new RegExp(settings.customLinkFilterRegex).test(`${apkUrl}.sha256`)
-  ).toBe(false);
-
-  const match = new RegExp(settings.versionExtractionRegEx).exec(
-    "deskohub-1.2.3.apk"
+  expect(linkFilter.test(apkUrl)).toBe(true);
+  expect(linkFilter.test(`${apkUrl}.sha256`)).toBe(false);
+  expect(linkFilter.test(getWorkspacePageUrl(latestAndroidApkPath))).toBe(
+    false
   );
+
+  const match = new RegExp(settings.versionExtractionRegEx).exec(apkUrl);
   expect(match?.[Number(settings.matchGroupToUse)]).toBe("1.2.3");
 });
