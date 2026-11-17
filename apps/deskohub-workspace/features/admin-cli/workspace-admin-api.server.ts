@@ -1,7 +1,5 @@
 import {
   AdministrationAuthentication,
-  type AdministrationChannel,
-  AdministrationDiscountMutationResult,
   AdministrationInvoiceId,
   AdministrationReservationAccessGrant,
   CliAuthenticationRateLimited,
@@ -22,7 +20,7 @@ import {
   CurrentCliSession,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
-import { Effect, Layer, Match, Redacted, Schema } from "effect";
+import { DateTime, Effect, Layer, Match, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
@@ -34,6 +32,7 @@ import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/
 import type { InvoiceArchiveError } from "@/features/accounting/invoice-archive";
 import type { InvoiceCancellationError } from "@/features/accounting/invoice-cancellation";
 import { AdministrationService } from "@/features/administration/administration.service";
+import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
 import {
   getAdministrationOperationFilters,
@@ -52,7 +51,7 @@ import {
   AdministratorRoster,
   LegacyAdministratorBackfill,
 } from "@/features/administrators";
-import { refreshCalendarDiscountSourceAfterMutation } from "@/features/discounts/admin/calendar-discount-source-maintenance.server";
+import { AccountRoleGrants } from "@/features/administrators/backend/account-role-grants.service";
 import {
   type AdminCustomerProfile,
   type AdminDiscountCode,
@@ -65,7 +64,10 @@ import {
   DiscountAdministration,
 } from "@/features/discounts/admin/discount-administration.service";
 import { toAdminDotyposCustomer } from "@/features/discounts/admin/discount-administration-reads";
-import { executeDiscountAdminMutation } from "@/features/discounts/admin/execute-discount-admin-mutation";
+import {
+  DiscountRequestLedger,
+  makeDiscountOperations,
+} from "@/features/discounts/admin/discount-operations.service";
 import { CampaignOperations } from "@/features/email-campaigns/backend/campaign-operations.service";
 import { ReservationProductDetailsBackfill } from "@/features/reservation/backend/reservation-product-details-backfill.service";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
@@ -82,7 +84,6 @@ import {
   mapServiceFailure,
 } from "./administration-api-failure";
 import {
-  discountMutationRecovery,
   reservationAccessRecovery,
   standaloneAccessCodeRecovery,
   standaloneAccessCodeStoredResult,
@@ -92,12 +93,14 @@ import {
   StoredResult,
 } from "./administration-request-ledger.service";
 import { AdminCliAdministratorsApiHandlers } from "./administrators-api.server";
+import { invokeAsCliCaller } from "./cli-administration-operations.server";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
 import {
   CliClientCompatibilityLive,
   minimumDhwVersions,
 } from "./cli-client-version";
+import { cliDiscountRequestLedger } from "./cli-discount-request-ledger";
 import { AdminCliAutomationsApiHandlers } from "./email-automations-api.server";
 import { AdminCliCampaignsApiHandlers } from "./email-campaigns-api.server";
 
@@ -156,6 +159,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
     const reservationAccess = yield* ReservationAccessAdministration;
     const authentication = yield* CliAuthentication;
     const discounts = yield* DiscountAdministration;
+    const discountOperations = yield* makeDiscountOperations;
     const customerDirectory = yield* AdministrationCustomerDirectory;
     const invoices = yield* InvoiceAdministrationService;
     const standaloneAccessCodes = yield* StandaloneAccessCodeAdministration;
@@ -208,11 +212,11 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "cancelReservation",
         Effect.fn(function* ({ params, payload }) {
-          const { actor, channel } = yield* CurrentAdministrationCaller;
+          const { actor, source } = yield* currentAdministrationProvenance;
           return yield* reservationAdministration
             .cancel({
               actor: {
-                source: provenanceSourceOf(channel),
+                source,
                 administrator: actor,
               },
               ...(payload.confirmedConsequences && {
@@ -334,10 +338,15 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         administration.listCustomers(query).pipe(mapServiceFailure)
       )
       .handle("searchCustomers", ({ query }) =>
-        customerDirectory.search(query.query).pipe(
-          Effect.map(({ kind, customers }) => ({
+        Effect.all({
+          search: customerDirectory.search(query.query),
+          now: DateTime.nowAsDate,
+        }).pipe(
+          Effect.map(({ search: { kind, customers }, now }) => ({
             kind,
-            customers: customers.map(toAdminDotyposCustomer),
+            customers: customers.map((customer) =>
+              toAdminDotyposCustomer(customer, now)
+            ),
           })),
           mapServiceFailure
         )
@@ -444,28 +453,25 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "previewInvoice",
         Effect.fn(function* ({ payload }) {
-          const { actor } = yield* CurrentAdministrationCaller;
+          const { actor, source } = yield* currentAdministrationProvenance;
           return yield* invoices
-            .preview(payload, { source: "dhw-cli", administrator: actor })
+            .preview(payload, { source, administrator: actor })
             .pipe(mapAdministrationApiFailure(mapInvoicePreviewFailure));
         })
       )
       .handle(
         "createInvoice",
         Effect.fn(function* ({ payload }) {
-          const { actor, channel } = yield* CurrentAdministrationCaller;
+          const { actor, source } = yield* currentAdministrationProvenance;
           return yield* invoices
-            .create(payload, {
-              source: provenanceSourceOf(channel),
-              administrator: actor,
-            })
+            .create(payload, { source, administrator: actor })
             .pipe(mapAdministrationApiFailure(mapInvoiceMutationFailure));
         })
       )
       .handle(
         "createStandaloneAccessCode",
         Effect.fn(function* ({ payload }) {
-          const caller = yield* CurrentAdministrationCaller;
+          const provenance = yield* currentAdministrationProvenance;
           const requestId = Schema.decodeUnknownSync(CliMutationRequestId)(
             payload.attemptId
           );
@@ -483,8 +489,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
             apply: standaloneAccessCodes
               .create({
                 attemptId: payload.attemptId,
-                actor: caller.actor,
-                source: provenanceSourceOf(caller.channel),
+                ...provenance,
                 request: payload.input,
                 providerCredentialRemovedAttemptId:
                   payload.providerCredentialRemovedAttemptId,
@@ -513,12 +518,12 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "cancelInvoice",
         Effect.fn(function* ({ params, payload }) {
-          const { actor, channel } = yield* CurrentAdministrationCaller;
+          const { actor, source } = yield* currentAdministrationProvenance;
           return yield* invoices
             .cancel({
               invoiceId: params.invoiceId,
               actor: {
-                source: provenanceSourceOf(channel),
+                source,
                 administrator: actor,
               },
               confirmedCustomerNotice: payload.confirmedCustomerNotice,
@@ -530,12 +535,12 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle(
         "archiveInvoice",
         Effect.fn(function* ({ params }) {
-          const { actor, channel } = yield* CurrentAdministrationCaller;
+          const { actor, source } = yield* currentAdministrationProvenance;
           return yield* invoices
             .archive({
               invoiceId: params.invoiceId,
               actor: {
-                source: provenanceSourceOf(channel),
+                source,
                 administrator: actor,
               },
             })
@@ -552,19 +557,15 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
         })
       )
       .handle("mutateDiscounts", ({ payload }) =>
-        ledger.applyOnceWithEffects({
-          requestId: payload.requestId,
-          mutation: payload.mutation,
-          stored: StoredResult.unchanged(AdministrationDiscountMutationResult),
-          apply: executeDiscountAdminMutation(payload.mutation).pipe(
-            Effect.provideService(DiscountAdministration, discounts),
-            mapAdministrationApiFailure(mapDiscountMutationFailure)
-          ),
-          afterSettled: refreshCalendarDiscountSourceAfterMutation(
-            payload.mutation
-          ),
-          recovery: discountMutationRecovery,
-        })
+        invokeAsCliCaller(
+          discountOperations.invoke("mutateDiscounts", payload.mutation),
+          DiscountRequestLedger,
+          (caller) =>
+            cliDiscountRequestLedger(ledger, caller, payload.requestId)
+        ).pipe(
+          // The endpoint decoded the payload with the port's strict schema.
+          Effect.catchTag("CliInputInvalid", (invalid) => Effect.die(invalid))
+        )
       )
       .handle(
         "renameSession",
@@ -665,26 +666,6 @@ export const CliSessionAdministrationAuthenticationLive = Layer.effect(
     } satisfies AdministrationAuthentication["Service"];
   })
 );
-
-const mapDiscountMutationFailure = (
-  cause: Effect.Error<ReturnType<typeof executeDiscountAdminMutation>>
-) =>
-  Match.value(cause).pipe(
-    Match.tag(
-      "DiscountAdminNotFoundError",
-      ({ message }) => new CliResourceNotFound({ message })
-    ),
-    Match.tag(
-      "DiscountAdminAudienceError",
-      ({ message }) => new CliMutationRejected({ message })
-    ),
-    Match.tag(
-      "DiscountAdminConflictError",
-      "DiscountAdminServiceDatesError",
-      ({ message }) => new CliMutationRejected({ message })
-    ),
-    Match.orElse(makeServiceUnavailable)
-  );
 
 type InvoiceAdministration = typeof InvoiceAdministrationService.Service;
 
@@ -970,18 +951,6 @@ const toCliVoucherDetail = (detail: AdminVoucherDetail) => ({
   claims: detail.claims.map(toCliVoucherClaim),
 });
 
-/**
- * The provenance source invoices and access-code events record for an
- * administration channel.
- */
-const provenanceSourceOf = (channel: AdministrationChannel) =>
-  Match.value(channel).pipe(
-    Match.tagsExhaustive({
-      CliSession: () => "dhw-cli" as const,
-      AssistantConnection: () => "assistant" as const,
-    })
-  );
-
 const noStore = HttpRouter.middleware(
   (effect) =>
     Effect.map(effect, (response) =>
@@ -1055,6 +1024,7 @@ export const provideWorkspaceAdminApiServices = <A, E, R>(
     Layer.provide(LegacyAdministratorBackfill.Live),
     Layer.provide(ReservationAccessAdministration.Live),
     Layer.provide(DiscountAdministration.Live),
+    Layer.provide(AccountRoleGrants.Live),
     Layer.provide(AdministrationCustomerDirectory.Live),
     Layer.provide(InvoiceAdministrationService.Live),
     Layer.provide(StandaloneAccessCodeAdministration.Live),

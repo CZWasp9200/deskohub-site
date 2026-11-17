@@ -50,6 +50,12 @@ const setup = async () => {
     ...data,
     booking,
     offerings: catalog.offerings,
+    // The meeting-room offerings share one bookable window.
+    bookableDates: Option.getOrThrow(
+      Option.fromNullishOr(
+        catalog.offerings.find(({ family }) => family === "meeting-room")
+      )
+    ).bookableDates,
     calendar,
     oneHour,
     draft,
@@ -69,20 +75,20 @@ describe("openingMeetingRoomDraft", () => {
   });
 
   test("opens empty without a preselection", async () => {
-    const { booking, offerings } = await setup();
+    const { offerings, bookableDates } = await setup();
 
     expect(
       openingMeetingRoomDraft({
         kept: Option.none(),
         preselection: Option.none(),
         offerings,
-        today: booking.today(),
+        bookableDates,
       })
     ).toEqual(emptyMeetingRoomDraft);
   });
 
   test("opens on a booked selection's length, date, start and early setup", async () => {
-    const { booking, offerings } = await setup();
+    const { booking, offerings, bookableDates } = await setup();
     const date = booking.dateIn(5);
     const preselection = Option.map(bookAgain, (booked) => ({
       ...booked,
@@ -94,7 +100,7 @@ describe("openingMeetingRoomDraft", () => {
         kept: Option.none(),
         preselection,
         offerings,
-        today: booking.today(),
+        bookableDates,
       })
     ).toEqual({
       date: Option.some(date),
@@ -105,7 +111,7 @@ describe("openingMeetingRoomDraft", () => {
   });
 
   test("keeps the customer's changes, unless another preselection opens the screen", async () => {
-    const { booking, offerings, oneHour } = await setup();
+    const { offerings, oneHour, bookableDates } = await setup();
     const fromBookAgain = {
       seed: bookingPreselectionKey(bookAgain),
       draft: oneHour,
@@ -118,7 +124,7 @@ describe("openingMeetingRoomDraft", () => {
         kept: Option.some(kept),
         preselection,
         offerings,
-        today: booking.today(),
+        bookableDates,
       });
 
     expect(opening(fromBookAgain, bookAgain)).toEqual(oneHour);
@@ -130,7 +136,7 @@ describe("openingMeetingRoomDraft", () => {
   });
 
   test("a preselection that changes only early setup opens on it", async () => {
-    const { booking, offerings } = await setup();
+    const { booking, offerings, bookableDates } = await setup();
     const kept = {
       seed: bookingPreselectionKey(bookAgain),
       draft: {
@@ -150,7 +156,7 @@ describe("openingMeetingRoomDraft", () => {
         kept: Option.some(kept),
         preselection: withoutEarlySetup,
         offerings,
-        today: booking.today(),
+        bookableDates,
       }).earlySetup
     ).toBe(false);
   });
@@ -158,13 +164,21 @@ describe("openingMeetingRoomDraft", () => {
 
 describe("meetingRoomBookingModel", () => {
   test("waits for a start of the customer's choosing, then continues once its interval is read", async () => {
-    const { registry, offerings, calendar, oneHour, draft, startTimes } =
-      await setup();
+    const {
+      registry,
+      offerings,
+      calendar,
+      oneHour,
+      draft,
+      startTimes,
+      bookableDates,
+    } = await setup();
     const unchosen = meetingRoomBookingModel({
       draft: oneHour,
       settled: oneHour,
       now,
       offerings,
+      bookableDates,
       startTimes: Option.some(startTimes),
       calendar: Option.some(calendar),
       availability: Option.none(),
@@ -186,6 +200,7 @@ describe("meetingRoomBookingModel", () => {
       settled: draft,
       now,
       offerings,
+      bookableDates,
       startTimes: Option.some(startTimes),
       calendar: Option.some(calendar),
       availability: Option.some({ query, value: availability }),
@@ -197,13 +212,14 @@ describe("meetingRoomBookingModel", () => {
   });
 
   test("strikes through the calendar's days with no free start", async () => {
-    const { booking, offerings, calendar } = await setup();
+    const { booking, offerings, calendar, bookableDates } = await setup();
 
     const model = meetingRoomBookingModel({
       draft: emptyMeetingRoomDraft,
       settled: emptyMeetingRoomDraft,
       now,
       offerings,
+      bookableDates,
       startTimes: Option.none(),
       calendar: Option.some(calendar),
       availability: Option.none(),
@@ -215,7 +231,8 @@ describe("meetingRoomBookingModel", () => {
   });
 
   test("availability read for an earlier draft doesn't answer a changed one", async () => {
-    const { registry, offerings, calendar, draft, startTimes } = await setup();
+    const { registry, offerings, calendar, draft, startTimes, bookableDates } =
+      await setup();
     const query = Option.getOrThrow(
       meetingRoomQueryOf(draft, Option.some(startTimes), now)
     );
@@ -230,6 +247,7 @@ describe("meetingRoomBookingModel", () => {
       settled: draft,
       now,
       offerings,
+      bookableDates,
       startTimes: Option.some(startTimes),
       calendar: Option.some(calendar),
       availability: Option.some({ query, value: availability }),
@@ -243,7 +261,8 @@ describe("meetingRoomBookingModel", () => {
   });
 
   test("starts read for another date leave the draft waiting", async () => {
-    const { booking, offerings, draft, startTimes } = await setup();
+    const { booking, offerings, draft, startTimes, bookableDates } =
+      await setup();
     const moved: MeetingRoomDraft = selectMeetingRoomDate(
       draft,
       booking.dateIn(4)
@@ -254,6 +273,7 @@ describe("meetingRoomBookingModel", () => {
       settled: draft,
       now,
       offerings,
+      bookableDates,
       startTimes: Option.some(startTimes),
       calendar: Option.none(),
       availability: Option.none(),

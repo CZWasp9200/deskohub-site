@@ -20,16 +20,19 @@ import {
   PaymentAttemptRepository,
 } from "../repositories/payment-attempt.repository";
 import { getLatePaymentStatusKind } from "./checkout-reservation-status-kind";
+import { PaymentPageProviderStatus } from "./payment-page-provider-status";
 import {
-  getPaymentPageReopeningCutoff,
-  getReusableProviderRedirectUrl,
+  decidePaymentPageReopening,
+  getPaymentPageToReopen,
 } from "./reusable-payment-attempt";
 
 /**
  * Why an order's payment page can't be opened again, each matching a status
  * the order already shows: it is paid, a late payment is being reconciled,
  * its hold was released, it has no payment page that is still open, or the
- * page's reopening window ended.
+ * page no longer takes a payment (`window_elapsed`: the provider recorded
+ * activity on its order, or, when it couldn't be asked, the provisional
+ * reopening window ended).
  */
 type PaymentPageClosedReason =
   | "paid"
@@ -65,14 +68,14 @@ type PaymentPageReopeningError =
 export interface ICheckoutPaymentPageService {
   /**
    * The payment page the order's unpaid payment attempt already opened, for
-   * a visitor who closed it. It never starts a payment attempt or contacts
-   * the provider; it only records where the page's payment returns. The page
-   * is offered while the reservation stays held for it, past the hold's own
-   * expiry (the provider order keeps it held), and only within the page's
-   * reopening window, which ends before the provider cancels an abandoned
-   * page. The state can change after the answer, as for any page already
-   * open: a payment that settles after its attempt ended is reconciled by
-   * late-payment recovery.
+   * a visitor who closed it. It never starts a payment attempt; it reads the
+   * provider's order once and records where the page's payment returns. The
+   * page is offered while the reservation stays held for it, past the hold's
+   * own expiry (the provider order keeps it held), and while the provider's
+   * order shows no activity; when the provider can't be asked, only within
+   * the provisional reopening window. The state can change after the answer,
+   * as for any page already open: a payment that settles after its attempt
+   * ended is reconciled by late-payment recovery.
    */
   readonly reopen: (
     input: PaymentPageReopeningInput
@@ -85,35 +88,42 @@ const closed = (reason: PaymentPageClosedReason): PaymentPageReopening => ({
   reason,
 });
 
-/**
- * Decides from what was read. An attempt that settled or ended, or that has
- * no stored page, leaves nothing to open; the stored page stays offered until
- * its reopening window ends, as the status page's action does.
- */
-const decideReopening = (input: {
-  readonly reservation: WorkspaceReservation;
-  readonly attempt: PaymentAttempt | null;
-  readonly now: Temporal.Instant;
-}): PaymentPageReopening => {
-  const { reservation, attempt, now } = input;
-  if (!attempt || attempt.workspaceReservationId !== reservation.id) {
-    return closed("no_active_attempt");
-  }
-  const providerRedirectUrl = getReusableProviderRedirectUrl(attempt);
-  if (!providerRedirectUrl) return closed("no_active_attempt");
-  if (
-    Temporal.Instant.compare(now, getPaymentPageReopeningCutoff(attempt)) >= 0
-  ) {
-    return closed("window_elapsed");
-  }
-  return { state: "opened", providerRedirectUrl };
-};
-
 const implementation = Effect.gen(function* () {
   const authorization = yield* ReservationAuthorizationService;
   const reservations = yield* WorkspaceReservationRepository;
   const paymentAttempts = yield* PaymentAttemptRepository;
   const latePaymentRecoveries = yield* LatePaymentRecoveryRepository;
+  const providerStatus = yield* PaymentPageProviderStatus;
+
+  /**
+   * Decides from the active attempt: an attempt that settled or ended, or
+   * has no stored page, leaves nothing to open; its stored page is offered
+   * while the provider's order shows no activity, as the status page's
+   * action is.
+   */
+  const decideReopening = Effect.fnUntraced(function* (input: {
+    readonly reservation: WorkspaceReservation;
+    readonly attempt: PaymentAttempt | null;
+  }) {
+    const { reservation, attempt } = input;
+    if (!attempt || attempt.workspaceReservationId !== reservation.id) {
+      return closed("no_active_attempt");
+    }
+    const page = getPaymentPageToReopen(attempt, yield* currentInstant);
+    if ("closed" in page) return closed(page.closed);
+    const observation = yield* providerStatus.observe({ attempt, reservation });
+    const decision = decidePaymentPageReopening(
+      attempt,
+      yield* currentInstant,
+      observation
+    );
+    return decision === "open"
+      ? ({
+          state: "opened",
+          providerRedirectUrl: page.providerRedirectUrl,
+        } satisfies PaymentPageReopening)
+      : closed(decision);
+  });
 
   const reopen = Effect.fn("CheckoutPaymentPageService.reopen")(
     function* (input: PaymentPageReopeningInput) {
@@ -145,11 +155,7 @@ const implementation = Effect.gen(function* () {
       const attempt = yield* paymentAttempts.findById(
         reservation.activePaymentAttemptId
       );
-      const result = decideReopening({
-        reservation,
-        attempt,
-        now: yield* currentInstant,
-      });
+      const result = yield* decideReopening({ reservation, attempt });
       if (result.state === "opened") {
         yield* reservations.recordPaymentReturnTarget({
           id: reservation.id,
@@ -192,7 +198,8 @@ export class CheckoutPaymentPageService extends Context.Service<
           authorization,
           WorkspaceReservationRepository.Default,
           PaymentAttemptRepository.Default,
-          LatePaymentRecoveryRepository.Default
+          LatePaymentRecoveryRepository.Default,
+          PaymentPageProviderStatus.Live
         )
       ),
       Layer.provide(WorkspaceDatabase.Default)

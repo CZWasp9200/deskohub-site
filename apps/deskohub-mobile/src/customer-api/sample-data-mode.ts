@@ -44,3 +44,25 @@ export const nextSampleAccountKind = (
   sampleAccountKinds[
     (sampleAccountKinds.indexOf(kind) + 1) % sampleAccountKinds.length
   ] ?? "linked";
+
+/**
+ * The feature flags a development build's sample data switches on, so a
+ * capture can show a row its release still hides:
+ * `EXPO_PUBLIC_ACCOUNT_SAMPLE_FLAGS` lists flag keys, comma separated. Off
+ * without sample data and in any other build.
+ */
+export const resolveSampleFeatureFlags = ({
+  mode,
+  flags,
+}: {
+  readonly mode: SampleDataMode;
+  readonly flags: string | undefined;
+}): ReadonlySet<string> =>
+  new Set(
+    mode.enabled
+      ? (flags ?? "")
+          .split(",")
+          .map((flag) => flag.trim())
+          .filter((flag) => flag !== "")
+      : []
+  );

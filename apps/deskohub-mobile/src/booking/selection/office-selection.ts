@@ -1,5 +1,6 @@
 import type {
   CustomerAvailability,
+  CustomerBookableDates,
   CustomerBookingSelection,
   CustomerOffering,
 } from "@deskohub/workspace-customer-api";
@@ -7,17 +8,15 @@ import { Data, Option } from "effect";
 import type { AvailabilityQuery, DateChoice } from "./booking-selection";
 import {
   addDays,
-  addMonths,
   daysBetween,
   hoursBetweenMidnights,
   type PragueDate,
-  pragueToday,
 } from "./prague-date";
 
 /** An office booking the customer is putting together. */
 export type OfficeDraft = {
-  /** The first day. */
-  readonly date: PragueDate;
+  /** The first day; none until the customer picks one. */
+  readonly date: Option.Option<PragueDate>;
   /** Days booked from `date`, inclusive. */
   readonly dayCount: number;
   readonly seats: number;
@@ -28,42 +27,64 @@ export type OfficeOffering = Extract<
   { readonly family: "office" }
 >;
 
-const horizonMonths = 1;
-
-/** The draft an office screen opens with: one day today, one seat. */
-export const defaultOfficeDraft = (today: PragueDate): OfficeDraft => ({
-  date: today,
+/** The draft an office screen opens with: no day picked, one day, one seat. */
+export const emptyOfficeDraft: OfficeDraft = {
+  date: Option.none(),
   dayCount: 1,
   seats: 1,
-});
+};
 
-/** The last day the draft books. */
-const lastDateOf = ({ date, dayCount }: OfficeDraft) =>
+/** The last day a stay of `dayCount` days from `date` books. */
+export const officeLastDate = (date: PragueDate, dayCount: number) =>
   addDays(date, dayCount - 1);
 
-/** The booking the draft names, as the quote and checkout take it. */
+/** The booking the draft names, as the quote and checkout take it, once it has a first day. */
 export const toOfficeSelection = (
   draft: OfficeDraft
-): CustomerBookingSelection => ({
-  family: "office",
-  date: draft.date,
-  endDate: lastDateOf(draft),
-  seats: draft.seats,
-});
+): Option.Option<CustomerBookingSelection> =>
+  Option.map(draft.date, (date) => ({
+    family: "office",
+    date,
+    endDate: officeLastDate(date, draft.dayCount),
+    seats: draft.seats,
+  }));
 
-/** The calendar an office draft may pick from: today through one month. */
-const officeDateRange = (today: PragueDate) => ({
-  earliest: today,
-  latest: addMonths(today, horizonMonths),
-});
-
-/** The availability query across the office booking horizon. */
-export const officeAvailabilityQuery = (
-  today: PragueDate
-): AvailabilityQuery => {
-  const { earliest, latest } = officeDateRange(today);
-  return { kind: "office", from: earliest, to: latest };
+/**
+ * The draft a booked office selection ("Book again") opens: its first day
+ * while the calendar still offers it, its days and its seats. The screen
+ * brings the days and seats within what the office then allows.
+ */
+export const officeDraftFromSelection = (
+  selection: CustomerBookingSelection,
+  { earliest, latest }: CustomerBookableDates
+): Option.Option<OfficeDraft> => {
+  if (selection.family !== "office") return Option.none();
+  const endDate = selection.endDate ?? selection.date;
+  return Option.some({
+    date: Option.liftPredicate(
+      selection.date,
+      (date) => date >= earliest && date <= latest
+    ),
+    dayCount: Math.max(1, daysBetween(selection.date, endDate) + 1),
+    seats: Math.max(1, selection.seats ?? 1),
+  });
 };
+
+/** The draft on the first day the customer picked. */
+export const selectOfficeDate = (
+  draft: OfficeDraft,
+  date: PragueDate
+): OfficeDraft => ({ ...draft, date: Option.some(date) });
+
+/** The availability query across the office offering's bookable dates. */
+export const officeAvailabilityQuery = ({
+  earliest,
+  latest,
+}: CustomerBookableDates): AvailabilityQuery => ({
+  kind: "office",
+  from: earliest,
+  to: latest,
+});
 
 /**
  * The most days a booking from `date` can span: up to `latest` and before
@@ -98,6 +119,8 @@ export const maximumOfficeDayCount = (input: {
 
 /** Why an office draft can't continue to checkout. */
 export type OfficeBlocker = Data.TaggedEnum<{
+  /** No first day is picked yet. */
+  DateRequired: Record<never, never>;
   /** The horizon's availability hasn't loaded. */
   AvailabilityPending: Record<never, never>;
   /** The first day is outside the horizon or taken. */
@@ -139,33 +162,37 @@ const isCountWithin = (count: number, maximum: Option.Option<number>) =>
 export const officeEnablement = (
   draft: OfficeDraft,
   context: {
-    readonly now: Date;
     readonly offering: OfficeOffering;
     /** Availability settled for `officeAvailabilityQuery`. */
     readonly availability: Option.Option<CustomerAvailability>;
   }
 ): OfficeEnablement => {
-  const { earliest, latest } = officeDateRange(pragueToday(context.now));
+  const { earliest, latest } = context.offering.bookableDates;
   const unavailableDates = Option.match(context.availability, {
     onNone: () => [],
     onSome: (availability) => availability.unavailableDates,
   });
-  const inHorizon = draft.date >= earliest && draft.date <= latest;
-  const maximumDayCount = inHorizon
-    ? maximumOfficeDayCount({
-        date: draft.date,
-        latest,
-        unavailableDates,
-        maximumDurationHours: context.offering.maximumDurationHours,
-      })
-    : 0;
+  const maximumDayCount = Option.match(draft.date, {
+    onNone: () => 0,
+    onSome: (date) =>
+      date >= earliest && date <= latest
+        ? maximumOfficeDayCount({
+            date,
+            latest,
+            unavailableDates,
+            maximumDurationHours: context.offering.maximumDurationHours,
+          })
+        : 0,
+  });
   const maximumSeats = Option.fromNullishOr(context.offering.maximumSeats);
 
   const blockers: Array<OfficeBlocker> = [];
   if (Option.isNone(context.availability)) {
     blockers.push(OfficeBlocker.AvailabilityPending());
   }
-  if (maximumDayCount === 0) {
+  if (Option.isNone(draft.date)) {
+    blockers.push(OfficeBlocker.DateRequired());
+  } else if (maximumDayCount === 0) {
     blockers.push(OfficeBlocker.DateUnavailable());
   } else if (!isCountWithin(draft.dayCount, Option.some(maximumDayCount))) {
     blockers.push(OfficeBlocker.DayCountUnavailable({ maximumDayCount }));
@@ -174,17 +201,18 @@ export const officeEnablement = (
     blockers.push(OfficeBlocker.SeatsUnavailable({ maximumSeats }));
   }
 
-  const lastDate = lastDateOf(draft);
   return {
     dates: { earliest, latest, unavailable: new Set(unavailableDates) },
     maximumDayCount,
     maximumSeats,
-    notices: Option.match(context.availability, {
+    notices: Option.match(Option.all([context.availability, draft.date]), {
       onNone: () => [],
-      onSome: (availability) =>
-        availability.notices.filter(
-          (notice) => notice.date >= draft.date && notice.date <= lastDate
-        ),
+      onSome: ([availability, date]) => {
+        const lastDate = officeLastDate(date, draft.dayCount);
+        return availability.notices.filter(
+          (notice) => notice.date >= date && notice.date <= lastDate
+        );
+      },
     }),
     blockers,
   };
@@ -192,8 +220,8 @@ export const officeEnablement = (
 
 /**
  * The draft with its day count and seats brought to whole numbers within
- * what the enablement allows. A first day that allows no days keeps the
- * draft's count, and the screen shows the day unavailable; unknown capacity
+ * what the enablement allows. A first day that allows no days (or none
+ * picked yet) keeps the draft's count; unknown capacity
  * keeps the drafted seats.
  */
 const clampCount = (count: number, maximum: Option.Option<number>) => {

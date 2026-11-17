@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { ActionFooter } from "../action-footer";
 import { Button, TextField } from "../controls";
+import { SearchField } from "../search-field";
 import { SelectField } from "../select-field";
 import { GalleryCase, GallerySection, useSample } from "./gallery-kit";
 
@@ -58,6 +60,9 @@ export function FieldsSection() {
           onPress={ignore}
         />
       </GalleryCase>
+      <GalleryCase label="Search, as a picker sheet's header (board 07b)">
+        <SearchSample placeholder={sample("Search countries")} />
+      </GalleryCase>
       <GalleryCase label="Action footer, disabled with a neutral reason">
         <ActionFooter message={sample("No changes to save")}>
           <Button label={sample("Save changes")} disabled onPress={ignore} />
@@ -72,5 +77,16 @@ export function FieldsSection() {
         </ActionFooter>
       </GalleryCase>
     </GallerySection>
+  );
+}
+
+function SearchSample({ placeholder }: { readonly placeholder: string }) {
+  const [query, setQuery] = useState("");
+  return (
+    <SearchField
+      placeholder={placeholder}
+      value={query}
+      onChangeText={setQuery}
+    />
   );
 }

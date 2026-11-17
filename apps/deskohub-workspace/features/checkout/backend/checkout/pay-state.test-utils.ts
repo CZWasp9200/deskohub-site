@@ -45,6 +45,7 @@ export const sealSyntheticCoworkPayState = ({
           quote,
           orderId: workspaceReservationIdSchema.make("reservation-id"),
           bookedAt: instantStringSchema.make("2026-06-01T09:58:00.000Z"),
+          holdExpiresAt: instantStringSchema.make("2026-06-01T10:08:00.000Z"),
           checkoutSessionId: checkoutSessionIdSchema.make("session-id"),
         },
         issuedAt

@@ -14,14 +14,3 @@ export const nounInSentence = (text: string, locale: string) =>
   nounCapitalizingLanguages.has(new Intl.Locale(locale).language)
     ? text
     : text.toLocaleLowerCase(locale);
-
-/** `text` lower-cased without accents, so "Výprodej" and "vyprodej" compare equal. */
-const foldForSearch = (text: string) =>
-  text
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-
-/** Whether `text` contains `search`, ignoring case and accents. */
-export const includesSearchText = (text: string, search: string) =>
-  foldForSearch(text).includes(foldForSearch(search.trim()));

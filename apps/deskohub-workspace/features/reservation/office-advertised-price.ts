@@ -3,6 +3,7 @@ import {
   type OfficeAdvertisedPrice,
   type OfficeAdvertisedPriceRequest,
 } from "@/features/checkout/advertised-price";
+import { getOfficeSeatsAmount } from "@/features/checkout/reservation-quote-office";
 import type { CanonicalPromotionCode } from "@/features/discounts";
 import type { Locale } from "@/features/i18n";
 import type { AdvertisedOptionFamily } from "@/features/reservation/advertised-option-prices";
@@ -11,7 +12,6 @@ import {
   getOfficeSeatOptions,
   type NormalizedOfficeReservationOrder,
 } from "@/features/reservation/office-reservation";
-import { moneyWithValue } from "@/shared/money/money";
 
 export const getOfficeAdvertisedPriceRequest = (
   reservation: Pick<
@@ -53,12 +53,12 @@ export const officeSeatOptions: AdvertisedOptionFamily<
   OfficeAdvertisedPrice
 > = {
   isPrice: isOfficeAdvertisedPrice,
-  amountOf: (price, { reservation: { details } }) => {
-    const { seatAmount } = price.quote.items[0];
-    return {
-      amount: moneyWithValue(seatAmount.value * details.seats, seatAmount),
-    };
-  },
+  amountOf: (price, { reservation: { details } }) => ({
+    amount: getOfficeSeatsAmount({
+      seatAmount: price.quote.items[0].seatAmount,
+      seats: details.seats,
+    }),
+  }),
 };
 
 export const findOfficeSeatAdvertisedPriceRequest = (

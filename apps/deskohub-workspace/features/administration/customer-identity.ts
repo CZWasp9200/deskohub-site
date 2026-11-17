@@ -1,85 +1,63 @@
 import {
+  customerLifecycle,
   type DotyposCustomer,
   type DotyposCustomerId,
   getCustomerDisplayName,
 } from "@deskohub/dotypos";
 import {
   type AdministrationCustomerName,
+  inactiveAdministrationCustomerName,
   unnamedCustomerDisplayName,
 } from "./customer-name";
 
 /**
- * Which fields name a customer, in order. Each screen keeps its own until the
- * precedence is unified: then every entry points at one rule.
+ * How an administrator sees a Dotypos customer's name at `now`, the time the
+ * record was read. A deleted or expired customer is never named: it gets its
+ * placeholder. Otherwise the person (first and last name), else the company,
+ * else the email, else the phone, each part trimmed; unnamed when Dotypos
+ * holds none of them.
  */
-export type CustomerNamePrecedence =
-  /** Discounts, the customer detail and breadcrumb, and the API search and profile. */
-  | "company-person-email-phone"
-  /** The invoice customer picker. */
-  | "company-person-email"
-  /** Lists, reservations, bookings, the Overview, reservation authors, the CSV export and the API lists. */
-  | "person-company";
-
-// Each rule is the screen's own, kept as it was: rules that trim the joined
-// person name keep inner whitespace as Dotypos holds it, while
-// `getCustomerDisplayName` trims each part.
-const customerNames = {
-  "company-person-email-phone": (customer) => {
-    const personName = [customer.firstName, customer.lastName]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    return (
-      customer.companyName?.trim() ||
-      personName ||
-      customer.email?.trim() ||
-      customer.phone?.trim()
-    );
-  },
-  "company-person-email": (customer) => {
-    const personName = [customer.firstName, customer.lastName]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    const email = customer.email?.trim() ?? "";
-    return (customer.companyName?.trim() ?? "") || personName || email;
-  },
-  "person-company": getCustomerDisplayName,
-} satisfies Record<
-  CustomerNamePrecedence,
-  (customer: DotyposCustomer) => string | undefined
->;
-
-/** How an administrator sees a Dotypos customer's name under one screen's precedence. */
 export const nameAdministrationCustomer = (
   customer: DotyposCustomer,
-  precedence: CustomerNamePrecedence
+  now: Date
 ): AdministrationCustomerName => {
-  const name = customerNames[precedence](customer);
+  const lifecycle = customerLifecycle(customer, now);
+  if (lifecycle !== "active")
+    return inactiveAdministrationCustomerName(lifecycle);
+  const name =
+    getCustomerDisplayName(customer) ||
+    customer.email?.trim() ||
+    customer.phone?.trim();
   return {
     displayName: name || unnamedCustomerDisplayName,
     hasName: Boolean(name),
+    lifecycle,
   };
 };
 
 /** A Dotypos customer as administration lists and the administration API show it. */
-export type AdministrationCustomer = {
+export type AdministrationCustomer = AdministrationCustomerName & {
   readonly id: DotyposCustomerId;
-  /** Never empty: the API and `dhw` show "Unnamed customer" when `hasName` is false. */
-  readonly displayName: string;
-  /** Whether Dotypos holds a name under the screen's precedence, so the Admin UI can name an unnamed customer in the operator's language. */
-  readonly hasName: boolean;
+  /** Null when Dotypos holds none, and for a deleted or expired customer. */
   readonly email: string | null;
+  /** Null when Dotypos holds none, and for a deleted or expired customer. */
   readonly phone: string | null;
 };
 
-/** A Dotypos customer's name and trimmed contact details; an empty detail is `null`. */
+/**
+ * A Dotypos customer's name and trimmed contact details at `now`, the time
+ * the record was read. A deleted or expired customer has no contact details.
+ */
 export const describeAdministrationCustomer = (
   customer: DotyposCustomer,
-  precedence: CustomerNamePrecedence
-): AdministrationCustomer => ({
-  id: customer.id,
-  ...nameAdministrationCustomer(customer, precedence),
-  email: customer.email?.trim() || null,
-  phone: customer.phone?.trim() || null,
-});
+  now: Date
+): AdministrationCustomer => {
+  const name = nameAdministrationCustomer(customer, now);
+  const active = name.lifecycle === "active";
+  return {
+    id: customer.id,
+    ...name,
+    email: (active && customer.email?.trim()) || null,
+    phone: (active && customer.phone?.trim()) || null,
+  };
+};

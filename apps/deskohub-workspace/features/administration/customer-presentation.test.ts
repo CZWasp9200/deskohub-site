@@ -1,26 +1,43 @@
 import { describe, expect, test } from "bun:test";
+import type { AdministrationCustomerName } from "./customer-name";
 import { getAdministrationCustomerName } from "./customer-presentation";
+import { m } from "./i18n";
 
-describe("customer presentation", () => {
-  test("shows the customer's own name in every locale", () => {
-    const customer = { displayName: "Ada Lovelace", hasName: true };
+const customer = (
+  fields: Partial<AdministrationCustomerName>
+): AdministrationCustomerName => ({
+  displayName: "Synthetic Person",
+  hasName: true,
+  lifecycle: "active",
+  ...fields,
+});
 
-    expect(getAdministrationCustomerName(customer, "en-US")).toBe(
-      "Ada Lovelace"
-    );
-    expect(getAdministrationCustomerName(customer, "cs-CZ")).toBe(
-      "Ada Lovelace"
-    );
+describe("getAdministrationCustomerName", () => {
+  test.each(["en-US", "cs-CZ"] as const)(
+    "shows an active customer's own name in %s",
+    (locale) => {
+      expect(getAdministrationCustomerName(customer({}), locale)).toBe(
+        "Synthetic Person"
+      );
+    }
+  );
+
+  test.each([
+    [{ hasName: false }, m.administrationCustomerUnnamed],
+    [{ lifecycle: "deleted" }, m.administrationCustomerDeleted],
+    [{ lifecycle: "expired" }, m.administrationCustomerExpired],
+    [{ hasName: false, lifecycle: "deleted" }, m.administrationCustomerDeleted],
+  ] as const)("names %o in the route language", (fields, message) => {
+    for (const locale of ["en-US", "cs-CZ"] as const)
+      expect(getAdministrationCustomerName(customer(fields), locale)).toBe(
+        message({}, { locale })
+      );
   });
 
-  test("names an unnamed customer in the route language", () => {
-    const customer = { displayName: "Unnamed customer", hasName: false };
-
-    expect(getAdministrationCustomerName(customer, "en-US")).toBe(
-      "Unnamed customer"
-    );
-    expect(getAdministrationCustomerName(customer, "cs-CZ")).toBe(
-      "Zákazník bez jména"
-    );
+  test("never shows a deleted or expired customer's stored name", () => {
+    for (const lifecycle of ["deleted", "expired"] as const)
+      expect(
+        getAdministrationCustomerName(customer({ lifecycle }), "en-US")
+      ).not.toBe("Synthetic Person");
   });
 });

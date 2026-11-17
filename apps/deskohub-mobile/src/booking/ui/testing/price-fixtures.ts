@@ -34,6 +34,7 @@ const summaryOf = (
     { key: "total", items: [{ key: "total:final", amount: total }], total },
   ],
   total,
+  vatStatus: "not-vat-payer",
 });
 
 /** Open Space for a day with a 20% calendar discount on the desk, plus coffee: 290 − 58 + 50 = 282. */
@@ -77,8 +78,11 @@ export const reservedDeskWithWorkstation: PriceFixture = {
         originalAmount: czk(410),
         discounts: [calendarDiscount(82)],
       },
-      { key: "addon:workstation", amount: czk(120) },
-      { key: "monitor:2x27-qhd", amount: czk(0) },
+      {
+        key: "addon:workstation",
+        amount: czk(120),
+        monitorOption: "2x27-qhd",
+      },
     ],
     czk(448)
   ),
@@ -112,13 +116,17 @@ const officeSelection: CustomerBookingSelection = {
   seats: 6,
 };
 
-/** The office line's parts: access for 3 days, and one seat for 3 days. */
+/**
+ * The office line's parts: access for 3 days, one seat for 3 days, and the 6
+ * seats for 3 days.
+ */
 const officeParts = {
   key: "product:office:6:3",
   dayCount: 3,
   seats: 6,
   accessAmount: czk(1590),
   seatAmount: czk(945),
+  seatsAmount: czk(5670),
 } as const;
 
 /** A private office for 3 days with 6 seats: 1,590 + 6 × 945 = 7,260. */

@@ -42,6 +42,7 @@ const listedFields = [
   "setupStartsAt",
   "seats",
   "status",
+  "bookedSelection",
 ];
 
 const storageLayer = (device: FakeDevice) =>

@@ -17,12 +17,20 @@ import {
 import { InvoiceCancellationRepository } from "@/features/accounting/backend/invoice-cancellation.repository";
 import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";
 import { correctiveDocumentNumberSchema } from "@/features/accounting/corrective-document";
+import { getInvoicedReservation } from "@/features/accounting/customer-invoice";
 import {
   makeCoworkInvoiceDocument,
+  makeMeetingRoomInvoiceDocument,
+  makeOfficeInvoiceDocument,
   makeTestManualInvoiceDocument,
 } from "@/features/accounting/invoice.test-utils";
 import { getInvoiceTotal } from "@/features/accounting/invoice-settlement";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
+import {
+  getWorkspaceMeetingRoomProductTitle,
+  getWorkspaceOfficeProductTitle,
+  getWorkspaceProductTierTitle,
+} from "@/features/checkout/product-catalog.i18n";
 import {
   type CustomerApiCall,
   type CustomerApiTestOptions,
@@ -36,6 +44,7 @@ import {
 const reservationId = "019edbcf-5026-7ecc-821b-eda46998eaaa";
 const coworkDocument = makeCoworkInvoiceDocument("en-US");
 const manualDocument = makeTestManualInvoiceDocument("en-US", "450.50");
+const cowork = getInvoicedReservation(coworkDocument);
 
 /** The account's customer's reservation invoice. */
 const reservationInvoice: Invoice = {
@@ -169,6 +178,11 @@ describe("listInvoices", () => {
           issuedOn: "2026-08-10",
           total: getInvoiceTotal(coworkDocument),
           orderId: reservationId,
+          reservation: {
+            productName: getWorkspaceProductTierTitle("open-space", "en-US"),
+            startsAt: cowork?.startsAt,
+            endsAt: cowork?.endsAt,
+          },
         },
         {
           id: manualInvoice.id,
@@ -211,6 +225,52 @@ describe("listInvoices", () => {
         },
       ],
     });
+  });
+
+  test("names what each order booked in the asked locale, with an office's seats", async () => {
+    const meetingRoomDocument = makeMeetingRoomInvoiceDocument("cs-CZ");
+    const officeDocument = makeOfficeInvoiceDocument("cs-CZ");
+    stored = [
+      {
+        ...reservationInvoice,
+        invoiceNumber: meetingRoomDocument.invoiceNumber,
+        document: meetingRoomDocument,
+      },
+      {
+        ...reservationInvoice,
+        id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb25"),
+        invoiceNumber: officeDocument.invoiceNumber,
+        document: officeDocument,
+      },
+    ];
+    const api = makeCustomerApiTestServer({ services: invoiceStore() });
+
+    const response = await api.handle(
+      customerApiRequest({ ...listInvoices, path: "/invoices?locale=cs-CZ" })
+    );
+
+    expect(response.status).toBe(200);
+    const meetingRoom = getInvoicedReservation(meetingRoomDocument);
+    const office = getInvoicedReservation(officeDocument);
+    const { invoices } = (await response.json()) as {
+      invoices: { reservation?: unknown }[];
+    };
+    expect(invoices.map((invoice) => invoice.reservation)).toEqual([
+      {
+        productName: getWorkspaceMeetingRoomProductTitle("cs-CZ"),
+        startsAt: meetingRoom?.startsAt,
+        endsAt: meetingRoom?.endsAt,
+      },
+      {
+        productName: getWorkspaceOfficeProductTitle("cs-CZ"),
+        seats: office?.seats,
+        startsAt: office?.startsAt,
+        endsAt: office?.endsAt,
+      },
+    ]);
+    expect(getWorkspaceMeetingRoomProductTitle("cs-CZ")).not.toBe(
+      getWorkspaceMeetingRoomProductTitle("en-US")
+    );
   });
 
   test("lists a large manual total as plain decimal text", async () => {

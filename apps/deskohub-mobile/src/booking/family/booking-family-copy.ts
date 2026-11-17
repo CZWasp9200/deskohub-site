@@ -19,16 +19,6 @@ export const familyTitle = (
     office: m.booking_family_office_title,
   })[family]({}, { locale });
 
-export const familyDescription = (
-  family: CustomerReservationFamily,
-  locale: AppLocale
-) =>
-  ({
-    cowork: m.booking_family_cowork_description,
-    "meeting-room": m.booking_family_meeting_room_description,
-    office: m.booking_family_office_description,
-  })[family]({}, { locale });
-
 /** The sentence for a failed booking catalog read. */
 export const bookingQueryMessage = (
   error: BookingQueryViewError,

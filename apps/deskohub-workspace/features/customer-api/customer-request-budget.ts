@@ -100,6 +100,8 @@ export const customerRequestBudgetClasses = {
     getReservationInvoice: "dotypos-read",
     // Authorizes like the invoice, then records the page's return target.
     reopenPaymentPage: "dotypos-mutation",
+    // May book the order's spot again in Dotypos and asks the payment provider.
+    retryPayment: "dotypos-mutation",
     // The space's address is the site's own constant.
     getEstablishment: "workspace-only",
   },
@@ -130,8 +132,10 @@ export const customerRequestBudgetClasses = {
     listLegalDocuments: "workspace-only",
     // A booking spends two to four Dotypos mutations: the hold, an
     // optional code, the submission, and one retry after a price change.
+    // Removing a code reprices like entering one.
     createCheckout: "dotypos-mutation",
     applyCheckoutDiscountCode: "dotypos-mutation",
+    clearCheckoutDiscountCode: "dotypos-mutation",
     submitCheckout: "dotypos-mutation",
     // Reseals the signed checkout state only.
     acceptCheckoutPriceChange: "workspace-only",

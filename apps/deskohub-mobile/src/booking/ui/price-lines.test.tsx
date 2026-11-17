@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { CustomerVatStatus } from "@deskohub/workspace-customer-api";
 import type { ComponentProps, ReactElement } from "react";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
@@ -23,6 +24,9 @@ import {
 } from "./testing/price-fixtures";
 
 const locale: AppLocale = "en-US";
+
+const breakdownFor = (vatStatus: CustomerVatStatus) =>
+  priceBreakdown({ ...openSpaceWithCoffee.summary, vatStatus });
 
 const render = (props: Partial<ComponentProps<typeof PriceLines>> = {}) =>
   hostTree(
@@ -67,12 +71,20 @@ describe("PriceLines", () => {
   });
 
   test("reads a zero charge as free", () => {
+    const { summary, selection } = reservedDeskWithWorkstation;
     const tree = render({
-      breakdown: priceBreakdown(reservedDeskWithWorkstation.summary),
-      describeLine: describePriceLine(
-        reservedDeskWithWorkstation.selection,
-        locale
-      ),
+      breakdown: priceBreakdown({
+        ...summary,
+        sections: summary.sections.map((section) => ({
+          ...section,
+          items: section.items.map((item) =>
+            item.key === "addon:workstation"
+              ? { ...item, amount: czk(0) }
+              : item
+          ),
+        })),
+      }),
+      describeLine: describePriceLine(selection, locale),
     });
     expect(texts(rows(tree).at(-1) as ReactElement<HostProps>).at(-1)).toBe(
       m.booking_price_free({}, { locale })
@@ -106,21 +118,46 @@ describe("PriceLines", () => {
     );
   });
 
-  test("the card's tax note shows under the total's label only when given", () => {
-    const without = texts(
-      render({
-        variant: "card",
-        total: { label: "Total" },
-      }) as ReactElement<HostProps>
-    );
+  test("a VAT payer's total shows the tax note under the total's label", () => {
     const withNote = texts(
       render({
+        breakdown: breakdownFor("vat-payer"),
         variant: "card",
         total: { label: "Total", taxNote: "note" },
       }) as ReactElement<HostProps>
     );
+    const without = texts(
+      render({
+        breakdown: breakdownFor("vat-payer"),
+        variant: "card",
+        total: { label: "Total" },
+      }) as ReactElement<HostProps>
+    );
     expect(withNote.length).toBe(without.length + 1);
     expect(withNote[withNote.indexOf("Total") + 1]).toBe("note");
+  });
+
+  test("a total from a seller who is not a VAT payer has no tax note and today's layout", () => {
+    const today = render({
+      breakdown: breakdownFor("not-vat-payer"),
+      variant: "card",
+      total: { label: "Total" },
+    });
+    const given = render({
+      breakdown: breakdownFor("not-vat-payer"),
+      variant: "card",
+      total: { label: "Total", taxNote: "note" },
+    });
+    expect(openSpaceWithCoffee.summary.vatStatus).toBe("not-vat-payer");
+    expect(texts(given as ReactElement<HostProps>)).not.toContain("note");
+    expect(texts(given as ReactElement<HostProps>)).toEqual(
+      texts(today as ReactElement<HostProps>)
+    );
+    expect(
+      findAll(given, "View").map((view) => flatStyle(view.props.style))
+    ).toEqual(
+      findAll(today, "View").map((view) => flatStyle(view.props.style))
+    );
   });
 
   test("the card's rows sit on a shared baseline, the bar's at the top", () => {

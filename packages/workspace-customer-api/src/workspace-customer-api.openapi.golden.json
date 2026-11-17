@@ -1776,6 +1776,112 @@
         }
       }
     },
+    "/api/customer/reservations/{orderId}/payment-retry": {
+      "post": {
+        "tags": ["reservations"],
+        "operationId": "reservations.retryPayment",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerReservationOrderId"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerCheckout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerCheckout"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CustomerReservationNotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerReservationNotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CustomerPaymentRetryRefused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerPaymentRetryRefused"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryCustomerPayment"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/customer/reservations/{orderId}/access": {
       "get": {
         "tags": ["reservations"],
@@ -2112,6 +2218,14 @@
             "in": "query",
             "schema": {
               "$ref": "#/components/schemas/CustomerMonitorOption"
+            },
+            "required": false
+          },
+          {
+            "name": "stay",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerCoworkStay"
             },
             "required": false
           },
@@ -2486,6 +2600,14 @@
             "in": "query",
             "schema": {
               "$ref": "#/components/schemas/CustomerMonitorOption"
+            },
+            "required": false
+          },
+          {
+            "name": "stay",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerCoworkStay"
             },
             "required": false
           },
@@ -2945,6 +3067,103 @@
         }
       }
     },
+    "/api/customer/booking/checkouts/discount-code/clear": {
+      "post": {
+        "tags": ["booking"],
+        "operationId": "booking.clearCheckoutDiscountCode",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerCheckout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerCheckout"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CustomerCheckoutNotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerCheckoutNotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CustomerCheckoutUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerCheckoutUnavailable"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClearCustomerCheckoutDiscountCode"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/customer/booking/checkouts/price-acceptance": {
       "post": {
         "tags": ["booking"],
@@ -3177,7 +3396,16 @@
       "get": {
         "tags": ["invoices"],
         "operationId": "invoices.listInvoices",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "locale",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerLocale"
+            },
+            "required": false
+          }
+        ],
         "security": [],
         "responses": {
           "200": {
@@ -3829,6 +4057,36 @@
           },
           "shareUrl": {
             "type": "string"
+          },
+          "discountPerInvitee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "invitationDiscount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "savingsCurrency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["summary", "shareUrl"],
@@ -5280,6 +5538,11 @@
         "type": "string",
         "enum": ["basic", "plus", "profi", "open-space", "reserved-desk"]
       },
+      "CustomerCoworkStay": {
+        "type": "string",
+        "enum": ["day", "overnight"],
+        "description": "day (the arrival date's Prague calendar day) or overnight (noon on the arrival date to noon the next date, Prague time). Reserved Desk only."
+      },
       "CustomerReservationProduct": {
         "anyOf": [
           {
@@ -5291,6 +5554,9 @@
               },
               "tier": {
                 "$ref": "#/components/schemas/CustomerCoworkTier"
+              },
+              "stay": {
+                "$ref": "#/components/schemas/CustomerCoworkStay"
               }
             },
             "required": ["kind", "tier"],
@@ -5393,6 +5659,9 @@
           },
           "monitorOption": {
             "$ref": "#/components/schemas/CustomerMonitorOption"
+          },
+          "stay": {
+            "$ref": "#/components/schemas/CustomerCoworkStay"
           },
           "seats": {
             "type": "integer",
@@ -5801,6 +6070,17 @@
               }
             ]
           },
+          "paymentPageReopenable": {
+            "anyOf": [
+              {
+                "type": "boolean",
+                "enum": [true]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "startsAt": {
             "anyOf": [
               {
@@ -5928,6 +6208,260 @@
         "required": ["_tag", "reason"],
         "additionalProperties": false
       },
+      "RetryCustomerPayment": {
+        "type": "object",
+        "properties": {
+          "locale": {
+            "$ref": "#/components/schemas/CustomerLocale"
+          }
+        },
+        "required": ["locale"],
+        "additionalProperties": false
+      },
+      "CustomerCheckoutSummaryDiscount": {
+        "type": "object",
+        "properties": {
+          "discount": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              "countdownStartsAt": {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              }
+            },
+            "required": ["id", "label"],
+            "additionalProperties": false
+          },
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": ["discount", "amount"],
+        "additionalProperties": false
+      },
+      "CustomerCheckoutSummaryItem": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "originalAmount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "discounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerCheckoutSummaryDiscount"
+            }
+          },
+          "dayCount": {
+            "type": "integer"
+          },
+          "seats": {
+            "type": "integer"
+          },
+          "accessAmount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "seatAmount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "seatsAmount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "monitorOption": {
+            "$ref": "#/components/schemas/CustomerMonitorOption"
+          }
+        },
+        "required": ["key", "amount"],
+        "additionalProperties": false
+      },
+      "CustomerVatStatus": {
+        "type": "string",
+        "enum": ["not-vat-payer", "vat-payer"],
+        "description": "Whether the seller is registered for VAT: a VAT payer's totals carry a tax note."
+      },
+      "CustomerCheckoutSummary": {
+        "type": "object",
+        "properties": {
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": ["order", "total"]
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomerCheckoutSummaryItem"
+                  }
+                },
+                "total": {
+                  "$ref": "#/components/schemas/Money"
+                }
+              },
+              "required": ["key", "items", "total"],
+              "additionalProperties": false
+            }
+          },
+          "total": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "vatStatus": {
+            "$ref": "#/components/schemas/CustomerVatStatus"
+          }
+        },
+        "required": ["sections", "total", "vatStatus"],
+        "additionalProperties": false
+      },
+      "CustomerCheckoutChangedKeys": {
+        "type": "object",
+        "properties": {
+          "sectionKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "itemKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["sectionKeys", "itemKeys"],
+        "additionalProperties": false
+      },
+      "CustomerCheckout": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ready", "price_review"]
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "payStateToken": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "holdExpiresAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CustomerCheckoutSummary"
+          },
+          "appliedDiscountCode": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "discountId": {
+                "type": "string"
+              }
+            },
+            "required": ["code", "discountId"],
+            "additionalProperties": false
+          },
+          "priceReview": {
+            "type": "object",
+            "properties": {
+              "changedKeys": {
+                "$ref": "#/components/schemas/CustomerCheckoutChangedKeys"
+              }
+            },
+            "required": ["changedKeys"],
+            "additionalProperties": false
+          },
+          "earlyPerformanceConsent": {
+            "type": "object",
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "requiredFrom": {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              }
+            },
+            "required": ["required", "requiredFrom"],
+            "additionalProperties": false
+          },
+          "referralApplied": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "rememberedReferralCodeUsed": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "rememberReferralCode": {
+            "$ref": "#/components/schemas/ReferralCode"
+          }
+        },
+        "required": [
+          "status",
+          "orderId",
+          "payStateToken",
+          "expiresAt",
+          "holdExpiresAt",
+          "summary",
+          "earlyPerformanceConsent"
+        ],
+        "additionalProperties": false
+      },
+      "CustomerPaymentRetryRefusedReason": {
+        "type": "string",
+        "enum": [
+          "paid",
+          "payment_in_progress",
+          "late_payment",
+          "superseded",
+          "reservation_cancelled",
+          "reservation_ended",
+          "details_unavailable",
+          "needs_review",
+          "spot_unavailable",
+          "payment_settling"
+        ]
+      },
+      "CustomerPaymentRetryRefused": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["CustomerPaymentRetryRefused"]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/CustomerPaymentRetryRefusedReason"
+          }
+        },
+        "required": ["_tag", "reason"],
+        "additionalProperties": false
+      },
       "CustomerAccessCodeUnavailable": {
         "type": "object",
         "properties": {
@@ -5964,6 +6498,19 @@
           }
         },
         "required": ["price", "discount"],
+        "additionalProperties": false
+      },
+      "CustomerBookableDates": {
+        "type": "object",
+        "properties": {
+          "earliest": {
+            "$ref": "#/components/schemas/CustomerPlainDate"
+          },
+          "latest": {
+            "$ref": "#/components/schemas/CustomerPlainDate"
+          }
+        },
+        "required": ["earliest", "latest"],
         "additionalProperties": false
       },
       "CustomerOfferingAddOn": {
@@ -6046,11 +6593,27 @@
               "advertisedPrice": {
                 "$ref": "#/components/schemas/CustomerAdvertisedPrice"
               },
+              "bookableDates": {
+                "$ref": "#/components/schemas/CustomerBookableDates"
+              },
               "addOns": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/CustomerOfferingAddOn"
                 }
+              },
+              "overnightStay": {
+                "type": "object",
+                "properties": {
+                  "startTime": {
+                    "$ref": "#/components/schemas/CustomerStartTime"
+                  },
+                  "endTime": {
+                    "$ref": "#/components/schemas/CustomerStartTime"
+                  }
+                },
+                "required": ["startTime", "endTime"],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -6061,6 +6624,7 @@
               "usage",
               "price",
               "advertisedPrice",
+              "bookableDates",
               "addOns"
             ],
             "additionalProperties": false
@@ -6098,6 +6662,9 @@
               },
               "advertisedPrice": {
                 "$ref": "#/components/schemas/CustomerAdvertisedPrice"
+              },
+              "bookableDates": {
+                "$ref": "#/components/schemas/CustomerBookableDates"
               }
             },
             "required": [
@@ -6109,7 +6676,8 @@
               "usage",
               "facts",
               "price",
-              "advertisedPrice"
+              "advertisedPrice",
+              "bookableDates"
             ],
             "additionalProperties": false
           },
@@ -6143,6 +6711,9 @@
               },
               "advertisedPrice": {
                 "$ref": "#/components/schemas/CustomerAdvertisedPrice"
+              },
+              "bookableDates": {
+                "$ref": "#/components/schemas/CustomerBookableDates"
               }
             },
             "required": [
@@ -6153,7 +6724,8 @@
               "price",
               "seatPrice",
               "maximumDurationHours",
-              "advertisedPrice"
+              "advertisedPrice",
+              "bookableDates"
             ],
             "additionalProperties": false
           }
@@ -6372,104 +6944,6 @@
           }
         },
         "required": ["from", "to", "unavailableDates", "durations"],
-        "additionalProperties": false
-      },
-      "CustomerCheckoutSummaryDiscount": {
-        "type": "object",
-        "properties": {
-          "discount": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "label": {
-                "type": "string"
-              },
-              "expiresAt": {
-                "type": "string",
-                "description": "ISO 8601 instant."
-              },
-              "countdownStartsAt": {
-                "type": "string",
-                "description": "ISO 8601 instant."
-              }
-            },
-            "required": ["id", "label"],
-            "additionalProperties": false
-          },
-          "amount": {
-            "$ref": "#/components/schemas/Money"
-          }
-        },
-        "required": ["discount", "amount"],
-        "additionalProperties": false
-      },
-      "CustomerCheckoutSummaryItem": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string"
-          },
-          "amount": {
-            "$ref": "#/components/schemas/Money"
-          },
-          "originalAmount": {
-            "$ref": "#/components/schemas/Money"
-          },
-          "discounts": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CustomerCheckoutSummaryDiscount"
-            }
-          },
-          "dayCount": {
-            "type": "integer"
-          },
-          "seats": {
-            "type": "integer"
-          },
-          "accessAmount": {
-            "$ref": "#/components/schemas/Money"
-          },
-          "seatAmount": {
-            "$ref": "#/components/schemas/Money"
-          }
-        },
-        "required": ["key", "amount"],
-        "additionalProperties": false
-      },
-      "CustomerCheckoutSummary": {
-        "type": "object",
-        "properties": {
-          "sections": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "string",
-                  "enum": ["order", "total"]
-                },
-                "items": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/CustomerCheckoutSummaryItem"
-                  }
-                },
-                "total": {
-                  "$ref": "#/components/schemas/Money"
-                }
-              },
-              "required": ["key", "items", "total"],
-              "additionalProperties": false
-            }
-          },
-          "total": {
-            "$ref": "#/components/schemas/Money"
-          }
-        },
-        "required": ["sections", "total"],
         "additionalProperties": false
       },
       "CustomerBookingQuote": {
@@ -6802,91 +7276,6 @@
         ],
         "additionalProperties": false
       },
-      "CustomerCheckoutChangedKeys": {
-        "type": "object",
-        "properties": {
-          "sectionKeys": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "itemKeys": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": ["sectionKeys", "itemKeys"],
-        "additionalProperties": false
-      },
-      "CustomerCheckout": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": ["ready", "price_review"]
-          },
-          "orderId": {
-            "type": "string"
-          },
-          "payStateToken": {
-            "type": "string"
-          },
-          "expiresAt": {
-            "type": "string",
-            "description": "ISO 8601 instant."
-          },
-          "summary": {
-            "$ref": "#/components/schemas/CustomerCheckoutSummary"
-          },
-          "priceReview": {
-            "type": "object",
-            "properties": {
-              "changedKeys": {
-                "$ref": "#/components/schemas/CustomerCheckoutChangedKeys"
-              }
-            },
-            "required": ["changedKeys"],
-            "additionalProperties": false
-          },
-          "earlyPerformanceConsent": {
-            "type": "object",
-            "properties": {
-              "required": {
-                "type": "boolean"
-              },
-              "requiredFrom": {
-                "type": "string",
-                "description": "ISO 8601 instant."
-              }
-            },
-            "required": ["required", "requiredFrom"],
-            "additionalProperties": false
-          },
-          "referralApplied": {
-            "type": "boolean",
-            "enum": [true]
-          },
-          "rememberedReferralCodeUsed": {
-            "type": "boolean",
-            "enum": [true]
-          },
-          "rememberReferralCode": {
-            "$ref": "#/components/schemas/ReferralCode"
-          }
-        },
-        "required": [
-          "status",
-          "orderId",
-          "payStateToken",
-          "expiresAt",
-          "summary",
-          "earlyPerformanceConsent"
-        ],
-        "additionalProperties": false
-      },
       "CustomerCheckoutPaymentDisabled": {
         "type": "object",
         "properties": {
@@ -6994,8 +7383,25 @@
             "type": "string",
             "description": "ISO 8601 instant."
           },
+          "holdExpiresAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
           "summary": {
             "$ref": "#/components/schemas/CustomerCheckoutSummary"
+          },
+          "appliedDiscountCode": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "discountId": {
+                "type": "string"
+              }
+            },
+            "required": ["code", "discountId"],
+            "additionalProperties": false
           },
           "priceReview": {
             "type": "object",
@@ -7042,6 +7448,7 @@
           "orderId",
           "payStateToken",
           "expiresAt",
+          "holdExpiresAt",
           "summary",
           "earlyPerformanceConsent"
         ],
@@ -7109,6 +7516,24 @@
           }
         },
         "required": ["_tag", "reason"],
+        "additionalProperties": false
+      },
+      "ClearCustomerCheckoutDiscountCode": {
+        "type": "object",
+        "properties": {
+          "locale": {
+            "$ref": "#/components/schemas/CustomerLocale"
+          },
+          "payStateToken": {
+            "type": "string",
+            "allOf": [
+              {
+                "minLength": 1
+              }
+            ]
+          }
+        },
+        "required": ["locale", "payStateToken"],
         "additionalProperties": false
       },
       "AcceptCustomerCheckoutPriceChange": {
@@ -7284,19 +7709,30 @@
         "required": ["amount", "currency"],
         "additionalProperties": false
       },
-      "CustomerInvoiceCancellation": {
+      "CustomerInvoicedReservation": {
         "type": "object",
         "properties": {
-          "correctiveDocumentNumber": {
+          "productName": {
             "type": "string",
             "allOf": [
               {
                 "minLength": 1
               }
             ]
+          },
+          "seats": {
+            "type": "integer"
+          },
+          "startsAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "endsAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
           }
         },
-        "required": ["correctiveDocumentNumber"],
+        "required": ["productName", "startsAt", "endsAt"],
         "additionalProperties": false
       },
       "CustomerInvoice": {
@@ -7322,8 +7758,8 @@
           "orderId": {
             "$ref": "#/components/schemas/CustomerReservationOrderId"
           },
-          "cancellation": {
-            "$ref": "#/components/schemas/CustomerInvoiceCancellation"
+          "reservation": {
+            "$ref": "#/components/schemas/CustomerInvoicedReservation"
           }
         },
         "required": ["id", "invoiceNumber", "issuedOn", "total"],

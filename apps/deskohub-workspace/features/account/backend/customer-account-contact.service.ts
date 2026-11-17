@@ -75,26 +75,41 @@ const toContactPhone = (stored: string) => {
   });
 };
 
-/** A linked profile as the reservation contact its account books with. */
-const toContact = (
-  account: CurrentLinkedAccount,
-  profile: CustomerProfile
-): CustomerAccountContact | null => {
+/**
+ * A stored Dotypos customer's name and phone as a reservation contact books
+ * them: null when the name can't book a reservation; the phone only when it
+ * holds a valid number.
+ */
+export const readStoredBookingContact = (stored: {
+  readonly firstName?: string | null;
+  readonly lastName?: string | null;
+  readonly phone?: string | null;
+}): { readonly name: string; readonly phone: string | null } | null => {
   const name = decodeContactField(
     reservationCustomerNameSchema,
-    [profile.firstName, profile.lastName]
+    [stored.firstName, stored.lastName]
       .map((part) => part?.trim())
       .filter(Boolean)
       .join(" ")
   );
   if (!name) return null;
+  return { name, phone: stored.phone ? toContactPhone(stored.phone) : null };
+};
+
+/** A linked profile as the reservation contact its account books with. */
+const toContact = (
+  account: CurrentLinkedAccount,
+  profile: CustomerProfile
+): CustomerAccountContact | null => {
+  const stored = readStoredBookingContact(profile);
+  if (!stored) return null;
 
   return {
     accountId: account.accountId,
     dotyposCustomerId: account.dotyposCustomerId,
-    name,
+    name: stored.name,
     email: account.email,
-    phone: profile.phone ? toContactPhone(profile.phone) : null,
+    phone: stored.phone,
   } satisfies CustomerAccountContact;
 };
 

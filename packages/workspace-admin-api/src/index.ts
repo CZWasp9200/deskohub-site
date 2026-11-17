@@ -22,6 +22,27 @@ export {
   writeOperation,
 } from "./administration-operation";
 export {
+  type AdministrationOperationError,
+  defineOperations,
+  type LedgerOperationName,
+  mutation,
+  type Operation,
+  OperationConflict,
+  type OperationDecodedInput,
+  type OperationDefinition,
+  OperationInProgress,
+  type OperationInput,
+  OperationInputInvalid,
+  OperationInputIssue,
+  type OperationInputIssue as OperationInputIssueType,
+  OperationNotFound,
+  type OperationOutput,
+  type Operations,
+  OperationUnauthorized,
+  OperationUnavailable,
+  query,
+} from "./administration-operation-port";
+export {
   AdminCliAdministratorsApi,
   AdministrationAccountEmail,
   type AdministrationAccountEmail as AdministrationAccountEmailType,
@@ -144,7 +165,6 @@ export {
   type CampaignAudienceRef as CampaignAudienceRefType,
   CampaignDuplicateInput,
   type CampaignDuplicateInput as CampaignDuplicateInputType,
-  type CampaignOperationError,
   type CampaignOperationName,
   type CampaignOperations,
   CampaignPatchInput,
@@ -160,24 +180,6 @@ export {
   CampaignTestSendInput,
   type CampaignTestSendInput as CampaignTestSendInputType,
   campaignOperations,
-  defineOperations,
-  type LedgerOperationName,
-  mutation,
-  type Operation,
-  OperationConflict,
-  type OperationDecodedInput,
-  type OperationDefinition,
-  OperationInProgress,
-  type OperationInput,
-  OperationInputInvalid,
-  OperationInputIssue,
-  type OperationInputIssue as OperationInputIssueType,
-  OperationNotFound,
-  type OperationOutput,
-  type Operations,
-  OperationUnauthorized,
-  OperationUnavailable,
-  query,
 } from "./campaign-operations";
 export {
   digestCliAuthenticationSecret,
@@ -198,6 +200,10 @@ export {
   MinimumDhwVersion,
   OutdatedDhwRefusal,
 } from "./dhw-version";
+export {
+  type DiscountOperations,
+  discountOperations,
+} from "./discount-operations";
 export {
   emailAutomationScheduleMinutes,
   emailAutomationTickMinutes,

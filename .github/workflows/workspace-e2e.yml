@@ -414,8 +414,8 @@ jobs:
         if: steps.bun-cache.outputs.cache-hit != 'true'
         uses: ./.workspace-e2e-coordinator/.github/actions/setup-bun
         with:
-          bun-version: 1.4.2
-          bun-sha256: 36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913
+          bun-version: 1.4.4
+          bun-sha256: bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
 
       # Install from regular-file copies of the lockfile, manifests, and
       # patches outside the checkout, so exact-SHA bunfig.toml hooks (such as
@@ -625,8 +625,8 @@ jobs:
       - name: Set up Bun
         uses: ./.workspace-e2e-coordinator/.github/actions/setup-bun
         with:
-          bun-version: 1.4.2
-          bun-sha256: 36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913
+          bun-version: 1.4.4
+          bun-sha256: bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
 
       # Restore only. fill-bun-package-cache saves this exact key, unless it
       # already exists, before this job starts. On a miss, the install below

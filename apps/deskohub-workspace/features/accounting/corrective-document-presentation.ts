@@ -4,6 +4,7 @@ import {
   formatDecimalAmount,
   formatDocumentInstant,
   getAccountingDocumentPartiesPresentation,
+  getSupplierVatStatement,
   type InvoicePresentationParty,
 } from "@/features/accounting/invoice-presentation";
 import { type Locale, m } from "@/features/i18n";
@@ -41,7 +42,8 @@ export interface CorrectiveDocumentPresentation {
   readonly totalLabel: string;
   readonly total: string;
   readonly settlement: string;
-  readonly nonVatStatement: string;
+  /** The VAT status statement of the invoice it corrects, if that status has one. */
+  readonly vatStatement: string | undefined;
   readonly footer: string;
 }
 
@@ -110,7 +112,7 @@ export const getCorrectiveDocumentPresentation = (
     totalLabel: m.invoiceManualTotal({}, { locale }),
     total: amount(document.total),
     settlement: getCorrectiveDocumentSettlementSentence(document),
-    nonVatStatement: m.invoiceNonVatPayerStatement({}, { locale }),
+    vatStatement: getSupplierVatStatement(document.supplier, locale),
     footer: `${document.supplier.legalName} · ${document.supplier.contactEmail}`,
   };
 };

@@ -1,11 +1,11 @@
 import {
+  type AdministrationOperationError,
   type AdministrationStandaloneAccessCodeCreationOutcomeType,
   AdministrationStandaloneAccessCodeResult,
   type AdministrationStandaloneAccessCodeResultType,
   type CliMutationInProgress,
   CliMutationRejected,
   type CliMutationUncertain,
-  CliResourceNotFound,
   CliServiceUnavailable,
   CliStandaloneAccessCodeCleanupRequired,
   CliStandaloneAccessCodeReconciled,
@@ -19,17 +19,15 @@ import {
 } from "./administration-request-ledger.service";
 
 /**
- * Discount mutations. A missing target or a rejected change applied
- * nothing, so it frees the request ID for a corrected retry. Any other
- * failure may have reached Dotypos and keeps the claim, which never
- * resumes. The result must be recorded.
+ * Discount mutations, which fail with the discount operation port's errors.
+ * A missing target or a conflict applied nothing, so it frees the request ID
+ * for a corrected retry. An unavailable dependency may have reached Dotypos
+ * and keeps the claim, which never resumes. The result must be recorded.
  */
 export const discountMutationRecovery = RecoveryPolicy.noResume({
-  releasesOn: (
-    failure: CliResourceNotFound | CliMutationRejected | CliServiceUnavailable
-  ) =>
-    failure instanceof CliResourceNotFound ||
-    failure instanceof CliMutationRejected,
+  releasesOn: (failure: AdministrationOperationError) =>
+    failure._tag === "OperationNotFound" ||
+    failure._tag === "OperationConflict",
   completion: "required",
 });
 

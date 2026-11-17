@@ -499,7 +499,7 @@ fields, including contact data, from a production-only Workspace route into a
 `custom.dotypos_customers` warehouse table. Analysts join it to persons on
 `properties.dotypos_customer_id`. The legal basis is legitimate interest, so
 it covers every Dotypos customer regardless of cookie consent; the privacy
-policy (`features/legal/content.tsx`, both locales) discloses the fields and
+policy (`features/legal/content.tsx`, every locale) discloses the fields and
 the right to object. Deleted customers stay as rows with `deleted: true`, and
 PostHog's settings govern retention, as for other analytics data.
 Staff can record an objection with the Dotypos `no-analytics` tag, which

@@ -12,6 +12,7 @@ export type BotProtectionCallSite =
   | "account.sign-in"
   | "accounting.manage-post-order-invoice"
   | "checkout.apply-discount-code"
+  | "checkout.clear-discount-code"
   | "contact.submit"
   | "reservation.prepare-pay-state"
   | "reservation.submit";

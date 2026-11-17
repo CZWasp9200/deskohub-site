@@ -37,6 +37,7 @@ const dueInvoice: CustomerInvoiceSummary = {
   paymentStatus: "due",
   dueDate: plainDateStringSchema.make("2026-09-01"),
   cancellation: null,
+  reservation: null,
 };
 const paidInvoice: CustomerInvoiceSummary = {
   id: invoiceIdSchema.make("018f47d2-8f7c-7c5e-9f9a-6ef21f90cb24"),
@@ -47,6 +48,7 @@ const paidInvoice: CustomerInvoiceSummary = {
   paymentStatus: "paid",
   dueDate: null,
   cancellation: null,
+  reservation: null,
 };
 const correctiveDocumentNumber =
   correctiveDocumentNumberSchema.make("WS-OD-2026-000005");
@@ -60,12 +62,12 @@ const cancelledInvoice: CustomerInvoiceSummary = {
 };
 
 const loadWith = (
-  list: CustomerInvoiceService["Service"]["list"],
+  list: ReturnType<CustomerInvoiceService["Service"]["list"]>,
   locale: "cs-CZ" | "en-US" = "cs-CZ"
 ) =>
   Effect.runPromise(
     loadInvoiceHistory(locale).pipe(
-      Effect.provide(Layer.mock(CustomerInvoiceService, { list }))
+      Effect.provide(Layer.mock(CustomerInvoiceService, { list: () => list }))
     )
   );
 
@@ -192,7 +194,7 @@ describe("loadCustomerInvoiceHistory", () => {
     expect(
       await loadCustomerInvoiceHistory(
         "en-US",
-        Layer.mock(CustomerInvoiceService, { list: Effect.succeed([]) })
+        Layer.mock(CustomerInvoiceService, { list: () => Effect.succeed([]) })
       )
     ).toEqual({ kind: "empty" });
   });

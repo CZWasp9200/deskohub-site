@@ -350,7 +350,7 @@ describe("NexiWebhookService", () => {
 
   test("accepts a declined notification for an attempt that is no longer pending", async () => {
     const { PaymentLifecycleStateError } = await import(
-      "../repositories/payment-lifecycle.repository"
+      "../repositories/payment-lifecycle-state"
     );
     const markProcessed = mock(() => Effect.void);
     const markFailed = mock(() => Effect.void);

@@ -94,16 +94,20 @@ const Party = ({
   </View>
 );
 
-/** The statutory VAT statement. */
-export const AccountingDocumentNonVatNote = ({
+/**
+ * The VAT status statement the document was issued under; nothing when that
+ * status has no statement.
+ */
+export const AccountingDocumentVatNote = ({
   statement,
 }: {
-  readonly statement: string;
-}): ReactElement => (
-  <View style={styles.nonVatNote} wrap={false}>
-    <Text>{statement}</Text>
-  </View>
-);
+  readonly statement: string | undefined;
+}): ReactElement | null =>
+  statement === undefined ? null : (
+    <View style={styles.vatNote} wrap={false}>
+      <Text>{statement}</Text>
+    </View>
+  );
 
 /** The supplier line and page counter fixed to every page's foot. */
 export const AccountingDocumentFooter = ({
@@ -274,7 +278,7 @@ const styles = StyleSheet.create({
     minWidth: 120,
     textAlign: "right",
   },
-  nonVatNote: {
+  vatNote: {
     backgroundColor: "#fff6ed",
     borderLeftColor: "#d15a35",
     borderLeftWidth: 3,

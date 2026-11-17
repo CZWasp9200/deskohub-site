@@ -1,7 +1,11 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Match, Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useReducer } from "react";
+import KeyRound from "lucide-react-native/icons/key-round";
+import Mail from "lucide-react-native/icons/mail";
+import Pencil from "lucide-react-native/icons/pencil";
+import Trash2 from "lucide-react-native/icons/trash-2";
+import { useReducer, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { AddPasskeyAction } from "../../auth/passkey/add-passkey-action";
 import { useReauthentication } from "../../auth/reauthentication";
@@ -13,11 +17,17 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { formatInstant } from "../../i18n/date-time-format";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { theme } from "../../theme";
+import { Badge } from "../../ui/badge";
+import { BottomSheet } from "../../ui/bottom-sheet";
 import { ConfirmDialog } from "../../ui/confirm-dialog";
-import { BodyText, Button, LiveMessage, TextField } from "../../ui/controls";
+import { BodyText, LiveMessage, TextField } from "../../ui/controls";
+import { emailWithBreak } from "../../ui/email-with-break";
+import { EmptyState } from "../../ui/empty-state";
 import { ListGroup, ListRow, SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
+import { useToast } from "../../ui/toast";
+import { space } from "../../ui/tokens";
+import { PasskeyListRow } from "./passkey-list-row";
 import {
   deletePasskeyAtom,
   type PasskeyRow,
@@ -40,18 +50,19 @@ import {
   shownPasskeyName,
 } from "./security-screen-state";
 
-const passkeyDetails = (row: PasskeyRow, locale: AppLocale) =>
-  Option.getOrUndefined(
-    Option.map(row.createdAt, (createdAt) => {
-      const date = formatInstant(createdAt, locale, "date");
-      return row.provider === undefined
-        ? m.security_passkey_created_on({ date }, { locale })
-        : m.security_passkey_details(
-            { provider: row.provider, date },
-            { locale }
-          );
-    })
-  ) ?? row.provider;
+// The provider over the creation date, each on its own line.
+const passkeyDetails = (row: PasskeyRow, locale: AppLocale) => {
+  const created = Option.getOrUndefined(
+    Option.map(row.createdAt, (createdAt) =>
+      m.security_passkey_created_on(
+        { date: formatInstant(createdAt, locale, "date") },
+        { locale }
+      )
+    )
+  );
+  const lines = [row.provider, created].filter((line) => line !== undefined);
+  return lines.length === 0 ? undefined : lines.join("\n");
+};
 
 const passkeysErrorMessage =
   (locale: AppLocale) => (error: CustomerViewError) =>
@@ -73,7 +84,6 @@ const announcementMessage = (
         renamed: m.security_renamed,
         deleted: m.security_deleted,
         gone: m.security_passkey_gone,
-        adding: m.passkey_add_pending,
       }[announcement]({}, { locale });
 
 const dialogFailureMessage = ({
@@ -122,6 +132,12 @@ export function SecurityScreen() {
     securityScreenReducer,
     initialSecurityScreenState
   );
+  const toast = useToast();
+  // The passkey whose menu is open, with how many the list shows.
+  const [menu, setMenu] = useState<{
+    readonly row: PasskeyRow;
+    readonly passkeyCount: number;
+  }>();
 
   const prompt = reauthenticationPrompt(
     state.reauthentication,
@@ -185,26 +201,58 @@ export function SecurityScreen() {
           locale,
         });
 
+  const adding = (kind: "first" | "another") => (
+    <AddPasskeyAction
+      kind={kind}
+      onStart={() => dispatch(SecurityScreenEvent.PasskeyAddStarted())}
+      onSettled={() => dispatch(SecurityScreenEvent.PasskeyAddSettled())}
+      onAdded={() => {
+        dispatch(SecurityScreenEvent.PasskeyAdded());
+        toast.show({
+          message: m.security_passkey_created({}, { locale }),
+          tone: "confirmation",
+        });
+        refreshPasskeys();
+      }}
+      onReauthenticationRequired={() => {
+        dispatch(SecurityScreenEvent.AddReauthenticationRequired());
+        void confirmItsYou();
+      }}
+    />
+  );
+
   return (
-    <ScrollScreen refreshing={passkeys.waiting} onRefresh={refreshPasskeys}>
+    <ScrollScreen
+      refreshing={passkeys.waiting && !AsyncResult.isInitial(passkeys)}
+      onRefresh={refreshPasskeys}
+    >
+      <SectionHeader first title={m.security_methods_title({}, { locale })} />
       <AsyncView result={account} onRetry={refreshAccount}>
         {(current) => (
           <ListGroup>
             <ListRow
-              label={m.security_email_title({}, { locale })}
+              icon={Mail}
+              label={m.account_row_security_email_code({}, { locale })}
               description={m.security_email_body(
-                { email: current.email },
+                { email: emailWithBreak(current.email) },
                 { locale }
               )}
-              value={m.security_email_badge({}, { locale })}
+              badge={
+                <Badge
+                  tone="positive"
+                  label={m.security_email_badge({}, { locale })}
+                />
+              }
             />
           </ListGroup>
         )}
       </AsyncView>
       {passkeysReleased(passkeys) && (
         <>
-          <SectionHeader title={m.security_passkeys_title({}, { locale })} />
-          <BodyText>{m.security_passkeys_intro({}, { locale })}</BodyText>
+          <SectionHeader
+            title={m.security_passkeys_title({}, { locale })}
+            description={m.security_passkeys_intro({}, { locale })}
+          />
           <AsyncView
             result={passkeys}
             onRetry={refreshPasskeys}
@@ -214,86 +262,91 @@ export function SecurityScreen() {
               const listed = list.map((passkey) =>
                 passkeyRow(passkey, defaultName)
               );
-              return (
+              return listed.length === 0 ? (
+                <EmptyState
+                  icon={KeyRound}
+                  tone="action"
+                  dashed
+                  title={m.security_passkeys_empty_title({}, { locale })}
+                >
+                  {adding("first")}
+                </EmptyState>
+              ) : (
                 <>
-                  {listed.length === 0 && (
-                    <ListGroup>
-                      <ListRow
-                        label={m.security_passkeys_empty({}, { locale })}
+                  <ListGroup>
+                    {listed.map((row) => (
+                      <PasskeyListRow
+                        key={row.id}
+                        name={row.name}
+                        details={passkeyDetails(row, locale)}
+                        menuLabel={m.security_passkey_menu_label(
+                          { name: row.name },
+                          { locale }
+                        )}
+                        disabled={state.adding}
+                        onOpenMenu={() =>
+                          setMenu({ row, passkeyCount: listed.length })
+                        }
                       />
-                    </ListGroup>
-                  )}
-                  {listed.map((row) => (
-                    <ListGroup key={row.id}>
-                      <ListRow
-                        label={row.name}
-                        description={passkeyDetails(row, locale)}
-                      />
-                      <View style={styles.actions}>
-                        <View style={styles.action}>
-                          <Button
-                            variant="secondary"
-                            label={m.security_passkey_rename({}, { locale })}
-                            disabled={state.adding}
-                            accessibilityLabel={m.security_passkey_rename_label(
-                              { name: row.name },
-                              { locale }
-                            )}
-                            onPress={() =>
-                              dispatch(
-                                SecurityScreenEvent.RenameOpened({
-                                  passkey: row,
-                                })
-                              )
-                            }
-                          />
-                        </View>
-                        <View style={styles.action}>
-                          <Button
-                            variant="secondary"
-                            label={m.security_passkey_delete({}, { locale })}
-                            disabled={state.adding}
-                            accessibilityLabel={m.security_passkey_delete_label(
-                              { name: row.name },
-                              { locale }
-                            )}
-                            onPress={() =>
-                              dispatch(
-                                SecurityScreenEvent.DeleteOpened({
-                                  passkey: row,
-                                  passkeyCount: listed.length,
-                                })
-                              )
-                            }
-                          />
-                        </View>
-                      </View>
-                    </ListGroup>
-                  ))}
-                  <AddPasskeyAction
-                    onStart={() =>
-                      dispatch(SecurityScreenEvent.PasskeyAddStarted())
-                    }
-                    onSettled={() =>
-                      dispatch(SecurityScreenEvent.PasskeyAddSettled())
-                    }
-                    onAdded={() => {
-                      dispatch(SecurityScreenEvent.PasskeyAdded());
-                      refreshPasskeys();
-                    }}
-                    onReauthenticationRequired={() => {
-                      dispatch(
-                        SecurityScreenEvent.AddReauthenticationRequired()
-                      );
-                      void confirmItsYou();
-                    }}
-                  />
+                    ))}
+                  </ListGroup>
+                  <View style={styles.another}>{adding("another")}</View>
                 </>
               );
             }}
           </AsyncView>
         </>
       )}
+      <BottomSheet
+        visible={menu !== undefined}
+        title={menu?.row.name}
+        onDismiss={() => setMenu(undefined)}
+      >
+        <ListGroup>
+          <ListRow
+            kind="action"
+            icon={Pencil}
+            label={m.security_passkey_rename({}, { locale })}
+            accessibilityLabel={
+              menu === undefined
+                ? undefined
+                : m.security_passkey_rename_label(
+                    { name: menu.row.name },
+                    { locale }
+                  )
+            }
+            onPress={() => {
+              if (menu === undefined) return;
+              setMenu(undefined);
+              dispatch(SecurityScreenEvent.RenameOpened({ passkey: menu.row }));
+            }}
+          />
+          <ListRow
+            kind="action"
+            destructive
+            icon={Trash2}
+            label={m.security_passkey_delete({}, { locale })}
+            accessibilityLabel={
+              menu === undefined
+                ? undefined
+                : m.security_passkey_delete_label(
+                    { name: menu.row.name },
+                    { locale }
+                  )
+            }
+            onPress={() => {
+              if (menu === undefined) return;
+              setMenu(undefined);
+              dispatch(
+                SecurityScreenEvent.DeleteOpened({
+                  passkey: menu.row,
+                  passkeyCount: menu.passkeyCount,
+                })
+              );
+            }}
+          />
+        </ListGroup>
+      </BottomSheet>
       {/* Kept mounted so assistive tech announces each change; an open
           dialog speaks for itself. */}
       <LiveMessage
@@ -382,11 +435,5 @@ export function SecurityScreen() {
 }
 
 const styles = StyleSheet.create({
-  actions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing.sm,
-    padding: theme.spacing.md,
-  },
-  action: { flexBasis: 120, flexGrow: 1 },
+  another: { marginTop: space.lg },
 });

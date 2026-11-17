@@ -11,6 +11,7 @@ import type { AssistantRow } from "./connected-assistants";
 
 type Props = {
   readonly children?: ReactNode;
+  readonly below?: ReactNode;
   readonly role?: string;
   readonly "aria-label"?: string;
   readonly accessibilityLabel?: string;
@@ -25,9 +26,9 @@ const findAll = (
   if (!isValidElement<Props>(node)) return [];
   return [
     ...(matches(node) ? [node] : []),
-    ...Children.toArray(node.props.children).flatMap((child) =>
-      findAll(child, matches)
-    ),
+    ...[node.props.children, node.props.below]
+      .flatMap((slot) => Children.toArray(slot))
+      .flatMap((child) => findAll(child, matches)),
   ];
 };
 

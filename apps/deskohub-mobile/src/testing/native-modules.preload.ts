@@ -3,6 +3,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { Component, createContext, useContext } from "react";
 import { postHogStandIn } from "./posthog-stand-in";
 
+// React Native defines `__DEV__` before any module runs, and Expo's modules
+// read it on import. Tests run as a release build; one that switches it on
+// puts `false` back when it ends, so no file depends on the order it runs in.
+(globalThis as { __DEV__?: boolean }).__DEV__ = false;
+
 /**
  * Bun can't load React Native or Expo's native modules, so tests get small
  * stand-ins for the parts the auth code touches: the platform, the app
@@ -80,6 +85,9 @@ mock.module("react-native", () => ({
   Linking: {
     addEventListener: () => ({ remove: () => undefined }),
   },
+  BackHandler: {
+    addEventListener: () => ({ remove: () => undefined }),
+  },
   // Animations stand still: values keep what they were set to and every
   // animation finishes at once when started.
   Animated: {
@@ -111,6 +119,7 @@ mock.module("react-native", () => ({
     addListener: () => ({ remove: () => undefined }),
     dismiss: () => undefined,
     isVisible: () => false,
+    metrics: () => undefined,
   },
   // The design's narrowest phone at the default font size.
   useWindowDimensions: () => ({
@@ -142,13 +151,16 @@ mock.module("react-native-svg", () => ({
   default: svgElement("Svg"),
   Svg: svgElement("Svg"),
   Circle: svgElement("Circle"),
+  Defs: svgElement("Defs"),
   Ellipse: svgElement("Ellipse"),
   G: svgElement("G"),
   Line: svgElement("Line"),
+  LinearGradient: svgElement("LinearGradient"),
   Path: svgElement("Path"),
   Polygon: svgElement("Polygon"),
   Polyline: svgElement("Polyline"),
   Rect: svgElement("Rect"),
+  Stop: svgElement("Stop"),
 }));
 
 // Lottie's player is a class with commands a component calls through a ref;
@@ -191,6 +203,24 @@ mock.module("expo-crypto", () => ({
   },
 }));
 
+// The native auth client keeps its session here; a screen that links the
+// auth client must load in a test file of its own, not only after another
+// file mocked the client.
+const secureItems = new Map<string, string>();
+mock.module("expo-secure-store", () => ({
+  getItem: (key: string) => secureItems.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    secureItems.set(key, value);
+  },
+  getItemAsync: async (key: string) => secureItems.get(key) ?? null,
+  setItemAsync: async (key: string, value: string) => {
+    secureItems.set(key, value);
+  },
+  deleteItemAsync: async (key: string) => {
+    secureItems.delete(key);
+  },
+}));
+
 // Better Auth's Expo online manager loads this when a session atom mounts.
 mock.module("expo-network", () => ({
   addNetworkStateListener: () => ({ remove: () => undefined }),
@@ -213,6 +243,8 @@ mock.module("expo-web-browser", () => ({
 // Tests provide their own consent; these keep its module graph loadable.
 mock.module("expo-localization", () => ({
   getLocales: () => [{ languageTag: "en-US" }],
+  // The device doesn't say its clock: times follow the locale.
+  getCalendars: () => [{ uses24hourClock: null }],
 }));
 
 const asyncStorageItems = new Map<string, string>();

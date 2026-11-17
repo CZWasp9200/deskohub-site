@@ -160,6 +160,8 @@
   "administrationCustomerExportColumnPhone": "Điện thoại",
   "administrationCustomerExportColumnReservations": "Đặt chỗ",
   "administrationCustomerUnnamed": "Khách hàng chưa có tên",
+  "administrationCustomerDeleted": "Khách hàng đã xóa",
+  "administrationCustomerExpired": "Khách hàng đã hết hạn",
   "administrationCustomerNoContactDetails": "Không có thông tin liên hệ",
   "administrationCustomerSearchAmbiguous": "Có nhiều khách hàng khớp. Vui lòng chọn đúng khách hàng.",
   "administrationCustomerSearchEmpty": "Không có khách hàng nào khớp.",

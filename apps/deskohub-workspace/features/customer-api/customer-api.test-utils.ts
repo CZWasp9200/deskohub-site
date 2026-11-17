@@ -41,9 +41,10 @@ import {
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { CheckoutService } from "@/features/checkout/backend/checkout";
 import { CheckoutPaymentPageService } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
+import { CheckoutPaymentRetryService } from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { CheckoutStatusService } from "@/features/checkout/backend/checkout/checkout-status.service";
-import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
+import { PayableCheckout } from "@/features/checkout/backend/checkout/payable-checkout.service";
 import {
   featureFlagsByRequestCohort,
   releaseGateForRunOverFlags,
@@ -53,11 +54,13 @@ import type { WorkspaceFeatureFlagService } from "@/features/feature-flags/backe
 import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
 import { MarketingConsentLedger } from "@/features/legal/backend/marketing-consent-ledger";
 import { MarketingPreferences } from "@/features/legal/backend/marketing-preferences.service";
+import { MeetingRoomReleaseGate } from "@/features/meeting-room/backend/meeting-room-release-gate";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
@@ -246,6 +249,7 @@ const unusedReservationServices: CustomerReservationServiceLayers = {
   authorization: Layer.mock(ReservationAuthorizationService, {}),
   checkoutStatus: Layer.mock(CheckoutStatusService, {}),
   paymentPage: () => Layer.mock(CheckoutPaymentPageService, {}),
+  paymentRetry: () => Layer.mock(CheckoutPaymentRetryService, {}),
   access: () => Layer.mock(ReservationAccessService, {}),
   invoice: () => Layer.mock(ReservationInvoicePdfService, {}),
 };
@@ -352,12 +356,14 @@ const unusedBookingCatalog: CustomerBookingCatalogLayerSet = {
   inventory: Layer.mock(AdvisoryAvailabilityInventory, {}),
   availability: Layer.mergeAll(
     Layer.mock(WorkspaceAvailabilityService, {}),
-    Layer.mock(ReservationSupersessionService, {}),
+    Layer.mock(PayableCheckout, {}),
     TestSealedStateKeys
   ),
   sealedStateKeys: TestSealedStateKeys,
   releases: {
+    meetingRoom: MeetingRoomReleaseGate.fromDecision(true),
     office: OfficeReleaseGate.fromDecision(false),
+    overnightStay: OvernightStayReleaseGate.fromDecision(false),
     referral: ReferralReleaseGate.fromDecision(false),
   },
 };
@@ -368,6 +374,7 @@ const unusedBookingCheckout: CustomerBookingCheckoutLayerSet = {
   inventory: Layer.mock(AdvisoryAvailabilityInventory, {}),
   releases: {
     office: OfficeReleaseGate.fromDecision(false),
+    overnightStay: OvernightStayReleaseGate.fromDecision(false),
     referral: ReferralReleaseGate.fromDecision(false),
   },
 };

@@ -23,7 +23,11 @@ origins. App paths are relative to `apps/deskohub-mobile/src/auth`.
   reauthentication ended as "unavailable" (#1123). Bun rejects the import
   instead, so `native-auth-client.test.ts` pins the dependency.
 - Web (the `/app/` bundle): `auth-client.web.ts` uses the site's cookies on the
-  same origin and `passkeyClient()`.
+  same origin and `passkeyClient()`. `web-auth-client.ts` builds it with a
+  `customFetchImpl` that reads `globalThis.fetch` on every request: Better
+  Auth otherwise keeps the `fetch` it saw at creation, which is before
+  `_layout.tsx` runs `initBotId`, and production then refuses every sign-in
+  email and code as `BOT_DETECTED`. `web-auth-client.test.ts` pins this.
 - Every write to the stored session (sign-in, sign-out, passkey sign-in, web
   verification) runs under `withSessionWriteLock` (`session-write-lock.ts`), so
   concurrent flows can't interleave. A `/get-session` response already in flight can still race a
@@ -57,6 +61,18 @@ opens the web bundle's `/app/sign-in?native=1` in an in-app auth session:
   `/app/auth/callback?token=…` App Link; the app verifies the token itself with
   its Expo origin. `ACCOUNT_SWITCH_REFUSED` keeps the current account signed in
   and the link unused.
+- The tab normally opens in the app's own task, so the return link to the
+  app closes it. On Chrome's first run, Chrome opens it in a task of its
+  own (`NEW_TASK | MULTIPLE_TASK | NEW_DOCUMENT`), which the app can't close
+  and the back gesture would reveal; the page therefore closes itself
+  (`close-tab-on-handoff.ts`) once it has handed off and the app hides it.
+  A magic link opened from the mail app in that case never hands off, so
+  that tab stays (accepted limitation; follow-up
+  [#1303](https://github.com/totalolage/deskohub-site/issues/1303)).
+- The page focuses the email field on load, but Chrome raises the keyboard
+  only on a tap, in the app's tab as in Chrome itself (checked on the
+  emulator, 2026-11-16); neither the TWA nor the Custom Tab launch can
+  change that.
 - The TWA needs the site's `assetlinks.json` and the app's `asset_statements`
   to agree on the signing key. On a debug-signed build, or on first launch
   before verification finishes, it falls back to a Custom Tab with a visible
@@ -98,6 +114,8 @@ to the ceremony.
   `https://workspace.deskohub.cz/app/` is `autoVerify`; a build aimed at a
   preview adds an unverified filter for that host, which a tester approves in
   the app's Android settings.
+  The site pages the app also claims are in
+  [web-app-and-android-page.md](web-app-and-android-page.md).
 - `/.well-known/apple-app-site-association` (`webcredentials` and `applinks`
   for `/app/*`) needs `APPLE_TEAM_ID` and answers 404 without it. There is no
   Apple account yet, so iOS passkeys and universal links stay unconfigured.

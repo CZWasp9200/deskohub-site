@@ -17,8 +17,10 @@ describe("MeetingRoomHero", () => {
       { kind: "equipment", text: "TV for presentations" },
     ]);
 
-    const [image] = findAll(tree, "Image");
-    expect(image?.props["aria-hidden"]).toBe(true);
+    const hidden = findAll(tree, "View").filter(
+      (view) => view.props["aria-hidden"] === true
+    );
+    expect(hidden.flatMap((view) => findAll(view, "Image"))).toHaveLength(1);
     expect(findAll(tree, "Text").map((text) => textOf(text))).toEqual([
       "Up to 10 seats",
       "TV for presentations",

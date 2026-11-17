@@ -4,9 +4,9 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { Duration } from "effect";
 import { payStateTokenQueryParam } from "@/features/checkout/backend/checkout/pay-state";
+import type { ApplyDiscountCodeInput } from "@/features/checkout/backend/checkout/pay-state-discount-code-input";
 import type { WorkspaceActionOptions } from "@/shared/backend/workspace-action";
 import type { ApplyDiscountCodeActionResult } from "./apply-discount-code";
-import type { ApplyDiscountCodeInput } from "./apply-discount-code-input";
 
 mock.module("server-only", () => ({}));
 

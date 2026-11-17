@@ -40,6 +40,9 @@ type Price = NonNullable<BarProps["summary"]>["price"];
 
 const locale = "en-US" as const;
 
+// The unit a screen passes for its from-price; the bar shows it as given.
+const unit = "unit";
+
 const quoted: Price = {
   kind: "quoted",
   breakdown: priceBreakdown(openSpaceWithCoffee.summary),
@@ -96,6 +99,13 @@ describe("BookingBar", () => {
     expect(flatStyle(struck?.props.style).textDecorationLine).toBe(
       "line-through"
     );
+  });
+
+  test("the summary's lines wrap at large text sizes; none is cut", () => {
+    const texts = findAll(bar(), "Text").filter(
+      (text) => text.props.numberOfLines !== undefined
+    );
+    expect(texts).toEqual([]);
   });
 
   test("a quoted price has a collapsed toggle named for showing the details", () => {
@@ -176,16 +186,40 @@ describe("BookingBar", () => {
           kind: "from",
           amount: czk(232),
           was: czk(290),
-          unit: "per day",
+          unit,
         },
       },
       initiallyOpen: true,
     });
     expect(chevronOf(tree)).toBeUndefined();
-    expect(findAll(tree, "Text").map(textOf)).toContain("per day");
+    expect(findAll(tree, "Text").map(textOf)).toContain(unit);
     expect(
       findAll(tree, "Pressable").find((press) => press.props.disabled === true)
     ).toBeDefined();
+  });
+
+  test("a from-price given its lines opens to them under its own total", () => {
+    const fromPrice: Price = {
+      kind: "from",
+      amount: czk(282),
+      unit,
+      itemized: {
+        breakdown: priceBreakdown(openSpaceWithCoffee.summary),
+        describeLine: describePriceLine(openSpaceWithCoffee.selection, locale),
+      },
+    };
+    const tree = elementTree(
+      BookingBar,
+      props({
+        summary: { title: "Open Space desk", price: fromPrice },
+        initiallyOpen: true,
+      }),
+      withToasts
+    );
+    expect(find(tree, PriceLines)?.props.variant).toBe("bar");
+    const host = hostTree(tree);
+    expect(chevronOf(host)?.props["aria-expanded"]).toBe(true);
+    expect(findAll(host, "Text").map(textOf)).toContain(unit);
   });
 
   test("updating shows the indicator in an announced status, and no total", () => {

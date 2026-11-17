@@ -33,7 +33,14 @@ const SectionPanel = ({ section }: { readonly section: AccountSection }) => {
     case "billing":
       return <select id="account-profile-billing-kind" />;
     case "legal":
-      return <a href={`/${locale}/privacy-policy`}>Privacy policy</a>;
+      // The real section links to the privacy policy more than once.
+      return (
+        <section aria-labelledby="account-legal-title">
+          <h2 id="account-legal-title">Legal</h2>
+          <a href={`/${locale}/privacy-policy`}>Privacy policy</a>
+          <a href={`/${locale}/privacy-policy`}>privacy policy</a>
+        </section>
+      );
     case "danger":
       return (
         <button id="delete-account-trigger" type="button">

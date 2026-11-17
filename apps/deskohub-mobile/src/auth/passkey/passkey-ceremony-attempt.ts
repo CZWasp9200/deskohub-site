@@ -30,8 +30,8 @@ const isQuiet = (failure: PasskeyFailure) =>
  * the ceremony may change the session, so it can hold its other sign-in
  * methods: it turns true before the prompt opens and false only after
  * `onSucceeded` has run, or once the ceremony fails or is interrupted.
- * `takeOver` may claim a failure for its caller, and the control then
- * returns to idle.
+ * `takeOver` may claim any failure for its caller, a quiet one included,
+ * and the control then returns to idle.
  */
 export const passkeyCeremonyAttempt = <A>({
   ceremony,
@@ -62,7 +62,7 @@ export const passkeyCeremonyAttempt = <A>({
         onSucceeded?.(value);
       },
       onFailure: (failure) => {
-        const quiet = isQuiet(failure) || takeOver(failure);
+        const quiet = takeOver(failure) || isQuiet(failure);
         setState(quiet ? { status: "idle" } : { status: "failed", failure });
       },
     }),

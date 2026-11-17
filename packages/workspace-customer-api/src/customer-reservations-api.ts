@@ -5,8 +5,14 @@ import {
   HttpApiSchema,
 } from "effect/unstable/httpapi";
 import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
-import { CustomerCheckoutReturnTarget } from "./customer-booking-checkout-api";
-import { CustomerBookingSelection } from "./customer-booking-selection";
+import {
+  CustomerCheckout,
+  CustomerCheckoutReturnTarget,
+} from "./customer-booking-checkout-api";
+import {
+  CustomerBookingSelection,
+  CustomerCoworkStay,
+} from "./customer-booking-selection";
 import { CustomerLocale } from "./customer-locale";
 import { customerInputParseOptions } from "./customer-profile";
 import { CustomerServiceUnavailable } from "./customer-session";
@@ -75,6 +81,41 @@ export class CustomerPaymentPageClosed extends Schema.TaggedErrorClass<CustomerP
   static schema = this.pipe(HttpApiSchema.status("Conflict"));
 }
 
+/**
+ * Why the order's payment can't be tried again in place. The order is
+ * `paid`; its `payment_in_progress` may still complete; a `late_payment` of
+ * it is being checked; a newer booking `superseded` it; its reservation was
+ * cancelled (`reservation_cancelled`) or has ended (`reservation_ended`);
+ * its details can't be rebuilt (`details_unavailable`) or need a person to
+ * look at them (`needs_review`); the reserved spot was taken meanwhile
+ * (`spot_unavailable`); or the provider shows the earlier payment may still
+ * settle (`payment_settling`: check the order's status again later, don't
+ * book again). For every reason but `payment_settling`, booking the same
+ * selection again is the way on.
+ */
+export const CustomerPaymentRetryRefusedReason = Schema.Literals([
+  "paid",
+  "payment_in_progress",
+  "late_payment",
+  "superseded",
+  "reservation_cancelled",
+  "reservation_ended",
+  "details_unavailable",
+  "needs_review",
+  "spot_unavailable",
+  "payment_settling",
+]).annotate({ identifier: "CustomerPaymentRetryRefusedReason" });
+export type CustomerPaymentRetryRefusedReason =
+  typeof CustomerPaymentRetryRefusedReason.Type;
+
+/** The order's payment can't be tried again in place, for `reason`. */
+export class CustomerPaymentRetryRefused extends Schema.TaggedErrorClass<CustomerPaymentRetryRefused>()(
+  "CustomerPaymentRetryRefused",
+  { reason: CustomerPaymentRetryRefusedReason }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
 // Reservations
 
 const isoInstant = Schema.String.annotate({
@@ -110,7 +151,16 @@ export type CustomerCoworkTier = typeof CustomerCoworkTier.Type;
 
 /** What a reservation in the history books; `other` for any other product. */
 export const CustomerReservationProduct = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("cowork"), tier: CustomerCoworkTier }),
+  Schema.Struct({
+    kind: Schema.Literal("cowork"),
+    tier: CustomerCoworkTier,
+    /**
+     * The stay its booked time shows: overnight for a Reserved Desk held from
+     * noon to noon the next date. Absent when its time can't be read; read an
+     * absent stay as a day.
+     */
+    stay: Schema.optionalKey(CustomerCoworkStay),
+  }),
   Schema.Struct({ kind: Schema.Literal("meeting-room") }),
   Schema.Struct({ kind: Schema.Literal("office") }),
   Schema.Struct({ kind: Schema.Literal("other") }),
@@ -288,6 +338,14 @@ export const CustomerOrderState = Schema.Struct({
   fulfillmentStatus: CustomerOrderFulfillmentStatus,
   /** Marks a review account's sample or simulated hold. */
   reviewSandbox: Schema.optional(Schema.Literal(true)),
+  /**
+   * Marks a pending order whose payment page can be opened again
+   * (`reopenPaymentPage`): the payment provider's order still shows no
+   * activity, or, when it can't be asked, the page is inside its provisional
+   * reopening window. The answer can change at any moment; reopening checks
+   * again.
+   */
+  paymentPageReopenable: Schema.optional(Schema.Literal(true)),
   startsAt: Schema.optional(isoInstant),
   endsAt: Schema.optional(isoInstant),
   /**
@@ -354,6 +412,17 @@ export const ReopenCustomerPaymentPage = Schema.Struct({
 });
 
 /**
+ * Pays an order again after its payment failed, was cancelled or expired:
+ * the checkout continues in `locale`, the language the app shows it in.
+ */
+export const RetryCustomerPayment = Schema.Struct({
+  locale: CustomerLocale,
+}).annotate({
+  identifier: "RetryCustomerPayment",
+  parseOptions: customerInputParseOptions,
+});
+
+/**
  * The payment provider's page of the order's unpaid payment, opened again
  * for a customer who left it. It is the page the payment already opened:
  * opening it starts no new payment.
@@ -407,6 +476,24 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
       error: [
         CustomerReservationNotFound.schema,
         CustomerPaymentPageClosed.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    })
+  )
+  .add(
+    /**
+     * The same order's checkout again, with its details kept: the terms are
+     * confirmed again and `submitCheckout` starts the new payment. A changed
+     * price comes back as `price_review` to accept first. It never starts a
+     * payment and never books a second spot.
+     */
+    HttpApiEndpoint.post("retryPayment", "/:orderId/payment-retry", {
+      params: OrderParams,
+      payload: RetryCustomerPayment,
+      success: CustomerCheckout,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerPaymentRetryRefused.schema,
         CustomerServiceUnavailable.schema,
       ],
     })

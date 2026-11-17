@@ -3,7 +3,7 @@ import "server-only";
 import type {
   AdministrationCampaignDetailType,
   AdministrationCampaignEditorContentType,
-  CampaignOperationError,
+  AdministrationOperationError,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Option, Schema } from "effect";
 import { notFound } from "next/navigation";
@@ -45,7 +45,7 @@ export const requireAudienceRouteId = (value: string): CampaignAudienceId =>
 
 /** A campaign the port can't find answers with the not-found page. */
 const recordNotFound = <A, R>(
-  lookup: Effect.Effect<A, CampaignOperationError, R>
+  lookup: Effect.Effect<A, AdministrationOperationError, R>
 ) =>
   lookup.pipe(
     Effect.catchTag("OperationNotFound", () =>
@@ -125,7 +125,7 @@ const findTitle = <Id>(
     id: Id
   ) => Effect.Effect<
     { readonly title: string },
-    CampaignOperationError,
+    AdministrationOperationError,
     CampaignOperations | CurrentAdministrator | OperationRequestLedger
   >
 ) =>

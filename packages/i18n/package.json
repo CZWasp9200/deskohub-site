@@ -17,6 +17,7 @@
     "./effect": "./src/effect.ts",
     "./action": "./src/action.ts",
     "./currency": "./src/currency.ts",
+    "./search-text": "./src/search-text.ts",
     "./request-locale": "./src/request-locale.ts",
     "./locale-registry": "./src/locale-registry.ts"
   },

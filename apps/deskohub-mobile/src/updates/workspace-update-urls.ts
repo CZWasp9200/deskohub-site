@@ -2,14 +2,18 @@ import { resolveApiOrigin } from "../auth/api-origin";
 
 export type WorkspaceUpdateUrls = {
   readonly latestReleaseUrl: string;
-  readonly androidDownloadUrl: string;
+  /** Downloads one version's APK. */
+  readonly androidApkUrl: (versionName: string) => string;
 };
 
 export const workspaceUpdateUrls = (
   apiOrigin: string
 ): WorkspaceUpdateUrls => ({
   latestReleaseUrl: `${apiOrigin}/api/mobile/releases/latest`,
-  androidDownloadUrl: `${apiOrigin}/android`,
+  // Redirects to the release's APK on GitHub; the link stays on the
+  // Workspace's domain.
+  androidApkUrl: (versionName) =>
+    `${apiOrigin}/android/download/deskohub-${versionName}.apk`,
 });
 
 /**

@@ -33,7 +33,9 @@ import {
 export const loadInvoiceHistory = (
   locale: Locale
 ): Effect.Effect<CustomerInvoiceHistory, never, CustomerInvoiceService> =>
-  Effect.flatMap(CustomerInvoiceService, (invoices) => invoices.list).pipe(
+  Effect.flatMap(CustomerInvoiceService, (invoices) =>
+    invoices.list({ locale })
+  ).pipe(
     Effect.map(
       (summaries): CustomerInvoiceHistory =>
         summaries.length === 0

@@ -15,6 +15,7 @@ export const adminCustomer = (
   id: "dotypos-customer" as AdminCustomerProfile["customer"]["id"],
   displayName: "Test Customer",
   hasName: true,
+  lifecycle: "active",
   email: testEmailAddress("customer-admin"),
   phone: "+420 123 456 789",
   discountGroupId: null,

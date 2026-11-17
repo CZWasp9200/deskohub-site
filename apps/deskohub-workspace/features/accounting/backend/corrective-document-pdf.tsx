@@ -8,7 +8,7 @@ import { getCorrectiveDocumentPresentation } from "@/features/accounting/correct
 import {
   AccountingDocumentFooter,
   AccountingDocumentHeader,
-  AccountingDocumentNonVatNote,
+  AccountingDocumentVatNote,
   AccountingDocumentParties,
   renderAccountingDocumentPdf,
   accountingDocumentPdfStyles as styles,
@@ -128,8 +128,8 @@ const CorrectiveDocumentPdfDocument = ({
           <Text>{presentation.settlement}</Text>
         </View>
 
-        <AccountingDocumentNonVatNote
-          statement={presentation.nonVatStatement}
+        <AccountingDocumentVatNote
+          statement={presentation.vatStatement}
         />
 
         <AccountingDocumentFooter text={presentation.footer} />

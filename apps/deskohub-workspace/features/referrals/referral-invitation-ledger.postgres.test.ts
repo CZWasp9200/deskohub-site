@@ -2,7 +2,7 @@ import "@/shared/polyfills/temporal";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Logger, Predicate } from "effect";
 import {
   WorkspaceDatabase,
@@ -15,6 +15,7 @@ import {
   referralAttributions,
   referralCodes,
   referralInvitationClaims,
+  workspaceReservations,
 } from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { AppliedDiscount } from "@/features/discounts/contracts";
@@ -23,6 +24,7 @@ import {
   type DiscountApplicationId,
   type PromotionCodeId,
 } from "@/features/discounts/persistence-contracts";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { Money } from "@/shared/money/money";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
@@ -861,6 +863,67 @@ describe.skipIf(!testDatabase)(
         expect(await release(attempt)).toMatchObject(claimConflict("release"));
         expect(await claimRows(attempt.paymentAttemptId)).toMatchObject([
           { state: "redeemed" },
+        ]);
+      });
+    });
+
+    describe("administration cancellation", () => {
+      /** Makes the attempt its reservation's pending payment. */
+      const startPayment = (attempt: Attempt) =>
+        Effect.runPromise(
+          testDatabase!.db
+            .update(workspaceReservations)
+            .set({
+              paymentState: "pending",
+              activePaymentAttemptId: attempt.paymentAttemptId,
+            })
+            .where(eq(workspaceReservations.id, attempt.workspaceReservationId))
+        );
+
+      const cancelPendingPayment = (attempt: Attempt) =>
+        Effect.runPromise(
+          Effect.gen(function* () {
+            const reservations = yield* WorkspaceReservationRepository;
+            return yield* reservations.claimAdministrationCancellation({
+              id: attempt.workspaceReservationId,
+              staleCancellingBefore: now(),
+              pendingPaymentCancellation: {
+                paymentAttemptId: attempt.paymentAttemptId,
+                failureCode: "operator_cancelled",
+              },
+            });
+          }).pipe(
+            Effect.provide(WorkspaceReservationRepository.Default),
+            Effect.provide(testDatabase!.layer)
+          )
+        );
+
+      test("releases the cancelled payment's claim so the invited customer can claim the invitation again", async () => {
+        const { invited, code, offer, attempt, result } = await admitNew();
+        expect(result).toMatchObject({ _tag: "Success" });
+        await startPayment(attempt);
+        const blocked = await createAttempt(invited, offer.application);
+        expect(
+          await inTransaction(
+            ReferralInvitationLedger.admit(admission(offer, blocked))
+          )
+        ).toMatchObject(claimConflict("reserve"));
+
+        expect((await cancelPendingPayment(attempt))?.reservationState).toBe(
+          "cancelling"
+        );
+        expect(await claimRows(attempt.paymentAttemptId)).toMatchObject([
+          {
+            state: "released",
+            release_reason: "operator_cancelled",
+            released: true,
+          },
+        ]);
+
+        const again = await admitNew({ invited, code });
+        expect(again.result).toMatchObject({ _tag: "Success" });
+        expect(await claimRows(again.attempt.paymentAttemptId)).toMatchObject([
+          { state: "reserved", referrer: code.referrer },
         ]);
       });
     });

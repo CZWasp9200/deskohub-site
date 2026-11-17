@@ -1,10 +1,10 @@
 "use client";
 
+import { includesSearchText } from "@deskohub/i18n/search-text";
 import { Command as CommandPrimitive, useCommandState } from "cmdk";
 import { Check, Search } from "lucide-react";
 import type * as React from "react";
 import { cn } from "@/shared/utils";
-import { includesSearchText } from "@/shared/utils/text-case";
 
 /**
  * Keeps items whose keywords, or value without keywords, contain the search,

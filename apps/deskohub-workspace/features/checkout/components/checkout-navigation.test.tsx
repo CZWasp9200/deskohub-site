@@ -22,10 +22,13 @@ type CapturedLink = {
 
 const capturedLinks: CapturedLink[] = [];
 
-// The status page's payment page action is a server reference in Next; here
-// its server modules would load in the browser test environment.
+// The status page's payment actions are server references in Next; here
+// their server modules would load in the browser test environment.
 mock.module("@/features/checkout/actions/reopen-payment-page", () => ({
   reopenPaymentPage: mock(),
+}));
+mock.module("@/features/checkout/actions/prepare-payment-retry", () => ({
+  preparePaymentRetry: mock(),
 }));
 
 mock.module("next/link", () => ({
@@ -172,15 +175,18 @@ test("starts a new reservation with a fresh document", async () => {
         fulfillmentStatus: "not_started",
         kind: "cowork",
         orderId: "next-navigation-order",
-        paymentStatus: "failed",
+        paymentStatus: "expired",
         returnOutcome: "success",
-        status: "payment_failed",
+        // A status whose payment can't be tried again offers only a new one.
+        status: "late_payment_refund",
       }}
     />
   );
 
   expect(
-    view.getByRole("link", { name: "Try again" }).getAttribute("href")
+    view.container
+      .querySelector("#checkout-status-reserve-again")
+      ?.getAttribute("href")
   ).toBe("/en-US/reservation/cowork");
   expect(
     capturedLinks.some(({ href }) => href === "/en-US/reservation/cowork")

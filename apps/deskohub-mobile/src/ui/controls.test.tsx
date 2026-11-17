@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import Mail from "lucide-react-native/icons/mail";
 import { type ComponentProps, createRef, type ReactElement } from "react";
 import { StyleSheet, type TextInputInstance } from "react-native";
@@ -128,6 +129,17 @@ describe("Button", () => {
     expect(find(button({ icon: Mail }), "Svg")).toBeDefined();
   });
 
+  test("iconPlacement end draws the icon after the label", () => {
+    const iconFirst = (placement: "start" | "end") => {
+      const json = JSON.stringify(
+        button({ icon: Mail, iconPlacement: placement })
+      );
+      return json.indexOf('"Svg"') < json.indexOf('"label"');
+    };
+    expect(iconFirst("start")).toBe(true);
+    expect(iconFirst("end")).toBe(false);
+  });
+
   test("disabled is neutral grey and says why, above the button and as its hint", () => {
     const tree = button({ disabled: true, disabledReason: "why" });
     const pressable = pressableOf(tree);
@@ -207,7 +219,7 @@ const flat = (style: unknown) =>
 const field = (props: Partial<ComponentProps<typeof TextField>> = {}) => {
   const tree = hostTree(elementTree(TextField, { label: "label", ...props }));
   const frame = findAll(tree, "View").find(
-    (view) => find(view, "TextInput") && flat(view.props.style).minHeight
+    (view) => flat(view.props.style).minHeight !== undefined
   );
   const errorRegion = findAll(tree, "Text").find(
     (text) => text.props.role !== undefined
@@ -277,11 +289,20 @@ describe("TextField", () => {
     expect(field().input?.placeholderTextColor).toBe(color.ink3);
   });
 
-  test("read-only is sunken with a lock and not editable", () => {
-    const { input, frame, icons } = field({ readOnly: true });
+  test("read-only is sunken with a lock and shows its whole value, wrapping", () => {
+    const value = testEmailAddress("a-very-long-address-that-must-wrap");
+    const tree = hostTree(
+      elementTree(TextField, { label: "label", value, readOnly: true })
+    );
+    const { input, frame, icons } = field({ value, readOnly: true });
     expect(frame.backgroundColor).toBe(color.sunken);
     expect(icons).toBe(1);
-    expect(input?.editable).toBe(false);
+    expect(input).toBeUndefined();
+    const shown = findAll(tree, "Text").find(
+      (text) => text.props.children === value
+    );
+    expect(shown?.props.numberOfLines).toBeUndefined();
+    expect(shown?.props.selectable).toBe(true);
   });
 
   test("disabled is greyed, not editable and marked disabled", () => {

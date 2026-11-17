@@ -21,7 +21,7 @@ export type CalendarDayState =
   | "outside-range";
 
 /** Where a day sits in a multi-day range: its first, a middle or its last day. */
-export type CalendarRangePart = "start" | "middle" | "end";
+type CalendarRangePart = "start" | "middle" | "end";
 
 export interface CalendarDay {
   readonly date: PragueDate;

@@ -2,7 +2,6 @@ import type {
   CustomerCoworkTier,
   CustomerReservationKind,
   CustomerReservationProduct,
-  CustomerReservationStatus,
 } from "@deskohub/workspace-customer-api";
 import { Match } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -41,15 +40,3 @@ export const reservationProductTitle = (
       other: () => m.reservations_product_other({}, { locale }),
     })
   );
-
-/** A history reservation's status, as the account page words it. */
-export const reservationStatusLabel = (
-  status: CustomerReservationStatus,
-  locale: AppLocale
-) =>
-  ({
-    confirmed: m.reservations_status_confirmed,
-    pending: m.reservations_status_pending,
-    cancelled: m.reservations_status_cancelled,
-    "requires-attention": m.reservations_status_attention,
-  })[status]({}, { locale });

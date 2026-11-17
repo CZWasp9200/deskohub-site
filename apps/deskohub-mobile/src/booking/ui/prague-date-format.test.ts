@@ -1,5 +1,18 @@
-import { describe, expect, test } from "bun:test";
-import { formatPragueDate, formatPragueTime } from "./prague-date-format";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+// The device's clock setting, which the preload leaves unsaid (undefined).
+let deviceClock: boolean | undefined;
+mock.module("../../i18n/device-clock", () => ({
+  deviceHour12: () => deviceClock,
+}));
+
+const { formatPragueDate, formatPragueTime } = await import(
+  "./prague-date-format"
+);
+
+afterEach(() => {
+  deviceClock = undefined;
+});
 
 const numericDate = {
   year: "numeric",
@@ -24,10 +37,20 @@ describe("formatPragueTime", () => {
     expect(formatPragueTime("00:15", "cs-CZ")).toBe("0:15");
   });
 
-  test("reads the 24-hour clock in every language", () => {
+  test("follows a 24-hour device in every language, midnight as 00", () => {
+    deviceClock = false;
     for (const locale of ["en-US", "hi-IN", "vi-VN"] as const) {
       expect(formatPragueTime("14:00", locale)).toContain("14");
       expect(formatPragueTime("14:00", locale)).not.toContain("2");
+      expect(formatPragueTime("00:00", locale)).not.toContain("24");
+    }
+  });
+
+  test("follows a 12-hour device, as the tickets do", () => {
+    deviceClock = true;
+    for (const locale of ["en-US", "cs-CZ"] as const) {
+      expect(formatPragueTime("14:00", locale)).not.toContain("14");
+      expect(formatPragueTime("14:00", locale)).toContain("2");
     }
   });
 });

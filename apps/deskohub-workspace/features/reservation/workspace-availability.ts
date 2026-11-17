@@ -15,6 +15,11 @@ import {
   type WorkspaceCoworkAvailabilityTarget,
   workspaceCoworkProductIdentitySchema,
 } from "@/features/reservation/cowork-reservation-product";
+import {
+  coworkStaySchema,
+  isOvernightCoworkStay,
+  overnightCoworkStayTier,
+} from "@/features/reservation/cowork-stay";
 import type { WorkspaceMeetingRoomProductTarget } from "@/features/reservation/meeting-room-reservation";
 import {
   getMeetingRoomReservationDuration,
@@ -65,6 +70,12 @@ const coworkWorkspaceAvailabilityQuerySchema = Schema.Struct({
   monitorOption: Schema.optional(
     Schema.Literals(workspaceProductMonitorOptions)
   ),
+  /**
+   * The Reserved Desk stay the query evaluates; absence is a day stay. An
+   * overnight query keeps arrival dates as its dates and checks each one's
+   * noon-to-noon interval.
+   */
+  stay: Schema.optional(coworkStaySchema),
 });
 
 const meetingRoomWorkspaceAvailabilityQuerySchema = Schema.Struct({
@@ -283,19 +294,26 @@ export const getCoworkAvailabilityQueries = ({
   date,
   entryTier,
   monitorOption,
+  stay,
   today,
 }: {
   readonly date?: string;
   readonly entryTier?: string;
   readonly monitorOption?: string;
+  readonly stay?: string;
   readonly today: string;
 }): CoworkAvailabilityQueries => {
   if (!isWorkspaceCoworkCurrentProductTier(entryTier)) return {};
 
+  const overnight = isOvernightCoworkStay(
+    entryTier,
+    stay === "overnight" ? stay : undefined
+  );
   const range: CoworkWorkspaceAvailabilityQuery = {
     kind: coworkReservationKind,
     ...getWorkspaceAvailabilityRange(today),
     entryTier,
+    ...(overnight && { stay: "overnight" }),
   };
   if (!date) return { range };
 
@@ -307,6 +325,7 @@ export const getCoworkAvailabilityQueries = ({
     to: date,
     entryTier,
     date,
+    ...(overnight && { stay: "overnight" }),
   };
 
   return {
@@ -535,6 +554,11 @@ const decodeOfficeSeatsParam = Schema.decodeUnknownOption(
 const getOfficeSeatsParam = (value: string | null) =>
   Option.getOrUndefined(decodeOfficeSeatsParam(value));
 
+const decodeStay = Schema.decodeUnknownOption(coworkStaySchema);
+
+const getStayParam = (value: string | null) =>
+  Option.getOrUndefined(decodeStay(value?.trim()));
+
 const getMonitorParam = (value: string | null) => {
   const normalized = value?.trim();
   return isWorkspaceProductMonitorOption(normalized) ? normalized : undefined;
@@ -617,6 +641,11 @@ export const parseWorkspaceAvailabilityQuery = (
       const date = getDateParam(searchParams, "date");
       const entryTier = getTierParam(searchParams.get("entryTier"));
       const monitorOption = getMonitorParam(searchParams.get("monitorOption"));
+      const stay = getStayParam(searchParams.get("stay"));
+      // Only a Reserved Desk offers an overnight stay.
+      if (stay === "overnight" && entryTier !== overnightCoworkStayTier) {
+        return Option.none();
+      }
       return Option.some({
         kind: coworkReservationKind,
         from,
@@ -624,6 +653,7 @@ export const parseWorkspaceAvailabilityQuery = (
         ...(date && { date }),
         ...(entryTier && { entryTier }),
         ...(monitorOption && { monitorOption }),
+        ...(stay === "overnight" && { stay }),
       });
     }),
     Match.when("office", () => {

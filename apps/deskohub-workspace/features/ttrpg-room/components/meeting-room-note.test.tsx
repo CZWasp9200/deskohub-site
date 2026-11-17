@@ -14,7 +14,7 @@ const unavailable = () =>
 
 mock.module("next/server", () => ({ connection: () => Promise.resolve() }));
 mock.module(
-  "@/features/meeting-room/backend/meeting-room-page-release-gate.server",
+  "@/features/meeting-room/backend/meeting-room-release-gate.server",
   () => ({
     isMeetingRoomPageEnabled: () =>
       gate === "unavailable"

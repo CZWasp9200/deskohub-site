@@ -41,6 +41,8 @@ export function AppSignInEmailStep({
     <AppSignInLayout
       title={title}
       instructions={body}
+      // The shield and the locked address start under the text (board 19).
+      childrenPlacement={illustration === undefined ? "centred" : "under-text"}
       action={
         <Button
           label={busy ? m.signin_sending_code({}, { locale }) : submitLabel}

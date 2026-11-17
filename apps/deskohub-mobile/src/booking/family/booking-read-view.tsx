@@ -27,12 +27,15 @@ export function BookingReadView<A>({
   read,
   onRetry,
   loading,
+  failedTitle,
   children,
 }: {
   readonly read: BookingRead<A>;
   readonly onRetry: () => void;
   /** The first load's placeholder in the screen's layout; a spinner without. */
   readonly loading?: ReactNode;
+  /** What a first load that failed names as not loaded, over its cause. */
+  readonly failedTitle?: string;
   readonly children: (value: A) => ReactNode;
 }) {
   const locale = useAppLocale();
@@ -57,6 +60,7 @@ export function BookingReadView<A>({
         (loading ?? <LoadingState label={m.account_loading({}, { locale })} />)}
       {retryState && (
         <ErrorState
+          title={failedTitle}
           message={message ?? ""}
           retryLabel={m.account_retry({}, { locale })}
           onRetry={onRetry}

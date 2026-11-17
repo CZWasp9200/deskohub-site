@@ -57,7 +57,6 @@ const runUntilStatusPage = async (scenario: PaymentTerminalScenario) => {
     assertPaymentTerminalPath({
       config: { timeouts: workspaceE2ETimeouts } as WorkspaceE2EConfig,
       data,
-      reservationPath: "/en-US/reservation/cowork",
       openSession: Effect.fail(
         workspaceE2EError("the step contract test opens no browser session")
       ),

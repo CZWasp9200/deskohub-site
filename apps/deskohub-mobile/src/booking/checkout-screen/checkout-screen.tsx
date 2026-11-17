@@ -1,5 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
+import { AsyncResult } from "effect/unstable/reactivity";
 import {
   Redirect,
   Stack,
@@ -7,27 +8,36 @@ import {
   useNavigation,
   useRouter,
 } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import * as WebBrowser from "expo-web-browser";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { accountSectionHref } from "../../account/account-gating";
+import { initialsOf } from "../../account/account-root-model";
 import { legalDocumentUrl } from "../../account/legal/legal-documents";
-import { initialsOf } from "../../account/profile/profile-screen";
 import { apiOrigin } from "../../auth/auth-client";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import { type AppLocale, isAppLocale } from "../../i18n/app-locale";
+import { useDeviceCountry } from "../../i18n/device-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
-import { theme } from "../../theme";
+import { openSitePage } from "../../routing/open-site-page";
 import { LoadingState } from "../../ui/async-states";
 import { Button } from "../../ui/controls";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
-import { bookProfileHref } from "../booking-routes";
-import type { CheckoutRetryKind } from "../checkout/booking-problem";
+import { space } from "../../ui/tokens";
+import { bookFamilyHref, bookHref, bookProfileHref } from "../booking-routes";
+import type {
+  CheckoutRestartReason,
+  CheckoutRetryKind,
+} from "../checkout/booking-problem";
 import {
+  type BookingRequest,
   type CheckoutController,
   type CheckoutRequest,
+  checkoutOvernightStay,
   checkoutRequestAtom,
   useCheckoutFlow,
 } from "../checkout/checkout-flow";
@@ -35,10 +45,17 @@ import {
   CheckoutEvent,
   type CheckoutState,
   type DetailsState,
+  type ReviewState,
 } from "../checkout/checkout-state";
+import { bookingOfferingsAtom } from "../data/booking-queries";
 import { quotedBarSummary } from "../ui/booking-summary";
+import { HoldChip, HoldEndedDialog } from "../ui/hold-timer";
 import { retryMessage } from "./checkout-copy";
-import { checkoutDestination, leaveCheckout } from "./checkout-navigation";
+import {
+  checkoutDestination,
+  holdEndedReview,
+  leaveCheckout,
+} from "./checkout-navigation";
 import {
   detailsDraftAtom,
   keepsDetailsDraft,
@@ -60,7 +77,7 @@ import { useCheckoutNavigation } from "./use-checkout-navigation";
 export function CheckoutScreen() {
   const request = useAtomValue(checkoutRequestAtom);
   return Option.match(request, {
-    onNone: () => <Redirect href="/book" />,
+    onNone: () => <Redirect href={bookHref} />,
     onSome: (current) => <CheckoutFlowScreen request={current} />,
   });
 }
@@ -79,27 +96,88 @@ function CheckoutFlowScreen({
     isFocused: () => navigation.isFocused(),
   });
   const family = request.selection.family;
-  useCheckoutNavigation(flow.view, family);
+  const state = flow.view._tag === "Running" ? flow.view.state : undefined;
+  // The review a hold runs out on stays under the hold-ended dialog.
+  const [lastReview, setLastReview] = useState<Option.Option<ReviewState>>(
+    Option.none()
+  );
+  if (state?._tag === "Review" && Option.getOrUndefined(lastReview) !== state) {
+    setLastReview(Option.some(state));
+  }
+  // A payment retry shows no hold timer (the server still ends its hold):
+  // one that runs out goes back to the order's ticket, without the dialog.
+  const retriedOrderId =
+    request._tag === "PaymentRetry" ? request.checkout.orderId : undefined;
+  const ended =
+    retriedOrderId === undefined
+      ? holdEndedReview(flow.view, lastReview)
+      : Option.none();
+  useCheckoutNavigation(
+    flow.view,
+    family,
+    Option.isSome(ended),
+    retriedOrderId
+  );
   // The details outlive this screen (back, a restarted hold) until the
   // booking is submitted.
   const setDraft = useAtomSet(detailsDraftAtom);
-  const state = flow.view._tag === "Running" ? flow.view.state : undefined;
-  const submitted = state !== undefined && !keepsDetailsDraft(state);
+  // A payment retry never touched the draft of a booking in progress.
+  const submitted =
+    request._tag === "Booking" &&
+    state !== undefined &&
+    !keepsDetailsDraft(state);
   useEffect(() => {
     if (submitted) setDraft(Option.none());
   }, [submitted, setDraft]);
   const onDetails = state?._tag === "Details" || state?._tag === "Creating";
+  // While the payment page opens, the review stays with Pay saying so.
+  const opening =
+    state?._tag === "Paying" && Option.isSome(state.opening)
+      ? Option.some(state.review)
+      : Option.none();
+  const review =
+    state?._tag === "Review"
+      ? Option.some(state)
+      : Option.orElse(opening, () => ended);
   // Set on every state: options a screen sets outlive the element.
   const title = (
     <Stack.Screen
       options={{
-        title: onDetails
-          ? m.booking_details_title({}, { locale })
-          : m.booking_stack_checkout_title({}, { locale }),
+        title: checkoutTitle(onDetails, Option.isSome(review), locale),
+        headerRight: Option.match(
+          Option.filter(review, () => retriedOrderId === undefined),
+          {
+            onNone: () => undefined,
+            onSome: (shown) => () => (
+              <HoldChip
+                expiresAt={shown.checkout.holdExpiresAt}
+                locale={locale}
+              />
+            ),
+          }
+        ),
       }}
     />
   );
-  if (state?._tag === "Details" || state?._tag === "Creating") {
+  if (Option.isSome(review)) {
+    return (
+      <>
+        {title}
+        <ReviewForAccount
+          review={review.value}
+          ended={Option.isSome(ended)}
+          opening={Option.isSome(opening)}
+          flow={flow}
+          request={request}
+          locale={locale}
+        />
+      </>
+    );
+  }
+  if (
+    request._tag === "Booking" &&
+    (state?._tag === "Details" || state?._tag === "Creating")
+  ) {
     return (
       <>
         {title}
@@ -121,7 +199,6 @@ function CheckoutFlowScreen({
       ) : (
         <CheckoutStateView
           state={state}
-          now={flow.view._tag === "Running" ? flow.view.now : 0}
           flow={flow}
           request={request}
           locale={locale}
@@ -133,13 +210,11 @@ function CheckoutFlowScreen({
 
 function CheckoutStateView({
   state,
-  now,
   flow,
   request,
   locale,
 }: {
   readonly state: CheckoutState;
-  readonly now: number;
   readonly flow: CheckoutController;
   readonly request: CheckoutRequest;
   readonly locale: AppLocale;
@@ -151,15 +226,8 @@ function CheckoutStateView({
       // Shown by `DetailsForAccount` in its own layout.
       return null;
     case "Review":
-      return (
-        <ReviewStep
-          review={state}
-          now={now}
-          selection={request.selection}
-          send={flow.send}
-          locale={locale}
-        />
-      );
+      // Shown by `ReviewForAccount` in its own layout.
+      return null;
     case "Uncertain":
       return (
         <StatusNotice
@@ -202,6 +270,94 @@ function CheckoutStateView({
   }
 }
 
+const checkoutTitle = (
+  onDetails: boolean,
+  onReview: boolean,
+  locale: AppLocale
+) => {
+  if (onDetails) return m.booking_details_title({}, { locale });
+  return onReview
+    ? m.booking_review_title({}, { locale })
+    : m.booking_stack_checkout_title({}, { locale });
+};
+
+/**
+ * The review step with the account's own name for "Booked by". `ended`: the
+ * hold ran out on it; the hold-ended dialog over it offers checking the
+ * date again, with the choices and details kept, or leaving the booking.
+ */
+function ReviewForAccount({
+  review,
+  ended,
+  opening,
+  flow,
+  request,
+  locale,
+}: {
+  readonly review: ReviewState;
+  readonly ended: boolean;
+  /** The payment page is opening over this review. */
+  readonly opening: boolean;
+  readonly flow: CheckoutController;
+  readonly request: CheckoutRequest;
+  readonly locale: AppLocale;
+}) {
+  const router = useRouter();
+  const headerHeight = useHeaderHeight();
+  const account = useAtomValue(accountAtom);
+  const family = request.selection.family;
+  const bookerName = AsyncResult.value(account).pipe(
+    Option.flatMap((current) => {
+      const access = detailsAccess(current);
+      return access._tag === "Unavailable" ? Option.none() : access.self.name;
+    })
+  );
+  const catalog = useAtomValue(bookingOfferingsAtom(locale));
+  const overnightStay = checkoutOvernightStay(
+    request,
+    Option.map(AsyncResult.value(catalog), ({ offerings }) => offerings)
+  );
+  const backToSelection = (restart?: CheckoutRestartReason) =>
+    leaveCheckout(router, {
+      _tag: "FamilyScreen",
+      href: bookFamilyHref(family, restart),
+    });
+  return (
+    <>
+      <ReviewStep
+        review={review}
+        selection={request.selection}
+        overnightStay={overnightStay}
+        quotedTotal={
+          request._tag === "Booking"
+            ? request.quote.summary.total
+            : request.previousTotal
+        }
+        bookerName={bookerName}
+        send={ended || opening ? ignoreIntent : flow.send}
+        onChangeBooking={() => backToSelection()}
+        keyboardOffset={headerHeight}
+        onOpenDocument={(document) =>
+          void openSitePage(new URL(document.path, apiOrigin).href)
+        }
+        locale={locale}
+      />
+      <HoldEndedDialog
+        visible={ended}
+        onCheckDate={() => backToSelection("hold_expired")}
+        onLeave={() => router.dismissTo(bookHref)}
+        locale={locale}
+      />
+    </>
+  );
+}
+
+/**
+ * A review the hold ran out on, or one the payment page is opening over,
+ * takes no more intents.
+ */
+const ignoreIntent = () => undefined;
+
 function DetailsForAccount({
   notice,
   busy,
@@ -212,7 +368,7 @@ function DetailsForAccount({
   readonly notice: DetailsState["notice"];
   readonly busy: boolean;
   readonly flow: CheckoutController;
-  readonly request: CheckoutRequest;
+  readonly request: BookingRequest;
   readonly locale: AppLocale;
 }) {
   const account = useAtomValue(accountAtom);
@@ -268,16 +424,19 @@ function DetailsWithProfile({
   readonly notice: DetailsState["notice"];
   readonly busy: boolean;
   readonly flow: CheckoutController;
-  readonly request: CheckoutRequest;
+  readonly request: BookingRequest;
   readonly locale: AppLocale;
 }) {
   const router = useRouter();
+  const headerHeight = useHeaderHeight();
+  const deviceCountry = useDeviceCountry();
   const [draft, setDraft] = useDetailsDraft(() =>
-    initialDetailsDraft(profile.saved)
+    initialDetailsDraft(profile.saved, deviceCountry)
   );
   const consentLocale = isAppLocale(request.locale) ? request.locale : locale;
   return (
     <DetailsStep
+      keyboardOffset={headerHeight}
       profile={profile}
       initials={initials}
       onEditProfile={
@@ -287,7 +446,14 @@ function DetailsWithProfile({
       onDraftChange={setDraft}
       notice={notice}
       busy={busy}
-      summary={quotedBarSummary(request.selection, request.quote, locale)}
+      summary={quotedBarSummary(
+        request.selection,
+        request.quote,
+        locale,
+        request.overnightStay === undefined
+          ? {}
+          : { overnightStay: request.overnightStay }
+      )}
       consentLocale={consentLocale}
       onOpenMarketingDocument={() =>
         void WebBrowser.openBrowserAsync(
@@ -402,7 +568,7 @@ function BlockedNotice({
         message={m.booking_checkout_blocked_profile_missing({}, { locale })}
         action={{
           label: m.booking_checkout_complete_profile({}, { locale }),
-          onPress: () => router.push("/account/complete"),
+          onPress: () => router.push(accountSectionHref.complete),
           disabled: false,
         }}
         locale={locale}
@@ -452,5 +618,5 @@ function AccountUnavailableNotice({
 }
 
 const styles = StyleSheet.create({
-  group: { gap: theme.spacing.md },
+  group: { gap: space.lg },
 });

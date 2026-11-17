@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Option } from "effect";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
-import type { TextInputInstance } from "react-native";
-import { CustomerViewError } from "../../customer-api/customer-view-error";
 import { sampleProfile } from "../../customer-api/testing/sample-fixtures";
 import { elementTree } from "../../ui/testing/element-tree";
 import {
@@ -11,12 +9,7 @@ import {
   type ProfileDraftInvalid,
   profileDraftOf,
 } from "./profile-draft";
-import { ProfileTextFields } from "./profile-fields";
-import {
-  type ProfileSubmitState,
-  ProfileSubmitState as SubmitState,
-} from "./profile-save";
-import { ProfileSubmitFooter } from "./profile-submit-footer";
+import { type FocusableField, ProfileTextFields } from "./profile-fields";
 
 type FieldProps = {
   readonly label: string;
@@ -36,11 +29,11 @@ const fields = (invalid?: ProfileDraftInvalid<CompletionTextField>) =>
       () =>
         ProfileTextFields({
           fields: identityFields,
-          draft: profileDraftOf(sampleProfile, "CZ"),
+          draft: profileDraftOf(sampleProfile, "CZ", "CZ"),
           invalid,
           onChange: () => undefined,
           inputs: {
-            current: new Map<CompletionTextField, TextInputInstance | null>(),
+            current: new Map<CompletionTextField, FocusableField | null>(),
           },
           editable: true,
           locale: "en-US",
@@ -71,42 +64,5 @@ describe("ProfileTextFields", () => {
       ["lastName", false],
       ["phone", true],
     ]);
-  });
-});
-
-const footerButton = (state: ProfileSubmitState, unsaved: boolean) => {
-  const tree = elementTree(ProfileSubmitFooter, {
-    state,
-    unsaved,
-    onSubmit: () => undefined,
-    submitLabel: "save",
-    submittingLabel: "saving",
-    doneMessage: "done",
-    invalidMessage: "invalid",
-    locale: "en-US",
-  });
-  const [button] = elementsOf(
-    isValidElement<{ children?: ReactNode }>(tree) ? tree.props.children : []
-  ) as ReadonlyArray<ReactElement<{ disabled?: boolean; label: string }>>;
-  return button?.props;
-};
-
-describe("ProfileSubmitFooter", () => {
-  test("saving needs unsaved changes and no save in flight", () => {
-    expect(footerButton(SubmitState.Idle(), false)?.disabled).toBe(true);
-    expect(footerButton(SubmitState.Idle(), true)?.disabled).toBe(false);
-    expect(footerButton(SubmitState.Submitting(), true)).toMatchObject({
-      disabled: true,
-      label: "saving",
-    });
-  });
-
-  test("a failed save can be tried again", () => {
-    expect(
-      footerButton(
-        SubmitState.Failed({ error: CustomerViewError.Unavailable() }),
-        true
-      )?.disabled
-    ).toBe(false);
   });
 });

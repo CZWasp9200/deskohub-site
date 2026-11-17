@@ -17,7 +17,7 @@ export type IconComponent = ComponentType<{
 }>;
 
 /** The icon sizes the design uses, in dp. */
-export type IconSize = 14 | 16 | 18 | 20 | 24 | 26 | 28 | 30 | 32;
+export type IconSize = 14 | 16 | 18 | 20 | 22 | 24 | 26 | 28 | 30 | 32;
 
 /**
  * A Lucide icon at a design size, stroke 2, in `color` (navy by default).

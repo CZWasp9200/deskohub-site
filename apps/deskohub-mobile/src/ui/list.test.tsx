@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import Check from "lucide-react-native/icons/check";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import Mail from "lucide-react-native/icons/mail";
@@ -160,6 +161,23 @@ describe("ListRow", () => {
     expect(root.props.role).toBeUndefined();
   });
 
+  test("a badge sits beside the label and is read with the row", () => {
+    const badge = <Badge label="b" tone="positive" />;
+    const root = rowRoot({ label: "l", description: "d", badge });
+    expect(root.props.accessible).toBe(true);
+    expect(root.props["aria-label"]).toBeUndefined();
+    expect(JSON.stringify(root)).toContain('"b"');
+  });
+
+  test("content below the text keeps its own elements", () => {
+    const below = <Text>below</Text>;
+    const root = rowRoot({ label: "l", description: "d", below });
+    expect(root.type).toBe("View");
+    expect(root.props.accessible).toBeUndefined();
+    expect(root.props["aria-label"]).toBeUndefined();
+    expect(JSON.stringify(root)).toContain("below");
+  });
+
   test("a navigation row is a link ending in a chevron", () => {
     const root = rowRoot({ label: "l", onPress: ignore });
     expect(root.type).toBe("Pressable");
@@ -259,5 +277,27 @@ describe("ListRow", () => {
         .find((s) => s.flexWrap !== undefined)?.flexWrap;
     expect(body(false)).toBe("wrap");
     expect(body(true)).toBe("nowrap");
+  });
+
+  test("a pick-list row says whether it is chosen, and the chosen one ends in the action check", () => {
+    const pick = {
+      label: "l",
+      kind: "action" as const,
+      onPress: () => undefined,
+    };
+    const chosen = rowRoot({ ...pick, selected: true });
+    expect(chosen.props["aria-selected"]).toBe(true);
+    // Its name stays the row's text: the check is drawn, not read.
+    expect(chosen.props["aria-label"]).toBe("l");
+    const check = find<Parameters<typeof Icon>[0]>(
+      elementTree(ListRow, { ...pick, selected: true }),
+      Icon
+    )?.props;
+    expect(check?.icon).toBe(Check);
+    expect(check?.color).toBe(color.action);
+    const other = rowRoot({ ...pick, selected: false });
+    expect(other.props["aria-selected"]).toBe(false);
+    expect(trailingIcons({ ...pick, selected: false })).toEqual([]);
+    expect(rowRoot(pick).props["aria-selected"]).toBeUndefined();
   });
 });

@@ -16,6 +16,7 @@ import {
   accountingDocumentIdentitySchema,
   accountingDocumentSnapshotSchema,
   decodeStoredAccountingDocumentSnapshot,
+  encodeStoredAccountingDocumentSnapshot,
   getAccountingDocumentSnapshotFirstServiceDate,
   makeAccountingDocumentSnapshot,
 } from "./accounting-document-snapshot";
@@ -211,6 +212,36 @@ describe("accounting document snapshot", () => {
     );
 
     expect(decoded.billing).toBeUndefined();
+  });
+
+  test.each(["not-vat-payer", "vat-payer"] as const)(
+    "decodes a stored snapshot issued as %s with that VAT status",
+    async (vatStatus) => {
+      const snapshot = makeSnapshot();
+      const stored = encodeStoredAccountingDocumentSnapshot({
+        ...snapshot,
+        supplier: { ...snapshot.supplier, vatStatus },
+      });
+
+      const decoded = await Effect.runPromise(
+        decodeStoredAccountingDocumentSnapshot(stored)
+      );
+
+      expect(decoded.supplier.vatStatus).toBe(vatStatus);
+    }
+  );
+
+  test("rejects a stored snapshot with an unknown VAT status", async () => {
+    const snapshot = makeSnapshot();
+
+    await expect(
+      Effect.runPromise(
+        decodeStoredAccountingDocumentSnapshot({
+          ...snapshot,
+          supplier: { ...snapshot.supplier, vatStatus: "exempt" },
+        })
+      )
+    ).rejects.toBeDefined();
   });
 
   test("decodes discounts with and without a staff label", async () => {

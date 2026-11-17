@@ -180,8 +180,11 @@ documents); the handlers only map. A refused account carries its
 `CustomerAccountAccessError` on `CustomerInvoicesUnavailableError.account`
 and answers as the account endpoints do; any id the service can't find,
 another customer's included, answers 404 `CustomerInvoiceNotFound`. Totals stay
-exact decimal text, as issued. A cancelled invoice stays listed and
-downloadable with its `cancellation` (the credit note's number), as on the
+exact decimal text, as issued. An order's invoice carries `reservation`:
+the product's catalog name in the optional `?locale` (as `listReservations`
+names it), an office's seats, and the start and exclusive end, all from the
+service's summary; a manual invoice has none. A cancelled invoice stays listed
+and downloadable with its `cancellation` (the credit note's number), as on the
 account page; hiding it in the Admin UI changes nothing here. An order's own
 invoice stays `getReservationInvoice`, authorized by the order, which serves
 only the live invoice.
@@ -208,8 +211,9 @@ locale.
 The booking group's checkout endpoints (`customer-booking-checkout-api.ts`,
 handlers in `customer-booking-checkout-handlers.ts`) call the same shared
 operations the site's booking form, Pay page and agent tools call:
-`prepareWorkspacePayState`, `applyDiscountCodeToPayState`, the Pay state
-price acceptance, and `CheckoutService.createHostedPaymentCheckout`.
+`prepareWorkspacePayState`, `applyDiscountCodeToPayState`,
+`clearDiscountCodeFromPayState`, the Pay state price acceptance, and
+`CheckoutService.createHostedPaymentCheckout`.
 
 Flow:
 
@@ -225,7 +229,10 @@ Flow:
    leaves the checkout usable; when the server signed a replacement that keeps
    the attempted code, the error carries its token. An unknown Calendar
    discount or a provider outage, the referral store's included, answers 503,
-   never a price review or a rejected code.
+   never a price review or a rejected code. `clearCheckoutDiscountCode`
+   removes the entered code, and the intended one with it, and answers the
+   checkout as a `price_review` without it; a checkout without a code comes
+   back as it is. Its unavailable answers are entry's, without the 422.
 4. A `price_review` checkout shows the new summary and calls
    `acceptCheckoutPriceChange`, the same continuation the Pay page's link
    issues. Acceptance needs only the token: it doesn't renew the hold, so the
@@ -256,10 +263,10 @@ Flow:
    when the lookup fails; nothing in its query picks the destination. The
    app's status call (`returnOutcome: "unknown"`) reconciles the payment.
 
-Author check: discount-code, price-acceptance and submit open the token and
-answer 404 `CustomerCheckoutNotFound` unless the signed-in account authored
-the held reservation (`authorAccountId`), so a token alone never acts for
-another account. A repository failure answers 503.
+Author check: discount-code entry and removal, price-acceptance and submit
+open the token and answer 404 `CustomerCheckoutNotFound` unless the
+signed-in account authored the held reservation (`authorAccountId`), so a
+token alone never acts for another account. A repository failure answers 503.
 
 Referral fields: the client keeps the remembered referral code and sends it in
 `x-deskohub-referral-code`. `RememberedReferral.fromClient` writes nothing, so
@@ -293,7 +300,7 @@ keys, and services that can't be built answer 503. A checkout state the
 server fails to seal or sign also answers 503, never `expired`: only the
 client's own token can expire. Mutations keep their site
 actions' deadlines (`getPreparePayStateDeadline`,
-`getApplyDiscountCodeDeadline`, `getCheckoutSubmitDeadline`); one that runs
+`getDiscountCodeChangeDeadline`, `getCheckoutSubmitDeadline`); one that runs
 out answers 503. Handler tests fake `CustomerCheckoutOperations` and
 `CheckoutService` through the `bookingCheckout` option of
 `makeCustomerApiTestServer`.

@@ -12,10 +12,13 @@ import {
   getCustomerInvoiceStatus,
   getCustomerInvoiceStatusLabel,
   getCustomerInvoiceSummary,
+  getInvoicedReservation,
 } from "./customer-invoice";
-import type { InvoiceDocument } from "./invoice";
+import { type InvoiceDocument, isManualInvoiceDocument } from "./invoice";
 import {
   makeCoworkInvoiceDocument,
+  makeMeetingRoomInvoiceDocument,
+  makeOfficeInvoiceDocument,
   makeTestManualInvoiceDocument,
 } from "./invoice.test-utils";
 import type { InvoiceCancellationFact } from "./invoice-cancellation";
@@ -79,6 +82,7 @@ describe("customer invoice summary", () => {
       paymentStatus: "paid",
       dueDate: null,
       cancellation: null,
+      reservation: getInvoicedReservation(document),
     });
   });
 
@@ -230,5 +234,82 @@ describe("customer invoice CSV", () => {
     const withoutStatus = (rows: string[][]) =>
       rows.slice(1).map((row) => row.toSpliced(-2, 1));
     expect(withoutStatus(czech)).toEqual(withoutStatus(english));
+  });
+});
+
+describe("invoiced reservation", () => {
+  const instant = (value: string) => Temporal.Instant.from(value);
+  const pragueMidnight = (day: string) =>
+    Temporal.PlainDate.from(day)
+      .toZonedDateTime({ timeZone: "Europe/Prague" })
+      .toInstant();
+
+  test("a cowork day spans that day's Prague midnights", () => {
+    const document = makeCoworkInvoiceDocument("en-US");
+    if (
+      isManualInvoiceDocument(document) ||
+      document.reservation.kind !== "cowork"
+    )
+      throw new Error("a cowork invoice");
+    const day = Temporal.PlainDate.from(document.reservation.date);
+
+    const reservation = getInvoicedReservation(document);
+
+    expect(reservation?.product.kind).toBe("cowork");
+    expect(reservation?.seats).toBeNull();
+    expect(instant(reservation?.startsAt ?? "")).toEqual(
+      pragueMidnight(day.toString())
+    );
+    expect(instant(reservation?.endsAt ?? "")).toEqual(
+      pragueMidnight(day.add({ days: 1 }).toString())
+    );
+  });
+
+  test("a meeting room keeps the instants it was booked for", () => {
+    const document = makeMeetingRoomInvoiceDocument("en-US");
+    if (
+      isManualInvoiceDocument(document) ||
+      document.reservation.kind !== "meeting-room"
+    )
+      throw new Error("a meeting-room invoice");
+
+    const reservation = getInvoicedReservation(document);
+
+    expect(reservation?.product).toEqual({ kind: "meeting-room" });
+    expect(reservation?.seats).toBeNull();
+    expect(instant(reservation?.startsAt ?? "")).toEqual(
+      instant(document.reservation.startsAt)
+    );
+    expect(instant(reservation?.endsAt ?? "")).toEqual(
+      instant(document.reservation.endsAt)
+    );
+  });
+
+  test("an office spans its first day through the end of its last, with its seats", () => {
+    const document = makeOfficeInvoiceDocument("en-US");
+    if (
+      isManualInvoiceDocument(document) ||
+      document.reservation.kind !== "office"
+    )
+      throw new Error("an office invoice");
+    const { startsOn, endsOn, seats } = document.reservation;
+
+    const reservation = getInvoicedReservation(document);
+
+    expect(reservation?.product).toEqual({ kind: "office" });
+    expect(reservation?.seats).toBe(seats);
+    expect(instant(reservation?.startsAt ?? "")).toEqual(
+      pragueMidnight(startsOn)
+    );
+    expect(instant(reservation?.endsAt ?? "")).toEqual(
+      pragueMidnight(
+        Temporal.PlainDate.from(endsOn).add({ days: 1 }).toString()
+      )
+    );
+  });
+
+  test("a manual invoice invoices no reservation", () => {
+    expect(getInvoicedReservation(dueManual)).toBeNull();
+    expect(summarize(dueManual).reservation).toBeNull();
   });
 });

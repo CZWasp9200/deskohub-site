@@ -1,5 +1,6 @@
 import { DateTime, Option } from "effect";
 import type { AppLocale } from "./app-locale";
+import { deviceHour12 } from "./device-clock";
 
 /**
  * The workspace's time zone. Reservation times are Prague wall-clock times,
@@ -7,11 +8,10 @@ import type { AppLocale } from "./app-locale";
  */
 export const workspaceTimeZone = "Europe/Prague";
 
-export type InstantStyle = "day" | "date" | "time" | "date-time";
+export type InstantStyle = "date" | "time" | "date-time";
 
 const styleOptions = {
   /** A whole day, written out as the site's account page shows day bookings. */
-  day: { dateStyle: "full" },
   date: { dateStyle: "medium" },
   time: { timeStyle: "short" },
   "date-time": { dateStyle: "medium", timeStyle: "short" },
@@ -21,19 +21,26 @@ const styleOptions = {
 export const parseInstant = (iso: string): Option.Option<DateTime.Utc> =>
   DateTime.make(iso);
 
-/** Formats an instant in the locale, as workspace (Prague) time. */
+/**
+ * Formats an instant in the locale, as workspace (Prague) time. Times follow
+ * the device's 12- or 24-hour clock, so every time the app shows reads alike.
+ */
 export const formatInstant = (
   instant: DateTime.DateTime,
   locale: AppLocale,
   style: InstantStyle
-): string =>
-  DateTime.formatIntl(
+): string => {
+  const options: Intl.DateTimeFormatOptions = styleOptions[style];
+  const hour12 = "timeStyle" in options ? deviceHour12() : undefined;
+  return DateTime.formatIntl(
     instant,
     new Intl.DateTimeFormat(locale, {
-      ...styleOptions[style],
+      ...options,
+      ...(hour12 === undefined ? {} : { hour12 }),
       timeZone: workspaceTimeZone,
     })
   );
+};
 
 /**
  * A range's ends, each formatted only as far as it needs; no end when the
@@ -60,16 +67,20 @@ const workspaceDayFormat = new Intl.DateTimeFormat("en-US", {
 const workspaceDay = (instant: DateTime.DateTime) =>
   workspaceDayFormat.format(DateTime.toEpochMillis(instant));
 
-const isSameWorkspaceDay = (a: DateTime.DateTime, b: DateTime.DateTime) =>
-  workspaceDay(a) === workspaceDay(b);
+/** Whether two instants fall on the same Prague calendar day. */
+export const isSameWorkspaceDay = (
+  a: DateTime.DateTime,
+  b: DateTime.DateTime
+) => workspaceDay(a) === workspaceDay(b);
 
 /** Whether the instant starts a Prague day: a millisecond earlier is the day before. */
-const isWorkspaceMidnight = (instant: DateTime.DateTime) =>
+export const isWorkspaceMidnight = (instant: DateTime.DateTime) =>
   !isSameWorkspaceDay(instant, DateTime.subtract(instant, { milliseconds: 1 }));
 
 /**
- * Formats the Prague days from `start` to the exclusive `end` as whole days:
- * the first day, and the last one when it is another day. An end that doesn't
+ * Formats the Prague days from `start` to the exclusive `end` as whole days,
+ * in the same medium date form as every other date (board 38): the first
+ * day, and the last one when it is another day. An end that doesn't
  * move forward leaves the first day alone.
  */
 export const formatWorkspaceDays = (
@@ -81,10 +92,10 @@ export const formatWorkspaceDays = (
     ? DateTime.subtract(end, { milliseconds: 1 })
     : start;
   return {
-    start: formatInstant(start, locale, "day"),
+    start: formatInstant(start, locale, "date"),
     end: isSameWorkspaceDay(start, last)
       ? Option.none()
-      : Option.some(formatInstant(last, locale, "day")),
+      : Option.some(formatInstant(last, locale, "date")),
   };
 };
 

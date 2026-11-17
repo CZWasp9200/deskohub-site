@@ -8,13 +8,20 @@ import {
   getWorkspaceProductTierTitle,
 } from "@/features/checkout/product-catalog.i18n";
 import { type Locale, m } from "@/features/i18n";
+import {
+  type CoworkStay,
+  isOvernightCoworkStay,
+} from "@/features/reservation/cowork-stay";
 import { formatReservationDisplayPlainDate } from "@/features/reservation/reservation-date";
+import { formatCoworkOvernightStay } from "./cowork-stay-display";
 
 /** The cowork selection as the contact-details step summarizes it. */
 export const getCoworkReservationSelectionSummary = (
   selection: {
     readonly entryTier: WorkspaceCoworkProductTier;
     readonly date: string;
+    /** An overnight stay shows its exact start and end beside the date. */
+    readonly stay?: CoworkStay;
     readonly coffee?: boolean;
     /** Empty while no workstation is picked. */
     readonly monitorOption?: WorkspaceProductMonitorOption | "";
@@ -27,10 +34,12 @@ export const getCoworkReservationSelectionSummary = (
       ? [
           {
             label: m.checkoutStatusSummaryDateLabel({}, { locale }),
-            value: formatReservationDisplayPlainDate(
-              Temporal.PlainDate.from(selection.date),
-              locale
-            ),
+            value: isOvernightCoworkStay(selection.entryTier, selection.stay)
+              ? formatCoworkOvernightStay(selection.date, locale)
+              : formatReservationDisplayPlainDate(
+                  Temporal.PlainDate.from(selection.date),
+                  locale
+                ),
           },
         ]
       : []),

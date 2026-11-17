@@ -5,7 +5,9 @@ import { DotyposRejected, DotyposService } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationActorEmail,
+  type AdministrationAssistantConnectionId,
   AdministrationAuthentication,
+  type AdministrationChannel,
   AdministrationDiscountCodeUpdateInput,
   AdministrationDotyposCustomerId,
   AdministrationInstant,
@@ -120,6 +122,7 @@ import { AdministrationRequestLedger } from "./administration-request-ledger.ser
 import {
   ClaimEveryCliMutation,
   DiscardedAdministrationActionLog,
+  GrantedAdministrator,
   recordingRequestLedger,
   UnrecordedAdministrationActions,
   UnusedCliSessionAuthentication,
@@ -203,14 +206,20 @@ const cliAdministratorApprover = {
   approvedBy: toAdministrationActorName(cliAdministratorEmail),
   approvedByEmail: cliAdministratorEmail,
 };
-// Every request acts as `cliAdministrator` on the session's channel.
-const CliCallerAuthentication = Layer.succeed(AdministrationAuthentication, {
-  bearer: (httpEffect) =>
-    Effect.provideService(httpEffect, CurrentAdministrationCaller, {
-      actor: cliAdministrator,
-      channel: { _tag: "CliSession", sessionId: CliSessionId.make(session.id) },
-    }),
-});
+const sessionChannel: AdministrationChannel = {
+  _tag: "CliSession",
+  sessionId: CliSessionId.make(session.id),
+};
+// Every request acts as `cliAdministrator`, by default on the session's channel.
+const callerAuthentication = (channel: AdministrationChannel) =>
+  Layer.succeed(AdministrationAuthentication, {
+    bearer: (httpEffect) =>
+      Effect.provideService(httpEffect, CurrentAdministrationCaller, {
+        actor: cliAdministrator,
+        channel,
+      }),
+  });
+const CliCallerAuthentication = callerAuthentication(sessionChannel);
 const AuthorizedCliRequest = Layer.mergeAll(
   CliCallerAuthentication,
   Layer.succeed(CliBearerAuthentication, {
@@ -218,16 +227,24 @@ const AuthorizedCliRequest = Layer.mergeAll(
       Effect.provideService(httpEffect, CurrentCliSession, session),
   })
 );
-const ActorAuthorizedCliRequest = Layer.mergeAll(
-  CliCallerAuthentication,
-  Layer.succeed(CliBearerAuthentication, {
-    bearer: (httpEffect) =>
-      Effect.provideService(httpEffect, CurrentCliSession, {
-        ...session,
-        ...cliAdministratorApprover,
-      }),
-  })
-);
+const actorAuthorizedCliRequest = (channel = sessionChannel) =>
+  Layer.mergeAll(
+    callerAuthentication(channel),
+    Layer.succeed(CliBearerAuthentication, {
+      bearer: (httpEffect) =>
+        Effect.provideService(httpEffect, CurrentCliSession, {
+          ...session,
+          ...cliAdministratorApprover,
+        }),
+    })
+  );
+const ActorAuthorizedCliRequest = actorAuthorizedCliRequest();
+const assistantChannel: AdministrationChannel = {
+  _tag: "AssistantConnection",
+  connectionId:
+    "01980000-0000-7000-8000-0000000000d2" as AdministrationAssistantConnectionId,
+  oauthClientId: "https://assistant.example/client.json",
+};
 /**
  * Lets every operation through: the in-memory client can't send the `dhw`
  * version, and `cli-client-version.server.test.ts` covers the version check.
@@ -249,6 +266,8 @@ type AdministrationApiServiceLayers = {
   readonly discounts?: Layer.Layer<DiscountAdministration>;
   readonly invoices?: Layer.Layer<InvoiceAdministrationService>;
   readonly reservations?: Layer.Layer<ReservationAdministrationService>;
+  /** The caller's channel; a CLI session unless given. */
+  readonly channel?: AdministrationChannel;
 };
 
 const callAdministrationApi = <A, E>(
@@ -258,7 +277,8 @@ const callAdministrationApi = <A, E>(
   administrationClient.pipe(
     Effect.flatMap(call),
     Effect.provide(AdminCliAdministrationApiHandlers),
-    Effect.provide(ActorAuthorizedCliRequest),
+    Effect.provide(GrantedAdministrator),
+    Effect.provide(actorAuthorizedCliRequest(services.channel)),
     Effect.provide(UnusedStandaloneAccessCodeAdministration),
     Effect.provide(ClaimEveryCliMutation),
     Effect.provide(services.invoices ?? UnusedInvoiceAdministration),
@@ -480,7 +500,7 @@ describe("Workspace Admin API", () => {
       customers: [
         {
           id: "company-customer",
-          displayName: "Synthetic Company",
+          displayName: "Synthetic",
           email: testEmailAddress("customer-search"),
           phone: "+420 000 000 000",
           discountGroupId: "discount-group",
@@ -548,6 +568,7 @@ describe("Workspace Admin API", () => {
       UnusedReservationProductDetailsBackfill,
       UnusedReservationAccessAdministration,
       UnusedDiscountAdministration,
+      GrantedAdministrator,
       UnusedAdministrationCustomerDirectory,
       UnusedInvoiceAdministration,
       UnusedStandaloneAccessCodeAdministration,
@@ -673,6 +694,7 @@ describe("Workspace Admin API", () => {
       });
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(GrantedAdministrator),
       Effect.provide(AuthorizedCliRequest),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(ClaimEveryCliMutation),
@@ -766,6 +788,7 @@ describe("Workspace Admin API", () => {
         .pipe(Effect.flip);
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(GrantedAdministrator),
       Effect.provide(ActorAuthorizedCliRequest),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(ClaimEveryCliMutation),
@@ -840,6 +863,55 @@ describe("Workspace Admin API", () => {
       },
     ]);
   });
+
+  test("previews an invoice from an assistant with the assistant's provenance", async () => {
+    const provenances: unknown[] = [];
+    const invoices = Layer.succeed(InvoiceAdministrationService, {
+      ...({} as InvoiceAdministrationService["Service"]),
+      preview: (_, provenance) => {
+        provenances.push(provenance);
+        return Effect.succeed(new Uint8Array([37, 80, 68, 70]));
+      },
+    });
+
+    await callAdministrationApi(
+      (client) => client.previewInvoice({ payload: invoicePreviewPayload }),
+      { invoices, channel: assistantChannel }
+    );
+
+    expect(provenances).toEqual([
+      { source: "assistant", administrator: cliAdministrator },
+    ]);
+  });
+
+  test.each([
+    ["a CLI session", sessionChannel, "dhw-cli"],
+    ["an assistant connection", assistantChannel, "assistant"],
+  ] as const)(
+    "records invoice creation from %s with its channel's provenance",
+    async (_, channel, source) => {
+      const creations: unknown[] = [];
+      const invoices = Layer.succeed(InvoiceAdministrationService, {
+        ...({} as InvoiceAdministrationService["Service"]),
+        create: (input, provenance) => {
+          creations.push(provenance);
+          return Effect.succeed({
+            invoiceId: input.invoiceId,
+            invoiceNumber: "WS-FV-2026-000001",
+            changed: true,
+            needsAttention: false,
+          });
+        },
+      });
+
+      await callAdministrationApi(
+        (client) => client.createInvoice({ payload: invoicePreviewPayload }),
+        { invoices, channel }
+      );
+
+      expect(creations).toEqual([{ source, administrator: cliAdministrator }]);
+    }
+  );
 
   test("maps invoice preview validation failures to a rejected mutation", async () => {
     const invoices = Layer.succeed(InvoiceAdministrationService, {
@@ -919,6 +991,7 @@ describe("Workspace Admin API", () => {
       return { created, pending };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(GrantedAdministrator),
       Effect.provide(ActorAuthorizedCliRequest),
       Effect.provide(invoiceAdministration),
       Effect.provide(ClaimEveryCliMutation),
@@ -1081,6 +1154,7 @@ describe("Workspace Admin API", () => {
       return { recovered, rejected };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(GrantedAdministrator),
       Effect.provide(AuthorizedCliRequest),
       Effect.provide(ledger.layer),
       Effect.provide(UnusedInvoiceAdministration),
@@ -1213,6 +1287,7 @@ describe("Workspace Admin API", () => {
       };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(GrantedAdministrator),
       Effect.provide(ActorAuthorizedCliRequest),
       Effect.provide(authentication),
       Effect.provide(
@@ -1335,6 +1410,7 @@ describe("Workspace Admin API", () => {
       return { renamed, revoked, sessions };
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(GrantedAdministrator),
       Effect.provide(
         Layer.mergeAll(
           CliSessionAdministrationAuthenticationLive,
@@ -1402,6 +1478,7 @@ describe("Workspace Admin API", () => {
         .pipe(Effect.flip);
     }).pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(GrantedAdministrator),
       Effect.provide(AuthorizedCliRequest),
       Effect.provide(ledger.layer),
       Effect.provide(UnusedInvoiceAdministration),
@@ -2133,6 +2210,7 @@ describe("customer and reservation administration endpoints", () => {
             UnusedReservationProductDetailsBackfill,
             UnusedReservationAccessAdministration,
             UnusedDiscountAdministration,
+            GrantedAdministrator,
             UnusedAdministrationCustomerDirectory,
             UnusedInvoiceAdministration,
             UnusedStandaloneAccessCodeAdministration
@@ -2300,6 +2378,7 @@ describe("standalone access-code CLI endpoint", () => {
   ) =>
     operation.pipe(
       Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(GrantedAdministrator),
       Effect.provide(bearer),
       Effect.provide(UnusedCliSessionAuthentication),
       Effect.provide(standalone),
@@ -2373,6 +2452,29 @@ describe("standalone access-code CLI endpoint", () => {
     });
     expect(ledger.requests[0]?.stored).toBe(standaloneAccessCodeStoredResult);
     expect(ledger.requests[0]?.recovery).toBe(standaloneAccessCodeRecovery);
+  });
+
+  test("creates a code from an assistant with the assistant's provenance", async () => {
+    const creations: unknown[] = [];
+    const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
+      create: (input) =>
+        Effect.sync(() => creations.push(input)).pipe(
+          Effect.as(createdOutcome)
+        ),
+    });
+    const created = await runAdministration(
+      actorAuthorizedCliRequest(assistantChannel),
+      standalone,
+      recordingRequestLedger().layer,
+      createAccessCode()
+    ).pipe(Effect.runPromise);
+
+    expect(created).toMatchObject({ outcome: "created" });
+    expect(creations).toHaveLength(1);
+    expect(creations[0]).toMatchObject({
+      source: "assistant",
+      actor: cliAdministrator,
+    });
   });
 
   test("replays stored metadata without a PIN or another provider call", async () => {

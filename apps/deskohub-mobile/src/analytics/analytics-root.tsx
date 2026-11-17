@@ -1,5 +1,10 @@
 import { usePathname, useSegments } from "expo-router";
-import { type ReactNode, useEffect, useSyncExternalStore } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Platform } from "react-native";
 import type { AuthSessionState } from "../auth/auth-session-state";
 import { useAuthSession } from "../auth/use-auth-session";
@@ -86,6 +91,8 @@ export function AnalyticsRoot({ children }: { readonly children: ReactNode }) {
   const gate = appAnalyticsGate();
   const status = useSyncExternalStore(gate.subscribe, gate.status, gate.status);
   const promptWaits = useConsentPromptWaits(accountCheck, session);
+  // Dismissing the prompt answers nothing; it asks again on the next launch.
+  const [promptDismissed, setPromptDismissed] = useState(false);
   // Views record the route pattern (`/reservations/[orderId]`), never the
   // concrete path; the path only marks a new view, such as another order.
   const screen = screenPathPattern(useSegments());
@@ -104,9 +111,16 @@ export function AnalyticsRoot({ children }: { readonly children: ReactNode }) {
   return (
     <>
       {children}
-      {gate.asks && consent.status === "undecided" && !promptWaits && (
-        <ConsentPrompt onAccept={consent.grant} onDecline={consent.deny} />
-      )}
+      {gate.asks &&
+        consent.status === "undecided" &&
+        !promptWaits &&
+        !promptDismissed && (
+          <ConsentPrompt
+            onAccept={consent.grant}
+            onDecline={consent.deny}
+            onDismiss={() => setPromptDismissed(true)}
+          />
+        )}
     </>
   );
 }

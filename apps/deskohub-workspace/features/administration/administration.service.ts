@@ -32,7 +32,7 @@ import {
   sum,
 } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import { Context, DateTime, Effect, Layer, Option, Schema } from "effect";
 import { unstable_rethrow } from "next/navigation";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
@@ -72,6 +72,7 @@ import { decodeBookedReservation } from "@/features/reservation/backend/booked-r
 import { loadEarlySetupDetails } from "@/features/reservation/backend/early-setup-details";
 import {
   StoredReservationDetails,
+  type WithStoredReservationDetails,
   type WorkspaceReservationDetailsMalformedError,
 } from "@/features/reservation/backend/stored-reservation-details.server";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -89,6 +90,7 @@ import { AdministrationCustomerDirectory } from "./customer-directory.service";
 import {
   type AdministrationCustomer,
   describeAdministrationCustomer,
+  nameAdministrationCustomer,
 } from "./customer-identity";
 import {
   type AdministrationCustomerName,
@@ -442,7 +444,7 @@ type AdministrationReservationAuthor =
       readonly kind: "account";
       /** The author's own linked Dotypos customer, which names them. */
       readonly customerId: DotyposCustomerId | null;
-      /** The author's login email. */
+      /** The author's login email; empty when their customer is deleted or expired. */
       readonly email: string;
     })
   | { readonly kind: "deleted" }
@@ -558,26 +560,28 @@ export type AdministrationOverviewSource = {
   readonly rows: readonly AdministrationOverviewRow[];
 };
 
-type SafeReservationRow = Pick<
-  WorkspaceReservationRow,
-  | "id"
-  | "dotyposCustomerId"
-  | "dotyposReservationId"
-  | "reservationState"
-  | "paymentState"
-  | "fulfillmentState"
-  | "reservationDetails"
-  | "reservationPurpose"
-  | "reservationCreatedAt"
-  | "reservationConfirmedAt"
-  | "reservationCancelledAt"
-  | "reservationHoldExpiredAt"
-  | "paidAt"
-  | "fulfilledAt"
-  | "fulfillmentFailedAt"
-  | "failureCode"
-  | "createdAt"
-  | "updatedAt"
+type SafeReservationRow = WithStoredReservationDetails<
+  Pick<
+    WorkspaceReservationRow,
+    | "id"
+    | "dotyposCustomerId"
+    | "dotyposReservationId"
+    | "reservationState"
+    | "paymentState"
+    | "fulfillmentState"
+    | "reservationDetails"
+    | "reservationPurpose"
+    | "reservationCreatedAt"
+    | "reservationConfirmedAt"
+    | "reservationCancelledAt"
+    | "reservationHoldExpiredAt"
+    | "paidAt"
+    | "fulfilledAt"
+    | "fulfillmentFailedAt"
+    | "failureCode"
+    | "createdAt"
+    | "updatedAt"
+  >
 >;
 
 const safeReservationSelection = {
@@ -604,9 +608,6 @@ const safeReservationSelection = {
 const toIsoString = (instant: Temporal.Instant) => instant.toString();
 
 const decodeInstantString = Schema.decodeUnknownOption(instantStringSchema);
-
-const toCustomer = (customer: DotyposCustomer): AdministrationCustomer =>
-  describeAdministrationCustomer(customer, "person-company");
 
 type SafePaymentAttemptRow = {
   readonly id: PaymentAttemptId;
@@ -808,6 +809,7 @@ const toReservationSummary = ({
   recoveryState,
   latestPayment = null,
   live,
+  now,
   row,
 }: {
   readonly latePayment?: boolean;
@@ -818,6 +820,8 @@ const toReservationSummary = ({
   readonly recoveryState?: LatePaymentRecoveryState;
   readonly latestPayment?: AdministrationPaymentAttempt | null;
   readonly live: LiveReservationDetails;
+  /** When the live details were read, for the customer's lifecycle. */
+  readonly now: Date;
   readonly row: SafeReservationRow;
 }): AdministrationReservationSummary => {
   // An early-setup booking's Dotypos start is its setup start, so show the
@@ -834,7 +838,9 @@ const toReservationSummary = ({
     id: row.id,
     dotyposReservationId: row.dotyposReservationId,
     customerId: row.dotyposCustomerId,
-    customer: live.customer ? toCustomer(live.customer) : null,
+    customer: live.customer
+      ? describeAdministrationCustomer(live.customer, now)
+      : null,
     liveDetailsAvailable: Boolean(live.reservation),
     startsAt: Option.match(earlySetup, {
       onNone: () => live.reservation?.startDate ?? null,
@@ -914,11 +920,14 @@ const toLinkedReservation = (row: SafeReservationRow | null) =>
 const toBookingSummary = ({
   booking,
   customer,
+  now,
   row,
   table,
 }: {
   readonly booking: DotyposReservation;
   readonly customer: DotyposCustomer | null;
+  /** When the customer was read, for its lifecycle. */
+  readonly now: Date;
   readonly row: SafeReservationRow | null;
   readonly table: DotyposTable | null;
 }): AdministrationBookingSummary => {
@@ -928,7 +937,10 @@ const toBookingSummary = ({
   return {
     id: booking.id,
     customerId: customerId ?? null,
-    customer: customerId && customer ? toCustomer(customer) : null,
+    customer:
+      customerId && customer
+        ? describeAdministrationCustomer(customer, now)
+        : null,
     startsAt: getBookedStartsAt(booking, row?.reservationDetails),
     endsAt: booking.endDate,
     seats: booking.seats,
@@ -945,10 +957,12 @@ const toBookingSummary = ({
 /** The booking of a reservation's live Dotypos details, if it has one. */
 const toLinkedBookingSummary = ({
   live,
+  now,
   row,
   table,
 }: {
   readonly live: LiveReservationDetails;
+  readonly now: Date;
   readonly row: SafeReservationRow;
   readonly table: DotyposTable | null;
 }) =>
@@ -956,6 +970,7 @@ const toLinkedBookingSummary = ({
     ? toBookingSummary({
         booking: { ...live.reservation, id: row.dotyposReservationId },
         customer: live.customer,
+        now,
         row,
         table,
       })
@@ -1431,16 +1446,21 @@ export class AdministrationService extends Context.Service<
                 author.dotyposCustomerId,
               ])).get(author.dotyposCustomerId)
             : undefined;
-          const name =
+          const name: AdministrationCustomerName =
             customer && author.dotyposCustomerId
-              ? toCustomer(customer)
-              : { displayName: unnamedCustomerDisplayName, hasName: false };
+              ? nameAdministrationCustomer(customer, yield* DateTime.nowAsDate)
+              : {
+                  displayName: unnamedCustomerDisplayName,
+                  hasName: false,
+                  lifecycle: "active",
+                };
           return {
             kind: "account",
             customerId: author.dotyposCustomerId,
-            displayName: name.displayName,
-            hasName: name.hasName,
-            email: author.email,
+            ...name,
+            // An inactive customer's contacts are never shown. The contract
+            // requires a string, so the login email becomes empty.
+            email: name.lifecycle === "active" ? author.email : "",
           } as const;
         },
         (effect, accountId) =>
@@ -1608,6 +1628,7 @@ export class AdministrationService extends Context.Service<
             }
           }
 
+          const now = yield* DateTime.nowAsDate;
           return liveRows.map(({ live, row }) =>
             toReservationSummary({
               latestPayment: latestPaymentByReservation.get(row.id) ?? null,
@@ -1620,6 +1641,7 @@ export class AdministrationService extends Context.Service<
                 attemptsByReservation.get(row.id) ?? []
               ),
               live,
+              now,
               row,
             })
           );
@@ -2134,6 +2156,7 @@ export class AdministrationService extends Context.Service<
         );
         const accessGrant = accessRows[0] ?? null;
 
+        const now = yield* DateTime.nowAsDate;
         return {
           author,
           reservation: toReservationSummary({
@@ -2142,10 +2165,12 @@ export class AdministrationService extends Context.Service<
             recoveryState,
             refunded,
             live,
+            now,
             row,
           }),
           booking: toLinkedBookingSummary({
             live,
+            now,
             row,
             table: findBookingTable(tables, live.reservation?._tableId),
           }),
@@ -2357,10 +2382,12 @@ export class AdministrationService extends Context.Service<
             tables.map((table) => [table.id, table] as const)
           );
 
+          const now = yield* DateTime.nowAsDate;
           return {
             items: pageBookings.map((booking) =>
               toBookingSummary({
                 booking,
+                now,
                 customer: booking._customerId
                   ? (customersById.get(booking._customerId) ?? null)
                   : null,
@@ -2430,6 +2457,7 @@ export class AdministrationService extends Context.Service<
           const booking = toBookingSummary({
             booking: { ...reservation, id },
             customer,
+            now: yield* DateTime.nowAsDate,
             row: row ?? null,
             table: findBookingTable(tables, reservation._tableId),
           });
@@ -2555,10 +2583,13 @@ export class AdministrationService extends Context.Service<
           rows.map(({ customerId }) => customerId),
           policy
         );
+        const now = yield* DateTime.nowAsDate;
         return rows.map((row): AdministrationCustomerSummary => {
           const customer = customersById.get(row.customerId);
           return {
-            customer: customer ? toCustomer(customer) : null,
+            customer: customer
+              ? describeAdministrationCustomer(customer, now)
+              : null,
             customerId: row.customerId,
             marketingConsent: row.marketingConsent,
             reservationCount: Number(row.reservationCount),
@@ -3135,6 +3166,7 @@ export class AdministrationService extends Context.Service<
               : [];
           const customersById =
             yield* customerDirectory.findMany(uniqueCustomerIds);
+          const now = yield* DateTime.nowAsDate;
           const newCustomerIds =
             reservations.kind === "available"
               ? getNewCustomerIds({
@@ -3155,7 +3187,9 @@ export class AdministrationService extends Context.Service<
             customers: metric.ids.slice(0, 3).map((customerId) => {
               const customer = customersById.get(customerId);
               return {
-                customer: customer ? toCustomer(customer) : null,
+                customer: customer
+                  ? describeAdministrationCustomer(customer, now)
+                  : null,
                 customerId,
               };
             }),

@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { coworkStaySchema } from "@/features/reservation/cowork-stay";
 import { meetingRoomReservationDurationKeySchema } from "@/features/reservation/meeting-room-reservation-duration";
 import { workspaceReservationKindSchema } from "@/features/reservation/reservation-kind";
 import { isPlainDateString } from "@/shared/utils/temporal";
@@ -9,6 +10,15 @@ const workspaceDateArgument = (description: string) =>
   Schema.String.annotate({ description })
     .check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/), isPlainDateString())
     .pipe(Schema.brand("PlainDate"));
+
+/**
+ * The Reserved Desk stay an availability, quote, or booking tool takes. The
+ * selection is rejected on `stay` while overnight stays are not offered.
+ */
+export const coworkStayArgument = coworkStaySchema.annotate({
+  description:
+    "Cowork Reserved Desk only: day (default; the date's Prague calendar day) or overnight (from noon on the date, the arrival date, to noon the next date, Prague time; same price). Rejected while overnight stays are not offered.",
+});
 
 /** Selection fields shared by the availability and quote tools. */
 export const reservationSelectionFields = {

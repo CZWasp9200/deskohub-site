@@ -14,9 +14,10 @@ import {
   makeFakeCustomerData,
   settle,
 } from "../../customer-api/testing/customer-data-test-registry";
+import { m } from "../../i18n/messages";
 import {
   copyReferralCodeAtom,
-  formatReferralDiscount,
+  joinedSentence,
   referralsAtom,
   referralsFailure,
   referralsView,
@@ -129,30 +130,33 @@ describe("referralsView", () => {
       code: ReferralCode.make("SAMPLE-ALEX"),
       inviteeCount: 3,
       eligibleInviteeCount: 2,
-      discount: "10",
+      discount: "9.75",
       savings: [
         { value: 15000, exponent: 2, currency: "CZK" },
         { value: 1250, exponent: 2, currency: "EUR" },
       ],
     },
     shareUrl: "https://workspace.deskohub.example/r/SAMPLE-ALEX",
+    discountPerInvitee: "7.5",
+    invitationDiscount: "12.5",
   };
 
-  test("summarizes invitees, discount and savings per currency", () => {
+  test("takes every number and rate from the overview", () => {
     const view = referralsView(overview, "en-US");
 
     expect({ ...view, savings: view.savings.map(plain) }).toEqual({
       code: "SAMPLE-ALEX",
       shareUrl: overview.shareUrl,
-      eligibleInvitees: 2,
-      invitees: 3,
-      noInvitees: false,
-      discount: "10%",
+      joined: { kind: "some", invitees: 3, eligibleInvitees: 2 },
+      discount: "9.75%",
       savings: ["CZK 150", "€12.50"],
+      invitationDiscount: "12.5%",
+      discountPerInvitee: "7.5%",
+      example: { perInvitee: "7.5%", referrals: 2, total: "9.75%" },
     });
   });
 
-  test("reports no invitees and no savings", () => {
+  test("before anyone counts, the example shows one friend's worth", () => {
     const view = referralsView(
       {
         ...overview,
@@ -167,19 +171,53 @@ describe("referralsView", () => {
       "cs-CZ"
     );
 
-    expect(view.noInvitees).toBe(true);
+    expect(view.joined).toEqual({ kind: "nobody" });
     expect(view.savings).toEqual([]);
+    expect(view.example?.referrals).toBe(1);
+    expect(view.example?.perInvitee).toBe(view.discountPerInvitee as string);
+    expect(view.example?.total).toBe(view.discountPerInvitee as string);
   });
-});
 
-describe("formatReferralDiscount", () => {
-  test.each([
-    ["10", "en-US", "10%"],
-    ["10.25", "en-US", "11%"],
-    ["10.00", "en-US", "10%"],
-    ["15", "cs-CZ", "15 %"],
-  ] as const)("formats %s in %s as %s", (discount, locale, expected) => {
-    expect(plain(formatReferralDiscount(discount, locale))).toBe(expected);
+  test("with nothing saved, a zero in the server's currency", () => {
+    const view = referralsView(
+      {
+        ...overview,
+        summary: { ...overview.summary, savings: [] },
+        savingsCurrency: "CZK",
+      },
+      "en-US"
+    );
+
+    expect(view.savings.map(plain)).toEqual(["CZK 0"]);
+  });
+
+  test("someone joined but nobody counts yet", () => {
+    const view = referralsView(
+      {
+        ...overview,
+        summary: {
+          ...overview.summary,
+          eligibleInviteeCount: 0,
+          discount: "0",
+        },
+      },
+      "en-US"
+    );
+
+    expect(view.joined).toEqual({
+      kind: "some",
+      invitees: 3,
+      eligibleInvitees: 0,
+    });
+  });
+
+  test("an overview without the programme rates leaves them out", () => {
+    const { discountPerInvitee, invitationDiscount, ...older } = overview;
+    const view = referralsView(older, "en-US");
+
+    expect(view.discountPerInvitee).toBeUndefined();
+    expect(view.invitationDiscount).toBeUndefined();
+    expect(view.example).toBeUndefined();
   });
 });
 
@@ -230,5 +268,61 @@ describe("referralsFailure", () => {
         CustomerViewError.LinkRequired({ reason: "support-required" })
       )
     ).toBeUndefined();
+  });
+});
+
+describe("joinedSentence", () => {
+  test("says nobody joined", () => {
+    expect(joinedSentence({ kind: "nobody" }, "en-US")).toBe(
+      m.referrals_joined_nobody({}, { locale: "en-US" })
+    );
+  });
+
+  test("puts who joined and who counts into one sentence", () => {
+    const locale = "en-US";
+    expect(
+      joinedSentence({ kind: "some", invitees: 3, eligibleInvitees: 2 }, locale)
+    ).toBe(
+      m.referrals_joined_some(
+        {
+          invitees: m.referrals_joined_invitees({ count: 3 }, { locale }),
+          eligible: m.referrals_joined_eligible({ count: 2 }, { locale }),
+        },
+        { locale }
+      )
+    );
+  });
+
+  test("says when nobody counts yet rather than counting zero", () => {
+    const locale = "cs-CZ";
+    expect(
+      joinedSentence({ kind: "some", invitees: 2, eligibleInvitees: 0 }, locale)
+    ).toBe(
+      m.referrals_joined_some(
+        {
+          invitees: m.referrals_joined_invitees({ count: 2 }, { locale }),
+          eligible: m.referrals_joined_eligible_none({}, { locale }),
+        },
+        { locale }
+      )
+    );
+  });
+
+  // One, few and many as Czech counts them; English has one and other.
+  test.each([
+    ["cs-CZ", [1, 3, 5]],
+    ["en-US", [1, 3]],
+  ] as const)("reads each %s plural form differently", (locale, counts) => {
+    const forms = (
+      message: typeof m.referrals_joined_invitees
+    ): ReadonlySet<string> =>
+      new Set(
+        counts.map((count) =>
+          message({ count }, { locale }).replace(String(count), "#")
+        )
+      );
+    expect(forms(m.referrals_joined_invitees).size).toBe(counts.length);
+    // Czech "se počítá" serves one and many alike; only few differs.
+    expect(forms(m.referrals_joined_eligible).size).toBeGreaterThan(1);
   });
 });

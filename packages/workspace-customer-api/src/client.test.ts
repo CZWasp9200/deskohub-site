@@ -319,7 +319,7 @@ describe("makeWorkspaceCustomerApiClient", () => {
     expect(
       await run(
         Effect.flatMap(makeWorkspaceCustomerApiClient({ baseUrl }), (api) =>
-          api.invoices.listInvoices()
+          api.invoices.listInvoices({ query: {} })
         ),
         client
       )

@@ -4,14 +4,14 @@ import type {
   NexiOrderId,
   NexiWebhookEventId,
 } from "@deskohub/nexi";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, notExists, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
 import {
   discountApplications,
-  type PaymentAttemptState,
+  latePaymentRecoveries,
   paymentAttempts,
   type WorkspaceReservationRow,
   workspaceReservations,
@@ -48,28 +48,14 @@ import {
   type PaymentAttempt,
   toPaymentAttempt,
 } from "./payment-attempt.repository";
-
-export type PaymentLifecycleReference =
-  | { readonly type: "paymentAttemptId"; readonly id: PaymentAttemptId }
-  | { readonly type: "providerOrderId"; readonly id: NexiOrderId }
-  | {
-      readonly type: "workspaceReservationId";
-      readonly id: WorkspaceReservationId;
-    };
-
-export class PaymentLifecycleStateError extends Data.TaggedError(
-  "PaymentLifecycleStateError"
-)<{
-  readonly operation: string;
-  readonly paymentReference: PaymentLifecycleReference;
-  readonly message: string;
-}> {}
-
-interface PaymentLifecycleTransition {
-  readonly attempt: PaymentAttempt;
-  readonly changed: boolean;
-  readonly timestamp: Temporal.Instant;
-}
+import {
+  findPaymentReservationCustomer,
+  lifecycleStateError,
+  type NonTerminalPaymentAttemptState,
+  PaymentLifecycleStateError,
+  type PaymentLifecycleTransition,
+} from "./payment-lifecycle-state";
+import { PaymentTerminalTransitions } from "./payment-terminal-transitions";
 
 export type PaymentLifecycleRepositoryError =
   | AccountingRecordUnavailable
@@ -139,20 +125,31 @@ export interface IPaymentLifecycleRepository {
   >;
 }
 
-type NonTerminalPaymentAttemptState = Extract<
-  PaymentAttemptState,
-  "created" | "pending"
->;
+/**
+ * A payment that settled late on one of the order's earlier attempts is
+ * being recovered or was refunded: the order admits no new payment, so a
+ * retry never charges it again while that recovery decides.
+ */
+const noLatePaymentRecovery = notExists(
+  sql`(select 1 from ${latePaymentRecoveries} where ${latePaymentRecoveries.workspaceReservationId} = ${workspaceReservations.id})`
+);
 
 export class PaymentLifecycleRepository extends Context.Service<
   PaymentLifecycleRepository,
   IPaymentLifecycleRepository
 >()("@deskohub-workspace/checkout/PaymentLifecycleRepository") {
+  /**
+   * The repository over the Workspace database and the accounting snapshots.
+   * It composes `PaymentTerminalTransitions` over the same database itself:
+   * that module is a part of this one, split out so its interface needs only
+   * the database, not a capability callers configure.
+   */
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
       const { db, transaction } = yield* WorkspaceDatabase;
       const accountingSnapshots = yield* AccountingDocumentSnapshots;
+      const terminalTransitions = yield* PaymentTerminalTransitions;
 
       const createPendingNexiAttempt = Effect.fn(
         "PaymentLifecycleRepository.createPendingNexiAttempt"
@@ -203,6 +200,7 @@ export class PaymentLifecycleRepository extends Context.Service<
               .where(
                 and(
                   eq(workspaceReservations.id, input.workspaceReservationId),
+                  noLatePaymentRecovery,
                   eq(workspaceReservations.reservationState, "held"),
                   inArray(workspaceReservations.paymentState, [
                     "not_started",
@@ -278,6 +276,7 @@ export class PaymentLifecycleRepository extends Context.Service<
               .where(
                 and(
                   eq(workspaceReservations.id, input.workspaceReservationId),
+                  noLatePaymentRecovery,
                   eq(workspaceReservations.reservationState, "held"),
                   inArray(workspaceReservations.paymentState, [
                     "not_started",
@@ -461,6 +460,7 @@ export class PaymentLifecycleRepository extends Context.Service<
               .where(
                 and(
                   eq(workspaceReservations.id, input.workspaceReservationId),
+                  noLatePaymentRecovery,
                   eq(workspaceReservations.reservationState, "held"),
                   inArray(workspaceReservations.paymentState, [
                     "not_started",
@@ -681,138 +681,10 @@ export class PaymentLifecycleRepository extends Context.Service<
       );
 
       const markTerminal = Effect.fn("PaymentLifecycleRepository.markTerminal")(
-        function* (input: {
-          readonly id: PaymentAttemptId;
-          readonly workspaceReservationId: WorkspaceReservationId;
-          readonly state: "failed" | "cancelled" | "expired";
-          readonly failureCode: string;
-          readonly webhookEventId?: NexiWebhookEventId;
-          readonly providerOperationId?: NexiOperationId;
-          readonly providerStatus?: string;
-          readonly fromAttemptStates?: readonly NonTerminalPaymentAttemptState[];
-        }) {
-          const terminalAt = Temporal.Now.instant();
-          const fromAttemptStates = input.fromAttemptStates ?? [
-            "created",
-            "pending",
-          ];
-
-          return yield* transaction(
-            Effect.gen(function* () {
-              const dotyposCustomerId = yield* findPaymentReservationCustomer(
-                "markTerminal",
-                input.workspaceReservationId
-              );
-              yield* ReferralInvitationLedger.lockFirstBooking({
-                dotyposCustomerId,
-                records: "nothing",
-              });
-
-              const [attempt] = yield* db
-                .update(paymentAttempts)
-                .set({
-                  state: input.state,
-                  failureCode: input.failureCode,
-                  lastWebhookEventId: input.webhookEventId,
-                  lastProviderOperationId: input.providerOperationId,
-                  lastProviderStatus: input.providerStatus,
-                  updatedAt: terminalAt,
-                })
-                .where(
-                  and(
-                    eq(paymentAttempts.id, input.id),
-                    eq(
-                      paymentAttempts.workspaceReservationId,
-                      input.workspaceReservationId
-                    ),
-                    inArray(paymentAttempts.state, [
-                      ...fromAttemptStates,
-                      input.state,
-                    ])
-                  )
-                )
-                .returning();
-
-              if (!attempt) {
-                return yield* lifecycleStateError(
-                  "markTerminal",
-                  { type: "paymentAttemptId", id: input.id },
-                  "Only a non-terminal or matching terminal attempt can mark a reservation terminal."
-                );
-              }
-
-              const [reservation] = yield* db
-                .update(workspaceReservations)
-                .set({
-                  paymentState: input.state,
-                  failureCode: input.failureCode,
-                  updatedAt: terminalAt,
-                })
-                .where(
-                  and(
-                    eq(workspaceReservations.id, input.workspaceReservationId),
-                    eq(workspaceReservations.reservationState, "held"),
-                    eq(workspaceReservations.paymentState, "pending"),
-                    eq(workspaceReservations.activePaymentAttemptId, input.id)
-                  )
-                )
-                .returning({ updatedAt: workspaceReservations.updatedAt });
-
-              if (reservation) {
-                yield* PromotionClaims.release({
-                  paymentAttemptId: input.id,
-                  releasedAt: terminalAt,
-                  releaseReason: input.failureCode,
-                });
-                yield* ReferralInvitationLedger.release({
-                  paymentAttemptId: input.id,
-                  releasedAt: terminalAt,
-                  releaseReason: input.failureCode,
-                });
-                return {
-                  attempt: toPaymentAttempt(attempt),
-                  changed: true,
-                  timestamp: reservation.updatedAt,
-                };
-              }
-
-              const [consistent] = yield* db
-                .select({ updatedAt: workspaceReservations.updatedAt })
-                .from(workspaceReservations)
-                .where(
-                  and(
-                    eq(workspaceReservations.id, input.workspaceReservationId),
-                    eq(workspaceReservations.paymentState, input.state),
-                    eq(workspaceReservations.activePaymentAttemptId, input.id)
-                  )
-                )
-                .limit(1);
-
-              if (!consistent) {
-                return yield* lifecycleStateError(
-                  "markTerminal",
-                  { type: "paymentAttemptId", id: input.id },
-                  "Only the active pending attempt on a held reservation can mark payment terminal."
-                );
-              }
-
-              yield* PromotionClaims.release({
-                paymentAttemptId: input.id,
-                releasedAt: terminalAt,
-                releaseReason: input.failureCode,
-              });
-              yield* ReferralInvitationLedger.release({
-                paymentAttemptId: input.id,
-                releasedAt: terminalAt,
-                releaseReason: input.failureCode,
-              });
-              return {
-                attempt: toPaymentAttempt(attempt),
-                changed: false,
-                timestamp: consistent.updatedAt,
-              };
-            })
-          );
+        function* (
+          input: Parameters<IPaymentLifecycleRepository["markTerminal"]>[0]
+        ) {
+          return yield* terminalTransitions.markTerminal(input);
         }
       );
 
@@ -824,7 +696,7 @@ export class PaymentLifecycleRepository extends Context.Service<
         markTerminal,
       } satisfies IPaymentLifecycleRepository;
     })
-  );
+  ).pipe(Layer.provide(PaymentTerminalTransitions.Default));
 
   /** `Default` over the accounting storage and the Workspace database. */
   static Live = this.Default.pipe(
@@ -833,36 +705,6 @@ export class PaymentLifecycleRepository extends Context.Service<
     )
   );
 }
-
-/** Reads the reservation's customer, whose first-booking lock comes next. */
-const findPaymentReservationCustomer = Effect.fnUntraced(function* (
-  operation:
-    | "createPendingNexiAttempt"
-    | "completeInternalPayment"
-    | "markPaid"
-    | "markTerminal",
-  workspaceReservationId: WorkspaceReservationId
-) {
-  const { db } = yield* WorkspaceTransaction;
-  const [reservationIdentity] = yield* db
-    .select({
-      dotyposCustomerId: workspaceReservations.dotyposCustomerId,
-    })
-    .from(workspaceReservations)
-    .where(eq(workspaceReservations.id, workspaceReservationId))
-    .limit(1);
-  if (!reservationIdentity) {
-    return yield* lifecycleStateError(
-      operation,
-      {
-        type: "workspaceReservationId",
-        id: workspaceReservationId,
-      },
-      "The payment reservation was not found."
-    );
-  }
-  return reservationIdentity.dotyposCustomerId;
-});
 
 /**
  * The internal payment that already completed the reservation for this
@@ -1094,17 +936,6 @@ export const validateInternalPaymentCommitment = Effect.fn(
 
   return claimedApplication;
 });
-
-const lifecycleStateError = (
-  operation: string,
-  paymentReference: PaymentLifecycleReference,
-  message: string
-) =>
-  new PaymentLifecycleStateError({
-    operation: `PaymentLifecycleRepository.${operation}`,
-    paymentReference,
-    message,
-  });
 
 /**
  * Admits the payment under the referral first-booking rules, reporting an

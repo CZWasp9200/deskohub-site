@@ -1,3 +1,5 @@
+import "@/shared/polyfills/temporal";
+
 import {
   type DotyposReservationId,
   type DotyposReservationStatus,
@@ -48,6 +50,8 @@ interface IDotyposHoldRelease {
    */
   readonly release: (input: {
     readonly reservationId: WorkspaceReservationId;
+    /** The caller's claim stamp, which the failure marker requires. */
+    readonly claimedAt: Temporal.Instant;
     readonly dotyposReservationId: DotyposReservationId;
     readonly liveStatus: DotyposHoldLiveStatusRule;
     readonly failureCode: DotyposHoldReleaseFailureCode;
@@ -68,11 +72,13 @@ export class DotyposHoldRelease extends Context.Service<
       // outcome, and the claim stays `cancelling` for a later run.
       const markReleaseFailed = (input: {
         readonly reservationId: WorkspaceReservationId;
+        readonly claimedAt: Temporal.Instant;
         readonly failureCode: DotyposHoldReleaseFailureCode;
       }) =>
         reservations
           .markCancellationFailed({
             id: input.reservationId,
+            claimedAt: input.claimedAt,
             failureCode: input.failureCode,
           })
           .pipe(

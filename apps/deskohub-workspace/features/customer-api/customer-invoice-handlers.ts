@@ -8,8 +8,11 @@ import {
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
-import { CustomerInvoiceService } from "@/features/account/backend/customer-invoice.service";
-import type { CustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
+import {
+  type CustomerInvoiceListing,
+  CustomerInvoiceService,
+} from "@/features/account/backend/customer-invoice.service";
+import { defaultLocale } from "@/features/i18n";
 import { CustomerAccountLayers } from "./customer-account-layers";
 import { answerCustomerApiFailure } from "./customer-api-failure";
 import { answerFileDownload } from "./customer-file-download";
@@ -38,8 +41,10 @@ export const CustomerInvoicesApiHandlers = HttpApiBuilder.group(
     );
 
     return handlers
-      .handle("listInvoices", () =>
-        Effect.flatMap(CustomerInvoiceService, (service) => service.list).pipe(
+      .handle("listInvoices", ({ query: { locale = defaultLocale } }) =>
+        Effect.flatMap(CustomerInvoiceService, (service) =>
+          service.list({ locale })
+        ).pipe(
           Effect.provide(invoices),
           Effect.catchTag("CustomerInvoicesUnavailableError", ({ account }) =>
             Effect.fail(account)
@@ -83,7 +88,8 @@ const answerInvoice = ({
   issuedOn,
   total: { amount, currency },
   cancellation,
-}: CustomerInvoiceSummary): CustomerInvoice => ({
+  reservation,
+}: CustomerInvoiceListing): CustomerInvoice => ({
   id,
   invoiceNumber,
   issuedOn,
@@ -92,6 +98,14 @@ const answerInvoice = ({
   ...(cancellation && {
     cancellation: {
       correctiveDocumentNumber: cancellation.correctiveDocumentNumber,
+    },
+  }),
+  ...(reservation && {
+    reservation: {
+      productName: reservation.productName,
+      ...(reservation.seats !== null && { seats: reservation.seats }),
+      startsAt: reservation.startsAt,
+      endsAt: reservation.endsAt,
     },
   }),
 });

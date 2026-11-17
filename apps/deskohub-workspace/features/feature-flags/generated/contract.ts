@@ -5,6 +5,7 @@ export const postHogFeatureFlags = definePostHogFeatureFlags<
   PostHogFeatureFlagDefinitions
 >([
   "account_avatars",
+  "agent_booking",
   "calendar_sales",
   "customer_discounts",
   "discount_codes",
@@ -12,6 +13,7 @@ export const postHogFeatureFlags = definePostHogFeatureFlags<
   "login_passkeys",
   "meeting_room_page",
   "office_page",
+  "overnight_stays",
   "referrals",
   "seating_map",
   "webmcp_site_tools",
@@ -22,6 +24,10 @@ export type PostHogFeatureFlagKey =
 
 export interface PostHogFeatureFlagDefinitions {
   readonly "account_avatars": {
+    readonly value: boolean;
+    readonly payload: undefined;
+  };
+  readonly "agent_booking": {
     readonly value: boolean;
     readonly payload: undefined;
   };
@@ -50,6 +56,10 @@ export interface PostHogFeatureFlagDefinitions {
     readonly payload: undefined;
   };
   readonly "office_page": {
+    readonly value: boolean;
+    readonly payload: undefined;
+  };
+  readonly "overnight_stays": {
     readonly value: boolean;
     readonly payload: undefined;
   };

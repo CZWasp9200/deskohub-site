@@ -9,7 +9,11 @@ import {
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LoadingIndicator } from "./loading-indicator";
-import { ScrollScreen, useScrollScreenToTop } from "./scroll-screen";
+import {
+  MastheadClearance,
+  ScrollScreen,
+  useScrollScreenToTop,
+} from "./scroll-screen";
 import { elementTree, find, findAll, flatStyle } from "./testing/element-tree";
 import { color, space } from "./tokens";
 
@@ -74,7 +78,8 @@ describe("ScrollScreen", () => {
     const scrolled = Children.toArray(
       provider.props.children as ReactNode
     ) as ReactElement<{ children: ReactNode }>[];
-    expect(scrolled[0]?.type).toBe("Masthead");
+    // Measured in a wrapper, so a collapsed header knows when it has gone.
+    expect(find(scrolled[0], "Masthead")).toBeDefined();
     const [band, content] = Children.toArray(
       scrolled[1]?.props.children
     ) as ReactElement<{ style: unknown }>[];
@@ -86,6 +91,28 @@ describe("ScrollScreen", () => {
     });
     expect(flatStyle(content?.props.style)).toMatchObject({
       paddingTop: 0,
+    });
+  });
+
+  test("without the overlap, content starts a step below the masthead's band", () => {
+    const tree = elementTree(ScrollScreen, {
+      masthead: createElement("Masthead"),
+      overlap: false,
+      children: createElement("Content"),
+    });
+    const provider = find(tree, "ScrollView")?.props.children;
+    if (!isValidElement<{ children: unknown }>(provider)) {
+      throw new Error("ScrollScreen renders nothing inside its ScrollView");
+    }
+    const scrolled = Children.toArray(
+      provider.props.children as ReactNode
+    ) as ReactElement<{ children: ReactNode }>[];
+    const page = Children.toArray(scrolled[1]?.props.children) as ReactElement<{
+      style: unknown;
+    }>[];
+    expect(page).toHaveLength(1);
+    expect(flatStyle(page[0]?.props.style)).toMatchObject({
+      paddingTop: space.lg,
     });
   });
 
@@ -116,5 +143,13 @@ describe("ScrollScreen", () => {
       );
     expect(indicator(true)?.props).toMatchObject({ size: "inline" });
     expect(indicator(false)).toBeUndefined();
+  });
+
+  test("a masthead clearance moves content past the 40 overlap, less the column gap", () => {
+    const clearance = elementTree(MastheadClearance, {}) as {
+      props: { style: unknown; "aria-hidden": boolean };
+    };
+    expect(clearance.props["aria-hidden"]).toBe(true);
+    expect(flatStyle(clearance.props.style).height).toBe(40 - space.md);
   });
 });

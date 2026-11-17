@@ -12,7 +12,7 @@ import { type Locale, m } from "@/features/i18n";
 import {
   AccountingDocumentFooter,
   AccountingDocumentHeader,
-  AccountingDocumentNonVatNote,
+  AccountingDocumentVatNote,
   AccountingDocumentParties,
   renderAccountingDocumentPdf,
   accountingDocumentPdfStyles as styles,
@@ -125,9 +125,7 @@ const InvoicePdfDocument = ({
           <PaymentRequest payment={payment} locale={document.locale} />
         ) : null}
 
-        <AccountingDocumentNonVatNote
-          statement={presentation.nonVatStatement}
-        />
+        <AccountingDocumentVatNote statement={presentation.vatStatement} />
 
         <AccountingDocumentFooter text={presentation.footer} />
       </Page>

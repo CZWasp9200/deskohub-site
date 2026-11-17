@@ -131,26 +131,12 @@ const fixtureSiteHeaderConfig = (contactHrefExpression: string) => `
 import { isCustomerSignedIn } from "@/features/account/server/customer-session.server";
 import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import type { Locale } from "@/features/i18n";
+import type { SiteHeaderMenuItem } from "@/shared/components/site-header-links";
 
 export type SiteHeaderAccountEntry = {
   readonly label: string;
   readonly href: Promise<string>;
   readonly signInHref: string;
-};
-
-export type SiteHeaderMenuItemId =
-  | "locationMap"
-  | "meetingRoom"
-  | "office"
-  | "gallery"
-  | "founders"
-  | "faqContact"
-  | "contact";
-
-export type SiteHeaderMenuItem = {
-  readonly id: SiteHeaderMenuItemId;
-  readonly label: string;
-  readonly href: string;
 };
 
 export async function getSiteHeaderConfig(locale: Locale) {

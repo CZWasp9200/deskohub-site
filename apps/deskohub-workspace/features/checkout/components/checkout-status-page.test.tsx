@@ -61,6 +61,9 @@ const { workspaceUseAction } = await import(
 mock.module("@/features/checkout/actions/reopen-payment-page", () => ({
   reopenPaymentPage: mock(),
 }));
+mock.module("@/features/checkout/actions/prepare-payment-retry", () => ({
+  preparePaymentRetry: mock(),
+}));
 
 const { CheckoutStatusPage } = await import("./checkout-status-page");
 
@@ -559,17 +562,18 @@ describe("CheckoutStatusPage", () => {
       />
     );
 
-    const cta = view.container.querySelector("#checkout-status-reserve-again");
-    expect(cta?.textContent).toBe(
-      m.checkoutStatusTryAgain({}, { locale: "en-US" })
-    );
-    const ctaHref = cta?.getAttribute("href");
-    expect(ctaHref).toBe("/en-US/reservation/cowork");
+    // Paying the same order again leads; the new reservation is its
+    // fallback, which the completed order step links to.
+    expect(
+      view.container.querySelector("#checkout-status-try-payment-again")
+    ).not.toBeNull();
     const completedOrderStep = view.container.querySelector(
       "main ol > li:nth-child(1) > a"
     );
     expect(completedOrderStep).not.toBeNull();
-    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
+    expect(completedOrderStep?.getAttribute("href")).toBe(
+      "/en-US/reservation/cowork"
+    );
     expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
     const stepHref = completedOrderStep?.getAttribute("href");
     expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
@@ -1258,7 +1262,7 @@ describe("CheckoutStatusPage payment retry", () => {
       retryStatuses.map((status) => ({ ...retry, ...status }))
     )
   )(
-    "offers Try again with the $kind selection after a $status payment",
+    "offers paying the same order again after a $status payment, with the $kind selection as its fallback",
     ({ href, kind, paymentStatus, retrySelection, status }) => {
       const view = render(
         <CheckoutStatusPage
@@ -1274,10 +1278,12 @@ describe("CheckoutStatusPage payment retry", () => {
         />
       );
 
-      const tryAgain = view.getByRole("link", {
-        name: m.checkoutStatusTryAgain({}, { locale: "en-US" }),
-      });
-      expect(tryAgain.getAttribute("href")).toBe(href);
+      expect(
+        view.container.querySelector("#checkout-status-try-payment-again")
+      ).not.toBeNull();
+      expect(
+        view.container.querySelector("#checkout-status-reserve-again")
+      ).toBeNull();
       expect(
         view.container
           .querySelector("main ol > li:nth-child(1) > a")

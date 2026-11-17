@@ -185,6 +185,7 @@ const selectionArgumentNames = {
   tier: "tier",
   coffee: "coffee",
   monitorOption: "monitor_option",
+  stay: "stay",
 } satisfies Record<BookingSelectionField, string>;
 
 export class AgentToolError extends Data.TaggedError("AgentToolError")<{

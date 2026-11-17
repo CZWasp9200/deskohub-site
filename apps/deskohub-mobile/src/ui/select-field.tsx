@@ -1,5 +1,5 @@
 import ChevronDown from "lucide-react-native/icons/chevron-down";
-import { useId, useState } from "react";
+import { type ComponentRef, type Ref, useId, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import {
   FieldLabel,
@@ -28,6 +28,7 @@ export function SelectField({
   hint,
   error,
   disabled = false,
+  ref,
 }: {
   readonly label: string;
   /** The chosen option's label; without one the placeholder shows. */
@@ -38,6 +39,8 @@ export function SelectField({
   readonly hint?: string;
   readonly error?: string;
   readonly disabled?: boolean;
+  /** The field's pressable, which a form can focus, e.g. when it is invalid. */
+  readonly ref?: Ref<ComponentRef<typeof Pressable>>;
 }) {
   const [focused, setFocused] = useState(false);
   const hintId = useId();
@@ -55,6 +58,7 @@ export function SelectField({
     <View style={fieldColumnStyle}>
       <FieldLabel label={label} />
       <Pressable
+        ref={ref}
         role="button"
         aria-label={label}
         // The chosen value, read after the field's name.

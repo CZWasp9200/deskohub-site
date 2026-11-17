@@ -38,6 +38,7 @@ const summary: CustomerInvoiceSummary = {
   paymentStatus: "due",
   dueDate: plainDateStringSchema.make("2026-09-01"),
   cancellation: null,
+  reservation: null,
 };
 const correctiveDocumentNumber = "WS-OD-2026-000042";
 

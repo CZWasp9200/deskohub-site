@@ -14,6 +14,10 @@ import {
 } from "../../customer-api/device-capabilities";
 import { customerDataExitCleanup } from "../../customer-api/exit-cleanup";
 import {
+  DownloadShareFailure,
+  downloadShareFailureOf,
+} from "../../customer-api/share-downloaded-file";
+import {
   type FakeDevice,
   fakeCustomerDataLayer,
   fakeDeviceCapabilities,
@@ -22,12 +26,7 @@ import {
 import { FakeWorkspace } from "../../customer-api/testing/fake-workspace";
 import { sampleOrderIds } from "../../customer-api/testing/sample-fixtures";
 import { eventually } from "../../testing/eventually";
-import {
-  InvoiceShareFailure,
-  invoiceFileName,
-  invoiceShareFailureOf,
-  shareInvoice,
-} from "./invoice-share";
+import { invoiceFileName, shareInvoice } from "./invoice-share";
 
 // A share sheet that sees the file while it is open, then succeeds or fails.
 const observingShareSheet = (device: FakeDevice, fails: boolean) => {
@@ -92,8 +91,8 @@ describe("shareInvoice", () => {
     expect(sheet.filesWhileSharing).toEqual([1]);
     expect(device.files.size).toBe(0);
     expect(
-      Exit.isFailure(result) && invoiceShareFailureOf(result.cause)
-    ).toEqual(InvoiceShareFailure.Share());
+      Exit.isFailure(result) && downloadShareFailureOf(result.cause)
+    ).toEqual(DownloadShareFailure.Share());
   });
 
   test("an invoice not issued yet writes and shares nothing", async () => {
@@ -103,9 +102,9 @@ describe("shareInvoice", () => {
     expect(device.files.size).toBe(0);
     expect(device.sharedFiles).toEqual([]);
     expect(
-      Exit.isFailure(result) && invoiceShareFailureOf(result.cause)
+      Exit.isFailure(result) && downloadShareFailureOf(result.cause)
     ).toEqual(
-      InvoiceShareFailure.Download({
+      DownloadShareFailure.Download({
         error: CustomerViewError.InvoiceNotIssued(),
       })
     );
@@ -119,9 +118,9 @@ describe("shareInvoice", () => {
     expect(device.files.size).toBe(0);
     expect(device.sharedFiles).toEqual([]);
     expect(
-      Exit.isFailure(result) && invoiceShareFailureOf(result.cause)
+      Exit.isFailure(result) && downloadShareFailureOf(result.cause)
     ).toEqual(
-      InvoiceShareFailure.Download({ error: CustomerViewError.NotFound() })
+      DownloadShareFailure.Download({ error: CustomerViewError.NotFound() })
     );
   });
 

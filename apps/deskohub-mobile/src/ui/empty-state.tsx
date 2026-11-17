@@ -13,7 +13,8 @@ export type EmptyStateTone =
   | "action"
   | "navy";
 
-const discColors = {
+/** An icon disc's fill and icon colour per tone, shared with gate cards. */
+export const discColors = {
   neutral: { background: color.sunken, ink: color.navy },
   positive: { background: color.positiveTint, ink: color.positiveInk },
   danger: { background: color.dangerTint, ink: color.dangerInk },
@@ -52,7 +53,10 @@ export function EmptyState({
   readonly children?: ReactNode;
 }) {
   const disc = discColors[tone];
-  useLiveRegionAnnouncement(live && title, live ?? "polite");
+  // A live title is read with the line under it, such as a failure's cause.
+  const announced =
+    title !== "" && body !== undefined ? `${title}. ${body}` : title;
+  useLiveRegionAnnouncement(live && announced, live ?? "polite");
   return (
     <View style={[styles.empty, dashed && styles.dashed]}>
       <View style={[styles.disc, { backgroundColor: disc.background }]}>
@@ -64,6 +68,9 @@ export function EmptyState({
         aria-live={live}
         // Text doesn't map `aria-live` to Android's live region; View does.
         accessibilityLiveRegion={live}
+        accessibilityLabel={
+          live !== undefined && announced !== title ? announced : undefined
+        }
         style={styles.centred}
       >
         {title}

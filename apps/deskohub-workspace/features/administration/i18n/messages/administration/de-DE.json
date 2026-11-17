@@ -165,6 +165,8 @@
   "administrationCustomerExportColumnPhone": "Telefon",
   "administrationCustomerExportColumnReservations": "Reservierungen",
   "administrationCustomerUnnamed": "Kunde ohne Namen",
+  "administrationCustomerDeleted": "Gelöschter Kunde",
+  "administrationCustomerExpired": "Abgelaufener Kunde",
   "administrationCustomerNoContactDetails": "Keine Kontaktdaten",
   "administrationCustomerSearchAmbiguous": "Mehrere Kunden passen. Wählen Sie den richtigen aus.",
   "administrationCustomerSearchEmpty": "Kein passender Kunde gefunden.",

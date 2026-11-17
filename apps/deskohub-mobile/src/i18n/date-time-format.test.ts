@@ -76,7 +76,7 @@ describe("formatInstantRange", () => {
         "en-US"
       );
       expect(range).toEqual({
-        start: "Monday, November 30, 2026",
+        start: "Nov 30, 2026",
         end: Option.none(),
       });
     } finally {
@@ -113,8 +113,8 @@ describe("formatInstantRange", () => {
       "en-US"
     );
     expect(range).toEqual({
-      start: "Monday, January 5, 2026",
-      end: Option.some("Sunday, January 11, 2026"),
+      start: "Jan 5, 2026",
+      end: Option.some("Jan 11, 2026"),
     });
   });
 
@@ -125,7 +125,7 @@ describe("formatInstantRange", () => {
       "cs-CZ"
     );
     expect(range).toEqual({
-      start: "pondělí 5. ledna 2026",
+      start: "5. 1. 2026",
       end: Option.none(),
     });
   });
@@ -145,19 +145,19 @@ describe("formatWorkspaceDays", () => {
     const start = instant("2026-11-29T23:00:00Z");
     expect(
       formatWorkspaceDays(start, instant("2026-11-30T16:00:00Z"), "en-US")
-    ).toEqual({ start: "Monday, November 30, 2026", end: Option.none() });
+    ).toEqual({ start: "Nov 30, 2026", end: Option.none() });
     expect(
       formatWorkspaceDays(start, instant("2026-12-02T23:00:00Z"), "en-US")
     ).toEqual({
-      start: "Monday, November 30, 2026",
-      end: Option.some("Wednesday, December 2, 2026"),
+      start: "Nov 30, 2026",
+      end: Option.some("Dec 2, 2026"),
     });
   });
 
   test("shows the start day alone when the end doesn't move forward", () => {
     const start = instant("2026-11-29T23:00:00Z");
     expect(formatWorkspaceDays(start, start, "en-US")).toEqual({
-      start: "Monday, November 30, 2026",
+      start: "Nov 30, 2026",
       end: Option.none(),
     });
   });

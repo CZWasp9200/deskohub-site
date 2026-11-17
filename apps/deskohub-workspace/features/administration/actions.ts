@@ -1,8 +1,8 @@
 "use server";
 
 import { AdministrationWorkspaceReservationId } from "@deskohub/workspace-admin-api";
-import { Effect, Schema } from "effect";
-import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
+import { DateTime, Effect, Schema } from "effect";
+import { currentAdministrationProvenance } from "@/features/administration/administration-provenance";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import type { WorkspaceActionFailureCopy } from "@/shared/backend/workspace-action";
 import { AdministrationService } from "./administration.service";
@@ -75,10 +75,11 @@ const searchAdministrationCustomersAction = defineAdministrationAction(
   Effect.fn(function* (input) {
     const directory = yield* AdministrationCustomerDirectory;
     const { kind, customers } = yield* directory.search(input.query);
+    const now = yield* DateTime.nowAsDate;
     return {
       kind,
       customers: customers.map((customer) =>
-        describeAdministrationCustomer(customer, "company-person-email-phone")
+        describeAdministrationCustomer(customer, now)
       ),
     };
   })
@@ -109,11 +110,11 @@ const cancelAdministrationReservationAction = defineAdministrationAction(
     revalidates: reservationPath,
   },
   Effect.fn(function* (input: ReservationCancellationInput) {
-    const administrator = yield* CurrentAdministrator;
+    const { actor, source } = yield* currentAdministrationProvenance;
     const administration = yield* ReservationAdministrationService;
     return yield* administration.cancel({
       ...input,
-      actor: { source: "admin-ui", administrator },
+      actor: { source, administrator: actor },
     });
   })
 );

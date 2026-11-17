@@ -111,13 +111,45 @@ describe("corrective document PDF", () => {
         ...presentation.lines.map((line) => line.amount),
         presentation.total,
         presentation.settlement,
-        presentation.nonVatStatement,
+        ...(presentation.vatStatement === undefined
+          ? []
+          : [presentation.vatStatement]),
         ...presentation.factColumns.flat().map((fact) => fact.value),
       ]) {
         expect(text).toContain(shown);
       }
     }
   );
+
+  test("prints the VAT statement only for the status the corrected invoice was issued under", async () => {
+    const invoice = makeCoworkInvoiceDocument("cs-CZ");
+    const textOf = async (vatStatus: InvoiceDocument["supplier"]["vatStatus"]) =>
+      (
+        await extractPdfText(
+          (
+            await render(
+              correct({ ...invoice, supplier: { ...invoice.supplier, vatStatus } })
+            )
+          ).bytes
+        )
+      ).text;
+    const statement = getCorrectiveDocumentPresentation(
+      correct(invoice)
+    ).vatStatement;
+
+    expect(invoice.supplier.vatStatus).toBe("not-vat-payer");
+    expect(statement).toBeDefined();
+    expect(await textOf("not-vat-payer")).toContain(statement ?? "");
+    expect(
+      getCorrectiveDocumentPresentation(
+        correct({
+          ...invoice,
+          supplier: { ...invoice.supplier, vatStatus: "vat-payer" },
+        })
+      ).vatStatement
+    ).toBeUndefined();
+    expect(await textOf("vat-payer")).not.toContain(statement ?? "");
+  });
 
   test("states a different settlement for a refund and for nothing due", () => {
     const [refund, nothingDue] = [

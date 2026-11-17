@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   nextSampleAccountKind,
   resolveSampleDataMode,
+  resolveSampleFeatureFlags,
   type SampleAccountKind,
   sampleAccountKinds,
 } from "./sample-data-mode";
@@ -65,5 +66,31 @@ describe("nextSampleAccountKind", () => {
 
     expect(seen.size).toBe(sampleAccountKinds.length);
     expect(kind).toBe("linked");
+  });
+});
+
+describe("resolveSampleFeatureFlags", () => {
+  test("sample data switches the listed flags on", () => {
+    expect([
+      ...resolveSampleFeatureFlags({
+        mode: { enabled: true, kind: "linked" },
+        flags: " first_flag, second_flag ,,",
+      }),
+    ]).toEqual(["first_flag", "second_flag"]);
+  });
+
+  test("without sample data no flag is switched on", () => {
+    expect(
+      resolveSampleFeatureFlags({
+        mode: { enabled: false },
+        flags: "first_flag",
+      }).size
+    ).toBe(0);
+    expect(
+      resolveSampleFeatureFlags({
+        mode: { enabled: true, kind: "linked" },
+        flags: undefined,
+      }).size
+    ).toBe(0);
   });
 });

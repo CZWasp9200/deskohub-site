@@ -1,12 +1,19 @@
 import Lock from "lucide-react-native/icons/lock";
-import { Children, type ReactNode, type Ref, useId, useState } from "react";
+import {
+  Children,
+  createContext,
+  type ReactNode,
+  type Ref,
+  useContext,
+  useId,
+  useState,
+} from "react";
 import {
   Platform,
   Pressable,
   StyleSheet,
   type TextInputInstance,
   type TextInputProps,
-  type TextStyle,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -20,13 +27,15 @@ import {
   fieldFrameStyles,
   fieldIconColor,
   fieldInkColor,
+  fieldInputStyle,
 } from "./field";
 import { Icon, type IconComponent } from "./icon";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { LoadingIndicator } from "./loading-indicator";
+import { idleLiveRegionLayout } from "./notice-presentation";
 import { Text, TextInput } from "./text";
 import { textFieldSubmit } from "./text-field-submit";
-import { color, radius, shadow, space, touchTarget, typeScale } from "./tokens";
+import { color, radius, shadow, space, touchTarget } from "./tokens";
 
 /**
  * A centred screen with a heading. Its content keeps to a readable width;
@@ -123,6 +132,7 @@ export function Button({
   busy = false,
   variant = "primary",
   icon,
+  iconPlacement = "start",
   size = "regular",
   width = "full",
   accessibilityLabel,
@@ -139,12 +149,15 @@ export function Button({
   readonly variant?: ButtonVariant;
   /** A Lucide icon before the label. */
   readonly icon?: IconComponent;
+  /** `end` puts the icon after the label, as for a page opening outside the app. */
+  readonly iconPlacement?: "start" | "end";
   readonly size?: "regular" | "small";
   readonly width?: "full" | "content";
   /** The accessible name when the visible label alone is ambiguous, such as "Delete" in a list. */
   readonly accessibilityLabel?: string;
 }) {
   const [focused, setFocused] = useState(false);
+  const half = useContext(ButtonRowContext);
   const reasonId = useId();
   const reason = disabled && !busy ? disabledReason : undefined;
   const labelColor = disabled ? color.disabledInk : buttonLabelColor[variant];
@@ -176,6 +189,7 @@ export function Button({
         buttonStyles.base,
         size === "small" && buttonStyles.small,
         textOnly && buttonStyles.textOnly,
+        half && buttonStyles.half,
         width === "full" ? buttonStyles.fullWidth : buttonStyles.contentWidth,
         buttonStyles[variant],
         // The raised lighting of a filled button goes while it is pressed or
@@ -188,13 +202,14 @@ export function Button({
         // padding, so going busy changes neither the width nor the label's.
         busy &&
           !icon && {
-            paddingHorizontal:
-              (size === "small" || textOnly ? space.lg : space.xxl) -
-              busySlotWidth / 2,
+            paddingHorizontal: Math.max(
+              0,
+              buttonSidePadding({ size, textOnly, half }) - busySlotWidth / 2
+            ),
           },
       ]}
     >
-      {(icon || busy) && (
+      {(busy || (icon && iconPlacement === "start")) && (
         // The die takes the icon's 20 dp slot, so the button keeps its size.
         <View style={buttonStyles.iconSlot}>
           {busy
@@ -208,6 +223,11 @@ export function Button({
       >
         {label}
       </Text>
+      {!busy && icon && iconPlacement === "end" && (
+        <View style={buttonStyles.iconSlot}>
+          <Icon icon={icon} size={20} color={labelColor} />
+        </View>
+      )}
     </Pressable>
   );
   if (disabledReason === undefined) return pressable;
@@ -231,10 +251,27 @@ export function Button({
   );
 }
 
+/** The side padding a button's label keeps from its edges. */
+const buttonSidePadding = ({
+  size,
+  textOnly,
+  half,
+}: {
+  readonly size: "regular" | "small";
+  readonly textOnly: boolean;
+  readonly half: boolean;
+}) => {
+  if (half) return space.md;
+  return size === "small" || textOnly ? space.lg : space.xxl;
+};
+
+/** Whether a button is one of a `ButtonRow`'s half-width pair. */
+const ButtonRowContext = createContext(false);
+
 /**
  * Buttons side by side, sharing the width equally (the boards' half-width
- * pair). When the labels no longer fit, as at large font sizes, the buttons
- * stack instead.
+ * pair, with 12 dp side padding and one height). When the labels no longer
+ * fit, as at large font sizes, the buttons stack instead.
  */
 export function ButtonRow({ children }: { readonly children: ReactNode }) {
   // A button's label grows with the system font size, so the width at which
@@ -242,11 +279,13 @@ export function ButtonRow({ children }: { readonly children: ReactNode }) {
   const { fontScale } = useWindowDimensions();
   const item = { flexBasis: buttonRowItemWidth * fontScale, flexGrow: 1 };
   return (
-    <View style={buttonStyles.row}>
-      {Children.map(children, (child) =>
-        child ? <View style={item}>{child}</View> : null
-      )}
-    </View>
+    <ButtonRowContext value={true}>
+      <View style={buttonStyles.row}>
+        {Children.map(children, (child) =>
+          child ? <View style={item}>{child}</View> : null
+        )}
+      </View>
+    </ButtonRowContext>
   );
 }
 
@@ -267,6 +306,8 @@ const buttonStyles = StyleSheet.create({
   },
   small: { minHeight: 40, paddingHorizontal: space.lg, paddingVertical: 10 },
   textOnly: { paddingHorizontal: space.lg },
+  // A pair shares one height, however its labels wrap.
+  half: { flexGrow: 1, paddingHorizontal: space.md },
   fullWidth: { alignSelf: "stretch" },
   contentWidth: { alignSelf: "flex-start" },
   label: { flexShrink: 1, textAlign: "center" },
@@ -349,6 +390,7 @@ export function TextField({
   disabled = false,
   leadingIcon,
   trailingIcon,
+  accessory,
   autoCapitalize = "none",
   editable,
   onBlur,
@@ -367,6 +409,12 @@ export function TextField({
   readonly leadingIcon?: IconComponent;
   /** An icon at the end of the frame; a read-only field shows a lock. */
   readonly trailingIcon?: IconComponent;
+  /**
+   * A control beside the field, such as a code's Apply button. The label
+   * sits above both and the messages under both; the control drops under
+   * the field when the row is too narrow for the two.
+   */
+  readonly accessory?: ReactNode;
   /** Lets a form focus the field, such as its first invalid one. */
   readonly ref?: Ref<TextInputInstance>;
 } & Pick<
@@ -403,33 +451,55 @@ export function TextField({
   return (
     <View style={fieldColumnStyle}>
       <FieldLabel label={label} optional={optional} />
-      <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
-        {leadingIcon && <Icon icon={leadingIcon} size={20} color={iconColor} />}
-        <TextInput
-          aria-label={optional === undefined ? label : `${label} ${optional}`}
-          aria-disabled={disabled}
-          // Native platforms read the hint; the web reads `aria-describedby`
-          // and `aria-invalid`, which react-native-web maps and RN ignores.
-          accessibilityHint={description.hint}
-          aria-describedby={description.describedBy}
-          aria-invalid={description.invalid}
-          autoCapitalize={autoCapitalize}
-          autoCorrect={false}
-          style={[styles.input, { color: fieldInkColor(state) }]}
-          placeholderTextColor={color.ink3}
-          {...input}
-          editable={typeable}
-          onFocus={() => setFocused(true)}
-          onBlur={(event) => {
-            setFocused(false);
-            onBlur?.(event);
-          }}
-          onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}
-        />
-        {trailing && (
-          <Icon icon={trailing} size={readOnly ? 18 : 20} color={iconColor} />
-        )}
-      </View>
+      {fieldRow(
+        <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
+          {leadingIcon && (
+            <Icon icon={leadingIcon} size={20} color={iconColor} />
+          )}
+          {readOnly ? (
+            // A locked value can't be edited, so it shows whole: it wraps
+            // instead of scrolling out of sight at large font sizes.
+            <Text
+              selectable
+              style={[
+                fieldInputStyle,
+                styles.readOnlyValue,
+                { color: fieldInkColor(state) },
+              ]}
+            >
+              {input.value}
+            </Text>
+          ) : (
+            <TextInput
+              aria-label={
+                optional === undefined ? label : `${label} ${optional}`
+              }
+              aria-disabled={disabled}
+              // Native platforms read the hint; the web reads `aria-describedby`
+              // and `aria-invalid`, which react-native-web maps and RN ignores.
+              accessibilityHint={description.hint}
+              aria-describedby={description.describedBy}
+              aria-invalid={description.invalid}
+              autoCapitalize={autoCapitalize}
+              autoCorrect={false}
+              style={[fieldInputStyle, { color: fieldInkColor(state) }]}
+              placeholderTextColor={color.ink3}
+              {...input}
+              editable={typeable}
+              onFocus={() => setFocused(true)}
+              onBlur={(event) => {
+                setFocused(false);
+                onBlur?.(event);
+              }}
+              onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}
+            />
+          )}
+          {trailing && (
+            <Icon icon={trailing} size={readOnly ? 18 : 20} color={iconColor} />
+          )}
+        </View>,
+        accessory
+      )}
       <FieldMessages {...messages} />
     </View>
   );
@@ -437,8 +507,9 @@ export function TextField({
 
 /**
  * Live regions stay mounted so assistive tech announces each change; only
- * their text changes. `status` is polite progress, `alert` an error. iOS,
- * which ignores `aria-live`, has each change announced directly.
+ * their text changes, and while idle they take no room. `status` is polite
+ * progress, `alert` an error. iOS, which ignores `aria-live`, has each
+ * change announced directly.
  */
 export function LiveMessage({
   role,
@@ -456,13 +527,34 @@ export function LiveMessage({
       accessibilityLiveRegion={role === "alert" ? "assertive" : "polite"}
       variant="body"
       tone={role === "alert" ? "danger" : "muted"}
+      // Idle, it takes no room, so it leaves no gap in a dialog's actions.
+      style={message ? undefined : idleLiveRegionLayout}
     >
       {message ?? ""}
     </Text>
   );
 }
 
+/** The field's frame alone, or beside its `accessory`. */
+const fieldRow = (frame: ReactNode, accessory: ReactNode) =>
+  accessory === undefined ? (
+    frame
+  ) : (
+    <View style={styles.accessoryRow}>
+      <View style={styles.accessoryField}>{frame}</View>
+      {accessory}
+    </View>
+  );
+
 const styles = StyleSheet.create({
+  accessoryRow: {
+    alignItems: "center",
+    columnGap: space.sm,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    rowGap: space.sm,
+  },
+  accessoryField: { flexBasis: 160, flexGrow: 1, minWidth: 0 },
   screen: { backgroundColor: color.paper, flex: 1 },
   content: {
     alignSelf: "center",
@@ -474,16 +566,5 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   centeredContent: { alignItems: "center" },
-  input: {
-    ...typeScale.body,
-    flex: 1,
-    minWidth: 0,
-    // The frame draws the focus ring; the web's own outline would double it.
-    // Chromium draws an `auto` outline whatever its width, so the style goes
-    // too. React Native's types omit `none`, which React Native Web passes on.
-    outlineStyle: "none" as unknown as TextStyle["outlineStyle"],
-    outlineWidth: 0,
-    paddingHorizontal: 0,
-    paddingVertical: space.md,
-  },
+  readOnlyValue: { paddingVertical: space.md },
 });

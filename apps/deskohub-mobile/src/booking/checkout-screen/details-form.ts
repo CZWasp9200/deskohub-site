@@ -1,8 +1,10 @@
 import type {
   CustomerAccountState,
+  CustomerCompanyDetails,
   CustomerProfileBilling,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
+import type { CompanyDetailsField } from "../../company-lookup/company-lookup-model";
 import { invoiceCountryCodes } from "../../i18n/country-names";
 import type { CheckoutDetails } from "../checkout/checkout-state";
 
@@ -81,15 +83,12 @@ const nonBlank = (value: string | null | undefined): Option.Option<string> =>
 const savedPhone = (phone: string | null) =>
   nonBlank(phone).pipe(Option.filter(isPhoneNumber));
 
-/** The country a new address starts with, as on the site. */
-export const defaultCountry = "CZ";
-
-const emptyAddress: AddressDraft = {
+const emptyAddress = (country: string): AddressDraft => ({
   line1: "",
   city: "",
   postalCode: "",
-  country: defaultCountry,
-};
+  country,
+});
 
 const text = (value: string | null) =>
   Option.getOrElse(nonBlank(value), () => "");
@@ -104,10 +103,8 @@ const savedAddressDraft = (billing: CustomerProfileBilling): AddressDraft => ({
   line1: text(billing.addressLine1),
   city: text(billing.city),
   postalCode: text(billing.zip),
-  country: Option.getOrElse(
-    savedCountry(billing.country),
-    () => defaultCountry
-  ),
+  // Blank without a saved invoice country: `initialDetailsDraft` fills it.
+  country: Option.getOrElse(savedCountry(billing.country), () => ""),
 });
 
 const noSavedBilling: SavedBilling = {
@@ -220,20 +217,30 @@ export interface DetailsDraft {
 /**
  * The form a booking starts with: no invoice, as on the site; a saved
  * address is offered, not chosen. The company form starts from the saved
- * business details.
+ * business details. An address without a country starts in `country`, the
+ * device's country (`detectedCountry`).
  */
-export const initialDetailsDraft = (saved: SavedBilling): DetailsDraft => ({
+export const initialDetailsDraft = (
+  saved: SavedBilling,
+  country: string
+): DetailsDraft => ({
   bookingFor: "self",
   self: { name: "", phone: "" },
   someoneElse: { name: "", email: "", phone: "" },
   billing: "none",
-  personalAddress: emptyAddress,
-  company: Option.getOrElse(saved.company, () => ({
-    legalName: "",
-    companyId: "",
-    vatId: "",
-    address: emptyAddress,
-  })),
+  personalAddress: emptyAddress(country),
+  company: Option.match(saved.company, {
+    onNone: () => ({
+      legalName: "",
+      companyId: "",
+      vatId: "",
+      address: emptyAddress(country),
+    }),
+    onSome: (company) =>
+      company.address.country === ""
+        ? { ...company, address: { ...company.address, country } }
+        : company,
+  }),
   marketingConsent: false,
 });
 
@@ -295,8 +302,97 @@ const without = (
  * the booking is for or the invoice type clears that part's (the other
  * form's fields are no longer the ones being checked).
  */
+/**
+ * Where each detail of the company lookup goes in the company form: its
+ * field, and the form with the detail in it. The form has no second address
+ * line, so the registry's is left out.
+ */
+const companyDetailTargets = {
+  companyName: {
+    field: "buyer.legalName",
+    put: (company, legalName) => ({ ...company, legalName }),
+  },
+  companyId: {
+    field: "buyer.companyId",
+    put: (company, companyId) => ({ ...company, companyId }),
+  },
+  vatId: {
+    field: "buyer.vatId",
+    put: (company, vatId) => ({ ...company, vatId }),
+  },
+  addressLine1: {
+    field: "address.line1",
+    put: (company, line1) => ({
+      ...company,
+      address: { ...company.address, line1 },
+    }),
+  },
+  city: {
+    field: "address.city",
+    put: (company, city) => ({
+      ...company,
+      address: { ...company.address, city },
+    }),
+  },
+  zip: {
+    field: "address.postalCode",
+    put: (company, postalCode) => ({
+      ...company,
+      address: { ...company.address, postalCode },
+    }),
+  },
+  country: {
+    field: "address.country",
+    put: (company, country) => ({
+      ...company,
+      address: { ...company.address, country },
+    }),
+  },
+} as const satisfies Partial<
+  Record<
+    CompanyDetailsField,
+    {
+      readonly field: DetailsField;
+      readonly put: (company: CompanyDraft, value: string) => CompanyDraft;
+    }
+  >
+>;
+
+type CompanyLookupField = keyof typeof companyDetailTargets;
+
+/** The details the company form takes from a company lookup, in its order. */
+export const companyLookupFields = Object.keys(
+  companyDetailTargets
+) as ReadonlyArray<CompanyLookupField>;
+
+/**
+ * The company form with a lookup's applied `details` in it, as if typed, and
+ * the fields that changed.
+ */
+export const companyWithDetails = (
+  company: CompanyDraft,
+  details: Partial<CustomerCompanyDetails>
+): {
+  readonly company: CompanyDraft;
+  readonly fields: ReadonlyArray<DetailsField>;
+} =>
+  companyLookupFields.reduce(
+    (applied, detail) => {
+      const value = details[detail];
+      if (value === undefined) return applied;
+      const target = companyDetailTargets[detail];
+      return {
+        company: target.put(applied.company, value),
+        fields: [...applied.fields, target.field],
+      };
+    },
+    { company, fields: [] as ReadonlyArray<DetailsField> }
+  );
+
 export type DetailsChange =
   | { readonly _tag: "Field"; readonly field: DetailsField }
+  /** Several fields at once, as an applied company lookup changes them. */
+  | { readonly _tag: "Fields"; readonly fields: ReadonlyArray<DetailsField> }
   | { readonly _tag: "BookingFor" }
   | { readonly _tag: "Billing" };
 
@@ -307,6 +403,8 @@ export const problemsAfterChange = (
   switch (change._tag) {
     case "Field":
       return without(problems, [change.field]);
+    case "Fields":
+      return without(problems, change.fields);
     case "BookingFor":
       return without(problems, contactFields);
     case "Billing":

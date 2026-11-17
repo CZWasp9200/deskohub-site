@@ -9,16 +9,24 @@ import {
   navigationDecision,
 } from "./checkout-navigation";
 
-/** Leaves the checkout screen when its flow finishes, per `navigationDecision`. */
+/**
+ * Leaves the checkout screen when its flow finishes, per
+ * `navigationDecision`, unless the screen `waits` for the customer to
+ * choose (a hold that ran out, `holdEndedReview`).
+ */
 export function useCheckoutNavigation(
   view: CheckoutFlowView,
-  family: CustomerBookingSelection["family"]
+  family: CustomerBookingSelection["family"],
+  waits: boolean,
+  retriedOrderId?: string
 ) {
   const router = useRouter();
   const navigation = useNavigation();
   const focused = useIsFocused();
   const handled = useRef<CheckoutDestinationHref | undefined>(undefined);
-  const destination = checkoutDestination(view, family);
+  const destination = waits
+    ? undefined
+    : checkoutDestination(view, family, retriedOrderId);
   useEffect(() => {
     const decision = navigationDecision(
       destination,

@@ -49,6 +49,13 @@ describe("EmptyState", () => {
     expect(status?.role).toBe("status");
     expect(status?.["aria-live"]).toBe("polite");
   });
+
+  test("a live title is read with the body under it", () => {
+    const live = find(empty({ live: "assertive", body: "b" }), Text)?.props;
+    expect(live?.accessibilityLabel).toEqual(expect.stringContaining("b"));
+    const plain = find(empty({ body: "b" }), Text)?.props;
+    expect(plain?.accessibilityLabel).toBeUndefined();
+  });
 });
 
 // VoiceOver ignores `aria-live`, so on iOS a live title announces itself.
@@ -92,6 +99,11 @@ describe("iOS announcements", () => {
     expect(await announce({ live: "assertive" })).toEqual([
       { message: "t", queue: false },
     ]);
+  });
+
+  test("a live title is announced with its body", async () => {
+    const [announcement] = await announce({ live: "assertive", body: "b" });
+    expect(announcement?.message).toEqual(expect.stringContaining("b"));
   });
 
   test("a title that isn't live says nothing", async () => {

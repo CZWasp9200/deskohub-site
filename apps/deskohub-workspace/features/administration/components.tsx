@@ -19,7 +19,7 @@ import {
   type AdministrationHref,
   administrationHref,
 } from "./administration-href";
-import { getAdministrationCustomerName } from "./customer-presentation";
+import { AdministrationCustomerNameLabel } from "./customer-name-label";
 import {
   formatAdministrationDateTime,
   formatAdministrationEarlySetup,
@@ -250,9 +250,14 @@ export function RelatedReservationLink({
           </span>
         )}
         <span className="mt-2 block text-sm font-medium">
-          {reservation.customer
-            ? getAdministrationCustomerName(reservation.customer, locale)
-            : m.administrationReservationCustomerUnavailable({}, { locale })}
+          {reservation.customer ? (
+            <AdministrationCustomerNameLabel
+              customer={reservation.customer}
+              locale={locale}
+            />
+          ) : (
+            m.administrationReservationCustomerUnavailable({}, { locale })
+          )}
         </span>
         {reservation.customer && (
           <span className="mt-0.5 block break-all text-xs text-navy-blue/65">

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "react-email";
 import type { Locale } from "@/features/i18n";
+import { formatReservationDisplayDateTimeRange } from "@/features/reservation/reservation-date";
 import { staffLocale } from "@/shared/backend/staff-locale";
 import {
   contactBusinessPreviewProps,
@@ -311,6 +312,36 @@ describe("reservation emails", () => {
     expect(czech).toContain('lang="cs-CZ"');
     expect(english).toContain('lang="en-US"');
     expect(czech).not.toBe(english);
+  });
+
+  test("head an overnight stay's confirmation with its start and end", async () => {
+    const overnight = {
+      ...customerReservationPreviewProps.reservation,
+      reservationDetails: {
+        kind: "cowork",
+        entryTier: "reserved-desk",
+        coffee: false,
+      },
+      reservedFrom: Temporal.Instant.from("2026-06-12T10:00:00Z"),
+      reservedUntil: Temporal.Instant.from("2026-06-13T10:00:00Z"),
+    } as const;
+    const stay = formatReservationDisplayDateTimeRange(
+      overnight.reservedFrom,
+      overnight.reservedUntil,
+      "en-US"
+    );
+    const [overnightEmail, dayEmail] = await Promise.all([
+      render(
+        <CustomerReservationEmail
+          {...customerReservationPreviewProps}
+          reservation={overnight}
+        />
+      ),
+      render(<CustomerReservationEmail {...customerReservationPreviewProps} />),
+    ]);
+
+    expect(overnightEmail).toContain(stay);
+    expect(dayEmail).not.toContain(stay);
   });
 
   test("link the customer confirmation to its access page and invoice", async () => {

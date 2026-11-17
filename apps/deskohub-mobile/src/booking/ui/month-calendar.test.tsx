@@ -75,6 +75,19 @@ const dayButton = (tree: ReactNode, day: number) =>
   ) as DayButton | undefined;
 
 describe("MonthCalendar", () => {
+  test("weekday names shrink to their column on one line, never split", () => {
+    const { tree } = calendar();
+    const week = findAll(tree, "View").find(
+      (view) => view.props["aria-hidden"] === true
+    );
+    const names = findAll(week, Text);
+    expect(names).toHaveLength(7);
+    for (const name of names) {
+      expect(name.props.numberOfLines).toBe(1);
+      expect(name.props.adjustsFontSizeToFit).toBe(true);
+    }
+  });
+
   test("an unavailable day can't be pressed without an explanation to show", () => {
     const { tree } = calendar();
     expect(dayButton(tree, 20)?.props.disabled).toBe(true);
@@ -202,6 +215,18 @@ describe("MonthCalendar", () => {
     ).toEqual([color.action, undefined, color.action]);
   });
 
+  test("every day's disc keeps one outer shadow, picked or not", () => {
+    // Android squares a view that gains an outer shadow after it mounts.
+    const { tree } = calendar({ selected: "2026-11-23" });
+    const shadowOf = (day: number) =>
+      String(disc(dayDrawing(tree, day).views)?.boxShadow);
+    expect(shadowOf(24)).not.toContain("inset");
+    expect(shadowOf(23)).not.toBe(shadowOf(24));
+    expect(shadowOf(23).replace(/rgba\([^)]*\)/, "")).toBe(
+      shadowOf(24).replace(/rgba\([^)]*\)/, "")
+    );
+  });
+
   test("strikes an unavailable day through and rings the focused one", () => {
     const { tree } = calendar({
       focusedDate: "2026-11-20",
@@ -231,7 +256,9 @@ describe("MonthCalendar", () => {
     expect(String(disc(dayDrawing(tree, 10).views)?.boxShadow)).toContain(
       color.navy
     );
-    expect(disc(dayDrawing(tree, 11).views)?.boxShadow).toBeUndefined();
+    expect(String(disc(dayDrawing(tree, 11).views)?.boxShadow)).not.toContain(
+      color.navy
+    );
     const ink = (day: number) => dayDrawing(tree, day).number?.color;
     expect(ink(9)).not.toBe(color.navy);
     expect(ink(28)).toBe(ink(9));

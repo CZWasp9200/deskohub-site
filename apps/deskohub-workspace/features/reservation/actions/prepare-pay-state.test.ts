@@ -1,4 +1,5 @@
 import type { Locale } from "@/features/i18n";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
@@ -1195,7 +1196,7 @@ describe("prepareWorkspacePayState", () => {
   );
 
   test("carries the advertised requested discount code into the signed pay state", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const scenario = await runMeetingRoomNewHoldScenario(undefined, {
@@ -1211,7 +1212,7 @@ describe("prepareWorkspacePayState", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
 
     expect(state.requestedDiscountCode).toBe("CAMPAIGN10");
@@ -1258,7 +1259,8 @@ describe("prepareWorkspacePayState", () => {
                 isEnabled: mock(() => Effect.succeed(false)),
               })
             )
-          )
+          ),
+          OvernightStayReleaseGate.fromDecision(false)
         )
       )
     ) as Effect.Effect<never, unknown, never>;
@@ -1273,7 +1275,7 @@ describe("prepareWorkspacePayState", () => {
   });
 
   test("keeps meeting-room timing transient while creating its hold", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const scenario = await runMeetingRoomNewHoldScenario();
@@ -1346,7 +1348,7 @@ describe("prepareWorkspacePayState", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.checkoutSessionId).toBe("meeting-room-session-id");
     expect(state.reservation).toMatchObject({
@@ -1402,7 +1404,7 @@ describe("prepareWorkspacePayState", () => {
     const prepareFromReservationForm = await loadReservationFormPreparation({
       holds: "provided",
     });
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const { MarketingConsentLedger } = await import(
@@ -1424,6 +1426,9 @@ describe("prepareWorkspacePayState", () => {
         eventOrder.push("bot-verification");
       })
     );
+    const createdHoldExpiresAt = Temporal.Instant.from(
+      "2030-07-01T10:08:00.000Z"
+    );
     // The hold lands in a session other than the submitted one, as after a
     // rotation, so the Pay state must carry the hold's session.
     const holdForAttempt = mock(() =>
@@ -1433,6 +1438,7 @@ describe("prepareWorkspacePayState", () => {
           kind: "created" as const,
           reservationId: "reservation-id",
           checkoutSessionId: "hold-session-id",
+          reservationHoldExpiresAt: createdHoldExpiresAt,
         };
       })
     );
@@ -1524,10 +1530,11 @@ describe("prepareWorkspacePayState", () => {
     expect(redirectUrl.searchParams.get("orderId")).toBe("reservation-id");
     expect(token).toBeTruthy();
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.orderId).toBe("reservation-id");
     expect(state.checkoutSessionId).toBe("hold-session-id");
+    expect(state.holdExpiresAt).toBe("2030-07-01T10:08:00.000Z");
     expect(state.submittedCode).toBeUndefined();
     // A site tool reports when the prepared Pay URL stops working.
     expect(result.expiresAt).toBe(new Date(state.exp * 1000).toISOString());
@@ -1539,7 +1546,7 @@ describe("prepareWorkspacePayState", () => {
   });
 
   test("returns the sealed Pay state token its URL carries", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const scenario = await runReusableReservationScenario({
@@ -1555,11 +1562,28 @@ describe("prepareWorkspacePayState", () => {
     ).searchParams.get(payStateTokenQueryParam);
     expect(scenario.result.payStateToken).toBe(urlToken ?? "");
     const state = Effect.runSync(
-      openPayState(scenario.result.payStateToken).pipe(
+      PayState.open(scenario.result.payStateToken).pipe(
         Effect.provide(TestSealedStateKeys)
       )
     );
     expect(state.orderId).toBe(scenario.result.orderId);
+  });
+
+  test("signs a reused hold's stored deadline into its Pay state", async () => {
+    const { PayState } = await import("@/features/checkout/backend/checkout");
+    const scenario = await runReusableReservationScenario({
+      holdForAttempt: reuseHold(makeReusableReservation()),
+    });
+
+    if (scenario.result?.status !== "ready") {
+      throw new Error("Expected ready result");
+    }
+    const state = Effect.runSync(
+      PayState.open(scenario.result.payStateToken).pipe(
+        Effect.provide(TestSealedStateKeys)
+      )
+    );
+    expect(state.holdExpiresAt).toBe("2030-07-01T12:00:00.000Z");
   });
 
   test("annotates the booking's rows with its quote fingerprint, never the quote", async () => {
@@ -2621,6 +2645,30 @@ describe("prepareWorkspacePayState", () => {
         expect(retry.result?.orderId).toBe("agent-live-hold-id");
       });
 
+      test("signs the stored deadline into both links of a reused agent hold", async () => {
+        const { PayState } = await import(
+          "@/features/checkout/backend/checkout"
+        );
+        const { initial, retry } = await runLiveHoldRetry(
+          Temporal.Instant.from("2026-10-20T12:10:01Z")
+        );
+        const signedHoldExpiresAt = (payStateToken: string | undefined) =>
+          Effect.runSync(
+            PayState.open(payStateToken ?? "").pipe(
+              Effect.provide(TestSealedStateKeys)
+            )
+          ).holdExpiresAt;
+
+        // The deadline stored when the hold was created, not ten minutes
+        // after the retry.
+        expect(signedHoldExpiresAt(initial.first.result?.payStateToken)).toBe(
+          "2026-10-20T12:19:59.000Z"
+        );
+        expect(signedHoldExpiresAt(retry.result?.payStateToken)).toBe(
+          "2026-10-20T12:19:59.000Z"
+        );
+      });
+
       test("returns a byte-identical Pay URL for a same-time identical retry", async () => {
         const { initial, retry } = await runLiveHoldRetry(
           Temporal.Instant.from("2026-10-20T12:09:59Z")
@@ -3423,7 +3471,7 @@ describe("prepareWorkspacePayState", () => {
       const signedStateOf = async (
         result: { readonly redirectUrl?: string } | object | undefined
       ) => {
-        const { openPayState, payStateTokenQueryParam } = await import(
+        const { PayState, payStateTokenQueryParam } = await import(
           "@/features/checkout/backend/checkout"
         );
         const redirectUrl =
@@ -3434,7 +3482,7 @@ describe("prepareWorkspacePayState", () => {
         ).searchParams.get(payStateTokenQueryParam);
         return token
           ? Effect.runSync(
-              openPayState(token).pipe(Effect.provide(TestSealedStateKeys))
+              PayState.open(token).pipe(Effect.provide(TestSealedStateKeys))
             )
           : undefined;
       };
@@ -3680,7 +3728,7 @@ describe("prepareWorkspacePayState", () => {
       const redirectUrlOf = (result: PreparedResult) =>
         result && "redirectUrl" in result ? result.redirectUrl : undefined;
       const requestedCodeOf = async (result: PreparedResult) => {
-        const { openPayState, payStateTokenQueryParam } = await import(
+        const { PayState, payStateTokenQueryParam } = await import(
           "@/features/checkout/backend/checkout"
         );
         const token = new URL(
@@ -3688,7 +3736,7 @@ describe("prepareWorkspacePayState", () => {
           "https://deskohub.test"
         ).searchParams.get(payStateTokenQueryParam);
         return Effect.runSync(
-          openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+          PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
         ).requestedDiscountCode;
       };
 
@@ -4298,7 +4346,7 @@ describe("prepareWorkspacePayState", () => {
   });
 
   test("returns a usable pricing_changed summary when an advertised sale disappears", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const advertisedDiscount = makeAdvertisementQuote(5000);
@@ -4324,7 +4372,7 @@ describe("prepareWorkspacePayState", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.changedKeys?.itemKeys).toContain("product:cowork:open-space");
     expect(state.quote.payment.discounts).toEqual([]);
@@ -4332,7 +4380,7 @@ describe("prepareWorkspacePayState", () => {
   });
 
   test("allows the customer discount to first appear on a ready summary", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
+    const { PayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const customerQuote = makeAdvertisementQuote(1000, "Customer discount");
@@ -4352,7 +4400,7 @@ describe("prepareWorkspacePayState", () => {
       "https://deskohub.test"
     ).searchParams.get(payStateTokenQueryParam);
     const state = Effect.runSync(
-      openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
+      PayState.open(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.changedKeys).toBeUndefined();
     expect(state.quote.payment.discounts).toHaveLength(1);

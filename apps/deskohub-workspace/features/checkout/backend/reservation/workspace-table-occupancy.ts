@@ -9,6 +9,7 @@ import { decodeBookedReservation } from "@/features/reservation/backend/booked-r
 import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import type { ReservationInterval } from "@/features/reservation/reservation-interval";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+import { plainDateSpanToInstants } from "@/shared/utils/temporal";
 
 export const workspaceBookingSeatCount = 1;
 
@@ -84,12 +85,14 @@ export const getOccupancyWindow = (
   input: ReservationInterval | Temporal.PlainDate
 ): OccupancyWindow => {
   if (input instanceof Temporal.PlainDate) {
-    const timeZone = workspaceSiteConstants.location.timeZone;
+    const { startsAt, endsAt } = plainDateSpanToInstants({
+      startsOn: input,
+      endsOn: input,
+      timeZone: workspaceSiteConstants.location.timeZone,
+    });
     return {
-      startsAt: input.toZonedDateTime({ timeZone }).toInstant()
-        .epochMilliseconds,
-      endsAt: input.add({ days: 1 }).toZonedDateTime({ timeZone }).toInstant()
-        .epochMilliseconds,
+      startsAt: startsAt.epochMilliseconds,
+      endsAt: endsAt.epochMilliseconds,
     };
   }
 

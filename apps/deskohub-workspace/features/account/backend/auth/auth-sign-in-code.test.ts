@@ -704,8 +704,8 @@ describe.skipIf(!testDatabase)(
       const auth = makeCodeAuth(sentLinks);
       const email = uniqueEmail("code-resend");
 
-      await sendSignInEmail(auth, email);
-      await sendSignInEmail(auth, email);
+      expect((await sendSignInEmail(auth, email)).status).toBe(200);
+      expect((await sendSignInEmail(auth, email)).status).toBe(200);
       const [first, second] = sentLinks;
 
       expect(await verificationIdentifierCount(`sign-in-otp-${email}`)).toBe(1);

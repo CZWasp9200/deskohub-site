@@ -4,7 +4,9 @@ import type { CustomerAuthentication } from "@/features/account/backend/customer
 import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { CheckoutPaymentPageService } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
+import { CheckoutPaymentRetryService } from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
 import { CheckoutStatusService } from "@/features/checkout/backend/checkout/checkout-status.service";
+import { ReferralReleaseGateForRun } from "@/features/referrals/referral-release-gate-run";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 
@@ -69,6 +71,18 @@ export type CustomerReservationServiceLayers = {
     CheckoutPaymentPageService,
     Layer.Error<typeof CheckoutPaymentPageService.Live>
   >;
+  /** Payment retries, for orders `authorization` lets a customer retry. */
+  readonly paymentRetry: (
+    authorization: Layer.Layer<
+      ReservationAuthorizationService,
+      AuthorizationLayerError
+    >
+  ) => Layer.Layer<
+    CheckoutPaymentRetryService,
+    | Layer.Error<typeof CheckoutPaymentRetryService.Live>
+    | Layer.Error<typeof ReferralReleaseGateForRun>,
+    Layer.Services<typeof ReferralReleaseGateForRun>
+  >;
   /** Door codes, shown to whom `authorization` lets see them. */
   readonly access: (
     authorization: Layer.Layer<
@@ -106,6 +120,10 @@ export class CustomerReservationLayers extends Context.Service<
     authorization: ReservationAuthorizationService.ForProvidedAuthentication,
     checkoutStatus: CheckoutStatusService.Live,
     paymentPage: CheckoutPaymentPageService.withAuthorization,
+    paymentRetry: (authorization) =>
+      CheckoutPaymentRetryService.withAuthorization(authorization).pipe(
+        Layer.provide(ReferralReleaseGateForRun)
+      ),
     access: ReservationAccessService.withAuthorization,
     invoice: ReservationInvoicePdfService.withAuthorization,
   });

@@ -10,6 +10,7 @@ import {
   type CustomerOrderState,
   type CustomerPaymentPage,
   CustomerPaymentPageClosed,
+  CustomerPaymentRetryRefused,
   type CustomerReservationAccess,
   type CustomerReservationHistory,
   CustomerReservationNotFound,
@@ -26,12 +27,17 @@ import {
 } from "@/features/account";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
+import { getReservationSummaryStay } from "@/features/account/reservation-summary-stay";
 import { ReservationInvoicePdfService } from "@/features/accounting/backend/reservation-invoice-pdf.service";
 import { loadAuthorizedCheckoutStatus } from "@/features/checkout/backend/checkout/authorized-checkout-status";
 import {
   CheckoutPaymentPageService,
   type PaymentPageReopening,
 } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
+import {
+  CheckoutPaymentRetryService,
+  type PaymentRetryPreparation,
+} from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout/checkout-status.service";
 import { defaultLocale } from "@/features/i18n";
 import type { RebookingSelection } from "@/features/reservation/backend/booking-selection";
@@ -52,6 +58,7 @@ import {
   answerSessionApiFailure,
   answerUnavailable,
 } from "./customer-api-failure";
+import { toCustomerCheckout } from "./customer-checkout-view";
 import { answerFileDownload } from "./customer-file-download";
 import { CustomerReservationLayers } from "./customer-reservation-layers";
 
@@ -137,6 +144,18 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
             Effect.flatMap(answerPaymentPage)
           )
         )
+        // Securing the hold can book the spot again in Dotypos, so it ends
+        // even when the client disconnects.
+        .handle("retryPayment", ({ params: { orderId }, payload }) =>
+          Effect.flatMap(CheckoutPaymentRetryService, (retries) =>
+            retries.prepare({ orderId, locale: payload.locale })
+          ).pipe(
+            Effect.provide(reservations.paymentRetry(authorization)),
+            runToCompletion,
+            answerSessionApiFailure("customerApi.retryPayment"),
+            Effect.flatMap(answerPaymentRetry)
+          )
+        )
         // Showing a code can issue it at the lock provider and store it, so
         // it ends even when the client disconnects.
         .handle("getReservationAccess", ({ params: { orderId } }) =>
@@ -205,6 +224,15 @@ const answerReservationHistory = (history: ReservationHistoryRecord) =>
     })
   );
 
+/** A history entry's product, with a cowork booking's stay. */
+const answerReservationProduct = (
+  reservation: Pick<ReservationSummaryRecord, "endsAt" | "product" | "startsAt">
+): CustomerReservationSummary["product"] => {
+  const { product } = reservation;
+  const stay = getReservationSummaryStay(reservation);
+  return product.kind === "cowork" && stay ? { ...product, stay } : product;
+};
+
 /** A history entry as the contract carries it, without unknown fields. */
 const answerReservationSummary = ({
   id,
@@ -227,7 +255,7 @@ const answerReservationSummary = ({
   ...(workspaceReservationId && { orderId: workspaceReservationId }),
   ...(reviewSandbox && { reviewSandbox }),
   ...(party && { party }),
-  product,
+  product: answerReservationProduct({ product, startsAt, endsAt }),
   startsAt,
   endsAt,
   ...(setupStartsAt && { setupStartsAt }),
@@ -257,6 +285,7 @@ const answerBookedSelection = ({
     duration,
     seats,
     tier,
+    stay,
     coffee,
     monitorOption,
   },
@@ -270,6 +299,7 @@ const answerBookedSelection = ({
     ...(duration !== undefined && { duration }),
     ...(seats !== undefined && { seats }),
     ...(tier !== undefined && { tier }),
+    ...(stay !== undefined && { stay }),
     ...(coffee !== undefined && { coffee }),
     ...(monitorOption !== undefined && { monitorOption }),
   },
@@ -300,6 +330,7 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
         paymentStatus,
         fulfillmentStatus,
         reviewSandbox,
+        paymentPageReopenable,
         summary,
         bookedSelection,
       }) =>
@@ -310,6 +341,7 @@ const answerOrderState = (state: CheckoutStatusViewModel) =>
           paymentStatus,
           fulfillmentStatus,
           ...(reviewSandbox && { reviewSandbox }),
+          ...(paymentPageReopenable && { paymentPageReopenable }),
           ...(summary && {
             startsAt: summary.reservedFrom.toString(),
             endsAt: summary.reservedUntil.toString(),
@@ -339,6 +371,32 @@ const answerPaymentPage = (reopening: PaymentPageReopening) =>
       not_found: () => Effect.fail(new CustomerReservationNotFound()),
       closed: ({ reason }) =>
         Effect.fail(new CustomerPaymentPageClosed({ reason })),
+    })
+  );
+
+/**
+ * The same order's checkout to pay again, or why it can't be paid again in
+ * place; the app then books the selection again or, while the earlier
+ * payment may still settle, checks the status later.
+ */
+const answerPaymentRetry = (preparation: PaymentRetryPreparation) =>
+  Match.value(preparation).pipe(
+    Match.discriminatorsExhaustive("state")({
+      ready: ({ checkout, payState }) =>
+        Effect.succeed(
+          toCustomerCheckout(checkout, payState.freshPayStateToken)
+        ),
+      not_found: () => Effect.fail(new CustomerReservationNotFound()),
+      not_retryable: ({ reason }) =>
+        Effect.fail(new CustomerPaymentRetryRefused({ reason })),
+      spot_unavailable: () =>
+        Effect.fail(
+          new CustomerPaymentRetryRefused({ reason: "spot_unavailable" })
+        ),
+      payment_settling: () =>
+        Effect.fail(
+          new CustomerPaymentRetryRefused({ reason: "payment_settling" })
+        ),
     })
   );
 

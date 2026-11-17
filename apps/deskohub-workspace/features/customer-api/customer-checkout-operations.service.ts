@@ -6,19 +6,23 @@ import {
 } from "@/features/account";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
-import { applyDiscountCodeToPayState } from "@/features/checkout/actions/apply-discount-code-to-pay-state";
 import {
   acceptPayStatePriceChange,
   CheckoutReferralService,
-  openPayState,
-  PayableReservationService,
+  openPayStateWithHoldExpiry,
+  PayableCheckout,
   requirePayStateAuthor,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import {
+  applyDiscountCodeToPayState,
+  clearDiscountCodeFromPayState,
+} from "@/features/checkout/backend/checkout/pay-state-discount-code";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralService } from "@/features/referrals";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import {
   prepareWorkspacePayState,
   ReservationBooking,
@@ -72,12 +76,17 @@ interface ICustomerCheckoutOperations {
   readonly preparePayState: Provided<typeof prepareWorkspacePayState>;
   /** `applyDiscountCodeToPayState`, without bot protection. */
   readonly applyDiscountCode: Provided<typeof applyDiscountCodeToPayState>;
-  /** `acceptPayStatePriceChange`: the keys that seal checkout state only. */
+  /** `clearDiscountCodeFromPayState`, without bot protection. */
+  readonly clearDiscountCode: Provided<typeof clearDiscountCodeFromPayState>;
+  /**
+   * `acceptPayStatePriceChange`: the sealing keys, and the reservation for a
+   * state signed without its hold deadline.
+   */
   readonly acceptPriceChange: Provided<typeof acceptPayStatePriceChange>;
   /** `requirePayStateAuthor`: the checkout's order was booked by the account. */
   readonly requireAuthor: Provided<typeof requirePayStateAuthor>;
-  /** Opens a checkout state token the server issued. */
-  readonly readPayState: Provided<typeof openPayState>;
+  /** Opens a checkout state token the server issued, with its hold deadline. */
+  readonly readPayState: Provided<typeof openPayStateWithHoldExpiry>;
   /**
    * `RememberedReferral.forgetIfSettled`: records that the client's code is
    * used once the booker's referral settles.
@@ -93,8 +102,8 @@ interface ICustomerCheckoutOperations {
  * protection: a native client can't run the browser challenge, and the
  * session, origin check and request budgets stand in for it. Each operation
  * builds its own services when it runs, so accepting a price builds only the
- * sealing keys, and a service that can't be built fails only the operations
- * that use it.
+ * sealing keys and the reservation store, and a service that can't be built
+ * fails only the operations that use it.
  */
 export class CustomerCheckoutOperations extends Context.Service<
   CustomerCheckoutOperations,
@@ -124,6 +133,10 @@ export class CustomerCheckoutOperations extends Context.Service<
           yield* ReferralReleaseGate
         ),
         office: Layer.succeed(OfficeReleaseGate, yield* OfficeReleaseGate),
+        overnightStay: Layer.succeed(
+          OvernightStayReleaseGate,
+          yield* OvernightStayReleaseGate
+        ),
       };
       const { remembered } = yield* CustomerReferralUpdates;
 
@@ -140,7 +153,13 @@ export class CustomerCheckoutOperations extends Context.Service<
             ).pipe(Layer.provide(authentication))
           )
         ),
-        Layer.provideMerge(Layer.mergeAll(releases.referral, releases.office)),
+        Layer.provideMerge(
+          Layer.mergeAll(
+            releases.referral,
+            releases.office,
+            releases.overnightStay
+          )
+        ),
         Layer.provide(WorkspaceDatabase.Default)
       );
 
@@ -149,7 +168,8 @@ export class CustomerCheckoutOperations extends Context.Service<
         Layer.provideMerge(
           Layer.mergeAll(
             CheckoutPricingService.Live,
-            PayableReservationService.Live,
+            PayableCheckout.Live,
+            WorkspaceReservationRepository.Live,
             ReferralService.Live,
             CheckoutReferralService.Live,
             currentAccount,
@@ -158,6 +178,14 @@ export class CustomerCheckoutOperations extends Context.Service<
         ),
         Layer.provideMerge(releases.referral)
       );
+
+      /** What removing an entered code reprices and signs with. */
+      const discountCodeRemoval = Layer.mergeAll(
+        CheckoutPricingService.Live,
+        PayableCheckout.Live,
+        WorkspaceReservationRepository.Live,
+        SealedStateKeys.Default
+      ).pipe(Layer.provideMerge(releases.referral));
 
       /** What settling the client's referral code reads. */
       const referralSettlement = remembered.pipe(
@@ -168,7 +196,8 @@ export class CustomerCheckoutOperations extends Context.Service<
         )
       );
 
-      const authorship = Layer.mergeAll(
+      /** Sealing keys and the reservations Pay states are signed for. */
+      const payStates = Layer.mergeAll(
         SealedStateKeys.Default,
         WorkspaceReservationRepository.Live
       );
@@ -184,21 +213,23 @@ export class CustomerCheckoutOperations extends Context.Service<
               CheckoutServicesUnavailable.whenUnbuilt(discountCode)
             )
           ),
+        clearDiscountCode: (input) =>
+          clearDiscountCodeFromPayState(input).pipe(
+            Effect.provide(
+              CheckoutServicesUnavailable.whenUnbuilt(discountCodeRemoval)
+            )
+          ),
         acceptPriceChange: (input) =>
           acceptPayStatePriceChange(input).pipe(
-            Effect.provide(
-              CheckoutServicesUnavailable.whenUnbuilt(SealedStateKeys.Default)
-            )
+            Effect.provide(CheckoutServicesUnavailable.whenUnbuilt(payStates))
           ),
         requireAuthor: (input) =>
           requirePayStateAuthor(input).pipe(
-            Effect.provide(CheckoutServicesUnavailable.whenUnbuilt(authorship))
+            Effect.provide(CheckoutServicesUnavailable.whenUnbuilt(payStates))
           ),
         readPayState: (token) =>
-          openPayState(token).pipe(
-            Effect.provide(
-              CheckoutServicesUnavailable.whenUnbuilt(SealedStateKeys.Default)
-            )
+          openPayStateWithHoldExpiry(token).pipe(
+            Effect.provide(CheckoutServicesUnavailable.whenUnbuilt(payStates))
           ),
         forgetReferralIfSettled: (booker) =>
           RememberedReferral.pipe(

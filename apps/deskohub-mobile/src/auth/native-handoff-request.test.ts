@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Option } from "effect";
 import { nativeReturnUri } from "./auth-callback";
 import {
@@ -43,6 +44,23 @@ describe("native sign-in URL", () => {
     expect(searchOf(url).get("prompt")).toBe("login");
     expect(readNativeHandoffRequest(searchOf(url), origin)).toEqual(
       Option.some({ ...request, reauthenticate: true })
+    );
+  });
+
+  test("names the account a reauthentication signs in as, and why", () => {
+    const reauthentication = {
+      ...request,
+      reauthenticate: true,
+      loginHint: testEmailAddress("customer"),
+      purpose: "delete-account",
+    } as const;
+    const url = nativeSignInUrl(origin, reauthentication);
+    expect(searchOf(url).getAll("login_hint")).toEqual([
+      testEmailAddress("customer"),
+    ]);
+    expect(searchOf(url).getAll("purpose")).toEqual(["delete-account"]);
+    expect(readNativeHandoffRequest(searchOf(url), origin)).toEqual(
+      Option.some(reauthentication)
     );
   });
 
@@ -160,6 +178,36 @@ describe("readNativeHandoffRequest", () => {
     }
   });
 
+  test("ignores a malformed or repeated login hint", () => {
+    for (const hints of [
+      ["not-an-email"],
+      [testEmailAddress("a b")],
+      [testEmailAddress("a".repeat(250))],
+      [testEmailAddress("one"), testEmailAddress("two")],
+    ]) {
+      const search = valid();
+      search.set("prompt", "login");
+      for (const hint of hints) search.append("login_hint", hint);
+      expect(readNativeHandoffRequest(search, origin)).toEqual(
+        Option.some({ ...request, reauthenticate: true })
+      );
+    }
+  });
+
+  test("ignores a purpose the page doesn't know, or more than one", () => {
+    for (const purposes of [
+      ["close-account"],
+      ["delete-account", "delete-account"],
+    ]) {
+      const search = valid();
+      search.set("prompt", "login");
+      for (const purpose of purposes) search.append("purpose", purpose);
+      expect(readNativeHandoffRequest(search, origin)).toEqual(
+        Option.some({ ...request, reauthenticate: true })
+      );
+    }
+  });
+
   test("drops an invalid, duplicated or half analytics answer and keeps the request", () => {
     const cases: ReadonlyArray<ReadonlyArray<readonly [string, string]>> = [
       [["analytics", "granted"]],
@@ -234,6 +282,19 @@ describe("stored native handoff request", () => {
     );
   });
 
+  test("restores a reauthentication's login hint and purpose", () => {
+    const reauthentication = {
+      ...request,
+      reauthenticate: true,
+      loginHint: testEmailAddress("customer"),
+      purpose: "delete-account",
+    } as const;
+    const raw = serializeNativeHandoffRequest(reauthentication, now);
+    expect(restoreNativeHandoffRequest(raw, now)).toEqual(
+      Option.some(reauthentication)
+    );
+  });
+
   test("restores the analytics answer with its decision time unchanged", () => {
     for (const analytics of [granted, denied]) {
       const raw = serializeNativeHandoffRequest({ ...request, analytics }, now);
@@ -293,7 +354,13 @@ describe("stored native handoff request", () => {
 
 describe("URL stripping", () => {
   test("drops the native request params and keeps the rest", () => {
-    const url = `${nativeSignInUrl(origin, { ...request, reauthenticate: true, analytics: granted })}&lang=cs#top`;
+    const url = `${nativeSignInUrl(origin, {
+      ...request,
+      reauthenticate: true,
+      loginHint: testEmailAddress("customer"),
+      purpose: "delete-account",
+      analytics: granted,
+    })}&lang=cs#top`;
     expect(withoutNativeRequestParams(url)).toBe("/app/sign-in?lang=cs#top");
   });
 

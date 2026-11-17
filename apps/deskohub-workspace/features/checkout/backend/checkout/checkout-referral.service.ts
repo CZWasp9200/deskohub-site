@@ -1,7 +1,6 @@
-import { Context, Effect, Layer, Match, Schema } from "effect";
+import { Context, Effect, Layer, Match } from "effect";
 import {
   type CheckoutSummary,
-  type CheckoutSummaryChangedKeys,
   getCheckoutSummaryChangedKeys,
 } from "@/features/checkout/checkout-summary";
 import {
@@ -15,37 +14,27 @@ import {
   ReferralError,
   type ReferralOutage,
 } from "@/features/referrals/contracts";
-import {
-  type DotyposCustomerId,
-  dotyposCustomerIdSchema,
-} from "@/features/reservation/dotypos-customer";
+import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { moneyEquals } from "@/shared/money/money";
-import {
-  type FreshPayState,
-  issueFreshPayState,
-  type NoFreshPayState,
-  toFreshPayState,
-} from "./checkout-pay-url";
 import {
   CheckoutPricingService,
   type ICheckoutPricingService,
   type PaymentPriceAffirmation,
 } from "./checkout-pricing.service";
 import { isExpectedReferralQuoteAddition } from "./checkout-referral-price-change";
+import type { CheckoutUnavailableReason } from "./checkout-unavailable";
 import {
-  getSignedPayStateBookedAt,
-  getSignedPayStateCheckoutSummary,
-  getSignedPayStateSubmittedCode,
-  openPayState,
+  type FreshPayState,
+  type NoFreshPayState,
+  PayState,
   type SignedPayState,
-} from "./pay-state.server";
-import {
-  PayableReservationService,
-  type PayableReservationUnavailableError,
-} from "./payable-reservation.service";
+  toFreshPayState,
+} from "./pay-state";
+import { PayableCheckout } from "./payable-checkout.service";
 import type { PriceVerdict } from "./price-verdict";
+import { hasPaymentInProgress } from "./reusable-payment-attempt";
 
 /**
  * Why a referral code could not be accepted. The customer sees one generic
@@ -67,7 +56,7 @@ type CheckoutReferralUnavailable =
       readonly reason: "checkout";
       readonly checkoutReason:
         | "payment_in_progress"
-        | PayableReservationUnavailableError["reason"];
+        | CheckoutUnavailableReason;
     };
 
 export type CheckoutReferralResult =
@@ -162,29 +151,27 @@ const affirmReferralPricing = (input: {
 }) =>
   input.pricing.affirmForPayment({
     ...input.opened,
-    bookedAt: getSignedPayStateBookedAt(input.opened),
+    bookedAt: PayState.bookedAt(input.opened),
     dotyposCustomerId: input.dotyposCustomerId,
     locale: input.locale,
     ...input.referralInput,
   });
 
 /**
- * Whether the referral re-pricing changed the order beyond the expected
- * referral addition, with the summary keys the customer must review. A
- * signed total that disagrees with its own summary is always a change; the
- * payment verdict's change is not one when it is only the expected addition.
+ * The referral's own verdict on the re-priced order: it changed when it moved
+ * beyond the expected referral addition, with the summary keys the customer
+ * must review. A signed total that disagrees with its own summary is always a
+ * change; the payment verdict's change is not one when it is only the
+ * expected addition.
  */
-const getReferralRepricing = (input: {
+const getReferralPriceVerdict = (input: {
   readonly opened: SignedPayState;
   readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
   readonly dotyposCustomerId: DotyposCustomerId;
-}): {
-  readonly changed: boolean;
-  readonly changedKeys?: CheckoutSummaryChangedKeys;
-} => {
+}): PriceVerdict<PaymentPriceAffirmation> => {
   const { opened, verdict } = input;
   const prepared = verdict.priced;
-  const oldSummary: CheckoutSummary = getSignedPayStateCheckoutSummary(opened);
+  const oldSummary: CheckoutSummary = PayState.summary(opened);
   const signedTotalWasConsistent = moneyEquals(
     oldSummary.total,
     opened.acceptedTotal
@@ -205,21 +192,22 @@ const getReferralRepricing = (input: {
     );
   return changed
     ? {
-        changed,
+        status: "pricing_changed",
+        priced: prepared,
         changedKeys: getCheckoutSummaryChangedKeys(
           oldSummary,
           prepared.summary
         ),
       }
-    : { changed };
+    : { status: "affirmed", priced: prepared };
 };
 
 const toReferralAcceptanceResult = (input: {
-  readonly changed: boolean;
+  readonly verdict: PriceVerdict<PaymentPriceAffirmation>;
   readonly evaluation: CheckoutReferralEvaluation;
   readonly freshPayState: FreshPayState;
 }): CheckoutReferralResult => {
-  if (input.changed) {
+  if (input.verdict.status === "pricing_changed") {
     return { status: "pricing_changed", ...input.freshPayState };
   }
   return {
@@ -238,17 +226,18 @@ export class CheckoutReferralService extends Context.Service<
     Effect.gen(function* () {
       const referrals = yield* ReferralService;
       const pricing = yield* CheckoutPricingService;
-      const payableReservations = yield* PayableReservationService;
+      const payableCheckout = yield* PayableCheckout;
       const sealedStateKeys = yield* SealedStateKeys;
 
       const acceptCode: ICheckoutReferralService["acceptCode"] = Effect.fn(
         "CheckoutReferralService.acceptCode"
       )(
         function* (input) {
-          const opened = yield* openPayState(input.payStateToken);
           // Callers open the token for its locale first, so a mismatch here
-          // is unexpected.
-          if (opened.locale !== input.locale) return providerUnavailable;
+          // is unexpected and reads as unavailable, like any other failure.
+          const opened = yield* PayState.open(input.payStateToken, {
+            locale: input.locale,
+          });
 
           const codeKind = yield* referrals.lookupCodeKind({
             code: input.code,
@@ -257,20 +246,13 @@ export class CheckoutReferralService extends Context.Service<
 
           // The referral belongs to the booked customer: the account's own
           // customer, or the person it books for.
-          const payableReservation = {
-            orderId: opened.orderId,
-            checkoutSessionId: opened.checkoutSessionId,
-          };
-          const currentReservation =
-            yield* payableReservations.requireCurrent(payableReservation);
+          const checkout = yield* payableCheckout.reconfirm(opened);
           // Like an ordinary code, a referral never replaces the summary of a
           // payment already in progress; payment admission rechecks it too.
-          if (currentReservation.activePaymentAttemptId) {
+          if (hasPaymentInProgress(checkout.reservation)) {
             return paymentInProgress;
           }
-          const dotyposCustomerId = yield* Schema.decodeEffect(
-            dotyposCustomerIdSchema
-          )(currentReservation.dotyposCustomerId);
+          const { dotyposCustomerId } = checkout.reservation;
 
           const evaluation = yield* referrals
             .evaluateCheckoutReferral({ code: input.code, dotyposCustomerId })
@@ -282,48 +264,32 @@ export class CheckoutReferralService extends Context.Service<
             evaluation: evaluation.success,
             opened,
           });
-          const verdict = yield* affirmReferralPricing({
+          const paymentVerdict = yield* affirmReferralPricing({
             pricing,
             opened,
             dotyposCustomerId,
             locale: input.locale,
             referralInput,
           });
-          const { changed, changedKeys } = getReferralRepricing({
+          const verdict = getReferralPriceVerdict({
             opened,
-            verdict,
+            verdict: paymentVerdict,
             dotyposCustomerId,
           });
-          const prepared = verdict.priced;
           // A payment that started while the referral was priced keeps the
           // summary it was admitted with.
-          const repricedReservation =
-            yield* payableReservations.requireCurrent(payableReservation);
-          if (repricedReservation.activePaymentAttemptId) {
+          const repriced = yield* payableCheckout.reconfirm(opened);
+          if (hasPaymentInProgress(repriced.reservation)) {
             return paymentInProgress;
           }
-          const freshPayPathInput = {
-            ...prepared,
-            locale: input.locale,
-            orderId: opened.orderId,
-            bookedAt: opened.bookedAt,
-            checkoutSessionId: opened.checkoutSessionId,
-            ...referralInput,
-            ...getSignedPayStateSubmittedCode(
-              opened,
-              prepared.quote.payment.discounts
-            ),
-          };
-          const freshPayState = yield* issueFreshPayState(
-            changedKeys === undefined
-              ? freshPayPathInput
-              : { ...freshPayPathInput, changedKeys },
-            undefined,
-            { orderId: opened.orderId }
-          ).pipe(Effect.map(toFreshPayState));
+          const freshPayState = yield* PayState.reissue(checkout.state, {
+            kind: "referral_applied",
+            referralCode: referralInput.referralCode,
+            verdict,
+          }).pipe(Effect.map(toFreshPayState));
 
           return toReferralAcceptanceResult({
-            changed,
+            verdict,
             evaluation: evaluation.success,
             freshPayState,
           });
@@ -331,7 +297,7 @@ export class CheckoutReferralService extends Context.Service<
         (effect) =>
           effect.pipe(
             Effect.catchTag(
-              "PayableReservationUnavailableError",
+              "CheckoutUnavailableError",
               (error): Effect.Effect<CheckoutReferralResult> =>
                 Effect.succeed({
                   status: "unavailable",
@@ -356,7 +322,7 @@ export class CheckoutReferralService extends Context.Service<
       Layer.mergeAll(
         ReferralService.Live,
         CheckoutPricingService.Live,
-        PayableReservationService.Live,
+        PayableCheckout.Live,
         WorkspaceDotyposLayer,
         SealedStateKeys.Default
       )

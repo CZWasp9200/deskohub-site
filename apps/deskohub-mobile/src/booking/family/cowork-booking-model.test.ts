@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { CustomerOffering } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { AtomRegistry } from "effect/unstable/reactivity";
 import { makeFakeCustomerData } from "../../customer-api/testing/customer-data-test-registry";
@@ -11,17 +12,30 @@ import {
 import {
   type CoworkDraft,
   coworkAvailabilityQueries,
+  coworkBookableDates,
   defaultCoworkDraft,
+  offeredCoworkTiers,
   selectCoworkDate,
+  selectCoworkStay,
   selectCoworkTier,
 } from "../selection/cowork-selection";
-import { pragueToday } from "../selection/prague-date";
 import { fakeBooking } from "../testing/fake-booking-api";
+import { withReservedDeskOvernightStay } from "../testing/sample-booking-catalog";
 import { checkoutRequestOf } from "./booking-family-view";
 import { coworkBookingModel, openingCoworkDraft } from "./cowork-booking-model";
 import { settledValue } from "./testing/settled-value";
 
 const now = new Date();
+
+/** The drafted tier's bookable dates, as the cowork screen reads them. */
+const bookableDatesOf = (
+  offerings: ReadonlyArray<CustomerOffering>,
+  draft: CoworkDraft
+) =>
+  coworkBookableDates(
+    Option.getOrThrow(offeredCoworkTiers(offerings)),
+    draft.tier
+  );
 
 /** The model once every availability read of the draft has settled. */
 const settledModel = async (
@@ -29,7 +43,8 @@ const settledModel = async (
   draft: CoworkDraft
 ) => {
   const catalog = await settledValue(registry, bookingOfferingsAtom("en-US"));
-  const queries = coworkAvailabilityQueries(draft, pragueToday(now));
+  const bookableDates = bookableDatesOf(catalog.offerings, draft);
+  const queries = coworkAvailabilityQueries(draft, bookableDates);
   const read = (query: (typeof queries)["range"]) =>
     settledValue(registry, bookingAvailabilityAtom({ query }));
   const availability = {
@@ -45,6 +60,7 @@ const settledModel = async (
     draft,
     now,
     offerings: catalog.offerings,
+    bookableDates,
     availability,
   });
 };
@@ -84,6 +100,7 @@ describe("coworkBookingModel", () => {
       })
     ).toEqual(
       Option.some({
+        _tag: "Booking",
         locale: "en-US",
         selection: Option.getOrThrow(model.selection),
         advertisedPriceToken: quote.advertisedPriceToken,
@@ -153,6 +170,7 @@ describe("coworkBookingModel", () => {
       draft,
       now,
       offerings: catalog.offerings,
+      bookableDates: bookableDatesOf(catalog.offerings, draft),
       availability: {
         range: Option.none(),
         selection: Option.none(),
@@ -174,7 +192,6 @@ describe("openingCoworkDraft", () => {
       registry,
       bookingOfferingsAtom("en-US")
     );
-    const today = booking.today();
     const booked = {
       selection: {
         family: "cowork" as const,
@@ -183,30 +200,28 @@ describe("openingCoworkDraft", () => {
         monitorOption: "2x27-4k" as const,
       },
     };
-    return { offerings, today, booked };
+    return { offerings, booked };
   };
 
   test("opens empty without a preselection", async () => {
-    const { offerings, today } = await opening();
+    const { offerings } = await opening();
 
     expect(
       openingCoworkDraft({
         kept: Option.none(),
         preselection: Option.none(),
         offerings,
-        today,
       })
     ).toEqual(defaultCoworkDraft(offerings));
   });
 
   test("opens on a preselection's tier, day and workstation", async () => {
-    const { offerings, today, booked } = await opening();
+    const { offerings, booked } = await opening();
 
     const draft = openingCoworkDraft({
       kept: Option.none(),
       preselection: Option.some(booked),
       offerings,
-      today,
     });
 
     expect(draft.tier).toBe("reserved-desk");
@@ -217,7 +232,7 @@ describe("openingCoworkDraft", () => {
   });
 
   test("a new preselection replaces the kept draft; none keeps it", async () => {
-    const { offerings, today, booked } = await opening();
+    const { offerings, booked } = await opening();
     const earlier = selectCoworkDate(
       defaultCoworkDraft(offerings),
       booked.selection.date
@@ -229,7 +244,6 @@ describe("openingCoworkDraft", () => {
         kept,
         preselection: Option.none(),
         offerings,
-        today,
       })
     ).toBe(earlier);
     expect(
@@ -237,7 +251,6 @@ describe("openingCoworkDraft", () => {
         kept,
         preselection: Option.some(booked),
         offerings,
-        today,
       }).tier
     ).toBe("reserved-desk");
     expect(
@@ -248,8 +261,102 @@ describe("openingCoworkDraft", () => {
         }),
         preselection: Option.some(booked),
         offerings,
-        today,
       })
     ).toBe(earlier);
+  });
+});
+
+describe("overnight stay", () => {
+  const overnightStay = { startTime: "12:00", endTime: "12:00" };
+  const pending = {
+    range: Option.none(),
+    selection: Option.none(),
+    workstationRequirement: Option.none(),
+  };
+  const stayCatalog = async () => {
+    const { registry, draft } = await setup();
+    const { offerings: sampled } = await settledValue(
+      registry,
+      bookingOfferingsAtom("en-US")
+    );
+    return {
+      offerings: withReservedDeskOvernightStay(sampled, undefined),
+      withOvernight: withReservedDeskOvernightStay(sampled, overnightStay),
+      draft,
+    };
+  };
+
+  test("offers the switch only for a Reserved Desk whose offering advertises it", async () => {
+    const { offerings, withOvernight, draft } = await stayCatalog();
+    const reservedDesk = selectCoworkTier(draft, "reserved-desk");
+    const switchFor = (shown: CoworkDraft, catalog: typeof offerings) =>
+      coworkBookingModel({
+        draft: shown,
+        now,
+        offerings: catalog,
+        bookableDates: bookableDatesOf(catalog, shown),
+        availability: pending,
+      }).overnightStay;
+
+    expect(switchFor(reservedDesk, withOvernight)).toEqual(
+      Option.some(overnightStay)
+    );
+    expect(switchFor(draft, withOvernight)).toEqual(Option.none());
+    expect(switchFor(reservedDesk, offerings)).toEqual(Option.none());
+  });
+
+  test("a kept overnight stay opens as a day once the catalog stops offering it", async () => {
+    const { offerings, withOvernight, draft } = await stayCatalog();
+    const overnight = selectCoworkStay(
+      selectCoworkTier(draft, "reserved-desk"),
+      "overnight"
+    );
+    const kept = Option.some({ seed: "", draft: overnight });
+    const opened = (catalog: typeof offerings) =>
+      openingCoworkDraft({
+        kept,
+        preselection: Option.none(),
+        offerings: catalog,
+      });
+
+    expect(opened(withOvernight)).toBe(overnight);
+    expect(opened(offerings).stay).toBe("day");
+  });
+
+  test("the overnight selection carries its stay and times to checkout", async () => {
+    const { registry, draft } = await setup();
+    const { withOvernight } = await stayCatalog();
+    const reservedDesk = selectCoworkTier(draft, "reserved-desk");
+    const day = await settledModel(registry, reservedDesk);
+    const quote = await settledValue(
+      registry,
+      bookingQuoteAtom(Option.getOrThrow(day.quotable), "en-US")
+    );
+
+    const model = coworkBookingModel({
+      draft: selectCoworkStay(reservedDesk, "overnight"),
+      now,
+      offerings: withOvernight,
+      bookableDates: bookableDatesOf(
+        withOvernight,
+        selectCoworkStay(reservedDesk, "overnight")
+      ),
+      availability: pending,
+    });
+    const request = checkoutRequestOf({
+      locale: "en-US",
+      selection: model.selection,
+      blockers: [],
+      quote: Option.some(quote),
+      overnightStay,
+    });
+
+    expect(Option.getOrThrow(day.selection)).not.toHaveProperty("stay");
+    expect(
+      Option.map(request, ({ selection, overnightStay: times }) => [
+        selection.stay,
+        times,
+      ])
+    ).toEqual(Option.some(["overnight", overnightStay]));
   });
 });

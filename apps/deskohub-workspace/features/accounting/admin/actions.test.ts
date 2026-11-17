@@ -99,6 +99,8 @@ AdministrationService.Live = fakeLayer(
 const {
   archiveAdministrationInvoice,
   cancelAdministrationInvoice,
+  createAdministrationInvoice,
+  previewAdministrationInvoice,
   previewAdministrationInvoiceCancellation,
   retryAdministrationInvoice,
 } = await import("./actions");
@@ -464,5 +466,71 @@ describe("retryAdministrationInvoice", () => {
     await retryAdministrationInvoice({ invoiceId });
 
     expect(revalidatedPaths).toEqual(invoicePaths);
+  });
+});
+
+describe("Admin UI invoice creation provenance", () => {
+  const invoiceInput = {
+    invoiceId: "01980000-0000-7000-8000-000000000019",
+    customer: {
+      kind: "new" as const,
+      details: {
+        kind: "person" as const,
+        email: testEmailAddress("admin-ui-invoice"),
+        firstName: "Synthetic",
+        lastName: "Customer",
+        address: {
+          line1: "Test street 1",
+          city: "Prague",
+          postalCode: "100 00",
+          country: "CZ",
+        },
+      },
+    },
+    locale: "cs-CZ" as const,
+    serviceDate: "2026-08-10",
+    payment: { status: "due" as const, date: "2026-08-24" },
+    currency: "CZK",
+    lines: [{ description: "Space rental", price: "1000" }],
+  };
+  const provenanceOf = (method: string) =>
+    calls.filter((call) => call.method === method).map(({ args }) => args[1]);
+
+  test("records an invoice created in the Admin UI with the admin-ui source and the signed-in administrator", async () => {
+    invoices = {
+      create: () =>
+        Effect.succeed({
+          invoiceId: invoiceInput.invoiceId,
+          invoiceNumber: "WS-FV-2026-000001",
+          changed: true,
+          needsAttention: false,
+        }),
+    };
+
+    const result = await createAdministrationInvoice(invoiceInput);
+
+    expect(result).toMatchObject({
+      data: { invoiceId: invoiceInput.invoiceId },
+    });
+    expect(provenanceOf("create")).toEqual([
+      { source: "admin-ui", administrator: access.administrator },
+    ]);
+  });
+
+  test("previews an Admin UI invoice with the admin-ui source and the signed-in administrator", async () => {
+    invoices = {
+      preview: () => Effect.succeed(new Uint8Array([37, 80, 68, 70])),
+    };
+
+    const result = await previewAdministrationInvoice(invoiceInput);
+
+    expect(result).toMatchObject({
+      data: {
+        dataUrl: expect.stringMatching(/^data:application\/pdf;base64,/),
+      },
+    });
+    expect(provenanceOf("preview")).toEqual([
+      { source: "admin-ui", administrator: access.administrator },
+    ]);
   });
 });
