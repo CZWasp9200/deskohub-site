@@ -269,7 +269,7 @@
   "agentBookingChooseAssistant": "असिस्टेंट चुनें",
   "agentBookingPickerTitle": "AI से बुकिंग",
   "agentBookingOpenInAssistant": "{assistant} में खोलें",
-  "agentBookingCopyInstruction": "एजेंट के लिए निर्देश कॉपी करें",
+  "agentBookingCopyInstruction": "असिस्टेंट के लिए निर्देश कॉपी करें",
   "agentBookingInstructionCopied": "निर्देश कॉपी हो गए",
   "agentBookingCopyMcpServerUrl": "MCP सर्वर का URL कॉपी करें",
   "agentBookingMcpServerUrlCopied": "URL कॉपी हो गया",

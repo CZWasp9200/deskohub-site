@@ -268,7 +268,7 @@
   "agentBookingChooseAssistant": "Chọn trợ lý",
   "agentBookingPickerTitle": "Đặt chỗ qua AI",
   "agentBookingOpenInAssistant": "Mở trong {assistant}",
-  "agentBookingCopyInstruction": "Sao chép hướng dẫn cho agent",
+  "agentBookingCopyInstruction": "Sao chép hướng dẫn cho trợ lý",
   "agentBookingInstructionCopied": "Đã sao chép hướng dẫn",
   "agentBookingCopyMcpServerUrl": "Sao chép URL máy chủ MCP",
   "agentBookingMcpServerUrlCopied": "Đã sao chép URL",

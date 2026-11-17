@@ -271,7 +271,7 @@
   "agentBookingChooseAssistant": "Vybrať asistenta",
   "agentBookingPickerTitle": "Rezervácia cez AI",
   "agentBookingOpenInAssistant": "Otvoriť v {assistant}",
-  "agentBookingCopyInstruction": "Kopírovať pokyny pre agenta",
+  "agentBookingCopyInstruction": "Kopírovať pokyny pre asistenta",
   "agentBookingInstructionCopied": "Pokyny skopírované",
   "agentBookingCopyMcpServerUrl": "Kopírovať URL MCP servera",
   "agentBookingMcpServerUrlCopied": "URL skopírovaná",

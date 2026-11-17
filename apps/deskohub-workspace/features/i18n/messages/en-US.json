@@ -269,7 +269,7 @@
   "agentBookingChooseAssistant": "Choose an assistant",
   "agentBookingPickerTitle": "Reserve with AI",
   "agentBookingOpenInAssistant": "Open in {assistant}",
-  "agentBookingCopyInstruction": "Copy instructions for the agent",
+  "agentBookingCopyInstruction": "Copy instructions for the assistant",
   "agentBookingInstructionCopied": "Instructions copied",
   "agentBookingCopyMcpServerUrl": "Copy MCP server URL",
   "agentBookingMcpServerUrlCopied": "URL copied",

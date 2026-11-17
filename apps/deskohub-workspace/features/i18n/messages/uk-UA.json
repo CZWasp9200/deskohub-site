@@ -271,7 +271,7 @@
   "agentBookingChooseAssistant": "Вибрати асистента",
   "agentBookingPickerTitle": "Бронювання через ШІ",
   "agentBookingOpenInAssistant": "Відкрити в {assistant}",
-  "agentBookingCopyInstruction": "Копіювати інструкції для агента",
+  "agentBookingCopyInstruction": "Копіювати інструкції для асистента",
   "agentBookingInstructionCopied": "Інструкції скопійовано",
   "agentBookingCopyMcpServerUrl": "Копіювати URL MCP-сервера",
   "agentBookingMcpServerUrlCopied": "URL скопійовано",
