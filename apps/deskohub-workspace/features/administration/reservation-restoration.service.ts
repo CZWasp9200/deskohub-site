@@ -16,7 +16,7 @@ import {
   Result,
 } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
 import { PaymentRefundService } from "@/features/checkout/backend/payment/payment-refund.service";
 import { getRestorationBooking } from "@/features/checkout/backend/reservation/restoration-booking";
@@ -152,7 +152,7 @@ export class ReservationRestorationService extends Context.Service<
     this,
     Effect.gen(function* () {
       const access = yield* ReservationAccessService;
-      const accountingSnapshots = yield* AccountingDocumentSnapshotRepository;
+      const accountingSnapshots = yield* AccountingDocumentSnapshots;
       const { transaction } = yield* WorkspaceDatabase;
       const dotypos = yield* DotyposService;
       const emails = yield* WorkspaceReservationEmailService;
@@ -271,7 +271,7 @@ export class ReservationRestorationService extends Context.Service<
       }) =>
         getRestorationBooking({ reservation, record }).pipe(
           Effect.provideService(
-            AccountingDocumentSnapshotRepository,
+            AccountingDocumentSnapshots,
             accountingSnapshots
           ),
           Effect.mapError((cause) =>

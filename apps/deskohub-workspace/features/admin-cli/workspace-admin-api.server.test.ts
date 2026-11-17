@@ -66,7 +66,7 @@ import {
   InvoiceAdministrationInProgressError,
   InvoiceAdministrationService,
 } from "@/features/accounting/admin/invoice-administration.service";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { ManualInvoiceValidationError } from "@/features/accounting/manual-invoice";
 import { AdministrationService } from "@/features/administration/administration.service";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
@@ -1988,7 +1988,7 @@ describe("customer and reservation administration endpoints", () => {
         })
       ),
       // What only a reservation restore uses.
-      Layer.mock(AccountingDocumentSnapshotRepository, {}),
+      Layer.mock(AccountingDocumentSnapshots, {}),
       Layer.mock(PaymentRefundService, {}),
       Layer.mock(ReservationAccessService, {}),
       Layer.mock(WorkspaceDatabase, {}),

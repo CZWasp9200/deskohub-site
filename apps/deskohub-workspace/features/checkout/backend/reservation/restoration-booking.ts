@@ -3,7 +3,7 @@ import "@/shared/polyfills/temporal";
 import type { DotyposReservationBooking } from "@deskohub/dotypos";
 import { Data, Effect, Match, Option } from "effect";
 import type { AccountingDocumentSnapshot } from "@/features/accounting/accounting-document-snapshot";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import {
   type BookedInterval,
   decodeBookedReservation,
@@ -11,6 +11,7 @@ import {
 import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import type { WorkspaceReservation } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCoworkReservationInterval } from "@/features/reservation/cowork-reservation";
+import { getBookedCoworkStay } from "@/features/reservation/cowork-stay";
 import {
   getMeetingRoomReservationInterval,
   getMeetingRoomStartDateTime,
@@ -20,7 +21,7 @@ import type { StoredWorkspaceReservationDetails } from "@/features/reservation/p
 import { getWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { ReservationInterval } from "@/features/reservation/reservation-interval";
 import { temporalInstantToDate } from "@/shared/utils/temporal";
-import { reconstructReservation } from "./reservation-reconstruction";
+import { getOrderCoworkStay, rebuildAcceptedReservation } from "./order-dotypos-reservation";
 import {
   getWorkspaceReservationInterval,
   getWorkspaceReservationSeats,
@@ -106,9 +107,13 @@ const getCreationBooking = Effect.fnUntraced(function* (input: {
   readonly recordBooking: RecordBooking;
   readonly snapshot: AccountingDocumentSnapshot;
 }) {
-  const reconstructed = reconstructReservation(
+  const reconstructed = rebuildAcceptedReservation(
     input.reservation,
-    input.snapshot
+    input.snapshot,
+    getOrderCoworkStay(
+      input.reservation.reservationDetails,
+      input.recordBooking.booked
+    )
   );
   if (!reconstructed) {
     return yield* new RestorationBookingUnreadable({
@@ -164,7 +169,8 @@ const storedDetailChanges = (
         ...(sameInterval(
           getCoworkReservationInterval(
             entryTier,
-            getWorkspaceDate(held.startsAt).toString()
+            getWorkspaceDate(held.startsAt).toString(),
+            getBookedCoworkStay({ tier: entryTier, interval: booked })
           ),
           held
         )
@@ -234,12 +240,12 @@ export const getRestorationBooking = Effect.fn("getRestorationBooking")(
       reservation.reservationDetails
     );
 
-    const snapshots = yield* AccountingDocumentSnapshotRepository;
+    const snapshots = yield* AccountingDocumentSnapshots;
     const snapshot =
       reservation.activePaymentAttemptId === null
         ? null
         : yield* snapshots
-            .findByPaymentAttemptId(reservation.activePaymentAttemptId)
+            .find(reservation.activePaymentAttemptId)
             .pipe(
               Effect.mapError(
                 (cause) =>

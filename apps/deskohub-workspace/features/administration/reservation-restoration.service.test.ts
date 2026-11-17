@@ -9,7 +9,7 @@ import {
   RestoreCancelledReservationResult,
 } from "@deskohub/dotypos";
 import { Effect, Layer, Logger, References } from "effect";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
 import { PaymentRefundService } from "@/features/checkout/backend/payment/payment-refund.service";
 import { WorkspaceTableAssignmentService } from "@/features/checkout/backend/reservation/workspace-table-assignment.service";
@@ -273,7 +273,7 @@ const restoreWith = async (overrides: Partial<Fakes> = {}) => {
         Layer.provide(
           Layer.mergeAll(
             database.layer,
-            Layer.mock(AccountingDocumentSnapshotRepository, {}),
+            Layer.mock(AccountingDocumentSnapshots, {}),
             Layer.mock(DotyposService, {
               getReservationWithoutCustomer:
                 calls.getReservationWithoutCustomer,

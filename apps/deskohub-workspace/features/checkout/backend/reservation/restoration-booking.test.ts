@@ -13,9 +13,9 @@ import {
   makeAccountingDocumentSnapshot,
 } from "@/features/accounting/accounting-document-snapshot";
 import {
-  AccountingDocumentSnapshotRepository,
-  AccountingDocumentSnapshotStorageError,
-} from "@/features/accounting/backend/accounting-document-snapshot.repository";
+  AccountingDocumentSnapshots,
+  AccountingRecordUnavailable,
+} from "@/features/accounting/backend/accounting-document-snapshots";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
@@ -193,7 +193,7 @@ const kinds: readonly Kind[] = [
 const run = (input: {
   readonly details: StoredWorkspaceReservationDetails;
   readonly record: ReservationRecord;
-  readonly findSnapshot?: AccountingDocumentSnapshotRepository["Service"]["findByPaymentAttemptId"];
+  readonly findSnapshot?: AccountingDocumentSnapshots["Service"]["find"];
   readonly activePaymentAttemptId?: typeof paymentAttemptId | null;
 }) =>
   Effect.runPromise(
@@ -214,8 +214,8 @@ const run = (input: {
         onSuccess: (booking) => ({ error: null, booking }),
       }),
       Effect.provide(
-        Layer.mock(AccountingDocumentSnapshotRepository, {
-          findByPaymentAttemptId:
+        Layer.mock(AccountingDocumentSnapshots, {
+          find:
             input.findSnapshot ?? (() => Effect.succeed(null)),
         })
       )
@@ -341,9 +341,9 @@ describe("getRestorationBooking", () => {
       record: cowork.record,
       findSnapshot: () =>
         Effect.fail(
-          new AccountingDocumentSnapshotStorageError({
+          new AccountingRecordUnavailable({
             operation: "decrypt",
-            paymentReference: {
+            reference: {
               type: "paymentAttemptId",
               id: paymentAttemptId,
             },

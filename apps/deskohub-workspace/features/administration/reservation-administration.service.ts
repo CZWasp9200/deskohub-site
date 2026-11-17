@@ -2,7 +2,7 @@ import { DotyposService } from "@deskohub/dotypos";
 import { Context, Effect, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { CustomerEmailLocaleService } from "@/features/account";
-import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
 import { WorkspaceCheckoutNetworkDetailsService } from "@/features/checkout/backend/fulfillment/network-details.service";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
@@ -341,7 +341,7 @@ export class ReservationAdministrationService extends Context.Service<
    */
   static perOperationOver = <E, R>(
     shared: Layer.Layer<
-      | AccountingDocumentSnapshotRepository
+      | AccountingDocumentSnapshots
       | DotyposService
       | PaymentRefundService
       | ReservationAccessService
@@ -381,7 +381,7 @@ export class ReservationAdministrationService extends Context.Service<
       WorkspaceDotyposLayer,
       WorkspaceFeatureFlagService.Default,
       PaymentRefundService.Live,
-      AccountingDocumentSnapshotRepository.Default.pipe(
+      AccountingDocumentSnapshots.Default.pipe(
         Layer.provide(AccountingSnapshotKeyService.Default)
       ),
       ReservationAccessService.Live,
