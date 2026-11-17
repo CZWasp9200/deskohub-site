@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.1](https://github.com/totalolage/deskohub-site/compare/mobile-v0.2.0...mobile-v0.2.1) (2026-11-17)
+
+### Features
+
+* **mobile:** links to your booking's access page and to Account pages on the website open in the app when it is installed
+* **mobile:** book an overnight stay with a small Overnight switch beside the date
+* **mobile:** an expired payment can be paid again in place, like a failed or cancelled one
+
+### Bug Fixes
+
+* **mobile:** signing in from the app works again; the website's browser check no longer rejects the sign-in page
+* **mobile:** when an app store or updater such as Obtainium installed the app, it no longer offers its own download; the updater handles new versions
+* **mobile:** the Download button opens the new version's file on the Deskohub website instead of the Android page
+
 ## [0.2.0](https://github.com/totalolage/deskohub-site/compare/mobile-v0.1.1...mobile-v0.2.0) (2026-11-17)
 
 ### Features
