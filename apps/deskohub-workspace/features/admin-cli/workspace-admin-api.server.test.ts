@@ -2125,6 +2125,29 @@ describe("standalone access-code CLI endpoint", () => {
     expect(ledger.requests[0]?.recovery).toBe(standaloneAccessCodeRecovery);
   });
 
+  test("creates a code from an assistant with the assistant's provenance", async () => {
+    const creations: unknown[] = [];
+    const standalone = Layer.succeed(StandaloneAccessCodeAdministration, {
+      create: (input) =>
+        Effect.sync(() => creations.push(input)).pipe(
+          Effect.as(createdOutcome)
+        ),
+    });
+    const created = await runAdministration(
+      actorAuthorizedCliRequest(assistantChannel),
+      standalone,
+      recordingRequestLedger().layer,
+      createAccessCode()
+    ).pipe(Effect.runPromise);
+
+    expect(created).toMatchObject({ outcome: "created" });
+    expect(creations).toHaveLength(1);
+    expect(creations[0]).toMatchObject({
+      source: "assistant",
+      actor: cliAdministrator,
+    });
+  });
+
   test("replays stored metadata without a PIN or another provider call", async () => {
     let providerCalls = 0;
     const storedResult = standaloneAccessCodeStoredResult.from(createdOutcome);
