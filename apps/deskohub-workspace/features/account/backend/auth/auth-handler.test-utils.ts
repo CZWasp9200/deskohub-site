@@ -261,7 +261,7 @@ let ipCounter = 0;
  */
 export const uniqueIp = () => {
   ipCounter += 1;
-  if (ipCounter === ipBlockSize) {
+  if (ipCounter >= ipBlockSize) {
     throw new Error(
       `A test file sent ${ipBlockSize - 1} requests from unique addresses; raise ipBlockSize.`
     );
