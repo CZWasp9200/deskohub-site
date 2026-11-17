@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { appLocales } from "./app-locale";
 import { m } from "./messages";
 import { AppPluralRules, installPluralRules } from "./plural-rules";
@@ -54,6 +55,21 @@ describe("the app plural rules", () => {
     expect(() => new AppPluralRules("en-US", { type: "ordinal" })).toThrow(
       RangeError
     );
+  });
+});
+
+describe("the app entry", () => {
+  test("installs the plural rules before Expo Router loads any screen", () => {
+    const entry = readFileSync(
+      new URL("../../index.ts", import.meta.url),
+      "utf8"
+    );
+    const imports = [...entry.matchAll(/^import\s+"([^"]+)";/gm)].map(
+      (match) => match[1]
+    );
+    const pluralRules = imports.indexOf("./src/i18n/plural-rules-entry");
+    expect(pluralRules).toBeGreaterThanOrEqual(0);
+    expect(pluralRules).toBeLessThan(imports.indexOf("expo-router/entry"));
   });
 });
 
