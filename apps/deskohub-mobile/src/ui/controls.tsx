@@ -1,11 +1,13 @@
 import Lock from "lucide-react-native/icons/lock";
 import {
   Children,
+  type ComponentRef,
   createContext,
   type ReactNode,
   type Ref,
   useContext,
   useId,
+  useRef,
   useState,
 } from "react";
 import {
@@ -29,6 +31,7 @@ import {
   fieldInkColor,
   fieldInputStyle,
 } from "./field";
+import { FocusedFieldContext } from "./focused-field-scroll";
 import { Icon, type IconComponent } from "./icon";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { LoadingIndicator } from "./loading-indicator";
@@ -435,6 +438,9 @@ export function TextField({
   | "editable"
 >) {
   const [focused, setFocused] = useState(false);
+  // The scroll view keeps the whole field (label to messages) in sight.
+  const focusTracker = useContext(FocusedFieldContext);
+  const column = useRef<ComponentRef<typeof View>>(null);
   const hintId = useId();
   const errorId = useId();
   const messages = { hint, hintId, error, errorId };
@@ -449,7 +455,7 @@ export function TextField({
   const trailing = trailingIcon ?? (readOnly ? Lock : undefined);
   const iconColor = fieldIconColor(state);
   return (
-    <View style={fieldColumnStyle}>
+    <View ref={column} style={fieldColumnStyle}>
       <FieldLabel label={label} optional={optional} />
       {fieldRow(
         <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
@@ -486,9 +492,13 @@ export function TextField({
               placeholderTextColor={color.ink3}
               {...input}
               editable={typeable}
-              onFocus={() => setFocused(true)}
+              onFocus={() => {
+                setFocused(true);
+                if (column.current) focusTracker.focused(column.current);
+              }}
               onBlur={(event) => {
                 setFocused(false);
+                if (column.current) focusTracker.blurred(column.current);
                 onBlur?.(event);
               }}
               onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}

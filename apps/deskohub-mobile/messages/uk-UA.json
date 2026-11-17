@@ -220,6 +220,8 @@
   "signin_resend_link": "Надіслати посилання ще раз",
   "signin_resend_link_in": "Надіслати посилання ще раз через {time}",
   "signin_link_resent": "Ми надіслали нове посилання. Скористайтеся найновішим листом.",
+  "signin_signed_in_in_app_title": "Вхід виконано",
+  "signin_signed_in_in_app_body": "Ви ввійшли в застосунок за посиланням з листа. Цю вкладку можна закрити.",
   "signin_already_signed_in": "Ви вже ввійшли",
   "signin_continue": "Продовжити",
   "signin_create_title": "Вхід або створення облікового запису",

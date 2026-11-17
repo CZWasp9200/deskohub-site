@@ -216,6 +216,8 @@
   "signin_resend_link": "लिंक फिर से भेजें",
   "signin_resend_link_in": "{time} में लिंक फिर से भेजें",
   "signin_link_resent": "हमने नया लिंक भेज दिया है। सबसे नया email इस्तेमाल करें।",
+  "signin_signed_in_in_app_title": "साइन इन हो गया",
+  "signin_signed_in_in_app_body": "email के लिंक से आप ऐप में साइन इन हो गए हैं। अब आप यह टैब बंद कर सकते हैं।",
   "signin_already_signed_in": "आप पहले से साइन इन हैं",
   "signin_continue": "जारी रखें",
   "signin_create_title": "साइन इन करें या खाता बनाएँ",
