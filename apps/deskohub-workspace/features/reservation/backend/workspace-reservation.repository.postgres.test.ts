@@ -854,6 +854,38 @@ describe.skipIf(!testDatabase)(
         );
       });
 
+      test("records the refund a customer's withdrawal owes on its paid Nexi attempt", async () => {
+        for (const refund of [
+          { targetValue: 1, releasesPromotions: false },
+          { releasesPromotions: true },
+        ]) {
+          const claimedAt = at(5);
+          const id = await insertReservation(
+            { ...confirmedPaid, reservation: "cancelling" },
+            { updatedAt: claimedAt }
+          );
+          const nexiAttempt = await insertActivePaymentAttempt(id);
+
+          await run((repository) =>
+            repository.completeRequestedCancellation({
+              id,
+              cancelledAt: at(6),
+              claimedAt,
+              failureCode: null,
+              refund,
+            })
+          );
+
+          expect(await readReservation(id)).toMatchObject({
+            reservationState: "cancelled",
+          });
+          expect(await readPaymentAttempt(nexiAttempt)).toMatchObject({
+            refundState: "required",
+            refundTargetValue: refund.targetValue ?? null,
+          });
+        }
+      });
+
       test("records a cancellation failure on the claimed revision only", async () => {
         const claimedAt = at(5);
         const claimedRevision = await insertReservation(
