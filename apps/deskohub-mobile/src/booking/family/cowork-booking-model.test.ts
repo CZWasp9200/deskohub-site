@@ -84,6 +84,7 @@ describe("coworkBookingModel", () => {
       })
     ).toEqual(
       Option.some({
+        _tag: "Booking",
         locale: "en-US",
         selection: Option.getOrThrow(model.selection),
         advertisedPriceToken: quote.advertisedPriceToken,

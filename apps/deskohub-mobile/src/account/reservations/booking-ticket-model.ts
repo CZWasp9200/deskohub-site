@@ -49,7 +49,7 @@ export type TicketStepsAction =
   /** Read the order again, once the screen stopped checking on its own. */
   | "check-again"
   | "contact"
-  /** Reopen the payment page; built by the payment recovery tickets. */
+  /** Reopen the payment page the customer left. */
   | "payment-page";
 
 /** What stands under the perforation. */
@@ -60,7 +60,9 @@ export type TicketStub =
       readonly action: Option.Option<TicketStepsAction>;
     }
   | { readonly _tag: "AccessPin" }
-  | { readonly _tag: "BookAgain"; readonly refundNote: boolean };
+  | { readonly _tag: "BookAgain"; readonly refundNote: boolean }
+  /** Pay the same order again, its details kept. */
+  | { readonly _tag: "RetryPayment" };
 
 /** What the booking view shows under the ticket. */
 export type TicketFollowUp =
@@ -87,6 +89,22 @@ export interface BookingTicketModel {
  * failed).
  */
 export type OrderChecking = "checking" | "stopped";
+
+/**
+ * How the customer can still pay an unpaid order: its payment page can be
+ * opened again (the server's `paymentPageReopenable`, unless reopening was
+ * just refused), and a failed, cancelled or expired payment can be retried
+ * in place until the server refuses the retry.
+ */
+export interface PaymentRecovery {
+  readonly pageReopenable: boolean;
+  readonly retryRefused: boolean;
+}
+
+const noRecoveryKnown: PaymentRecovery = {
+  pageReopenable: false,
+  retryRefused: false,
+};
 
 const step = (
   name: TicketStepName,
@@ -122,12 +140,15 @@ const paymentUnconfirmed: BookingTicketModel = {
 
 const notBooked = (
   reason: TicketReason,
-  price: TicketPriceNote
+  price: TicketPriceNote,
+  retry = false
 ): BookingTicketModel => ({
   badge: "not-booked",
   reason: Option.some(reason),
   price,
-  stub: { _tag: "BookAgain", refundNote: reason === "refund" },
+  stub: retry
+    ? { _tag: "RetryPayment" }
+    : { _tag: "BookAgain", refundNote: reason === "refund" },
   followUp: "contact",
   dim: true,
 });
@@ -172,41 +193,39 @@ const delayedConfirmation: BookingTicketModel = {
   dim: false,
 };
 
+const awaitingPayment: ReadonlyArray<TicketStep> = [
+  step("payment", "running"),
+  step("confirm", "todo"),
+  step("pin", "todo"),
+];
+
 /**
  * The booking ticket of an order in `status`, while the screen is checking
- * it on its own or has stopped (`checking`). An order whose payment the
- * checks never saw confirmed reads as needing attention, as the server's
- * delayed status does.
+ * it on its own or has stopped (`checking`), with what `recovery` still
+ * allows. An order whose payment the checks never saw confirmed reads as
+ * needing attention, as the server's delayed status does, unless its
+ * payment page can still be opened: the provider then shows no payment, and
+ * reopening the page is the way on.
  */
 export const bookingTicketOf = (
   status: CustomerOrderStatus,
-  checking: OrderChecking
-): BookingTicketModel =>
-  ({
+  checking: OrderChecking,
+  recovery: PaymentRecovery = noRecoveryKnown
+): BookingTicketModel => {
+  const retry = !recovery.retryRefused;
+  const reopen = recovery.pageReopenable ? "payment-page" : undefined;
+  return {
     // Held, the payment not started or its page closed: the screen doesn't
     // check it on its own; the way back is the payment page.
-    created: () =>
-      underWay(
-        [
-          step("payment", "running"),
-          step("confirm", "todo"),
-          step("pin", "todo"),
-        ],
-        "none",
-        "checking",
-        "payment-page"
-      ),
+    created: () => underWay(awaitingPayment, "none", "checking", reopen),
     pending: () =>
-      checking === "stopped"
+      reopen === undefined && checking === "stopped"
         ? paymentUnconfirmed
         : underWay(
-            [
-              step("payment", "running"),
-              step("confirm", "todo"),
-              step("pin", "todo"),
-            ],
+            awaitingPayment,
             "none",
-            checking
+            reopen === undefined ? checking : "checking",
+            reopen
           ),
     payment_pending_delayed: () => paymentUnconfirmed,
     paid_waiting_fulfillment: () =>
@@ -233,9 +252,9 @@ export const bookingTicketOf = (
     fulfillment_failed: () => delayedConfirmation,
     paid_delivery_delayed: () => confirmed("email-late"),
     fulfilled: () => confirmed(),
-    payment_failed: () => notBooked("payment-failed", "not-charged"),
-    expired: () => notBooked("time-ran-out", "not-charged"),
-    cancelled: () => notBooked("cancelled", "not-charged"),
+    payment_failed: () => notBooked("payment-failed", "not-charged", retry),
+    expired: () => notBooked("time-ran-out", "not-charged", retry),
+    cancelled: () => notBooked("cancelled", "not-charged", retry),
     late_payment_checking: () =>
       underWay(
         [
@@ -262,7 +281,8 @@ export const bookingTicketOf = (
       dim: false,
     }),
     late_payment_refund: () => notBooked("refund", "being-refunded"),
-  })[status]();
+  }[status]();
+};
 
 /**
  * Whether a screen refreshing on `automatic` still checks the order: it

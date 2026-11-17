@@ -10,6 +10,7 @@ import {
   CustomerAuthApi as CustomerAuthHttpApi,
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
+  type CustomerCheckout,
   type CustomerCompaniesApi,
   type CustomerCompanyDetails,
   CustomerCompanyNotFound,
@@ -21,8 +22,11 @@ import {
   type CustomerInvoicesApi,
   CustomerMarketingPreferencesRejected,
   type CustomerOrderStatus,
+  type CustomerPaymentPage,
   CustomerPaymentPageClosed,
+  type CustomerPaymentPageClosedReason,
   CustomerPaymentRetryRefused,
+  type CustomerPaymentRetryRefusedReason,
   type CustomerProfile,
   type CustomerProfileSave,
   CustomerRateLimited,
@@ -173,6 +177,21 @@ export class FakeWorkspace {
   analyticsSyncDelay: Promise<void> | undefined;
   /** The companies the company lookup finds, by company ID. */
   companies: ReadonlyMap<string, CustomerCompanyDetails> = sampleCompanies;
+  /**
+   * What reopening an order's payment page answers: the page, or why it is
+   * closed. No sample order has a payment still open on the provider's page.
+   */
+  paymentPage: CustomerPaymentPage | CustomerPaymentPageClosedReason =
+    "no_active_attempt";
+  /**
+   * What paying an order again answers: its checkout, or why it is refused.
+   * Unset, no sample payment ended unpaid: a paid order answers as paid, any
+   * other as one whose reservation has ended.
+   */
+  paymentRetry:
+    | CustomerCheckout
+    | CustomerPaymentRetryRefusedReason
+    | undefined;
   private readonly outcomes = new Map<EndpointName, FakeRequestOutcome[]>();
 
   constructor(data: FakeWorkspaceData = sampleWorkspaceData("linked")) {
@@ -678,30 +697,28 @@ const serverLayer = (workspace: FakeWorkspace) => {
               : Effect.succeed(found.invoice)
           )
         )
-        // The sample orders have no payment still open on the provider's
-        // page, as the Workspace answers an order that is paid or whose
-        // payment ended.
         .handle("reopenPaymentPage", ({ params }) =>
           Effect.andThen(
             order(params.orderId),
-            Effect.fail(
-              new CustomerPaymentPageClosed({ reason: "no_active_attempt" })
-            )
+            Effect.suspend(() => {
+              const answer = workspace.paymentPage;
+              return typeof answer === "string"
+                ? Effect.fail(new CustomerPaymentPageClosed({ reason: answer }))
+                : Effect.succeed(answer);
+            })
           )
         )
-        // No sample payment ended unpaid: a paid order answers as paid, any
-        // other as one whose reservation has ended, so the app books again.
         .handle("retryPayment", ({ params }) =>
-          Effect.flatMap(order(params.orderId), (found) =>
-            Effect.fail(
-              new CustomerPaymentRetryRefused({
-                reason:
-                  found.state.paymentStatus === "paid"
-                    ? "paid"
-                    : "reservation_ended",
-              })
-            )
-          )
+          Effect.flatMap(order(params.orderId), (found) => {
+            const answer =
+              workspace.paymentRetry ??
+              (found.state.paymentStatus === "paid"
+                ? "paid"
+                : "reservation_ended");
+            return typeof answer === "string"
+              ? Effect.fail(new CustomerPaymentRetryRefused({ reason: answer }))
+              : Effect.succeed(answer);
+          })
         )
   );
 

@@ -5,6 +5,7 @@ import {
   bookingTicketOf,
   type OrderChecking,
   orderCheckingOf,
+  type PaymentRecovery,
   type TicketStub,
 } from "./booking-ticket-model";
 import { AutomaticRefresh } from "./status-refresh-rules";
@@ -19,6 +20,14 @@ const stepsOf = (stub: TicketStub) =>
 const actionOf = (stub: TicketStub) =>
   stub._tag === "Steps" ? Option.getOrUndefined(stub.action) : stub._tag;
 
+const noRecovery: PaymentRecovery = {
+  pageReopenable: false,
+  retryRefused: false,
+};
+const reopenable: PaymentRecovery = { ...noRecovery, pageReopenable: true };
+const retryRefused: PaymentRecovery = { ...noRecovery, retryRefused: true };
+const awaiting = bookingTicketOf("pending", "checking");
+
 describe("bookingTicketOf", () => {
   test("every status has a badge, and only a not-booked order dims", () => {
     for (const status of statuses) {
@@ -29,14 +38,14 @@ describe("bookingTicketOf", () => {
     }
   });
 
-  test("an order without a booking names its reason and offers Book again", () => {
+  test("an order without a booking names its reason and offers Book again once a retry is refused", () => {
     for (const [status, reason] of [
       ["payment_failed", "payment-failed"],
       ["expired", "time-ran-out"],
       ["cancelled", "cancelled"],
       ["late_payment_refund", "refund"],
     ] as const) {
-      const ticket = bookingTicketOf(status, "checking");
+      const ticket = bookingTicketOf(status, "checking", retryRefused);
       expect(ticket.badge).toBe("not-booked");
       expect(ticket.reason).toEqual(Option.some(reason));
       expect(ticket.stub).toEqual({
@@ -88,12 +97,34 @@ describe("bookingTicketOf", () => {
     expect(stopped.followUp).toBe("contact");
   });
 
-  test("a held order keeps the payment page as its action", () => {
-    for (const checking of checkings) {
-      expect(actionOf(bookingTicketOf("created", checking).stub)).toBe(
-        "payment-page"
-      );
+  test("an unpaid order offers its payment page only while the server can reopen it", () => {
+    for (const status of ["created", "pending"] as const) {
+      for (const checking of checkings) {
+        const open = bookingTicketOf(status, checking, reopenable);
+        expect(open.badge).toBe("pending");
+        expect(actionOf(open.stub)).toBe("payment-page");
+        expect(stepsOf(open.stub)).toEqual(stepsOf(awaiting.stub));
+        expect(
+          actionOf(bookingTicketOf(status, checking, noRecovery).stub)
+        ).not.toBe("payment-page");
+      }
     }
+  });
+
+  test("a failed, cancelled or expired payment offers the retry until it is refused", () => {
+    for (const status of ["payment_failed", "cancelled", "expired"] as const) {
+      const offered = bookingTicketOf(status, "checking", noRecovery);
+      expect(offered.badge).toBe("not-booked");
+      expect(offered.stub).toEqual({ _tag: "RetryPayment" });
+      expect(bookingTicketOf(status, "stopped", retryRefused).stub).toEqual({
+        _tag: "BookAgain",
+        refundNote: false,
+      });
+    }
+    // A refund is never retried.
+    expect(
+      bookingTicketOf("late_payment_refund", "checking", noRecovery).stub._tag
+    ).toBe("BookAgain");
   });
 
   test("confirmation under way moves through the steps", () => {

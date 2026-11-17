@@ -2,6 +2,7 @@ import type {
   CustomerBookingSelection,
   CustomerLegalDocument,
 } from "@deskohub/workspace-customer-api";
+import Interpolate from "@doist/react-interpolate";
 import { DateTime, Option } from "effect";
 import CircleCheck from "lucide-react-native/icons/circle-check";
 import Lock from "lucide-react-native/icons/lock";
@@ -24,6 +25,7 @@ import { upperFirst } from "../../i18n/sentence-case";
 import { theme } from "../../theme";
 import { ErrorState, LoadingState } from "../../ui/async-states";
 import { Card } from "../../ui/card";
+import { Checkbox } from "../../ui/checkbox";
 import { Button, TextField } from "../../ui/controls";
 import { Icon } from "../../ui/icon";
 import { LoadingIndicator } from "../../ui/loading-indicator";
@@ -37,12 +39,12 @@ import {
   type ReviewNotice,
   type ReviewState,
 } from "../checkout/checkout-state";
+import { usePaymentBrowserWarmUp } from "../payment-browser";
 import { type PragueDate, pragueMidnight } from "../selection/prague-date";
 import { BookingBar, type BookingBarAction } from "../ui/booking-bar";
 import { BookingSectionHeading } from "../ui/booking-section-heading";
 import { BookingSteps } from "../ui/booking-steps";
 import { bookingSummaryParts } from "../ui/booking-summary";
-import { Checkbox } from "../ui/checkbox";
 import { useHoldCountdown } from "../ui/hold-timer";
 import { describePriceLine } from "../ui/price-line-description";
 import { PriceLines } from "../ui/price-lines";
@@ -95,6 +97,8 @@ export function ReviewStep({
 }) {
   const view = reviewView(review, quotedTotal, bookerName);
   const hold = useHoldCountdown(view.holdExpiresAt);
+  // The payment page's tab comes up sooner when Pay is pressed.
+  usePaymentBrowserWarmUp();
   const keyboardShown = useKeyboardShown();
   const [raised, setRaised] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
@@ -124,14 +128,27 @@ export function ReviewStep({
           setRaised(nativeEvent.contentOffset.y > 0)
         }
       >
+        {view.retry && (
+          <View style={styles.retryNotice}>
+            <Notice
+              tone="warning"
+              title={m.booking_checkout_retry_title({}, { locale })}
+              message={m.booking_checkout_retry_lead({}, { locale })}
+            />
+          </View>
+        )}
         <BookingSectionHeading
           title={m.booking_review_booking_heading({}, { locale })}
-          action={{
-            label: m.booking_review_change({}, { locale }),
-            onPress: onChangeBooking,
-            disabled: view.busy,
-          }}
-          first
+          action={
+            view.retry
+              ? undefined
+              : {
+                  label: m.booking_review_change({}, { locale }),
+                  onPress: onChangeBooking,
+                  disabled: view.busy,
+                }
+          }
+          first={!view.retry}
         />
         <BookingCard
           selection={selection}
@@ -150,7 +167,7 @@ export function ReviewStep({
                 change={view.priceChange.value}
                 busy={view.busy}
                 send={send}
-                onChangeBooking={onChangeBooking}
+                onChangeBooking={view.retry ? undefined : onChangeBooking}
                 locale={locale}
               />
             )}
@@ -166,9 +183,11 @@ export function ReviewStep({
             />
           </View>
         </Card>
-        <View style={styles.code}>
-          <CodeRow code={view.code} send={send} locale={locale} />
-        </View>
+        {!view.retry && (
+          <View style={styles.code}>
+            <CodeRow code={view.code} send={send} locale={locale} />
+          </View>
+        )}
         <LegalConsent
           consent={view.consent}
           send={send}
@@ -203,25 +222,30 @@ export function ReviewStep({
 }
 
 /**
- * Pay, the seam the payment ticket (#1253) builds on: it submits the
- * checkout, which opens the payment page.
+ * Pay: it submits the checkout, which opens the payment page; until the page
+ * is up it says so. A retry says "Try payment again", as the website does.
  */
 const payAction = (
   view: ReviewView,
   send: Send,
   locale: AppLocale
 ): BookingBarAction => ({
-  label: view.submitting
-    ? m.booking_checkout_paying({}, { locale })
-    : m.booking_checkout_pay(
-        { amount: formatMoney(view.price.breakdown.total, locale) },
-        { locale }
-      ),
+  label: payLabel(view, locale),
   onPress: () => send(CheckoutEvent.Pay()),
   disabled: !view.canPay,
   busy: view.submitting,
   icon: view.canPay ? Lock : undefined,
 });
+
+const payLabel = (view: ReviewView, locale: AppLocale) => {
+  if (view.submitting) return m.booking_checkout_paying({}, { locale });
+  return view.retry
+    ? m.booking_checkout_retry_pay({}, { locale })
+    : m.booking_checkout_pay(
+        { amount: formatMoney(view.price.breakdown.total, locale) },
+        { locale }
+      );
+};
 
 /** The booking's first day as a date tile. */
 const startDay = (selection: CustomerBookingSelection) => {
@@ -240,11 +264,11 @@ function BookingCard({
   readonly selection: CustomerBookingSelection;
   /** The meeting room opens early for setup, as the customer chose. */
   readonly earlySetup: boolean;
-  readonly party: ReviewParty;
-  readonly invoice: ReviewInvoice;
+  /** For whom and who is invoiced; a retried order doesn't tell the app. */
+  readonly party: Option.Option<ReviewParty>;
+  readonly invoice: Option.Option<ReviewInvoice>;
 }) {
   const summary = bookingSummaryParts(selection, locale);
-  const you = (name: string) => m.booking_review_you({ name }, { locale });
   return (
     <Card padding="none">
       <View style={styles.bookingCard}>
@@ -271,41 +295,54 @@ function BookingCard({
             )}
           </View>
         </View>
-        {party._tag === "Self" ? (
-          <Row label={m.booking_review_for({}, { locale })}>
+        {Option.isSome(party) && (
+          <PartyRows party={party.value} locale={locale} />
+        )}
+        {Option.isSome(invoice) && (
+          <Row label={m.booking_details_invoice_heading({}, { locale })}>
             <Text variant="bodySmall" style={styles.end}>
-              {you(party.name)}
+              {invoiceText(invoice.value, locale)}
             </Text>
           </Row>
-        ) : (
-          <>
-            <Row label={m.booking_review_for({}, { locale })}>
-              <Text variant="bodySmall" style={styles.end}>
-                {party.name}
-              </Text>
-              <Text variant="caption" tone="muted" style={styles.end}>
-                {party.email}
-              </Text>
-              <Text variant="caption" tone="muted" style={styles.end}>
-                {m.booking_review_gets_pin({}, { locale })}
-              </Text>
-            </Row>
-            {Option.isSome(party.bookerName) && (
-              <Row label={m.booking_review_booked_by({}, { locale })}>
-                <Text variant="bodySmall" style={styles.end}>
-                  {you(party.bookerName.value)}
-                </Text>
-              </Row>
-            )}
-          </>
         )}
-        <Row label={m.booking_details_invoice_heading({}, { locale })}>
-          <Text variant="bodySmall" style={styles.end}>
-            {invoiceText(invoice, locale)}
-          </Text>
-        </Row>
       </View>
     </Card>
+  );
+}
+
+/** Who the booking is for, and who booked it for them. */
+function PartyRows({
+  party,
+  locale,
+}: Locale & { readonly party: ReviewParty }) {
+  const you = (name: string) => m.booking_review_you({ name }, { locale });
+  return party._tag === "Self" ? (
+    <Row label={m.booking_review_for({}, { locale })}>
+      <Text variant="bodySmall" style={styles.end}>
+        {you(party.name)}
+      </Text>
+    </Row>
+  ) : (
+    <>
+      <Row label={m.booking_review_for({}, { locale })}>
+        <Text variant="bodySmall" style={styles.end}>
+          {party.name}
+        </Text>
+        <Text variant="caption" tone="muted" style={styles.end}>
+          {party.email}
+        </Text>
+        <Text variant="caption" tone="muted" style={styles.end}>
+          {m.booking_review_gets_pin({}, { locale })}
+        </Text>
+      </Row>
+      {Option.isSome(party.bookerName) && (
+        <Row label={m.booking_review_booked_by({}, { locale })}>
+          <Text variant="bodySmall" style={styles.end}>
+            {you(party.bookerName.value)}
+          </Text>
+        </Row>
+      )}
+    </>
   );
 }
 
@@ -358,7 +395,8 @@ function PriceChange({
   readonly change: PriceChangeView;
   readonly busy: boolean;
   readonly send: Send;
-  readonly onChangeBooking: () => void;
+  /** Back to the selection; a retried order keeps its booking. */
+  readonly onChangeBooking: (() => void) | undefined;
 }) {
   const now = formatMoney(change.now, locale);
   return (
@@ -381,14 +419,16 @@ function PriceChange({
           size="small"
           width="content"
         />
-        <Button
-          label={m.booking_review_change_booking({}, { locale })}
-          onPress={onChangeBooking}
-          disabled={busy}
-          variant="quiet"
-          size="small"
-          width="content"
-        />
+        {onChangeBooking !== undefined && (
+          <Button
+            label={m.booking_review_change_booking({}, { locale })}
+            onPress={onChangeBooking}
+            disabled={busy}
+            variant="quiet"
+            size="small"
+            width="content"
+          />
+        )}
       </View>
     </View>
   );
@@ -553,44 +593,85 @@ function LegalConsent({
       );
     case "Loaded":
       return (
-        <Checkbox
-          label={
-            consent.earlyPerformance
-              ? m.booking_checkout_legal_consent_early_performance(
-                  {},
-                  { locale }
-                )
-              : m.booking_checkout_legal_consent({}, { locale })
-          }
-          checked={consent.checked}
-          onChange={(accepted) =>
-            send(CheckoutEvent.ToggleConsent({ accepted }))
-          }
-          disabled={consent.disabled}
-        >
-          <View style={styles.links}>
-            {legal.documents.map((document) => (
-              <Pressable
-                key={document.key}
-                role="link"
-                onPress={() => onOpenDocument(document)}
-                style={styles.link}
-              >
-                <Text style={styles.linkText}>
-                  {{
-                    "terms-and-conditions": () =>
-                      m.booking_checkout_legal_terms({}, { locale }),
-                    "operating-rules": () =>
-                      m.booking_checkout_legal_operating_rules({}, { locale }),
-                  }[document.key]()}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </Checkbox>
+        <AgreementRow
+          consent={consent}
+          documents={legal.documents}
+          send={send}
+          onOpenDocument={onOpenDocument}
+          locale={locale}
+        />
       );
   }
 }
+
+/**
+ * The agreement as one row, as on the website's Pay page: the checkbox, then
+ * the app's own consent sentence in small text with the two documents
+ * linked where the sentence names them (`.bk-agree`).
+ */
+function AgreementRow({
+  consent,
+  documents,
+  send,
+  onOpenDocument,
+  locale,
+}: Locale & {
+  readonly consent: ConsentView;
+  readonly documents: ReadonlyArray<CustomerLegalDocument>;
+  readonly send: Send;
+  readonly onOpenDocument: (document: CustomerLegalDocument) => void;
+}) {
+  const link = (key: CustomerLegalDocument["key"]) => {
+    const document = documents.find((candidate) => candidate.key === key);
+    return (label: ReactNode) =>
+      document === undefined ? (
+        label
+      ) : (
+        <Text
+          role="link"
+          style={styles.agreementLink}
+          onPress={() => onOpenDocument(document)}
+        >
+          {label}
+        </Text>
+      );
+  };
+  return (
+    <Pressable
+      role="checkbox"
+      aria-checked={consent.checked}
+      aria-disabled={consent.disabled}
+      disabled={consent.disabled}
+      onPress={() =>
+        send(CheckoutEvent.ToggleConsent({ accepted: !consent.checked }))
+      }
+      style={styles.agreement}
+    >
+      <Checkbox checked={consent.checked} disabled={consent.disabled} />
+      <Text variant="hint" style={styles.agreementText}>
+        <Interpolate
+          string={consentSentence(consent, locale)}
+          mapping={{
+            terms: link("terms-and-conditions"),
+            operatingRules: link("operating-rules"),
+          }}
+        />
+      </Text>
+    </Pressable>
+  );
+}
+
+/** The consent sentence for the checkout, or confirmed again for a retry. */
+const consentSentence = (consent: ConsentView, locale: AppLocale) => {
+  if (consent.retry) {
+    return consent.earlyPerformance
+      ? m.booking_checkout_legal_consent_retry_early_performance({}, { locale })
+      : m.booking_checkout_legal_consent_retry({}, { locale });
+  }
+  return consent.earlyPerformance
+    ? m.booking_checkout_legal_consent_early_performance({}, { locale })
+    : m.booking_checkout_legal_consent({}, { locale });
+};
 
 function ReviewNoticeView({
   notice,
@@ -678,6 +759,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   code: { marginTop: space.sm },
+  retryNotice: { marginBottom: space.sm },
   addRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -705,11 +787,18 @@ const styles = StyleSheet.create({
     width: touchTarget,
   },
   group: { gap: theme.spacing.sm, marginTop: space.lg },
-  links: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing.md },
-  link: { minHeight: theme.touchTarget, justifyContent: "center" },
-  linkText: {
-    ...theme.type.caption,
-    color: theme.colors.accent,
+  agreement: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm + space.xxs,
+    marginTop: space.lg,
+    minHeight: touchTarget,
+    paddingHorizontal: space.xxs,
+  },
+  agreementText: { flex: 1, minWidth: 0, paddingTop: space.xxs },
+  agreementLink: {
+    color: color.navy,
+    fontWeight: "600",
     textDecorationLine: "underline",
   },
 });
