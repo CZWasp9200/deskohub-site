@@ -755,13 +755,13 @@ describe("cowork reservation preparation in Chromium", () => {
         html,
         withWaits(toReservationSelectionPreparation(editedDateData), 2_000)
       );
-      await expect(
-        getPage().evaluate(
+      expect(
+        await getPage().evaluate(
           () =>
             document.querySelector<HTMLInputElement>('input[name="date"]')
               ?.value
         )
-      ).resolves.toBe("2099-10-02");
+      ).toBe("2099-10-02");
     }
   );
 
