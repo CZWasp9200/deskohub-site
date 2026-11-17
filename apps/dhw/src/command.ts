@@ -420,7 +420,7 @@ const reservationsRestoreCommand = Command.make(
           "administration.restoreReservation",
           yes,
           json,
-          "Restore this cancelled reservation? It is confirmed again in Dotypos and a payment marked as needing a refund no longer is; a refunded payment stays refunded. A reservation that has not ended gets a new door PIN, and the earlier PIN no longer works."
+          "Restore this cancelled reservation? It is confirmed again in Dotypos and a payment marked as needing a refund no longer is; a refunded payment stays refunded. A reservation that has not ended gets a new door PIN."
         );
         if (!confirmed) {
           yield* reportCancellation(json);
