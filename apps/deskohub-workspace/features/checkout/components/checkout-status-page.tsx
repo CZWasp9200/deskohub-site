@@ -16,6 +16,7 @@ import { getOfficeReservationSelection } from "@/features/reservation/office-res
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
 import { ReservationAccessButton } from "@/features/reservation/components/reservation-access-button";
+import { ReservationOptionsMenu } from "@/features/reservation/components/reservation-options-menu";
 import {
   getCoworkReservationPath,
   getReservationStartPath,
@@ -38,6 +39,8 @@ type CheckoutStatusPageProps = {
   readonly locale: Locale;
   readonly presentation?: "page" | "modal";
   readonly status: CheckoutStatusViewModel;
+  /** The confirm step's link while the customer can withdraw; no ⋮ without it. */
+  readonly withdrawalHref?: string;
 };
 
 const statusIconWrapperVariants = cva(
@@ -219,6 +222,7 @@ export function CheckoutStatusPage({
   locale,
   presentation = "page",
   status,
+  withdrawalHref,
 }: CheckoutStatusPageProps) {
   const copy = getCheckoutStatusCopy(status, locale);
   const showReservationDetails = status.status !== "not_found";
@@ -272,6 +276,7 @@ export function CheckoutStatusPage({
           locale={locale}
           status={status}
           summaryPresentation={summaryPresentation}
+          withdrawalHref={withdrawalHref}
         />
       )}
 
@@ -409,19 +414,28 @@ function CheckoutStatusReservationDetails({
   locale,
   status,
   summaryPresentation,
+  withdrawalHref,
 }: {
   readonly locale: Locale;
   readonly status: CheckoutReservationStatusViewModel;
   readonly summaryPresentation: CheckoutStatusSummaryPresentation | undefined;
+  readonly withdrawalHref: string | undefined;
 }) {
   const summaryRows = summaryPresentation?.rows ?? [];
 
   return (
     <>
       <div className="mt-10 rounded-[1.6rem] border border-navy-blue/10 bg-linear-to-br from-white to-aquamarine-green/8 p-5 sm:p-6">
-        <h2 className="text-xl text-navy-blue">
-          {m.checkoutStatusSummaryTitle({}, { locale })}
-        </h2>
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <h2 className="min-w-0 text-xl text-navy-blue">
+            {m.checkoutStatusSummaryTitle({}, { locale })}
+          </h2>
+          <ReservationOptionsMenu
+            className="-my-1.5 -mr-2"
+            locale={locale}
+            withdrawalHref={withdrawalHref}
+          />
+        </div>
 
         <dl className="mt-5 grid gap-3">
           <div className="grid gap-1 rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">

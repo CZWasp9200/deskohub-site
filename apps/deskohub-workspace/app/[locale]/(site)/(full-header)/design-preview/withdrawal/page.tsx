@@ -205,6 +205,11 @@ export default async function WithdrawalDesignPreviewPage({
             locale={locale}
             presentation="modal"
             status={designPreviewStatus}
+            withdrawalHref={
+              state === "ineligible"
+                ? undefined
+                : `/${locale}/reservation/status/workspace_01JY4J8R6Z9Q2N8K7M5P3A1B0C?withdraw=1`
+            }
           />
         </ReservationDetailsModal>
       )}

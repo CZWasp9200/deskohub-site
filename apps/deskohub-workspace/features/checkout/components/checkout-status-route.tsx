@@ -23,6 +23,8 @@ import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
 import { readReservationAccessCookie } from "@/features/reservation/backend/reservation-access-cookie";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import { reservationStatusPath } from "@/features/reservation/routes";
+import { isReservationWithdrawalOffered } from "@/features/withdrawal/backend/withdrawal-entry.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { RouteAutoRefresh } from "@/shared/components/route-auto-refresh";
 import {
@@ -131,6 +133,14 @@ async function CheckoutStatusContent({
         )
       );
     }
+    // The ⋮ withdrawal entry shows only when the confirm step's quote is
+    // available to the signed-in customer.
+    const withdrawalOffered =
+      status.status === "fulfilled" &&
+      (await isReservationWithdrawalOffered({
+        reservationId: orderId,
+        locale,
+      }).pipe(runWorkspaceEffect("checkout.status.withdrawal")));
     return (
       <>
         <RouteAutoRefresh
@@ -141,6 +151,11 @@ async function CheckoutStatusContent({
           locale={locale}
           presentation={presentation}
           status={status}
+          withdrawalHref={
+            withdrawalOffered
+              ? `/${locale}${reservationStatusPath}/${encodeURIComponent(orderId)}?withdraw=1`
+              : undefined
+          }
         />
       </>
     );

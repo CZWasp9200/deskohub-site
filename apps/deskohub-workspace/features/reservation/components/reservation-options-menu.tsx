@@ -31,7 +31,7 @@ export function ReservationOptionsMenu({
   if (!withdrawalHref) return null;
 
   return (
-    <DropdownMenu defaultOpen={defaultOpen} modal={false}>
+    <DropdownMenu defaultOpen={defaultOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           aria-label={m.reservationOptionsMenuLabel({}, { locale })}
