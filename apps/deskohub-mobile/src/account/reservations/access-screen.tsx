@@ -503,27 +503,29 @@ function WindowAndPlace({
           </View>
         </Card>
       )}
-      <ListGroup>
-        {Option.isSome(establishment) && (
-          <ListRow
-            kind="action"
-            icon={MapPin}
-            label={m.reservations_access_directions({}, { locale })}
-            trailing="external"
-            onPress={() => openDirections(establishment.value)}
-          />
-        )}
-        {event !== undefined && (
-          <ListRow
-            kind="action"
-            icon={CalendarPlus}
-            label={m.reservations_add_to_calendar({}, { locale })}
-            trailing="none"
-            disabled={calendar.waiting}
-            onPress={() => shareEvent(event)}
-          />
-        )}
-      </ListGroup>
+      <View style={rows.length > 0 && styles.actionsAfterCard}>
+        <ListGroup>
+          {Option.isSome(establishment) && (
+            <ListRow
+              kind="action"
+              icon={MapPin}
+              label={m.reservations_access_directions({}, { locale })}
+              trailing="external"
+              onPress={() => openDirections(establishment.value)}
+            />
+          )}
+          {event !== undefined && (
+            <ListRow
+              kind="action"
+              icon={CalendarPlus}
+              label={m.reservations_add_to_calendar({}, { locale })}
+              trailing="none"
+              disabled={calendar.waiting}
+              onPress={() => shareEvent(event)}
+            />
+          )}
+        </ListGroup>
+      </View>
       <Notice
         tone="error"
         message={
@@ -719,4 +721,7 @@ const styles = StyleSheet.create({
   addressIcon: { paddingTop: space.xs },
   skeleton: { gap: space.md },
   actions: { alignSelf: "stretch", gap: space.sm, marginTop: space.lg },
+  // Board 24 has 16 between the window card and the actions; the screen's
+  // column adds 12 between its children.
+  actionsAfterCard: { marginTop: space.lg - space.md },
 });

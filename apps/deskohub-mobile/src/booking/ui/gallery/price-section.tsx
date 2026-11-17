@@ -109,7 +109,7 @@ const barStates = (
       },
     },
     {
-      label: "Long Czech summary: only the grey line is cut",
+      label: "Long Czech summary: every line wraps",
       props: {
         locale: "cs-CZ",
         summary: {

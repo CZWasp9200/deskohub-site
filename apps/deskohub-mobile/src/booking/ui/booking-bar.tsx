@@ -249,7 +249,7 @@ export function BookingBar({
               <View style={styles.what}>
                 <Text style={styles.title}>{summary.title}</Text>
                 {summary.detail !== undefined && summary.detail !== "" && (
-                  <Text numberOfLines={1} style={styles.detail}>
+                  <Text style={styles.detail}>
                     {summary.detail}
                   </Text>
                 )}
