@@ -12,8 +12,8 @@ import { type Locale, m } from "@/features/i18n";
 import {
   AccountingDocumentFooter,
   AccountingDocumentHeader,
-  AccountingDocumentVatNote,
   AccountingDocumentParties,
+  AccountingDocumentVatNote,
   renderAccountingDocumentPdf,
   accountingDocumentPdfStyles as styles,
 } from "./accounting-document-pdf";

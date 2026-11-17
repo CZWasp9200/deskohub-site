@@ -123,12 +123,17 @@ describe("corrective document PDF", () => {
 
   test("prints the VAT statement only for the status the corrected invoice was issued under", async () => {
     const invoice = makeCoworkInvoiceDocument("cs-CZ");
-    const textOf = async (vatStatus: InvoiceDocument["supplier"]["vatStatus"]) =>
+    const textOf = async (
+      vatStatus: InvoiceDocument["supplier"]["vatStatus"]
+    ) =>
       (
         await extractPdfText(
           (
             await render(
-              correct({ ...invoice, supplier: { ...invoice.supplier, vatStatus } })
+              correct({
+                ...invoice,
+                supplier: { ...invoice.supplier, vatStatus },
+              })
             )
           ).bytes
         )
