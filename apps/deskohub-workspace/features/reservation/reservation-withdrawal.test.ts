@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import type { Money } from "@/shared/money/money";
 import {
   assessReservationWithdrawal,
+  getReservationServiceSchedule,
   type ReservationServiceSchedule,
   type ReservationWithdrawalFacts,
 } from "./reservation-withdrawal";
@@ -184,6 +185,63 @@ describe("assessReservationWithdrawal eligibility", () => {
     ).toMatchObject({
       withdrawable: true,
       periodEndsAt: prague("2027-01-12T00:00"),
+    });
+  });
+});
+
+describe("getReservationServiceSchedule", () => {
+  test("reads a cowork day from its booked start", () => {
+    expect(
+      getReservationServiceSchedule(
+        { kind: "cowork", tier: "open-space" } as never,
+        prague("2027-01-10T12:00"),
+        prague("2027-01-11T12:00")
+      )
+    ).toEqual({ kind: "cowork", date: Temporal.PlainDate.from("2027-01-10") });
+  });
+
+  test("keeps a meeting room's stored duration", () => {
+    expect(
+      getReservationServiceSchedule(
+        { kind: "meeting-room", duration: { unit: "hour", amount: 4 } },
+        prague("2027-01-10T09:00"),
+        prague("2027-01-10T13:00")
+      )
+    ).toEqual({
+      kind: "meeting-room",
+      startsAt: prague("2027-01-10T09:00"),
+      duration: { unit: "hour", amount: 4 },
+    });
+  });
+
+  test("falls back to a meeting room's booked span", () => {
+    expect(
+      getReservationServiceSchedule(
+        { kind: "meeting-room" },
+        prague("2027-03-28T00:00"),
+        prague("2027-03-29T00:00")
+      )
+    ).toMatchObject({ duration: { unit: "day", amount: 1 } });
+    expect(
+      getReservationServiceSchedule(
+        { kind: "meeting-room" },
+        prague("2027-01-10T09:00"),
+        prague("2027-01-10T10:00")
+      )
+    ).toMatchObject({ duration: { unit: "hour", amount: 1 } });
+  });
+
+  test("counts an office's Prague dates when no day count was stored", () => {
+    expect(
+      getReservationServiceSchedule(
+        { kind: "office" },
+        prague("2027-01-10T00:00"),
+        prague("2027-01-13T00:00")
+      )
+    ).toEqual({
+      kind: "office",
+      startsOn: Temporal.PlainDate.from("2027-01-10"),
+      dayCount: 3,
     });
   });
 });

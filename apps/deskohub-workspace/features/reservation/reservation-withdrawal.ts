@@ -1,7 +1,7 @@
 import { Match } from "effect";
 import type { PaymentState, ReservationState } from "@/db/schema";
+import type { StoredWorkspaceReservationDetails } from "@/features/reservation/persistence-contracts";
 import { getConsumerWithdrawalPeriodCutoff } from "@/features/legal/early-performance";
-import type { MeetingRoomReservationDuration } from "@/features/reservation/meeting-room-reservation-duration";
 import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
 import {
   getUnstartedServiceRefund,
@@ -23,7 +23,10 @@ export type ReservationServiceSchedule =
       readonly kind: "meeting-room";
       /** The booked start, without any early setup. */
       readonly startsAt: Temporal.Instant;
-      readonly duration: MeetingRoomReservationDuration;
+      /** Booked hours, or one whole day. */
+      readonly duration:
+        | { readonly unit: "hour"; readonly amount: number }
+        | { readonly unit: "day"; readonly amount: 1 };
     }
   | {
       readonly kind: "office";
@@ -113,3 +116,60 @@ const getWorkspaceDayStart = (date: Temporal.PlainDate) =>
   date
     .toZonedDateTime(workspaceSiteConstants.location.timeZone)
     .toInstant();
+
+/**
+ * The schedule of a booked reservation from its stored family details and its
+ * booked span (`reservedFrom` without early setup, `reservedUntil` exclusive).
+ * Rows stored before the product was recorded fall back to the span: a room
+ * spanning consecutive Prague midnights is a whole day, otherwise its hours;
+ * an office covers each Prague date of the span.
+ */
+export const getReservationServiceSchedule = (
+  details: StoredWorkspaceReservationDetails,
+  reservedFrom: Temporal.Instant,
+  reservedUntil: Temporal.Instant
+): ReservationServiceSchedule => {
+  const startsOn = getWorkspaceDate(reservedFrom);
+  return Match.value(details).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      cowork: () => ({ kind: "cowork" as const, date: startsOn }),
+      "meeting-room": ({ duration }) => ({
+        kind: "meeting-room" as const,
+        startsAt: reservedFrom,
+        duration:
+          duration ?? getBookedMeetingRoomDuration(reservedFrom, reservedUntil),
+      }),
+      office: ({ dayCount }) => ({
+        kind: "office" as const,
+        startsOn,
+        dayCount:
+          dayCount ??
+          getWorkspaceDate(reservedUntil.subtract({ nanoseconds: 1 }))
+            .since(startsOn)
+            .total({ unit: "days" }) + 1,
+      }),
+    })
+  );
+};
+
+const getBookedMeetingRoomDuration = (
+  reservedFrom: Temporal.Instant,
+  reservedUntil: Temporal.Instant
+) =>
+  getWorkspaceDayStart(getWorkspaceDate(reservedFrom)).equals(reservedFrom) &&
+  getWorkspaceDayStart(getWorkspaceDate(reservedFrom).add({ days: 1 })).equals(
+    reservedUntil
+  )
+    ? ({ unit: "day", amount: 1 } as const)
+    : ({
+        unit: "hour",
+        amount: Math.max(
+          1,
+          Math.ceil(reservedFrom.until(reservedUntil).total({ unit: "hours" }))
+        ),
+      } as const);
+
+const getWorkspaceDate = (instant: Temporal.Instant) =>
+  instant
+    .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
+    .toPlainDate();

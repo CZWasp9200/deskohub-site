@@ -18,7 +18,10 @@ export { currentReservationHistoryAccount } from "./backend/current-reservation-
 export { findActiveCustomerAccountByEmail } from "./backend/customer-account-by-email";
 export { CustomerAccountContactService } from "./backend/customer-account-contact.service";
 export { CustomerAccountReservationOwnership } from "./backend/customer-account-reservation-ownership";
-export { CustomerAccountSections } from "./backend/customer-account-sections";
+export {
+  CustomerAccountSections,
+  HeldCustomerAccount,
+} from "./backend/customer-account-sections";
 export { customerAgentAccountServices } from "./backend/customer-agent-account-services";
 export { CustomerEmailLocaleService } from "./backend/customer-email-locale.service";
 export { CustomerReservationHistoryService } from "./backend/customer-reservation-history.service";
