@@ -45,6 +45,7 @@ import type {
 import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
 import type { DiscountClaimError } from "@/features/discounts/errors";
 import { PromotionClaims } from "@/features/discounts/promotion-claims";
+import { ReferralInvitationLedger } from "@/features/referrals/referral-invitation-ledger";
 import type { AgentSelectionKey } from "@/features/reservation/backend/booking-agent";
 import { withCoworkProductFields } from "@/features/reservation/cowork-reservation-product";
 import type {
@@ -665,8 +666,30 @@ const recordAdministrationCancellationClaim = Effect.fnUntraced(function* (
 });
 
 /**
+ * Takes the referral lock that releasing a payment attempt's invitation claim
+ * runs under, as every payment transition that releases one does. It ranks
+ * first, so the cancellation takes it before any row lock.
+ */
+const lockReferralClaimRelease = Effect.fnUntraced(function* (
+  reservationId: WorkspaceReservationId
+) {
+  const { db } = yield* WorkspaceTransaction;
+  const [reservation] = yield* db
+    .select({ dotyposCustomerId: workspaceReservations.dotyposCustomerId })
+    .from(workspaceReservations)
+    .where(eq(workspaceReservations.id, reservationId))
+    .limit(1);
+  if (!reservation) return;
+  yield* ReferralInvitationLedger.lockFirstBooking({
+    dotyposCustomerId: reservation.dotyposCustomerId,
+    records: "nothing",
+  });
+});
+
+/**
  * Cancels the reservation's active payment attempt and releases its discount
- * claims; fails when the attempt can no longer be cancelled.
+ * and referral invitation claims, under `lockReferralClaimRelease`; fails when
+ * the attempt can no longer be cancelled.
  */
 const cancelPendingPaymentAttempt = Effect.fnUntraced(function* (
   reservationId: WorkspaceReservationId,
@@ -696,11 +719,13 @@ const cancelPendingPaymentAttempt = Effect.fnUntraced(function* (
       message: "The active payment attempt could not be cancelled.",
     });
   }
-  yield* PromotionClaims.release({
+  const release = {
     paymentAttemptId: pendingPaymentCancellation.paymentAttemptId,
     releasedAt: now,
     releaseReason: pendingPaymentCancellation.failureCode,
-  });
+  };
+  yield* PromotionClaims.release(release);
+  yield* ReferralInvitationLedger.release(release);
 });
 
 /** Expires the grant and forgets its access code. */
@@ -1250,6 +1275,9 @@ export class WorkspaceReservationRepository extends Context.Service<
           const claim = transaction(
             Effect.gen(function* () {
               const now = Temporal.Now.instant();
+              if (input.pendingPaymentCancellation) {
+                yield* lockReferralClaimRelease(input.id);
+              }
               const [grant] = yield* lockAccessGrantOfReservation(input.id);
               const [claimed] = yield* recordAdministrationCancellationClaim(
                 input,
