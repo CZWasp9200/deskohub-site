@@ -33,7 +33,11 @@ function AdministratorOnly(props: {
   );
 }
 
-/** The filled Admin button beside the account control. */
+/**
+ * The filled Admin button beside the account control. Beside the desktop
+ * navigation, from `xl` to `2xl`, it keeps only its icon, like the language
+ * menu button, so the navigation labels stay on one line.
+ */
 export function AdministratorEntryButton({
   entry,
   onNavigate,
@@ -46,11 +50,13 @@ export function AdministratorEntryButton({
         tone="chilean-fire"
         size="sm"
         caps
-        className="hidden shrink-0 md:inline-flex"
+        // The size's padding is wider than the narrowed box; the button centres
+        // its one remaining item, the icon, across it.
+        className="hidden shrink-0 md:inline-flex xl:max-2xl:w-9"
       >
-        <Link href={entry.href} onClick={onNavigate}>
-          <ShieldCheck className="size-4" aria-hidden />
-          {entry.label}
+        <Link href={entry.href} title={entry.label} onClick={onNavigate}>
+          <ShieldCheck className="size-4 shrink-0" aria-hidden />
+          <span className="xl:max-2xl:sr-only">{entry.label}</span>
         </Link>
       </Button>
     </AdministratorOnly>

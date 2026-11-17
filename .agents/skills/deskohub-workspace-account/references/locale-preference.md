@@ -1,7 +1,10 @@
 # Saved language preference
 
 The saved language is the nullable Better Auth user field `locale`
-(`auth.user.locale`, CHECK `en-US`/`cs-CZ`, `input: false`). It's both the
+(`auth.user.locale`, `input: false`). Its CHECK allows the registry's
+supported locales (`packages/i18n/src/locale-registry.ts`); the migration that
+adds a locale widens it, most recently
+`db/migrations/20261109162017_supported_locales_de_uk_sk`. It's both the
 email language and the signed-in site locale. NULL means no preference:
 accounts that predate the field have none until their next sign-in. Never
 backfill or invent a default.

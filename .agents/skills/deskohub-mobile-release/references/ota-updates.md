@@ -30,6 +30,26 @@ side in `apps/deskohub-mobile/src/updates`.
 
 ## Publishing
 
+Before planning an OTA, check that some build can receive it:
+
+- `git ls-remote --tags origin 'mobile-v*'` and production's
+  `GET /api/mobile/releases/latest` show whether a public release exists. No
+  tag and a 404 `no-release` mean no customer got a release APK, so the change
+  ships in the first release's APK; only a sideloaded build could still take
+  an update.
+- For one installed build, pull its APK (`adb shell pm path
+  cz.deskohub.workspace`, then `adb pull <path>`) and compare
+  `unzip -p <apk> assets/fingerprint` with the runtime a publish of the commit
+  resolves. From `apps/deskohub-mobile`, with `EXPO_PUBLIC_API_ORIGIN` as the
+  build had it, run `MOBILE_UPDATES_CODE_SIGNING=required bun x --no-install
+  expo-updates runtimeversion:resolve --platform android`. An APK whose
+  `assets/app.config` has no `updates.codeSigningCertificate` was built
+  without update signing and never matches.
+- To watch an update arrive, resolve the runtime of the commit before the
+  change too. When it equals the target build's, install a `--signing debug`
+  build of that commit before the publish; it then takes the update as a
+  customer's app would.
+
 The `ota-update` job of `mobile-release.yml` publishes the tagged commit to
 production after its release is published. It first runs the app's
 `eas-build-post-install` script, the hook in which EAS generated the APK

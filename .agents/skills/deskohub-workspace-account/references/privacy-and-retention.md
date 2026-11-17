@@ -1,8 +1,10 @@
 # Privacy and retention
 
 Use this when you change what account data is stored, how long it lives, or
-what the privacy copy promises. Privacy copy lives in
-`features/legal/content.tsx`; update `en-US` and `cs-CZ` together.
+what the privacy copy promises. Privacy copy lives in the legal documents:
+the governing Czech text in `features/legal/locales/cs-CZ/` and one translation
+per other supported locale beside it, collected in `features/legal/content.tsx`.
+Update every locale together.
 
 ## What each system holds
 
