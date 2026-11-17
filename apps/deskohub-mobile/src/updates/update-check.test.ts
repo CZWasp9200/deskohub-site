@@ -175,7 +175,11 @@ describe("runUpdateCheck", () => {
     reports: Array<unknown>
   ) =>
     runUpdateCheck({
-      plan: planUpdateCheck({ platform, otaUpdatesEnabled: true }),
+      plan: planUpdateCheck({
+        platform,
+        otaUpdatesEnabled: true,
+        installingPackageName: sideloaded,
+      }),
       updates: sources.updates,
       installedBuildVersion: "1002000",
       latestReleaseUrl: "https://workspace.test/api/mobile/releases/latest",

@@ -25,20 +25,24 @@ export const redirectToLatestAndroidApk = Effect.gen(function* () {
  * A file name no release could publish, or a version without a usable
  * release, answers 404.
  */
-export const redirectToAndroidApk = (fileName: string) =>
-  Effect.gen(function* () {
-    const releases = yield* AndroidReleases;
-    return yield* redirectToApk(
-      Option.match(androidApkVersion(fileName), {
-        onNone: () => Effect.succeedNone,
-        onSome: releases.release,
-      }),
-      releaseCaching
-    );
-  });
+export const redirectToAndroidApk = Effect.fn(
+  "MobileReleases.redirectToAndroidApk"
+)(function* (fileName: string) {
+  const releases = yield* AndroidReleases;
+  return yield* redirectToApk(
+    Option.match(androidApkVersion(fileName), {
+      onNone: () => Effect.succeedNone,
+      onSome: releases.release,
+    }),
+    releaseCaching
+  );
+});
 
 const redirectToApk = (
-  lookup: Effect.Effect<Option.Option<AndroidRelease>, MobileReleaseLookupError>,
+  lookup: Effect.Effect<
+    Option.Option<AndroidRelease>,
+    MobileReleaseLookupError
+  >,
   caching: Record<string, string>
 ) =>
   lookup.pipe(

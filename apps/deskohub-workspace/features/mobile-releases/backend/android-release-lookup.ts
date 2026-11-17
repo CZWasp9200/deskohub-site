@@ -92,12 +92,11 @@ export const findLatestAndroidRelease = Effect.fn(
  * The Android release of one version, read the same way: `None` when the
  * version has no published, usable release.
  */
-export const findAndroidRelease = Effect.fn("MobileReleases.findAndroidRelease")(
-  function* (versionName: string) {
-    return yield* findUsableRelease(yield* gitHubApi, versionName);
-  },
-  Effect.mapError(MobileReleaseLookupError.fromCause)
-);
+export const findAndroidRelease = Effect.fn(
+  "MobileReleases.findAndroidRelease"
+)(function* (versionName: string) {
+  return yield* findUsableRelease(yield* gitHubApi, versionName);
+}, Effect.mapError(MobileReleaseLookupError.fromCause));
 
 const gitHubApi = Effect.gen(function* () {
   return (yield* HttpClient.HttpClient).pipe(
@@ -115,13 +114,13 @@ const findUsableRelease = (
   github: HttpClient.HttpClient,
   versionName: string
 ) =>
-  github.get(`${repositoryApiUrl}/releases/tags/mobile-v${versionName}`).pipe(
-    Effect.flatMap(readPublishedRelease),
-    Effect.timeout(requestTimeout),
-    Effect.map(
-      Option.flatMap((found) => selectLatestAndroidRelease([found]))
-    )
-  );
+  github
+    .get(`${repositoryApiUrl}/releases/tags/mobile-v${versionName}`)
+    .pipe(
+      Effect.flatMap(readPublishedRelease),
+      Effect.timeout(requestTimeout),
+      Effect.map(Option.flatMap((found) => selectLatestAndroidRelease([found])))
+    );
 
 // GitHub answers 404 for a tag whose release is missing or still a draft.
 const readPublishedRelease = (
