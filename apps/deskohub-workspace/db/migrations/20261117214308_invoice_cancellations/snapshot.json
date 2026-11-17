@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a7e34025-07b1-4ac4-96d5-5c1f086fc14d",
+  "id": "ed3265f8-2c40-4649-8017-4ac6a632b6a7",
   "prevIds": [
-    "8016deb1-08ae-4537-925e-9abbdef0f8fd"
+    "2d01d689-7eec-4992-98c0-c6ce10cb0f34"
   ],
   "ddl": [
     {
@@ -9067,6 +9067,19 @@
       "generated": null,
       "identity": null,
       "name": "reservation_cancelled_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_reservations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "cancellation_cause",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_reservations"
