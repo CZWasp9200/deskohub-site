@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { PhrasingContent } from "mdast";
 import { nativeApp } from "@/features/account/backend/auth/native-app";
-import { type Locale, m } from "@/features/i18n";
+import { getWorkspacePageUrl, type Locale, m } from "@/features/i18n";
 import type { AndroidRelease } from "@/features/mobile-releases/backend/latest-android-release.server";
 import {
   type MarkdownBlocks,
@@ -16,6 +16,7 @@ import {
 } from "@/shared/markdown/markdown";
 import {
   type AndroidDownload,
+  androidApkPath,
   androidReleasesListUrl,
   getAndroidReleaseFacts,
 } from "./android-download";
@@ -41,7 +42,10 @@ const releaseMarkdown = (
       ),
     ]),
     markdownParagraph(
-      markdownLink(release.apkUrl, m.androidPageDownloadLink({}, { locale }))
+      markdownLink(
+        getWorkspacePageUrl(androidApkPath(release.versionName)),
+        m.androidPageDownloadLink({}, { locale })
+      )
     ),
     markdownHeading(2, m.androidPageObtainiumHeading({}, { locale })),
     markdownParagraph(m.androidPageObtainiumBody({}, { locale })),

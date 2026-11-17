@@ -701,6 +701,20 @@ describe("mobile web app under /app/", () => {
   });
 });
 
+describe("APK downloads", () => {
+  const matchesProxy = (pathname: string) =>
+    unstable_doesMiddlewareMatch({
+      config,
+      url: `https://workspace.example${pathname}`,
+    });
+
+  test("skip the locale redirect, unlike the /android page", () => {
+    expect(matchesProxy("/android/download")).toBe(false);
+    expect(matchesProxy("/android")).toBe(true);
+    expect(matchesProxy("/android/downloads")).toBe(true);
+  });
+});
+
 describe("dotted paths under a locale prefix", () => {
   const matchesProxy = (pathname: string) =>
     unstable_doesMiddlewareMatch({

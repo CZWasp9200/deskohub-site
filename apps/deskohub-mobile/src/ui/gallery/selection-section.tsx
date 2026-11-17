@@ -1,4 +1,5 @@
 import Bell from "lucide-react-native/icons/bell";
+import Moon from "lucide-react-native/icons/moon";
 import { CheckboxRow } from "../checkbox";
 import { ChoiceList } from "../choice-list";
 import { ListGroup } from "../list";
@@ -119,6 +120,25 @@ export function SelectionSection() {
           busy
           onValueChange={ignore}
           accessibilityLabel={sample("Marketing messages")}
+        />
+      </GalleryCase>
+      <GalleryCase
+        label="Switch with a label and a thumb icon: off, on"
+        surface="white"
+      >
+        <Switch
+          value={false}
+          onValueChange={ignore}
+          label={sample("Overnight")}
+          accessibilityLabel={sample("Overnight")}
+          icon={Moon}
+        />
+        <Switch
+          value
+          onValueChange={ignore}
+          label={sample("Overnight")}
+          accessibilityLabel={sample("Overnight")}
+          icon={Moon}
         />
       </GalleryCase>
     </GallerySection>
