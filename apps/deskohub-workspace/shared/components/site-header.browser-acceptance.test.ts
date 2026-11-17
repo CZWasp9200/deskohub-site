@@ -1,17 +1,38 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, mock, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { getLocaleDefinition } from "@deskohub/i18n/locale-registry";
 import { type Browser, chromium, type Page } from "@playwright/test";
 import { type Locale, locales, m } from "@/features/i18n";
 import { languageNames } from "@/features/i18n/language-labels";
 import { browserModuleStubPlugin } from "@/shared/testing/browser-module-stubs.test-utils";
+import {
+  nextFontLocal,
+  nextFontLocalFaces,
+} from "@/shared/testing/next-font-local.test-utils";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
 import { compileWorkspaceAppStyles } from "@/shared/testing/workspace-app-styles.test-utils";
 import { expectAccessibleLanguageMenu } from "./language-menu.browser.test-utils";
 
 const appDirectory = resolve(import.meta.dir, "../..");
+const localeFontsDirectory = join(appDirectory, "features/i18n");
+
+mock.module("next/font/local", () => nextFontLocal);
+const { getLocaleFontStyle, languageNameFontStyle } = await import(
+  "@/features/i18n/locale-fonts"
+);
+
+// The font custom properties the locale layout puts on `<html>`.
+const localeFontStyle = (locale: Locale) =>
+  Object.entries({
+    ...languageNameFontStyle,
+    ...getLocaleFontStyle(locale, '"Sculpin"'),
+  })
+    .map(
+      ([property, value]) =>
+        `${property}: ${String(value).replaceAll('"', "&quot;")}`
+    )
+    .join("; ");
 const mobileViewport = { height: 812, width: 375 } as const;
 const desktopViewport = { height: 900, width: 1440 } as const;
 const narrowDesktopViewport = { height: 800, width: 1280 } as const;
@@ -131,17 +152,23 @@ beforeAll(async () => {
   }
   browserBundlePath = join(buildDirectory, "site-header-harness.js");
 
-  const [brandFont, cyrillicCompanionFont] = await Promise.all([
-    readFile(join(appDirectory, "assets/fonts/Sculpin/regular.woff2")),
-    readFile(join(appDirectory, "assets/fonts/Montserrat/cyrillic.woff2")),
-  ]);
+  const brandFont = await readFile(
+    join(appDirectory, "assets/fonts/Sculpin/regular.woff2")
+  );
   // Production text widths come from the brand font that next/font injects
-  // and, on a Cyrillic page, the companion face `features/i18n/locale-fonts.ts`
-  // puts after it, declared here as it declares it.
+  // and the faces `features/i18n/locale-fonts.ts` adds for a locale's script,
+  // declared here from the same calls.
+  const localeFaces = await Promise.all(
+    [...nextFontLocalFaces].flatMap(([family, { sources, declarations }]) =>
+      sources.map(
+        async ({ path, weight = "400" }) =>
+          `@font-face { font-family: ${family}; font-weight: ${weight}; src: url(data:font/woff2;base64,${(await readFile(resolve(localeFontsDirectory, path))).toString("base64")}) format("woff2"); ${declarations.map(({ prop, value }) => `${prop}: ${value};`).join(" ")} }`
+      )
+    )
+  );
   appStyles = `@font-face { font-family: "Sculpin"; font-weight: 300 900; src: url(data:font/woff2;base64,${brandFont.toString("base64")}) format("woff2"); }
-@font-face { font-family: "Cyrillic Companion"; font-weight: 100 900; src: url(data:font/woff2;base64,${cyrillicCompanionFont.toString("base64")}) format("woff2"); unicode-range: U+0301, U+02BC, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 98.6%; }
+${localeFaces.join("\n")}
 :root { --font-sculpin: "Sculpin"; }
-:root[data-script="cyrillic"] { --font-sculpin: "Sculpin", "Cyrillic Companion"; }
 ${await compileWorkspaceAppStyles()}`;
 
   // Desktop cases need classic scrollbars, which headless Chromium hides.
@@ -185,7 +212,7 @@ const openSiteHeader = async (
   // at the page it stands in for.
   await page.route(`${harnessOrigin}/**`, (route) =>
     route.fulfill({
-      body: `<!doctype html><html lang="${locale}" data-script="${getLocaleDefinition(locale).script}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="site-header-test-root" data-locale="${locale}" data-administrator="${administrator}" data-session="${session}" data-variant="${variant}"></div></body></html>`,
+      body: `<!doctype html><html lang="${locale}" style="${localeFontStyle(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="site-header-test-root" data-locale="${locale}" data-administrator="${administrator}" data-session="${session}" data-variant="${variant}"></div></body></html>`,
       contentType: "text/html",
     })
   );
