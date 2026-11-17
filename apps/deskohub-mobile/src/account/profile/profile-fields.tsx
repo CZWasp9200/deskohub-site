@@ -122,6 +122,12 @@ const fieldInput: Record<
   },
 };
 
+/** A field's label, as the form shows it above the field. */
+export const profileFieldLabel = (
+  field: CompletionTextField,
+  locale: AppLocale
+): string => fieldInput[field].label(locale);
+
 /** What a field's problem from the last submit says, at the field. */
 export const profileFieldProblemMessage = (
   field: CompletionTextField,

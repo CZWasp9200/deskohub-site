@@ -76,26 +76,33 @@ export function BillingChoices({
 }
 
 /**
- * The company's name and IČO, the lookup by IČO under it (filled by ticket
- * #1254, applied through `onApply` like typing), then the VAT ID.
+ * The company's name and IČO, the lookup by IČO under it (applied through
+ * `onApply` like typing), then the VAT ID. `remindsToSave`: the form has a
+ * Save button, which the applied lookup then mentions.
  */
 export function BillingCompanySection({
   onApply,
+  remindsToSave,
   ...fields
 }: BillingFieldProps & {
   readonly onApply: (change: Partial<ProfileDraft>) => void;
+  readonly remindsToSave: boolean;
 }) {
   const { draft, editable, locale } = fields;
   return (
     <View style={styles.section}>
       <SectionHeader title={m.billing_company_section({}, { locale })} />
-      <ProfileTextFields {...fields} fields={["companyName", "companyId"]} />
-      <BillingCompanyLookup
-        draft={draft}
-        onApply={onApply}
-        disabled={!editable}
-        locale={locale}
-      />
+      <ProfileTextFields {...fields} fields={["companyName"]} />
+      <View style={styles.companyIdLookup}>
+        <ProfileTextFields {...fields} fields={["companyId"]} />
+        <BillingCompanyLookup
+          draft={draft}
+          onApply={onApply}
+          disabled={!editable}
+          remindsToSave={remindsToSave}
+          locale={locale}
+        />
+      </View>
       <ProfileTextFields {...fields} fields={["vatId"]} />
     </View>
   );
@@ -137,4 +144,6 @@ export function BillingAddressSection(fields: BillingFieldProps) {
 
 const styles = StyleSheet.create({
   section: { gap: space.lg },
+  // The lookup sits right under the Company ID field it reads (boards 07b, 13b).
+  companyIdLookup: { gap: space.sm },
 });

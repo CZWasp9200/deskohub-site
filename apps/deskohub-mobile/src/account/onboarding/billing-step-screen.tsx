@@ -104,7 +104,11 @@ function BillingStepForm({
           locale={locale}
         />
         {sections.company && (
-          <BillingCompanySection {...billingFields} onApply={draft.change} />
+          <BillingCompanySection
+            {...billingFields}
+            onApply={draft.change}
+            remindsToSave={false}
+          />
         )}
         {sections.address && <BillingAddressSection {...billingFields} />}
       </ScrollScreen>
