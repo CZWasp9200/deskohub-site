@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.2](https://github.com/totalolage/deskohub-site/compare/mobile-v0.2.1...mobile-v0.2.2) (2026-11-17)
+
+### Features
+
+* **mobile:** pick your billing country from a searchable list that starts in your own country
+
+### Bug Fixes
+
+* **mobile:** Back from an access PIN opened from a link goes to Reservations instead of leaving the app
+* **mobile:** the field you are typing in stays above the Pay, Save and Continue buttons when the keyboard is up
+* **mobile:** the app runs the Expo SDK 58 patch releases, with one copy of each Expo module
+
 ## [0.2.1](https://github.com/totalolage/deskohub-site/compare/mobile-v0.2.0...mobile-v0.2.1) (2026-11-17)
 
 ### Features
