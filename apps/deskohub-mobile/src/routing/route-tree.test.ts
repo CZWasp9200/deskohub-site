@@ -183,6 +183,19 @@ describe("app route tree", () => {
     ).not.toContain("(account)/(tabs)/reservations/[orderId]/access");
   });
 
+  test("Back from an access PIN a link opened alone lands on the Reservations tab's list", () => {
+    // The PIN stacks above the tabs, so a cold start from its link has
+    // nothing behind it; its header's back fallback opens the list instead.
+    const paths = screens().map((segments) => segments.join("/"));
+    expect(
+      paths.filter(
+        (path) =>
+          screenPathPattern(path.split("/")) === reservationsHref &&
+          path.startsWith("(account)/")
+      )
+    ).toEqual(["(account)/(tabs)/reservations/index"]);
+  });
+
   test("the start-tab redirect sits in the signed-in group, where the account's data is", () => {
     expect(screens().map((segments) => segments.join("/"))).toContain(
       "(account)/index"
