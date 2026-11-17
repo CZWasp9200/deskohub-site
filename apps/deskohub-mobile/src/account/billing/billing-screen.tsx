@@ -135,7 +135,11 @@ function BillingForm({
                 />
               </View>
               {view.company && (
-                <BillingCompanySection {...fields} onApply={form.change} />
+                <BillingCompanySection
+                  {...fields}
+                  onApply={form.change}
+                  remindsToSave
+                />
               )}
               {view.address && <BillingAddressSection {...fields} />}
             </>

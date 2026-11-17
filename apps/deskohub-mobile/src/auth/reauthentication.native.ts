@@ -29,7 +29,15 @@ export type ReauthenticationOutcome =
 export interface Reauthentication {
   readonly state: AuthTaskState<AuthUser, NativeSignInFailure>;
   readonly reauthenticate: () => Promise<ReauthenticationOutcome>;
+  /**
+   * Whether this screen was just returned to by a confirmed sign-in for its
+   * purpose (web; native confirms in place), used up on read, so the screen
+   * continues where the customer left off once.
+   */
+  readonly takeConfirmedReturn: () => boolean;
 }
+
+const nothingReturned = () => false;
 
 const runReauthentication = (
   locale: AppLocale,
@@ -62,5 +70,5 @@ export const useReauthentication = (
       }),
     [start, locale, purpose]
   );
-  return { state, reauthenticate: run };
+  return { state, reauthenticate: run, takeConfirmedReturn: nothingReturned };
 };

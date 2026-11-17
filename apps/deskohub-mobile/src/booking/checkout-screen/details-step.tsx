@@ -19,6 +19,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { CompanyLookup } from "../../company-lookup/company-lookup";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { CheckboxRow } from "../../ui/checkbox";
@@ -44,6 +45,8 @@ import {
   type AddressDraft,
   asksPersonalAddress,
   type BillingChoice,
+  companyLookupFields,
+  companyWithDetails,
   type DetailsChange,
   type DetailsDraft,
   type DetailsField,
@@ -613,17 +616,36 @@ function InvoiceSection({
               autoComplete="organization"
               autoCapitalize="words"
             />
-            {/* Company lookup by IČO (#1254) goes under this field. */}
-            <Field
-              {...field("buyer.companyId")}
-              label={m.booking_details_company_id({}, { locale })}
-              hint={m.booking_details_company_id_hint({}, { locale })}
-              value={company.companyId}
-              onChangeText={(companyId) =>
-                setCompany({ companyId }, "buyer.companyId")
-              }
-              keyboardType="number-pad"
-            />
+            <View style={styles.companyIdLookup}>
+              <Field
+                {...field("buyer.companyId")}
+                label={m.booking_details_company_id({}, { locale })}
+                hint={m.booking_details_company_id_hint({}, { locale })}
+                value={company.companyId}
+                onChangeText={(companyId) =>
+                  setCompany({ companyId }, "buyer.companyId")
+                }
+                keyboardType="number-pad"
+              />
+              <CompanyLookup
+                companyId={company.companyId}
+                fields={companyLookupFields.map((detail) => ({
+                  field: detail,
+                  label: companyLookupLabel[detail]({}, { locale }),
+                }))}
+                onApply={(details) => {
+                  const applied = companyWithDetails(company, details);
+                  change(
+                    { ...draft, company: applied.company },
+                    { _tag: "Fields", fields: applied.fields }
+                  );
+                }}
+                disabled={busy}
+                // Checkout has no Save button: applying shows no line.
+                remindsToSave={false}
+                locale={locale}
+              />
+            </View>
             <Field
               {...field("buyer.vatId")}
               label={m.booking_details_vat_id({}, { locale })}
@@ -653,6 +675,17 @@ function InvoiceSection({
     </>
   );
 }
+
+// The company form's own labels, which the lookup's review lists.
+const companyLookupLabel = {
+  companyName: m.booking_details_company_name,
+  companyId: m.booking_details_company_id,
+  vatId: m.booking_details_vat_id,
+  addressLine1: m.booking_details_street,
+  city: m.booking_details_city,
+  zip: m.booking_details_postal_code,
+  country: m.booking_details_country,
+} as const satisfies Record<(typeof companyLookupFields)[number], unknown>;
 
 /** Street, then city and postal code side by side, then the country picker. */
 function AddressFields({
@@ -892,6 +925,8 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   fields: { gap: space.lg },
+  // The lookup sits right under the Company ID field it reads (board 30b).
+  companyIdLookup: { gap: space.sm },
   card: {
     ...shadow.group,
     alignItems: "flex-start",

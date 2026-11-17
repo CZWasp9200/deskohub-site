@@ -137,6 +137,8 @@ const {
   clearReauthenticatingUser,
   loadReauthentication,
   loadReauthenticatingUser,
+  saveReauthenticatingUser,
+  takeCompletedReauthentication,
 } = await import("./web-reauthentication-store");
 
 /** A browser `localStorage`, or one that refuses access. */
@@ -466,6 +468,7 @@ describe("prepareReauthenticationEmail", () => {
       Option.some({
         userId: "ada",
         returnPath: Option.some("/account/passkeys"),
+        purpose: undefined,
       })
     );
     clearReauthenticatingUser();
@@ -620,6 +623,34 @@ describe("completeWebPasskeySignIn", () => {
     ).toBeUndefined();
     expect(signOuts).toBe(0);
     expect(loadReauthenticatingUser(Date.now())).toEqual(Option.none());
+  });
+  test("a confirmed reauthentication for a purpose lets its screen continue once", async () => {
+    useStorage(true);
+    saveReauthenticatingUser(
+      {
+        userId: "ada",
+        returnPath: "/account/danger",
+        purpose: "delete-account",
+      },
+      Date.now()
+    );
+    // The sign-in page stores the account again before its email.
+    await Effect.runPromise(
+      prepareReauthenticationEmail(
+        { kind: "account", userId: "ada" },
+        "/account/danger"
+      )
+    );
+    expect(
+      await reasonOfPasskey({ kind: "account", userId: "ada" })
+    ).toBeUndefined();
+    const take = () =>
+      takeCompletedReauthentication(
+        { userId: "ada", purpose: "delete-account" },
+        Date.now()
+      );
+    expect(take()).toBe(true);
+    expect(take()).toBe(false);
   });
 });
 

@@ -84,7 +84,8 @@ export const sampleInvitationCode = ReferralCode.make("SAMPLE-FRIEND");
 
 /**
  * Made-up companies the company lookup finds, by company ID: one with a VAT
- * ID and one without. Any other ID is not found.
+ * ID and one without. Any other ID is not found, except
+ * `sampleUnreachableCompanyId`.
  */
 export const sampleCompanies: ReadonlyMap<string, CustomerCompanyDetails> =
   new Map([
@@ -112,6 +113,12 @@ export const sampleCompanies: ReadonlyMap<string, CustomerCompanyDetails> =
       },
     ],
   ]);
+
+/**
+ * A made-up company ID the business registry never answers for, so the
+ * lookup shows the registry unavailable.
+ */
+export const sampleUnreachableCompanyId = "00000027";
 
 /** A made-up space the reservation screens can place and link to a map. */
 export const sampleEstablishment: CustomerEstablishment = {

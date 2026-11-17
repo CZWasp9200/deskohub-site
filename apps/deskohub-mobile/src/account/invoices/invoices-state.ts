@@ -9,12 +9,12 @@ import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerRead } from "../../customer-api/customer-request";
 import type { CustomerRequestFailure } from "../../customer-api/customer-view-error";
 import type { DeviceCapabilityFailed } from "../../customer-api/device-capabilities";
-import { invoiceListOf, invoicePdfName } from "./invoice-list-model";
 import {
-  type InvoiceShareFailure,
-  invoiceShareFailureOf,
-  shareInvoicePdf,
-} from "./invoice-pdf-share";
+  type DownloadShareFailure,
+  downloadShareFailureOf,
+} from "../../customer-api/share-downloaded-file";
+import { invoiceListOf, invoicePdfName } from "./invoice-list-model";
+import { shareInvoicePdf } from "./invoice-pdf-share";
 
 /**
  * The account's issued invoices (GET /invoices) as the list shows them,
@@ -60,7 +60,7 @@ export const invoiceDownloadAtom = customerDataRuntime.fn(downloadInvoice);
 export type InvoiceDownloadState =
   | { readonly kind: "idle" }
   | { readonly kind: "downloading" }
-  | { readonly kind: "failed"; readonly failure: InvoiceShareFailure };
+  | { readonly kind: "failed"; readonly failure: DownloadShareFailure };
 
 export const invoiceDownloadState = (
   result: AsyncResult.AsyncResult<
@@ -78,7 +78,7 @@ export const invoiceDownloadState = (
           Failure: ({ cause }) =>
             ({
               kind: "failed",
-              failure: invoiceShareFailureOf(cause),
+              failure: downloadShareFailureOf(cause),
             }) as const,
         })
       );

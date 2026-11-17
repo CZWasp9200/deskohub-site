@@ -1037,7 +1037,13 @@ const jana = (sample: (text: string) => string): DetailsProfile => ({
   },
 });
 
-type DetailsFrameState = "self" | "someone" | "company" | "errors" | "holding";
+type DetailsFrameState =
+  | "self"
+  | "someone"
+  | "company"
+  | "company-lookup"
+  | "errors"
+  | "holding";
 
 const detailsDraftFor = (
   state: DetailsFrameState,
@@ -1077,6 +1083,9 @@ const detailsDraftFor = (
           },
         },
       };
+    // Board 30b's lookup frames: an empty company form, the IČO to type.
+    case "company-lookup":
+      return { ...start, billing: "business" };
     case "errors":
       return {
         ...start,
@@ -1090,6 +1099,32 @@ const detailsDraftFor = (
       };
   }
 };
+
+/**
+ * Board 30b: the details step's company form with a live company lookup,
+ * answered by the sample data's fake Workspace (`12345679` and `00000019`
+ * are found, `00000027` finds the registry unavailable, any other ID none).
+ */
+function DetailsCompanyLookup({ onBack }: { readonly onBack: () => void }) {
+  // As in `CoworkLive`: the fake Workspace never ships in release bundles.
+  const [initialValues] = useState(() =>
+    __DEV__
+      ? [
+          Atom.initialValue(
+            customerDataLayer,
+            (
+              require("../../../customer-api/testing/sample-data-layer") as typeof import("../../../customer-api/testing/sample-data-layer")
+            ).sampleCustomerDataLayer("linked")
+          ),
+        ]
+      : []
+  );
+  return (
+    <RegistryProvider initialValues={initialValues}>
+      <Details onBack={onBack} state="company-lookup" />
+    </RegistryProvider>
+  );
+}
 
 /**
  * Boards 30 and 31: the real details step with the boards' data. The
@@ -1349,6 +1384,12 @@ export const boardFrames: ReadonlyArray<BoardFrame> = [
     board: "30",
     state: "Invoice to a company",
     Screen: ({ onBack }) => <Details onBack={onBack} state="company" />,
+  },
+  {
+    key: "details-company-lookup",
+    board: "30b",
+    state: "Company lookup",
+    Screen: ({ onBack }) => <DetailsCompanyLookup onBack={onBack} />,
   },
   {
     key: "details-errors",

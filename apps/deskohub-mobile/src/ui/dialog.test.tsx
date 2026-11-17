@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { Children, createElement, type ReactElement } from "react";
+import {
+  Children,
+  createElement,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 import { Dialog } from "./dialog";
 import { elementTree, find, findAll, flatStyle } from "./testing/element-tree";
@@ -86,5 +91,22 @@ describe("Dialog", () => {
   test("without a body only the title leads", () => {
     const scroll = find(dialog({ body: undefined }), "ScrollView");
     expect(Children.toArray(scroll?.props.children)).toHaveLength(1);
+  });
+  test("a header leads above the title, and an icon shares the title's line", () => {
+    const scroll = find(
+      dialog({
+        header: createElement("Header"),
+        titleIcon: () => null,
+        body: undefined,
+      }),
+      "ScrollView"
+    );
+    const [header, titleLine] = Children.toArray(
+      scroll?.props.children
+    ) as ReactElement<{ children?: ReactNode }>[];
+    expect(header?.type).toBe("Header");
+    const line = Children.toArray(titleLine?.props.children) as ReactElement[];
+    expect(line).toHaveLength(2);
+    expect(line[1]?.type).toBe(Text);
   });
 });
