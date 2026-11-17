@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { DotyposCustomer } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
-  type CustomerNamePrecedence,
   describeAdministrationCustomer,
   nameAdministrationCustomer,
 } from "./customer-identity";
@@ -14,103 +13,108 @@ const phone = "+420000000001";
 const customer = (fields: Partial<DotyposCustomer>): DotyposCustomer =>
   ({ id: "customer-1", deleted: false, ...fields }) as DotyposCustomer;
 
-const variants = {
-  company: customer({
-    companyName: " Synthetic Company ",
-    firstName: "Synthetic",
-    lastName: "Person",
-    email,
-    phone,
-  }),
-  person: customer({
-    firstName: "Synthetic",
-    lastName: "Person",
-    email,
-    phone,
-  }),
-  // Parts with their own whitespace: some rules trim only the joined name.
-  spacedPerson: customer({ firstName: "Synthetic ", lastName: " Person" }),
-  email: customer({ email: ` ${email} `, phone }),
-  phone: customer({ phone: ` ${phone} ` }),
-  none: customer({ firstName: " ", companyName: "", email: "" }),
-} as const;
-
-type Variant = keyof typeof variants;
-
-/** The name each precedence gives each variant; `null` is unnamed. */
-const expected = {
-  "company-person-email-phone": {
-    company: "Synthetic Company",
-    person: "Synthetic Person",
-    spacedPerson: "Synthetic   Person",
-    email,
-    phone,
-    none: null,
-  },
-  "company-person-email": {
-    company: "Synthetic Company",
-    person: "Synthetic Person",
-    spacedPerson: "Synthetic   Person",
-    email,
-    phone: null,
-    none: null,
-  },
-  "person-company": {
-    company: "Synthetic Person",
-    person: "Synthetic Person",
-    spacedPerson: "Synthetic Person",
-    email: null,
-    phone: null,
-    none: null,
-  },
-} satisfies Record<CustomerNamePrecedence, Record<Variant, string | null>>;
+const named = (displayName: string) => ({ displayName, hasName: true });
+const unnamed = { displayName: unnamedCustomerDisplayName, hasName: false };
 
 describe("nameAdministrationCustomer", () => {
-  for (const [precedence, names] of Object.entries(expected) as [
-    CustomerNamePrecedence,
-    Record<Variant, string | null>,
-  ][]) {
-    for (const [variant, name] of Object.entries(names) as [
-      Variant,
-      string | null,
-    ][]) {
-      test(`${precedence} names a ${variant} customer`, () => {
-        expect(
-          nameAdministrationCustomer(variants[variant], precedence)
-        ).toEqual(
-          name === null
-            ? { displayName: unnamedCustomerDisplayName, hasName: false }
-            : { displayName: name, hasName: true }
-        );
-      });
-    }
-  }
+  test.each([
+    [
+      "the person before the company, email and phone",
+      customer({
+        firstName: "Synthetic",
+        lastName: "Person",
+        companyName: "Synthetic Company",
+        email,
+        phone,
+      }),
+      named("Synthetic Person"),
+    ],
+    [
+      "a first name alone",
+      customer({ firstName: "Synthetic", companyName: "Synthetic Company" }),
+      named("Synthetic"),
+    ],
+    [
+      "a last name alone",
+      customer({ lastName: "Person", email }),
+      named("Person"),
+    ],
+    [
+      "the company without a person",
+      customer({ companyName: "Synthetic Company", email, phone }),
+      named("Synthetic Company"),
+    ],
+    [
+      "the email without a person or company",
+      customer({ email, phone }),
+      named(email),
+    ],
+    ["the phone alone", customer({ phone }), named(phone)],
+    ["nobody without any part", customer({}), unnamed],
+  ])("names %s", (_, input, expected) => {
+    expect(nameAdministrationCustomer(input)).toEqual(expected);
+  });
 
-  test("person-company falls back to the company name", () => {
+  test("trims each part and joins first and last name with one space", () => {
     expect(
       nameAdministrationCustomer(
-        customer({ companyName: " Synthetic Company " }),
-        "person-company"
+        customer({ firstName: " Synthetic ", lastName: " Person " })
       )
-    ).toEqual({ displayName: "Synthetic Company", hasName: true });
+    ).toEqual(named("Synthetic Person"));
+    expect(
+      nameAdministrationCustomer(customer({ companyName: " Synthetic Company " }))
+    ).toEqual(named("Synthetic Company"));
+    expect(nameAdministrationCustomer(customer({ email: ` ${email} ` }))).toEqual(
+      named(email)
+    );
+    expect(nameAdministrationCustomer(customer({ phone: ` ${phone} ` }))).toEqual(
+      named(phone)
+    );
+  });
+
+  test("skips whitespace-only parts", () => {
+    expect(
+      nameAdministrationCustomer(
+        customer({ firstName: " ", lastName: "Person", companyName: "Company" })
+      )
+    ).toEqual(named("Person"));
+    expect(
+      nameAdministrationCustomer(
+        customer({ firstName: " ", lastName: "\t", companyName: " ", phone })
+      )
+    ).toEqual(named(phone));
+    expect(
+      nameAdministrationCustomer(
+        customer({
+          firstName: " ",
+          lastName: " ",
+          companyName: " ",
+          email: " ",
+          phone: " ",
+        })
+      )
+    ).toEqual(unnamed);
   });
 });
 
 describe("describeAdministrationCustomer", () => {
-  test("trims the contact details and leaves empty ones null", () => {
+  test("names the customer and trims the contact details", () => {
     expect(
-      describeAdministrationCustomer(variants.email, "person-company")
+      describeAdministrationCustomer(
+        customer({ companyName: "Synthetic Company", email: ` ${email} `, phone })
+      )
     ).toEqual({
       id: "customer-1",
-      displayName: unnamedCustomerDisplayName,
-      hasName: false,
+      ...named("Synthetic Company"),
       email,
       phone,
     });
+  });
+
+  test("leaves empty contact details null", () => {
     expect(
       describeAdministrationCustomer(
-        customer({ firstName: "Synthetic", email: " ", phone: "" }),
-        "person-company"
+        customer({ firstName: "Synthetic", email: " ", phone: "" })
       )
     ).toMatchObject({ email: null, phone: null });
   });
