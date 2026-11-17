@@ -1,11 +1,21 @@
 import { describe, expect, test } from "bun:test";
+import { supportedLocales } from "@deskohub/i18n/locale-registry";
 import type { ConfigContext } from "expo/config";
 import appConfig, {
   androidVersionCode,
   parseAppVersion,
   updatesManifestUrl,
 } from "./app.config";
+import {
+  legalDocuments,
+  legalDocumentUrl,
+} from "./src/account/legal/legal-documents";
 import { resolveApiOrigin } from "./src/auth/api-origin";
+import { sampleLegalDocuments } from "./src/booking/testing/sample-booking-catalog";
+import { appLinkRoute } from "./src/routing/app-link";
+import { contactPageUrl, sitePageUrl } from "./src/routing/site-page";
+import { resolves } from "./src/routing/testing/route-screens";
+import { workspaceUpdateUrls } from "./src/updates/workspace-update-urls";
 
 describe("parseAppVersion", () => {
   test("reads a plain major.minor.patch version", () => {
@@ -196,7 +206,52 @@ describe("app config", () => {
   });
 });
 
-describe("development App Links", () => {
+type IntentFilter = NonNullable<
+  NonNullable<ReturnType<typeof appConfig>["android"]>["intentFilters"]
+>[number];
+
+const filterData = (filter: IntentFilter) => [filter.data ?? []].flat();
+
+/** A filter as the set of hosts and paths it claims; a prefix ends in `*`. */
+const claims = (filter: IntentFilter) => {
+  const data = filterData(filter);
+  return {
+    action: filter.action,
+    autoVerify: filter.autoVerify,
+    category: filter.category,
+    hosts: [...new Set(data.map((entry) => `${entry.scheme}://${entry.host}`))],
+    paths: data.map((entry) => entry.path ?? `${entry.pathPrefix}*`).sort(),
+  };
+};
+
+/** Whether Android would offer `url` to the app through `filter`. */
+const claimsUrl = (filter: IntentFilter, url: string) => {
+  const { protocol, hostname, pathname } = new URL(url);
+  return filterData(filter).some(
+    (entry) =>
+      `${entry.scheme}:` === protocol &&
+      entry.host === hostname &&
+      (entry.path === pathname ||
+        (entry.pathPrefix !== undefined &&
+          pathname.startsWith(entry.pathPrefix)))
+  );
+};
+
+const sitePagePaths = [
+  "/reservation/access/*",
+  "/account/reservations",
+  "/account/referrals",
+  "/account/profile",
+  "/account/security",
+  "/account/assistants",
+  "/account/billing",
+  "/account/danger",
+];
+const expectedSitePaths = ["", ...supportedLocales.map((tag) => `/${tag}`)]
+  .flatMap((locale) => sitePagePaths.map((path) => `${locale}${path}`))
+  .sort();
+
+describe("App Links", () => {
   const productionFilter = {
     action: "VIEW",
     autoVerify: true,
@@ -217,64 +272,128 @@ describe("development App Links", () => {
     staticConfigPath: null,
     packageJsonPath: null,
   });
+  const production = "https://workspace.deskohub.cz";
   const preview = "https://deskohub-workspace-site-abc.vercel.app";
+  const filters = (env: Record<string, string>) =>
+    appConfig(context(base), env).android?.intentFilters ?? [];
+  const siteFilter = (origin: string, autoVerify: boolean) => ({
+    action: "VIEW",
+    autoVerify,
+    category: ["BROWSABLE", "DEFAULT"],
+    hosts: [origin],
+    paths: expectedSitePaths,
+  });
+  const productionClaims = [
+    claims(productionFilter),
+    siteFilter(production, true),
+  ];
 
-  test("keeps only the production host without a configured API origin", () => {
-    expect(appConfig(context(base), {}).android?.intentFilters).toEqual([
-      productionFilter,
-    ]);
+  test("claims the web app and the site pages on the production host only, without a configured API origin", () => {
+    expect(filters({}).map(claims)).toEqual(productionClaims);
   });
 
-  test("keeps only the production host when the API origin is production", () => {
+  test("claims only the production host when the API origin is production", () => {
     expect(
-      appConfig(context(base), {
-        EXPO_PUBLIC_API_ORIGIN: "https://workspace.deskohub.cz/",
-      }).android?.intentFilters
-    ).toEqual([productionFilter]);
+      filters({ EXPO_PUBLIC_API_ORIGIN: "https://workspace.deskohub.cz/" }).map(
+        claims
+      )
+    ).toEqual(productionClaims);
   });
 
-  test("adds an unverified link filter for a preview API origin in a development build", () => {
-    expect(
-      appConfig(context(base), { EXPO_PUBLIC_API_ORIGIN: preview }).android
-        ?.intentFilters
-    ).toEqual([
-      productionFilter,
+  test("adds unverified filters for a preview API origin in a development build", () => {
+    expect(filters({ EXPO_PUBLIC_API_ORIGIN: preview }).map(claims)).toEqual([
+      ...productionClaims,
       {
         action: "VIEW",
         autoVerify: false,
-        data: [
-          {
-            scheme: "https",
-            host: "deskohub-workspace-site-abc.vercel.app",
-            pathPrefix: "/app/",
-          },
-        ],
         category: ["BROWSABLE", "DEFAULT"],
+        hosts: [preview],
+        paths: ["/app/*"],
       },
+      siteFilter(preview, false),
     ]);
   });
 
   test("never adds the preview host to a production build", () => {
     expect(
-      appConfig(context(base), {
+      filters({
         EXPO_PUBLIC_API_ORIGIN: preview,
         EAS_BUILD_PROFILE: "production",
-      }).android?.intentFilters
-    ).toEqual([productionFilter]);
+      }).map(claims)
+    ).toEqual(productionClaims);
   });
 
   test("ignores a local plain-http API origin, which App Links can't open", () => {
     expect(
-      appConfig(context(base), {
-        EXPO_PUBLIC_API_ORIGIN: "http://10.0.2.2:3000",
-      }).android?.intentFilters
-    ).toEqual([productionFilter]);
+      filters({ EXPO_PUBLIC_API_ORIGIN: "http://10.0.2.2:3000" }).map(claims)
+    ).toEqual(productionClaims);
   });
 
   test("points updates at the same API origin as the link filter", () => {
     expect(
       appConfig(context(base), { EXPO_PUBLIC_API_ORIGIN: preview }).updates?.url
     ).toBe(`${preview}/api/mobile/updates/manifest`);
+  });
+
+  test("opens every claimed site page on an app screen", () => {
+    const claimed = filters({ EXPO_PUBLIC_API_ORIGIN: preview })
+      .filter((filter) => !claims(filter).paths.includes("/app/*"))
+      .flatMap(filterData);
+    expect(claimed.length).toBeGreaterThan(0);
+    for (const entry of claimed) {
+      const url =
+        entry.path === undefined
+          ? `https://${entry.host}${entry.pathPrefix}synthetic-order?accessToken=synthetic-access-token`
+          : `https://${entry.host}${entry.path}`;
+      const route = appLinkRoute(url);
+      expect({ url, route, resolves: resolves(url) }).toEqual({
+        url,
+        route: expect.stringMatching(/^\/[^?#]+$/),
+        resolves: true,
+      });
+    }
+  });
+
+  // Website sign-in finishes with a hard redirect to its destination, by
+  // default the bare account page; claiming it would pull web sign-in into
+  // the app.
+  test("leaves the bare account page, website sign-in's destination, to the browser", () => {
+    const all = filters({ EXPO_PUBLIC_API_ORIGIN: preview });
+    for (const origin of [production, preview]) {
+      for (const prefix of ["", ...supportedLocales.map((tag) => `/${tag}`)]) {
+        const url = `${origin}${prefix}/account`;
+        expect({
+          url,
+          claimed: all.some((filter) => claimsUrl(filter, url)),
+        }).toEqual({ url, claimed: false });
+      }
+    }
+  });
+
+  test("leaves the site pages the app opens in a browser to the browser", () => {
+    const opened = [production, preview].flatMap((origin) => [
+      contactPageUrl(origin),
+      sitePageUrl("/ai-assistants", origin),
+      workspaceUpdateUrls(origin).androidDownloadUrl,
+      ...legalDocuments.flatMap((document) => [
+        legalDocumentUrl(document, origin),
+        ...supportedLocales.map((locale) =>
+          legalDocumentUrl(document, origin, locale)
+        ),
+      ]),
+      ...supportedLocales.flatMap((locale) =>
+        sampleLegalDocuments(locale, 1).map(
+          (document) => new URL(document.path, origin).href
+        )
+      ),
+    ]);
+    const all = filters({ EXPO_PUBLIC_API_ORIGIN: preview });
+    for (const url of opened) {
+      expect({
+        url,
+        claimed: all.some((filter) => claimsUrl(filter, url)),
+      }).toEqual({ url, claimed: false });
+    }
   });
 });
 
