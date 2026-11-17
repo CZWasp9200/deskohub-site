@@ -3,8 +3,6 @@ import "server-only";
 import type {
   AutomationEngineHealth,
   AutomationFlow,
-  AutomationRunDetail,
-  AutomationRunPage,
   AutomationRunStats,
   AutomationVersionSummary,
 } from "@deskohub/workspace-admin-api";
@@ -14,6 +12,10 @@ import {
   runAdministrationPage,
 } from "@/features/administrators/server/administration-request.server";
 import { automationRunIdSchema } from "../../../automation/automation-identifiers";
+import type {
+  AutomationRunDetailWithLifecycle,
+  AutomationRunPageWithLifecycle,
+} from "../../../automation/backend/automation-run-log.service";
 import type { CampaignId } from "../../../campaign-identifiers";
 import { loadAudienceValueLookups } from "../../audiences/audience-value-lookups.server";
 import {
@@ -40,7 +42,7 @@ export interface AutomationRunLog {
     readonly stats: AutomationRunStats;
     readonly versions: readonly AutomationVersionSummary[];
   }>;
-  readonly runs: Loaded<AutomationRunPage>;
+  readonly runs: Loaded<AutomationRunPageWithLifecycle>;
   readonly health: Loaded<AutomationEngineHealth>;
   /** When the page read the engine's health, in epoch milliseconds. */
   readonly checkedAt: number;
@@ -153,7 +155,7 @@ export const loadAutomationRunLog = (
   );
 
 export interface AutomationRunRecord {
-  readonly run: AutomationRunDetail;
+  readonly run: AutomationRunDetailWithLifecycle;
   /** The flow of the run's own version, or `null` when it fails to load. */
   readonly flow: AutomationFlow | null;
   /** The names a failed condition's clauses are worded with. */

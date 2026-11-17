@@ -73,17 +73,18 @@ describe("AdministrationCustomerDirectory.search", () => {
       (d) => d.search("synthetic")
     ).then(({ result }) => Result.getOrThrow(result));
 
-  test("hides deleted customers, keeps expired ones and keeps the Dotypos order", async () => {
+  test("hides deleted and expired customers and keeps the Dotypos order", async () => {
     const search = await searchOver([
       customer("customer-b"),
       customer("customer-deleted", { deleted: true }),
       customer("customer-expired", { expireDate: "2020-01-01T00:00:00Z" }),
+      customer("customer-expiring", { expireDate: "2999-01-01T00:00:00Z" }),
       customer("customer-a"),
     ]);
 
     expect(ids(search.customers)).toEqual([
       "customer-b",
-      "customer-expired",
+      "customer-expiring",
       "customer-a",
     ]);
     expect(search.kind).toBe("ambiguous");
@@ -106,6 +107,7 @@ describe("AdministrationCustomerDirectory.search", () => {
       (
         await searchOver([
           customer("customer-deleted", { deleted: true }),
+          customer("customer-expired", { expireDate: "2020-01-01T00:00:00Z" }),
           customer("customer-only"),
         ])
       ).kind
@@ -134,6 +136,7 @@ describe("AdministrationCustomerDirectory.find", () => {
       customer("customer-active"),
       customer("customer-deleted", { deleted: true }),
       customer("customer-expired", { expireDate: "2020-01-01T00:00:00Z" }),
+      customer("customer-expiring", { expireDate: "2999-01-01T00:00:00Z" }),
     ],
   });
 
@@ -142,17 +145,18 @@ describe("AdministrationCustomerDirectory.find", () => {
       ({ result }) => Result.getOrThrow(result)
     );
 
-  test("finds an active or expired customer", async () => {
+  test("finds an active customer, including one whose expiry is still ahead", async () => {
     expect(Option.map(await find("customer-active"), ({ id }) => id)).toEqual(
       Option.some("customer-active")
     );
-    expect(Option.map(await find("customer-expired"), ({ id }) => id)).toEqual(
-      Option.some("customer-expired")
+    expect(Option.map(await find("customer-expiring"), ({ id }) => id)).toEqual(
+      Option.some("customer-expiring")
     );
   });
 
-  test("treats a deleted customer as missing", async () => {
+  test("treats a deleted or expired customer as missing", async () => {
     expect(Option.isNone(await find("customer-deleted"))).toBe(true);
+    expect(Option.isNone(await find("customer-expired"))).toBe(true);
     expect(Option.isNone(await find("customer-missing"))).toBe(true);
   });
 });

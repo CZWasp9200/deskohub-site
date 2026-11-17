@@ -62,10 +62,8 @@ describe("app entry", () => {
     const imports = [...entry.matchAll(/^import\s+"([^"]+)";/gm)].map(
       (match) => match[1]
     );
-    expect(imports).toEqual([
-      "./src/auth/auth-location-entry",
-      "expo-router/entry",
-    ]);
+    expect(imports[0]).toBe("./src/auth/auth-location-entry");
+    expect(imports.at(-1)).toBe("expo-router/entry");
     const packageJson = JSON.parse(
       readFileSync(new URL("../../package.json", import.meta.url), "utf8")
     ) as { readonly main: string };

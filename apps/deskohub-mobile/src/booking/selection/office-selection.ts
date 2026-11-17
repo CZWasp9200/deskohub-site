@@ -1,5 +1,6 @@
 import type {
   CustomerAvailability,
+  CustomerBookableDates,
   CustomerBookingSelection,
   CustomerOffering,
 } from "@deskohub/workspace-customer-api";
@@ -7,11 +8,9 @@ import { Data, Option } from "effect";
 import type { AvailabilityQuery, DateChoice } from "./booking-selection";
 import {
   addDays,
-  addMonths,
   daysBetween,
   hoursBetweenMidnights,
   type PragueDate,
-  pragueToday,
 } from "./prague-date";
 
 /** An office booking the customer is putting together. */
@@ -27,14 +26,6 @@ export type OfficeOffering = Extract<
   CustomerOffering,
   { readonly family: "office" }
 >;
-
-const horizonMonths = 1;
-
-/** The calendar an office draft may pick from: today through one month. */
-const officeDateRange = (today: PragueDate) => ({
-  earliest: today,
-  latest: addMonths(today, horizonMonths),
-});
 
 /** The draft an office screen opens with: no day picked, one day, one seat. */
 export const emptyOfficeDraft: OfficeDraft = {
@@ -65,10 +56,9 @@ export const toOfficeSelection = (
  */
 export const officeDraftFromSelection = (
   selection: CustomerBookingSelection,
-  today: PragueDate
+  { earliest, latest }: CustomerBookableDates
 ): Option.Option<OfficeDraft> => {
   if (selection.family !== "office") return Option.none();
-  const { earliest, latest } = officeDateRange(today);
   const endDate = selection.endDate ?? selection.date;
   return Option.some({
     date: Option.liftPredicate(
@@ -86,13 +76,15 @@ export const selectOfficeDate = (
   date: PragueDate
 ): OfficeDraft => ({ ...draft, date: Option.some(date) });
 
-/** The availability query across the office booking horizon. */
-export const officeAvailabilityQuery = (
-  today: PragueDate
-): AvailabilityQuery => {
-  const { earliest, latest } = officeDateRange(today);
-  return { kind: "office", from: earliest, to: latest };
-};
+/** The availability query across the office offering's bookable dates. */
+export const officeAvailabilityQuery = ({
+  earliest,
+  latest,
+}: CustomerBookableDates): AvailabilityQuery => ({
+  kind: "office",
+  from: earliest,
+  to: latest,
+});
 
 /**
  * The most days a booking from `date` can span: up to `latest` and before
@@ -170,13 +162,12 @@ const isCountWithin = (count: number, maximum: Option.Option<number>) =>
 export const officeEnablement = (
   draft: OfficeDraft,
   context: {
-    readonly now: Date;
     readonly offering: OfficeOffering;
     /** Availability settled for `officeAvailabilityQuery`. */
     readonly availability: Option.Option<CustomerAvailability>;
   }
 ): OfficeEnablement => {
-  const { earliest, latest } = officeDateRange(pragueToday(context.now));
+  const { earliest, latest } = context.offering.bookableDates;
   const unavailableDates = Option.match(context.availability, {
     onNone: () => [],
     onSome: (availability) => availability.unavailableDates,

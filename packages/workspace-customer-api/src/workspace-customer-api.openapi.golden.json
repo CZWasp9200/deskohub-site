@@ -6278,6 +6278,12 @@
           },
           "seatAmount": {
             "$ref": "#/components/schemas/Money"
+          },
+          "seatsAmount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "monitorOption": {
+            "$ref": "#/components/schemas/CustomerMonitorOption"
           }
         },
         "required": ["key", "amount"],
@@ -6494,6 +6500,19 @@
         "required": ["price", "discount"],
         "additionalProperties": false
       },
+      "CustomerBookableDates": {
+        "type": "object",
+        "properties": {
+          "earliest": {
+            "$ref": "#/components/schemas/CustomerPlainDate"
+          },
+          "latest": {
+            "$ref": "#/components/schemas/CustomerPlainDate"
+          }
+        },
+        "required": ["earliest", "latest"],
+        "additionalProperties": false
+      },
       "CustomerOfferingAddOn": {
         "type": "object",
         "properties": {
@@ -6574,6 +6593,9 @@
               "advertisedPrice": {
                 "$ref": "#/components/schemas/CustomerAdvertisedPrice"
               },
+              "bookableDates": {
+                "$ref": "#/components/schemas/CustomerBookableDates"
+              },
               "addOns": {
                 "type": "array",
                 "items": {
@@ -6602,6 +6624,7 @@
               "usage",
               "price",
               "advertisedPrice",
+              "bookableDates",
               "addOns"
             ],
             "additionalProperties": false
@@ -6639,6 +6662,9 @@
               },
               "advertisedPrice": {
                 "$ref": "#/components/schemas/CustomerAdvertisedPrice"
+              },
+              "bookableDates": {
+                "$ref": "#/components/schemas/CustomerBookableDates"
               }
             },
             "required": [
@@ -6650,7 +6676,8 @@
               "usage",
               "facts",
               "price",
-              "advertisedPrice"
+              "advertisedPrice",
+              "bookableDates"
             ],
             "additionalProperties": false
           },
@@ -6684,6 +6711,9 @@
               },
               "advertisedPrice": {
                 "$ref": "#/components/schemas/CustomerAdvertisedPrice"
+              },
+              "bookableDates": {
+                "$ref": "#/components/schemas/CustomerBookableDates"
               }
             },
             "required": [
@@ -6694,7 +6724,8 @@
               "price",
               "seatPrice",
               "maximumDurationHours",
-              "advertisedPrice"
+              "advertisedPrice",
+              "bookableDates"
             ],
             "additionalProperties": false
           }

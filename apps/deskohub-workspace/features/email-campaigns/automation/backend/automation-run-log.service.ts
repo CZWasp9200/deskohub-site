@@ -1,6 +1,10 @@
 import "server-only";
 
-import { type DotyposCustomerId, DotyposService } from "@deskohub/dotypos";
+import {
+  type DotyposCustomerId,
+  type DotyposCustomerLifecycle,
+  DotyposService,
+} from "@deskohub/dotypos";
 import {
   AdministrationCampaignRecipientSkipReason,
   type AdministrationCampaignRecipientSkipReasonType,
@@ -57,6 +61,25 @@ import {
   readAutomationCustomerContacts,
 } from "./automation-customer-contacts";
 
+/**
+ * A run's summary with its customer's lifecycle when the run log read it, so
+ * the Admin UI can show a deleted or expired customer's placeholder. Null
+ * when Dotypos didn't return the customer or couldn't be read. The
+ * administration API contract doesn't declare it, so the API leaves it out.
+ */
+export type AutomationRunSummaryWithLifecycle = AutomationRunSummary & {
+  readonly customerLifecycle: DotyposCustomerLifecycle | null;
+};
+
+/** One page of runs, each with its customer's lifecycle. */
+export type AutomationRunPageWithLifecycle = AutomationRunPage & {
+  readonly runs: readonly AutomationRunSummaryWithLifecycle[];
+};
+
+/** One run with its timeline and its customer's lifecycle. */
+export type AutomationRunDetailWithLifecycle = AutomationRunDetail &
+  AutomationRunSummaryWithLifecycle;
+
 interface IAutomationRunLog {
   /**
    * One page of an automated campaign's runs, newest first, narrowed by the
@@ -66,7 +89,7 @@ interface IAutomationRunLog {
   readonly listRuns: (
     input: AutomationRunListInput
   ) => Effect.Effect<
-    AutomationRunPage,
+    AutomationRunPageWithLifecycle,
     | CampaignNotFound
     | CampaignDeliveryMismatch
     | AutomationVersionNotFound
@@ -80,7 +103,7 @@ interface IAutomationRunLog {
   readonly getRun: (input: {
     readonly runId: AutomationRunId;
   }) => Effect.Effect<
-    AutomationRunDetail,
+    AutomationRunDetailWithLifecycle,
     AutomationRunNotFound | DatabaseQueryError
   >;
   /**
@@ -141,7 +164,7 @@ export class AutomationRunLog extends Context.Service<
             rows.length > limit
               ? Option.getOrNull(Option.map(last, runPosition))
               : null,
-        } satisfies AutomationRunPage;
+        } satisfies AutomationRunPageWithLifecycle;
       });
 
       const getRun = Effect.fn("AutomationRunLog.getRun")(function* (input: {
@@ -163,7 +186,7 @@ export class AutomationRunLog extends Context.Service<
           .where(eq(runEvents.runId, input.runId))
           .orderBy(asc(runEvents.sequence));
         const contacts = yield* contactsOf([row]);
-        const detail: AutomationRunDetail = {
+        const detail: AutomationRunDetailWithLifecycle = {
           ...runSummary(row, contacts),
           timeline: entries.map(timelineEntry),
         };
@@ -378,6 +401,7 @@ const customerContactFields = (
       customerName: null,
       customerEmail: null,
       customerProfileStatus: "unavailable",
+      customerLifecycle: null,
     } as const;
   }
   const contact = contacts.value.get(customerId);
@@ -386,11 +410,13 @@ const customerContactFields = (
         customerName: null,
         customerEmail: null,
         customerProfileStatus: "not-found",
+        customerLifecycle: null,
       } as const)
     : ({
         customerName: contact.name,
         customerEmail: contact.email,
         customerProfileStatus: "found",
+        customerLifecycle: contact.lifecycle,
       } as const);
 };
 
@@ -399,7 +425,7 @@ const runSummary = (
   contacts: Option.Option<
     ReadonlyMap<DotyposCustomerId, AutomationCustomerContact>
   >
-): AutomationRunSummary => ({
+): AutomationRunSummaryWithLifecycle => ({
   runId: row.runId,
   campaignId: row.campaignId,
   versionNumber: row.versionNumber,

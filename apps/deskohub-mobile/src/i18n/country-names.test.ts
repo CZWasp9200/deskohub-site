@@ -3,6 +3,8 @@ import { appLocales } from "./app-locale";
 import {
   bundledCountryName,
   countryName,
+  detectedCountry,
+  homeCountry,
   invoiceCountries,
   invoiceCountryCodes,
 } from "./country-names";
@@ -40,5 +42,18 @@ describe("invoice countries", () => {
         new Intl.DisplayNames([locale], { type: "region" }).of("CZ") ?? ""
       );
     }
+  });
+});
+
+describe("detectedCountry", () => {
+  test("is the first device region that is an invoice country", () => {
+    expect(detectedCountry(["US", "DE"])).toBe("US");
+    expect(detectedCountry([null, "XK", "at"])).toBe("AT");
+  });
+
+  test("falls back to the home country when no region is one", () => {
+    expect(detectedCountry([])).toBe(homeCountry);
+    expect(detectedCountry([null, undefined, "XK", "419"])).toBe(homeCountry);
+    expect(homeCountry).toBe("CZ");
   });
 });

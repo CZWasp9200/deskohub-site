@@ -8,6 +8,10 @@ import { StatusBadge } from "@/shared/components/ui/status-badge";
 import { AdministrationLink as Link } from "./admin-link";
 import type { AdministrationReservationSummary } from "./administration.service";
 import { administrationHref } from "./administration-href";
+import {
+  AdministrationCustomerNameLabel,
+  AdministrationCustomerNameLink,
+} from "./customer-name-label";
 import { getAdministrationCustomerName } from "./customer-presentation";
 import {
   AdministrationDataTable,
@@ -177,12 +181,12 @@ export function ReservationTable({
                           { reservationId: reservation.id }
                         )}
                       >
-                        {(showCustomer &&
-                          reservation.customer &&
-                          getAdministrationCustomerName(
-                            reservation.customer,
-                            locale
-                          )) ||
+                        {(showCustomer && reservation.customer && (
+                          <AdministrationCustomerNameLabel
+                            customer={reservation.customer}
+                            locale={locale}
+                          />
+                        )) ||
                           getAdministrationReservationProductTitle(
                             reservation.product,
                             locale
@@ -348,14 +352,12 @@ function ReservationCustomer({
   }
   return (
     <>
-      <Link
+      <AdministrationCustomerNameLink
         className="relative z-10 font-medium hover:underline"
-        href={administrationHref("/[locale]/admin/customers/[customerId]", {
-          customerId: reservation.customerId,
-        })}
-      >
-        {getAdministrationCustomerName(reservation.customer, locale)}
-      </Link>
+        customer={reservation.customer}
+        customerId={reservation.customerId}
+        locale={locale}
+      />
       <p className="mt-1 text-xs text-navy-blue/65">
         {reservation.customer.email ??
           reservation.customer.phone ??

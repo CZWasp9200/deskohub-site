@@ -3,6 +3,7 @@ import "server-only";
 import { Context, type Effect, Layer, type Option } from "effect";
 import type { AndroidRelease } from "../android-release";
 import type { MobileReleaseLookupError } from "./android-release-lookup";
+import { loadAndroidRelease } from "./android-release-version.server";
 import { loadLatestAndroidRelease } from "./latest-android-release.server";
 
 interface IAndroidReleases {
@@ -11,6 +12,10 @@ interface IAndroidReleases {
     Option.Option<AndroidRelease>,
     MobileReleaseLookupError
   >;
+  /** The APK of one version; `None` when that version has no usable release. */
+  readonly release: (
+    versionName: string
+  ) => Effect.Effect<Option.Option<AndroidRelease>, MobileReleaseLookupError>;
 }
 
 /** The Android releases the mobile app and the download page offer. */
@@ -20,5 +25,6 @@ export class AndroidReleases extends Context.Service<
 >()("@deskohub-workspace/mobile-releases/AndroidReleases") {
   static Default = Layer.sync(this, () => ({
     latest: loadLatestAndroidRelease(),
+    release: loadAndroidRelease,
   }));
 }

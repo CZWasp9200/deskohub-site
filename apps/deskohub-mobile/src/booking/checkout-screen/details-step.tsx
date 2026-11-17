@@ -916,7 +916,7 @@ const barReason = ({
   return undefined;
 };
 
-/** "Fix 2 fields to continue"; Hermes has no plural rules, so one is its own message. */
+/** "Fix 2 fields to continue"; one is its own message. */
 const fixFieldsMessage = (count: number, locale: AppLocale) =>
   count === 1
     ? m.booking_details_fix_one_field({}, { locale })

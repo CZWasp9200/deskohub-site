@@ -61,6 +61,7 @@ describe("Reserved Desk stay in the customer booking contract", () => {
         price,
         discount: { value: 0, exponent: 2, currency: "CZK" },
       },
+      bookableDates: { earliest: "2099-06-10", latest: "2099-12-10" },
       addOns: [],
     };
     const decode = Schema.decodeUnknownSync(CustomerOffering);

@@ -1,4 +1,8 @@
-import type { AdministrationCustomerName } from "@/features/administration/customer-name";
+import {
+  type AdministrationCustomerName,
+  isInactiveAdministrationCustomer,
+} from "@/features/administration/customer-name";
+import { getAdministrationCustomerName } from "@/features/administration/customer-presentation";
 import { m } from "@/features/administration/i18n";
 import type { Locale } from "@/features/i18n";
 import type {
@@ -34,11 +38,14 @@ export const getInvoiceCustomerErrorMessage = (
     "invoice-id-reused": m.accountingInvoiceIdReused,
   })[reason]({}, { locale });
 
-/** Names a customer in the operator's language when Dotypos holds no name or email for them. */
+/** Names a customer in the operator's language: the deleted or expired placeholder, the name, or "Unnamed customer". */
 export const getInvoiceCustomerName = (
   customer: AdministrationCustomerName,
   locale: Locale
-) =>
-  customer.hasName
+) => {
+  if (isInactiveAdministrationCustomer(customer))
+    return getAdministrationCustomerName(customer, locale);
+  return customer.hasName
     ? customer.displayName
     : m.accountingUnnamedCustomer({}, { locale });
+};

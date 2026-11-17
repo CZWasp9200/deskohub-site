@@ -1,7 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { DotyposUnavailable } from "@deskohub/dotypos";
+import { DotyposTableSchema, DotyposUnavailable } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
 import { customerAvailabilityReplacementHeader } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Schema } from "effect";
@@ -199,6 +199,23 @@ const pricedCatalog = (
   ...overrides,
 });
 
+/** The inventory with Workspace's one office table, which office quotes read. */
+const officeInventory = Layer.succeed(AdvisoryAvailabilityInventory, {
+  tables: Effect.succeed([
+    Schema.decodeSync(DotyposTableSchema)({
+      _cloudId: "cloud",
+      display: true,
+      enabled: true,
+      name: "office-1",
+      seats: "6",
+      id: "office-1",
+      tags: ["reservation:office"],
+    }),
+  ]),
+  listActiveReservationsOverlapping: () => Effect.succeed([]),
+  listLimitations: () => Effect.succeed([]),
+});
+
 const officeOpen: CustomerBookingCatalogLayerSet["releases"] = {
   office: OfficeReleaseGate.fromDecision(true),
   overnightStay: OvernightStayReleaseGate.fromDecision(false),
@@ -250,6 +267,33 @@ describe("listOfferings", () => {
     for (const offering of body.offerings) {
       expect(offering.advertisedPrice.price).toEqual(offering.price);
       expect(offering.advertisedPrice.discount.value).toBe(0);
+    }
+  });
+
+  test("advertises each family's bookable dates from the day it prices for", async () => {
+    const api = makeCustomerApiTestServer({
+      bookingCatalog: pricedCatalog({ releases: officeOpen }),
+    });
+
+    const response = await api.handle(customerApiRequest(listOfferings));
+
+    const body = await response.json();
+    const advertisedOn = Temporal.PlainDate.from(body.advertisedOn);
+    const monthsByFamily = {
+      cowork: 6,
+      "meeting-room": 6,
+      office: 1,
+    } satisfies Record<string, number>;
+    expect(
+      body.offerings.map((offering: { family: string }) => offering.family)
+    ).toContain("office");
+    for (const offering of body.offerings) {
+      expect(offering.bookableDates).toEqual({
+        earliest: body.advertisedOn,
+        latest: advertisedOn
+          .add({ months: monthsByFamily[offering.family] })
+          .toString(),
+      });
     }
   });
 
@@ -1020,6 +1064,80 @@ describe("getQuote", () => {
       _tag: "CustomerBookingSelectionInvalid",
       field: "date",
     });
+  });
+
+  test.each([
+    ["cowork", "family=cowork&tier=reserved-desk"],
+    ["meeting-room", "family=meeting-room&duration=hour:1&startTime=10:00"],
+    ["office", "family=office&seats=2"],
+  ])(
+    "quotes the last %s date the offerings advertise and refuses the next",
+    async (family, selection) => {
+      const api = makeCustomerApiTestServer({
+        bookingCatalog: pricedCatalog({
+          releases: officeOpen,
+          inventory: officeInventory,
+        }),
+      });
+      const offerings = await (
+        await api.handle(
+          customerApiRequest({
+            method: "GET",
+            path: "/booking/offerings?locale=en-US",
+          })
+        )
+      ).json();
+      const { latest } = offerings.offerings.find(
+        (offering: { family: string }) => offering.family === family
+      ).bookableDates;
+      const quoteOn = (date: string) =>
+        api.handle(
+          customerApiRequest({
+            method: "GET",
+            path: quotePath(`${selection}&date=${date}`),
+          })
+        );
+
+      expect((await quoteOn(latest)).status).toBe(200);
+      const refused = await quoteOn(
+        Temporal.PlainDate.from(latest).add({ days: 1 }).toString()
+      );
+      expect(refused.status).toBe(422);
+      expect(await refused.json()).toEqual({
+        _tag: "CustomerBookingDateOutOfRange",
+        earliest: expect.any(String),
+        latest,
+      });
+    }
+  );
+
+  test("totals the office seats for the days booked on the office line", async () => {
+    const api = makeCustomerApiTestServer({
+      bookingCatalog: pricedCatalog({
+        releases: officeOpen,
+        inventory: officeInventory,
+      }),
+    });
+
+    const response = await api.handle(
+      customerApiRequest({
+        method: "GET",
+        path: quotePath(
+          `family=office&seats=3&date=${workspaceDateFromToday(1)}&endDate=${workspaceDateFromToday(2)}`
+        ),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const [officeLine] = (await response.json()).summary.sections[0].items;
+    expect(officeLine).toMatchObject({ dayCount: 2, seats: 3 });
+    expect(officeLine.seatsAmount).toEqual({
+      ...officeLine.seatAmount,
+      value: officeLine.seatAmount.value * 3,
+    });
+    expect(officeLine.accessAmount.value + officeLine.seatsAmount.value).toBe(
+      officeLine.amount.value
+    );
   });
 
   test("tells the client which dates can be booked", async () => {
