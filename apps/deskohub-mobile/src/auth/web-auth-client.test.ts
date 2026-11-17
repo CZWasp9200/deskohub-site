@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { botProtectedAuthRequests } from "./bot-protection-policy";
 import { createWebAuthClient } from "./web-auth-client";
 
@@ -48,7 +49,7 @@ afterEach(() => {
 test("the sign-in email goes through the fetch BotID installs after creation", async () => {
   const client = clientWithFetchReplacedAfterCreation();
 
-  await client.signIn.magicLink({ email: "customer@example.test" });
+  await client.signIn.magicLink({ email: testEmailAddress("customer") });
 
   const request = {
     path: "/api/auth/sign-in/magic-link",
@@ -62,7 +63,7 @@ test("the code sign-in goes through the fetch BotID installs after creation", as
   const client = clientWithFetchReplacedAfterCreation();
 
   await client.signIn.emailOtp({
-    email: "customer@example.test",
+    email: testEmailAddress("customer"),
     otp: "123456",
   });
 
