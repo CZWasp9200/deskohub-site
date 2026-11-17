@@ -96,7 +96,7 @@ beforeAll(async () => {
 });
 afterAll(() => {
   hostWarnings.mockRestore();
-  delete globals.__DEV__;
+  globals.__DEV__ = false;
   if (postHogKey !== undefined)
     process.env.EXPO_PUBLIC_POSTHOG_KEY = postHogKey;
   appAccountConsentCheck.follow(undefined);

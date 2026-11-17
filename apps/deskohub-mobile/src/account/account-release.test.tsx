@@ -1,10 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { clientRoot } from "../testing/client-root";
 import type { AccountRelease } from "./account-gating";
 
 // The test runs as a development build without sample data.
-(globalThis as { __DEV__?: boolean }).__DEV__ = true;
+const globals = globalThis as { __DEV__?: boolean };
+globals.__DEV__ = true;
+afterAll(() => {
+  globals.__DEV__ = false;
+});
 const { useAccountRelease } = await import("./account-release");
 
 const { render } = clientRoot();
