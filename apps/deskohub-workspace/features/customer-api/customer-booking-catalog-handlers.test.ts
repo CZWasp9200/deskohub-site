@@ -30,6 +30,7 @@ import {
 import { releaseGateForRunOverFlags } from "@/features/feature-flags/backend/release-cohorts.test-utils";
 import type { WorkspaceFeatureFlagService } from "@/features/feature-flags/backend/workspace-feature-flag.service";
 import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-evidence";
+import { MeetingRoomReleaseGate } from "@/features/meeting-room/backend/meeting-room-release-gate";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
@@ -217,6 +218,7 @@ const officeInventory = Layer.succeed(AdvisoryAvailabilityInventory, {
 });
 
 const officeOpen: CustomerBookingCatalogLayerSet["releases"] = {
+  meetingRoom: MeetingRoomReleaseGate.fromDecision(true),
   office: OfficeReleaseGate.fromDecision(true),
   overnightStay: OvernightStayReleaseGate.fromDecision(false),
   referral: ReferralReleaseGate.fromDecision(false),
@@ -330,6 +332,33 @@ describe("listOfferings", () => {
       seatPrice: { currency: "CZK" },
       maximumDurationHours: expect.any(Number),
     });
+  });
+
+  test("lists the meeting room only while its release gate is open", async () => {
+    const families = async (meetingRoomOpen: boolean) => {
+      const api = makeCustomerApiTestServer({
+        bookingCatalog: pricedCatalog({
+          releases: {
+            ...officeOpen,
+            meetingRoom: MeetingRoomReleaseGate.fromDecision(meetingRoomOpen),
+          },
+        }),
+      });
+      const response = await api.handle(customerApiRequest(listOfferings));
+      expect(response.status).toBe(200);
+      const { offerings } = await response.json();
+      return offerings.map(({ family }: { family: string }) => family);
+    };
+
+    expect(await families(true)).toEqual([
+      "cowork",
+      "cowork",
+      "meeting-room",
+      "meeting-room",
+      "meeting-room",
+      "office",
+    ]);
+    expect(await families(false)).toEqual(["cowork", "cowork", "office"]);
   });
 
   test("advertises the overnight stay on the Reserved Desk only while it is offered", async () => {
@@ -1296,6 +1325,10 @@ describe("overlapping requests in different release cohorts", () => {
     ),
     inventory: emptyInventory,
     releases: {
+      meetingRoom: releaseGateForRunOverFlags(
+        MeetingRoomReleaseGate,
+        featureFlags
+      ),
       office: releaseGateForRunOverFlags(OfficeReleaseGate, featureFlags),
       overnightStay: OvernightStayReleaseGate.fromDecision(false),
       referral: releaseGateForRunOverFlags(ReferralReleaseGate, featureFlags),

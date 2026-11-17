@@ -2,7 +2,7 @@ import Interpolate from "@doist/react-interpolate";
 import Link from "next/link";
 import { connection } from "next/server";
 import { type Locale, m } from "@/features/i18n";
-import { isMeetingRoomPageOpenAfterConnection } from "@/features/meeting-room/backend/meeting-room-page-release-gate.server";
+import { isMeetingRoomPageOpenAfterConnection } from "@/features/meeting-room/backend/meeting-room-release-gate.server";
 import { textLink } from "@/shared/components/ui/text-link";
 
 /** Points the Workspace room's visitors at the meeting room it is, while that page is out. */

@@ -7,7 +7,7 @@ import { createLocalePreferenceSaving } from "@/features/account/server/locale-p
 import { isCurrentAccountAdministrator } from "@/features/administrators/server/current-account-administrator.server";
 import { type Locale, m } from "@/features/i18n";
 import { languageNames } from "@/features/i18n/language-labels";
-import { isMeetingRoomPageEnabled } from "@/features/meeting-room/backend/meeting-room-page-release-gate.server";
+import { isMeetingRoomPageEnabled } from "@/features/meeting-room/backend/meeting-room-release-gate.server";
 import { isOfficePageEnabled } from "@/features/office/backend/office-release-gate.server";
 import { getCoworkReservationPath } from "@/features/reservation/routes";
 import {

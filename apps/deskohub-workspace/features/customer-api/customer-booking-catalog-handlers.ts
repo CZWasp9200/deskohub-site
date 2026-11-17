@@ -20,6 +20,7 @@ import {
 import { getReservationQuoteDiscount } from "@/features/checkout/reservation-quote-schema";
 import type { Locale } from "@/features/i18n";
 import { getPaymentSubmitLegalDocuments } from "@/features/legal/payment-submit-evidence";
+import { MeetingRoomReleaseGate } from "@/features/meeting-room/backend/meeting-room-release-gate";
 import { resolveBookingQuoteSelection } from "@/features/reservation/backend/booking-selection";
 import { OvernightStayReleaseGate } from "@/features/reservation/backend/overnight-stay-release-gate";
 import { AvailabilityQueryInvalid } from "@/features/reservation/backend/workspace-availability.service";
@@ -80,6 +81,11 @@ export type CustomerBookingCatalogEndpointName =
  * the booking pages read. The offerings and the quote read release gates,
  * so they build their Layers per request with `providePerRequest`;
  * availability's Layers keep nothing for a request.
+ *
+ * The offerings list the meeting room only while its release gate is open,
+ * as the office only while office reservations are. The meeting room's start
+ * times and quotes still answer, since the website's reservation page still
+ * books it while the gate hides it.
  */
 export const handleCustomerBookingCatalog = <R>(
   handlers: HttpApiBuilder.Handlers<
@@ -91,10 +97,14 @@ export const handleCustomerBookingCatalog = <R>(
     const { pricing, inventory, availability, sealedStateKeys, releases } =
       yield* CustomerBookingCatalogLayers;
 
-    /** What the offerings read: anonymous prices and the office capacity. */
+    /**
+     * What the offerings read: anonymous prices, the office capacity, and
+     * the gates that decide which offerings the catalog lists.
+     */
     const offerings = Layer.mergeAll(
       pricing.pipe(Layer.provideMerge(releases.referral)),
       inventory,
+      releases.meetingRoom,
       releases.office,
       releases.overnightStay
     );
@@ -116,13 +126,20 @@ export const handleCustomerBookingCatalog = <R>(
             "overnightStayOffered",
             () => OvernightStayReleaseGate.isOpen
           ),
+          Effect.bind(
+            "meetingRoomOffered",
+            () => MeetingRoomReleaseGate.isOpen
+          ),
           Effect.map(
             (listing): CustomerBookingOfferings => ({
               advertisedOn: listing.advertisedOn.toString(),
               openingHours: getPublicOpeningHours(locale),
-              offerings: listing.offerings.map((offering) =>
-                toCustomerOffering(offering, listing)
-              ),
+              offerings: listing.offerings
+                .filter(
+                  ({ kind }) =>
+                    kind !== "meeting-room" || listing.meetingRoomOffered
+                )
+                .map((offering) => toCustomerOffering(offering, listing)),
             })
           ),
           providePerRequest(offerings),
