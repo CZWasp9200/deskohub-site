@@ -7,7 +7,7 @@ import {
   CurrentAdministrationCaller,
 } from "@deskohub/workspace-admin-api";
 import { Effect } from "effect";
-import { startOperationRefresh } from "@/features/administration/administration-operation-port";
+import { startOperationSettlement } from "@/features/administration/administration-operation-port";
 import {
   type DiscountRequestLedger,
   discountOperationSettlements,
@@ -22,8 +22,9 @@ import { toOperationLedgerFailure } from "./cli-administration-operations.server
 /**
  * The administration API's discount ledger for one request: the caller's
  * channel keeps the request ID, so a retried request replays its first
- * result. The calendar refresh the mutation declares starts best effort
- * once the result is known, applied or replayed.
+ * result. The calendar refresh and customer-page revalidation the mutation
+ * declares start best effort once a successful result is known, applied or
+ * replayed; a failure settles nothing.
  */
 export const cliDiscountRequestLedger = (
   ledger: AdministrationRequestLedger["Service"],
@@ -58,7 +59,7 @@ const applyDiscountMutation = (
       mutation,
       stored: StoredResult.unchanged(AdministrationDiscountMutationResult),
       apply,
-      afterSettled: startOperationRefresh(
+      afterSettled: startOperationSettlement(
         discountOperationSettlements.mutateDiscounts,
         mutation
       ),
