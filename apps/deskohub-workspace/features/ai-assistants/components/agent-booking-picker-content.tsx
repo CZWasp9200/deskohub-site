@@ -82,7 +82,7 @@ export function AgentBookingPickerContent({ locale }: { locale: Locale }) {
         />
         <Link
           className="text-sm text-navy-blue/75 underline underline-offset-[3px] transition-colors hover:text-burned-orange focus-visible:text-burned-orange sm:ml-auto"
-          href={getLocalizedPagePath(locale, "/ai-assistants")}
+          href={getLocalizedPagePath(locale, "/[locale]/ai-assistants")}
         >
           {m.agentBookingHowItWorks({}, { locale })}
         </Link>
