@@ -70,6 +70,7 @@ import {
   answerCustomerApiFailure,
   answerSessionApiFailure,
   answerUnavailable,
+  type CustomerApiFailure,
 } from "./customer-api-failure";
 import { toCustomerCheckout } from "./customer-checkout-view";
 import { answerFileDownload } from "./customer-file-download";
@@ -273,17 +274,36 @@ type CustomerReservationAccountId = Parameters<
  */
 const answerWithdrawalFailure =
   (operation: string) =>
-  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  <A, E, R>(
+    effect: Effect.Effect<A, E, R>
+  ): Effect.Effect<
+    A,
+    | CustomerReservationNotFound
+    | CustomerWithdrawalRefused
+    | CustomerApiFailure<Exclude<E, WithdrawalRefusedError>>,
+    R
+  > =>
     effect.pipe(
-      Effect.catch((failure) => {
-        if (!(failure instanceof WithdrawalRefusedError)) {
-          return answerCustomerApiFailure(operation)(Effect.fail(failure));
+      Effect.catch(
+        (
+          failure
+        ): Effect.Effect<
+          never,
+          | CustomerReservationNotFound
+          | CustomerWithdrawalRefused
+          | CustomerApiFailure<Exclude<E, WithdrawalRefusedError>>
+        > => {
+          if (!(failure instanceof WithdrawalRefusedError)) {
+            return answerCustomerApiFailure(operation)(
+              Effect.fail(failure as Exclude<E, WithdrawalRefusedError>)
+            );
+          }
+          const { reason } = failure;
+          return reason === "not_found"
+            ? Effect.fail(new CustomerReservationNotFound())
+            : Effect.fail(new CustomerWithdrawalRefused({ reason }));
         }
-        const { reason } = failure;
-        return reason === "not_found"
-          ? Effect.fail(new CustomerReservationNotFound())
-          : Effect.fail(new CustomerWithdrawalRefused({ reason }));
-      })
+      )
     );
 
 /**
