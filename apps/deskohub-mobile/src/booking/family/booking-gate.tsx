@@ -47,7 +47,8 @@ export function BookingGate({ children }: { readonly children: ReactNode }) {
       {(current) => {
         const access = reservationsAccess(current);
         const gate = tabGate("book", access);
-        if (gate !== undefined) return <TabGateCard gate={gate} />;
+        if (gate !== undefined)
+          return <TabGateCard gate={gate} onRetry={refresh} />;
         return access.kind === "unavailable" ? (
           <Notice
             tone="warning"

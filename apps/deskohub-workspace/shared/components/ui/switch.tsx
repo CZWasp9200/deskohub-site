@@ -7,9 +7,11 @@ import { cn } from "@/shared/utils";
 interface SwitchProps
   extends React.ComponentPropsWithoutRef<typeof SwitchPrimitive.Root> {
   ref?: React.Ref<React.ComponentRef<typeof SwitchPrimitive.Root>>;
+  /** A small icon shown inside the knob, such as a lucide icon. */
+  icon?: React.ReactNode;
 }
 
-function Switch({ className, ref, ...props }: SwitchProps) {
+function Switch({ className, icon, ref, ...props }: SwitchProps) {
   return (
     <SwitchPrimitive.Root
       ref={ref}
@@ -19,7 +21,9 @@ function Switch({ className, ref, ...props }: SwitchProps) {
       )}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="block h-5 w-5 rounded-full bg-white shadow-sm transition-transform data-[state=checked]:translate-x-5" />
+      <SwitchPrimitive.Thumb className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-navy-blue/60 shadow-sm transition-transform data-[state=checked]:translate-x-5 data-[state=checked]:text-burned-orange [&>svg]:h-3 [&>svg]:w-3">
+        {icon}
+      </SwitchPrimitive.Thumb>
     </SwitchPrimitive.Root>
   );
 }

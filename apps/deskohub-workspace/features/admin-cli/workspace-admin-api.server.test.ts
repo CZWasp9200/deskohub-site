@@ -493,7 +493,7 @@ describe("Workspace Admin API", () => {
       customers: [
         {
           id: "company-customer",
-          displayName: "Synthetic Company",
+          displayName: "Synthetic",
           email: testEmailAddress("customer-search"),
           phone: "+420 000 000 000",
           discountGroupId: "discount-group",

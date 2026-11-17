@@ -233,7 +233,7 @@ describe("InvoiceAdministrationService", () => {
     expect(customers).toEqual([
       {
         id: "dotypos-customer-business",
-        displayName: "Synthetic s.r.o.",
+        displayName: "Ada",
         hasName: true,
         email: businessEmail,
         details: {

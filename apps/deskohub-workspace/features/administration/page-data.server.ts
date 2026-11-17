@@ -338,7 +338,7 @@ export const loadAdministrationCustomerBreadcrumbLabel = cache(
       Match.discriminatorsExhaustive("kind")({
         found: ({ customer }) =>
           getAdministrationCustomerName(
-            nameAdministrationCustomer(customer, "company-person-email-phone"),
+            nameAdministrationCustomer(customer),
             locale
           ),
         absent: () => undefined,

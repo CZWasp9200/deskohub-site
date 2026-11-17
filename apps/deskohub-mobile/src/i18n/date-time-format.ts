@@ -8,11 +8,10 @@ import { deviceHour12 } from "./device-clock";
  */
 export const workspaceTimeZone = "Europe/Prague";
 
-export type InstantStyle = "day" | "date" | "time" | "date-time";
+export type InstantStyle = "date" | "time" | "date-time";
 
 const styleOptions = {
   /** A whole day, written out as the site's account page shows day bookings. */
-  day: { dateStyle: "full" },
   date: { dateStyle: "medium" },
   time: { timeStyle: "short" },
   "date-time": { dateStyle: "medium", timeStyle: "short" },
@@ -79,8 +78,9 @@ export const isWorkspaceMidnight = (instant: DateTime.DateTime) =>
   !isSameWorkspaceDay(instant, DateTime.subtract(instant, { milliseconds: 1 }));
 
 /**
- * Formats the Prague days from `start` to the exclusive `end` as whole days:
- * the first day, and the last one when it is another day. An end that doesn't
+ * Formats the Prague days from `start` to the exclusive `end` as whole days,
+ * in the same medium date form as every other date (board 38): the first
+ * day, and the last one when it is another day. An end that doesn't
  * move forward leaves the first day alone.
  */
 export const formatWorkspaceDays = (
@@ -92,10 +92,10 @@ export const formatWorkspaceDays = (
     ? DateTime.subtract(end, { milliseconds: 1 })
     : start;
   return {
-    start: formatInstant(start, locale, "day"),
+    start: formatInstant(start, locale, "date"),
     end: isSameWorkspaceDay(start, last)
       ? Option.none()
-      : Option.some(formatInstant(last, locale, "day")),
+      : Option.some(formatInstant(last, locale, "date")),
   };
 };
 
