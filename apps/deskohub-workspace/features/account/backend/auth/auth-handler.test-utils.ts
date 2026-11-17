@@ -230,16 +230,44 @@ export const callNativeHandler = (
   );
 };
 
-const runIpOctet = Math.floor(Math.random() * 200) + 20;
+const ipBlockSize = 4096;
+const ipBlockCount = 4096;
+
+/**
+ * `bun test --parallel` evaluates this module afresh for every test file, and
+ * all of them share the test database's rate-limit rows, which Better Auth
+ * keys by client address. A database sequence gives each instance its own
+ * block, so no two test files, and no two runs against one database, send
+ * from the same address. Without a test database, rate limits stay in each
+ * file's memory and one block serves every file.
+ */
+const allocateIpBlock = async () => {
+  if (!testDatabase) return 0;
+  await testDatabase.pool.query(`do $$ begin
+    perform pg_advisory_xact_lock(hashtext('workspace_test_ip_block'));
+    create sequence if not exists workspace_test_ip_block;
+  end $$`);
+  const { rows } = await testDatabase.pool.query<{ block: string }>(
+    `select nextval('workspace_test_ip_block') % ${ipBlockCount} as block`
+  );
+  return Number(rows[0]!.block);
+};
+
+const ipBlock = await allocateIpBlock();
 let ipCounter = 0;
 /**
- * A private IPv4 address no other request of this run used. The run's octet
- * keeps concurrent runs apart; the counter spans two octets, so a suite can
- * make more than 255 requests and every address stays valid.
+ * A private IPv4 address in 10.0.0.0/8 that no other request sent, whatever
+ * test file or run against the same database sent it.
  */
 export const uniqueIp = () => {
   ipCounter += 1;
-  return `172.${16 + Math.floor(ipCounter / 256)}.${runIpOctet}.${ipCounter % 256}`;
+  if (ipCounter === ipBlockSize) {
+    throw new Error(
+      `A test file sent ${ipBlockSize - 1} requests from unique addresses; raise ipBlockSize.`
+    );
+  }
+  const address = ipBlock * ipBlockSize + ipCounter;
+  return `10.${address >> 16}.${(address >> 8) & 0xff}.${address & 0xff}`;
 };
 
 const runCustomerPrefix = Math.floor(Math.random() * 900000) + 100000;
