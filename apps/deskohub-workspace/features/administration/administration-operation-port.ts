@@ -16,6 +16,7 @@ import {
 import { type Context, Data, Effect, Schema, SchemaIssue } from "effect";
 import { AccountRoleGrants } from "@/features/administrators/backend/account-role-grants.service";
 import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
+import { revalidateLocalizedPath } from "@/features/i18n/server/revalidate-localized-path";
 import type { AdministrationPath } from "./administration-href";
 
 /**
@@ -81,10 +82,14 @@ export type OperationSettlement<Input> = {
    * Starts refreshing caches the change made stale. It throws when Next.js
    * refuses, so call it from the request's own async context: the Admin UI
    * runs it after its action settles, and the administration API starts it
-   * best effort with {@link startOperationRefresh}.
+   * best effort with {@link startOperationSettlement}.
    */
   readonly refreshes?: (input: Input) => void;
-  /** The administration pages the change made stale, for the Admin UI. */
+  /**
+   * The administration pages the change made stale. Every adapter
+   * revalidates them in each locale: the Admin UI after its action settles,
+   * the administration API best effort with {@link startOperationSettlement}.
+   */
   readonly revalidates?: (input: Input) => readonly AdministrationPath[];
 };
 
@@ -94,28 +99,42 @@ export type OperationSettlements<Ops extends Operations> = {
   >;
 };
 
-class OperationRefreshError extends Data.TaggedError("OperationRefreshError")<{
+class OperationSettlementError extends Data.TaggedError(
+  "OperationSettlementError"
+)<{
   readonly cause: unknown;
 }> {}
 
+/** Runs one settlement step; a step Next.js refuses is logged and skipped. */
+const settleBestEffort = (settle: () => void, refusal: string) =>
+  Effect.try({
+    try: settle,
+    catch: (cause) => new OperationSettlementError({ cause }),
+  }).pipe(
+    Effect.tapError(({ cause }) => Effect.logWarning(refusal, { cause })),
+    Effect.ignore
+  );
+
 /**
- * Starts a settlement's refresh from inside a fiber, for the administration
- * API. Best effort: a refresh that can't start is logged and skipped.
+ * Applies a settlement from inside a fiber, for the administration API: starts
+ * its refresh and revalidates its pages in each locale. Both are best effort
+ * and independent: a step that Next.js refuses is logged and skipped, and
+ * never changes the operation's result.
  */
-export const startOperationRefresh = <Input>(
+export const startOperationSettlement = <Input>(
   settlement: OperationSettlement<Input>,
   input: Input
 ) =>
-  Effect.try({
-    try: () => settlement.refreshes?.(input),
-    catch: (cause) => new OperationRefreshError({ cause }),
-  }).pipe(
-    Effect.tapError((cause) =>
-      Effect.logWarning("Administration cache refresh could not start", {
-        cause,
-      })
+  Effect.andThen(
+    settleBestEffort(
+      () => settlement.refreshes?.(input),
+      "Administration cache refresh could not start"
     ),
-    Effect.ignore
+    settleBestEffort(() => {
+      for (const path of settlement.revalidates?.(input) ?? []) {
+        revalidateLocalizedPath(path);
+      }
+    }, "Administration page revalidation failed")
   );
 
 /** One operation group's port: what every adapter calls. */

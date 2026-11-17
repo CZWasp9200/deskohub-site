@@ -2,6 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
+  AdministrationDiscountCodeId,
   AdministrationStoredDiscountId,
   AdministrationVoucherId,
   CliClientCompatibility,
@@ -19,11 +20,17 @@ import { HttpApiTest } from "effect/unstable/httpapi";
 
 // Every calendar discount cache invalidation and `after` callback.
 const refreshes: string[] = [];
+// Every page path revalidated, and whether Next.js refuses the next one.
+const revalidatedPaths: string[] = [];
+let refusesRevalidation = false;
 const nextServer = await import("next/server");
 mock.module("next/cache", () => ({
   cacheLife: () => undefined,
   cacheTag: () => undefined,
-  revalidatePath: () => undefined,
+  revalidatePath: (path: string) => {
+    if (refusesRevalidation) throw new Error("Next.js refused revalidation.");
+    revalidatedPaths.push(path);
+  },
   revalidateTag: (tag: string) => {
     refreshes.push(`revalidate:${tag}`);
   },
@@ -40,6 +47,11 @@ const { AccountRoleGrants } = await import(
 );
 const { UnusedAdministrationCustomerDirectory } = await import(
   "@/features/administration/customer-directory.test-utils"
+);
+const { prefixPathnameWithLocale } = await import("@deskohub/i18n/pathname");
+const { locales } = await import("@/features/i18n/paraglide/runtime.js");
+const { administrationHref } = await import(
+  "@/features/administration/administration-href"
 );
 const { calendarDiscountSourceTag } = await import(
   "@/features/discounts/calendar-discount-source.server"
@@ -104,6 +116,10 @@ const voucherId = Schema.decodeUnknownSync(AdministrationVoucherId)(
 const requestId = Schema.decodeUnknownSync(CliMutationRequestId)(
   "01980000-0000-7000-8000-000000000010"
 );
+const codeId = Schema.decodeUnknownSync(AdministrationDiscountCodeId)(
+  "01980000-0000-7000-8000-000000000002"
+);
+const customerId = "dotypos-customer-4217";
 const unavailableMessage = "The administration API is temporarily unavailable.";
 
 /** A dependency failure the mutation can't recover from on its own. */
@@ -200,6 +216,8 @@ const failingDelete = (
 
 beforeEach(() => {
   refreshes.length = 0;
+  revalidatedPaths.length = 0;
+  refusesRevalidation = false;
 });
 
 describe("discount mutation failures over the administration API", () => {
@@ -368,5 +386,102 @@ describe("discount mutation calendar refresh over the administration API", () =>
 
     expect(result._tag).toBe("Failure");
     expect(refreshes).toEqual([]);
+  });
+});
+
+/** The customer's page in every locale, as the page revalidation reaches it. */
+const customerPagePaths = () =>
+  locales.map((locale) =>
+    prefixPathnameWithLocale(
+      administrationHref("/[locale]/admin/customers/[customerId]", {
+        customerId,
+      }),
+      locale
+    )
+  );
+
+const customerCodeCreation = {
+  kind: "create-customer-code",
+  customerId,
+  code: {
+    code: "SUMMER10",
+    enabled: true,
+    validFrom: null,
+    validUntil: null,
+    maxUses: null,
+    maxUsesPerCustomer: null,
+  },
+  discount: { kind: "existing", discountId },
+} as const;
+
+describe("discount mutation page revalidation over the administration API", () => {
+  test("revalidates the customer's page once their own code is created", async () => {
+    const result = await mutateDiscounts(customerCodeCreation, {
+      discounts: { createCustomerCode: () => Effect.succeed(codeId) },
+    });
+
+    expect(result._tag).toBe("Success");
+    expect(revalidatedPaths).toEqual(customerPagePaths());
+  });
+
+  test("revalidates the customer's page once their own voucher is created", async () => {
+    const result = await mutateDiscounts(
+      {
+        kind: "create-customer-voucher",
+        voucher: {
+          customerId,
+          code: "CREDIT500",
+          enabled: true,
+          validFrom: null,
+          validUntil: null,
+          credit: { value: 50_000, exponent: 2, currency: "CZK" },
+        },
+      },
+      { discounts: { createCustomerVoucher: () => Effect.succeed(voucherId) } }
+    );
+
+    expect(result._tag).toBe("Success");
+    expect(revalidatedPaths).toEqual(customerPagePaths());
+  });
+
+  test("revalidates no page for a change that adds nothing to a customer", async () => {
+    const result = await mutateDiscounts(
+      { kind: "delete-voucher", id: voucherId },
+      { discounts: { deleteVoucher: () => Effect.void } }
+    );
+
+    expect(result._tag).toBe("Success");
+    expect(revalidatedPaths).toEqual([]);
+  });
+
+  test("revalidates no page after a failed customer code creation", async () => {
+    const result = await mutateDiscounts(customerCodeCreation, {
+      discounts: {
+        createCustomerCode: () =>
+          Effect.fail(
+            new DiscountAdminConflictError({
+              reason: "promotion-code-taken",
+              message: "This code is already taken.",
+            })
+          ),
+      },
+    });
+
+    expect(result._tag).toBe("Failure");
+    expect(revalidatedPaths).toEqual([]);
+  });
+
+  test("answers with the created code when Next.js refuses the revalidation", async () => {
+    refusesRevalidation = true;
+
+    const result = await mutateDiscounts(customerCodeCreation, {
+      discounts: { createCustomerCode: () => Effect.succeed(codeId) },
+    });
+
+    expect(result).toMatchObject({
+      _tag: "Success",
+      success: { kind: "create-customer-code", createdCodeId: codeId },
+    });
+    expect(revalidatedPaths).toEqual([]);
   });
 });
