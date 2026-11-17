@@ -149,7 +149,7 @@ export default async function FoundationsDesignPreviewPage({
           </Cell>
           <Cell caption="Current · reservation modal">
             <Button size="lg" type="button" variant="secondary">
-              {m.checkoutEmailCustomerAccessButton({}, { locale })}
+              {locale === "cs-CZ" ? "Zobrazit přístupový kód" : "Show access code"}
             </Button>
           </Cell>
           <Cell caption="Proposed · default (sm, account card)">

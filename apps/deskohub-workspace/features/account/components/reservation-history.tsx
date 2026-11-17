@@ -10,10 +10,7 @@ import type {
 import { getReservationProductName } from "@/features/account/reservation-product-name";
 import { type Locale, m } from "@/features/i18n";
 import { ReservationAccessButton } from "@/features/reservation/components/reservation-access-button";
-import {
-  ReservationWithdrawalEntry,
-  type ReservationWithdrawalOffer,
-} from "@/features/reservation/components/reservation-withdrawal-entry";
+import { ReservationOptionsMenu } from "@/features/reservation/components/reservation-options-menu";
 import { formatMeetingRoomSetupStart } from "@/features/reservation/meeting-room-reservation-display-time";
 import {
   formatReservationDisplayDateRange,
@@ -164,29 +161,23 @@ const getReservationHref = (
 ) =>
   `/${locale}${reservationStatusPath}/${encodeURIComponent(workspaceReservationId)}`;
 
-// Stub until the history read model carries withdrawal eligibility.
-const getWithdrawalOffer = (reservation: CustomerReservationSummary) =>
-  (reservation as { readonly withdrawal?: ReservationWithdrawalOffer })
-    .withdrawal;
-
-function ReservationWithdrawalRow({
+/** The ⋮ menu of a reservation the customer can still withdraw from. */
+function ReservationRowMenu({
   className,
   locale,
   reservation,
 }: {
-  readonly className: string;
+  readonly className?: string;
   readonly locale: Locale;
   readonly reservation: CustomerReservationSummary;
 }) {
-  const offer = getWithdrawalOffer(reservation);
-  if (!offer || !reservation.workspaceReservationId) return null;
+  if (!reservation.withdrawal?.eligible || !reservation.workspaceReservationId)
+    return null;
   return (
-    <ReservationWithdrawalEntry
+    <ReservationOptionsMenu
       className={className}
-      href={`${getReservationHref(locale, reservation.workspaceReservationId)}?withdraw=1`}
       locale={locale}
-      offer={offer}
-      presentation="row"
+      withdrawalHref={`${getReservationHref(locale, reservation.workspaceReservationId)}?withdraw=1`}
     />
   );
 }
@@ -297,14 +288,11 @@ function FeaturedReservationItem({
               {reservation.id}
             </code>
           </div>
-          <div className="min-w-0 max-w-full text-left @xl:max-w-[45%] @xl:text-right">
-            <span className="block text-xs font-semibold uppercase tracking-[0.1em] text-[#64748b]">
-              {m.accountReservationProduct({}, { locale })}
-            </span>
-            <span className="mt-1 block break-words text-sm font-semibold leading-5 text-[#344258]">
-              {title}
-            </span>
-          </div>
+          <ReservationRowMenu
+            className="-my-1.5 -mr-2"
+            locale={locale}
+            reservation={reservation}
+          />
         </div>
 
         <div className="border-t border-[#dfe4ec]" />
@@ -423,11 +411,6 @@ function FeaturedReservationItem({
             )}
           </div>
         </div>
-        <ReservationWithdrawalRow
-          className="border-t border-[#dfe4ec] px-6 py-4"
-          locale={locale}
-          reservation={reservation}
-        />
       </Card>
     </li>
   );
@@ -527,14 +510,21 @@ function CompactReservationItem({
             >
               {getStatusLabel(reservation.status, locale)}
             </StatusBadge>
-            <ReservationDetailLink locale={locale} reservation={reservation} />
+            <div className="flex min-w-0 items-center gap-1">
+              <div className="min-w-0 flex-1 *:w-full @2xl:flex-none @2xl:*:w-auto">
+                <ReservationDetailLink
+                  locale={locale}
+                  reservation={reservation}
+                />
+              </div>
+              <ReservationRowMenu
+                className="-mr-2"
+                locale={locale}
+                reservation={reservation}
+              />
+            </div>
           </div>
         </div>
-        <ReservationWithdrawalRow
-          className="mt-4 border-t border-[#dfe4ec] pt-4"
-          locale={locale}
-          reservation={reservation}
-        />
       </article>
     </li>
   );

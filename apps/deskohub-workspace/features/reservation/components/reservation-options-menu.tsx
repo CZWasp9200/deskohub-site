@@ -36,6 +36,7 @@ export function ReservationOptionsMenu({
         <Button
           aria-label={m.reservationOptionsMenuLabel({}, { locale })}
           className={cn("shrink-0 text-[#475569]", className)}
+          data-reservation-options-trigger=""
           size="icon"
           type="button"
           variant="ghost"

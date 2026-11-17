@@ -13,32 +13,32 @@ import { ReservationDetailsModal } from "@/features/reservation/components/reser
 
 const designPreviewReservation = {
   id: "R-20261117-0042",
-  orderId: "0193b4f2-7c1e-7a4b-9d2e-5f8a1c3b6d20",
-  workspaceReservationId: "0193b4f2-7c1e-7a4b-9d2e-5f8a1c3b6d20",
+  orderId: "workspace_01JY4J8R6Z9Q2N8K7M5P3A1B0C",
+  workspaceReservationId: "workspace_01JY4J8R6Z9Q2N8K7M5P3A1B0C",
   product: { kind: "cowork", tier: "profi" },
   startsAt: "2026-12-06T23:00:00Z",
   endsAt: "2026-12-07T23:00:00Z",
   seats: 1,
   status: "confirmed",
-  withdrawal: { periodEndsAt: "2026-12-01T22:59:59Z" },
+  withdrawal: { eligible: true, periodEndsAt: "2026-12-01T23:00:00Z" },
 } as const;
 
 const designPreviewMeetingRoom = {
   id: "R-20261117-0043",
-  orderId: "0193b4f2-91a0-7c55-8e14-2b6d0f7a3c41",
-  workspaceReservationId: "0193b4f2-91a0-7c55-8e14-2b6d0f7a3c41",
+  orderId: "workspace_01JY4K2T9B7C3D5E6F8G9H0J1K",
+  workspaceReservationId: "workspace_01JY4K2T9B7C3D5E6F8G9H0J1K",
   product: { kind: "meeting-room" },
   startsAt: "2026-12-03T08:00:00Z",
   endsAt: "2026-12-03T11:00:00Z",
   seats: 6,
   status: "confirmed",
-  withdrawal: { periodEndsAt: "2026-12-01T22:59:59Z" },
+  withdrawal: { eligible: true, periodEndsAt: "2026-12-01T23:00:00Z" },
 } as const;
 
 const designPreviewPast = {
   id: "R-20261020-0017",
-  orderId: "0192af10-3d2e-7b19-a6c7-9e0d4f1b8a52",
-  workspaceReservationId: "0192af10-3d2e-7b19-a6c7-9e0d4f1b8a52",
+  orderId: "workspace_01JX9M4N6P8Q0R2S4T6V8W0X2Y",
+  workspaceReservationId: "workspace_01JX9M4N6P8Q0R2S4T6V8W0X2Y",
   product: { kind: "cowork", tier: "profi" },
   startsAt: "2026-10-20T22:00:00Z",
   endsAt: "2026-10-21T22:00:00Z",
@@ -46,7 +46,7 @@ const designPreviewPast = {
   status: "confirmed",
 } as const;
 
-const designPreviewState = {
+const designPreviewState = (eligible: boolean) => ({
   kind: "linked",
   deletion: "offered",
   email: "jana.novakova@deskohub.test",
@@ -59,18 +59,23 @@ const designPreviewState = {
   history: {
     kind: "available",
     groups: {
-      current: [designPreviewReservation, designPreviewMeetingRoom],
+      current: [designPreviewReservation, designPreviewMeetingRoom].map(
+        (reservation) => ({
+          ...reservation,
+          withdrawal: { ...reservation.withdrawal, eligible },
+        })
+      ),
       past: [designPreviewPast],
       unavailable: [],
     },
   },
   avatar: { kind: "hidden" },
   referralsEnabled: true,
-} as const;
+});
 
 const designPreviewStatus: CheckoutStatusViewModel = {
   kind: "cowork",
-  orderId: "0193b4f2-7c1e-7a4b-9d2e-5f8a1c3b6d20",
+  orderId: "workspace_01JY4J8R6Z9Q2N8K7M5P3A1B0C",
   returnOutcome: "success",
   status: "fulfilled",
   paymentStatus: "paid",
@@ -98,7 +103,7 @@ export default async function WithdrawalDesignPreviewPage({
 }) {
   if (process.env.NODE_ENV !== "development") notFound();
   await connection();
-  const { view } = await searchParams;
+  const { state, view } = await searchParams;
 
   return runWithRequestLocale((locale) => (
     <>
@@ -111,7 +116,7 @@ export default async function WithdrawalDesignPreviewPage({
         <AccountPage
           loadInvoiceHistory={loadInvoiceHistory}
           locale={locale}
-          state={designPreviewState as never}
+          state={designPreviewState(state !== "ineligible") as never}
         />
       </AccountLayoutShell>
       {view === "modal" && (
@@ -120,7 +125,6 @@ export default async function WithdrawalDesignPreviewPage({
             locale={locale}
             presentation="modal"
             status={designPreviewStatus}
-            withdrawalOffer={{ periodEndsAt: "2026-12-01T22:59:59Z" }}
           />
         </ReservationDetailsModal>
       )}

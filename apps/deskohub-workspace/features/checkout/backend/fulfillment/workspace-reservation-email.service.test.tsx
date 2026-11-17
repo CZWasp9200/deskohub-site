@@ -760,7 +760,7 @@ describe("sendPaidReservationEmails internal notification failure", () => {
         { locale }
       );
       const accessLink = emailView.getByRole("link", {
-        name: m.checkoutEmailCustomerAccessButton({}, { locale }),
+        name: m.accountReservationShowPinCode({}, { locale }),
       });
       const invoiceLink = emailView.getByRole("link", {
         name: m.checkoutEmailCustomerInvoiceDownload({}, { locale }),
