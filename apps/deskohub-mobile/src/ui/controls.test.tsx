@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import Mail from "lucide-react-native/icons/mail";
 import { type ComponentProps, createRef, type ReactElement } from "react";
 import { StyleSheet, type TextInputInstance } from "react-native";
@@ -289,7 +290,7 @@ describe("TextField", () => {
   });
 
   test("read-only is sunken with a lock and shows its whole value, wrapping", () => {
-    const value = "a.very.long.address@example.com";
+    const value = testEmailAddress("a-very-long-address-that-must-wrap");
     const tree = hostTree(
       elementTree(TextField, { label: "label", value, readOnly: true })
     );
