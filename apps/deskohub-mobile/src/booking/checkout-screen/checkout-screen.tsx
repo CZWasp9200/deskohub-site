@@ -19,6 +19,7 @@ import { apiOrigin } from "../../auth/auth-client";
 import { AsyncView } from "../../customer-api/async-view";
 import { accountAtom } from "../../customer-api/customer-data-runtime";
 import { type AppLocale, isAppLocale } from "../../i18n/app-locale";
+import { useDeviceCountry } from "../../i18n/device-locale";
 import { useAppLocale } from "../../i18n/locale-context";
 import { m } from "../../i18n/messages";
 import { openSitePage } from "../../routing/open-site-page";
@@ -428,8 +429,9 @@ function DetailsWithProfile({
 }) {
   const router = useRouter();
   const headerHeight = useHeaderHeight();
+  const deviceCountry = useDeviceCountry();
   const [draft, setDraft] = useDetailsDraft(() =>
-    initialDetailsDraft(profile.saved)
+    initialDetailsDraft(profile.saved, deviceCountry)
   );
   const consentLocale = isAppLocale(request.locale) ? request.locale : locale;
   return (

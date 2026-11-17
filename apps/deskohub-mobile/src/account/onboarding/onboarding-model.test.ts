@@ -28,7 +28,7 @@ import {
 const phoneRegion = accountPhoneRegion(null);
 
 const draftWith = (change: Partial<CompletionDraft>): CompletionDraft => ({
-  ...completionDraftOf(undefined),
+  ...completionDraftOf(undefined, "CZ"),
   ...change,
 });
 
