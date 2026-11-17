@@ -10,7 +10,11 @@ import {
   type SQLWrapper,
   sql,
 } from "drizzle-orm";
-import { paymentAttempts, workspaceReservations } from "@/db/schema";
+import {
+  contractWithdrawals,
+  paymentAttempts,
+  workspaceReservations,
+} from "@/db/schema";
 import { temporalInstantToDate } from "@/shared/utils/temporal";
 
 /** The states a status group reads, each as a SQL condition. */
@@ -100,11 +104,21 @@ export const bookedReservationCondition = booked(currentStates);
 export const bookedReservationConditionAt = (asOf?: Temporal.Instant): SQL =>
   booked(statesAt(asOf));
 
-const needsRefundCondition = sql`exists (
+/**
+ * A paid Nexi attempt awaiting its refund, or a customer's withdrawal owing a
+ * refund whose cancellation hasn't marked the payment yet.
+ */
+const needsRefundCondition = sql`(exists (
   select 1 from ${paymentAttempts}
   where ${paymentAttempts.workspaceReservationId} = ${workspaceReservations.id}
     and ${paymentAttempts.refundState} = 'required'
-)`;
+) or exists (
+  select 1 from ${contractWithdrawals}
+  where ${contractWithdrawals.contractKind} = 'reservation'
+    and ${contractWithdrawals.contractId} = ${workspaceReservations.id}
+    and ${contractWithdrawals.refundAmountValue} > 0
+    and ${contractWithdrawals.contractCancelledAt} is null
+))`;
 
 /**
  * SQL condition selecting Workspace reservations in an operator-facing status

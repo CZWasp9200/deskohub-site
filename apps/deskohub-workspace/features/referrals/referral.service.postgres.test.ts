@@ -34,6 +34,7 @@ import {
 } from "@/features/account/customer-account";
 import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import { currencyCZK } from "@/shared/money/currencies";
 import { connectUnreachableWorkspaceDatabase } from "@/shared/testing/unreachable-workspace-database.test-utils";
 import {
@@ -1464,6 +1465,126 @@ describe.skipIf(!testDatabase)(
         );
         await referrer.cleanup();
         await loneReferrer.cleanup();
+      }
+    });
+
+    test("drops a visit's referrer credit once the invitee withdraws in full, before its cancellation is done, but keeps it after a partial withdrawal", async () => {
+      const referrer = await createActiveReferrer();
+      const invitees = [uniqueDotyposId(), uniqueDotyposId()] as const;
+      const bookings = new Map(
+        invitees.map((invitee) => [
+          invitee,
+          `invitee-booking-${uniqueId()}` as DotyposReservationId,
+        ])
+      );
+      const eligibleInviteeCount = async () => {
+        const exit = await runReferrals(
+          (referrals) =>
+            referrals.resolveReferrerCandidate({
+              dotyposCustomerId: referrer.dotyposCustomerId,
+              locale: "en-US",
+              remainingSubtotal: currencyCZK(100_000),
+            }),
+          makeReferralLayer(
+            {
+              accountId: customerAccountIdSchema.make(uniqueId()),
+              dotyposCustomerId: referrer.dotyposCustomerId,
+            },
+            (customerId) => {
+              const booking = bookings.get(customerId as DotyposCustomerId);
+              return booking ? [makeLiveConfirmedReservation(booking)] : [];
+            }
+          )
+        );
+        if (exit._tag !== "Success") throw new Error("Pricing failed.");
+        return (
+          exit.success?.provenance.details.referralReferrer
+            ?.eligibleInviteeCount ?? 0
+        );
+      };
+      const withdraw = async (
+        reservationId: string,
+        refund: "full" | "partial"
+      ) => {
+        const accountId = await Effect.runPromise(
+          workspaceFixtures(testDatabase!.db).customerAccount()
+        );
+        const paid = currencyCZK(30_000);
+        const submittedAt = Temporal.Now.instant();
+        await Effect.runPromise(
+          Effect.gen(function* () {
+            const withdrawals = yield* WithdrawalRepository;
+            yield* withdrawals.record({
+              contract: { kind: "reservation", id: reservationId },
+              accountId,
+              locale: "en-US",
+              contractLabel: "Office",
+              submittedAt,
+              periodEndsAt: submittedAt.add({ hours: 24 * 14 }),
+              paidAmount: paid,
+              ...(refund === "full"
+                ? { refundAmount: paid, refundBasis: { kind: "full" as const } }
+                : {
+                    refundAmount: currencyCZK(15_000),
+                    refundBasis: {
+                      kind: "partial" as const,
+                      unit: "day" as const,
+                      unstarted: 1,
+                      total: 2,
+                    },
+                  }),
+            });
+          }).pipe(
+            Effect.provide(WithdrawalRepository.Default),
+            Effect.provide(testDatabase!.layer)
+          )
+        );
+        return accountId;
+      };
+      const reservationIds: string[] = [];
+      const accountIds: string[] = [];
+      try {
+        for (const invitee of invitees) {
+          await Effect.runPromise(
+            testDatabase!.db.insert(referralAttributions).values({
+              invitedDotyposCustomerId: invitee,
+              referrerDotyposCustomerId: referrer.dotyposCustomerId,
+              promotionCodeId: referrer.promotionCodeId,
+            })
+          );
+          const reservation = await Effect.runPromise(
+            workspaceFixtures(testDatabase!.db).reservation({
+              stage: { reservation: "confirmed", payment: "paid" },
+              customer: invitee,
+              overrides: { dotyposReservationId: bookings.get(invitee) },
+            })
+          );
+          reservationIds.push(reservation.id);
+        }
+        expect(await eligibleInviteeCount()).toBe(2);
+
+        accountIds.push(await withdraw(reservationIds[1]!, "partial"));
+        expect(await eligibleInviteeCount()).toBe(2);
+
+        // Dotypos still holds the visit as live and confirmed: the
+        // cancellation hasn't happened.
+        accountIds.push(await withdraw(reservationIds[0]!, "full"));
+        expect(await eligibleInviteeCount()).toBe(1);
+      } finally {
+        await testDatabase!.pool.query(
+          "delete from contract_withdrawals where contract_id = any($1)",
+          [reservationIds]
+        );
+        await testDatabase!.pool.query(
+          "delete from customer_accounts where id = any($1)",
+          [accountIds]
+        );
+        await deleteBookings([...invitees]);
+        await testDatabase!.pool.query(
+          "delete from referral_attributions where invited_dotypos_customer_id = any($1)",
+          [[...invitees]]
+        );
+        await referrer.cleanup();
       }
     });
 

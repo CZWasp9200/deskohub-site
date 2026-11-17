@@ -104,6 +104,11 @@ export const customerRequestBudgetClasses = {
     retryPayment: "dotypos-mutation",
     // The space's address is the site's own constant.
     getEstablishment: "workspace-only",
+    // Reads the reservation live from Dotypos to price the withdrawal; the
+    // app asks once per withdrawal, never while polling.
+    getWithdrawalQuote: "dotypos-read",
+    // Records the withdrawal, then cancels the Dotypos booking.
+    withdrawFromReservation: "dotypos-mutation",
   },
   invoices: {
     // Authorizing either read can resolve the account's Dotypos customer;

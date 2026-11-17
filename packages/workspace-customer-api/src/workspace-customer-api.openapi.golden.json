@@ -1882,6 +1882,242 @@
         }
       }
     },
+    "/api/customer/reservations/{orderId}/withdrawal": {
+      "get": {
+        "tags": ["reservations"],
+        "operationId": "reservations.getWithdrawalQuote",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerReservationOrderId"
+            },
+            "required": true
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerLocale"
+            },
+            "required": false
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerWithdrawalQuote",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerWithdrawalQuote"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CustomerReservationNotFound | CustomerFeatureUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerReservationNotFound"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerFeatureUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CustomerWithdrawalRefused | CustomerAccountLinkRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerWithdrawalRefused"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerAccountLinkRequired"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["reservations"],
+        "operationId": "reservations.withdrawFromReservation",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerReservationOrderId"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "CustomerWithdrawalReceipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerWithdrawalReceipt"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CustomerReservationNotFound | CustomerFeatureUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerReservationNotFound"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerFeatureUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CustomerWithdrawalRefused | CustomerAccountLinkRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerWithdrawalRefused"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerAccountLinkRequired"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimited"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerServiceUnavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawFromCustomerReservation"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/customer/reservations/{orderId}/access": {
       "get": {
         "tags": ["reservations"],
@@ -5231,7 +5467,7 @@
       },
       "CustomerAccountFeature": {
         "type": "string",
-        "enum": ["avatars", "passkeys", "referrals"]
+        "enum": ["avatars", "passkeys", "referrals", "withdrawal"]
       },
       "CustomerFeatureUnavailable": {
         "type": "object",
@@ -5714,6 +5950,20 @@
         "required": ["code", "accessStartsAt", "accessEndsAt"],
         "additionalProperties": false
       },
+      "CustomerReservationWithdrawalAvailability": {
+        "type": "object",
+        "properties": {
+          "eligible": {
+            "type": "boolean"
+          },
+          "periodEndsAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          }
+        },
+        "required": ["eligible", "periodEndsAt"],
+        "additionalProperties": false
+      },
       "CustomerReservationSummary": {
         "type": "object",
         "properties": {
@@ -5846,6 +6096,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/CustomerReservationAccess"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "withdrawal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerReservationWithdrawalAvailability"
               },
               {
                 "type": "null"
@@ -6454,6 +6714,159 @@
           }
         },
         "required": ["_tag", "reason"],
+        "additionalProperties": false
+      },
+      "CustomerWithdrawalRefundBasis": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["full"]
+              }
+            },
+            "required": ["kind"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["partial"]
+              },
+              "unit": {
+                "type": "string",
+                "enum": ["day", "hour"]
+              },
+              "unstarted": {
+                "type": "integer",
+                "allOf": [
+                  {
+                    "exclusiveMinimum": 0
+                  }
+                ]
+              },
+              "total": {
+                "type": "integer",
+                "allOf": [
+                  {
+                    "exclusiveMinimum": 0
+                  }
+                ]
+              }
+            },
+            "required": ["kind", "unit", "unstarted", "total"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "CustomerWithdrawalQuote": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "$ref": "#/components/schemas/CustomerReservationOrderId"
+          },
+          "contractLabel": {
+            "type": "string"
+          },
+          "customerName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receiptEmail": {
+            "type": "string"
+          },
+          "paidAmount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "refundAmount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "refundBasis": {
+            "$ref": "#/components/schemas/CustomerWithdrawalRefundBasis"
+          },
+          "periodEndsAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          }
+        },
+        "required": [
+          "contractId",
+          "contractLabel",
+          "customerName",
+          "receiptEmail",
+          "paidAmount",
+          "refundAmount",
+          "refundBasis",
+          "periodEndsAt"
+        ],
+        "additionalProperties": false
+      },
+      "CustomerWithdrawalRefusedReason": {
+        "type": "string",
+        "enum": [
+          "not_withdrawable",
+          "business_purpose",
+          "period_ended",
+          "performance_started",
+          "already_withdrawn"
+        ]
+      },
+      "CustomerWithdrawalRefused": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["CustomerWithdrawalRefused"]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/CustomerWithdrawalRefusedReason"
+          }
+        },
+        "required": ["_tag", "reason"],
+        "additionalProperties": false
+      },
+      "WithdrawFromCustomerReservation": {
+        "type": "object",
+        "properties": {
+          "locale": {
+            "$ref": "#/components/schemas/CustomerLocale"
+          }
+        },
+        "required": ["locale"],
+        "additionalProperties": false
+      },
+      "CustomerWithdrawalReceipt": {
+        "type": "object",
+        "properties": {
+          "withdrawalId": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "refundAmount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "receiptEmail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "withdrawalId",
+          "submittedAt",
+          "refundAmount",
+          "receiptEmail"
+        ],
         "additionalProperties": false
       },
       "CustomerAccessCodeUnavailable": {

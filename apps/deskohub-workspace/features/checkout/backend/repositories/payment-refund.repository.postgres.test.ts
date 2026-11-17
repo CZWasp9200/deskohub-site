@@ -53,6 +53,7 @@ describe.skipIf(!testDatabase)(
     const insertCheckout = async (input: {
       readonly attemptState: "paid" | "expired";
       readonly refundState: "not_required" | "required";
+      readonly refundTargetValue?: number;
       readonly createdAt?: Temporal.Instant;
     }) => {
       const id = crypto.randomUUID();
@@ -76,6 +77,9 @@ describe.skipIf(!testDatabase)(
             failureCode: "payment_abandoned_after_provider_cutoff",
           }),
           refundState: input.refundState,
+          ...(input.refundTargetValue !== undefined && {
+            refundTargetValue: input.refundTargetValue,
+          }),
           ...(input.createdAt && { createdAt: input.createdAt }),
           amountValue: 29_000,
           amountExponent: 2,
@@ -377,6 +381,61 @@ describe.skipIf(!testDatabase)(
       const attempt = await readAttempt(paymentAttemptId);
       expect(attempt?.refundedAmountValue).toBe(29_000);
       expect(attempt?.refundedAt?.equals(laterRefundAt)).toBe(true);
+    });
+
+    test("keeps a partial refund required until Nexi reaches the amount owed", async () => {
+      const paymentAttemptId = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+        refundTargetValue: 19_334,
+      });
+
+      expect(await record(paymentAttemptId, 10_000)).toBe("below_target");
+      expect(await readAttempt(paymentAttemptId)).toMatchObject({
+        refundState: "required",
+        refundTargetValue: 19_334,
+        refundedAmountValue: 10_000,
+      });
+      expect(await record(paymentAttemptId, 5000)).toBe("below_target");
+      expect((await readAttempt(paymentAttemptId))?.refundedAmountValue).toBe(
+        10_000
+      );
+
+      expect(await record(paymentAttemptId, 19_334)).toBe("recorded");
+      expect(await readAttempt(paymentAttemptId)).toMatchObject({
+        refundState: "refunded",
+        refundTargetValue: 19_334,
+        refundedAmountValue: 19_334,
+      });
+    });
+
+    test("keeps a full withdrawal's refund required until Nexi refunds all of it", async () => {
+      const paymentAttemptId = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+        refundTargetValue: 29_000,
+      });
+
+      expect(await record(paymentAttemptId, 2900)).toBe("below_target");
+      expect((await readAttempt(paymentAttemptId))?.refundState).toBe(
+        "required"
+      );
+      expect(await record(paymentAttemptId, 29_000)).toBe("recorded");
+      expect((await readAttempt(paymentAttemptId))?.refundState).toBe(
+        "refunded"
+      );
+    });
+
+    test("settles an owed refund without a target on any successful refund", async () => {
+      const paymentAttemptId = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+      });
+
+      expect(await record(paymentAttemptId, 1000)).toBe("recorded");
+      expect((await readAttempt(paymentAttemptId))?.refundState).toBe(
+        "refunded"
+      );
     });
 
     test("accepts a refund reported for a paid attempt nobody marked for refund", async () => {

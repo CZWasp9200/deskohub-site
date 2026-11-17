@@ -123,6 +123,11 @@ const termsAndConditionsSections: LegalSection[] = [
           {contactEmail}
         </a>
         . Lhůta je zachována, je-li oznámení odesláno před jejím uplynutím.
+        Odstoupení lze také odeslat online funkcí „Odstoupit od smlouvy“ u
+        Rezervace v zákaznickém účtu na webu nebo v aplikaci a potvrdit
+        tlačítkem „Potvrdit odstoupení od smlouvy“. Přijetí odstoupení
+        Poskytovatel bez zbytečného odkladu potvrdí e-mailem na adresu účtu,
+        včetně obsahu prohlášení a data a času jeho odeslání.
       </>,
       "9.4 Po platném odstoupení vrátí Poskytovatel přijaté peněžní prostředky bez zbytečného odkladu, nejpozději do 14 dnů, stejným způsobem, kterým byly přijaty, nedohodnou-li se strany jinak bez vzniku dalších nákladů Spotřebitele.",
       "9.5 Vzor oznámení: „Oznamuji, že odstupuji od smlouvy na tuto Službu: [popis a číslo Rezervace], objednanou dne [datum]. Jméno a příjmení Spotřebitele: [doplnit]. Adresa Spotřebitele: [doplnit]. Datum: [doplnit]. Podpis pouze při listinném podání.“ Použití vzoru není povinné.",
@@ -750,7 +755,7 @@ export const legalDocuments = {
     ],
   },
   "terms-and-conditions": {
-    updatedAt: "12. srpna 2026",
+    updatedAt: "17. listopadu 2026",
     sections: termsAndConditionsSections,
   },
   "cookie-policy": {

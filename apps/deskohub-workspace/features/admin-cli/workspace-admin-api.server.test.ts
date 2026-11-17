@@ -1854,10 +1854,9 @@ describe("customer and reservation administration endpoints", () => {
         "reservations",
         Layer.mock(WorkspaceReservationRepository, {
           findById: (id) => Effect.succeed(stored(id)),
-          claimAdministrationCancellation: ({ id }) =>
-            Effect.succeed(stored(id)),
-          markAdministrationCancelled: () => Effect.void,
-          markAdministrationCancellationFailed: () => Effect.void,
+          claimRequestedCancellation: ({ id }) => Effect.succeed(stored(id)),
+          completeRequestedCancellation: () => Effect.void,
+          markRequestedCancellationFailed: () => Effect.void,
         })
       )
     );

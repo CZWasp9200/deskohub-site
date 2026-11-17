@@ -125,7 +125,12 @@ const termsAndConditionsSections: LegalSection[] = [
           {contactEmail}
         </a>{" "}
         übermittelt werden. Die Frist ist gewahrt, wenn die Mitteilung vor ihrem
-        Ablauf abgesendet wird.
+        Ablauf abgesendet wird. Der Widerruf kann auch online über die Funktion
+        „Vertrag widerrufen“ bei der Buchung im Kundenkonto auf der Website oder
+        in der App abgegeben und mit der Schaltfläche „Widerruf bestätigen“
+        abgesendet werden. Der Anbieter bestätigt den Eingang des Widerrufs
+        unverzüglich per E-Mail an die Adresse des Kontos, einschließlich des
+        Inhalts der Erklärung sowie des Datums und der Uhrzeit ihrer Absendung.
       </>,
       "9.4 Nach einem wirksamen Widerruf erstattet der Anbieter die erhaltenen Geldbeträge unverzüglich, spätestens innerhalb von 14 Tagen, auf demselben Weg, auf dem sie empfangen wurden, sofern die Parteien nicht etwas anderes vereinbaren, ohne dass dem Verbraucher dadurch weitere Kosten entstehen.",
       "9.5 Muster der Mitteilung: „Hiermit teile ich mit, dass ich den Vertrag über folgende Leistung widerrufe: [Beschreibung und Nummer der Reservierung], bestellt am [Datum]. Vor- und Nachname des Verbrauchers: [ergänzen]. Anschrift des Verbrauchers: [ergänzen]. Datum: [ergänzen]. Unterschrift nur bei Mitteilung in Papierform.“ Die Verwendung des Musters ist nicht verpflichtend.",
@@ -803,7 +808,7 @@ const legalDocuments = {
     ],
   },
   "terms-and-conditions": {
-    updatedAt: "12. August 2026",
+    updatedAt: "17. November 2026",
     sections: termsAndConditionsSections,
   },
   "cookie-policy": {

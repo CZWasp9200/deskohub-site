@@ -51,6 +51,7 @@ const smallLimits = {
   invoiceDeliveries: 8,
   legalEvidenceEvents: 9,
   accessGrants: 10,
+  withdrawals: 11,
 } as const;
 
 const provideService = (limits?: AccountDataExportLimits) =>
@@ -129,6 +130,10 @@ const expectedReads = (
     source: "accessGrants",
     input: { workspaceReservationIds, limit: limits.accessGrants },
   },
+  {
+    source: "withdrawals",
+    input: { accountId: exportAccountId, limit: limits.withdrawals },
+  },
 ];
 
 const unzipJson = (bytes: Uint8Array) => {
@@ -155,6 +160,7 @@ const sectionSources = [
   "marketingConsent",
   "legalEvidenceEvents",
   "accessGrants",
+  "withdrawals",
 ] as const satisfies readonly (keyof AccountDataExportSources)[];
 
 describe("AccountDataExportService.download", () => {
@@ -247,6 +253,17 @@ describe("AccountDataExportService.download", () => {
         }),
       ],
     });
+    expect(archive.json("withdrawals.json")).toEqual([
+      {
+        contractKind: "reservation",
+        contractId: exportReservationId,
+        contractLabel: "Office · 10. 8. 2026",
+        submittedAt: "2026-08-02T09:00:00Z",
+        paidAmount: { value: 45_050, exponent: 2, currency: "CZK" },
+        refundAmount: { value: 45_050, exponent: 2, currency: "CZK" },
+        status: "completed",
+      },
+    ]);
   });
 
   test("re-authorizes, then reads each owner for the linked customer under the production limits", async () => {
@@ -262,6 +279,7 @@ describe("AccountDataExportService.download", () => {
         invoiceDeliveries: 500,
         legalEvidenceEvents: 2000,
         accessGrants: 500,
+        withdrawals: 500,
       })
     );
   });
@@ -327,6 +345,7 @@ describe("AccountDataExportService load failures", () => {
     marketingConsent: "marketing-consent",
     legalEvidenceEvents: "legal-evidence",
     accessGrants: "access-grants",
+    withdrawals: "withdrawals",
   } as const satisfies Record<(typeof sectionSources)[number], string>;
 
   for (const source of sectionSources) {

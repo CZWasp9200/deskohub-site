@@ -84,6 +84,7 @@ const makeFixturePayment = (
   stateLabel: "Paid",
   failureCode: null,
   amount: { value: 27_500, exponent: 2, currency: "CZK" },
+  refundTarget: null,
   refundedAmount: null,
   refundedAt: null,
   createdAt: Temporal.Instant.from(updatedAt)
@@ -352,6 +353,7 @@ export const loadFixtureReservation = (
     reservation,
     operatorNotice: null,
     canCancel: true,
+    withdrawal: null,
     timeline: [
       {
         id: "fixture-checkout",
@@ -444,6 +446,7 @@ export const loadFixtureReservation = (
         stateLabel: "Paid",
         failureCode: null,
         amount: { value: 240000, exponent: 2, currency: "CZK" },
+        refundTarget: null,
         refundedAmount: null,
         refundedAt: null,
         createdAt: Temporal.Instant.from(paidAt)

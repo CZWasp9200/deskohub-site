@@ -8,6 +8,7 @@ import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-cat
 import { defaultPhoneRegion, type Locale } from "@/features/i18n";
 import type { RebookingSelection } from "@/features/reservation/backend/booking-selection";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
 
 /*
  * The profile schemas are the customer API's, so the account forms and the
@@ -118,6 +119,11 @@ export type CustomerReservationSummary = {
     readonly accessStartsAt: string;
     readonly accessEndsAt: string;
   };
+  /**
+   * The online withdrawal entry point of a paid, confirmed booking the
+   * account authored, while the withdrawal function is released.
+   */
+  readonly withdrawal?: WithdrawalAvailability;
 };
 
 export type CustomerReservationGroups = {

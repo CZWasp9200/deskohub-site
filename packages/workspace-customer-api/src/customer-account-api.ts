@@ -49,6 +49,7 @@ export const CustomerAccountFeature = Schema.Literals([
   "avatars",
   "passkeys",
   "referrals",
+  "withdrawal",
 ]).annotate({ identifier: "CustomerAccountFeature" });
 export type CustomerAccountFeature = typeof CustomerAccountFeature.Type;
 

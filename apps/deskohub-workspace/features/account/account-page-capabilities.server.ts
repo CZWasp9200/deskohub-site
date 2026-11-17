@@ -14,6 +14,8 @@ import { CustomerReservationHistoryService } from "@/features/account/backend/cu
 import { PasskeyReleaseGateRequest } from "@/features/account/server/account-release-gates.server";
 import { ReferralReleaseGateRequest } from "@/features/referrals/referral-release-gate.server";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
+import { ReservationWithdrawalAvailability } from "@/features/reservation/backend/reservation-withdrawals";
+import { WithdrawalReleaseGateRequest } from "@/features/withdrawal/backend/withdrawal-release-gate.server";
 
 /** Everything the account page reads while it loads. */
 export type AccountPageCapabilities =
@@ -34,7 +36,14 @@ export type AccountPageLayers = AccountStateLayers & {
  */
 export const liveAccountPageLayers: AccountPageLayers = {
   ...liveAccountServiceLayers,
-  history: CustomerReservationHistoryService.Live,
+  // The online withdrawal entry points show while their gate is open.
+  history: CustomerReservationHistoryService.Live.pipe(
+    Layer.provide(
+      ReservationWithdrawalAvailability.ForProvidedGate.pipe(
+        Layer.provide(WithdrawalReleaseGateRequest)
+      )
+    )
+  ),
   referralRelease: ReferralReleaseGateRequest,
   rememberedReferral: RememberedReferral.Cookies.pipe(
     Layer.provide(CurrentCustomerAccount.Live)

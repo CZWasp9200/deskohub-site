@@ -26,6 +26,7 @@ import {
 } from "@/features/discounts/persistence-contracts";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
 import type { Money } from "@/shared/money/money";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
@@ -216,6 +217,60 @@ const createOtherBooking = (
       customer,
     })
   );
+
+/**
+ * A paid booking the customer withdrew from: the recorded withdrawal owes the
+ * whole payment back (`full`) or a share of it, and the booking is cancelled
+ * once `cancelled`, as the withdrawal's settlement leaves it.
+ */
+const createWithdrawnBooking = async (
+  customer: DotyposCustomerId,
+  input: { readonly refund: "full" | "partial"; readonly cancelled: boolean }
+) => {
+  const db = testDatabase!.db;
+  const reservation = await createOtherBooking(customer, "paid");
+  const accountId = await Effect.runPromise(
+    workspaceFixtures(db).customerAccount()
+  );
+  const paid = czk(subtotal);
+  const submittedAt = now();
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const withdrawals = yield* WithdrawalRepository;
+      yield* withdrawals.record({
+        contract: { kind: "reservation", id: reservation.id },
+        accountId,
+        locale,
+        contractLabel: "Office",
+        submittedAt,
+        periodEndsAt: submittedAt.add({ hours: 24 * 14 }),
+        paidAmount: paid,
+        ...(input.refund === "full"
+          ? { refundAmount: paid, refundBasis: { kind: "full" as const } }
+          : {
+              refundAmount: czk(subtotal / 2),
+              refundBasis: {
+                kind: "partial" as const,
+                unit: "day" as const,
+                unstarted: 1,
+                total: 2,
+              },
+            }),
+      });
+    }).pipe(
+      Effect.provide(WithdrawalRepository.Default),
+      Effect.provide(testDatabase!.layer)
+    )
+  );
+  if (input.cancelled) {
+    await Effect.runPromise(
+      db
+        .update(workspaceReservations)
+        .set({ reservationState: "cancelled" })
+        .where(eq(workspaceReservations.id, reservation.id))
+    );
+  }
+};
 
 const admission = (
   offer: Offer,
@@ -506,6 +561,36 @@ describe.skipIf(!testDatabase)(
             false
           )
         ).toMatchObject({ _tag: "Success" });
+      });
+
+      test("gives the invitation back after a booking withdrawn in full and cancelled, never after a partial withdrawal", async () => {
+        const admitsInvitationAfter = async (withdrawal: {
+          readonly refund: "full" | "partial";
+          readonly cancelled: boolean;
+        }) => {
+          const customer = newCustomer();
+          await attribute(customer, await createReferralCode());
+          await createWithdrawnBooking(customer, withdrawal);
+          const attempt = await createAttempt(
+            customer,
+            invitationOffer(customer, await createReferralCode()).application
+          );
+          return admitFirstBooking(
+            customer,
+            attempt.workspaceReservationId,
+            true
+          );
+        };
+
+        expect(
+          await admitsInvitationAfter({ refund: "full", cancelled: true })
+        ).toMatchObject({ _tag: "Success" });
+        expect(
+          await admitsInvitationAfter({ refund: "full", cancelled: false })
+        ).toMatchObject(claimConflict("reserve"));
+        expect(
+          await admitsInvitationAfter({ refund: "partial", cancelled: true })
+        ).toMatchObject(claimConflict("reserve"));
       });
 
       test("admits one first booking of an invited customer at a time", async () => {
@@ -884,8 +969,9 @@ describe.skipIf(!testDatabase)(
         Effect.runPromise(
           Effect.gen(function* () {
             const reservations = yield* WorkspaceReservationRepository;
-            return yield* reservations.claimAdministrationCancellation({
+            return yield* reservations.claimRequestedCancellation({
               id: attempt.workspaceReservationId,
+              cause: "operator",
               staleCancellingBefore: now(),
               pendingPaymentCancellation: {
                 paymentAttemptId: attempt.paymentAttemptId,

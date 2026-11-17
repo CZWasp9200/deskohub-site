@@ -2,37 +2,7 @@ import type {
   FulfillmentState,
   PaymentState,
   ReservationState,
-  WorkspaceReservationRow,
 } from "@/db/schema";
-
-export const ADMINISTRATION_CANCELLATION_RETRY_AFTER_MS = 60 * 1000;
-
-export const canCancelReservation = (
-  reservation: Pick<
-    WorkspaceReservationRow,
-    | "dotyposReservationId"
-    | "fulfillmentState"
-    | "paymentState"
-    | "reservationState"
-    | "updatedAt"
-  >,
-  now = Temporal.Now.instant(),
-  allowPendingPayment = false
-) =>
-  Boolean(reservation.dotyposReservationId?.trim()) &&
-  reservation.fulfillmentState !== "processing" &&
-  reservation.fulfillmentState !== "awaiting_delivery" &&
-  (allowPendingPayment || reservation.paymentState !== "pending") &&
-  (["held", "hold_expired", "confirmed", "cancellation_failed"].includes(
-    reservation.reservationState
-  ) ||
-    (reservation.reservationState === "cancelling" &&
-      Temporal.Instant.compare(
-        reservation.updatedAt,
-        now.subtract({
-          milliseconds: ADMINISTRATION_CANCELLATION_RETRY_AFTER_MS,
-        })
-      ) <= 0));
 
 export type AdministrationStatusGroup =
   | "attention"

@@ -84,7 +84,17 @@ export const paymentAttempts = pgTable(
       .notNull()
       .default("not_required")
       .$type<PaymentRefundState>(),
-    /** Sum of successful Nexi refunds, in the attempt's minor units. */
+    /**
+     * The refund owed while `refund_state` is `required`, in the attempt's
+     * minor units, when it is less than everything paid, such as a consumer
+     * withdrawal after part of the service ran. Absent, the whole payment is
+     * owed back and any successful refund settles it.
+     */
+    refundTargetValue: integer("refund_target_value"),
+    /**
+     * Sum of successful Nexi refunds, in the attempt's minor units: set once
+     * refunded, or while a partial refund owed is still short of its target.
+     */
     refundedAmountValue: integer("refunded_amount_value"),
     /** Time of the latest successful Nexi refund. */
     refundedAt: instant("refunded_at"),
@@ -125,7 +135,11 @@ export const paymentAttempts = pgTable(
     ),
     check(
       "payment_attempts_refund_record_check",
-      sql`(${t.refundState} = 'refunded' and ${t.refundedAmountValue} > 0 and ${t.refundedAt} is not null) or (${t.refundState} <> 'refunded' and ${t.refundedAmountValue} is null and ${t.refundedAt} is null)`
+      sql`(${t.refundState} = 'refunded' and ${t.refundedAmountValue} > 0 and ${t.refundedAt} is not null) or (${t.refundState} = 'required' and ${t.refundTargetValue} is not null and ${t.refundedAmountValue} > 0 and ${t.refundedAmountValue} < ${t.refundTargetValue} and ${t.refundedAt} is not null) or (${t.refundState} <> 'refunded' and ${t.refundedAmountValue} is null and ${t.refundedAt} is null)`
+    ),
+    check(
+      "payment_attempts_refund_target_check",
+      sql`${t.refundTargetValue} is null or (${t.refundState} <> 'not_required' and ${t.refundTargetValue} > 0 and ${t.refundTargetValue} <= ${t.amountValue})`
     ),
     check("payment_attempts_currency_check", sql`${t.currency} ~ '^[A-Z]{3}$'`),
     check(

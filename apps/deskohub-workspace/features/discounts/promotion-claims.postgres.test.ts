@@ -316,6 +316,23 @@ describe.skipIf(!testDatabase)("PromotionClaims on disposable Postgres", () => {
     expect(await claimRows(attempt.paymentAttemptId)).toMatchObject([
       { state: "redeemed" },
     ]);
+
+    // A full withdrawal from the paid contract gives the redeemed claim back.
+    for (let round = 0; round < 2; round += 1) {
+      expect(
+        await inTransaction(
+          PromotionClaims.release({
+            paymentAttemptId: attempt.paymentAttemptId,
+            releasedAt: now(),
+            releaseReason: "customer_withdrawal",
+            reversesRedemption: true,
+          })
+        )
+      ).toMatchObject({ _tag: "Success" });
+    }
+    expect(await claimRows(attempt.paymentAttemptId)).toMatchObject([
+      { state: "released", redeemed: true, released: true },
+    ]);
   });
 
   test("releases once and refuses to redeem a released claim unless readmitting", async () => {
