@@ -152,7 +152,6 @@
   "accountReservationBookedByDeletedAccount": "Booked by a deleted account",
   "accountReservationBookedFor": "For {name}",
   "accountReservationBookedForSomeoneElse": "For someone else",
-  "accountReservationCheckIn": "Check in",
   "accountReservationDate": "Date",
   "accountReservationMoreCurrent": "More current and upcoming reservations",
   "accountReservationProduct": "Product",

@@ -152,7 +152,6 @@
   "accountReservationBookedByDeletedAccount": "बुक करने वाले: हटाया गया खाता",
   "accountReservationBookedFor": "किसके लिए: {name}",
   "accountReservationBookedForSomeoneElse": "किसी और के लिए",
-  "accountReservationCheckIn": "चेक-इन करें",
   "accountReservationDate": "तारीख़",
   "accountReservationMoreCurrent": "अन्य मौजूदा और आने वाली बुकिंग",
   "accountReservationProduct": "प्रोडक्ट",

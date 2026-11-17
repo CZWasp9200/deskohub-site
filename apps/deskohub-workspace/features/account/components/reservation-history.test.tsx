@@ -249,13 +249,6 @@ describe("ReservationHistory", () => {
       ).toBeTruthy();
     }
 
-    expect(
-      view
-        .getByRole("button", {
-          name: m.accountReservationCheckIn({}, { locale: "en-US" }),
-        })
-        .hasAttribute("disabled")
-    ).toBe(true);
     expect(view.queryByRole("button", { name: /nfc/i })).toBeNull();
     expect(
       view.getByRole("link", {

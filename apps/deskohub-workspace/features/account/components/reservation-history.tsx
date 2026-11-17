@@ -1,5 +1,4 @@
 import { CalendarDays, UserRound, Users } from "lucide-react";
-import { FutureFeatureTooltip } from "@/features/account/components/future-feature-tooltip";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import type {
   CustomerReservationHistory,
@@ -368,48 +367,29 @@ function FeaturedReservationItem({
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-4 border-t border-[#dfe4ec] p-6 @3xl:flex-row @3xl:items-center @3xl:justify-between @4xl:grid @4xl:grid-cols-[minmax(0,1fr)_auto] @4xl:gap-x-4 @4xl:gap-y-2 @4xl:px-6 @4xl:py-4">
-          <div className="flex min-w-0 flex-col gap-2 @3xl:flex-row @3xl:flex-wrap @4xl:col-start-1 @4xl:row-start-2">
-            <FutureFeatureTooltip locale={locale}>
-              <Button
-                className="@3xl:w-auto"
-                fullWidth
-                disabled
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                {m.accountReservationCheckIn({}, { locale })}
-              </Button>
-            </FutureFeatureTooltip>
-            <ReservationAccessButton
-              className="@3xl:w-auto"
-              href={
-                reservation.workspaceReservationId && !reservation.reviewSandbox
-                  ? `/${locale}${reservationAccessPath}/${encodeURIComponent(reservation.workspaceReservationId)}`
-                  : undefined
-              }
-              locale={locale}
-              unavailableNote={
-                reservation.reviewSandbox
-                  ? m.accountReservationPinReviewSandbox({}, { locale })
-                  : m.accountReservationPinUnavailable({}, { locale })
-              }
-            />
-          </div>
-          <div className="flex min-w-0 flex-col gap-3 @3xl:items-end @4xl:contents">
-            <p className="max-w-sm break-words text-sm leading-5 text-[#64748b] @4xl:col-start-1 @4xl:row-start-1 @4xl:max-w-none @4xl:text-xs @4xl:leading-5">
-              {m.accountFeatureUnavailableDescription({}, { locale })}
-            </p>
-            {reservation.workspaceReservationId && (
-              <div className="@4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1 @4xl:flex @4xl:items-center @4xl:justify-self-end">
-                <ReservationDetailLink
-                  locale={locale}
-                  reservation={reservation}
-                />
-              </div>
-            )}
-          </div>
+        <div className="flex min-w-0 flex-col gap-3 border-t border-[#dfe4ec] p-6 @3xl:flex-row @3xl:items-center @3xl:justify-between @3xl:gap-4 @4xl:py-4">
+          <ReservationAccessButton
+            className="@3xl:w-auto"
+            href={
+              reservation.workspaceReservationId && !reservation.reviewSandbox
+                ? `/${locale}${reservationAccessPath}/${encodeURIComponent(reservation.workspaceReservationId)}`
+                : undefined
+            }
+            locale={locale}
+            unavailableNote={
+              reservation.reviewSandbox
+                ? m.accountReservationPinReviewSandbox({}, { locale })
+                : m.accountReservationPinUnavailable({}, { locale })
+            }
+          />
+          {reservation.workspaceReservationId && (
+            <div className="min-w-0 *:w-full @3xl:*:w-auto">
+              <ReservationDetailLink
+                locale={locale}
+                reservation={reservation}
+              />
+            </div>
+          )}
         </div>
       </Card>
     </li>
