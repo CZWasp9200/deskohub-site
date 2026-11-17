@@ -970,7 +970,7 @@
   "reservationRestorationEmailSubject": "Ваше бронювання в Deskohub Workspace знову дійсне",
   "reservationRestorationEmailHeading": "Ваше бронювання в коворкінгу відновлено",
   "reservationRestorationEmailBody": "Наведене нижче бронювання відновлено, і воно знову дійсне. Попереднє повідомлення про його скасування більше не діє.",
-  "reservationRestorationEmailNewAccessCode": "Ми видали вам новий код доступу, він на сторінці бронювання. Попередній код більше не працює.",
+  "reservationRestorationEmailNewAccessCode": "Ми видали вам новий код доступу, він на сторінці бронювання.",
   "cookieConsentConsentModalTitle": "Ми використовуємо файли cookie для надійної роботи сайту Workspace.",
   "cookieConsentConsentModalDescription": "Необхідні файли cookie забезпечують роботу сайту. Необовʼязкові файли cookie допомагають нам розуміти, як використовується сайт, і запамʼятовувати ваші налаштування — лише якщо ви їх дозволите.",
   "cookieConsentConsentModalAcceptAllBtn": "Прийняти всі",

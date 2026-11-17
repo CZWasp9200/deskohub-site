@@ -956,7 +956,7 @@
   "reservationRestorationEmailSubject": "Your Deskohub Workspace reservation is valid again",
   "reservationRestorationEmailHeading": "Your workspace reservation has been restored",
   "reservationRestorationEmailBody": "We have restored the reservation below, and it is valid again. The earlier cancellation notice no longer applies.",
-  "reservationRestorationEmailNewAccessCode": "We have issued you a new access code; you can find it on the reservation page. The previous code no longer works.",
+  "reservationRestorationEmailNewAccessCode": "We have issued you a new access code; you can find it on the reservation page.",
   "cookieConsentConsentModalTitle": "We use cookies for a reliable workspace site experience.",
   "cookieConsentConsentModalDescription": "Necessary cookies keep the site working. Optional cookies help us understand usage and remember preferences only if you allow them.",
   "cookieConsentConsentModalAcceptAllBtn": "Accept all",

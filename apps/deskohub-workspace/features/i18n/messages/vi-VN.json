@@ -949,7 +949,7 @@
   "reservationRestorationEmailSubject": "Đặt chỗ của bạn tại Deskohub Workspace có hiệu lực trở lại",
   "reservationRestorationEmailHeading": "Đặt chỗ không gian làm việc của bạn đã được khôi phục",
   "reservationRestorationEmailBody": "Đặt chỗ dưới đây đã được khôi phục và có hiệu lực trở lại. Thông báo hủy trước đó không còn áp dụng.",
-  "reservationRestorationEmailNewAccessCode": "Chúng tôi đã cấp cho bạn mã ra vào mới, bạn có thể xem mã trên trang đặt chỗ. Mã cũ không còn sử dụng được.",
+  "reservationRestorationEmailNewAccessCode": "Chúng tôi đã cấp cho bạn mã ra vào mới, bạn có thể xem mã trên trang đặt chỗ.",
   "cookieConsentConsentModalTitle": "Chúng tôi dùng cookie để trang web Workspace hoạt động ổn định.",
   "cookieConsentConsentModalDescription": "Cookie thiết yếu giúp trang web hoạt động. Cookie tùy chọn giúp chúng tôi hiểu cách trang web được sử dụng và ghi nhớ tùy chọn của bạn, chỉ khi bạn cho phép.",
   "cookieConsentConsentModalAcceptAllBtn": "Chấp nhận tất cả",

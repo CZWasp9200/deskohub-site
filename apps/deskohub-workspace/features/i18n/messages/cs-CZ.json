@@ -963,7 +963,7 @@
   "reservationRestorationEmailSubject": "Tvoje rezervace v Deskohub Workspace znovu platí",
   "reservationRestorationEmailHeading": "Tvoje rezervace workspace byla obnovena",
   "reservationRestorationEmailBody": "Níže uvedenou rezervaci jsme obnovili a znovu platí. Předchozí oznámení o jejím zrušení už neplatí.",
-  "reservationRestorationEmailNewAccessCode": "Vydali jsme ti nový přístupový kód, najdeš ho na stránce rezervace. Dřívější kód už nefunguje.",
+  "reservationRestorationEmailNewAccessCode": "Vydali jsme ti nový přístupový kód, najdeš ho na stránce rezervace.",
   "cookieConsentConsentModalTitle": "Používáme cookies pro spolehlivý chod webu Workspace.",
   "cookieConsentConsentModalDescription": "Nezbytné cookies drží web v chodu. Volitelné cookies nám pomáhají chápat používání webu a pamatovat si preference jen tehdy, když je povolíš.",
   "cookieConsentConsentModalAcceptAllBtn": "Přijmout vše",

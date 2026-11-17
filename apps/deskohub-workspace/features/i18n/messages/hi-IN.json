@@ -956,7 +956,7 @@
   "reservationRestorationEmailSubject": "Deskohub Workspace में आपकी बुकिंग फिर से मान्य है",
   "reservationRestorationEmailHeading": "आपकी बुकिंग बहाल कर दी गई है",
   "reservationRestorationEmailBody": "नीचे दी गई बुकिंग बहाल कर दी गई है और फिर से मान्य है। उसके रद्द होने की पिछली सूचना अब लागू नहीं है।",
-  "reservationRestorationEmailNewAccessCode": "हमने आपके लिए नया प्रवेश कोड जारी किया है, जो आपको बुकिंग पेज पर मिलेगा। पुराना कोड अब काम नहीं करेगा।",
+  "reservationRestorationEmailNewAccessCode": "हमने आपके लिए नया प्रवेश कोड जारी किया है, जो आपको बुकिंग पेज पर मिलेगा।",
   "cookieConsentConsentModalTitle": "Workspace वेबसाइट को भरोसेमंद ढंग से चलाने के लिए हम कुकीज़ का इस्तेमाल करते हैं।",
   "cookieConsentConsentModalDescription": "ज़रूरी कुकीज़ वेबसाइट को चालू रखती हैं। वैकल्पिक कुकीज़ हमें वेबसाइट के इस्तेमाल को समझने और आपकी प्राथमिकताएँ याद रखने में मदद करती हैं – सिर्फ़ तभी, जब आप उन्हें चालू करें।",
   "cookieConsentConsentModalAcceptAllBtn": "सभी स्वीकार करें",
