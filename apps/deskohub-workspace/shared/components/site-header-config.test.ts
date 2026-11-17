@@ -28,10 +28,9 @@ mock.module(
   "@/features/meeting-room/backend/meeting-room-release-gate.server",
   () => ({
     isMeetingRoomPageEnabled,
-    MeetingRoomReleaseGateRequest:
-      MeetingRoomReleaseGate.fromEvaluation(
-        Effect.promise(() => isMeetingRoomPageEnabled())
-      ),
+    MeetingRoomReleaseGateRequest: MeetingRoomReleaseGate.fromEvaluation(
+      Effect.promise(() => isMeetingRoomPageEnabled())
+    ),
   })
 );
 const officeFeatureFlag = await import(

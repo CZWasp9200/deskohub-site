@@ -45,11 +45,10 @@ mock.module(
   () => ({
     ...meetingRoomFeatureFlag,
     isMeetingRoomPageEnabled,
-    MeetingRoomReleaseGateRequest:
-      MeetingRoomReleaseGate.fromEvaluation(
-        Effect.promise(isMeetingRoomPageEnabled),
-        decisionOf("meeting-room-page")
-      ),
+    MeetingRoomReleaseGateRequest: MeetingRoomReleaseGate.fromEvaluation(
+      Effect.promise(isMeetingRoomPageEnabled),
+      decisionOf("meeting-room-page")
+    ),
   })
 );
 const officeFeatureFlag = await import(

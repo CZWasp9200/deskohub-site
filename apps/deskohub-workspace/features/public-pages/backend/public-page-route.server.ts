@@ -17,10 +17,7 @@ import { PublishedPublicPagesService } from "./published-public-pages.service";
 const PublishedPublicPagesRenderLayer =
   PublishedPublicPagesService.Default.pipe(
     Layer.provide(
-      Layer.mergeAll(
-        MeetingRoomReleaseGateRequest,
-        OfficeReleaseGateRequest
-      )
+      Layer.mergeAll(MeetingRoomReleaseGateRequest, OfficeReleaseGateRequest)
     )
   );
 
