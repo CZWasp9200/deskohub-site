@@ -10,6 +10,7 @@ import {
   PayState,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
+import { isOrderBoundPayState } from "@/features/checkout/backend/checkout/pay-state-contract";
 import {
   checkoutReferralAppliedQueryParam,
   hasCheckoutReferralAppliedNotice,
@@ -253,11 +254,20 @@ function renderCheckoutPay(input: CheckoutPayRenderInput) {
         key={earlyPerformanceRequestRequired ? "early-performance" : "standard"}
         payStateToken={state.changedKeys ? undefined : payStateToken}
         summary={PayState.summary(state)}
-        variant={state.changedKeys ? "pricingChanged" : "pay"}
+        variant={getPayPageVariant(state)}
       />
     </CheckoutFlowLayout>
   );
 }
+
+/**
+ * The Pay page a signed state opens: a changed price to accept first, the
+ * same order's payment tried again, or its first payment.
+ */
+const getPayPageVariant = (state: SignedPayState) => {
+  if (state.changedKeys) return "pricingChanged";
+  return isOrderBoundPayState(state) ? "retry" : "pay";
+};
 
 /**
  * The discount code form, showing the code the Pay state carries and the

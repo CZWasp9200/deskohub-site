@@ -5,6 +5,7 @@ import {
 } from "@deskohub/dotypos";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
 import type { WorkspaceReservationDetailsMalformedError } from "@/features/reservation/backend/stored-reservation-details.server";
 import {
   type WorkspaceReservation,
@@ -14,6 +15,7 @@ import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import type { SealedStateTokenError } from "@/shared/backend/sealed-state";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { currentInstant } from "@/shared/utils/temporal";
+import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
 import { deriveCheckoutSessionKeys } from "./checkout-lookup-keys.server";
 import {
   CheckoutUnavailableError,
@@ -27,8 +29,8 @@ import {
   type SignedPayState,
 } from "./pay-state";
 import {
+  findPayStateAttemptRefusal,
   getPayStateBinding,
-  isPayStateAttemptCurrent,
 } from "./pay-state-contract";
 import { withPayStateHoldExpiry } from "./pay-state-hold";
 
@@ -98,6 +100,7 @@ export class PayableCheckout extends Context.Service<
     this,
     Effect.gen(function* () {
       const reservations = yield* WorkspaceReservationRepository;
+      const paymentAttempts = yield* PaymentAttemptRepository;
       const dotypos = yield* DotyposService;
       const provideSealedStateKeys = Effect.provideService(
         SealedStateKeys,
@@ -107,8 +110,8 @@ export class PayableCheckout extends Context.Service<
       /**
        * The order, when it is the current reservation of its checkout
        * session: the state's own session, or for an order-bound (payment
-       * retry) state the session the order was booked in, while the order
-       * awaits that retry (no attempt active).
+       * retry) state the session the order was booked in, and while the
+       * state may still start a payment (`findPayStateAttemptRefusal`).
        */
       const findSessionReservation = Effect.fnUntraced(function* (
         state: SignedPayState
@@ -124,13 +127,18 @@ export class PayableCheckout extends Context.Service<
           return yield* refuse("missing_checkout_session");
         }
 
-        if (binding.kind === "order") {
-          // Only the stored session key is known: the state carries no raw
-          // session id.
-          if (!isPayStateAttemptCurrent(binding, reservation)) {
-            return yield* refuse("retried_attempt_replaced");
-          }
-        } else {
+        const attemptRefusal = findPayStateAttemptRefusal(
+          binding,
+          reservation,
+          binding.kind === "order"
+            ? ((yield* paymentAttempts.findNewestForReservation(reservation.id))
+                ?.id ?? null)
+            : null
+        );
+        if (attemptRefusal) return yield* refuse(attemptRefusal);
+        // An order-bound state carries no raw session id: only the order's
+        // stored session key is known.
+        if (binding.kind === "session") {
           const checkoutSessionKeys = yield* deriveCheckoutSessionKeys(
             binding.checkoutSessionId
           ).pipe(provideSealedStateKeys);
@@ -223,6 +231,9 @@ export class PayableCheckout extends Context.Service<
     Layer.provide(
       Layer.mergeAll(
         WorkspaceReservationRepository.Live,
+        PaymentAttemptRepository.Default.pipe(
+          Layer.provide(WorkspaceDatabase.Default)
+        ),
         WorkspaceDotyposLayer,
         SealedStateKeys.Default
       )

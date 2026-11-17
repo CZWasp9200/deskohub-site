@@ -706,7 +706,8 @@ const payButtonRoles = [
 ] as const;
 
 const checkoutPayButton = (page: Page, nameMatch: NameMatch) => {
-  const name = payControlName("Order and pay", nameMatch);
+  // A payment retry's Pay page names its button for paying again.
+  const name = payControlName("Order and pay|Try payment again", nameMatch);
   return payButtonRoles
     .map((role) => page.getByRole(role, { disabled: false, name }))
     .reduce((controls, control) => controls.or(control))

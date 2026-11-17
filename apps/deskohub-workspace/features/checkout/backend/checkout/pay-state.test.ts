@@ -590,6 +590,50 @@ const signedOrder = (state: SignedPayState) =>
     )
   );
 
+/**
+ * One of each outcome a Pay state can be reissued after, priced on `state`;
+ * a new outcome kind fails to compile here until it is listed.
+ */
+const everyReissueOutcome = (
+  state: PayStateWithHoldExpiry
+): ReadonlyArray<PayStateReissue> => {
+  const priced = { reservation: state.reservation, quote: baseQuote };
+  const outcomes: {
+    readonly [Kind in PayStateReissue["kind"]]: Extract<
+      PayStateReissue,
+      { readonly kind: Kind }
+    >;
+  } = {
+    review_pending: { kind: "review_pending" },
+    reviewed: { kind: "reviewed" },
+    repriced: {
+      kind: "repriced",
+      verdict: { status: "pricing_changed", priced, changedKeys: reviewKeys },
+    },
+    code_entered: {
+      kind: "code_entered",
+      code: enteredCode,
+      verdict: { status: "pricing_changed", priced, changedKeys: reviewKeys },
+    },
+    code_rejected: {
+      kind: "code_rejected",
+      code: enteredCode,
+      rejection: "unavailable",
+    },
+    referral_applied: {
+      kind: "referral_applied",
+      referralCode,
+      verdict: { status: "affirmed", priced },
+    },
+    code_cleared: {
+      kind: "code_cleared",
+      verdict: { status: "affirmed", priced },
+    },
+    requested_code_cleared: { kind: "requested_code_cleared" },
+  };
+  return Object.values(outcomes);
+};
+
 const reissue = (state: PayStateWithHoldExpiry, outcome: PayStateReissue) => {
   const issued = run(PayState.reissue(state, outcome));
   const url = new URL(issued.payUrl, "https://deskohub.test");
@@ -854,30 +898,7 @@ describe("PayState.reissue", () => {
       holdExpiresAt: storedDeadline,
       changedKeys: reviewKeys,
     });
-    const priced = { reservation: state.reservation, quote: baseQuote };
-    const outcomes: ReadonlyArray<PayStateReissue> = [
-      { kind: "review_pending" },
-      { kind: "reviewed" },
-      {
-        kind: "repriced",
-        verdict: { status: "pricing_changed", priced, changedKeys: reviewKeys },
-      },
-      {
-        kind: "code_entered",
-        code: enteredCode,
-        verdict: { status: "pricing_changed", priced, changedKeys: reviewKeys },
-      },
-      { kind: "code_rejected", code: enteredCode, rejection: "unavailable" },
-      {
-        kind: "referral_applied",
-        referralCode,
-        verdict: { status: "affirmed", priced },
-      },
-      { kind: "code_cleared", verdict: { status: "affirmed", priced } },
-      { kind: "requested_code_cleared" },
-    ];
-
-    for (const outcome of outcomes) {
+    for (const outcome of everyReissueOutcome(state)) {
       expect(reissue(state, outcome).continued.holdExpiresAt).toBe(
         storedDeadline
       );
@@ -1176,6 +1197,25 @@ describe("Pay state binding", () => {
         checkoutSessionId: checkoutSessionIdSchema.make("session"),
       })
     ).toBeUndefined();
+  });
+
+  test("every reissue outcome keeps the order binding and never gains a session", () => {
+    const state = buildCarryingState({
+      checkoutSessionId: undefined,
+      binding: "order",
+      retriedAttemptId,
+      changedKeys: reviewKeys,
+    });
+    for (const outcome of everyReissueOutcome(state)) {
+      const issued = run(PayState.reissue(state, outcome));
+      const continued = run(PayState.open(issued.payStateToken));
+
+      expect(getPayStateBinding(continued)).toEqual({
+        kind: "order",
+        retriedAttemptId,
+      });
+      expect(continued.checkoutSessionId).toBeUndefined();
+    }
   });
 
   test("the price-review continuation keeps the order binding", () => {

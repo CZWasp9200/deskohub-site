@@ -295,7 +295,6 @@ export const makeMeetingRoomE2ECases = ({
           assertPaymentTerminalPath({
             config,
             data: cancelledData,
-            reservationPath: "/en-US/reservation/meeting-room",
             runStep,
             scenario: cancelledScenario,
             openSession,

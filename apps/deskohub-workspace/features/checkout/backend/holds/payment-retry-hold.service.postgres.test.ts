@@ -34,6 +34,7 @@ import {
   type WorkspacePostgresTestDatabase,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
+import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
 import { rebuildAcceptedReservation } from "../reservation/order-dotypos-reservation";
 import { WorkspaceTableAssignmentService } from "../reservation/workspace-table-assignment.service";
 import { PaymentRetryHoldService } from "./payment-retry-hold.service";
@@ -182,6 +183,9 @@ describe.skipIf(!postgresDatabase)(
             LatePaymentRecoveryRepository.Default.pipe(
               Layer.provide(postgres.layer)
             ),
+            PaymentAttemptRepository.Default.pipe(
+              Layer.provide(postgres.layer)
+            ),
             UnpaidHoldRelease.Default.pipe(
               Layer.provide(Layer.mergeAll(reservations, dotypos))
             ),
@@ -292,6 +296,75 @@ describe.skipIf(!postgresDatabase)(
       expect(result.kind).toBe("reacquired");
       expect(harness.spies.cancelReservation).not.toHaveBeenCalled();
       expect((await rowOf(order.orderId)).reservationState).toBe("held");
+    });
+
+    test("keeps the same hold when a prepared retry is prepared again", async () => {
+      const order = await retriedOrder({
+        reservation: "held",
+        overrides: {
+          reservationHoldExpiresAt: Temporal.Now.instant().add({ minutes: 5 }),
+        },
+      });
+      const before = await rowOf(order.orderId);
+      const harness = makeHarness();
+
+      await harness.secure(order);
+      const again = await harness.secure(order);
+
+      expect(again.kind).toBe("kept");
+      expect((await rowOf(order.orderId)).dotyposReservationId).toBe(
+        before.dotyposReservationId
+      );
+      expect(harness.spies.createReservation).not.toHaveBeenCalled();
+    });
+
+    test("books again a prepared retry whose hold then lapsed", async () => {
+      const order = await retriedOrder({
+        reservation: "cancelled",
+        overrides: {
+          activePaymentAttemptId: null,
+          cancellationCause: "hold_expired",
+        },
+      });
+      const harness = makeHarness();
+
+      const result = await harness.secure(order);
+
+      expect(result.kind).toBe("reacquired");
+      expect((await rowOf(order.orderId)).reservationState).toBe("held");
+    });
+
+    test("never secures a retry of an attempt a newer one replaced", async () => {
+      const order = await retriedOrder({
+        reservation: "held",
+        overrides: {
+          activePaymentAttemptId: null,
+          reservationHoldExpiresAt: Temporal.Now.instant().add({ minutes: 5 }),
+        },
+      });
+      await postgres.db
+        .insert(paymentAttempts)
+        .values({
+          id: `attempt-${crypto.randomUUID()}` as PaymentAttemptId,
+          workspaceReservationId: order.orderId,
+          provider: "nexi",
+          providerOrderId: NexiOrderIdSchema.make(
+            `order-${crypto.randomUUID()}`
+          ),
+          state: "failed",
+          failureCode: "nexi_payment_failed",
+          amountValue: 29_000,
+          amountExponent: 2,
+          currency: "CZK",
+          createdAt: Temporal.Now.instant().add({ minutes: 1 }),
+        })
+        .pipe(Effect.runPromise);
+      const harness = makeHarness();
+
+      const result = await harness.secure(order);
+
+      expect(result).toEqual({ kind: "refused", reason: "not_retryable" });
+      expect(harness.spies.getReservationStatus).not.toHaveBeenCalled();
     });
 
     test.each([
@@ -429,9 +502,10 @@ describe.skipIf(!postgresDatabase)(
         harness.secure(order),
       ]);
 
+      // The second waits for the first's lock section, then keeps its hold.
       expect(results.map((result) => result.kind).toSorted()).toEqual([
+        "kept",
         "reacquired",
-        "refused",
       ]);
       expect(harness.spies.createReservation).toHaveBeenCalledTimes(1);
     });

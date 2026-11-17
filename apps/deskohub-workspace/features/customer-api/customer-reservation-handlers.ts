@@ -10,6 +10,7 @@ import {
   type CustomerOrderState,
   type CustomerPaymentPage,
   CustomerPaymentPageClosed,
+  CustomerPaymentRetryRefused,
   type CustomerReservationAccess,
   type CustomerReservationHistory,
   CustomerReservationNotFound,
@@ -32,6 +33,10 @@ import {
   CheckoutPaymentPageService,
   type PaymentPageReopening,
 } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
+import {
+  CheckoutPaymentRetryService,
+  type PaymentRetryPreparation,
+} from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout/checkout-status.service";
 import { defaultLocale } from "@/features/i18n";
 import type { RebookingSelection } from "@/features/reservation/backend/booking-selection";
@@ -52,6 +57,7 @@ import {
   answerSessionApiFailure,
   answerUnavailable,
 } from "./customer-api-failure";
+import { toCustomerCheckout } from "./customer-checkout-view";
 import { answerFileDownload } from "./customer-file-download";
 import { CustomerReservationLayers } from "./customer-reservation-layers";
 
@@ -135,6 +141,18 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
             Effect.provide(reservations.paymentPage(authorization)),
             answerSessionApiFailure("customerApi.reopenPaymentPage"),
             Effect.flatMap(answerPaymentPage)
+          )
+        )
+        // Securing the hold can book the spot again in Dotypos, so it ends
+        // even when the client disconnects.
+        .handle("retryPayment", ({ params: { orderId }, payload }) =>
+          Effect.flatMap(CheckoutPaymentRetryService, (retries) =>
+            retries.prepare({ orderId, locale: payload.locale })
+          ).pipe(
+            Effect.provide(reservations.paymentRetry(authorization)),
+            runToCompletion,
+            answerSessionApiFailure("customerApi.retryPayment"),
+            Effect.flatMap(answerPaymentRetry)
           )
         )
         // Showing a code can issue it at the lock provider and store it, so
@@ -341,6 +359,32 @@ const answerPaymentPage = (reopening: PaymentPageReopening) =>
       not_found: () => Effect.fail(new CustomerReservationNotFound()),
       closed: ({ reason }) =>
         Effect.fail(new CustomerPaymentPageClosed({ reason })),
+    })
+  );
+
+/**
+ * The same order's checkout to pay again, or why it can't be paid again in
+ * place; the app then books the selection again or, while the earlier
+ * payment may still settle, checks the status later.
+ */
+const answerPaymentRetry = (preparation: PaymentRetryPreparation) =>
+  Match.value(preparation).pipe(
+    Match.discriminatorsExhaustive("state")({
+      ready: ({ checkout, payState }) =>
+        Effect.succeed(
+          toCustomerCheckout(checkout, payState.freshPayStateToken)
+        ),
+      not_found: () => Effect.fail(new CustomerReservationNotFound()),
+      not_retryable: ({ reason }) =>
+        Effect.fail(new CustomerPaymentRetryRefused({ reason })),
+      spot_unavailable: () =>
+        Effect.fail(
+          new CustomerPaymentRetryRefused({ reason: "spot_unavailable" })
+        ),
+      payment_settling: () =>
+        Effect.fail(
+          new CustomerPaymentRetryRefused({ reason: "payment_settling" })
+        ),
     })
   );
 

@@ -100,6 +100,8 @@ export const customerRequestBudgetClasses = {
     getReservationInvoice: "dotypos-read",
     // Authorizes like the invoice, then records the page's return target.
     reopenPaymentPage: "dotypos-mutation",
+    // May book the order's spot again in Dotypos and asks the payment provider.
+    retryPayment: "dotypos-mutation",
     // The space's address is the site's own constant.
     getEstablishment: "workspace-only",
   },
