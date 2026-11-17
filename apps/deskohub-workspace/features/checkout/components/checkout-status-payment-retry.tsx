@@ -6,6 +6,7 @@ import { preparePaymentRetry } from "@/features/checkout/actions/prepare-payment
 import { CheckoutBanner } from "@/features/checkout/components/checkout-banner";
 import { type Locale, m } from "@/features/i18n";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { leaveDocument } from "@/shared/browser/document-navigation";
 import { Button } from "@/shared/components/ui/button";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 
@@ -53,8 +54,10 @@ export function CheckoutStatusPaymentRetry({
       }
       switch (data.state) {
         case "ready":
-          setLeaving(true);
-          router.push(data.payUrl);
+          // A new document: the router would revive the Pay page this tab
+          // submitted before, still pending its first payment.
+          if (leaveDocument(data.payUrl)) setLeaving(true);
+          else showError();
           return;
         case "payment_settling":
           router.refresh();

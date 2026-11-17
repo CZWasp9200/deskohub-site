@@ -23,6 +23,10 @@ import {
 mock.module("@/features/checkout/actions/prepare-payment-retry", () => ({
   preparePaymentRetry: mock(),
 }));
+const leaveDocument = mock((_url: string) => true);
+mock.module("@/shared/browser/document-navigation", () => ({
+  leaveDocument,
+}));
 
 const { CheckoutStatusPaymentRetry } = await import(
   "./checkout-status-payment-retry"
@@ -80,6 +84,7 @@ describe("CheckoutStatusPaymentRetry", () => {
     workspaceRouterPush.mockClear();
     workspaceRouterRefresh.mockClear();
     workspaceUseAction.mockClear();
+    leaveDocument.mockClear();
   });
 
   afterEach(() => {
@@ -116,7 +121,7 @@ describe("CheckoutStatusPaymentRetry", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  test("opens the retry's Pay page", () => {
+  test("opens the retry's Pay page as a new document", () => {
     const { options } = renderRetry();
 
     act(() => {
@@ -125,9 +130,8 @@ describe("CheckoutStatusPaymentRetry", () => {
       });
     });
 
-    expect(workspaceRouterPush).toHaveBeenCalledWith(
-      "/en-US/checkout/pay?orderId=x"
-    );
+    expect(leaveDocument).toHaveBeenCalledWith("/en-US/checkout/pay?orderId=x");
+    expect(workspaceRouterPush).not.toHaveBeenCalled();
   });
 
   test.each(["refused", "spot_unavailable"] as const)(
