@@ -19,6 +19,7 @@ import {
   retryPaymentInPlace,
   retryPaymentSelector,
 } from "../checkout/payment-retry";
+import { capturePaymentRetryReview } from "../checkout/payment-retry-review";
 import type { ReservationFormPreparation } from "../checkout/reservation-form-preparation";
 import type { WorkspaceE2EConfig } from "../config";
 import { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
@@ -157,14 +158,35 @@ export const assertPaymentTerminalPath = ({
         timeoutMs: config.timeouts.uiTransition,
       });
     }
+    // The failed payment's case captures the retry for review; the
+    // cancelled one would only overwrite it.
+    const captureReview =
+      scenario.trigger === "hosted_authentication_failure"
+        ? capturePaymentRetryReview
+        : () => Effect.void;
     yield* runStep({
       execute: Effect.flatMap(openSession, (browser) =>
-        retryPaymentInPlace({
-          label: `${scenario.state} payment`,
+        captureReview({
           orderId,
           session: browser,
-          timeouts: config.timeouts,
-        })
+          target: "checkout-status-payment-retry",
+        }).pipe(
+          Effect.andThen(
+            retryPaymentInPlace({
+              label: `${scenario.state} payment`,
+              orderId,
+              session: browser,
+              timeouts: config.timeouts,
+            })
+          ),
+          Effect.andThen(
+            captureReview({
+              orderId,
+              session: browser,
+              target: "checkout-pay-retry",
+            })
+          )
+        )
       ),
       id: "retry-payment-in-place",
       timeoutMs: config.timeouts.uiTransition,
