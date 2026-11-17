@@ -2,6 +2,7 @@ import type {
   CustomerBookingSelection,
   CustomerDiscountAdjustment,
   CustomerMonitorOption,
+  Money,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -45,7 +46,7 @@ const productDetail = (
     case "Cowork":
       return selection.stay === "overnight"
         ? m.booking_cowork_stay_overnight({}, { locale })
-        : m.booking_price_line_one_day({}, { locale });
+        : m.booking_price_line_days({ count: 1 }, { locale });
     case "MeetingRoom":
       return Option.match(overview.time, {
         onNone: () => undefined,
@@ -64,6 +65,21 @@ const productDetail = (
   }
 };
 
+/**
+ * A counted line's factors, each already worded, as the boards write them:
+ * "6 seats × 3 days × CZK 315", the price of one unit last where the quote
+ * gives it. The multiplication sign reads the same in every app locale.
+ */
+const countedDetail = (
+  counts: ReadonlyArray<string>,
+  unitPrice: Money | undefined,
+  locale: AppLocale
+): string =>
+  [
+    ...counts,
+    ...(unitPrice === undefined ? [] : [formatMoney(unitPrice, locale)]),
+  ].join(" × ");
+
 const chargeDescription = (
   subject: PriceLineSubject,
   /** What the booked product covers; asked only for a product line. */
@@ -77,20 +93,22 @@ const chargeDescription = (
     case "OfficeAccess":
       return {
         label: productName,
-        detail: m.booking_checkout_summary_office_days(
-          { count: subject.dayCount },
-          { locale }
+        detail: countedDetail(
+          [m.booking_price_line_days({ count: subject.dayCount }, { locale })],
+          subject.dailyRate,
+          locale
         ),
       };
     case "OfficeSeats":
       return {
-        label: m.booking_checkout_summary_office_seats(
-          { count: subject.seats },
-          { locale }
-        ),
-        detail: m.booking_checkout_summary_office_days(
-          { count: subject.dayCount },
-          { locale }
+        label: m.booking_checkout_line_office_seats({}, { locale }),
+        detail: countedDetail(
+          [
+            m.booking_price_line_seats({ count: subject.seats }, { locale }),
+            m.booking_price_line_days({ count: subject.dayCount }, { locale }),
+          ],
+          subject.dailySeatRate,
+          locale
         ),
       };
     case "Coffee":
@@ -147,9 +165,7 @@ const reductionDescription = (
  * Names a booking's price lines, the one place that does: the product by
  * the booked selection, which is what the server priced, with what it
  * covers; add-ons by kind; a discount by the pricing response's own label,
- * with what it takes off.
- * Counts read as "Days: 3", never as a plural form: the app's runtime has
- * no plural rules.
+ * with what it takes off. Counts read in the locale's plural form, "3 days".
  */
 export const describePriceLine =
   (

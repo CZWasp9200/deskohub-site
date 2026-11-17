@@ -74,8 +74,33 @@
   "booking_checkout_summary_total": "Tổng thanh toán",
   "booking_checkout_summary_changed": "Giá đã thay đổi",
   "booking_checkout_summary_original_price": "Giá gốc: {amount}",
-  "booking_checkout_summary_office_days": "Số ngày: {count}",
-  "booking_checkout_summary_office_seats": "Số chỗ trong văn phòng: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{formattedCount} ngày"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Chỗ trong văn phòng",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{formattedCount} chỗ"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Chỗ ngồi chung",
   "booking_checkout_line_reserved_desk": "Chỗ ngồi giữ riêng",
   "booking_checkout_line_meeting_room": "Phòng họp",
@@ -83,7 +108,6 @@
   "booking_checkout_line_coffee": "Cà phê",
   "booking_checkout_line_workstation": "Trạm làm việc có màn hình",
   "booking_checkout_line_other": "Mục khác",
-  "booking_price_line_one_day": "1 ngày",
   "booking_price_line_one_hour": "1 giờ, {start}–{end}",
   "booking_price_line_four_hours": "4 giờ, {start}–{end}",
   "booking_summary_open_space_day": "{date}, đến {time}",
@@ -737,7 +761,34 @@
   "referrals_saved_so_far": "Đã tiết kiệm",
   "referrals_discount_info": "Cách tính mức giảm",
   "referrals_joined_nobody": "Chưa có ai tham gia bằng mã của bạn.",
-  "referrals_joined_some": "Đã tham gia bằng mã của bạn: {invitees}. Được tính vào mức giảm của bạn: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{formattedCount} người đã tham gia bằng mã của bạn"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{formattedCount} người được tính vào mức giảm của bạn"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "chưa có ai được tính vào mức giảm của bạn",
   "referrals_how_it_works": "Cách hoạt động",
   "referrals_step_share": "Chia sẻ mã hoặc liên kết của bạn.",
   "referrals_step_friend_rate": "Bạn của bạn được giảm {rate} cho lần đặt chỗ đầu tiên.",
