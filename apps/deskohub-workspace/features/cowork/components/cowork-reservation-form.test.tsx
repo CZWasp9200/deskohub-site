@@ -2408,20 +2408,18 @@ describe("CoworkReservationForm advertised pricing", () => {
 
   describe("CoworkReservationForm overnight stay", () => {
     let availabilityRequests: URLSearchParams[] = [];
-    const stayGroup = (view: ReturnType<typeof renderForm>) =>
-      view.queryByRole("group", {
-        name: m.coworkReservationStayLabel({}, { locale: "en-US" }),
+    const overnightSwitch = (view: ReturnType<typeof renderForm>) =>
+      view.queryByRole("switch", {
+        name: m.coworkReservationStayOvernight({}, { locale: "en-US" }),
       });
-    const stayOption = (
-      view: ReturnType<typeof renderForm>,
-      stay: "day" | "overnight"
-    ) =>
-      view.getByRole("radio", {
-        name: {
-          day: m.coworkReservationStayDay({}, { locale: "en-US" }),
-          overnight: m.coworkReservationStayOvernight({}, { locale: "en-US" }),
-        }[stay],
-      }) as HTMLInputElement;
+    const isOvernight = (view: ReturnType<typeof renderForm>) =>
+      overnightSwitch(view)?.getAttribute("aria-checked") === "true";
+    const toggleOvernight = (view: ReturnType<typeof renderForm>) =>
+      act(async () => {
+        const toggle = overnightSwitch(view);
+        if (!toggle) throw new Error("The overnight switch isn't shown.");
+        fireEvent.click(toggle);
+      });
     const tierRadio = (
       view: ReturnType<typeof renderForm>,
       tier: "open-space" | "reserved-desk"
@@ -2495,7 +2493,7 @@ describe("CoworkReservationForm advertised pricing", () => {
         initialValues: { ...reservedDeskFormValues(), stay: "overnight" },
       });
 
-      expect(stayGroup(view)).toBeNull();
+      expect(overnightSwitch(view)).toBeNull();
       expect(overnightTimes(view)).toBeNull();
     });
 
@@ -2504,12 +2502,12 @@ describe("CoworkReservationForm advertised pricing", () => {
         overnightStayOffered: true,
         initialValues: { ...reservedDeskFormValues(), entryTier: "open-space" },
       });
-      expect(stayGroup(view)).toBeNull();
+      expect(overnightSwitch(view)).toBeNull();
 
       await act(async () => fireEvent.click(tierRadio(view, "reserved-desk")));
 
-      expect(stayGroup(view)).not.toBeNull();
-      expect(stayOption(view, "day").checked).toBe(true);
+      expect(overnightSwitch(view)).not.toBeNull();
+      expect(isOvernight(view)).toBe(false);
       expect(overnightTimes(view)).toBeNull();
     });
 
@@ -2519,7 +2517,7 @@ describe("CoworkReservationForm advertised pricing", () => {
         initialValues: reservedDeskFormValues(),
       });
 
-      await act(async () => fireEvent.click(stayOption(view, "overnight")));
+      await toggleOvernight(view);
 
       await waitFor(() => {
         expect(linkedStay()).toBe("overnight");
@@ -2548,6 +2546,23 @@ describe("CoworkReservationForm advertised pricing", () => {
       });
     });
 
+    test("switching the overnight stay off drops it from the link, the date line and the order", async () => {
+      const view = renderForm({
+        overnightStayOffered: true,
+        initialValues: { ...reservedDeskFormValues(), stay: "overnight" },
+      });
+      expect(isOvernight(view)).toBe(true);
+
+      await toggleOvernight(view);
+
+      expect(isOvernight(view)).toBe(false);
+      expect(overnightTimes(view)).toBeNull();
+      await waitFor(() => {
+        expect(linkedStay()).toBeNull();
+      });
+      expect((await submitReservation(view))?.stay).toBeUndefined();
+    });
+
     test("opens on a linked overnight stay", () => {
       workspaceUseSearchParams.mockReturnValue(
         new URLSearchParams(
@@ -2557,7 +2572,7 @@ describe("CoworkReservationForm advertised pricing", () => {
 
       const view = renderForm({ overnightStayOffered: true });
 
-      expect(stayOption(view, "overnight").checked).toBe(true);
+      expect(isOvernight(view)).toBe(true);
       expect(overnightTimes(view)).not.toBeNull();
     });
 
@@ -2652,7 +2667,7 @@ describe("CoworkReservationForm advertised pricing", () => {
           arguments: { stay: "overnight" },
         });
         expect(result).toMatchObject({ status: "ready" });
-        expect(stayOption(view, "overnight").checked).toBe(true);
+        expect(isOvernight(view)).toBe(true);
         expect(prepared).toHaveLength(1);
         expect(prepared[0]).toMatchObject({
           reservation: {
@@ -2679,11 +2694,11 @@ describe("CoworkReservationForm advertised pricing", () => {
         overnightStayOffered: true,
         initialValues: { ...reservedDeskFormValues(), stay: "overnight" },
       });
-      expect(stayOption(view, "overnight").checked).toBe(true);
+      expect(isOvernight(view)).toBe(true);
 
       await act(async () => fireEvent.click(tierRadio(view, "open-space")));
 
-      expect(stayGroup(view)).toBeNull();
+      expect(overnightSwitch(view)).toBeNull();
       expect(overnightTimes(view)).toBeNull();
       await waitFor(() => {
         expect(

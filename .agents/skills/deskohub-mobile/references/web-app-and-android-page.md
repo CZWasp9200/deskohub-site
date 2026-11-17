@@ -49,11 +49,21 @@ is at `<preview origin>/app/` behind the usual deployment protection.
   fingerprint and an Obtainium link. It reads the release through
   `loadLatestAndroidRelease` (`deskohub-mobile-release` skill, latest-release
   endpoint).
+- The page links the APK on the site's own domain:
+  `/android/download/deskohub-X.Y.Z.apk` redirects (302) to that release's
+  GitHub asset, and `/android/download` to the latest one; a version without
+  a usable release answers 404. Both routes (`app/android/download/`) have no
+  locale: the proxy matcher and the dotted-path locale rewrite in
+  `next.config.mjs` skip them. They read releases through `AndroidReleases`;
+  only a tagged version older than the latest asks GitHub for its own release.
 - `features/mobile-distribution/obtainium-link.ts` builds
   `https://apps.obtainium.imranr.dev/redirect?r=<encoded obtainium://app JSON>`
-  that tracks the GitHub releases and matches assets named
-  `deskohub-X.Y.Z.apk` from `mobile-v` tags. Keep the asset name and tag
-  pattern in step with the release tooling.
+  with `/android` as an HTML source: Obtainium picks the link matching
+  `deskohub-[0-9.]+\.apk$` and reads the version from its file name. Keep the
+  asset name, the download path's file name and the tag pattern in step with
+  the release tooling. Obtainium warns at install when the picked link's
+  domain differs from the source's; it compares the link before following
+  redirects, so the on-domain link avoids the warning.
 - On Android, `install-environment.ts` calls `getInstalledRelatedApps()`; when
   the app is installed, the footer offers to open it
   (`install-android-app.ts`: an `intent://` URL into the app, falling
