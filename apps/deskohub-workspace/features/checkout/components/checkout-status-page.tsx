@@ -16,9 +16,14 @@ import { getOfficeReservationSelection } from "@/features/reservation/office-res
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
 import {
+  ReservationWithdrawalEntry,
+  type ReservationWithdrawalOffer,
+} from "@/features/reservation/components/reservation-withdrawal-entry";
+import {
   getCoworkReservationPath,
   getReservationStartPath,
   reservationAccessPath,
+  reservationStatusPath,
 } from "@/features/reservation/routes";
 import { getSelectionPath } from "@/features/reservation/selection-path";
 import { Button } from "@/shared/components/ui/button";
@@ -36,6 +41,8 @@ type CheckoutStatusPageProps = {
   readonly locale: Locale;
   readonly presentation?: "page" | "modal";
   readonly status: CheckoutStatusViewModel;
+  /** Present while the customer may still withdraw from this reservation. */
+  readonly withdrawalOffer?: ReservationWithdrawalOffer;
 };
 
 const statusIconWrapperVariants = cva(
@@ -217,6 +224,7 @@ export function CheckoutStatusPage({
   locale,
   presentation = "page",
   status,
+  withdrawalOffer,
 }: CheckoutStatusPageProps) {
   const copy = getCheckoutStatusCopy(status, locale);
   const showReservationDetails = status.status !== "not_found";
@@ -300,6 +308,16 @@ export function CheckoutStatusPage({
             : undefined
         }
       />
+
+      {withdrawalOffer && status.status !== "not_found" && (
+        <ReservationWithdrawalEntry
+          className="mt-8"
+          href={`/${locale}${reservationStatusPath}/${encodeURIComponent(status.orderId)}?withdraw=1`}
+          locale={locale}
+          offer={withdrawalOffer}
+          presentation="panel"
+        />
+      )}
     </CheckoutStatusFrame>
   );
 }

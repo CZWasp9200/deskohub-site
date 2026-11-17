@@ -167,6 +167,8 @@
   "accountReservationValidity": "Platnost",
   "accountReservationSetupFrom": "Příprava od {time}",
   "accountReservationView": "Zobrazit rezervaci",
+  "reservationWithdrawalAction": "Odstoupit od smlouvy",
+  "reservationWithdrawalAvailableUntil": "Od této smlouvy můžeš odstoupit do {date}.",
   "accountReservationWifi": "Wi-Fi",
   "workspaceTitle": "Deskohub Workspace",
   "workspaceDescription": "Flexibilní pracovní prostor pro soustředěnou práci, schůzky a akce na Palmovce.",

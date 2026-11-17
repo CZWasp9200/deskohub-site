@@ -9,6 +9,10 @@ import type {
 } from "@/features/account/contracts";
 import { getReservationProductName } from "@/features/account/reservation-product-name";
 import { type Locale, m } from "@/features/i18n";
+import {
+  ReservationWithdrawalEntry,
+  type ReservationWithdrawalOffer,
+} from "@/features/reservation/components/reservation-withdrawal-entry";
 import { formatMeetingRoomSetupStart } from "@/features/reservation/meeting-room-reservation-display-time";
 import {
   formatReservationDisplayDateRange,
@@ -158,6 +162,33 @@ const getReservationHref = (
   >
 ) =>
   `/${locale}${reservationStatusPath}/${encodeURIComponent(workspaceReservationId)}`;
+
+// Stub until the history read model carries withdrawal eligibility.
+const getWithdrawalOffer = (reservation: CustomerReservationSummary) =>
+  (reservation as { readonly withdrawal?: ReservationWithdrawalOffer })
+    .withdrawal;
+
+function ReservationWithdrawalRow({
+  className,
+  locale,
+  reservation,
+}: {
+  readonly className: string;
+  readonly locale: Locale;
+  readonly reservation: CustomerReservationSummary;
+}) {
+  const offer = getWithdrawalOffer(reservation);
+  if (!offer || !reservation.workspaceReservationId) return null;
+  return (
+    <ReservationWithdrawalEntry
+      className={className}
+      href={`${getReservationHref(locale, reservation.workspaceReservationId)}?withdraw=1`}
+      locale={locale}
+      offer={offer}
+      presentation="row"
+    />
+  );
+}
 
 export function ReservationHistory({
   history,
@@ -411,6 +442,11 @@ function FeaturedReservationItem({
             )}
           </div>
         </div>
+        <ReservationWithdrawalRow
+          className="border-t border-[#dfe4ec] px-6 py-4"
+          locale={locale}
+          reservation={reservation}
+        />
       </Card>
     </li>
   );
@@ -513,6 +549,11 @@ function CompactReservationItem({
             <ReservationDetailLink locale={locale} reservation={reservation} />
           </div>
         </div>
+        <ReservationWithdrawalRow
+          className="mt-4 border-t border-[#dfe4ec] pt-4"
+          locale={locale}
+          reservation={reservation}
+        />
       </article>
     </li>
   );
