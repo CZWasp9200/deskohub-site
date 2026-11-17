@@ -7,7 +7,8 @@ import { cn } from "@/shared/utils";
  * Colours each variant accepts. A primary tone sets the fill, its hover and
  * the glow together; secondary, ghost and link tones set text, edge and hover.
  * `inverse` is for dark backgrounds, `danger` for destructive actions. The
- * ghost `outline` tone adds a hairline edge and `tinted` a light fill.
+ * ghost `outline` tone adds a hairline edge and `tinted` a light fill;
+ * `tinted-success` is that fill confirming a finished action, such as a copy.
  * `tile` is a dashed, card-sized add action, such as "Add payment card".
  */
 interface ButtonTones {
@@ -24,6 +25,7 @@ interface ButtonTones {
     | "inverse"
     | "outline"
     | "tinted"
+    | "tinted-success"
     | "success"
     | "warning"
     | "danger";
@@ -73,6 +75,7 @@ const buttonClasses = cva(
         "navy-blue": "",
         outline: "",
         success: "",
+        "tinted-success": "",
         tinted: "",
         warning: "",
       },
@@ -184,6 +187,11 @@ const buttonClasses = cva(
         variant: "ghost",
         tone: "tinted",
         class: "bg-navy-blue/5 text-navy-blue hover:bg-burned-orange/10",
+      },
+      {
+        variant: "ghost",
+        tone: "tinted-success",
+        class: "bg-aquamarine-green/20 text-aquamarine-ink",
       },
       {
         variant: "ghost",
