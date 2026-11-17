@@ -347,7 +347,10 @@ export const prepareReservationForm = ({
       const price = document.querySelector(
         `[data-reservation-type-price="${desiredTier}"]`
       );
-      const dateTrigger = document.querySelector(
+      // The calendar button shares the date field's container; other
+      // dialog openers, such as the agent booking banner above the form,
+      // come earlier in the page.
+      const dateTrigger = dateInput.parentElement?.querySelector(
         'button[aria-haspopup="dialog"]'
       );
       if (
