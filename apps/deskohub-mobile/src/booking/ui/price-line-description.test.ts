@@ -61,7 +61,7 @@ describe("describePriceLine", () => {
     });
     const monitor = lines.get("monitor:2x27-qhd");
     expect(monitor?.label).toBe(
-      m.booking_price_line_monitor_setup({}, { locale })
+      m.booking_checkout_line_workstation({}, { locale })
     );
     expect(monitor?.detail).toContain("27");
   });

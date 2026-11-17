@@ -118,7 +118,7 @@ const extras = (
           {
             key: "monitor",
             icon: Monitor,
-            text: m.booking_checkout_line_monitor({}, { locale }),
+            text: m.booking_checkout_line_workstation({}, { locale }),
           },
         ]),
     ...(order.kind === "office" && selection?.seats !== undefined
