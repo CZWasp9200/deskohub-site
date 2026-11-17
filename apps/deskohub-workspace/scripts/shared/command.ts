@@ -53,7 +53,8 @@ interface OutputSink {
 export interface CommandResult {
   /** `null` when the command was ended by a signal. */
   readonly exitCode: number | null;
-  readonly signalCode: string | null;
+  /** Bun reports a signal without a name, such as a real-time one, by number. */
+  readonly signalCode: NodeJS.Signals | number | null;
   readonly stdout: string;
   readonly stderr: string;
   readonly timedOut: boolean;
@@ -88,7 +89,7 @@ type SpawnedCommand = {
   readonly stderr: ReadableStream<Uint8Array>;
   readonly exited: Promise<{
     readonly exitCode: number | null;
-    readonly signalCode: string | null;
+    readonly signalCode: NodeJS.Signals | number | null;
   }>;
   readonly kill: (signal: NodeJS.Signals) => void;
 };
@@ -139,7 +140,7 @@ const spawnWithNode = async (
   });
   const exited = new Promise<{
     readonly exitCode: number | null;
-    readonly signalCode: string | null;
+    readonly signalCode: NodeJS.Signals | number | null;
   }>((resolve) => {
     child.once("exit", (exitCode, signalCode) =>
       resolve({ exitCode, signalCode })
