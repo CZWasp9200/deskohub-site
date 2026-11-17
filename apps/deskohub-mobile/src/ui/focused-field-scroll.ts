@@ -102,14 +102,17 @@ export const useFocusedFieldScroll = (
     };
     return {
       // Only a shrinking view (the keyboard coming up) moves the field; one
-      // growing back leaves the content where it is.
+      // growing back leaves the content where it is. The scroll waits a
+      // frame: Android's own resize scroll, which only brings the input's
+      // frame into view, would otherwise cut an animated one short.
       onLayout: ({ nativeEvent }: LayoutChangeEvent) => {
         const { height } = nativeEvent.layout;
         const shrank =
           viewportHeight.current !== undefined &&
           height < viewportHeight.current;
         viewportHeight.current = height;
-        if (shrank && focusedField.current) reveal(focusedField.current);
+        const field = focusedField.current;
+        if (shrank && field) requestAnimationFrame(() => reveal(field));
       },
       tracker: {
         focused: (field) => {

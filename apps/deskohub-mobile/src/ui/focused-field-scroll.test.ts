@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ComponentRef } from "react";
 import type { LayoutChangeEvent, ScrollView } from "react-native";
 import {
@@ -37,6 +37,25 @@ describe("fieldRevealOffset", () => {
       undefined
     );
   });
+});
+
+// Frames run when a test says so.
+let frames: Array<() => void> = [];
+const nextFrame = () => {
+  const due = frames;
+  frames = [];
+  for (const run of due) run();
+};
+const realRequestAnimationFrame = globalThis.requestAnimationFrame;
+beforeEach(() => {
+  frames = [];
+  globalThis.requestAnimationFrame = (run) => {
+    frames.push(() => run(0));
+    return frames.length;
+  };
+});
+afterEach(() => {
+  globalThis.requestAnimationFrame = realRequestAnimationFrame;
 });
 
 /**
@@ -93,7 +112,10 @@ describe("useFocusedFieldScroll", () => {
     expect(scrolls).toEqual([]);
 
     // The keyboard shrinks the view to 400: the field ends at 610, plus 16.
+    // The scroll waits a frame, for Android's own resize scroll to finish.
     layout(400);
+    expect(scrolls).toEqual([]);
+    nextFrame();
     expect(scrolls).toEqual([{ y: 226, animated: true }]);
   });
 
@@ -109,6 +131,7 @@ describe("useFocusedFieldScroll", () => {
     layout(400);
     form.tracker.focused(field(100, 110));
     layout(700);
+    nextFrame();
     expect(scrolls).toEqual([]);
   });
 
@@ -119,6 +142,7 @@ describe("useFocusedFieldScroll", () => {
     form.tracker.focused(phone);
     form.tracker.blurred(phone);
     layout(400);
+    nextFrame();
     expect(scrolls).toEqual([]);
   });
 
@@ -131,6 +155,7 @@ describe("useFocusedFieldScroll", () => {
     form.tracker.focused(postalCode);
     form.tracker.blurred(city);
     layout(400);
+    nextFrame();
     expect(scrolls).toEqual([{ y: 226, animated: true }]);
   });
 });
