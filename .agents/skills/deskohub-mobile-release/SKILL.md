@@ -67,6 +67,19 @@ list to the user when an agent can't:
 - The link-only "sent" screen with the `login_email_code` flag off.
 - TalkBack across sign-in, booking and the account screens; iOS once an Apple
   account exists.
+- A PIN link (`/app/reservations/<id>/access`) opens the PIN screen in the
+  app; Back from it leaves the app until #1327 lands.
+- The payment hand-off with a real bank: the 3-D Secure switch to a banking
+  app and back, then the return to the booking ticket.
+- Sign-in on a phone whose Chrome has never run: the first-run screens and
+  the leftover sign-in tab (#1303).
+- Invoice and data-export downloads open the share sheet with the phone's
+  own apps (Files, mail), and the saved file opens.
+- With the phone's own keyboard (Gboard or the maker's) and both gesture and
+  three-button navigation: Pay, Save and Continue stay above the keyboard on
+  the checkout details, profile, billing and onboarding steps.
+- On Android 9 or older (below API 29) the logo on the sign-in photo is
+  drawn unblended (accepted); check that it stays legible.
 
 ## Update code signing and development clients
 
