@@ -979,6 +979,73 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    test("reads a hold whose payment ended unpaid as not booked at its booked time", async () => {
+      const startDate = "2000-01-01T09:00:00.000Z";
+      const endDate = "2000-01-01T17:00:00.000Z";
+      const seeded = await seedOwnReservations([
+        {
+          key: "failed",
+          stage: { reservation: "held", payment: "failed" },
+          status: "NEW",
+          startDate,
+          endDate,
+        },
+        {
+          key: "cancelled",
+          stage: { reservation: "held", payment: "cancelled" },
+          status: "NEW",
+        },
+        {
+          key: "expired",
+          stage: { reservation: "held", payment: "expired" },
+          status: "NEW",
+        },
+        {
+          key: "hold-expired",
+          stage: { reservation: "hold_expired", payment: "failed" },
+          status: "NEW",
+        },
+        {
+          key: "retrying",
+          stage: { reservation: "held", payment: "pending" },
+          status: "NEW",
+        },
+        {
+          key: "retried-then-paid",
+          stage: { reservation: "confirmed", payment: "paid" },
+          status: "NEW",
+        },
+        {
+          key: "confirmed-in-dotypos",
+          stage: { reservation: "held", payment: "failed" },
+          status: "CONFIRMED",
+        },
+      ]);
+
+      const past = await loadPast(
+        seeded.account,
+        makeHistoryLayer(seeded.reservations)
+      );
+
+      expect(
+        Object.fromEntries(past.map(({ id, status }) => [id, status]))
+      ).toEqual({
+        [seeded.idsOf("failed").workspace]: "cancelled",
+        [seeded.idsOf("cancelled").workspace]: "cancelled",
+        [seeded.idsOf("expired").workspace]: "cancelled",
+        [seeded.idsOf("hold-expired").workspace]: "cancelled",
+        [seeded.idsOf("retrying").workspace]: "pending",
+        [seeded.idsOf("retried-then-paid").workspace]: "confirmed",
+        [seeded.idsOf("confirmed-in-dotypos").workspace]: "confirmed",
+      });
+      const failed = past.find(
+        ({ id }) => id === seeded.idsOf("failed").workspace
+      );
+      expect(
+        failed && { startsAt: failed.startsAt, endsAt: failed.endsAt }
+      ).toEqual({ startsAt: startDate, endsAt: endDate });
+    });
+
     // A shared snapshot of the list can predate one of these bookings, so
     // the records reader needs them to fill the gap.
     test("tells the records reader which of the customer's reservations Workspace recorded", async () => {

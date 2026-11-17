@@ -300,6 +300,44 @@ describe("bookingQuoteAtom request", () => {
   });
 });
 
+describe("bookingQuoteAtom early setup", () => {
+  const meetingRoom = (date: string): CustomerBookingSelection => ({
+    family: "meeting-room",
+    date,
+    startTime: "14:00",
+    duration: "hour:1",
+  });
+
+  test("keeps a quote with early setup apart from one without", () => {
+    const selection = meetingRoom("2020-01-06");
+    expect(bookingQuoteAtom(selection, "en-US", { earlySetup: true })).not.toBe(
+      bookingQuoteAtom(selection, "en-US")
+    );
+    expect(bookingQuoteAtom(selection, "en-US", { earlySetup: false })).toBe(
+      bookingQuoteAtom(selection, "en-US")
+    );
+  });
+
+  test("asks for the early setup, which the quote's room line then lists", async () => {
+    const harness = withTestClock();
+    const selection = meetingRoom(harness.booking.dateIn(20));
+    const earlySetupOf = async (earlySetup: boolean) => {
+      const atom = bookingQuoteAtom(selection, "en-US", { earlySetup });
+      const unmount = harness.registry.mount(atom);
+      const result = await settle(harness.registry, atom);
+      unmount();
+      return result._tag === "Success"
+        ? result.success.summary.sections[0]?.items[0]?.earlySetup
+        : "failed";
+    };
+
+    expect(await earlySetupOf(true)).toMatchObject({
+      startsAt: expect.any(String),
+    });
+    expect(await earlySetupOf(false)).toBeUndefined();
+  });
+});
+
 describe("bookingOfferingsAtom rollover", () => {
   // A minute before Prague midnight (CET) ends 17 November 2026.
   const beforeMidnight = new Date("2026-11-17T22:59:00Z");

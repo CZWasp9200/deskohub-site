@@ -65,7 +65,10 @@ import {
   administrationHref,
 } from "@/features/administration/administration-href";
 import { AdministrationCustomerDirectory } from "@/features/administration/customer-directory.service";
-import { describeAdministrationCustomer } from "@/features/administration/customer-identity";
+import {
+  describeAdministrationCustomer,
+  isFindableAdministrationCustomer,
+} from "@/features/administration/customer-identity";
 import type { AdministrationCustomerName } from "@/features/administration/customer-name";
 import { getAdministrationPagination } from "@/features/administration/listing";
 import { baseLocale, defaultPhoneRegion, type Locale } from "@/features/i18n";
@@ -547,39 +550,46 @@ const resolveCustomer = Effect.fn(
       )
     );
     const customer = yield* dotypos.getCustomer(customerId);
-    // A customer Dotypos no longer has gets the same answer as a soft-deleted
-    // one.
-    if (Option.isNone(customer) || customer.value.deleted)
+    const now = yield* DateTime.nowAsDate;
+    // A customer Dotypos no longer has gets the same answer as a deleted or
+    // expired one; neither has its details updated.
+    if (
+      Option.isNone(customer) ||
+      !isFindableAdministrationCustomer(customer.value, now)
+    )
       return yield* new InvoiceAdministrationCustomerError({
         reason: "customer-deleted",
-        message: "The selected customer is deleted.",
+        message: "The selected customer is deleted or expired.",
       });
     return yield* dotypos.updateCustomerDetails(customerId, details);
   }
 
+  // The lookup compares whole addresses case-insensitively and leaves out
+  // deleted customers only when an active one matches, so lifecycle is
+  // decided here, as administration's customer search decides it.
   const found = yield* dotypos.findCustomer(
     { firstName: details.firstName, email: details.email },
     { lookupFields: ["email"] }
   );
-  return yield* Match.value(found).pipe(
-    Match.tag("Ambiguous", () =>
-      Effect.fail(
-        new InvoiceAdministrationCustomerError({
-          reason: "customer-email-ambiguous",
-          message:
-            "Multiple Dotypos customers use this email. Select the correct existing customer.",
-        })
-      )
-    ),
-    Match.tag("Matched", ({ customer }) =>
-      dotypos.updateCustomerDetails(customer.id, details)
-    ),
-    Match.tag("NotFound", () => dotypos.createCustomer(details)),
-    // Deleted profiles were invisible to lookups before; keep creating a
-    // fresh customer so this administrative flow stays compatible.
-    Match.tag("Deleted", () => dotypos.createCustomer(details)),
-    Match.exhaustive
+  if (found._tag === "NotFound") return yield* dotypos.createCustomer(details);
+  const now = yield* DateTime.nowAsDate;
+  const [customer, ...others] = found.matches.filter((match) =>
+    isFindableAdministrationCustomer(match, now)
   );
+  // An email held only by deleted or expired customers creates no duplicate:
+  // an expired customer may still reactivate its account by that email.
+  if (!customer)
+    return yield* new InvoiceAdministrationCustomerError({
+      reason: "customer-deleted",
+      message: "Every customer with this email is deleted or expired.",
+    });
+  if (others.length > 0)
+    return yield* new InvoiceAdministrationCustomerError({
+      reason: "customer-email-ambiguous",
+      message:
+        "Multiple Dotypos customers use this email. Select the correct existing customer.",
+    });
+  return yield* dotypos.updateCustomerDetails(customer.id, details);
 });
 
 const toDotyposDetails = (

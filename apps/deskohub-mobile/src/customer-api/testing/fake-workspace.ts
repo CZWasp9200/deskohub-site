@@ -10,7 +10,6 @@ import {
   CustomerAuthApi as CustomerAuthHttpApi,
   CustomerAvatarRejected,
   type CustomerAvatarRejectionReason,
-  type CustomerCheckout,
   type CustomerCompaniesApi,
   type CustomerCompanyDetails,
   CustomerCompanyNotFound,
@@ -25,6 +24,7 @@ import {
   type CustomerPaymentPage,
   CustomerPaymentPageClosed,
   type CustomerPaymentPageClosedReason,
+  type CustomerPaymentRetry,
   CustomerPaymentRetryRefused,
   type CustomerPaymentRetryRefusedReason,
   type CustomerProfile,
@@ -189,7 +189,7 @@ export class FakeWorkspace {
    * other as one whose reservation has ended.
    */
   paymentRetry:
-    | CustomerCheckout
+    | CustomerPaymentRetry
     | CustomerPaymentRetryRefusedReason
     | undefined;
   private readonly outcomes = new Map<EndpointName, FakeRequestOutcome[]>();

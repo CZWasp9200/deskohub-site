@@ -4,6 +4,7 @@ import type {
   CustomerCheckoutStart,
   CustomerCheckoutSubmission,
   CustomerLegalDocument,
+  CustomerPaymentRetryDetails,
 } from "@deskohub/workspace-customer-api";
 import { Match, Option } from "effect";
 import { paymentReturnUrl } from "../payment-browser.service";
@@ -77,12 +78,13 @@ export const startCheckout = (input: CheckoutStartInput): CheckoutState =>
 /**
  * The checkout of an order whose payment failed, was cancelled or expired,
  * as the server handed it back (`retryPayment`): straight to its review,
- * details kept, where the terms are confirmed again (a changed price is
- * accepted first) and Pay starts the new payment.
+ * with the details the server kept, where the terms are confirmed again (a
+ * changed price is accepted first) and Pay starts the new payment.
  */
 export const startPaymentRetry = (
   input: CheckoutStartInput,
-  checkout: CustomerCheckout
+  checkout: CustomerCheckout,
+  details: CustomerPaymentRetryDetails
 ): CheckoutStep =>
   enterReview(
     {
@@ -90,7 +92,7 @@ export const startPaymentRetry = (
       selection: withoutAbsentOptions(input.selection),
       nextOperationId: 1,
     },
-    ReviewKind.PaymentRetry(),
+    ReviewKind.PaymentRetry({ details }),
     checkout
   );
 

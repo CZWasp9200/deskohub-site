@@ -15,7 +15,8 @@ export type WebSignInOperation =
   | "verify-code"
   | "verify-link"
   | "confirm-account"
-  | "mint-handoff";
+  | "mint-handoff"
+  | "sign-in-status";
 
 export type WebSignInFailureReason =
   /** BotID judged the request automated. */
@@ -117,6 +118,8 @@ export const webSignInFailureReason = (
     case "mint-handoff":
       if (code === "SESSION_NOT_FRESH") return "session-not-fresh";
       if (status === 401) return "signed-out";
+      return status === 429 ? "rate-limited" : "failed";
+    case "sign-in-status":
       return status === 429 ? "rate-limited" : "failed";
   }
 };

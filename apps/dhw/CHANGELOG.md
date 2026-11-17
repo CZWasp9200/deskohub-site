@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.36.1](https://github.com/totalolage/deskohub-site/compare/dhw-v1.36.0...dhw-v1.36.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **dhw:** omit an empty author email from the reservation detail ([0e376df](https://github.com/totalolage/deskohub-site/commit/0e376dfbf7200c5bebb6f81343bc3c2de4caedfe))
+
 ## [1.36.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.35.0...dhw-v1.36.0) (2026-11-10)
 
 
