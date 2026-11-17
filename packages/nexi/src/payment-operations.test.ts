@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isDeclinedNexiPaymentOperation,
   isFailedNexiPaymentOperation,
   isNexiFailureResult,
 } from "./payment-operations";
@@ -32,5 +33,27 @@ describe("Nexi payment operation results", () => {
         operationResult: "EXECUTED",
       })
     ).toBe(false);
+  });
+
+  test("a declined payment operation is a refused authorization or capture only", () => {
+    for (const operationResult of ["THREEDS_FAILED", "declined", "CANCELED"]) {
+      expect(
+        isDeclinedNexiPaymentOperation({
+          operationType: "AUTHORIZATION",
+          operationResult,
+        })
+      ).toBe(true);
+    }
+    for (const operation of [
+      { operationType: "AUTHORIZATION", operationResult: "EXECUTED" },
+      { operationType: "AUTHORIZATION", operationResult: "PENDING" },
+      { operationType: "AUTHORIZATION", operationResult: "VOIDED" },
+      { operationType: "AUTHORIZATION", operationResult: undefined },
+      { operationType: "VOID", operationResult: "FAILED" },
+      { operationType: "REFUND", operationResult: "DECLINED" },
+      { operationType: undefined, operationResult: "DECLINED" },
+    ]) {
+      expect(isDeclinedNexiPaymentOperation(operation)).toBe(false);
+    }
   });
 });

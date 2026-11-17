@@ -883,6 +883,7 @@
   "checkoutStatusBackHome": "होम पेज पर लौटें",
   "checkoutStatusOpenPaymentPage": "भुगतान पेज खोलें",
   "checkoutStatusOpenPaymentPageError": "भुगतान पेज नहीं खुल सका। कृपया फिर से कोशिश करें।",
+  "checkoutStatusPaymentRetrySpotUnavailable": "आपकी जगह अब उपलब्ध नहीं है। फिर से बुक करने के लिए नया समय चुनें।",
   "reservationEmailTierLabel": "प्लान",
   "reservationEmailReservationLabel": "बुकिंग",
   "reservationEmailDateLabel": "बुकिंग की तारीख़",

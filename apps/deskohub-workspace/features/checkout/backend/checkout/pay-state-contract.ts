@@ -192,17 +192,41 @@ export const getPayStateBinding = (
     : { kind: "session", checkoutSessionId: state.checkoutSessionId };
 };
 
+/** Payment states after which only a payment retry pays the order again. */
+const endedPaymentStates: ReadonlySet<string> = new Set([
+  "failed",
+  "cancelled",
+  "expired",
+]);
+
 /**
- * Whether the state may still start the order's payment: always for a
- * session state, and for an order-bound state only while the order awaits
- * its retry. Preparing the retry clears the retried attempt from the order,
- * so no attempt is active; once the retry's payment starts one, paying again
- * needs a new retry.
+ * Why the state may no longer start the order's payment, or `undefined`
+ * while it may. A session state stops once the order's payment ended
+ * (`payment_ended`): paying again goes through a payment retry, which first
+ * asks the provider whether the ended payment can still settle. An
+ * order-bound state pays only while its order awaits that retry: no attempt
+ * is active and the attempt it retries is still the order's newest
+ * (`retried_attempt_replaced` otherwise), so a state from an earlier retry
+ * never pays after a later one.
  */
-export const isPayStateAttemptCurrent = (
+export const findPayStateAttemptRefusal = (
   binding: PayStateBinding,
-  order: { readonly activePaymentAttemptId: string | null }
-) => binding.kind === "session" || order.activePaymentAttemptId === null;
+  order: {
+    readonly activePaymentAttemptId: string | null;
+    readonly paymentState: string;
+  },
+  newestAttemptId: string | null
+): "payment_ended" | "retried_attempt_replaced" | undefined => {
+  if (binding.kind === "session") {
+    return endedPaymentStates.has(order.paymentState)
+      ? "payment_ended"
+      : undefined;
+  }
+  return order.activePaymentAttemptId === null &&
+    newestAttemptId === binding.retriedAttemptId
+    ? undefined
+    : "retried_attempt_replaced";
+};
 
 /** A Pay state issued to retry the payment of one existing order. */
 export const isOrderBoundPayState = (state: PayStateBindingFields) =>

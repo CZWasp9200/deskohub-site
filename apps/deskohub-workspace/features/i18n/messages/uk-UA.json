@@ -897,6 +897,7 @@
   "checkoutStatusBackHome": "На головну",
   "checkoutStatusOpenPaymentPage": "Відкрити платіжну сторінку",
   "checkoutStatusOpenPaymentPageError": "Не вдалося відкрити платіжну сторінку. Спробуйте ще раз.",
+  "checkoutStatusPaymentRetrySpotUnavailable": "Ваше місце вже недоступне. Щоб забронювати знову, виберіть інший час.",
   "reservationEmailTierLabel": "Тариф",
   "reservationEmailReservationLabel": "Бронювання",
   "reservationEmailDateLabel": "Дата бронювання",

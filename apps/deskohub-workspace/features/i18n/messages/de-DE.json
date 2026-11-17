@@ -883,6 +883,7 @@
   "checkoutStatusBackHome": "Zur Startseite",
   "checkoutStatusOpenPaymentPage": "Zahlungsseite öffnen",
   "checkoutStatusOpenPaymentPageError": "Die Zahlungsseite konnte nicht geöffnet werden. Versuch es bitte noch einmal.",
+  "checkoutStatusPaymentRetrySpotUnavailable": "Ihr Platz ist nicht mehr frei. Wählen Sie für eine neue Buchung einen anderen Termin.",
   "reservationEmailTierLabel": "Zutritt",
   "reservationEmailReservationLabel": "Reservierung",
   "reservationEmailDateLabel": "Reservierungsdatum",

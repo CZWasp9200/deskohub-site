@@ -9,6 +9,7 @@ import {
   eq,
   gt,
   inArray,
+  isNull,
   lte,
   notExists,
   or,
@@ -17,7 +18,11 @@ import {
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql";
-import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
+import {
+  WorkspaceDatabase,
+  type WorkspaceDatabaseClient,
+  WorkspaceTransaction,
+} from "@/db/database.service";
 import { retryDatabaseRead } from "@/db/retry-database-read";
 import {
   latePaymentRecoveries,
@@ -36,6 +41,7 @@ import type {
   CheckoutSessionKey,
   PaymentAttemptId,
 } from "@/features/checkout/checkout-identifiers";
+import { newestPaymentAttemptIdOf } from "@/features/checkout/backend/repositories/newest-payment-attempt";
 import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
 import type { DiscountClaimError } from "@/features/discounts/errors";
 import { PromotionClaims } from "@/features/discounts/promotion-claims";
@@ -85,14 +91,27 @@ export const retryReacquirableCancellationCauses = [
  * The order's active attempt is still `retriedAttemptId`, its payment ended
  * without settling, and no late payment is being recovered for it.
  */
-const retriedAttemptEnded = (retriedAttemptId: PaymentAttemptId) =>
+/** Payment states of an order whose payment ended unpaid. */
+const endedPaymentStates = ["failed", "cancelled", "expired"] as const;
+
+/**
+ * The order's payment ended unpaid on the retried attempt, which is still
+ * its active attempt, or, once a retry cleared it, still its newest one with
+ * none active; no late payment is being recovered for it.
+ */
+const retriedAttemptEnded = (
+  db: WorkspaceDatabaseClient,
+  retriedAttemptId: PaymentAttemptId
+) =>
   and(
-    eq(workspaceReservations.activePaymentAttemptId, retriedAttemptId),
-    inArray(workspaceReservations.paymentState, [
-      "failed",
-      "cancelled",
-      "expired",
-    ]),
+    or(
+      eq(workspaceReservations.activePaymentAttemptId, retriedAttemptId),
+      and(
+        isNull(workspaceReservations.activePaymentAttemptId),
+        sql`(${newestPaymentAttemptIdOf(db, workspaceReservations.id)}) = ${retriedAttemptId}`
+      )
+    ),
+    inArray(workspaceReservations.paymentState, endedPaymentStates),
     notExists(
       sql`(select 1 from ${latePaymentRecoveries} where ${latePaymentRecoveries.workspaceReservationId} = ${workspaceReservations.id})`
     )
@@ -295,7 +314,9 @@ export interface IWorkspaceReservationRepository {
      * Why the hold is released; recorded as the cancellation's cause when
      * this claim starts the cancellation. Claiming a `cancellation_failed`
      * reservation again keeps the cause its first claim recorded, so a
-     * retried release never relabels another cancellation.
+     * retried release never relabels another cancellation. A
+     * `payment_retry` claim also requires the order's payment to have ended
+     * unpaid.
      */
     readonly cause: UnpaidHoldReleaseCause;
   }) => Effect.Effect<
@@ -1115,6 +1136,14 @@ export class WorkspaceReservationRepository extends Context.Service<
                   ]),
                   sql`${workspaceReservations.paymentState} <> 'paid'`,
                   sql`${workspaceReservations.reservationState} <> 'confirmed'`,
+                  // A retry releases only the hold of a payment that ended,
+                  // never one a payment admitted meanwhile is using.
+                  input.cause === "payment_retry"
+                    ? inArray(
+                        workspaceReservations.paymentState,
+                        endedPaymentStates
+                      )
+                    : undefined,
                   carriesExpectedHold(input.expectedHold)
                 )
               )
@@ -1157,7 +1186,7 @@ export class WorkspaceReservationRepository extends Context.Service<
                   workspaceReservations.reservationHoldExpiresAt,
                   input.heldUntilAfter
                 ),
-                retriedAttemptEnded(input.retriedAttemptId)
+                retriedAttemptEnded(db, input.retriedAttemptId)
               )
             )
             .returning();
@@ -1185,7 +1214,7 @@ export class WorkspaceReservationRepository extends Context.Service<
                   inArray(workspaceReservations.cancellationCause, [
                     ...retryReacquirableCancellationCauses,
                   ]),
-                  retriedAttemptEnded(input.retriedAttemptId)
+                  retriedAttemptEnded(db, input.retriedAttemptId)
                 )
               )
               .returning();

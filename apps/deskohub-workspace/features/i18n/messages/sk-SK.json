@@ -897,6 +897,7 @@
   "checkoutStatusBackHome": "Späť domov",
   "checkoutStatusOpenPaymentPage": "Otvoriť platobnú stránku",
   "checkoutStatusOpenPaymentPageError": "Platobnú stránku sa nepodarilo otvoriť. Skús to, prosím, znova.",
+  "checkoutStatusPaymentRetrySpotUnavailable": "Vaše miesto už nie je voľné. Pre novú rezerváciu vyberte iný termín.",
   "reservationEmailTierLabel": "Vstup",
   "reservationEmailReservationLabel": "Rezervácia",
   "reservationEmailDateLabel": "Dátum rezervácie",

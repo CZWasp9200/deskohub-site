@@ -4,6 +4,7 @@ export type { NexiRuntimeConfigObj } from "./config";
 export { NexiRuntimeConfig } from "./config";
 export { ExternalAPIError, NetworkError } from "./errors";
 export {
+  isDeclinedNexiPaymentOperation,
   isFailedNexiPaymentOperation,
   isNexiFailureResult,
 } from "./payment-operations";

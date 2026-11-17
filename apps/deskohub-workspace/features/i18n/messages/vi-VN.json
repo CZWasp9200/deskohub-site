@@ -876,6 +876,7 @@
   "checkoutStatusBackHome": "Về trang chủ",
   "checkoutStatusOpenPaymentPage": "Mở trang thanh toán",
   "checkoutStatusOpenPaymentPageError": "Không thể mở trang thanh toán. Hãy thử lại.",
+  "checkoutStatusPaymentRetrySpotUnavailable": "Chỗ của bạn không còn trống. Hãy chọn thời gian khác để đặt lại.",
   "reservationEmailTierLabel": "Gói",
   "reservationEmailReservationLabel": "Đặt chỗ",
   "reservationEmailDateLabel": "Ngày đặt chỗ",

@@ -14,6 +14,10 @@ import {
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
+import {
+  type PaymentAttempt,
+  PaymentAttemptRepository,
+} from "../repositories/payment-attempt.repository";
 import { deriveCheckoutSessionKeys } from "./checkout-lookup-keys.server";
 import {
   CheckoutUnavailableError,
@@ -37,6 +41,8 @@ const [checkoutSessionKey] = deriveCheckoutSessionKeys(
 ).pipe(Effect.provide(TestSealedStateKeys), Effect.runSync).accepted as [
   CheckoutSessionKey,
 ];
+
+const retriedAttemptId = paymentAttemptIdSchema.make("retried-attempt-id");
 
 const row = (overrides: Partial<WorkspaceReservationRow> = {}) =>
   ({
@@ -79,6 +85,8 @@ const runPayableCheckout = <A, E>(
     readonly current?: WorkspaceReservationRow | null;
     readonly dotyposStatus?: "NEW" | "CANCELLED" | "CONFIRMED";
     readonly duringDotyposRead?: Effect.Effect<void>;
+    /** The order's newest payment attempt; the retried one by default. */
+    readonly newestAttemptId?: string;
   } = {}
 ) => {
   const stored = input.stored === undefined ? row() : input.stored;
@@ -106,6 +114,12 @@ const runPayableCheckout = <A, E>(
           findCurrentByCheckoutSessionKey,
         }),
         Layer.mock(DotyposService, { getReservationStatus }),
+        Layer.mock(PaymentAttemptRepository, {
+          findNewestForReservation: () =>
+            Effect.succeed({
+              id: input.newestAttemptId ?? retriedAttemptId,
+            } as PaymentAttempt),
+        }),
         TestSealedStateKeys
       )
     )
@@ -238,7 +252,7 @@ describe("PayableCheckout.reconfirm", () => {
     ...state,
     checkoutSessionId: undefined,
     binding: "order",
-    retriedAttemptId: paymentAttemptIdSchema.make("retried-attempt-id"),
+    retriedAttemptId,
   });
 
   test("confirms an order-bound state's order while it awaits its retry, without a session id", async () => {
@@ -271,6 +285,14 @@ describe("PayableCheckout.reconfirm", () => {
       },
       reason: "not_current",
     },
+    {
+      name: "once a later retry's attempt became the order's newest",
+      input: {
+        stored: row({ activePaymentAttemptId: null }),
+        newestAttemptId: "later-attempt-id",
+      },
+      reason: "retried_attempt_replaced",
+    },
   ] as const)(
     "refuses an order-bound state $name",
     async ({ input, reason }) => {
@@ -279,6 +301,21 @@ describe("PayableCheckout.reconfirm", () => {
       expect(result).toMatchObject({
         _tag: "Failure",
         failure: unavailable(reason),
+      });
+    }
+  );
+
+  test.each(["failed", "cancelled", "expired"] as const)(
+    "refuses a session state once the order's payment %s, so paying again is a retry",
+    async (paymentState) => {
+      const { getReservationStatus, result } = await reconfirm({
+        stored: row({ paymentState }),
+      });
+
+      expect(getReservationStatus).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: unavailable("payment_ended"),
       });
     }
   );

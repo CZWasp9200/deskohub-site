@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import type {
   CustomerReservationHistory,
@@ -33,6 +34,18 @@ import {
   type PaymentPageReopening,
 } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
 import {
+  CheckoutPaymentRetryService,
+  type PaymentRetryPreparation,
+  PaymentRetryUnavailableError,
+} from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
+import { buildSignedPayState } from "@/features/checkout/backend/checkout/pay-state";
+import {
+  getPayStateCheckoutView,
+  type PayStateCheckoutView,
+} from "@/features/checkout/backend/checkout/pay-state-checkout-view";
+import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
+import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
+import {
   CheckoutStatusService,
   type CheckoutStatusViewModel,
 } from "@/features/checkout/backend/checkout/checkout-status.service";
@@ -46,8 +59,9 @@ import {
   ReservationAuthorizationUnavailableError,
 } from "@/features/reservation/backend/reservation-authorization.service";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import type { PlainDate } from "@/shared/utils/temporal";
+import { instantStringSchema, type PlainDate } from "@/shared/utils/temporal";
 import {
   workspaceFormattedAddress,
   workspaceGoogleDirectionsUrl,
@@ -807,6 +821,179 @@ describe("reopenPaymentPage", () => {
     });
 
     const response = await api.handle(customerApiRequest(reopenPaymentPage));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerServiceUnavailable",
+    });
+  });
+});
+
+describe("retryPayment", () => {
+  const retryPayment: CustomerApiCall = {
+    method: "POST",
+    path: `/reservations/${orderId}/payment-retry`,
+    body: { locale: "cs-CZ" },
+  };
+
+  const retryReservation = {
+    kind: "cowork" as const,
+    entryTier: "basic" as const,
+    coffee: false,
+    date: "2026-08-04",
+    name: "Ada Lovelace",
+    email: testEmailAddress("ada"),
+    phone: "+420777000111",
+  };
+
+  /** The checkout view of an order-bound Pay state, as a retry issues it. */
+  const retryCheckout = async (
+    changedKeys?: PayStateCheckoutView["changedKeys"]
+  ) => {
+    const state = await Effect.runPromise(
+      buildSignedPayState({
+        locale: "cs-CZ",
+        reservation: retryReservation,
+        quote: buildCoworkReservationQuote(retryReservation),
+        orderId,
+        bookedAt: instantStringSchema.make("2026-07-01T10:00:00.000Z"),
+        holdExpiresAt: instantStringSchema.make("2026-07-01T10:10:00.000Z"),
+        binding: "order",
+        retriedAttemptId: paymentAttemptIdSchema.make("retried-attempt"),
+        changedKeys,
+      }).pipe(Effect.provide(TestSealedStateKeys))
+    );
+    return getPayStateCheckoutView(
+      state,
+      Temporal.Instant.from("2026-07-01T10:00:00Z")
+    );
+  };
+
+  const paymentRetryServices = (
+    prepare: CheckoutPaymentRetryService["Service"]["prepare"]
+  ): Partial<CustomerReservationServiceLayers> => ({
+    authorization: ownOrderAuthorization(true),
+    paymentRetry: () => Layer.mock(CheckoutPaymentRetryService, { prepare }),
+  });
+
+  const answering = (preparation: PaymentRetryPreparation) =>
+    paymentRetryServices(() => Effect.succeed(preparation));
+
+  const ready = async (
+    changedKeys?: PayStateCheckoutView["changedKeys"]
+  ): Promise<PaymentRetryPreparation> => {
+    const checkout = await retryCheckout(changedKeys);
+    return {
+      state: "ready",
+      payState: {
+        freshPayUrl: "/cs-CZ/checkout/pay?orderId=x",
+        freshPayStateToken: "retry-pay-state-token",
+        expiresAt: checkout.expiresAt,
+      },
+      checkout,
+    };
+  };
+
+  testCustomerEndpointGuards(retryPayment);
+
+  test("answers the same order's checkout to pay again, in the app's locale", async () => {
+    const preparation = await ready();
+    const prepare = mock(() => Effect.succeed(preparation));
+    const api = makeCustomerApiTestServer({
+      reservations: paymentRetryServices(prepare),
+    });
+
+    const response = await api.handle(customerApiRequest(retryPayment));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "ready",
+      orderId,
+      payStateToken: "retry-pay-state-token",
+    });
+    // The session alone authorizes it: no access cookie or link token.
+    expect(prepare).toHaveBeenCalledWith({ orderId, locale: "cs-CZ" });
+  });
+
+  test("answers a changed price as a price review to accept first", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: answering(
+        await ready({ sectionKeys: ["total"], itemKeys: [] })
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(retryPayment));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "price_review",
+      priceReview: { changedKeys: { sectionKeys: ["total"], itemKeys: [] } },
+    });
+  });
+
+  test("answers someone else's order, or one that doesn't exist, as not found", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: answering({ state: "not_found" }),
+    });
+
+    const response = await api.handle(customerApiRequest(retryPayment));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      _tag: "CustomerReservationNotFound",
+    });
+  });
+
+  test.each([
+    [{ state: "not_retryable", reason: "paid" }, "paid"],
+    [
+      { state: "not_retryable", reason: "payment_in_progress" },
+      "payment_in_progress",
+    ],
+    [{ state: "not_retryable", reason: "late_payment" }, "late_payment"],
+    [{ state: "not_retryable", reason: "superseded" }, "superseded"],
+    [
+      { state: "not_retryable", reason: "reservation_cancelled" },
+      "reservation_cancelled",
+    ],
+    [
+      { state: "not_retryable", reason: "reservation_ended" },
+      "reservation_ended",
+    ],
+    [
+      { state: "not_retryable", reason: "details_unavailable" },
+      "details_unavailable",
+    ],
+    [{ state: "not_retryable", reason: "needs_review" }, "needs_review"],
+    [{ state: "spot_unavailable" }, "spot_unavailable"],
+    [{ state: "payment_settling" }, "payment_settling"],
+  ] as const)(
+    "answers a refused retry with its reason (%o)",
+    async (preparation, reason) => {
+      const api = makeCustomerApiTestServer({
+        reservations: answering(preparation),
+      });
+
+      const response = await api.handle(customerApiRequest(retryPayment));
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        _tag: "CustomerPaymentRetryRefused",
+        reason,
+      });
+    }
+  );
+
+  test("answers unavailable when the retry can't be prepared now", async () => {
+    const api = makeCustomerApiTestServer({
+      reservations: paymentRetryServices(() =>
+        Effect.fail(
+          new PaymentRetryUnavailableError({ message: "provider down" })
+        )
+      ),
+    });
+
+    const response = await api.handle(customerApiRequest(retryPayment));
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
