@@ -5,12 +5,27 @@ const isoInstant = Schema.String.annotate({
   description: "ISO 8601 instant.",
 });
 
+/**
+ * How a discount is worked out: a percentage of the price it applies to, in
+ * basis points (`2000` is 20%), or a fixed amount off.
+ */
+export const CustomerDiscountAdjustment = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("percentage"),
+    basisPoints: Schema.Int,
+  }),
+  Schema.Struct({ kind: Schema.Literal("fixed"), amount: Money }),
+]).annotate({ identifier: "CustomerDiscountAdjustment" });
+export type CustomerDiscountAdjustment =
+  typeof CustomerDiscountAdjustment.Type;
+
 /** A discount a summary item includes. */
 export const CustomerCheckoutSummaryDiscount = Schema.Struct({
   discount: Schema.Struct({
     id: Schema.String,
     /** The discount's name, in the request's language. */
     label: Schema.String,
+    adjustment: CustomerDiscountAdjustment,
     /** When the discount stops applying, while it has an end. */
     expiresAt: Schema.optionalKey(isoInstant),
     /** When to start counting down to `expiresAt`. */
@@ -45,6 +60,17 @@ export const CustomerCheckoutSummaryItem = Schema.Struct({
    * seats' part of `amount` is this times `seats`.
    */
   seatAmount: Schema.optionalKey(Money),
+  /** Office product line only: the office access price for one day. */
+  dailyAccessRate: Schema.optionalKey(Money),
+  /** Office product line only: one seat's price for one day. */
+  dailySeatRate: Schema.optionalKey(Money),
+  /**
+   * Meeting-room product line only, when the customer comes early to set
+   * up: when they may come in, and what it costs (it's free).
+   */
+  earlySetup: Schema.optionalKey(
+    Schema.Struct({ startsAt: isoInstant, amount: Money })
+  ),
 }).annotate({ identifier: "CustomerCheckoutSummaryItem" });
 export type CustomerCheckoutSummaryItem =
   typeof CustomerCheckoutSummaryItem.Type;

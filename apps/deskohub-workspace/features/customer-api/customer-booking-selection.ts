@@ -9,6 +9,7 @@ import {
   type BookingSelectionInput,
   BookingSelectionRejected,
   type BookingSelectionRejection,
+  type QuoteSelection,
 } from "@/features/reservation/backend/booking-selection";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
 import {
@@ -83,3 +84,20 @@ export const answerBookingSelectionFailure =
             : Effect.fail(failure).pipe(answerSessionApiFailure(operation))
       )
     );
+
+/**
+ * Adds the early setup a meeting-room booking asked for, at no cost, as
+ * `start_reservation` does. Other families offer none.
+ */
+export const withEarlySetup = (
+  selection: QuoteSelection,
+  earlySetup: boolean | undefined
+): Effect.Effect<
+  QuoteSelection["reservation"],
+  CustomerBookingSelectionInvalid
+> => {
+  if (earlySetup !== true) return Effect.succeed(selection.reservation);
+  return selection.reservation.kind === "meeting-room"
+    ? Effect.succeed({ ...selection.reservation, earlySetup: true })
+    : Effect.fail(new CustomerBookingSelectionInvalid({ field: "earlySetup" }));
+};

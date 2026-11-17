@@ -1,5 +1,6 @@
 import { Match } from "effect";
 import type { AdvertisedPriceRequest } from "@/features/checkout/advertised-price";
+import type { CheckoutSummaryDiscount } from "@/features/checkout/checkout-summary";
 import { workspaceMeetingRoomCatalog } from "@/features/checkout/meeting-room-product-catalog";
 import {
   getCoworkTierCoffeeAddon,
@@ -149,6 +150,11 @@ export type PublicOfferingAdvertisedPrice = {
   readonly discount: Money;
   /** The last Prague day the sale can be booked, while one with an end runs. */
   readonly saleLastDay?: string;
+  /**
+   * While a sale runs: its discounts in the order they apply, which together
+   * make up `discount`.
+   */
+  readonly discounts?: ReadonlyArray<CheckoutSummaryDiscount>;
 };
 
 /** The advertised price a quote's payment gives its smallest booking. */
@@ -165,6 +171,12 @@ export const getPublicOfferingAdvertisedPrice = (
     price: payment.expectedPrice,
     discount,
     ...(saleLastDay && { saleLastDay }),
+    ...(payment.discounts.length > 0 && {
+      discounts: payment.discounts.map((applied) => ({
+        discount: applied.discount,
+        amount: applied.amount,
+      })),
+    }),
   };
 };
 

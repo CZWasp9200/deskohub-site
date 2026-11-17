@@ -104,6 +104,7 @@ export {
   CustomerCheckoutSummary,
   CustomerCheckoutSummaryDiscount,
   CustomerCheckoutSummaryItem,
+  CustomerDiscountAdjustment,
   CustomerVatStatus,
 } from "./customer-checkout-summary";
 export {

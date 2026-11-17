@@ -22,6 +22,12 @@ export const getMeetingRoomSetupStart = (bookedStart: Temporal.Instant) =>
 export const getMeetingRoomBookedStart = (setupStart: Temporal.Instant) =>
   setupStart.add(meetingRoomEarlySetupLeadTime);
 
+/** `getMeetingRoomSetupStart` for a booked start stored as an instant string. */
+export const getMeetingRoomSetupStartsAt = (startsAt: Instant): Instant =>
+  decodeInstant(
+    getMeetingRoomSetupStart(Temporal.Instant.from(startsAt)).toString()
+  );
+
 /**
  * The span a meeting-room booking holds the room: its booked interval, moved
  * earlier by the setup time when the customer comes early. Dotypos stores this
@@ -35,11 +41,7 @@ export const getMeetingRoomOccupiedInterval = (
 ): { readonly startsAt: Instant; readonly endsAt: Instant } => ({
   startsAt:
     reservation.earlySetup === true
-      ? decodeInstant(
-          getMeetingRoomSetupStart(
-            Temporal.Instant.from(reservation.startsAt)
-          ).toString()
-        )
+      ? getMeetingRoomSetupStartsAt(reservation.startsAt)
       : reservation.startsAt,
   endsAt: reservation.endsAt,
 });

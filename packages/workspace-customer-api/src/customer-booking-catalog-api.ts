@@ -14,7 +14,10 @@ import {
   CustomerReservationFamily,
   CustomerStartTime,
 } from "./customer-booking-selection";
-import { CustomerCheckoutSummary } from "./customer-checkout-summary";
+import {
+  CustomerCheckoutSummary,
+  CustomerCheckoutSummaryDiscount,
+} from "./customer-checkout-summary";
 import { CustomerLocale } from "./customer-locale";
 import { CustomerCoworkTier } from "./customer-reservations-api";
 import { CustomerServiceUnavailable } from "./customer-session";
@@ -35,6 +38,11 @@ export const CustomerAdvertisedPrice = Schema.Struct({
   discount: Money,
   /** The last Prague day the sale can be booked, while one with an end runs. */
   saleLastDay: Schema.optionalKey(CustomerPlainDate),
+  /**
+   * While a sale runs: its discounts in the order they apply, which together
+   * make up `discount`.
+   */
+  discounts: Schema.optionalKey(Schema.Array(CustomerCheckoutSummaryDiscount)),
 }).annotate({ identifier: "CustomerAdvertisedPrice" });
 export type CustomerAdvertisedPrice = typeof CustomerAdvertisedPrice.Type;
 
@@ -364,6 +372,11 @@ export const customerBookingCatalogEndpoints = [
   HttpApiEndpoint.get("getQuote", "/quote", {
     query: Schema.Struct({
       ...CustomerBookingSelectionQuery.fields,
+      /**
+       * Meeting room only: the customer comes early to set up, as
+       * `createCheckout`'s `earlySetup` asks. The summary then shows it.
+       */
+      earlySetup: Schema.optionalKey(Schema.Literals(["true", "false"])),
       locale: CustomerLocale,
     }),
     success: CustomerBookingQuote,

@@ -18,6 +18,10 @@ const officeCheckoutSummaryProductItemBaseSchema = Schema.Struct({
   seats: officeSeatsSchema,
   accessAmount: positiveMoneyCodec,
   seatAmount: positiveMoneyCodec,
+  /** The office access price for one day, as `accessAmount` counts it. */
+  dailyAccessRate: Schema.optionalKey(positiveMoneyCodec),
+  /** One seat's price for one day, as `seatAmount` counts it. */
+  dailySeatRate: Schema.optionalKey(positiveMoneyCodec),
 });
 
 const officeProductDetailsFilter = Schema.makeFilter(
