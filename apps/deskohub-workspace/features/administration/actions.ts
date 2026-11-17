@@ -77,7 +77,7 @@ const searchAdministrationCustomersAction = defineAdministrationAction(
     return {
       kind,
       customers: customers.map((customer) =>
-        describeAdministrationCustomer(customer, "company-person-email-phone")
+        describeAdministrationCustomer(customer)
       ),
     };
   })
