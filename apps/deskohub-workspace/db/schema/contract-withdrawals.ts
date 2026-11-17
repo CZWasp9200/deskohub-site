@@ -62,9 +62,22 @@ export const contractWithdrawals = pgTable(
     settledAt: instant("settled_at"),
     /** Fences one settlement run; a stale claim may be taken over. */
     settlementClaimedAt: instant("settlement_claimed_at"),
-    settlementAttempts: integer("settlement_attempts").notNull().default(0),
-    /** The last failed step's code, kept until settlement succeeds. */
-    settlementFailureCode: text("settlement_failure_code"),
+    /**
+     * Each step retries on its own: its failed attempts, the last failure's
+     * code until the step succeeds, and when it may run again.
+     */
+    receiptAttempts: integer("receipt_attempts").notNull().default(0),
+    receiptFailureCode: text("receipt_failure_code"),
+    receiptRetryAt: instant("receipt_retry_at"),
+    operatorNoticeAttempts: integer("operator_notice_attempts")
+      .notNull()
+      .default(0),
+    operatorNoticeFailureCode: text("operator_notice_failure_code"),
+    operatorNoticeRetryAt: instant("operator_notice_retry_at"),
+    cancellationAttempts: integer("cancellation_attempts").notNull().default(0),
+    cancellationFailureCode: text("cancellation_failure_code"),
+    cancellationRetryAt: instant("cancellation_retry_at"),
+    /** The earliest time an unfinished step may run again. */
     nextSettlementAt: instant("next_settlement_at")
       .notNull()
       .default(sql`now()`),

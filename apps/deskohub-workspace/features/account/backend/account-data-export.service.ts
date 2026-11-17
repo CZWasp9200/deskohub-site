@@ -41,6 +41,8 @@ import {
   type ReservationAccessGrantStatus,
   ReservationAccessRepository,
 } from "@/features/reservation-access/backend/reservation-access.repository";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
+import type { WithdrawalRecord } from "@/features/withdrawal/withdrawal-read-model";
 import { ReadLimitExceededError } from "@/shared/backend/read-limit";
 import { buildZipArchive } from "@/shared/backend/utils/zip-archive";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -94,6 +96,7 @@ export type AccountDataExportFailureCode =
   | "marketing-consent"
   | "legal-evidence"
   | "access-grants"
+  | "withdrawals"
   | "archive";
 
 /**
@@ -129,6 +132,7 @@ export type AccountDataExportLimits = {
   readonly invoiceDeliveries: number;
   readonly legalEvidenceEvents: number;
   readonly accessGrants: number;
+  readonly withdrawals: number;
 };
 
 /** The production export policy; tests provide smaller limits. */
@@ -145,6 +149,7 @@ export const AccountDataExportLimits =
         invoiceDeliveries: 500,
         legalEvidenceEvents: 2000,
         accessGrants: 500,
+        withdrawals: 500,
       }),
     }
   );
@@ -185,6 +190,7 @@ type AccountDataExportContents = {
   readonly "access-grants.json": {
     readonly accessGrants: readonly ReservationAccessGrantStatus[];
   };
+  readonly "withdrawals.json": readonly WithdrawalRecord[];
 };
 
 /** The archive as a file, ready for `createDownloadResponse`. */
@@ -300,6 +306,7 @@ export class AccountDataExportService extends Context.Service<
       const marketingConsents = yield* MarketingConsentLedger;
       const legalEvidence = yield* LegalEvidenceEventRepository;
       const accessGrants = yield* ReservationAccessRepository;
+      const withdrawals = yield* WithdrawalRepository;
 
       const authorize = authorizeAccountDataExport.pipe(
         Effect.provideContext(authority)
@@ -381,6 +388,13 @@ export class AccountDataExportService extends Context.Service<
             limit: limits.accessGrants,
           })
         );
+        const accountWithdrawals = yield* readSection(
+          "withdrawals",
+          withdrawals.listRecordsForAccount({
+            accountId: session.accountId,
+            limit: limits.withdrawals,
+          })
+        );
 
         const generatedAt = yield* currentInstant;
         const sections = {
@@ -407,6 +421,7 @@ export class AccountDataExportService extends Context.Service<
           },
           "consents.json": { marketingConsent, legalEvidenceEvents },
           "access-grants.json": { accessGrants: grants },
+          "withdrawals.json": accountWithdrawals,
         } satisfies AccountDataExportContents;
         const manifest = {
           schemaVersion: accountDataExportSchemaVersion,
@@ -464,7 +479,8 @@ export class AccountDataExportService extends Context.Service<
         Layer.mergeAll(
           PaymentAttemptRepository.Default,
           LatePaymentRecoveryRepository.Default,
-          DiscountApplicationRepository.Default
+          DiscountApplicationRepository.Default,
+          WithdrawalRepository.Default
         ).pipe(Layer.provide(WorkspaceDatabase.Default)),
         LegalEvidenceEventRepository.Live,
         AccountingStorage.Live,

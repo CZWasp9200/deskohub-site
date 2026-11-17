@@ -114,6 +114,7 @@
   "legalScreenExportSectionInvoices": "Your invoice details and the delivery status of each invoice email",
   "legalScreenExportSectionConsents": "Your marketing consent and records of the legal terms you accepted",
   "legalScreenExportSectionAccessGrants": "Door-access grants for your reservations, without PINs or access codes",
+  "legalScreenExportSectionWithdrawals": "Your online withdrawals from contracts, with the amounts owed back",
   "legalScreenExportSectionManifest": "A manifest describing each section",
   "legalScreenExportOmissions": "This download is not a complete copy of everything a full data-protection access or portability request covers. It leaves out invoice PDFs, analytics and email logs held by our processors, records not linked to your account, and other data that needs manual verification. You can request those through the contact in the privacy notice.",
   "legalScreenExportFullRequestLink": "How to make a full data-protection request",

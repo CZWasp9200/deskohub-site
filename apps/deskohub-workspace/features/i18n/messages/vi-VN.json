@@ -113,6 +113,7 @@
   "legalScreenExportSectionInvoices": "Thông tin hóa đơn của bạn và trạng thái gửi của từng email hóa đơn",
   "legalScreenExportSectionConsents": "Sự đồng ý nhận thông tin tiếp thị và hồ sơ các điều khoản pháp lý bạn đã chấp nhận",
   "legalScreenExportSectionAccessGrants": "Quyền ra vào cho các đặt chỗ của bạn, không kèm mã PIN và mã ra vào",
+  "legalScreenExportSectionWithdrawals": "Các lần rút khỏi hợp đồng trực tuyến của bạn và số tiền được hoàn lại",
   "legalScreenExportSectionManifest": "Tệp manifest mô tả từng phần",
   "legalScreenExportOmissions": "Bản tải xuống này không phải là bản sao đầy đủ của mọi thứ mà một yêu cầu đầy đủ về quyền truy cập hoặc quyền di chuyển dữ liệu cá nhân bao gồm. Bản này không có hóa đơn PDF, nhật ký phân tích và email do các bên xử lý dữ liệu của chúng tôi lưu giữ, các hồ sơ không liên kết với tài khoản của bạn và các dữ liệu khác cần xác minh thủ công. Bạn có thể yêu cầu những dữ liệu này qua thông tin liên hệ nêu trong Chính sách bảo vệ dữ liệu cá nhân.",
   "legalScreenExportFullRequestLink": "Cách gửi yêu cầu đầy đủ về dữ liệu cá nhân",

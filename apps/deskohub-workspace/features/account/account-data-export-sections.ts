@@ -9,7 +9,7 @@
  * The version of the exported archive shape. Increase it whenever an
  * exported section's meaning changes, never to flag data freshness.
  */
-export const accountDataExportSchemaVersion = 3;
+export const accountDataExportSchemaVersion = 4;
 
 /**
  * The fixed manifest entry name. Every other archive entry must appear in
@@ -78,6 +78,11 @@ export const accountDataExportSections = [
     path: "access-grants.json",
     manifestDescription:
       "Door-access grants for your reservations: grant state and the access interval. No access codes, PINs, or credentials.",
+  },
+  {
+    path: "withdrawals.json",
+    manifestDescription:
+      "Your online withdrawals from contracts: which contract, when you submitted the withdrawal, the amount paid and the amount owed back as exact money values in minor currency units, and whether processing is complete. The confirmation email itself is not stored.",
   },
 ] as const satisfies readonly AccountDataExportSection[];
 

@@ -3,7 +3,10 @@ import type {
   WithdrawalRefundBasis,
   WithdrawalRefusalReason,
 } from "./withdrawal-assessment";
-import type { WithdrawalId } from "./withdrawal-identifiers";
+import type {
+  WithdrawableContractKind,
+  WithdrawalId,
+} from "./withdrawal-identifiers";
 
 /** What a customer confirms before withdrawing, and what they'd get back. */
 export type WithdrawalQuote = {
@@ -66,4 +69,20 @@ export const toWithdrawalReceiptData = (
 export type WithdrawalAvailability = {
   readonly eligible: boolean;
   readonly periodEndsAt: string;
+};
+
+/**
+ * A withdrawal as the customer's account data export holds it: which
+ * contract, when it was submitted, what it owes back, and whether its
+ * receipt, notice and cancellation are all done (`completed`) or still being
+ * processed (`processing`). No receipt email is stored, so none is exported.
+ */
+export type WithdrawalRecord = {
+  readonly contractKind: WithdrawableContractKind;
+  readonly contractId: string;
+  readonly contractLabel: string;
+  readonly submittedAt: Temporal.Instant;
+  readonly paidAmount: Money;
+  readonly refundAmount: Money;
+  readonly status: "processing" | "completed";
 };

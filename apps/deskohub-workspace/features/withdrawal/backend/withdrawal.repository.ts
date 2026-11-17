@@ -6,6 +6,11 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import { type ContractWithdrawalRow, contractWithdrawals } from "@/db/schema";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { Locale } from "@/features/i18n";
+import {
+  type ReadLimitExceededError,
+  readLimitSentinel,
+  requireWithinReadLimit,
+} from "@/shared/backend/read-limit";
 import type { Money } from "@/shared/money/money";
 import type { WithdrawableContractRef } from "../withdrawable-contract";
 import type { WithdrawalRefundBasis } from "../withdrawal-assessment";
@@ -13,6 +18,7 @@ import type {
   WithdrawableContractKind,
   WithdrawalId,
 } from "../withdrawal-identifiers";
+import type { WithdrawalRecord } from "../withdrawal-read-model";
 
 /** A recorded withdrawal and how far its settlement got. */
 export type ContractWithdrawal = {
@@ -32,8 +38,10 @@ export type ContractWithdrawal = {
   readonly settledAt: Temporal.Instant | null;
   /** The claim the current settlement run holds, if any. */
   readonly settlementClaimedAt: Temporal.Instant | null;
-  readonly settlementAttempts: number;
-  readonly settlementFailureCode: string | null;
+  /** Each step's own retry state; a step retries independently of the others. */
+  readonly stepRetries: Readonly<
+    Record<WithdrawalSettlementStep, WithdrawalStepRetry>
+  >;
 };
 
 /** A settlement step a withdrawal stamps once done. */
@@ -41,6 +49,32 @@ export type WithdrawalSettlementStep =
   | "receipt"
   | "operator_notice"
   | "contract_cancellation";
+
+/** The settlement steps in the order a run attempts them. */
+export const withdrawalSettlementSteps = [
+  "receipt",
+  "operator_notice",
+  "contract_cancellation",
+] as const satisfies readonly WithdrawalSettlementStep[];
+
+/**
+ * How a settlement step fared: its failed attempts, the last failure's code
+ * until the step succeeds, and when it may run again.
+ */
+export type WithdrawalStepRetry = {
+  readonly attempts: number;
+  readonly failureCode: string | null;
+  readonly retryAt: Temporal.Instant | null;
+};
+
+/** When a withdrawal finished `step`, if it did. */
+export const withdrawalStepDoneAt = (
+  withdrawal: Pick<
+    ContractWithdrawal,
+    "receiptSentAt" | "operatorNotifiedAt" | "contractCancelledAt"
+  >,
+  step: WithdrawalSettlementStep
+): Temporal.Instant | null => withdrawal[settlementStepColumns[step].doneAt];
 
 type NewContractWithdrawal = Pick<
   ContractWithdrawal,
@@ -67,6 +101,18 @@ interface IWithdrawalRepository {
   ) => Effect.Effect<
     Option.Option<ContractWithdrawal>,
     EffectDrizzleQueryError
+  >;
+  /**
+   * The account's withdrawals as its data export holds them, oldest first;
+   * more than `limit` fails with `ReadLimitExceededError` instead of a
+   * truncated list.
+   */
+  readonly listRecordsForAccount: (input: {
+    readonly accountId: CustomerAccountId;
+    readonly limit: number;
+  }) => Effect.Effect<
+    readonly WithdrawalRecord[],
+    EffectDrizzleQueryError | ReadLimitExceededError
   >;
   /** Which of the family's contracts have a recorded withdrawal. */
   readonly listWithdrawnContractIds: (input: {
@@ -95,23 +141,34 @@ interface IWithdrawalRepository {
     readonly ContractWithdrawal[],
     EffectDrizzleQueryError | SqlError.SqlError
   >;
-  /** Stamps a done step; a lost claim stamps nothing and answers false. */
+  /**
+   * Stamps a done step and clears its failure; a lost claim stamps nothing
+   * and answers false.
+   */
   readonly markStepDone: (
     claim: SettlementClaim & {
       readonly step: WithdrawalSettlementStep;
       readonly doneAt: Temporal.Instant;
     }
   ) => Effect.Effect<boolean, EffectDrizzleQueryError>;
+  /**
+   * Counts a step's failed attempt with its code and when the step may run
+   * again; a lost claim records nothing and answers false.
+   */
+  readonly recordStepFailure: (
+    claim: SettlementClaim & {
+      readonly step: WithdrawalSettlementStep;
+      readonly failureCode: string;
+      readonly retryAt: Temporal.Instant;
+    }
+  ) => Effect.Effect<boolean, EffectDrizzleQueryError>;
   /** Marks the withdrawal settled once every step is done, releasing the claim. */
   readonly markSettled: (
     claim: SettlementClaim & { readonly settledAt: Temporal.Instant }
   ) => Effect.Effect<void, EffectDrizzleQueryError>;
-  /** Records a failed settlement run and when to try again, releasing the claim. */
-  readonly recordSettlementFailure: (
-    claim: SettlementClaim & {
-      readonly failureCode: string;
-      readonly nextSettlementAt: Temporal.Instant;
-    }
+  /** Schedules the next settlement run of an unfinished withdrawal, releasing the claim. */
+  readonly deferSettlement: (
+    claim: SettlementClaim & { readonly nextSettlementAt: Temporal.Instant }
   ) => Effect.Effect<void, EffectDrizzleQueryError>;
 }
 
@@ -142,6 +199,49 @@ export class WithdrawalRepository extends Context.Service<
 
       return {
         findByContract,
+        listRecordsForAccount: Effect.fn(
+          "WithdrawalRepository.listRecordsForAccount"
+        )(function* (input) {
+          const rows = yield* db
+            .select({
+              contractKind: contractWithdrawals.contractKind,
+              contractId: contractWithdrawals.contractId,
+              contractLabel: contractWithdrawals.contractLabel,
+              submittedAt: contractWithdrawals.submittedAt,
+              paidAmountValue: contractWithdrawals.paidAmountValue,
+              refundAmountValue: contractWithdrawals.refundAmountValue,
+              amountExponent: contractWithdrawals.amountExponent,
+              currency: contractWithdrawals.currency,
+              settledAt: contractWithdrawals.settledAt,
+            })
+            .from(contractWithdrawals)
+            .where(eq(contractWithdrawals.customerAccountId, input.accountId))
+            .orderBy(
+              asc(contractWithdrawals.submittedAt),
+              asc(contractWithdrawals.id)
+            )
+            .limit(readLimitSentinel(input.limit));
+          const within = yield* requireWithinReadLimit(rows, input.limit);
+          return within.map(
+            (row): WithdrawalRecord => ({
+              contractKind: row.contractKind,
+              contractId: row.contractId,
+              contractLabel: row.contractLabel,
+              submittedAt: row.submittedAt,
+              paidAmount: {
+                value: row.paidAmountValue,
+                exponent: row.amountExponent,
+                currency: row.currency,
+              },
+              refundAmount: {
+                value: row.refundAmountValue,
+                exponent: row.amountExponent,
+                currency: row.currency,
+              },
+              status: row.settledAt ? "completed" : "processing",
+            })
+          );
+        }),
         listWithdrawnContractIds: Effect.fn(
           "WithdrawalRepository.listWithdrawnContractIds"
         )(function* (input) {
@@ -242,7 +342,9 @@ export class WithdrawalRepository extends Context.Service<
             const updated = yield* db
               .update(contractWithdrawals)
               .set({
-                [settlementStepColumns[input.step]]: input.doneAt,
+                [settlementStepColumns[input.step].doneAt]: input.doneAt,
+                [settlementStepColumns[input.step].failureCode]: null,
+                [settlementStepColumns[input.step].retryAt]: null,
                 updatedAt: input.doneAt,
               })
               .where(heldClaim(input))
@@ -257,26 +359,39 @@ export class WithdrawalRepository extends Context.Service<
               .set({
                 settledAt: input.settledAt,
                 settlementClaimedAt: null,
-                settlementFailureCode: null,
                 updatedAt: input.settledAt,
               })
               .where(heldClaim(input));
           }
         ),
-        recordSettlementFailure: Effect.fn(
-          "WithdrawalRepository.recordSettlementFailure"
-        )(function* (input) {
-          yield* db
-            .update(contractWithdrawals)
-            .set({
-              settlementAttempts: sql`${contractWithdrawals.settlementAttempts} + 1`,
-              settlementFailureCode: input.failureCode,
-              nextSettlementAt: input.nextSettlementAt,
-              settlementClaimedAt: null,
-              updatedAt: Temporal.Now.instant(),
-            })
-            .where(heldClaim(input));
-        }),
+        recordStepFailure: Effect.fn("WithdrawalRepository.recordStepFailure")(
+          function* (input) {
+            const columns = settlementStepColumns[input.step];
+            const updated = yield* db
+              .update(contractWithdrawals)
+              .set({
+                [columns.attempts]: sql`${contractWithdrawals[columns.attempts]} + 1`,
+                [columns.failureCode]: input.failureCode,
+                [columns.retryAt]: input.retryAt,
+                updatedAt: Temporal.Now.instant(),
+              })
+              .where(heldClaim(input))
+              .returning({ id: contractWithdrawals.id });
+            return updated.length > 0;
+          }
+        ),
+        deferSettlement: Effect.fn("WithdrawalRepository.deferSettlement")(
+          function* (input) {
+            yield* db
+              .update(contractWithdrawals)
+              .set({
+                nextSettlementAt: input.nextSettlementAt,
+                settlementClaimedAt: null,
+                updatedAt: Temporal.Now.instant(),
+              })
+              .where(heldClaim(input));
+          }
+        ),
       } satisfies IWithdrawalRepository;
     })
   );
@@ -285,12 +400,30 @@ export class WithdrawalRepository extends Context.Service<
 }
 
 const settlementStepColumns = {
-  receipt: "receiptSentAt",
-  operator_notice: "operatorNotifiedAt",
-  contract_cancellation: "contractCancelledAt",
+  receipt: {
+    doneAt: "receiptSentAt",
+    attempts: "receiptAttempts",
+    failureCode: "receiptFailureCode",
+    retryAt: "receiptRetryAt",
+  },
+  operator_notice: {
+    doneAt: "operatorNotifiedAt",
+    attempts: "operatorNoticeAttempts",
+    failureCode: "operatorNoticeFailureCode",
+    retryAt: "operatorNoticeRetryAt",
+  },
+  contract_cancellation: {
+    doneAt: "contractCancelledAt",
+    attempts: "cancellationAttempts",
+    failureCode: "cancellationFailureCode",
+    retryAt: "cancellationRetryAt",
+  },
 } as const satisfies Record<
   WithdrawalSettlementStep,
-  keyof typeof contractWithdrawals.$inferInsert
+  Record<
+    "doneAt" | "attempts" | "failureCode" | "retryAt",
+    keyof typeof contractWithdrawals.$inferInsert
+  >
 >;
 
 const heldClaim = (claim: SettlementClaim) =>
@@ -349,7 +482,22 @@ export const toContractWithdrawal = (
     contractCancelledAt: row.contractCancelledAt,
     settledAt: row.settledAt,
     settlementClaimedAt: row.settlementClaimedAt,
-    settlementAttempts: row.settlementAttempts,
-    settlementFailureCode: row.settlementFailureCode,
+    stepRetries: {
+      receipt: {
+        attempts: row.receiptAttempts,
+        failureCode: row.receiptFailureCode,
+        retryAt: row.receiptRetryAt,
+      },
+      operator_notice: {
+        attempts: row.operatorNoticeAttempts,
+        failureCode: row.operatorNoticeFailureCode,
+        retryAt: row.operatorNoticeRetryAt,
+      },
+      contract_cancellation: {
+        attempts: row.cancellationAttempts,
+        failureCode: row.cancellationFailureCode,
+        retryAt: row.cancellationRetryAt,
+      },
+    },
   };
 };

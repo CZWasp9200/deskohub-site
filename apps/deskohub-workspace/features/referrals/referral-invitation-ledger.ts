@@ -20,6 +20,7 @@ import type {
   PromotionCodeId,
 } from "@/features/discounts/persistence-contracts";
 import type { Locale } from "@/features/i18n";
+import { isPaidBooking } from "@/features/referrals/first-booking-history";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { evaluateReferralAttribution } from "./attribution";
 import {
@@ -541,7 +542,11 @@ const firstPaymentAlreadyAdmitted = (input: {
         })
   );
 
-/** Another of the customer's reservations in `paymentState`, if any. */
+/**
+ * Another of the customer's reservations in `paymentState`, if any. A paid
+ * one counts only as `isPaidBooking` does, so a booking withdrawn in full
+ * leaves the invitation open.
+ */
 const findOtherReservationWithPayment = (
   dotyposCustomerId: DotyposCustomerId,
   workspaceReservationId: WorkspaceReservationId,
@@ -554,7 +559,9 @@ const findOtherReservationWithPayment = (
       .where(
         and(
           eq(workspaceReservations.dotyposCustomerId, dotyposCustomerId),
-          eq(workspaceReservations.paymentState, paymentState),
+          paymentState === "paid"
+            ? isPaidBooking
+            : eq(workspaceReservations.paymentState, paymentState),
           ne(workspaceReservations.id, workspaceReservationId)
         )
       )

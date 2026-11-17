@@ -114,6 +114,7 @@
   "legalScreenExportSectionInvoices": "Deine Rechnungsdaten und der Zustellstatus jeder Rechnungs-E-Mail",
   "legalScreenExportSectionConsents": "Deine Marketing-Einwilligung und Aufzeichnungen der rechtlichen Bedingungen, denen du zugestimmt hast",
   "legalScreenExportSectionAccessGrants": "Türzugänge für deine Reservierungen, ohne PINs und Zugangscodes",
+  "legalScreenExportSectionWithdrawals": "Deine Online-Widerrufe von Verträgen und die zu erstattenden Beträge",
   "legalScreenExportSectionManifest": "Ein Manifest, das jeden Abschnitt beschreibt",
   "legalScreenExportOmissions": "Dieser Download ist keine vollständige Kopie von allem, was ein vollständiger Antrag auf Auskunft über personenbezogene Daten oder auf Datenübertragbarkeit umfasst. Er enthält keine Rechnungen als PDF, keine Analyse- und E-Mail-Protokolle bei unseren Auftragsverarbeitern, keine Datensätze, die nicht mit deinem Konto verknüpft sind, und keine weiteren Daten, die manuell geprüft werden müssen. Diese kannst du über den Kontakt in der Datenschutzerklärung anfordern.",
   "legalScreenExportFullRequestLink": "So stellst du einen vollständigen Datenschutzantrag",

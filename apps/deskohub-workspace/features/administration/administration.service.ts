@@ -78,10 +78,11 @@ import { canCancelReservation } from "@/features/reservation/reservation-cancell
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import { getReservationAccessName } from "@/features/reservation-access";
+import { toContractWithdrawal } from "@/features/withdrawal/backend/withdrawal.repository";
 import {
-  type ContractWithdrawal,
-  toContractWithdrawal,
-} from "@/features/withdrawal/backend/withdrawal.repository";
+  getWithdrawalSettlementStatus,
+  type WithdrawalSettlementStatus,
+} from "@/features/withdrawal/backend/withdrawal-settlement-status";
 import type { WithdrawalRefundBasis } from "@/features/withdrawal/withdrawal-assessment";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import type { Money } from "@/shared/money/money";
@@ -819,16 +820,15 @@ type LiveReservationDetails = {
 /**
  * A customer's online withdrawal as operators see it: when it was submitted,
  * what it owes back, and whether its receipt, notice and cancellation are
- * done (`settled`), still running (`in_progress`), or failed and are being
- * retried (`needs_attention`).
+ * done (`settled`), still running (`in_progress`), or have a step that failed
+ * and is being retried on its own (`needs_attention`), listed in
+ * `failingSteps` in settlement order.
  */
 export type AdministrationReservationWithdrawal = {
   readonly submittedAt: string;
   readonly refundAmount: Money;
   readonly refundBasis: WithdrawalRefundBasis;
-  readonly settlement: "settled" | "in_progress" | "needs_attention";
-  readonly settlementFailureCode: string | null;
-};
+} & WithdrawalSettlementStatus;
 
 const toReservationWithdrawal = (
   row: ContractWithdrawalRow | undefined
@@ -839,18 +839,8 @@ const toReservationWithdrawal = (
     submittedAt: toIsoString(withdrawal.submittedAt),
     refundAmount: withdrawal.refundAmount,
     refundBasis: withdrawal.refundBasis,
-    settlement: getWithdrawalSettlement(withdrawal),
-    settlementFailureCode: withdrawal.settledAt
-      ? null
-      : withdrawal.settlementFailureCode,
+    ...getWithdrawalSettlementStatus(withdrawal),
   };
-};
-
-const getWithdrawalSettlement = (
-  withdrawal: Pick<ContractWithdrawal, "settledAt" | "settlementAttempts">
-): AdministrationReservationWithdrawal["settlement"] => {
-  if (withdrawal.settledAt) return "settled";
-  return withdrawal.settlementAttempts > 0 ? "needs_attention" : "in_progress";
 };
 
 const isReservationRefunded = (

@@ -115,6 +115,7 @@
   "legalScreenExportSectionInvoices": "Údaje o tvých fakturách a stav doručení každého e-mailu s fakturou",
   "legalScreenExportSectionConsents": "Tvůj marketingový souhlas a záznamy o přijatých právních podmínkách",
   "legalScreenExportSectionAccessGrants": "Přístupy ke dveřím pro tvoje rezervace, bez PINů a přístupových kódů",
+  "legalScreenExportSectionWithdrawals": "Tvoje online odstoupení od smluv a částky k vrácení",
   "legalScreenExportSectionManifest": "Manifest s popisem každé sekce",
   "legalScreenExportOmissions": "Toto stažení není úplnou kopií všeho, co pokrývá úplná žádost o přístup k osobním údajům nebo o jejich přenositelnost. Neobsahuje faktury v PDF, analytické a e-mailové záznamy u našich zpracovatelů, záznamy nepropojené s tvým účtem ani další údaje, které je potřeba ověřit ručně. Můžeš si je vyžádat přes kontakt uvedený v zásadách ochrany osobních údajů.",
   "legalScreenExportFullRequestLink": "Jak podat úplnou žádost o osobní údaje",

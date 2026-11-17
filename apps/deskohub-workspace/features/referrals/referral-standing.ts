@@ -9,6 +9,7 @@ import {
   referralInvitationClaims,
 } from "@/db/schema/referrals";
 import { workspaceReservations } from "@/db/schema/workspace-reservations";
+import { isPaidBooking } from "@/features/referrals/first-booking-history";
 import { decodeBookedReservation } from "@/features/reservation/backend/booked-reservation";
 import type { ReferralCode } from "./client";
 import type { ReferralAccountSummary } from "./contracts";
@@ -46,6 +47,7 @@ export const makeReferralStandingReads = Effect.gen(function* () {
         dotyposReservationId: workspaceReservations.dotyposReservationId,
         reservationState: workspaceReservations.reservationState,
         paymentState: workspaceReservations.paymentState,
+        isPaidBooking: sql<boolean>`${isPaidBooking}`.mapWith(Boolean),
       })
       .from(workspaceReservations)
       .where(eq(workspaceReservations.dotyposCustomerId, dotyposCustomerId));
@@ -98,7 +100,7 @@ export const makeReferralStandingReads = Effect.gen(function* () {
       }
     );
     const hasLocalPaidBooking = localReservations.some(
-      ({ paymentState }) => paymentState === "paid"
+      (reservation) => reservation.isPaidBooking
     );
     return {
       evidence,

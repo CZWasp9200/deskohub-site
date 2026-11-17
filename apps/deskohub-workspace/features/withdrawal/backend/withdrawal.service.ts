@@ -1,4 +1,5 @@
 import {
+  Array as Arr,
   Context,
   Data,
   Duration,
@@ -33,6 +34,8 @@ import {
   type ContractWithdrawal,
   WithdrawalRepository,
   type WithdrawalSettlementStep,
+  withdrawalSettlementSteps,
+  withdrawalStepDoneAt,
 } from "./withdrawal.repository";
 import { WithdrawalEmails } from "./withdrawal-emails.service";
 
@@ -169,9 +172,12 @@ export class WithdrawalService extends Context.Service<
         );
 
       /**
-       * Runs the withdrawal's unfinished steps under the claim it holds, in
-       * order: receipt, operator notice, cancellation. A step that fails ends
-       * the run and schedules the next one; the claim's loss ends it quietly.
+       * Runs the withdrawal's unfinished steps that are due, under the claim
+       * it holds, in order: receipt, operator notice, cancellation. Each step
+       * retries on its own schedule, so a failing email never holds the
+       * cancellation back. The run settles the withdrawal once every step is
+       * done, else schedules the next run for the earliest step retry; the
+       * claim's loss ends it quietly.
        */
       const settle = Effect.fnUntraced(function* (
         withdrawal: ContractWithdrawal,
@@ -184,6 +190,50 @@ export class WithdrawalService extends Context.Service<
         if (!claimedAt) return "skipped" as const;
         const claim = { id: withdrawal.id, claimedAt };
         const family = families.get(withdrawal.contract.kind);
+        const startedAt = Temporal.Now.instant();
+        const done = new Set(
+          withdrawalSettlementSteps.filter((step) =>
+            withdrawalStepDoneAt(withdrawal, step)
+          )
+        );
+        const retriesScheduled = new Map<
+          WithdrawalSettlementStep,
+          Temporal.Instant
+        >();
+        const isDue = (step: WithdrawalSettlementStep) => {
+          if (done.has(step)) return false;
+          const { retryAt } = withdrawal.stepRetries[step];
+          return !retryAt || Temporal.Instant.compare(retryAt, startedAt) <= 0;
+        };
+        const keepClaim = (held: boolean) =>
+          held ? Effect.void : Effect.fail(new SettlementClaimLostError());
+
+        const recordFailure = Effect.fnUntraced(function* (
+          failure: SettlementStepError
+        ) {
+          const { attempts } = withdrawal.stepRetries[failure.step];
+          const retryAt = Temporal.Now.instant().add({
+            milliseconds: Duration.toMillis(settlementRetryDelay(attempts)),
+          });
+          // Only fixed codes: a provider failure may carry the address.
+          yield* Effect.logWarning("Withdrawal settlement step failed").pipe(
+            Effect.annotateLogs({
+              step: failure.step,
+              failureCode: failure.code,
+              failureTag: failure.causeTag,
+              stepAttempts: attempts + 1,
+            })
+          );
+          retriesScheduled.set(failure.step, retryAt);
+          yield* keepClaim(
+            yield* repository.recordStepFailure({
+              ...claim,
+              step: failure.step,
+              failureCode: failure.code,
+              retryAt,
+            })
+          );
+        });
 
         const runStep = <E extends { readonly _tag: string }>(
           step: WithdrawalSettlementStep,
@@ -191,115 +241,133 @@ export class WithdrawalService extends Context.Service<
           isTransient: (error: E) => boolean,
           failureCode: (error: E) => string
         ) =>
-          work.pipe(
-            Effect.retry({
-              schedule: Schedule.exponential("250 millis"),
-              times: 2,
-              while: isTransient,
-            }),
-            Effect.mapError(
-              (cause) =>
-                new SettlementStepError({
-                  step,
-                  code: failureCode(cause),
-                  causeTag: cause._tag,
-                  cause,
-                })
-            ),
-            Effect.andThen(
-              repository.markStepDone({
-                ...claim,
-                step,
-                doneAt: Temporal.Now.instant(),
-              })
-            ),
-            Effect.flatMap((held) =>
-              held ? Effect.void : Effect.fail(new SettlementClaimLostError())
-            )
-          );
+          isDue(step)
+            ? work.pipe(
+                Effect.retry({
+                  schedule: Schedule.exponential("250 millis"),
+                  times: 2,
+                  while: isTransient,
+                }),
+                Effect.mapError(
+                  (cause) =>
+                    new SettlementStepError({
+                      step,
+                      code: failureCode(cause),
+                      causeTag: cause._tag,
+                      cause,
+                    })
+                ),
+                Effect.andThen(
+                  repository.markStepDone({
+                    ...claim,
+                    step,
+                    doneAt: Temporal.Now.instant(),
+                  })
+                ),
+                Effect.flatMap(keepClaim),
+                Effect.andThen(
+                  Effect.sync(() => {
+                    done.add(step);
+                  })
+                ),
+                Effect.catchTag("SettlementStepError", recordFailure)
+              )
+            : Effect.void;
 
-        // The steps run in the owner's order, receipt, operator notice,
-        // cancellation, and a failed step stops the run: the cancellation
-        // waits for both emails. Every unfinished step is retried later.
-        const settlement = Effect.gen(function* () {
-          const failures: SettlementStepError[] = [];
-          const attempt = <E extends { readonly _tag: string }>(
-            step: WithdrawalSettlementStep,
-            work: Effect.Effect<void, E>,
-            isTransient: (error: E) => boolean,
-            failureCode: (error: E) => string
-          ) =>
-            failures.length > 0
-              ? Effect.void
-              : runStep(step, work, isTransient, failureCode).pipe(
-                  Effect.catchTag("SettlementStepError", (failure) =>
-                    Effect.sync(() => {
-                      failures.push(failure);
+        /**
+         * The address the due emails go to; an unreadable one fails each due
+         * email step, and the cancellation still runs.
+         */
+        const readCustomerEmail = (
+          dueEmailSteps: readonly WithdrawalSettlementStep[]
+        ) => {
+          if (dueEmailSteps.length === 0) {
+            return Effect.succeed(Option.none<string>());
+          }
+          if (known) return Effect.succeed(Option.some(known.receiptEmail));
+          return accountEmail(withdrawal.accountId).pipe(
+            Effect.map(Option.some),
+            Effect.catch((cause) =>
+              Effect.as(
+                Effect.forEach(dueEmailSteps, (step) =>
+                  recordFailure(
+                    new SettlementStepError({
+                      step,
+                      code: "customer_address_unavailable",
+                      causeTag: cause._tag,
+                      cause,
                     })
                   )
-                );
-          const needsEmail =
-            !withdrawal.receiptSentAt || !withdrawal.operatorNotifiedAt;
-          const receiptEmail = needsEmail
-            ? (known?.receiptEmail ??
-              (yield* accountEmail(withdrawal.accountId).pipe(
-                Effect.catch((cause) =>
-                  Effect.sync(() => {
-                    failures.push(
-                      new SettlementStepError({
-                        step: "receipt",
-                        code: "receipt_address_unavailable",
-                        causeTag: cause._tag,
-                        cause,
-                      })
-                    );
-                    return undefined;
-                  })
-                )
-              )))
-            : undefined;
-          if (!withdrawal.receiptSentAt && receiptEmail) {
-            yield* attempt(
+                ),
+                Option.none<string>()
+              )
+            )
+          );
+        };
+
+        const settlement = Effect.gen(function* () {
+          const dueEmailSteps = (
+            ["receipt", "operator_notice"] as const
+          ).filter(isDue);
+          const customerEmail = yield* readCustomerEmail(dueEmailSteps);
+          if (Option.isSome(customerEmail)) {
+            // The receipt goes first: the law asks for it without delay.
+            yield* runStep(
               "receipt",
               emails.sendReceipt({
                 withdrawal,
-                receiptEmail,
+                receiptEmail: customerEmail.value,
                 customerName: known?.customerName ?? null,
               }),
               () => true,
               () => "receipt_send_failed"
             );
-          }
-          if (!withdrawal.operatorNotifiedAt && receiptEmail) {
-            yield* attempt(
+            yield* runStep(
               "operator_notice",
               emails.sendOperatorNotice({
                 withdrawal,
-                customerEmail: receiptEmail,
+                customerEmail: customerEmail.value,
               }),
               () => true,
               () => "operator_notice_failed"
             );
           }
-          if (!withdrawal.contractCancelledAt) {
-            yield* attempt(
-              "contract_cancellation",
-              family.cancel({
-                contractId: withdrawal.contract.id,
-                refundAmount: withdrawal.refundAmount,
-                refundBasis: withdrawal.refundBasis,
-              }),
-              (error: ContractCancellationError) => error.transient,
-              (error: ContractCancellationError) => error.code
-            );
+          yield* runStep(
+            "contract_cancellation",
+            family.cancel({
+              contractId: withdrawal.contract.id,
+              refundAmount: withdrawal.refundAmount,
+              refundBasis: withdrawal.refundBasis,
+            }),
+            (error: ContractCancellationError) => error.transient,
+            (error: ContractCancellationError) => error.code
+          );
+          const unfinished = withdrawalSettlementSteps.filter(
+            (step) => !done.has(step)
+          );
+          if (!Arr.isReadonlyArrayNonEmpty(unfinished)) {
+            yield* repository.markSettled({
+              ...claim,
+              settledAt: Temporal.Now.instant(),
+            });
+            return "settled" as const;
           }
-          const [firstFailure] = failures;
-          if (firstFailure) return yield* firstFailure;
-          yield* repository.markSettled({
+          yield* repository.deferSettlement({
             ...claim,
-            settledAt: Temporal.Now.instant(),
+            nextSettlementAt: Arr.min(
+              Arr.map(
+                unfinished,
+                (step) =>
+                  retriesScheduled.get(step) ??
+                  withdrawal.stepRetries[step].retryAt ??
+                  startedAt
+              ),
+              Temporal.Instant.compare
+            ),
           });
-          return "settled" as const;
+          return retriesScheduled.size > 0
+            ? ("failed" as const)
+            : ("deferred" as const);
         });
 
         return yield* settlement.pipe(
@@ -313,38 +381,22 @@ export class WithdrawalService extends Context.Service<
           ),
           Effect.catch(
             Effect.fn(function* (error) {
-              const failureCode =
-                error._tag === "SettlementStepError"
-                  ? error.code
-                  : "settlement_record_failed";
-              // Only fixed codes: a provider failure may carry the address.
-              yield* Effect.logWarning("Withdrawal settlement failed").pipe(
-                Effect.annotateLogs({
-                  failureCode,
-                  failureTag: failureTagOf(error),
-                  settlementAttempts: withdrawal.settlementAttempts + 1,
-                })
-              );
+              // The ledger itself failed; try again after the first delay.
+              yield* Effect.logError(
+                "Withdrawal settlement could not record its progress"
+              ).pipe(Effect.annotateLogs({ failureTag: error._tag }));
               yield* repository
-                .recordSettlementFailure({
+                .deferSettlement({
                   ...claim,
-                  failureCode,
                   nextSettlementAt: Temporal.Now.instant().add({
-                    milliseconds: Duration.toMillis(
-                      settlementRetryDelay(withdrawal.settlementAttempts)
-                    ),
+                    milliseconds: Duration.toMillis(settlementRetryDelay(0)),
                   }),
                 })
                 .pipe(
-                  Effect.catch((recordError) =>
+                  Effect.catch((deferError) =>
                     Effect.logError(
-                      "Withdrawal settlement failure could not be recorded"
-                    ).pipe(
-                      Effect.annotateLogs({
-                        failureCode,
-                        failureTag: failureTagOf(recordError),
-                      })
-                    )
+                      "Withdrawal settlement could not schedule its next run"
+                    ).pipe(Effect.annotateLogs({ failureTag: deferError._tag }))
                   )
                 );
               return "failed" as const;
@@ -522,18 +574,13 @@ class SettlementClaimLostError extends Data.TaggedError(
   "SettlementClaimLostError"
 ) {}
 
-/** The tag of a failure, or of the failure a settlement step wraps. */
-const failureTagOf = (
-  error: SettlementStepError | { readonly _tag: string }
-) => (error instanceof SettlementStepError ? error.causeTag : error._tag);
-
 /** How long a settlement run owns its claim before another may take over. */
 const settlementClaimLifetime = Duration.minutes(10);
 
 /**
- * The wait before the next settlement run after `attempts` failed runs:
- * five minutes, doubling up to six hours, so a lasting failure keeps being
- * retried while administrators see it waiting.
+ * The wait before a settlement step's next attempt after `attempts` failed
+ * ones: five minutes, doubling up to six hours, so a lasting failure keeps
+ * being retried while administrators see it waiting.
  */
 export const settlementRetryDelay = (attempts: number) =>
   Duration.min(

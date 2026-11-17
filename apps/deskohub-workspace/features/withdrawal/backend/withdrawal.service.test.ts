@@ -24,6 +24,7 @@ import {
 } from "./withdrawal.repository";
 import { WithdrawalService } from "./withdrawal.service";
 import { WithdrawalEmails } from "./withdrawal-emails.service";
+import { getWithdrawalSettlementStatus } from "./withdrawal-settlement-status";
 
 const accountId = "account-1" as CustomerAccountId;
 const receiptEmail = "customer@example.test";
@@ -46,11 +47,14 @@ const makeHarness = (options: {
   /** Failures the family's cancellation answers, in order, before succeeding. */
   readonly cancellationFailures?: ContractCancellationError[];
   readonly receiptFailures?: number;
+  readonly operatorNoticeFailures?: number;
 }) => {
   const log: string[] = [];
   const rows = new Map<WithdrawalId, ContractWithdrawal>();
   const cancellationFailures = [...(options.cancellationFailures ?? [])];
   let receiptFailures = options.receiptFailures ?? 0;
+  let operatorNoticeFailures = options.operatorNoticeFailures ?? 0;
+  let accountReadable = true;
   let sequence = 0;
 
   const find = (claim: { id: WithdrawalId; claimedAt: Temporal.Instant }) => {
@@ -93,8 +97,11 @@ const makeHarness = (options: {
           contractCancelledAt: null,
           settledAt: null,
           settlementClaimedAt: withdrawal.submittedAt,
-          settlementAttempts: 0,
-          settlementFailureCode: null,
+          stepRetries: {
+            receipt: noRetry,
+            operator_notice: noRetry,
+            contract_cancellation: noRetry,
+          },
         };
         rows.set(id, row);
         return { withdrawal: row, recorded: true };
@@ -111,8 +118,35 @@ const makeHarness = (options: {
       ),
     markStepDone: (claim) =>
       Effect.sync(() => {
-        if (!find(claim)) return false;
-        update(claim.id, { [stepColumn[claim.step]]: claim.doneAt });
+        const row = find(claim);
+        if (!row) return false;
+        update(claim.id, {
+          [stepColumn[claim.step]]: claim.doneAt,
+          stepRetries: {
+            ...row.stepRetries,
+            [claim.step]: {
+              ...row.stepRetries[claim.step],
+              failureCode: null,
+              retryAt: null,
+            },
+          },
+        });
+        return true;
+      }),
+    recordStepFailure: (claim) =>
+      Effect.sync(() => {
+        const row = find(claim);
+        if (!row) return false;
+        update(claim.id, {
+          stepRetries: {
+            ...row.stepRetries,
+            [claim.step]: {
+              attempts: row.stepRetries[claim.step].attempts + 1,
+              failureCode: claim.failureCode,
+              retryAt: claim.retryAt,
+            },
+          },
+        });
         return true;
       }),
     markSettled: (claim) =>
@@ -121,18 +155,13 @@ const makeHarness = (options: {
         update(claim.id, {
           settledAt: claim.settledAt,
           settlementClaimedAt: null,
-          settlementFailureCode: null,
         });
       }),
-    recordSettlementFailure: (claim) =>
+    deferSettlement: (claim) =>
       Effect.sync(() => {
-        const row = find(claim);
-        if (!row) return;
-        update(claim.id, {
-          settlementAttempts: row.settlementAttempts + 1,
-          settlementFailureCode: claim.failureCode,
-          settlementClaimedAt: null,
-        });
+        if (!find(claim)) return;
+        log.push("deferred");
+        update(claim.id, { settlementClaimedAt: null });
       }),
   });
 
@@ -148,8 +177,14 @@ const makeHarness = (options: {
         return Effect.void;
       }),
     sendOperatorNotice: () =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
+        if (operatorNoticeFailures > 0) {
+          operatorNoticeFailures -= 1;
+          log.push("operator notice failed");
+          return Effect.fail(new Error("Resend unavailable") as never);
+        }
         log.push("operator notice");
+        return Effect.void;
       }),
   });
 
@@ -180,12 +215,14 @@ const makeHarness = (options: {
 
   const sections = Layer.mock(CustomerAccountSections, {
     withActiveAccount: (id, section) =>
-      section.pipe(
-        Effect.provideService(HeldCustomerAccount, {
-          accountId: id,
-          email: receiptEmail,
-        })
-      ),
+      accountReadable
+        ? section.pipe(
+            Effect.provideService(HeldCustomerAccount, {
+              accountId: id,
+              email: receiptEmail,
+            })
+          )
+        : (Effect.fail(new Error("Account section unavailable")) as never),
   });
 
   const contacts = Layer.mock(CustomerAccountContactService, {
@@ -227,8 +264,39 @@ const makeHarness = (options: {
       }).pipe(Effect.provide(layer), Effect.exit)
     );
 
-  return { log, rows, run, runExit };
+  /** Makes the steps' scheduled retries due now, as time passing would. */
+  const makeRetriesDue = (steps: readonly WithdrawalSettlementStep[]) => {
+    for (const row of rows.values()) {
+      const stepRetries = { ...row.stepRetries };
+      for (const step of steps) {
+        const retry = stepRetries[step];
+        if (retry.retryAt) {
+          stepRetries[step] = {
+            ...retry,
+            retryAt: Temporal.Instant.from("2000-01-01T00:00:00Z"),
+          };
+        }
+      }
+      rows.set(row.id, { ...row, stepRetries });
+    }
+  };
+
+  const setAccountReadable = (readable: boolean) => {
+    accountReadable = readable;
+  };
+
+  return { log, rows, run, runExit, makeRetriesDue, setAccountReadable };
 };
+
+const noRetry = { attempts: 0, failureCode: null, retryAt: null } as const;
+
+/** Minutes from now to an instant, rounded. */
+const minutesUntil = (instant: Temporal.Instant | null) =>
+  instant
+    ? Math.round(
+        Temporal.Now.instant().until(instant).total({ unit: "minutes" })
+      )
+    : null;
 
 const onlyRow = (harness: Harness) => {
   const [row] = harness.rows.values();
@@ -332,37 +400,155 @@ describe("WithdrawalService.withdraw", () => {
     const row = onlyRow(harness);
     expect(row).toMatchObject({
       settledAt: null,
-      settlementAttempts: 1,
-      settlementFailureCode: "reservation_invalid_state",
       settlementClaimedAt: null,
+      stepRetries: {
+        receipt: noRetry,
+        operator_notice: noRetry,
+        contract_cancellation: {
+          attempts: 1,
+          failureCode: "reservation_invalid_state",
+        },
+      },
     });
+    expect(minutesUntil(row.stepRetries.contract_cancellation.retryAt)).toBe(5);
     expect(row.receiptSentAt).not.toBeNull();
     expect(row.contractCancelledAt).toBeNull();
+    expect(getWithdrawalSettlementStatus(row)).toEqual({
+      settlement: "needs_attention",
+      failingSteps: [
+        {
+          step: "contract_cancellation",
+          failureCode: "reservation_invalid_state",
+        },
+      ],
+    });
   });
 
-  test("holds the cancellation until the receipt is sent, then finishes in order", async () => {
+  test("cancels the booking while the receipt keeps failing, and retries the receipt on its own", async () => {
     const harness = makeHarness({ receiptFailures: 3 });
     const receipt = await harness.run((service) => service.withdraw(input));
 
     expect(receipt.receiptEmail).toBe(receiptEmail);
-    expect(onlyRow(harness)).toMatchObject({
-      settledAt: null,
-      receiptSentAt: null,
-      operatorNotifiedAt: null,
-      contractCancelledAt: null,
-      settlementFailureCode: "receipt_send_failed",
-    });
-    expect(harness.log.some((entry) => entry.startsWith("cancel"))).toBe(false);
-
-    const summary = await harness.run((service) =>
-      service.settleDue({ limit: 10 })
-    );
-    expect(summary).toEqual({ claimed: 1, settled: 1, failed: 0 });
-    expect(harness.log.slice(-3)).toEqual([
-      `receipt to ${receiptEmail}`,
+    expect(harness.log).toEqual([
+      "record",
+      "receipt failed",
+      "receipt failed",
+      "receipt failed",
       "operator notice",
       "cancel refund 66667",
+      "deferred",
     ]);
+    const failed = onlyRow(harness);
+    expect(failed).toMatchObject({
+      settledAt: null,
+      receiptSentAt: null,
+      stepRetries: {
+        receipt: { attempts: 1, failureCode: "receipt_send_failed" },
+        operator_notice: noRetry,
+        contract_cancellation: noRetry,
+      },
+    });
+    expect(failed.operatorNotifiedAt).not.toBeNull();
+    expect(failed.contractCancelledAt).not.toBeNull();
+    expect(getWithdrawalSettlementStatus(failed)).toEqual({
+      settlement: "needs_attention",
+      failingSteps: [{ step: "receipt", failureCode: "receipt_send_failed" }],
+    });
+
+    const early = await harness.run((service) =>
+      service.settleDue({ limit: 10 })
+    );
+    expect(early).toEqual({ claimed: 1, settled: 0, failed: 0 });
+    expect(harness.log.at(-1)).toBe("deferred");
+
+    harness.makeRetriesDue(["receipt"]);
+    const due = await harness.run((service) =>
+      service.settleDue({ limit: 10 })
+    );
+    expect(due).toEqual({ claimed: 1, settled: 1, failed: 0 });
+    expect(harness.log.at(-1)).toBe(`receipt to ${receiptEmail}`);
+    expect(
+      harness.log.filter((entry) => entry.startsWith("cancel"))
+    ).toHaveLength(1);
+    expect(
+      harness.log.filter((entry) => entry === "operator notice")
+    ).toHaveLength(1);
+    expect(getWithdrawalSettlementStatus(onlyRow(harness))).toEqual({
+      settlement: "settled",
+      failingSteps: [],
+    });
+  });
+
+  test("keeps each failing email on its own attempts and backoff", async () => {
+    const harness = makeHarness({
+      receiptFailures: 3,
+      operatorNoticeFailures: 6,
+    });
+    await harness.run((service) => service.withdraw(input));
+    expect(onlyRow(harness).contractCancelledAt).not.toBeNull();
+    expect(
+      getWithdrawalSettlementStatus(onlyRow(harness)).failingSteps
+    ).toEqual([
+      { step: "receipt", failureCode: "receipt_send_failed" },
+      { step: "operator_notice", failureCode: "operator_notice_failed" },
+    ]);
+
+    harness.makeRetriesDue(["receipt"]);
+    await harness.run((service) => service.settleDue({ limit: 10 }));
+    const receiptSent = onlyRow(harness);
+    expect(receiptSent.receiptSentAt).not.toBeNull();
+    expect(receiptSent.stepRetries.receipt.failureCode).toBeNull();
+    expect(receiptSent.stepRetries.operator_notice.attempts).toBe(1);
+    expect(
+      harness.log.filter((entry) => entry === "operator notice failed")
+    ).toHaveLength(3);
+
+    harness.makeRetriesDue(["operator_notice"]);
+    const second = await harness.run((service) =>
+      service.settleDue({ limit: 10 })
+    );
+    expect(second).toEqual({ claimed: 1, settled: 0, failed: 1 });
+    const backedOff = onlyRow(harness).stepRetries.operator_notice;
+    expect(backedOff).toMatchObject({
+      attempts: 2,
+      failureCode: "operator_notice_failed",
+    });
+    expect(minutesUntil(backedOff.retryAt)).toBe(10);
+    expect(onlyRow(harness).stepRetries.receipt.attempts).toBe(1);
+
+    harness.makeRetriesDue(["operator_notice"]);
+    const last = await harness.run((service) =>
+      service.settleDue({ limit: 10 })
+    );
+    expect(last).toEqual({ claimed: 1, settled: 1, failed: 0 });
+    expect(
+      harness.log.filter((entry) => entry.startsWith("receipt to"))
+    ).toHaveLength(1);
+    expect(
+      harness.log.filter((entry) => entry.startsWith("cancel"))
+    ).toHaveLength(1);
+  });
+
+  test("cancels the booking when the receipt address can't be read on a retry", async () => {
+    const harness = makeHarness({
+      receiptFailures: 3,
+      cancellationFailures: [
+        cancellationFailure(false, "reservation_invalid_state"),
+      ],
+    });
+    await harness.run((service) => service.withdraw(input));
+    harness.setAccountReadable(false);
+    harness.makeRetriesDue(["receipt", "contract_cancellation"]);
+
+    await harness.run((service) => service.settleDue({ limit: 10 }));
+
+    const row = onlyRow(harness);
+    expect(row.contractCancelledAt).not.toBeNull();
+    expect(row.stepRetries.receipt).toMatchObject({
+      attempts: 2,
+      failureCode: "customer_address_unavailable",
+    });
+    expect(row.settledAt).toBeNull();
   });
 });
 
@@ -378,9 +564,10 @@ describe("WithdrawalService.settleDue", () => {
     await harness.run((service) => service.withdraw(input));
     expect(onlyRow(harness)).toMatchObject({
       settledAt: null,
-      settlementAttempts: 1,
+      stepRetries: { contract_cancellation: { attempts: 1 } },
     });
 
+    harness.makeRetriesDue(["contract_cancellation"]);
     const summary = await harness.run((service) =>
       service.settleDue({ limit: 10 })
     );
