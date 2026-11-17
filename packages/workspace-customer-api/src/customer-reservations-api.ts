@@ -490,8 +490,6 @@ export const WithdrawFromCustomerReservation = Schema.Struct({
   parseOptions: customerInputParseOptions,
 });
 
-
-
 /**
  * Where the reopened page's payment returns the customer. Like a checkout
  * submission, the last request that hands out the order's payment page

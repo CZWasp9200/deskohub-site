@@ -124,7 +124,11 @@ const termsAndConditionsSections: LegalSection[] = [
           {contactEmail}
         </a>
         . Lehota je zachovaná, ak je oznámenie odoslané pred jej uplynutím.
-        Odstúpenie možno odoslať aj online funkciou „Odstúpiť od zmluvy“ pri Rezervácii v zákazníckom účte na webe alebo v aplikácii a potvrdiť tlačidlom „Potvrdiť odstúpenie od zmluvy“. Prijatie odstúpenia Poskytovateľ bez zbytočného odkladu potvrdí e-mailom na adresu účtu vrátane obsahu vyhlásenia a dátumu a času jeho odoslania.
+        Odstúpenie možno odoslať aj online funkciou „Odstúpiť od zmluvy“ pri
+        Rezervácii v zákazníckom účte na webe alebo v aplikácii a potvrdiť
+        tlačidlom „Potvrdiť odstúpenie od zmluvy“. Prijatie odstúpenia
+        Poskytovateľ bez zbytočného odkladu potvrdí e-mailom na adresu účtu
+        vrátane obsahu vyhlásenia a dátumu a času jeho odoslania.
       </>,
       "9.4 Po platnom odstúpení vráti Poskytovateľ prijaté peňažné prostriedky bez zbytočného odkladu, najneskôr do 14 dní, rovnakým spôsobom, akým boli prijaté, ak sa strany nedohodnú inak bez vzniku ďalších nákladov Spotrebiteľa.",
       "9.5 Vzor oznámenia: „Oznamujem, že odstupujem od zmluvy na túto Službu: [opis a číslo Rezervácie], objednanú dňa [dátum]. Meno a priezvisko Spotrebiteľa: [doplniť]. Adresa Spotrebiteľa: [doplniť]. Dátum: [doplniť]. Podpis iba pri listinnom podaní.“ Použitie vzoru nie je povinné.",

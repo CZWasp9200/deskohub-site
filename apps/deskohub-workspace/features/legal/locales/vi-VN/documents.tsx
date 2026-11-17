@@ -124,8 +124,12 @@ const termsAndConditionsSections: LegalSection[] = [
           {contactEmail}
         </a>
         . Thời hạn được coi là đã tuân thủ nếu thông báo được gửi đi trước khi
-        thời hạn kết thúc.
-        Bạn cũng có thể gửi yêu cầu rút trực tuyến bằng chức năng “Rút khỏi hợp đồng” tại Đặt chỗ trong tài khoản khách hàng trên trang web hoặc trong ứng dụng, rồi xác nhận bằng nút “Xác nhận rút khỏi hợp đồng”. Nhà cung cấp xác nhận đã nhận yêu cầu rút qua email đến địa chỉ của tài khoản mà không chậm trễ quá mức, kèm nội dung tuyên bố cùng ngày và giờ gửi.
+        thời hạn kết thúc. Bạn cũng có thể gửi yêu cầu rút trực tuyến bằng chức
+        năng “Rút khỏi hợp đồng” tại Đặt chỗ trong tài khoản khách hàng trên
+        trang web hoặc trong ứng dụng, rồi xác nhận bằng nút “Xác nhận rút khỏi
+        hợp đồng”. Nhà cung cấp xác nhận đã nhận yêu cầu rút qua email đến địa
+        chỉ của tài khoản mà không chậm trễ quá mức, kèm nội dung tuyên bố cùng
+        ngày và giờ gửi.
       </>,
       "9.4 Sau khi rút khỏi hợp đồng hợp lệ, Bên Cung cấp hoàn trả số tiền đã nhận mà không chậm trễ không cần thiết, chậm nhất trong vòng 14 ngày, bằng cùng phương thức đã nhận, trừ khi các bên có thỏa thuận khác mà Người tiêu dùng không phải chịu thêm chi phí.",
       "9.5 Mẫu thông báo: “Tôi xin thông báo rằng tôi rút khỏi hợp đồng đối với Dịch vụ sau: [mô tả và số Đặt chỗ], được đặt ngày [ngày]. Họ và tên của Người tiêu dùng: [điền vào]. Địa chỉ của Người tiêu dùng: [điền vào]. Ngày: [điền vào]. Chữ ký chỉ khi gửi bằng văn bản giấy.” Việc sử dụng mẫu này không bắt buộc.",

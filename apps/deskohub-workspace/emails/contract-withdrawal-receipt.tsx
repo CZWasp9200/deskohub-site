@@ -1,13 +1,13 @@
 import { type Locale, m } from "@/features/i18n";
 import { formatReservationDisplayDateTime } from "@/features/reservation/reservation-date";
 import { formatMoney, type Money } from "@/shared/money/money";
-import { contractWithdrawalReceiptPreviewProps } from "./_fixtures/preview-props";
 import {
   WorkspaceEmailBody,
   WorkspaceEmailHeading,
 } from "./_components/workspace-email-content";
 import { WorkspaceEmailDetails } from "./_components/workspace-email-details";
 import { WorkspaceEmailLayout } from "./_components/workspace-email-layout";
+import { contractWithdrawalReceiptPreviewProps } from "./_fixtures/preview-props";
 import type { WorkspaceEmailDetail } from "./workspace-email-detail";
 
 export type ContractWithdrawalReceiptEmailProps = {
@@ -45,7 +45,9 @@ export function ContractWithdrawalReceiptEmail(
       <WorkspaceEmailBody>
         {m.withdrawalReceiptEmailBody({}, { locale })}
       </WorkspaceEmailBody>
-      <WorkspaceEmailDetails details={contractWithdrawalReceiptDetails(props)} />
+      <WorkspaceEmailDetails
+        details={contractWithdrawalReceiptDetails(props)}
+      />
       <WorkspaceEmailBody>
         {m.withdrawalReceiptEmailRefundNote({}, { locale })}
       </WorkspaceEmailBody>

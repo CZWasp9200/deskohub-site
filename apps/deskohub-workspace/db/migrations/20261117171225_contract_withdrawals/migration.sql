@@ -52,6 +52,7 @@ ALTER TABLE "discount_code_redemptions" DROP CONSTRAINT "discount_code_redemptio
         and "release_reason" is not null
         and btrim("release_reason") <> ''
       ));--> statement-breakpoint
+ALTER TABLE "payment_attempts" DROP CONSTRAINT "payment_attempts_refund_record_check", ADD CONSTRAINT "payment_attempts_refund_record_check" CHECK (("refund_state" = 'refunded' and "refunded_amount_value" > 0 and "refunded_at" is not null) or ("refund_state" = 'required' and "refund_target_value" is not null and "refunded_amount_value" > 0 and "refunded_amount_value" < "refund_target_value" and "refunded_at" is not null) or ("refund_state" <> 'refunded' and "refunded_amount_value" is null and "refunded_at" is null));--> statement-breakpoint
 ALTER TABLE "referral_invitation_claims" DROP CONSTRAINT "referral_invitation_claims_lifecycle_check", ADD CONSTRAINT "referral_invitation_claims_lifecycle_check" CHECK ((
         "state" = 'reserved'
         and "redeemed_at" is null

@@ -1,9 +1,4 @@
 import {
-  type ListedReservation,
-  ReservationWithdrawalAvailability,
-} from "@/features/reservation/backend/reservation-withdrawals";
-import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
-import {
   type DotyposCustomerId,
   type DotyposReservationId,
   DotyposService,
@@ -27,12 +22,17 @@ import {
   ReservationRecords,
   type ReservationRecordsError,
 } from "@/features/reservation/backend/reservation-records";
+import {
+  type ListedReservation,
+  ReservationWithdrawalAvailability,
+} from "@/features/reservation/backend/reservation-withdrawals";
 import { StoredReservationDetails } from "@/features/reservation/backend/stored-reservation-details.server";
 import type {
   StoredWorkspaceReservationDetails,
   WorkspaceReservationId,
 } from "@/features/reservation/persistence-contracts";
 import { ReviewAccounts, ReviewSandbox } from "@/features/review-accounts";
+import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
 import type {
@@ -364,7 +364,8 @@ const toListedReservation = ({
   row,
   booked,
 }: HistoryEntry): readonly ListedReservation[] => {
-  if (!row?.reservationDetails) return [];
+  const reservationDetails = row?.reservationDetails;
+  if (!(row && reservationDetails)) return [];
   return Option.match(Option.all([booked.start, booked.end]), {
     onNone: () => [],
     onSome: ([reservedFrom, reservedUntil]) => [
@@ -375,7 +376,7 @@ const toListedReservation = ({
         paymentState: row.paymentState,
         reservationPurpose: row.reservationPurpose,
         paidAt: row.paidAt,
-        reservationDetails: row.reservationDetails,
+        reservationDetails,
         reservedFrom,
         reservedUntil,
       },

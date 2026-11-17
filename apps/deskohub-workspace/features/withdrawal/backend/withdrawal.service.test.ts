@@ -17,12 +17,12 @@ import {
 import type { WithdrawalAssessment } from "../withdrawal-assessment";
 import type { WithdrawalId } from "../withdrawal-identifiers";
 import { WithdrawableContractFamilies } from "./withdrawable-contract-families";
-import { WithdrawalService } from "./withdrawal.service";
 import {
   type ContractWithdrawal,
   WithdrawalRepository,
   type WithdrawalSettlementStep,
 } from "./withdrawal.repository";
+import { WithdrawalService } from "./withdrawal.service";
 import { WithdrawalEmails } from "./withdrawal-emails.service";
 
 const accountId = "account-1" as CustomerAccountId;
@@ -65,7 +65,10 @@ const makeHarness = (options: {
     receipt: "receiptSentAt",
     operator_notice: "operatorNotifiedAt",
     contract_cancellation: "contractCancelledAt",
-  } as const satisfies Record<WithdrawalSettlementStep, keyof ContractWithdrawal>;
+  } as const satisfies Record<
+    WithdrawalSettlementStep,
+    keyof ContractWithdrawal
+  >;
 
   const repository = Layer.succeed(WithdrawalRepository, {
     findByContract: (ref) =>
@@ -175,7 +178,7 @@ const makeHarness = (options: {
       }),
   };
 
-  const sections = Layer.succeed(CustomerAccountSections, {
+  const sections = Layer.mock(CustomerAccountSections, {
     withActiveAccount: (id, section) =>
       section.pipe(
         Effect.provideService(HeldCustomerAccount, {
@@ -183,12 +186,16 @@ const makeHarness = (options: {
           email: receiptEmail,
         })
       ),
-    withOptionalAccount: (section) => section(accountId),
-  } as CustomerAccountSections["Service"]);
+  });
 
-  const contacts = Layer.succeed(CustomerAccountContactService, {
-    current: Effect.succeed({ accountId, name: "Alex Example" }),
-  } as unknown as CustomerAccountContactService["Service"]);
+  const contacts = Layer.mock(CustomerAccountContactService, {
+    current: Effect.succeed({
+      accountId,
+      name: "Alex Example",
+      email: receiptEmail,
+      phone: "+420000000000",
+    }),
+  });
 
   const layer = WithdrawalService.Default.pipe(
     Layer.provide(
@@ -229,7 +236,10 @@ const onlyRow = (harness: Harness) => {
   return row;
 };
 
-const cancellationFailure = (transient: boolean, code = "reservation_dotypos_failed") =>
+const cancellationFailure = (
+  transient: boolean,
+  code = "reservation_dotypos_failed"
+) =>
   new ContractCancellationError({
     kind: "reservation",
     code,
@@ -256,7 +266,9 @@ describe("WithdrawalService.withdraw", () => {
     expect(receipt.withdrawalId).toBe(row.id);
     expect(receipt.submittedAt.equals(row.submittedAt)).toBe(true);
     expect(row.settledAt).not.toBeNull();
-    expect(row.receiptSentAt && row.operatorNotifiedAt && row.contractCancelledAt).toBeTruthy();
+    expect(
+      row.receiptSentAt && row.operatorNotifiedAt && row.contractCancelledAt
+    ).toBeTruthy();
   });
 
   test("answers a repeated submission with the recorded receipt and does nothing again", async () => {
@@ -267,7 +279,9 @@ describe("WithdrawalService.withdraw", () => {
     expect(second.withdrawalId).toBe(first.withdrawalId);
     expect(second.submittedAt.equals(first.submittedAt)).toBe(true);
     expect(harness.log.filter((entry) => entry === "record")).toHaveLength(1);
-    expect(harness.log.filter((entry) => entry.startsWith("cancel"))).toHaveLength(1);
+    expect(
+      harness.log.filter((entry) => entry.startsWith("cancel"))
+    ).toHaveLength(1);
   });
 
   test("refuses with the contract's reason and records nothing", async () => {
@@ -308,7 +322,9 @@ describe("WithdrawalService.withdraw", () => {
 
   test("keeps the receipt when cancellation fails, and leaves it for the retry", async () => {
     const harness = makeHarness({
-      cancellationFailures: [cancellationFailure(false, "reservation_invalid_state")],
+      cancellationFailures: [
+        cancellationFailure(false, "reservation_invalid_state"),
+      ],
     });
     const receipt = await harness.run((service) => service.withdraw(input));
 
@@ -340,7 +356,9 @@ describe("WithdrawalService.withdraw", () => {
       service.settleDue({ limit: 10 })
     );
     expect(summary).toEqual({ claimed: 1, settled: 1, failed: 0 });
-    expect(harness.log.filter((entry) => entry.startsWith("cancel"))).toHaveLength(1);
+    expect(
+      harness.log.filter((entry) => entry.startsWith("cancel"))
+    ).toHaveLength(1);
     expect(harness.log.at(-1)).toBe(`receipt to ${receiptEmail}`);
     expect(onlyRow(harness).settledAt).not.toBeNull();
   });
@@ -366,7 +384,9 @@ describe("WithdrawalService.settleDue", () => {
     );
 
     expect(summary).toEqual({ claimed: 1, settled: 1, failed: 0 });
-    expect(harness.log.filter((entry) => entry.startsWith("receipt"))).toHaveLength(1);
+    expect(
+      harness.log.filter((entry) => entry.startsWith("receipt"))
+    ).toHaveLength(1);
     expect(harness.log.at(-1)).toBe("cancel refund 66667");
   });
 });

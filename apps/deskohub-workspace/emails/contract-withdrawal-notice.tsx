@@ -2,13 +2,13 @@ import { m } from "@/features/i18n";
 import { formatReservationDisplayDateTime } from "@/features/reservation/reservation-date";
 import { staffLocale } from "@/shared/backend/staff-locale";
 import { formatMoney, type Money } from "@/shared/money/money";
-import { contractWithdrawalNoticePreviewProps } from "./_fixtures/preview-props";
 import {
   WorkspaceEmailBody,
   WorkspaceEmailHeading,
 } from "./_components/workspace-email-content";
 import { WorkspaceEmailDetails } from "./_components/workspace-email-details";
 import { WorkspaceEmailLayout } from "./_components/workspace-email-layout";
+import { contractWithdrawalNoticePreviewProps } from "./_fixtures/preview-props";
 import type { WorkspaceEmailDetail } from "./workspace-email-detail";
 
 export type ContractWithdrawalNoticeEmailProps = {
@@ -34,36 +34,35 @@ export const contractWithdrawalNoticeEmailSubject = ({
 export function ContractWithdrawalNoticeEmail(
   props: ContractWithdrawalNoticeEmailProps
 ) {
-  const locale = staffLocale;
   const details: readonly WorkspaceEmailDetail[] = [
     {
-      label: m.withdrawalEmailContractLabel({}, { locale }),
+      label: m.withdrawalEmailContractLabel({}, { locale: staffLocale }),
       value: `${props.contractLabel} (${props.contractId})`,
     },
     {
-      label: m.withdrawalEmailAccountLabel({}, { locale }),
+      label: m.withdrawalEmailAccountLabel({}, { locale: staffLocale }),
       value: props.accountId,
     },
     {
-      label: m.withdrawalEmailSubmittedAtLabel({}, { locale }),
-      value: formatReservationDisplayDateTime(props.submittedAt, locale),
+      label: m.withdrawalEmailSubmittedAtLabel({}, { locale: staffLocale }),
+      value: formatReservationDisplayDateTime(props.submittedAt, staffLocale),
     },
     {
-      label: m.withdrawalEmailRefundLabel({}, { locale }),
-      value: `${formatMoney(props.refundAmount, locale)} / ${formatMoney(props.paidAmount, locale)}`,
+      label: m.withdrawalEmailRefundLabel({}, { locale: staffLocale }),
+      value: `${formatMoney(props.refundAmount, staffLocale)} / ${formatMoney(props.paidAmount, staffLocale)}`,
     },
   ];
 
   return (
     <WorkspaceEmailLayout
-      locale={locale}
+      locale={staffLocale}
       preview={contractWithdrawalNoticeEmailSubject(props)}
     >
       <WorkspaceEmailHeading>
         {contractWithdrawalNoticeEmailSubject(props)}
       </WorkspaceEmailHeading>
       <WorkspaceEmailBody>
-        {m.withdrawalNoticeEmailBody({}, { locale })}
+        {m.withdrawalNoticeEmailBody({}, { locale: staffLocale })}
       </WorkspaceEmailBody>
       <WorkspaceEmailDetails details={details} />
     </WorkspaceEmailLayout>

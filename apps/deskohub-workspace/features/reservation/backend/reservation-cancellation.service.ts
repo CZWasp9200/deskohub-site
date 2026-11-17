@@ -68,7 +68,10 @@ interface IReservationCancellation {
    */
   readonly cancel: (
     input: ReservationCancellationInput
-  ) => Effect.Effect<ReservationCancellationResult, ReservationCancellationError>;
+  ) => Effect.Effect<
+    ReservationCancellationResult,
+    ReservationCancellationError
+  >;
 }
 
 /** The reservation cancellation lifecycle every requested cancellation runs. */

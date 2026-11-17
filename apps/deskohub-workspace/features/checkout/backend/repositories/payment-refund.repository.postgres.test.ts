@@ -394,8 +394,12 @@ describe.skipIf(!testDatabase)(
       expect(await readAttempt(paymentAttemptId)).toMatchObject({
         refundState: "required",
         refundTargetValue: 19_334,
-        refundedAmountValue: null,
+        refundedAmountValue: 10_000,
       });
+      expect(await record(paymentAttemptId, 5000)).toBe("below_target");
+      expect((await readAttempt(paymentAttemptId))?.refundedAmountValue).toBe(
+        10_000
+      );
 
       expect(await record(paymentAttemptId, 19_334)).toBe("recorded");
       expect(await readAttempt(paymentAttemptId)).toMatchObject({

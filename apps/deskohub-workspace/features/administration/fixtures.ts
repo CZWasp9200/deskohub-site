@@ -498,7 +498,6 @@ export const loadFixtureReservation = (
           stateLabel: "Paid",
           failureCode: null,
           amount: { value: 240000, exponent: 2, currency: "CZK" },
-          refundTarget: null,
           refundedAmount: null,
           refundedAt: null,
           attemptCreatedAt: Temporal.Instant.from(paidAt)

@@ -1,7 +1,11 @@
 import { Data, Effect } from "effect";
 
 /** An account feature that ships behind a release gate. */
-export type AccountFeature = "avatars" | "passkeys" | "referrals" | "withdrawal";
+export type AccountFeature =
+  | "avatars"
+  | "passkeys"
+  | "referrals"
+  | "withdrawal";
 
 /**
  * The feature's release gate is closed for this request, so its account

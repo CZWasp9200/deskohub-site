@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "daa0088b-0b69-4191-a355-c7b7a3a85bd7",
+  "id": "2865da8a-dcc3-4f7f-9c8a-85db8559c36d",
   "prevIds": [
     "2d01d689-7eec-4992-98c0-c6ce10cb0f34"
   ],
@@ -18290,7 +18290,7 @@
       "table": "payment_attempts"
     },
     {
-      "value": "(\"refund_state\" = 'refunded' and \"refunded_amount_value\" > 0 and \"refunded_at\" is not null) or (\"refund_state\" <> 'refunded' and \"refunded_amount_value\" is null and \"refunded_at\" is null)",
+      "value": "(\"refund_state\" = 'refunded' and \"refunded_amount_value\" > 0 and \"refunded_at\" is not null) or (\"refund_state\" = 'required' and \"refund_target_value\" is not null and \"refunded_amount_value\" > 0 and \"refunded_amount_value\" < \"refund_target_value\" and \"refunded_at\" is not null) or (\"refund_state\" <> 'refunded' and \"refunded_amount_value\" is null and \"refunded_at\" is null)",
       "name": "payment_attempts_refund_record_check",
       "entityType": "checks",
       "schema": "public",

@@ -3,6 +3,7 @@ import {
   and,
   asc,
   eq,
+  gt,
   gte,
   inArray,
   isNull,
@@ -28,7 +29,8 @@ import {
 /**
  * `recorded` stores a new or larger refund, `unchanged` means the attempt
  * already holds this refund total, `below_target` means a partial refund is
- * owed and Nexi's total hasn't reached it yet, so it stays required, and
+ * owed and Nexi's total, recorded as it grows, hasn't reached it yet, so it
+ * stays required, and
  * `not_applicable` means the attempt is not a paid Nexi attempt that can carry
  * a refund.
  */
@@ -281,6 +283,37 @@ export class PaymentRefundRepository extends Context.Service<
             )
             .returning({ id: paymentAttempts.id });
           if (updated) return "recorded" as const;
+
+          // A partial refund owed that Nexi hasn't fully paid yet keeps its
+          // growing total while it stays required.
+          const [progressed] = yield* db
+            .update(paymentAttempts)
+            .set({
+              refundedAmountValue: input.refundedAmountValue,
+              refundedAt: input.refundedAt,
+              updatedAt: input.recordedAt,
+            })
+            .where(
+              and(
+                eq(paymentAttempts.id, input.id),
+                eq(paymentAttempts.provider, "nexi"),
+                eq(paymentAttempts.state, "paid"),
+                eq(paymentAttempts.refundState, "required"),
+                gt(
+                  paymentAttempts.refundTargetValue,
+                  input.refundedAmountValue
+                ),
+                or(
+                  isNull(paymentAttempts.refundedAmountValue),
+                  lt(
+                    paymentAttempts.refundedAmountValue,
+                    input.refundedAmountValue
+                  )
+                )
+              )
+            )
+            .returning({ id: paymentAttempts.id });
+          if (progressed) return "below_target" as const;
 
           const [existing] = yield* db
             .select({

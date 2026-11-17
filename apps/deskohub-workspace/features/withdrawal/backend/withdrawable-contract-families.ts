@@ -11,7 +11,9 @@ import type { WithdrawableContractKind } from "../withdrawal-identifiers";
 export class WithdrawableContractFamilies extends Context.Service<
   WithdrawableContractFamilies,
   {
-    readonly get: (kind: WithdrawableContractKind) => WithdrawableContractFamily;
+    readonly get: (
+      kind: WithdrawableContractKind
+    ) => WithdrawableContractFamily;
   }
 >()("@deskohub-workspace/withdrawal/WithdrawableContractFamilies") {
   static Default = Layer.effect(

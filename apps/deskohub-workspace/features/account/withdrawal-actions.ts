@@ -5,12 +5,12 @@ import { accountActionError } from "@/features/account/account-action-guards";
 import { requireAccountFeature } from "@/features/account/backend/account-feature-withheld";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { requireVerifiedSession } from "@/features/account/backend/verified-customer-session";
-import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import type {
   CustomerAccountAccessError,
   CustomerAccountId,
 } from "@/features/account/customer-account";
 import type { Locale } from "@/features/i18n";
+import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import {
   type WithdrawalRefusedError,
   WithdrawalService,
@@ -101,7 +101,10 @@ const quoteReservationWithdrawalAction = defineWorkspaceAction(
       Effect.map(
         (result): ReservationWithdrawalQuoteResult =>
           result.status === "done"
-            ? { status: "available", quote: toWithdrawalQuoteData(result.value) }
+            ? {
+                status: "available",
+                quote: toWithdrawalQuoteData(result.value),
+              }
             : result
       )
     )

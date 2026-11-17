@@ -328,9 +328,7 @@ test("does not adopt a pre-existing provider cancellation", async () => {
   const id = Schema.decodeUnknownSync(workspaceReservationIdSchema)(
     "reservation-provider-cancelled"
   );
-  const claimRequestedCancellation = mock(() =>
-    Effect.die("must not claim")
-  );
+  const claimRequestedCancellation = mock(() => Effect.die("must not claim"));
 
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
@@ -560,16 +558,10 @@ const cancelWith = async ({
   readonly details?: Partial<WorkspaceReservationDetails>;
   readonly findById?: () => Effect.Effect<unknown, unknown>;
   readonly getReservation?: () => Effect.Effect<unknown, unknown>;
-  readonly claimRequestedCancellation?: () => Effect.Effect<
-    unknown,
-    unknown
-  >;
+  readonly claimRequestedCancellation?: () => Effect.Effect<unknown, unknown>;
   readonly cancelReservation?: () => Effect.Effect<void, unknown>;
   readonly completeRequestedCancellation?: () => Effect.Effect<void, unknown>;
-  readonly markRequestedCancellationFailed?: () => Effect.Effect<
-    void,
-    unknown
-  >;
+  readonly markRequestedCancellationFailed?: () => Effect.Effect<void, unknown>;
   readonly force?: boolean;
 }) => {
   const { WorkspaceReservationEmailService } = await import(
@@ -634,10 +626,7 @@ const cancellableReservation = {
 test("explains each refusal before claiming the reservation", async () => {
   const claimRequestedCancellation = mock(() => Effect.die("no claim"));
   const refusal = async (
-    input: Omit<
-      Parameters<typeof cancelWith>[0],
-      "claimRequestedCancellation"
-    >
+    input: Omit<Parameters<typeof cancelWith>[0], "claimRequestedCancellation">
   ) => {
     const error = await cancelWith({
       ...input,

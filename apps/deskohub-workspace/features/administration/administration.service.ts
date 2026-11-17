@@ -52,8 +52,6 @@ import {
   webhookEvents,
   workspaceReservations,
 } from "@/db/schema";
-import { toContractWithdrawal } from "@/features/withdrawal/backend/withdrawal.repository";
-import type { WithdrawalRefundBasis } from "@/features/withdrawal/withdrawal-assessment";
 import {
   isCustomerOwnAuthor,
   ReservationAuthorDirectory,
@@ -76,9 +74,15 @@ import {
   type WorkspaceReservationDetailsMalformedError,
 } from "@/features/reservation/backend/stored-reservation-details.server";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { canCancelReservation } from "@/features/reservation/reservation-cancellation-policy";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import { getReservationAccessName } from "@/features/reservation-access";
+import {
+  type ContractWithdrawal,
+  toContractWithdrawal,
+} from "@/features/withdrawal/backend/withdrawal.repository";
+import type { WithdrawalRefundBasis } from "@/features/withdrawal/withdrawal-assessment";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import type { Money } from "@/shared/money/money";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -153,7 +157,6 @@ import {
   type AdministrationReservationProduct,
   getAdministrationReservationProduct,
 } from "./reservation-product";
-import { canCancelReservation } from "@/features/reservation/reservation-cancellation-policy";
 import {
   type AdministrationReservationStatusNote,
   getAdministrationReservationLifecycle,
@@ -331,7 +334,7 @@ export type AdministrationPaymentAttempt = {
    * or less after a customer's partial withdrawal. Null when none is owed.
    */
   readonly refundTarget: Money | null;
-  /** Total Nexi reports as refunded; set only when `refundState` is `refunded`. */
+  /** Total Nexi reports as refunded: once refunded, or while short of `refundTarget`. */
   readonly refundedAmount: Money | null;
   readonly refundedAt: string | null;
   readonly createdAt: string;
@@ -836,15 +839,18 @@ const toReservationWithdrawal = (
     submittedAt: toIsoString(withdrawal.submittedAt),
     refundAmount: withdrawal.refundAmount,
     refundBasis: withdrawal.refundBasis,
-    settlement: withdrawal.settledAt
-      ? "settled"
-      : withdrawal.settlementAttempts > 0
-        ? "needs_attention"
-        : "in_progress",
+    settlement: getWithdrawalSettlement(withdrawal),
     settlementFailureCode: withdrawal.settledAt
       ? null
       : withdrawal.settlementFailureCode,
   };
+};
+
+const getWithdrawalSettlement = (
+  withdrawal: Pick<ContractWithdrawal, "settledAt" | "settlementAttempts">
+): AdministrationReservationWithdrawal["settlement"] => {
+  if (withdrawal.settledAt) return "settled";
+  return withdrawal.settlementAttempts > 0 ? "needs_attention" : "in_progress";
 };
 
 const isReservationRefunded = (

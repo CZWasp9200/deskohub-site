@@ -1,12 +1,16 @@
 import { Context, Effect, Layer, Match, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import type { PaymentState, ReservationState } from "@/db/schema";
+import type { CustomerAccountId } from "@/features/account/customer-account";
 import { LegalEvidenceEventRepository } from "@/features/checkout/backend/repositories/legal-evidence-event.repository";
 import { PaymentAttemptRepository } from "@/features/checkout/backend/repositories/payment-attempt.repository";
 import { getReservationProductTitle } from "@/features/checkout/product-catalog.i18n";
 import type { Locale } from "@/features/i18n";
+import { getConsumerWithdrawalPeriodCutoff } from "@/features/legal/early-performance";
+import type { LegalDocumentKey } from "@/features/legal/legal-document-path";
 import {
-  type ReservationCancellationFailureReason,
   ReservationCancellation,
+  type ReservationCancellationFailureReason,
 } from "@/features/reservation/backend/reservation-cancellation.service";
 import { SeatingMapReleaseGate } from "@/features/reservation/backend/seating-map-release-gate";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
@@ -14,34 +18,30 @@ import {
   type WorkspaceReservationDetails,
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
-import type { PaymentState, ReservationState } from "@/db/schema";
-import type { CustomerAccountId } from "@/features/account/customer-account";
-import { getConsumerWithdrawalPeriodCutoff } from "@/features/legal/early-performance";
-import type { LegalDocumentKey } from "@/features/legal/legal-document-path";
 import {
   type StoredWorkspaceReservationDetails,
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
-import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
-import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
-import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
-import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
 import {
   formatReservationDisplayDate,
   formatReservationDisplayDateRange,
   formatReservationDisplayDateTimeRange,
 } from "@/features/reservation/reservation-date";
+import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
 import {
   assessReservationWithdrawal,
   getReservationServiceSchedule,
 } from "@/features/reservation/reservation-withdrawal";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
+import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
 import {
   ContractCancellationError,
   type WithdrawableContract,
   type WithdrawableContractFamily,
   WithdrawableContractUnavailableError,
 } from "@/features/withdrawal/withdrawable-contract";
+import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 
 const kind = "reservation" as const;
@@ -101,7 +101,7 @@ export class ReservationWithdrawals extends Context.Service<
                 .pipe(Effect.mapError(unavailable))
             : null;
           const contractAt = getContractAt(evidence) ?? reservation.paidAt;
-          if (!paidAttempt || paidAttempt.state !== "paid" || !contractAt) {
+          if (paidAttempt?.state !== "paid" || !contractAt) {
             return Option.none();
           }
           const facts = {
@@ -123,43 +123,45 @@ export class ReservationWithdrawals extends Context.Service<
             assess: (now) => assessReservationWithdrawal(facts, now),
           });
         }),
-        cancel: Effect.fn("ReservationWithdrawals.cancel")(
-          function* ({ contractId, refundAmount, refundBasis }) {
-            const reservationId = Schema.decodeUnknownOption(
-              workspaceReservationIdSchema
-            )(contractId);
-            if (Option.isNone(reservationId)) {
-              return yield* new ContractCancellationError({
-                kind,
-                code: "reservation_invalid_id",
-                transient: false,
-                message: "The withdrawn reservation id is not valid.",
-              });
-            }
-            const full = refundBasis.kind === "full";
-            yield* cancellation
-              .cancel({
-                reservationId: reservationId.value,
-                cause: "customer_withdrawal",
-                refund: {
-                  ...(!full && { targetValue: refundAmount.value }),
-                  releasesPromotions: full,
-                },
-              })
-              .pipe(
-                Effect.mapError(
-                  (error) =>
-                    new ContractCancellationError({
-                      kind,
-                      code: `reservation_${error.reason}`,
-                      transient: transientCancellationReasons.has(error.reason),
-                      message: error.message,
-                      cause: error,
-                    })
-                )
-              );
+        cancel: Effect.fn("ReservationWithdrawals.cancel")(function* ({
+          contractId,
+          refundAmount,
+          refundBasis,
+        }) {
+          const reservationId = Schema.decodeUnknownOption(
+            workspaceReservationIdSchema
+          )(contractId);
+          if (Option.isNone(reservationId)) {
+            return yield* new ContractCancellationError({
+              kind,
+              code: "reservation_invalid_id",
+              transient: false,
+              message: "The withdrawn reservation id is not valid.",
+            });
           }
-        ),
+          const full = refundBasis.kind === "full";
+          yield* cancellation
+            .cancel({
+              reservationId: reservationId.value,
+              cause: "customer_withdrawal",
+              refund: {
+                ...(!full && { targetValue: refundAmount.value }),
+                releasesPromotions: full,
+              },
+            })
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new ContractCancellationError({
+                    kind,
+                    code: `reservation_${error.reason}`,
+                    transient: transientCancellationReasons.has(error.reason),
+                    message: error.message,
+                    cause: error,
+                  })
+              )
+            );
+        }),
       } satisfies WithdrawableContractFamily;
     })
   );
@@ -192,7 +194,7 @@ const maxLegalEvidencePerReservation = 50;
  * an administrator, though settlement keeps retrying them.
  */
 const transientCancellationReasons: ReadonlySet<ReservationCancellationFailureReason> =
-  new Set([
+  new Set<ReservationCancellationFailureReason>([
     "reservation_unavailable",
     "details_unavailable",
     "claim_failed",
@@ -216,9 +218,7 @@ const getContractAt = (
   }[]
 ) =>
   evidence
-    .filter(
-      (event) => event.accepted && event.documentKey === termsDocumentKey
-    )
+    .filter((event) => event.accepted && event.documentKey === termsDocumentKey)
     .map((event) => event.acceptedAt)
     .sort(Temporal.Instant.compare)
     .at(-1);
@@ -274,7 +274,9 @@ interface IReservationWithdrawalAvailability {
   readonly forReservations: (input: {
     readonly accountId: CustomerAccountId;
     readonly reservations: readonly ListedReservation[];
-  }) => Effect.Effect<ReadonlyMap<WorkspaceReservationId, WithdrawalAvailability>>;
+  }) => Effect.Effect<
+    ReadonlyMap<WorkspaceReservationId, WithdrawalAvailability>
+  >;
 }
 
 /** The withdrawal entry points of listed reservations. */
@@ -351,9 +353,12 @@ export class ReservationWithdrawalAvailability extends Context.Service<
                     reservation.id,
                     {
                       eligible:
-                        assessment.withdrawable && !withdrawn.has(reservation.id),
+                        assessment.withdrawable &&
+                        !withdrawn.has(reservation.id),
                       periodEndsAt:
-                        getConsumerWithdrawalPeriodCutoff(contractAt).toString(),
+                        getConsumerWithdrawalPeriodCutoff(
+                          contractAt
+                        ).toString(),
                     },
                   ] as const,
                 ];
@@ -368,8 +373,7 @@ export class ReservationWithdrawalAvailability extends Context.Service<
                 ).pipe(Effect.annotateLogs({ failureTag: error._tag }))
               ),
               Effect.orElseSucceed(
-                () =>
-                  new Map<WorkspaceReservationId, WithdrawalAvailability>()
+                () => new Map<WorkspaceReservationId, WithdrawalAvailability>()
               )
             )
         ),
@@ -379,7 +383,10 @@ export class ReservationWithdrawalAvailability extends Context.Service<
 
   static ForProvidedGate = this.Default.pipe(
     Layer.provide(
-      Layer.mergeAll(LegalEvidenceEventRepository.Live, WithdrawalRepository.Live)
+      Layer.mergeAll(
+        LegalEvidenceEventRepository.Live,
+        WithdrawalRepository.Live
+      )
     )
   );
 }

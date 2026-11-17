@@ -1,7 +1,7 @@
 import { Match } from "effect";
 import type { PaymentState, ReservationState } from "@/db/schema";
-import type { StoredWorkspaceReservationDetails } from "@/features/reservation/persistence-contracts";
 import { getConsumerWithdrawalPeriodCutoff } from "@/features/legal/early-performance";
+import type { StoredWorkspaceReservationDetails } from "@/features/reservation/persistence-contracts";
 import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
 import {
   getUnstartedServiceRefund,
@@ -113,9 +113,7 @@ const getReservationServiceUnits = (
   );
 
 const getWorkspaceDayStart = (date: Temporal.PlainDate) =>
-  date
-    .toZonedDateTime(workspaceSiteConstants.location.timeZone)
-    .toInstant();
+  date.toZonedDateTime(workspaceSiteConstants.location.timeZone).toInstant();
 
 /**
  * The schedule of a booked reservation from its stored family details and its

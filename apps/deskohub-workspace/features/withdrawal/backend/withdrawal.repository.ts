@@ -64,7 +64,10 @@ type SettlementClaim = {
 interface IWithdrawalRepository {
   readonly findByContract: (
     contract: WithdrawableContractRef
-  ) => Effect.Effect<Option.Option<ContractWithdrawal>, EffectDrizzleQueryError>;
+  ) => Effect.Effect<
+    Option.Option<ContractWithdrawal>,
+    EffectDrizzleQueryError
+  >;
   /** Which of the family's contracts have a recorded withdrawal. */
   readonly listWithdrawnContractIds: (input: {
     readonly kind: WithdrawableContractKind;
@@ -194,48 +197,46 @@ export class WithdrawalRepository extends Context.Service<
               })
             )
         ),
-        claimDue: Effect.fn("WithdrawalRepository.claimDue")(
-          function* (input) {
-            // Lock the batch first and claim exactly those rows, so a
-            // re-run subquery never claims more than the limit.
-            const claim = transaction(
-              Effect.gen(function* () {
-                const due = yield* db
-                  .select({ id: contractWithdrawals.id })
-                  .from(contractWithdrawals)
-                  .where(
-                    and(
-                      isNull(contractWithdrawals.settledAt),
-                      lte(contractWithdrawals.nextSettlementAt, input.now),
-                      or(
-                        isNull(contractWithdrawals.settlementClaimedAt),
-                        lte(
-                          contractWithdrawals.settlementClaimedAt,
-                          input.staleClaimBefore
-                        )
+        claimDue: Effect.fn("WithdrawalRepository.claimDue")(function* (input) {
+          // Lock the batch first and claim exactly those rows, so a
+          // re-run subquery never claims more than the limit.
+          const claim = transaction(
+            Effect.gen(function* () {
+              const due = yield* db
+                .select({ id: contractWithdrawals.id })
+                .from(contractWithdrawals)
+                .where(
+                  and(
+                    isNull(contractWithdrawals.settledAt),
+                    lte(contractWithdrawals.nextSettlementAt, input.now),
+                    or(
+                      isNull(contractWithdrawals.settlementClaimedAt),
+                      lte(
+                        contractWithdrawals.settlementClaimedAt,
+                        input.staleClaimBefore
                       )
                     )
                   )
-                  .orderBy(asc(contractWithdrawals.nextSettlementAt))
-                  .limit(input.limit)
-                  .for("update", { skipLocked: true });
-                if (due.length === 0) return [];
-                return yield* db
-                  .update(contractWithdrawals)
-                  .set({ settlementClaimedAt: input.now, updatedAt: input.now })
-                  .where(
-                    inArray(
-                      contractWithdrawals.id,
-                      due.map(({ id }) => id)
-                    )
+                )
+                .orderBy(asc(contractWithdrawals.nextSettlementAt))
+                .limit(input.limit)
+                .for("update", { skipLocked: true });
+              if (due.length === 0) return [];
+              return yield* db
+                .update(contractWithdrawals)
+                .set({ settlementClaimedAt: input.now, updatedAt: input.now })
+                .where(
+                  inArray(
+                    contractWithdrawals.id,
+                    due.map(({ id }) => id)
                   )
-                  .returning();
-              })
-            );
-            const claimed = yield* claim;
-            return claimed.map(toContractWithdrawal);
-          }
-        ),
+                )
+                .returning();
+            })
+          );
+          const claimed = yield* claim;
+          return claimed.map(toContractWithdrawal);
+        }),
         markStepDone: Effect.fn("WithdrawalRepository.markStepDone")(
           function* (input) {
             const updated = yield* db

@@ -1,4 +1,12 @@
-import { Context, Data, Duration, Effect, Layer, Option, Schedule } from "effect";
+import {
+  Context,
+  Data,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  Schedule,
+} from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CustomerAccountAccessError,
@@ -10,7 +18,6 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { Locale } from "@/features/i18n";
 import { ReservationWithdrawals } from "@/features/reservation/backend/reservation-withdrawals";
-import type { Money } from "@/shared/money/money";
 import type {
   ContractCancellationError,
   WithdrawableContractFamily,
@@ -22,12 +29,12 @@ import type {
   WithdrawalRefusal,
 } from "../withdrawal-read-model";
 import { WithdrawableContractFamilies } from "./withdrawable-contract-families";
-import { WithdrawalEmails } from "./withdrawal-emails.service";
 import {
   type ContractWithdrawal,
   WithdrawalRepository,
   type WithdrawalSettlementStep,
 } from "./withdrawal.repository";
+import { WithdrawalEmails } from "./withdrawal-emails.service";
 
 export class WithdrawalRefusedError extends Data.TaggedError(
   "WithdrawalRefusedError"
@@ -178,7 +185,7 @@ export class WithdrawalService extends Context.Service<
         const claim = { id: withdrawal.id, claimedAt };
         const family = families.get(withdrawal.contract.kind);
 
-        const runStep = <E>(
+        const runStep = <E extends { readonly _tag: string }>(
           step: WithdrawalSettlementStep,
           work: Effect.Effect<void, E>,
           isTransient: (error: E) => boolean,
@@ -195,6 +202,7 @@ export class WithdrawalService extends Context.Service<
                 new SettlementStepError({
                   step,
                   code: failureCode(cause),
+                  causeTag: cause._tag,
                   cause,
                 })
             ),
@@ -215,7 +223,7 @@ export class WithdrawalService extends Context.Service<
         // step's failure and every unfinished step is retried.
         const settlement = Effect.gen(function* () {
           const failures: SettlementStepError[] = [];
-          const attempt = <E>(
+          const attempt = <E extends { readonly _tag: string }>(
             step: WithdrawalSettlementStep,
             work: Effect.Effect<void, E>,
             isTransient: (error: E) => boolean,
@@ -239,6 +247,7 @@ export class WithdrawalService extends Context.Service<
                       new SettlementStepError({
                         step: "receipt",
                         code: "receipt_address_unavailable",
+                        causeTag: cause._tag,
                         cause,
                       })
                     );
@@ -283,7 +292,7 @@ export class WithdrawalService extends Context.Service<
             );
           }
           const [firstFailure] = failures;
-          if (firstFailure) return yield* Effect.fail(firstFailure);
+          if (firstFailure) return yield* firstFailure;
           yield* repository.markSettled({
             ...claim,
             settledAt: Temporal.Now.instant(),
@@ -300,8 +309,8 @@ export class WithdrawalService extends Context.Service<
               "skipped" as const
             )
           ),
-          Effect.catch((error) =>
-            Effect.gen(function* () {
+          Effect.catch(
+            Effect.fn(function* (error) {
               const failureCode =
                 error._tag === "SettlementStepError"
                   ? error.code
@@ -467,8 +476,7 @@ export class WithdrawalService extends Context.Service<
           );
           return {
             claimed: claimed.length,
-            settled: outcomes.filter((outcome) => outcome === "settled")
-              .length,
+            settled: outcomes.filter((outcome) => outcome === "settled").length,
             failed: outcomes.filter((outcome) => outcome === "failed").length,
           };
         }),
@@ -502,6 +510,8 @@ export class WithdrawalService extends Context.Service<
 class SettlementStepError extends Data.TaggedError("SettlementStepError")<{
   readonly step: WithdrawalSettlementStep;
   readonly code: string;
+  /** The wrapped failure's tag, the only part of it logs carry. */
+  readonly causeTag: string;
   readonly cause: unknown;
 }> {}
 
@@ -511,14 +521,9 @@ class SettlementClaimLostError extends Data.TaggedError(
 ) {}
 
 /** The tag of a failure, or of the failure a settlement step wraps. */
-const failureTagOf = (error: { readonly _tag: string; readonly cause?: unknown }) =>
-  error._tag === "SettlementStepError" &&
-  typeof error.cause === "object" &&
-  error.cause !== null &&
-  "_tag" in error.cause &&
-  typeof error.cause._tag === "string"
-    ? error.cause._tag
-    : error._tag;
+const failureTagOf = (
+  error: SettlementStepError | { readonly _tag: string }
+) => (error instanceof SettlementStepError ? error.causeTag : error._tag);
 
 /** How long a settlement run owns its claim before another may take over. */
 const settlementClaimLifetime = Duration.minutes(10);

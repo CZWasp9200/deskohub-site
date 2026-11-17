@@ -15,9 +15,10 @@ export const GET = defineWorkspaceCron({
   operation: "contractWithdrawalSettlementCron",
   failureMessage: "Contract withdrawal settlement failed",
   input: () => ({ limit: cronBatchLimit }),
-  run: (input) =>
-    Effect.gen(function* () {
-      const withdrawals = yield* WithdrawalService;
-      return yield* withdrawals.settleDue(input);
-    }).pipe(Effect.provide(WithdrawalService.Live)),
+  run: Effect.fn("contractWithdrawalSettlementCron.run")(function* (input: {
+    readonly limit: number;
+  }) {
+    const withdrawals = yield* WithdrawalService;
+    return yield* withdrawals.settleDue(input);
+  }, Effect.provide(WithdrawalService.Live)),
 });

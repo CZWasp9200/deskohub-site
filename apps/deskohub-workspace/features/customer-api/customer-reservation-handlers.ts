@@ -50,7 +50,7 @@ import {
   type ReservationAccessViewModel,
 } from "@/features/reservation/backend/reservation-access.service";
 import {
-  type WithdrawalRefusedError,
+  WithdrawalRefusedError,
   WithdrawalService,
 } from "@/features/withdrawal/backend/withdrawal.service";
 import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
@@ -202,12 +202,10 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
             ).pipe(
               providePerRequest(withdrawalLayer),
               answerWithdrawalFailure("customerApi.getWithdrawalQuote"),
-              Effect.map(
-                (quote): CustomerWithdrawalQuote => ({
-                  ...toWithdrawalQuoteData(quote),
-                  contractId: orderId,
-                })
-              )
+              Effect.map((quote): typeof CustomerWithdrawalQuote.Type => ({
+                ...toWithdrawalQuoteData(quote),
+                contractId: orderId,
+              }))
             )
         )
         // The withdrawal is recorded before the response, and ending the
@@ -223,9 +221,8 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
             providePerRequest(withdrawalLayer),
             runToCompletion,
             answerWithdrawalFailure("customerApi.withdrawFromReservation"),
-            Effect.map(
-              (receipt): CustomerWithdrawalReceipt =>
-                toWithdrawalReceiptData(receipt)
+            Effect.map((receipt): typeof CustomerWithdrawalReceipt.Type =>
+              toWithdrawalReceiptData(receipt)
             )
           )
         )
@@ -280,17 +277,17 @@ type CustomerReservationAccountId = Parameters<
  */
 const answerWithdrawalFailure =
   (operation: string) =>
-  <A, E, R>(effect: Effect.Effect<A, E | WithdrawalRefusedError, R>) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(
-      Effect.catchTags(
-        {
-          WithdrawalRefusedError: ({ reason }: WithdrawalRefusedError) =>
-            reason === "not_found"
-              ? Effect.fail(new CustomerReservationNotFound())
-              : Effect.fail(new CustomerWithdrawalRefused({ reason })),
-        },
-        (failure) => answerCustomerApiFailure(operation)(Effect.fail(failure))
-      )
+      Effect.catch((failure) => {
+        if (!(failure instanceof WithdrawalRefusedError)) {
+          return answerCustomerApiFailure(operation)(Effect.fail(failure));
+        }
+        const { reason } = failure;
+        return reason === "not_found"
+          ? Effect.fail(new CustomerReservationNotFound())
+          : Effect.fail(new CustomerWithdrawalRefused({ reason }));
+      })
     );
 
 /**

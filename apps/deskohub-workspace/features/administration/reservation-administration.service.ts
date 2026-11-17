@@ -1,4 +1,4 @@
-import { DotyposService } from "@deskohub/dotypos";
+import type { DotyposService } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { CustomerEmailLocaleService } from "@/features/account";
