@@ -189,6 +189,23 @@ Keep these settings unless a reviewed decision changes them:
   endpoint is BotID-screened: minting needs a fresh session, and a code is
   useless without the verifier only the app holds. Both allow ten requests
   per IP per 10 minutes and answer `no-store`.
+  Sign-in attempts (`sign-in-attempt.ts`, plugin `sign-in-attempt`) let the
+  `/app/` page learn that its email's link signed in elsewhere. The
+  `/sign-in/magic-link` guard writes `metadata.signInAttempt` on every send:
+  a 43-character random secret when the body gets the App Link
+  (`sendsNativeAppLink`, the same rule as `nativeAppLinkFor`), else `false`,
+  so a client value never survives. The send stores
+  `sign-in-attempt-link-<digest(token)>` holding the attempt's digest for the
+  link's lifetime (a failed write is logged, the email still goes out), and
+  the response returns `signInAttempt` beside `signInCode`. An after hook on
+  `/magic-link/verify` that created a session (HTTP or `auth.api`) turns the
+  link's row into `sign-in-attempt-completed-<attempt digest>`, again for the
+  link's lifetime; refused, expired, or used links and code sign-ins mark
+  nothing. `POST /sign-in-attempt/status` (`{ attempts }`, 1–5 strings of
+  1–128 characters) answers `{ completed }`, true when any listed attempt is
+  completed; unknown or expired attempts answer `false`. It needs no session,
+  is not BotID-screened (the secret grants only that bit), answers
+  `no-store`, and allows 30 requests per IP per minute.
 - The browser side is `features/account/auth-return.ts`. It sends
   `metadata: { locale }`, shows the code step when the response's `signInCode`
   is `true`, and signs in through `signIn.emailOtp` with only the email, code,

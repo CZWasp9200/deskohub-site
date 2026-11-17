@@ -1652,11 +1652,11 @@
         "security": [],
         "responses": {
           "200": {
-            "description": "CustomerCheckout",
+            "description": "CustomerPaymentRetry",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CustomerCheckout"
+                  "$ref": "#/components/schemas/CustomerPaymentRetry"
                 }
               }
             }
@@ -2421,6 +2421,15 @@
           },
           {
             "name": "coffee",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"]
+            },
+            "required": false
+          },
+          {
+            "name": "earlySetup",
             "in": "query",
             "schema": {
               "type": "string",
@@ -3984,6 +3993,26 @@
           "seatsAmount": {
             "$ref": "#/components/schemas/Money"
           },
+          "dailyAccessRate": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "dailySeatRate": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "earlySetup": {
+            "type": "object",
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              },
+              "amount": {
+                "$ref": "#/components/schemas/Money"
+              }
+            },
+            "required": ["startsAt", "amount"],
+            "additionalProperties": false
+          },
           "monitorOption": {
             "$ref": "#/components/schemas/CustomerMonitorOption"
           }
@@ -4007,6 +4036,9 @@
               "label": {
                 "type": "string"
               },
+              "adjustment": {
+                "$ref": "#/components/schemas/CustomerDiscountAdjustment"
+              },
               "expiresAt": {
                 "type": "string",
                 "description": "ISO 8601 instant."
@@ -4016,7 +4048,7 @@
                 "description": "ISO 8601 instant."
               }
             },
-            "required": ["id", "label"],
+            "required": ["id", "label", "adjustment"],
             "additionalProperties": false
           },
           "amount": {
@@ -4025,6 +4057,40 @@
         },
         "required": ["discount", "amount"],
         "additionalProperties": false
+      },
+      "CustomerDiscountAdjustment": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["percentage"]
+              },
+              "basisPoints": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["kind", "basisPoints"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["fixed"]
+              },
+              "amount": {
+                "$ref": "#/components/schemas/Money"
+              }
+            },
+            "required": ["kind", "amount"],
+            "additionalProperties": false
+          }
+        ]
       },
       "SubmitCustomerCheckout": {
         "type": "object",
@@ -5033,6 +5099,12 @@
           },
           "saleLastDay": {
             "$ref": "#/components/schemas/CustomerPlainDate"
+          },
+          "discounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerCheckoutSummaryDiscount"
+            }
           }
         },
         "required": ["price", "discount"],
@@ -5167,6 +5239,176 @@
           "needs_review",
           "spot_unavailable",
           "payment_settling"
+        ]
+      },
+      "CustomerPaymentRetry": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ready", "price_review"]
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "payStateToken": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "holdExpiresAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CustomerCheckoutSummary"
+          },
+          "appliedDiscountCode": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "discountId": {
+                "type": "string"
+              }
+            },
+            "required": ["code", "discountId"],
+            "additionalProperties": false
+          },
+          "priceReview": {
+            "type": "object",
+            "properties": {
+              "changedKeys": {
+                "$ref": "#/components/schemas/CustomerCheckoutChangedKeys"
+              }
+            },
+            "required": ["changedKeys"],
+            "additionalProperties": false
+          },
+          "earlyPerformanceConsent": {
+            "type": "object",
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "requiredFrom": {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              }
+            },
+            "required": ["required", "requiredFrom"],
+            "additionalProperties": false
+          },
+          "referralApplied": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "rememberedReferralCodeUsed": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "rememberReferralCode": {
+            "$ref": "#/components/schemas/ReferralCode"
+          },
+          "details": {
+            "$ref": "#/components/schemas/CustomerPaymentRetryDetails"
+          }
+        },
+        "required": [
+          "status",
+          "orderId",
+          "payStateToken",
+          "expiresAt",
+          "holdExpiresAt",
+          "summary",
+          "earlyPerformanceConsent",
+          "details"
+        ],
+        "additionalProperties": false
+      },
+      "CustomerPaymentRetryDetails": {
+        "type": "object",
+        "properties": {
+          "bookingFor": {
+            "type": "string",
+            "enum": ["self", "someone-else"]
+          },
+          "contact": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
+            },
+            "required": ["name", "email"],
+            "additionalProperties": false
+          },
+          "billing": {
+            "$ref": "#/components/schemas/CustomerPaymentRetryBilling"
+          }
+        },
+        "required": ["bookingFor", "contact", "billing"],
+        "additionalProperties": false
+      },
+      "CustomerPaymentRetryBilling": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "purpose": {
+                "type": "string",
+                "enum": ["personal"]
+              },
+              "invoice": {
+                "type": "string",
+                "enum": ["none"]
+              }
+            },
+            "required": ["purpose", "invoice"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "purpose": {
+                "type": "string",
+                "enum": ["personal"]
+              },
+              "invoice": {
+                "type": "string",
+                "enum": ["requested"]
+              },
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": ["purpose", "invoice", "city"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "purpose": {
+                "type": "string",
+                "enum": ["business"]
+              },
+              "invoice": {
+                "type": "string",
+                "enum": ["required"]
+              },
+              "legalName": {
+                "type": "string"
+              }
+            },
+            "required": ["purpose", "invoice", "legalName"],
+            "additionalProperties": false
+          }
         ]
       },
       "RetryCustomerPayment": {

@@ -19,6 +19,7 @@ import { priceBreakdown } from "./price-breakdown";
 import { describePriceLine } from "./price-line-description";
 import { PriceLines } from "./price-lines";
 import {
+  meetingRoomHourEarlySetup,
   openSpaceWithCoffee,
   reservedDeskWithWorkstation,
 } from "./testing/price-fixtures";
@@ -90,6 +91,38 @@ describe("PriceLines", () => {
       m.booking_price_free({}, { locale })
     );
   });
+
+  test("a discount reads its label, what it takes off, then the reduction", () => {
+    const [, discount] = rows(render());
+    const describe = describePriceLine(openSpaceWithCoffee.selection, locale);
+    const line = priceBreakdown(openSpaceWithCoffee.summary).lines[1];
+    const { label, detail } = describe(line as NonNullable<typeof line>);
+    expect(texts(discount as ReactElement<HostProps>)).toEqual([
+      label,
+      detail ?? "",
+      formatMoneyReduction(czk(58), locale),
+    ]);
+  });
+
+  test.each(["bar", "card"] as const)(
+    "the %s lists a meeting room's early setup last, after its discount, as a free line with its time",
+    (variant) => {
+      const tree = render({
+        variant,
+        breakdown: priceBreakdown(meetingRoomHourEarlySetup.summary),
+        describeLine: describePriceLine(
+          meetingRoomHourEarlySetup.selection,
+          locale
+        ),
+      });
+      const lines = rows(tree).map((row) => texts(row));
+      expect(lines).toHaveLength(3);
+      expect(lines[1]?.at(-1)).toBe(formatMoneyReduction(czk(70), locale));
+      const earlySetup = lines[2] ?? [];
+      expect(earlySetup).toHaveLength(3);
+      expect(earlySetup.at(-1)).toBe(m.booking_price_free({}, { locale }));
+    }
+  );
 
   test("the bar list has no total row, even when given one", () => {
     const tree = render({ total: { label: "Total" } });

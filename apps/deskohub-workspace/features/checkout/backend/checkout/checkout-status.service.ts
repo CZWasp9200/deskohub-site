@@ -13,6 +13,7 @@ import {
 import type { FulfillmentState, PaymentState } from "@/db/schema";
 import { checkoutStatusTraits } from "@/features/checkout/checkout-status-kind";
 import { getPaymentAttemptAbandonmentCutoff } from "@/features/checkout/provider-order-abandonment";
+import { isEndedUnpaidPaymentState } from "@/features/order";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { SharedAvailabilityInventoryLive } from "@/features/reservation/backend/availability-inventory-cache.server";
 import {
@@ -223,16 +224,10 @@ const canUseAttemptForSummary = (
   return reservation.paymentState === "paid" && attempt.state === "paid";
 };
 
-/** Payment states that ended without settling, which the customer may retry. */
-const isRetryablePaymentState = (paymentState: PaymentState) =>
-  paymentState === "failed" ||
-  paymentState === "cancelled" ||
-  paymentState === "expired";
-
 /** The Dotypos reservation a retry reopens, for a payment that ended unpaid. */
 const getRetryDotyposReservationId = (reservation: WorkspaceReservation) =>
   Option.fromNullishOr(reservation.dotyposReservationId).pipe(
-    Option.filter(() => isRetryablePaymentState(reservation.paymentState))
+    Option.filter(() => isEndedUnpaidPaymentState(reservation.paymentState))
   );
 
 /**

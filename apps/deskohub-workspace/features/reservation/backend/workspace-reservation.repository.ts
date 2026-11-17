@@ -45,6 +45,7 @@ import type {
 import type { PaymentReturnTarget } from "@/features/checkout/payment-return-target";
 import type { DiscountClaimError } from "@/features/discounts/errors";
 import { PromotionClaims } from "@/features/discounts/promotion-claims";
+import { endedUnpaidPaymentStates } from "@/features/order";
 import { ReferralInvitationLedger } from "@/features/referrals/referral-invitation-ledger";
 import type { AgentSelectionKey } from "@/features/reservation/backend/booking-agent";
 import { withCoworkProductFields } from "@/features/reservation/cowork-reservation-product";
@@ -92,9 +93,6 @@ export const retryReacquirableCancellationCauses = [
  * The order's active attempt is still `retriedAttemptId`, its payment ended
  * without settling, and no late payment is being recovered for it.
  */
-/** Payment states of an order whose payment ended unpaid. */
-const endedPaymentStates = ["failed", "cancelled", "expired"] as const;
-
 /**
  * The order's payment ended unpaid on the retried attempt, which is still
  * its active attempt, or, once a retry cleared it, still its newest one with
@@ -112,7 +110,7 @@ const retriedAttemptEnded = (
         sql`(${newestPaymentAttemptIdOf(db, workspaceReservations.id)}) = ${retriedAttemptId}`
       )
     ),
-    inArray(workspaceReservations.paymentState, endedPaymentStates),
+    inArray(workspaceReservations.paymentState, endedUnpaidPaymentStates),
     notExists(
       sql`(select 1 from ${latePaymentRecoveries} where ${latePaymentRecoveries.workspaceReservationId} = ${workspaceReservations.id})`
     )
@@ -1166,7 +1164,7 @@ export class WorkspaceReservationRepository extends Context.Service<
                   input.cause === "payment_retry"
                     ? inArray(
                         workspaceReservations.paymentState,
-                        endedPaymentStates
+                        endedUnpaidPaymentStates
                       )
                     : undefined,
                   carriesExpectedHold(input.expectedHold)

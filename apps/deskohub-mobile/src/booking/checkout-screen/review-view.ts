@@ -1,22 +1,25 @@
 import type {
   CustomerLegalDocument,
+  CustomerPaymentRetryBilling,
   Money,
 } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import { canClearCode, canPay } from "../checkout/checkout-machine";
-import type {
-  CheckoutDetails,
-  CodeStatus,
-  ReviewMutation,
-  ReviewState,
+import {
+  type CheckoutDetails,
+  type CodeStatus,
+  ReviewKind,
+  type ReviewMutation,
+  type ReviewState,
 } from "../checkout/checkout-state";
 import { type PriceBreakdown, priceBreakdown } from "../ui/price-breakdown";
 import { bookingOverviewOf } from "./booking-overview";
 
 /**
  * Who the booking is for and who is invoiced, as the details step sent
- * them. `bookerName` is the account's own name, for "Booked by" when the
- * booking is for someone else; none while the account isn't read.
+ * them or the server kept them for an order paid again. `bookerName` is the
+ * account's own name, for "Booked by" when the booking is for someone else;
+ * none while the account isn't read.
  */
 export type ReviewParty =
   | { readonly _tag: "Self"; readonly name: string }
@@ -33,8 +36,14 @@ export type ReviewInvoice =
   | { readonly _tag: "Personal"; readonly city: string }
   | { readonly _tag: "Company"; readonly legalName: string };
 
+/** Who books, as a new booking's details or a retried order's carry it. */
+interface BookedParty {
+  readonly bookingFor: CheckoutDetails["bookingFor"];
+  readonly contact: Pick<CheckoutDetails["contact"], "name" | "email">;
+}
+
 export const reviewParty = (
-  details: CheckoutDetails,
+  details: BookedParty,
   bookerName: Option.Option<string>
 ): ReviewParty =>
   details.bookingFor === "self"
@@ -46,12 +55,33 @@ export const reviewParty = (
         bookerName,
       };
 
-export const reviewInvoice = ({ billing }: CheckoutDetails): ReviewInvoice => {
+/**
+ * A new booking's billing as the review shows it: the invoice's city or the
+ * company's name, the shape a retried order's kept billing already has.
+ */
+export const reviewBilling = (
+  billing: CheckoutDetails["billing"]
+): CustomerPaymentRetryBilling => {
   if (billing.purpose === "business") {
-    return { _tag: "Company", legalName: billing.buyer.legalName };
+    return {
+      purpose: "business",
+      invoice: "required",
+      legalName: billing.buyer.legalName,
+    };
   }
   return billing.invoice === "requested"
-    ? { _tag: "Personal", city: billing.address.city }
+    ? { purpose: "personal", invoice: "requested", city: billing.address.city }
+    : { purpose: "personal", invoice: "none" };
+};
+
+export const reviewInvoice = (
+  billing: CustomerPaymentRetryBilling
+): ReviewInvoice => {
+  if (billing.purpose === "business") {
+    return { _tag: "Company", legalName: billing.legalName };
+  }
+  return billing.invoice === "requested"
+    ? { _tag: "Personal", city: billing.city }
     : { _tag: "None" };
 };
 
@@ -210,12 +240,12 @@ export interface ReviewView {
    * terms are confirmed again.
    */
   readonly retry: boolean;
-  /** For whom; unknown to the app for a retried order. */
-  readonly party: Option.Option<ReviewParty>;
+  /** For whom. */
+  readonly party: ReviewParty;
   /** A meeting room booked with early setup: the room opens before the start. */
   readonly earlySetup: boolean;
-  /** Who is invoiced; unknown to the app for a retried order. */
-  readonly invoice: Option.Option<ReviewInvoice>;
+  /** Who is invoiced. */
+  readonly invoice: ReviewInvoice;
   readonly price: ReviewPriceView;
   readonly priceChange: Option.Option<PriceChangeView>;
   readonly code: CodeFieldView;
@@ -263,16 +293,18 @@ export const reviewView = (
     })
   );
   const consented = Option.isSome(review.consent);
-  const details =
-    review.kind._tag === "NewBooking"
-      ? Option.some(review.kind.details)
-      : Option.none();
+  const { details } = review.kind;
   const retry = review.kind._tag === "PaymentRetry";
   return {
     retry,
-    party: Option.map(details, (booked) => reviewParty(booked, bookerName)),
+    party: reviewParty(details, bookerName),
     earlySetup: withEarlySetup(review),
-    invoice: Option.map(details, reviewInvoice),
+    invoice: reviewInvoice(
+      ReviewKind.$match(review.kind, {
+        NewBooking: ({ details }) => reviewBilling(details.billing),
+        PaymentRetry: ({ details }) => details.billing,
+      })
+    ),
     price: {
       breakdown: priceBreakdown(checkout.summary),
       was: sameMoney(quotedTotal, total)

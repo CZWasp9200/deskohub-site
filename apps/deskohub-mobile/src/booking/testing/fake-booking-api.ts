@@ -66,6 +66,7 @@ import {
   inclusiveDays,
   pricedLines,
   sampleDiscountId,
+  sampleEarlySetupStartsAt,
   sampleLegalDocuments,
   sampleOfferings,
   sampleOvernightStay,
@@ -149,6 +150,8 @@ export interface FakeBookingCheckout {
   readonly code: string | undefined;
   readonly referralApplied: boolean;
   readonly earlyPerformanceRequired: boolean;
+  /** A meeting room's early setup, which its summary lists for free. */
+  readonly earlySetup?: boolean;
 }
 
 export const fakeHoldDuration = 10 * 60_000;
@@ -507,12 +510,16 @@ export const fakeBookingGroup = (workspace: FakeWorkspace) => {
         received("getQuote", query, request.headers).pipe(
           Effect.andThen(
             answer("getQuote", () => {
-              const { locale: _locale, ...fields } = query;
+              const { locale: _locale, earlySetup, ...fields } = query;
               const selection = selectionOfQuery(fields);
               return checkedSelection(booking, selection).pipe(
                 Effect.map(() => {
                   const summary = sampleSummary({
                     lines: pricedLines(selection),
+                    earlySetupStartsAt:
+                      earlySetup === "true"
+                        ? sampleEarlySetupStartsAt(selection)
+                        : undefined,
                   });
                   return {
                     family: selection.family,
@@ -764,6 +771,7 @@ const startCheckout = ({
       earlyPerformanceRequired:
         inclusiveDays(pragueToday(now), payload.selection.date) <=
         withdrawalPeriodDays,
+      earlySetup: payload.earlySetup === true,
     },
     scripted
   );
@@ -1162,6 +1170,9 @@ const summaryOf = (checkout: FakeBookingCheckout) =>
     discountShare: discountShare(checkout),
     discountLabel: checkout.code ?? fakeBookingCodes.referral,
     surcharge: checkout.surcharge,
+    earlySetupStartsAt: checkout.earlySetup
+      ? sampleEarlySetupStartsAt(checkout.selection)
+      : undefined,
   });
 
 /** Stores the checkout and answers it with a new pay state token. */

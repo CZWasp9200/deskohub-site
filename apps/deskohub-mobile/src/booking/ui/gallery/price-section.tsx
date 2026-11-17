@@ -22,12 +22,13 @@ import { describePriceLine } from "../price-line-description";
 import { PriceLines } from "../price-lines";
 import {
   meetingRoomHour,
+  meetingRoomHourEarlySetup,
   officeSixSeats,
   officeSixSeatsDiscounted,
   openSpaceWithCoffee,
   reservedDeskWithWorkstation,
 } from "../testing/price-fixtures";
-import { quotedPrice } from "./gallery-fixtures";
+import { officeSaleFromPrice, quotedPrice } from "./gallery-fixtures";
 
 type BarProps = ComponentProps<typeof BookingBar>;
 
@@ -143,6 +144,13 @@ const openedStates = (
         czk(350),
       ],
       [
+        "Meeting room, coming early",
+        "Thu 26 Nov, 14:00–15:00",
+        "Meeting room · in from 13:45",
+        meetingRoomHourEarlySetup,
+        czk(350),
+      ],
+      [
         "Private office",
         "Mon 23 – Wed 25 Nov",
         "Private office · 6 seats",
@@ -255,7 +263,22 @@ export function PriceGallerySection() {
   const locale = useAppLocale();
   const sample = useSample();
   const bars = barStates(locale, sample);
-  const opened = openedStates(locale, sample);
+  const opened = [
+    ...openedStates(locale, sample),
+    {
+      label: "Opened: Private office from-price during a sale",
+      props: {
+        locale,
+        initiallyOpen: true,
+        summary: {
+          title: sample("Private office"),
+          price: officeSaleFromPrice(locale, sample),
+        },
+        action: { label: sample("Continue"), onPress: noop, disabled: true },
+        reason: sample("Choose a first day to continue"),
+      },
+    } satisfies { readonly label: string; readonly props: BarProps },
+  ];
   const pay = payStates(locale, sample);
   // The note shows only for a VAT payer; its sample wording is not approved copy.
   const card = (vatStatus: CustomerVatStatus, taxNote?: string) => (

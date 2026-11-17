@@ -267,7 +267,10 @@ function MeetingRoomSelection({
 
   const quoteAtom = Option.match(model.quotable, {
     onNone: () => unneededReadAtom,
-    onSome: (selection) => bookingQuoteAtom(selection, locale),
+    onSome: (selection) =>
+      bookingQuoteAtom(selection, locale, {
+        earlySetup: model.draft.earlySetup,
+      }),
   });
   const quoteResult = useAtomValue(quoteAtom);
   const refreshQuote = useAtomRefresh(quoteAtom);

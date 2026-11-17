@@ -6,7 +6,7 @@ mock.module("../../i18n/device-clock", () => ({
   deviceHour12: () => deviceClock,
 }));
 
-const { formatPragueDate, formatPragueTime } = await import(
+const { formatPragueDate, formatPragueTime, formatPragueTimeAt } = await import(
   "./prague-date-format"
 );
 
@@ -52,5 +52,17 @@ describe("formatPragueTime", () => {
       expect(formatPragueTime("14:00", locale)).not.toContain("14");
       expect(formatPragueTime("14:00", locale)).toContain("2");
     }
+  });
+});
+
+describe("formatPragueTimeAt", () => {
+  test("writes an instant's Prague time on a 24-hour device, summer and winter", () => {
+    deviceClock = false;
+    expect(formatPragueTimeAt(new Date("2026-11-26T12:45:00Z"), "en-US")).toBe(
+      formatPragueTime("13:45", "en-US")
+    );
+    expect(formatPragueTimeAt(new Date("2026-07-01T12:45:00Z"), "en-US")).toBe(
+      formatPragueTime("14:45", "en-US")
+    );
   });
 });

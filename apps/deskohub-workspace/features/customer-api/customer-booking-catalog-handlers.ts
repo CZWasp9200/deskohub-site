@@ -12,6 +12,7 @@ import {
 import { Data, Effect, Layer, Match, Option, Struct } from "effect";
 import { buildAdvertisedPrice } from "@/features/checkout/backend/checkout/advertised-price.server";
 import { loadPublicOfferings } from "@/features/checkout/backend/checkout/public-offerings";
+import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
 import {
   getPublicOpeningHours,
   type PublicOffering,
@@ -57,6 +58,7 @@ import type {
 import {
   answerBookingSelectionFailure,
   toBookingSelectionInput,
+  withEarlySetup,
 } from "./customer-booking-selection";
 import { toCustomerCheckoutSummary } from "./customer-checkout-summary";
 
@@ -216,6 +218,7 @@ export const handleCustomerBookingCatalog = <R>(
 
 type QuoteQuery = typeof CustomerBookingSelectionQuery.Type & {
   readonly locale: Locale;
+  readonly earlySetup?: "true" | "false";
 };
 
 /**
@@ -227,7 +230,7 @@ const quoteSelection = Effect.fn("customerApi.quoteSelection")(function* (
   query: QuoteQuery
 ) {
   const now = yield* currentInstant;
-  const { locale: _locale, coffee, ...fields } = query;
+  const { locale: _locale, coffee, earlySetup, ...fields } = query;
   const selection = yield* resolveBookingQuoteSelection({
     selection: yield* toBookingSelectionInput({
       ...fields,
@@ -236,9 +239,14 @@ const quoteSelection = Effect.fn("customerApi.quoteSelection")(function* (
     locale: query.locale,
     now,
   });
+  const reservation = yield* withEarlySetup(selection, earlySetup === "true");
   const advertised = yield* buildAdvertisedPrice(selection.request);
   if (!advertised.discountsComplete) return yield* new SalePricesUnavailable();
   const { payment } = advertised.quote;
+  const summary =
+    advertised.kind === "meeting-room" && reservation.kind === "meeting-room"
+      ? getMeetingRoomCheckoutSummary(advertised.quote, reservation)
+      : advertised.summary;
 
   return {
     family: advertised.kind,
@@ -246,7 +254,7 @@ const quoteSelection = Effect.fn("customerApi.quoteSelection")(function* (
     regularPrice: payment.undiscountedPrice,
     discount: getReservationQuoteDiscount(payment),
     quotedAt: now.toString(),
-    summary: toCustomerCheckoutSummary(advertised.summary),
+    summary: toCustomerCheckoutSummary(summary),
     advertisedPriceToken: advertised.advertisedPriceToken,
   } satisfies CustomerBookingQuote;
 });

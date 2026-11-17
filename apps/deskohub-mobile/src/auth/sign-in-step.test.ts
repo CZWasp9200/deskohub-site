@@ -17,6 +17,7 @@ describe("signInStep", () => {
         signInCode: true,
         sentAt: 0,
         nextSignInEmailAt: Option.none(),
+        signInAttempt: Option.none(),
       })
     ).toBe("code");
   });
@@ -28,6 +29,7 @@ describe("signInStep", () => {
         signInCode: false,
         sentAt: 0,
         nextSignInEmailAt: Option.none(),
+        signInAttempt: Option.none(),
       })
     ).toBe("link");
   });
@@ -40,6 +42,7 @@ describe("signInStep", () => {
         signInCode: false,
         sentAt: 0,
         nextSignInEmailAt: Option.none(),
+        signInAttempt: Option.none(),
       })
     ).toBe("continue");
   });
