@@ -218,9 +218,9 @@ export class WithdrawalService extends Context.Service<
             )
           );
 
-        // Each step runs even when an earlier one failed, so a failing email
-        // never holds up the cancellation; the run then fails with the first
-        // step's failure and every unfinished step is retried.
+        // The steps run in the owner's order, receipt, operator notice,
+        // cancellation, and a failed step stops the run: the cancellation
+        // waits for both emails. Every unfinished step is retried later.
         const settlement = Effect.gen(function* () {
           const failures: SettlementStepError[] = [];
           const attempt = <E extends { readonly _tag: string }>(
@@ -229,13 +229,15 @@ export class WithdrawalService extends Context.Service<
             isTransient: (error: E) => boolean,
             failureCode: (error: E) => string
           ) =>
-            runStep(step, work, isTransient, failureCode).pipe(
-              Effect.catchTag("SettlementStepError", (failure) =>
-                Effect.sync(() => {
-                  failures.push(failure);
-                })
-              )
-            );
+            failures.length > 0
+              ? Effect.void
+              : runStep(step, work, isTransient, failureCode).pipe(
+                  Effect.catchTag("SettlementStepError", (failure) =>
+                    Effect.sync(() => {
+                      failures.push(failure);
+                    })
+                  )
+                );
           const needsEmail =
             !withdrawal.receiptSentAt || !withdrawal.operatorNotifiedAt;
           const receiptEmail = needsEmail

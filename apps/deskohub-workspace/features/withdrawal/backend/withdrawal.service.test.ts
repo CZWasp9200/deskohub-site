@@ -340,27 +340,29 @@ describe("WithdrawalService.withdraw", () => {
     expect(row.contractCancelledAt).toBeNull();
   });
 
-  test("still cancels when the receipt email fails, and retries only the receipt", async () => {
+  test("holds the cancellation until the receipt is sent, then finishes in order", async () => {
     const harness = makeHarness({ receiptFailures: 3 });
-    await harness.run((service) => service.withdraw(input));
+    const receipt = await harness.run((service) => service.withdraw(input));
 
-    const failed = onlyRow(harness);
-    expect(failed).toMatchObject({
+    expect(receipt.receiptEmail).toBe(receiptEmail);
+    expect(onlyRow(harness)).toMatchObject({
       settledAt: null,
       receiptSentAt: null,
+      operatorNotifiedAt: null,
+      contractCancelledAt: null,
       settlementFailureCode: "receipt_send_failed",
     });
-    expect(failed.contractCancelledAt).not.toBeNull();
+    expect(harness.log.some((entry) => entry.startsWith("cancel"))).toBe(false);
 
     const summary = await harness.run((service) =>
       service.settleDue({ limit: 10 })
     );
     expect(summary).toEqual({ claimed: 1, settled: 1, failed: 0 });
-    expect(
-      harness.log.filter((entry) => entry.startsWith("cancel"))
-    ).toHaveLength(1);
-    expect(harness.log.at(-1)).toBe(`receipt to ${receiptEmail}`);
-    expect(onlyRow(harness).settledAt).not.toBeNull();
+    expect(harness.log.slice(-3)).toEqual([
+      `receipt to ${receiptEmail}`,
+      "operator notice",
+      "cancel refund 66667",
+    ]);
   });
 });
 
