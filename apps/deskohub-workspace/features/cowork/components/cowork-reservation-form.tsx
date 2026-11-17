@@ -713,7 +713,7 @@ function CoworkOvernightStaySwitch({
         <div className="flex shrink-0 items-center gap-2">
           <Label
             className={cn(
-              "sr-only cursor-pointer sm:not-sr-only",
+              "sr-only cursor-pointer @md:not-sr-only",
               field.value === "overnight"
                 ? "text-burned-orange"
                 : "text-navy-blue/72"
@@ -762,7 +762,8 @@ function CoworkReservationDateField({
       name="date"
       render={({ field }) => (
         <FormItem>
-          <div className="flex items-center justify-between gap-3">
+          {/* The switch's text shows only where the row has room for it. */}
+          <div className="@container flex items-center justify-between gap-3">
             <ReservationFormLabel className="whitespace-nowrap" required>
               {m.reservationDateLabel({}, { locale })}
             </ReservationFormLabel>
