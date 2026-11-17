@@ -37,12 +37,17 @@ mock.module("@/features/i18n/server/revalidate-localized-path", () => ({
   },
 }));
 
-const { DiscountAdministration, DiscountAdminNotFoundError } = await import(
-  "./discount-administration.service"
+const {
+  DiscountAdministration,
+  DiscountAdminAudienceError,
+  DiscountAdminConflictError,
+  DiscountAdminNotFoundError,
+  DiscountAdminServiceDatesError,
+} = await import("./discount-administration.service");
+const { AccountRoleGrants } = await import(
+  "@/features/administrators/backend/account-role-grants.service"
 );
-const { getDiscountAdminMutationErrorMessage } = await import(
-  "./mutation-error-message"
-);
+const { m } = await import("@/features/administration/i18n");
 const { calendarDiscountSourceTag } = await import(
   "../calendar-discount-source.server"
 );
@@ -70,7 +75,13 @@ DiscountAdministration.Live = Layer.succeed(
   })
 );
 
-// Imported after the fake, since the actions take the layer on load.
+// The access gate checks the grant; an operation port re-reads it.
+const originalGrants = AccountRoleGrants.Live;
+AccountRoleGrants.Live = Layer.mock(AccountRoleGrants, {
+  has: () => Effect.succeed(true),
+});
+
+// Imported after the fakes, since the actions take the layers on load.
 const { mutateDiscountAdmin } = await import("./actions");
 
 const customerCode = {
@@ -97,6 +108,7 @@ const recordMutation = <A, E>(mutation: Effect.Effect<A, E>) =>
 
 afterAll(() => {
   DiscountAdministration.Live = originalLive;
+  AccountRoleGrants.Live = originalGrants;
 });
 
 beforeEach(() => {
@@ -156,7 +168,10 @@ describe("mutateDiscountAdmin", () => {
     const result = await mutateDiscountAdmin(customerCode);
 
     expect(result).toEqual({
-      serverError: getDiscountAdminMutationErrorMessage(missing, "en-US"),
+      serverError: m.discountsErrorDotyposCustomerMissing(
+        {},
+        { locale: "en-US" }
+      ),
     });
     expect(revalidatedPaths).toEqual([]);
     expect(sinceMutation()).toEqual(["inside:mutate"]);
@@ -170,6 +185,132 @@ describe("mutateDiscountAdmin", () => {
     expect(result).toHaveProperty("serverError");
     expect(result).not.toHaveProperty("data");
     expect(calls).toEqual([]);
+    expect(revalidatedPaths).toEqual([]);
+  });
+
+  test("answers an account without the grant with the generic failure", async () => {
+    access.set("not-administrator");
+
+    const result = await mutateDiscountAdmin(customerCode);
+
+    expect(result).toEqual({
+      serverError: m.discountsErrorSaveFailed({}, { locale: "en-US" }),
+    });
+  });
+
+  test.each([
+    ...(
+      [
+        ["discount", m.discountsErrorDiscountMissing],
+        ["discount code", m.discountsErrorCodeMissing],
+        ["voucher", m.discountsErrorVoucherMissing],
+        ["Dotypos customer", m.discountsErrorDotyposCustomerMissing],
+        ["Dotypos discount group", m.discountsErrorDotyposDiscountGroupMissing],
+        [
+          "code audience membership",
+          m.discountsErrorCodeAudienceMembershipMissing,
+        ],
+        [
+          "voucher audience membership",
+          m.discountsErrorVoucherAudienceMembershipMissing,
+        ],
+      ] as const
+    ).map(
+      ([kind, copy]) =>
+        [
+          `a missing ${kind}`,
+          new DiscountAdminNotFoundError({
+            resource: { kind, id: "resource-id" } as never,
+            message: "missing",
+          }),
+          copy,
+        ] as const
+    ),
+    ...(
+      [
+        ["discount-code", m.discountsErrorCodeFinalCustomer],
+        ["voucher", m.discountsErrorVoucherFinalCustomer],
+      ] as const
+    ).map(
+      ([promotionKind, copy]) =>
+        [
+          `the last ${promotionKind} audience customer`,
+          new DiscountAdminAudienceError({ promotionKind, message: "last" }),
+          copy,
+        ] as const
+    ),
+    ...(
+      [
+        ["promotion-code-taken", m.discountsErrorPromotionCodeTaken],
+        ["discount-referenced", m.discountsErrorDiscountReferenced],
+        ["discount-code-claimed", m.discountsErrorCodeClaimed],
+        ["voucher-claimed", m.discountsErrorVoucherClaimed],
+        ["voucher-credit-below-usage", m.discountsErrorVoucherCreditBelowUsage],
+        ["voucher-currency-locked", m.discountsErrorVoucherCurrencyLocked],
+      ] as const
+    ).map(
+      ([reason, copy]) =>
+        [
+          `a ${reason} conflict`,
+          new DiscountAdminConflictError({ reason, message: "conflict" }),
+          copy,
+        ] as const
+    ),
+    [
+      "refused service dates",
+      new DiscountAdminServiceDatesError({ message: "dates" }),
+      m.discountsErrorServiceDatesInvalid,
+    ] as const,
+    [
+      "an unavailable dependency",
+      { _tag: "DotyposReadFailure", message: "Dotypos didn't answer." },
+      m.discountsErrorSaveFailed,
+    ] as const,
+  ])("words %s with its own copy", async (_, failure, copy) => {
+    administration = {
+      deleteDiscount: () => Effect.fail(failure),
+    };
+
+    const result = await mutateDiscountAdmin({
+      kind: "delete-discount",
+      id: "019c91dd-c560-7e55-b9d8-c95065efd51d",
+    });
+
+    expect(result).toEqual({
+      serverError: copy({}, { locale: "en-US" }),
+    });
+    expect(timeline).not.toContain(
+      `outside:revalidate:${calendarDiscountSourceTag}`
+    );
+  });
+
+  test("answers a defect with the unexpected-failure copy", async () => {
+    administration = {
+      deleteDiscount: () => Effect.die("unexpected"),
+    };
+
+    const result = await mutateDiscountAdmin({
+      kind: "delete-discount",
+      id: "019c91dd-c560-7e55-b9d8-c95065efd51d",
+    });
+
+    expect(result).toEqual({
+      serverError: m.discountsActionFailedUnexpectedly({}, { locale: "en-US" }),
+    });
+  });
+
+  test("leaves the calendar discounts alone for a voucher change", async () => {
+    administration = {
+      deleteVoucher: () => recordMutation(Effect.void),
+    };
+
+    const result = await mutateDiscountAdmin({
+      kind: "delete-voucher",
+      id: "019c91dd-c560-7e55-b9d8-c95065efd51e",
+    });
+
+    expect(result).toHaveProperty("data");
+    expect(sinceMutation()).toEqual(["inside:mutate"]);
     expect(revalidatedPaths).toEqual([]);
   });
 });

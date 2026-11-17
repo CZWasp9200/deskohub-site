@@ -12,7 +12,6 @@ import {
   CliMutationRequestId,
   type CliMutationRequestIdType,
   CliMutationUncertain,
-  CliResourceNotFound,
   CliServiceUnavailable,
   CliSessionId,
   CliStandaloneAccessCodeCleanupRequired,
@@ -20,6 +19,9 @@ import {
   CurrentAdministrationCaller,
   digestCliAuthenticationSecret,
   makeCliAuthenticationSecret,
+  OperationConflict,
+  OperationNotFound,
+  OperationUnavailable,
 } from "@deskohub/workspace-admin-api";
 import { NodeCrypto } from "@effect/platform-node";
 import { Cause, Effect, Exit, Layer, Option, Ref, Schema } from "effect";
@@ -504,8 +506,17 @@ describe.skipIf(!testDatabase)("administration request ledger", () => {
       });
 
     test.each([
-      ["not found", new CliResourceNotFound({ message: "Gone." })],
-      ["rejected", new CliMutationRejected({ message: "Conflict." })],
+      [
+        "not found",
+        new OperationNotFound({ code: "discount-not-found", message: "Gone." }),
+      ],
+      [
+        "a conflict",
+        new OperationConflict({
+          code: "discount-referenced",
+          message: "Conflict.",
+        }),
+      ],
     ])("frees the request ID when the mutation is %s", async (_, failure) => {
       const requestId = newRequestId();
       const { run, counts } = await discounts();
@@ -524,10 +535,13 @@ describe.skipIf(!testDatabase)("administration request ledger", () => {
 
       const failed = await run(requestId, {
         apply: Effect.fail(
-          new CliServiceUnavailable({ message: "Unavailable." })
+          new OperationUnavailable({
+            code: "service-unavailable",
+            message: "Unavailable.",
+          })
         ),
       });
-      expect(failureOf(failed)).toBeInstanceOf(CliServiceUnavailable);
+      expect(failureOf(failed)).toBeInstanceOf(OperationUnavailable);
       expect(await ledgerEntry(requestId)).toEqual({ result: null });
 
       await ageClaim(requestId, 3600);
@@ -622,6 +636,85 @@ describe.skipIf(!testDatabase)("administration request ledger", () => {
         mutation: { ...mutation, id: crypto.randomUUID() } as never,
       });
       expect(failureOf(reused)).toBeInstanceOf(CliMutationRejected);
+    });
+  });
+
+  describe("Admin UI callers", () => {
+    const adminUiChannel: AdministrationChannel = { _tag: "AdminUi" };
+    const mutation = {
+      kind: "delete-discount",
+      id: crypto.randomUUID(),
+    } as CliStoredMutation;
+    const result = Schema.decodeUnknownSync(
+      AdministrationDiscountMutationResult
+    )({
+      kind: "delete-discount",
+      createdDiscountId: null,
+      createdCodeId: null,
+      createdVoucherId: null,
+    });
+    const claimsOf = async (requestId: CliMutationRequestIdType) =>
+      (
+        (await testDatabase.pool.query(
+          "select count(*)::int as claims from cli_mutation_requests where request_id = $1",
+          [requestId]
+        )) as { rows: Array<{ claims: number }> }
+      ).rows[0]?.claims;
+
+    test("applies a database-only mutation directly, without a claim", async () => {
+      const requestId = newRequestId();
+
+      const applied = await runAs(
+        adminUiChannel,
+        AdministrationRequestLedger.pipe(
+          Effect.flatMap((ledger) =>
+            ledger.applyOnce({
+              requestId,
+              mutation,
+              result: AdministrationDiscountMutationResult,
+              apply: Effect.succeed(result),
+            })
+          )
+        )
+      );
+
+      expect(applied).toEqual(Exit.succeed(result));
+      expect(await claimsOf(requestId)).toBe(0);
+    });
+
+    test("applies a mutation with effects directly and settles it, without a claim", async () => {
+      const requestId = newRequestId();
+      const settled = await Effect.runPromise(Ref.make(0));
+      const apply = (
+        outcome: Effect.Effect<typeof result, OperationConflict>
+      ) =>
+        runAs(
+          adminUiChannel,
+          AdministrationRequestLedger.pipe(
+            Effect.flatMap((ledger) =>
+              ledger.applyOnceWithEffects({
+                requestId,
+                mutation,
+                stored: StoredResult.unchanged(
+                  AdministrationDiscountMutationResult
+                ),
+                recovery: discountMutationRecovery,
+                apply: outcome,
+                afterSettled: Ref.update(settled, (count) => count + 1),
+              })
+            )
+          )
+        );
+      const conflict = new OperationConflict({
+        code: "discount-referenced",
+        message: "Conflict.",
+      });
+
+      expect(await apply(Effect.succeed(result))).toEqual(Exit.succeed(result));
+      expect(await apply(Effect.succeed(result))).toEqual(Exit.succeed(result));
+      expect(failureOf(await apply(Effect.fail(conflict)))).toBe(conflict);
+      expect(await Effect.runPromise(Ref.get(settled))).toBe(2);
+      expect(await claimsOf(requestId)).toBe(0);
     });
   });
 

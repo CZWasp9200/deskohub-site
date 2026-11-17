@@ -1,5 +1,5 @@
 import {
-  type CampaignOperationError,
+  type AdministrationOperationError,
   emailAutomationScheduleMinutes,
   OperationConflict,
   OperationInputInvalid,
@@ -59,7 +59,7 @@ import {
  * port error a handler raises itself, or an infrastructure failure.
  */
 export type CampaignOperationCause =
-  | CampaignOperationError
+  | AdministrationOperationError
   | AudienceFilterCampaignNotFound
   | AutomationArchived
   | AutomationCalendarNeverOccurs
@@ -122,7 +122,7 @@ const confirmationRejectionMessages = {
  */
 export const toOperationError = (
   cause: CampaignOperationCause
-): CampaignOperationError =>
+): AdministrationOperationError =>
   Match.value(cause).pipe(
     Match.tag(
       "OperationUnauthorized",
@@ -311,7 +311,7 @@ const minutesPastTheHour = (minutes: readonly number[]) =>
 /** Failures of an automation's flow, its conditions and its Dotypos reads. */
 const toAutomationOperationError = (
   cause: CampaignOperationCause
-): CampaignOperationError =>
+): AdministrationOperationError =>
   Match.value(cause).pipe(
     Match.tag(
       "AutomationFlowInvalid",
@@ -375,7 +375,7 @@ const toAutomationOperationError = (
 /** Refusals of the automation lifecycle, its versions and its run log. */
 const toAutomationLifecycleOperationError = (
   cause: CampaignOperationCause
-): CampaignOperationError =>
+): AdministrationOperationError =>
   Match.value(cause).pipe(
     Match.tag(
       "AutomationPreviewRequired",
@@ -463,7 +463,7 @@ const toAutomationLifecycleOperationError = (
 /** Failures of a test send, a confirmed send, or a retry. */
 const toSendOperationError = (
   cause: CampaignOperationCause
-): CampaignOperationError =>
+): AdministrationOperationError =>
   Match.value(cause).pipe(
     Match.tag(
       "CampaignConfirmationRejected",
@@ -563,7 +563,7 @@ const toSendOperationError = (
 /** Campaign sending setup the deployment lacks, else a generic outage. */
 const toSetupOperationError = (
   cause: CampaignOperationCause
-): CampaignOperationError =>
+): AdministrationOperationError =>
   Match.value(cause).pipe(
     Match.tag(
       "CampaignEmailNotConfigured",

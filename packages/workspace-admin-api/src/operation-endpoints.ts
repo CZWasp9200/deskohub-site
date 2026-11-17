@@ -11,12 +11,12 @@ import {
   readOperation,
 } from "./administration-operation";
 import type {
-  NoInput,
   Operation,
   OperationInput,
   OperationOutput,
   Operations,
-} from "./campaign-operations";
+} from "./administration-operation-port";
+import type { NoInput } from "./campaign-operations";
 import { MinimumDhwVersion } from "./dhw-version";
 import { administrationOperationGroup } from "./workspace-admin-api";
 
