@@ -548,9 +548,13 @@ const getContinuation = (
           discountCodeErrorId: randomUUID(),
         },
       }),
-      // The referral flow does not carry `requestedDiscountCode` forward,
-      // unlike the other outcomes; whether it should is an open product
-      // question, and carrying it is one field here.
+      // Deliberately drops `requestedDiscountCode`, unlike the other
+      // outcomes. The customer enters a referral through the same
+      // discount-code field (`lookupCodeKind` routes it here), and
+      // `requestedDiscountCode` only seeds that field's default and marks an
+      // intended code the customer can remove. Carrying it would refill the
+      // field with a code the customer has moved past and leave a stale
+      // removable intended code.
       referral_applied: ({ referralCode, verdict }) => ({
         fresh: {
           ...verdict.priced,
