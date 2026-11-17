@@ -296,6 +296,22 @@ const sampleDeskOrders = (now: Date): ReadonlyArray<[string, SampleOrder]> => {
   });
 };
 
+/**
+ * The failed meeting-room order as the history lists it: not booked, at its
+ * booked time six days ahead.
+ */
+export const samplePaymentFailedReservation = (
+  now: Date
+): CustomerReservationSummary => ({
+  id: "sample-reservation-payment-failed",
+  orderId: sampleOrderIds.paymentFailed,
+  product: { kind: "meeting-room" },
+  startsAt: at(now, 6 * day),
+  endsAt: at(now, 6 * day + 2 * hour),
+  seats: 6,
+  status: "cancelled",
+});
+
 /** The sample desk in the history, with the lock's window. */
 export const sampleDeskReservation = (
   now: Date,
@@ -593,6 +609,8 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
         },
       },
     ],
+    // As the server answers a failed payment: no times or total, which only
+    // a usable payment attempt gives; its list entry keeps the booked time.
     [
       sampleOrderIds.paymentFailed,
       {
@@ -602,9 +620,6 @@ const sampleOrders = (now: Date): ReadonlyMap<string, SampleOrder> =>
           status: "payment_failed",
           paymentStatus: "failed",
           fulfillmentStatus: "not_started",
-          startsAt: at(now, 6 * day),
-          endsAt: at(now, 6 * day + 2 * hour),
-          total: { value: 120000, exponent: 2, currency: "CZK" },
         },
       },
     ],

@@ -20,6 +20,19 @@ export const orderPaymentStates = [
 
 export type OrderPaymentState = (typeof orderPaymentStates)[number];
 
+/**
+ * The payment states of an order whose payment ended without being paid. Only
+ * a payment retry pays it again, and that retry moves it on from them.
+ */
+export const endedUnpaidPaymentStates = [
+  "failed",
+  "cancelled",
+  "expired",
+] as const satisfies readonly OrderPaymentState[];
+
+export const isEndedUnpaidPaymentState = (state: string): boolean =>
+  endedUnpaidPaymentStates.some((ended) => ended === state);
+
 export const orderFulfillmentStates = [
   "not_started",
   "processing",
