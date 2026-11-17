@@ -71,3 +71,46 @@ is at `<preview origin>/app/` behind the usual deployment protection.
   manifest's `related_applications` plus `/.well-known/assetlinks.json` on the
   site, and the app's `asset_statements` resource
   (`plugins/android-asset-statements.cjs`).
+
+## Site pages the app opens (App Links)
+
+Besides `/app/` (app.json), `app.config.ts` (`siteLinkFilter`) claims these
+`workspace.deskohub.cz` pages, bare and under every site locale tag:
+`/reservation/access/<id>` (the confirmation email's access link),
+`/account/reservations` and `/account/{referrals,profile,security,
+assistants,billing,danger}`. Production's filter is `autoVerify`
+(the host-wide `handle_all_urls` grant in `assetlinks.json` covers it); a
+build aimed at a preview claims the same paths there, unverified.
+`src/routing/app-link.ts` maps each to its app screen (the access page to
+`/reservations/<id>/access`) and drops the query and hash so the
+`accessToken` never reaches routes, logs or analytics; a claimed URL it can't
+read opens `/`.
+
+- Chrome hands a link to the app when the set of apps that handle the URL
+  changes, including on a server redirect or a script redirect within 15 s of
+  a gesture or incoming intent; same-set navigations stay in Chrome
+  ([external_intents](https://chromium.googlesource.com/chromium/src/+/main/components/external_intents/README.md)).
+  So a claimed page can pull a web flow that ends on it into the app.
+- Not claimed, for that reason: `/reservation/status/*` (the payment gateway
+  returns web checkout there), `/reservation/{cowork,meeting-room,office}`
+  (Book again and retry from the status page would lose the web selection),
+  `/reservation/invoice/*`, `/account/invoices/*` and `/account/data-export`
+  (downloads), `/account/legal` (public; the app's needs sign-in), the bare
+  `/account` (see sign-in below),
+  `/<tag>/auth/callback` (the site's magic-link return) and presentation
+  pages. Pages the app itself opens in a browser tab (contact, legal
+  documents, `/ai-assistants`, `/android`) must stay unclaimed;
+  `app.config.test.ts` checks them.
+- Website sign-in ends with `leaveDocument(..., { replace: true })` to its
+  destination, by default the bare `/<tag>/account` (`getSignInDestination`
+  falls back to `getAccountPath`). Leaving that page unclaimed keeps web
+  sign-in in Chrome. A sign-in whose `returnTo` is a claimed page (such as
+  the access page) may continue in the app, which shows the screen the
+  customer asked for. Section links inside the website are Next `<Link>`
+  soft navigations, which Chrome never hands to an app.
+- `app.config.ts` can't import local modules, so it repeats the locale tags
+  and paths; `app.config.test.ts` fails when they drift from
+  `supportedLocales` or from what `appLinkRoute` maps to a screen. Add a new
+  site locale there.
+- Intent filters are native config in the fingerprint: a change reaches
+  customers only in a new APK, never an OTA update.
