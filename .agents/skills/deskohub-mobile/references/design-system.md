@@ -51,7 +51,11 @@ shows something none of them draws.
 - Loading: `LoadingIndicator` (the logo die) is the only spinner; never
   `ActivityIndicator`.
 - Keyboard: `useKeyboardShown` and `keyboard-viewport.ts`; the focused field
-  and the footer's action stay above the keyboard.
+  and the footer's action stay above the keyboard. A scroll view with text
+  fields above a footer or bar takes `useFocusedFieldScroll` and provides its
+  `FocusedFieldContext` (`ScrollScreen` already does): on focus, and when the
+  keyboard shrinks the view, the focused `TextField` (label to messages)
+  scrolls to end 16 dp above what follows. A new error alone moves nothing.
 - Text: `Text` with a `typeScale` variant and a tone. Labels wrap or shrink;
   never truncate a label. Every screen holds at 360 dp, with text 30% longer
   and at 200% font size.
