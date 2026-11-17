@@ -427,12 +427,14 @@ function DetailsWithProfile({
   readonly locale: AppLocale;
 }) {
   const router = useRouter();
+  const headerHeight = useHeaderHeight();
   const [draft, setDraft] = useDetailsDraft(() =>
     initialDetailsDraft(profile.saved)
   );
   const consentLocale = isAppLocale(request.locale) ? request.locale : locale;
   return (
     <DetailsStep
+      keyboardOffset={headerHeight}
       profile={profile}
       initials={initials}
       onEditProfile={

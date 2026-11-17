@@ -87,6 +87,8 @@ export interface DetailsStepProps extends Locale {
   readonly onRetry: () => void;
   /** Gallery and captures: the problems a submit left. */
   readonly initialProblems?: DetailsFieldProblems;
+  /** The height above the step, such as the stack header's. */
+  readonly keyboardOffset?: number;
 }
 
 /**
@@ -200,7 +202,12 @@ export function DetailsStep(props: DetailsStepProps) {
     setRaised(event.nativeEvent.contentOffset.y > 0);
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.screen}>
+    <KeyboardAvoidingView
+      behavior="padding"
+      // Without the header's height the keyboard covered Pay.
+      keyboardVerticalOffset={props.keyboardOffset ?? 0}
+      style={styles.screen}
+    >
       <BookingSteps current="details" raised={raised} locale={locale} />
       <ScrollView
         ref={scroll}
