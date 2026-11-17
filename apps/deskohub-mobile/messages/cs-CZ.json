@@ -74,8 +74,37 @@
   "booking_checkout_summary_total": "Celkem k platbě",
   "booking_checkout_summary_changed": "Cena se změnila",
   "booking_checkout_summary_original_price": "Původní cena: {amount}",
-  "booking_checkout_summary_office_days": "Počet dní: {count}",
-  "booking_checkout_summary_office_seats": "Počet míst v kanceláři: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} den",
+        "countPlural=few": "{formattedCount} dny",
+        "countPlural=other": "{formattedCount} dní"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Místa v kanceláři",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} místo",
+        "countPlural=few": "{formattedCount} místa",
+        "countPlural=other": "{formattedCount} míst"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Sdílené místo",
   "booking_checkout_line_reserved_desk": "Vyhrazené místo",
   "booking_checkout_line_meeting_room": "Zasedací místnost",
@@ -83,7 +112,6 @@
   "booking_checkout_line_coffee": "Káva",
   "booking_checkout_line_workstation": "Pracovní stanice s monitory",
   "booking_checkout_line_other": "Další položka",
-  "booking_price_line_one_day": "1 den",
   "booking_price_line_one_hour": "1 hodina, {start}–{end}",
   "booking_price_line_four_hours": "4 hodiny, {start}–{end}",
   "booking_summary_open_space_day": "{date}, do {time}",
@@ -337,7 +365,7 @@
   "profile_phone_label": "Telefon",
   "profile_first_name_required": "Zadej své jméno.",
   "profile_company_name_required": "Zadej název firmy, nebo zvol Osobní.",
-  "profile_phone_invalid": "Zadej platné telefonní číslo nebo pole vymaž.",
+  "profile_phone_invalid": "Zadej telefonní číslo s předvolbou, například +420 777 123 456.",
   "profile_field_invalid": "Zkontroluj tohle pole. Hodnota je moc dlouhá nebo neplatná.",
   "profile_billing_details_section": "Fakturační údaje",
   "profile_billing_none": "Bez fakturačních údajů",
@@ -399,8 +427,7 @@
   "profile_invalid_on_profile": "Některé tvoje osobní údaje je potřeba opravit, než to půjde uložit.",
   "profile_invalid_on_billing": "Některé tvoje fakturační údaje je potřeba opravit, než to půjde uložit.",
   "profile_complete_continue": "Pokračovat",
-  "security_email_title": "Přihlášení e-mailem",
-  "security_email_body": "Na adresu {email} posíláme jednorázový přihlašovací e-mail.",
+  "security_email_body": "Posíláme na {email}",
   "security_email_badge": "Vždy zapnuto",
   "security_passkeys_title": "Přístupové klíče",
   "security_passkeys_intro": "Přihlas se otiskem prstu, obličejem nebo zámkem obrazovky a nečekej na e-mail.",
@@ -443,8 +470,7 @@
   "assistants_disconnect": "Odpojit",
   "assistants_disconnect_label": "Odpojit {name}",
   "assistants_disconnect_title": "Odpojit {name}?",
-  "assistants_disconnect_body": "Asistent okamžitě ztratí přístup k tvému účtu a už neuvidí ani nepřipraví tvoje rezervace. Pokud ho budeš chtít znovu používat, připoj ho znovu z asistenta.",
-  "assistants_disconnect_confirm": "Odpojit asistenta",
+  "assistants_disconnect_body": "Okamžitě ztratí přístup k tvému účtu. Pokud ho budeš chtít znovu používat, připoj ho z asistenta.",
   "assistants_disconnecting": "Odpojuji asistenta…",
   "assistants_disconnect_failed": "Asistenta se nepodařilo odpojit. Zkus to znovu.",
   "assistants_disconnected": "Asistent je odpojený.",
@@ -455,8 +481,8 @@
   "danger_confirm_label": "Rozumím tomu, že můj účet a všechny relace budou trvale smazány.",
   "danger_button": "Smazat můj účet",
   "danger_retry_button": "Zkusit smazání znovu",
-  "danger_confirm_title": "Trvale smazat tento účet?",
-  "danger_confirm_body": "Tímto se odhlásíš, odstraní se tvoje přihlašování a všechny relace a deaktivuje se tvůj zákaznický profil. Nejde to vrátit zpět.",
+  "danger_confirm_title": "Trvale smazat tvůj účet?",
+  "danger_confirm_body": "Tvoje přihlašování se odstraní a tvůj zákaznický profil vyprší. Nejde to vrátit zpět.",
   "danger_keep": "Ponechat účet",
   "danger_confirm": "Trvale smazat",
   "danger_failed": "Zákaznický profil se nepodařilo deaktivovat, proto tvůj účet nebyl smazán. Zkus to znovu, až se náš rezervační systém obnoví.",
@@ -516,8 +542,6 @@
   "booking_gate_deletion_title": "Tvůj účet se maže",
   "booking_gate_deletion_body": "Dokud mazání běží, nemůžeš nic nového rezervovat. Pokud jde o omyl, napiš nám.",
   "booking_cowork_tier_heading": "Typ místa",
-  "booking_cowork_stay_label": "Délka pobytu",
-  "booking_cowork_stay_day": "Den",
   "booking_cowork_stay_overnight": "Přes noc",
   "booking_date_heading": "Datum",
   "booking_calendar_previous_month": "Předchozí měsíc",
@@ -738,7 +762,38 @@
   "referrals_saved_so_far": "Zatím ušetřeno",
   "referrals_discount_info": "Jak se sleva počítá",
   "referrals_joined_nobody": "S tvým kódem se zatím nikdo nepřipojil.",
-  "referrals_joined_some": "S tvým kódem se připojili: {invitees}. Do tvé slevy se počítají: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "S tvým kódem se připojil {formattedCount} člověk",
+        "countPlural=few": "S tvým kódem se připojili {formattedCount} lidé",
+        "countPlural=other": "S tvým kódem se připojilo {formattedCount} lidí"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} se počítá do tvé slevy",
+        "countPlural=few": "{formattedCount} se počítají do tvé slevy",
+        "countPlural=other": "{formattedCount} se počítá do tvé slevy"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "do tvé slevy se zatím nepočítá nikdo",
   "referrals_how_it_works": "Jak to funguje",
   "referrals_step_share": "Pošli svůj kód nebo odkaz.",
   "referrals_step_friend_rate": "Tvůj kamarád dostane slevu {rate} na svou první rezervaci.",
@@ -768,5 +823,10 @@
   "booking_checkout_retry_title": "Platba nebyla dokončena",
   "booking_checkout_retry_lead": "Údaje rezervace jsme zachovali. Před opakováním platby prosím znovu potvrď podmínky.",
   "booking_checkout_retry_pay": "Zkusit platbu znovu",
-  "reservations_payment_retry_settling": "Předchozí platba může ještě projít. Než zaplatíš znovu, zkontroluj stav za pár minut."
+  "reservations_payment_retry_settling": "Předchozí platba může ještě projít. Než zaplatíš znovu, zkontroluj stav za pár minut.",
+  "booking_gate_support_title": "Musíme zkontrolovat tvůj účet",
+  "booking_gate_support_body": "Dokud ho nezkontrolujeme, nemůžeš rezervovat.",
+  "booking_gate_unavailable_title": "Tvůj účet se nenačetl",
+  "booking_gate_unavailable_body": "V tvém účtu se nic nezměnilo. Zkus to za chvíli znovu.",
+  "reservations_load_failed_title": "Rezervace se nepodařilo načíst"
 }

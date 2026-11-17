@@ -74,8 +74,35 @@
   "booking_checkout_summary_total": "Zu zahlen insgesamt",
   "booking_checkout_summary_changed": "Preis geändert",
   "booking_checkout_summary_original_price": "Ursprünglich: {amount}",
-  "booking_checkout_summary_office_days": "Tage: {count}",
-  "booking_checkout_summary_office_seats": "Plätze im Büro: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} Tag",
+        "countPlural=other": "{formattedCount} Tage"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Plätze im Büro",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} Platz",
+        "countPlural=other": "{formattedCount} Plätze"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Open-Space-Platz",
   "booking_checkout_line_reserved_desk": "Reservierter Platz",
   "booking_checkout_line_meeting_room": "Meetingraum",
@@ -83,7 +110,6 @@
   "booking_checkout_line_coffee": "Kaffee",
   "booking_checkout_line_workstation": "Workstation mit Monitoren",
   "booking_checkout_line_other": "Weitere Position",
-  "booking_price_line_one_day": "1 Tag",
   "booking_price_line_one_hour": "1 Stunde, {start}–{end}",
   "booking_price_line_four_hours": "4 Stunden, {start}–{end}",
   "booking_summary_open_space_day": "{date}, bis {time}",
@@ -337,7 +363,7 @@
   "profile_phone_label": "Telefonnummer",
   "profile_first_name_required": "Vorname fehlt.",
   "profile_company_name_required": "Gib den Firmennamen ein oder wähl Privat.",
-  "profile_phone_invalid": "Gib eine gültige Telefonnummer ein oder leer das Feld.",
+  "profile_phone_invalid": "Gib eine Telefonnummer mit Ländervorwahl ein, zum Beispiel +420 777 123 456.",
   "profile_field_invalid": "Prüf dieses Feld. Der Wert ist zu lang oder ungültig.",
   "profile_billing_details_section": "Rechnungsdaten",
   "profile_billing_none": "Keine Rechnungsdaten",
@@ -399,8 +425,7 @@
   "profile_invalid_on_profile": "Einige persönliche Angaben müssen korrigiert werden, bevor du speichern kannst.",
   "profile_invalid_on_billing": "Einige deiner Rechnungsdaten müssen korrigiert werden, bevor du speichern kannst.",
   "profile_complete_continue": "Weiter",
-  "security_email_title": "Anmeldung per E-Mail",
-  "security_email_body": "An {email} senden wir eine einmalig gültige Anmelde-E-Mail.",
+  "security_email_body": "Gesendet an {email}",
   "security_email_badge": "Immer aktiv",
   "security_passkeys_title": "Passkeys",
   "security_passkeys_intro": "Melde dich mit Fingerabdruck, Gesicht oder Displaysperre an, statt auf eine E-Mail zu warten.",
@@ -443,8 +468,7 @@
   "assistants_disconnect": "Trennen",
   "assistants_disconnect_label": "{name} trennen",
   "assistants_disconnect_title": "{name} trennen?",
-  "assistants_disconnect_body": "Der Assistent verliert sofort den Zugang zu deinem Konto und kann deine Reservierungen weder sehen noch vorbereiten. Zum erneuten Nutzen verbinde ihn wieder über den Assistenten.",
-  "assistants_disconnect_confirm": "Assistenten trennen",
+  "assistants_disconnect_body": "Er verliert sofort den Zugang zu deinem Konto. Um ihn wieder zu nutzen, verbinde ihn über den Assistenten.",
   "assistants_disconnecting": "Wird getrennt …",
   "assistants_disconnect_failed": "Assistent nicht getrennt. Versuch es erneut.",
   "assistants_disconnected": "Assistent getrennt.",
@@ -455,8 +479,8 @@
   "danger_confirm_label": "Mir ist klar, dass mein Konto und alle Sitzungen endgültig gelöscht werden.",
   "danger_button": "Mein Konto löschen",
   "danger_retry_button": "Löschen erneut versuchen",
-  "danger_confirm_title": "Konto endgültig löschen?",
-  "danger_confirm_body": "Dadurch wirst du abgemeldet, Anmeldung und alle Sitzungen werden entfernt und dein Kundenprofil deaktiviert. Das lässt sich nicht rückgängig machen.",
+  "danger_confirm_title": "Dein Konto endgültig löschen?",
+  "danger_confirm_body": "Deine Anmeldung wird entfernt und dein Kundenprofil läuft ab. Das lässt sich nicht rückgängig machen.",
   "danger_keep": "Konto behalten",
   "danger_confirm": "Endgültig löschen",
   "danger_failed": "Dein Kundenprofil ließ sich nicht deaktivieren, daher ist dein Konto nicht gelöscht. Versuch es erneut, wenn unser Reservierungssystem wieder läuft.",
@@ -516,8 +540,6 @@
   "booking_gate_deletion_title": "Dein Konto wird gelöscht",
   "booking_gate_deletion_body": "Solange das läuft, kannst du nichts Neues reservieren. Schreib uns, falls das ein Versehen ist.",
   "booking_cowork_tier_heading": "Platzart",
-  "booking_cowork_stay_label": "Aufenthaltsdauer",
-  "booking_cowork_stay_day": "Tag",
   "booking_cowork_stay_overnight": "Über Nacht",
   "booking_date_heading": "Datum",
   "booking_calendar_previous_month": "Vorheriger Monat",
@@ -738,7 +760,36 @@
   "referrals_saved_so_far": "Bisher gespart",
   "referrals_discount_info": "So wird der Rabatt berechnet",
   "referrals_joined_nobody": "Mit deinem Code ist noch niemand dazugekommen.",
-  "referrals_joined_some": "Mit deinem Code dazugekommen: {invitees}. Zählen für deinen Rabatt: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} Person ist mit deinem Code dazugekommen",
+        "countPlural=other": "{formattedCount} Personen sind mit deinem Code dazugekommen"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} zählt für deinen Rabatt",
+        "countPlural=other": "{formattedCount} zählen für deinen Rabatt"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "noch zählt niemand für deinen Rabatt",
   "referrals_how_it_works": "So funktioniert es",
   "referrals_step_share": "Teile deinen Code oder Link.",
   "referrals_step_friend_rate": "Deine Freundin oder dein Freund bekommt {rate} Rabatt auf die erste Reservierung.",
@@ -768,5 +819,10 @@
   "booking_checkout_retry_title": "Die Zahlung wurde nicht abgeschlossen",
   "booking_checkout_retry_lead": "Deine Reservierungsdaten haben wir behalten. Bestätige bitte die Bedingungen erneut, bevor du die Zahlung wiederholst.",
   "booking_checkout_retry_pay": "Zahlung wiederholen",
-  "reservations_payment_retry_settling": "Deine vorherige Zahlung kann noch durchgehen. Prüf den Stand in ein paar Minuten, bevor du erneut zahlst."
+  "reservations_payment_retry_settling": "Deine vorherige Zahlung kann noch durchgehen. Prüf den Stand in ein paar Minuten, bevor du erneut zahlst.",
+  "booking_gate_support_title": "Wir müssen dein Konto prüfen",
+  "booking_gate_support_body": "Du kannst erst buchen, wenn wir es geprüft haben.",
+  "booking_gate_unavailable_title": "Dein Konto wurde nicht geladen",
+  "booking_gate_unavailable_body": "An deinem Konto hat sich nichts geändert. Versuch es gleich noch einmal.",
+  "reservations_load_failed_title": "Reservierungen konnten nicht geladen werden"
 }

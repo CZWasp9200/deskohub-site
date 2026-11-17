@@ -103,3 +103,6 @@ export const invoiceCountries = (
   invoiceCountryCodes
     .map((code) => ({ code, name: countryName(code, locale) }))
     .sort((left, right) => left.name.localeCompare(right.name, locale));
+
+/** The country a new address starts with, as on the site. */
+export const defaultCountry = "CZ";

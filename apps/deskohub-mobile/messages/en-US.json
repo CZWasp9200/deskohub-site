@@ -74,8 +74,35 @@
   "booking_checkout_summary_total": "Total to pay",
   "booking_checkout_summary_changed": "Price changed",
   "booking_checkout_summary_original_price": "Original price: {amount}",
-  "booking_checkout_summary_office_days": "Days: {count}",
-  "booking_checkout_summary_office_seats": "Office seats: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} day",
+        "countPlural=other": "{formattedCount} days"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "Office seats",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} seat",
+        "countPlural=other": "{formattedCount} seats"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "Open Space",
   "booking_checkout_line_reserved_desk": "Reserved Desk",
   "booking_checkout_line_meeting_room": "Meeting Room",
@@ -83,7 +110,6 @@
   "booking_checkout_line_coffee": "Coffee",
   "booking_checkout_line_workstation": "Monitor workstation",
   "booking_checkout_line_other": "Other item",
-  "booking_price_line_one_day": "1 day",
   "booking_price_line_one_hour": "1 hour, {start}–{end}",
   "booking_price_line_four_hours": "4 hours, {start}–{end}",
   "booking_summary_open_space_day": "{date}, until {time}",
@@ -337,7 +363,7 @@
   "profile_phone_label": "Phone",
   "profile_first_name_required": "Enter your first name.",
   "profile_company_name_required": "Enter the company name, or choose Personal.",
-  "profile_phone_invalid": "Enter a valid phone number or clear the field.",
+  "profile_phone_invalid": "Enter a phone number with country code, like +420 777 123 456.",
   "profile_field_invalid": "Check this field. The value is too long or not valid.",
   "profile_billing_details_section": "Billing details",
   "profile_billing_none": "No billing details",
@@ -399,8 +425,7 @@
   "profile_invalid_on_profile": "Some of your personal details need fixing before you can save.",
   "profile_invalid_on_billing": "Some of your billing details need fixing before you can save.",
   "profile_complete_continue": "Continue",
-  "security_email_title": "Email sign-in",
-  "security_email_body": "We send a single-use sign-in email to {email}.",
+  "security_email_body": "Sent to {email}",
   "security_email_badge": "Always on",
   "security_passkeys_title": "Passkeys",
   "security_passkeys_intro": "Sign in with your fingerprint, face or screen lock instead of waiting for an email.",
@@ -443,8 +468,7 @@
   "assistants_disconnect": "Disconnect",
   "assistants_disconnect_label": "Disconnect {name}",
   "assistants_disconnect_title": "Disconnect {name}?",
-  "assistants_disconnect_body": "It loses access to your account right away and can no longer see or prepare your reservations. To use it again, connect it again from the assistant.",
-  "assistants_disconnect_confirm": "Disconnect assistant",
+  "assistants_disconnect_body": "It loses access to your account right away. To use it again, connect it from the assistant.",
   "assistants_disconnecting": "Disconnecting the assistant…",
   "assistants_disconnect_failed": "The assistant wasn't disconnected. Try again.",
   "assistants_disconnected": "Assistant disconnected.",
@@ -455,8 +479,8 @@
   "danger_confirm_label": "I understand that my account and every session will be permanently deleted.",
   "danger_button": "Delete my account",
   "danger_retry_button": "Try deleting again",
-  "danger_confirm_title": "Permanently delete this account?",
-  "danger_confirm_body": "This signs you out, removes your login and every session, and expires your customer profile. It can't be undone.",
+  "danger_confirm_title": "Delete your account permanently?",
+  "danger_confirm_body": "Your login is removed and your customer profile expires. This can't be undone.",
   "danger_keep": "Keep account",
   "danger_confirm": "Delete permanently",
   "danger_failed": "We couldn't expire your customer profile, so your account wasn't deleted. Try again when our reservation system recovers.",
@@ -516,8 +540,6 @@
   "booking_gate_deletion_title": "Your account is being deleted",
   "booking_gate_deletion_body": "You can't make new bookings while this runs. Write to us if this is a mistake.",
   "booking_cowork_tier_heading": "Desk type",
-  "booking_cowork_stay_label": "Length of stay",
-  "booking_cowork_stay_day": "Day",
   "booking_cowork_stay_overnight": "Overnight",
   "booking_date_heading": "Date",
   "booking_calendar_previous_month": "Previous month",
@@ -738,7 +760,36 @@
   "referrals_saved_so_far": "Saved so far",
   "referrals_discount_info": "How the discount is worked out",
   "referrals_joined_nobody": "No one has joined with your code yet.",
-  "referrals_joined_some": "Joined with your code: {invitees}. Counting toward your discount: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}.",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} person joined with your code",
+        "countPlural=other": "{formattedCount} people joined with your code"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} counts toward your discount",
+        "countPlural=other": "{formattedCount} count toward your discount"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "none count toward your discount yet",
   "referrals_how_it_works": "How it works",
   "referrals_step_share": "Share your code or link.",
   "referrals_step_friend_rate": "Your friend gets {rate} off their first reservation.",
@@ -768,5 +819,10 @@
   "booking_checkout_retry_title": "Payment was not completed",
   "booking_checkout_retry_lead": "Your reservation details are saved. Please confirm the terms again before trying the payment once more.",
   "booking_checkout_retry_pay": "Try payment again",
-  "reservations_payment_retry_settling": "Your previous payment may still go through. Check again in a few minutes before you pay again."
+  "reservations_payment_retry_settling": "Your previous payment may still go through. Check again in a few minutes before you pay again.",
+  "booking_gate_support_title": "We need to check your account",
+  "booking_gate_support_body": "You can't book until we've checked it.",
+  "booking_gate_unavailable_title": "Your account didn't load",
+  "booking_gate_unavailable_body": "Nothing in your account changed. Try again in a moment.",
+  "reservations_load_failed_title": "Couldn't load reservations"
 }

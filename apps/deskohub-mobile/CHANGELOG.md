@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.0](https://github.com/totalolage/deskohub-site/compare/mobile-v0.1.1...mobile-v0.2.0) (2026-11-17)
+
+### Features
+
+* **mobile:** a new look across the whole app: a light canvas, navy headers and burned-orange actions, matching the website
+* **mobile:** three tabs, Book (the raised orange button), Reservations and Account; the app opens on Reservations when a booking is coming up
+* **mobile:** choose a space from picture cards and book coworking, a meeting room or an office with a calendar and a price bar that opens into every line of the price
+* **mobile:** check out in steps (your details, review with discount codes and the hold timer, then payment), and see the booking as one ticket with its status
+* **mobile:** retry a failed or cancelled payment in place, or book the same space again in one tap
+* **mobile:** see today's access PIN on the Reservations list and open it full screen with the address and directions
+* **mobile:** look up a company by IČO when entering billing details
+* **mobile:** download your invoices and your personal data, and see what each invoice was for
+* **mobile:** delete your account in the app, keeping a paid upcoming booking and its PIN
+* **mobile:** sign in on restyled pages that open from the app, with the analytics choice carried over
+
+### Bug Fixes
+
+* **mobile:** booking times follow the phone's 12- or 24-hour clock, like the rest of the app
+* **mobile:** layouts hold at 200% text size: labels shrink or wrap instead of being cut off
+* **mobile:** product names match the website's catalog everywhere
+* **mobile:** no white flash between signing in and the first tab
+* **mobile:** screen-reader labels on every icon-only button
+
 ## [0.1.1](https://github.com/totalolage/deskohub-site/compare/mobile-v0.1.0...mobile-v0.1.1) (2026-11-15)
 
 

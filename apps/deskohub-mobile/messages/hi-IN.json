@@ -74,8 +74,35 @@
   "booking_checkout_summary_total": "कुल भुगतान",
   "booking_checkout_summary_changed": "कीमत बदल गई",
   "booking_checkout_summary_original_price": "पहले की कीमत: {amount}",
-  "booking_checkout_summary_office_days": "दिनों की संख्या: {count}",
-  "booking_checkout_summary_office_seats": "ऑफ़िस में सीटों की संख्या: {count}",
+  "booking_price_line_days": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} दिन",
+        "countPlural=other": "{formattedCount} दिन"
+      }
+    }
+  ],
+  "booking_checkout_line_office_seats": "ऑफ़िस में सीटें",
+  "booking_price_line_seats": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} सीट",
+        "countPlural=other": "{formattedCount} सीटें"
+      }
+    }
+  ],
   "booking_checkout_line_open_space": "साझा सीट",
   "booking_checkout_line_reserved_desk": "तय डेस्क",
   "booking_checkout_line_meeting_room": "मीटिंग रूम",
@@ -83,7 +110,6 @@
   "booking_checkout_line_coffee": "कॉफ़ी",
   "booking_checkout_line_workstation": "मॉनिटर वाला वर्कस्टेशन",
   "booking_checkout_line_other": "अन्य मद",
-  "booking_price_line_one_day": "1 दिन",
   "booking_price_line_one_hour": "1 घंटा, {start}–{end}",
   "booking_price_line_four_hours": "4 घंटे, {start}–{end}",
   "booking_summary_open_space_day": "{date}, {time} तक",
@@ -337,7 +363,7 @@
   "profile_phone_label": "फ़ोन",
   "profile_first_name_required": "अपना पहला नाम दर्ज करें।",
   "profile_company_name_required": "कंपनी का नाम दर्ज करें, या व्यक्तिगत चुनें।",
-  "profile_phone_invalid": "सही फ़ोन नंबर दर्ज करें या फ़ील्ड खाली करें।",
+  "profile_phone_invalid": "देश कोड के साथ फ़ोन नंबर दर्ज करें, जैसे +420 777 123 456।",
   "profile_field_invalid": "यह फ़ील्ड जाँचें। दर्ज की गई जानकारी बहुत लंबी है या सही नहीं है।",
   "profile_billing_details_section": "बिलिंग विवरण",
   "profile_billing_none": "बिलिंग विवरण के बिना",
@@ -399,8 +425,7 @@
   "profile_invalid_on_profile": "सहेजने से पहले आपकी कुछ व्यक्तिगत जानकारी ठीक करनी होगी।",
   "profile_invalid_on_billing": "सहेजने से पहले आपके कुछ बिलिंग विवरण ठीक करने होंगे।",
   "profile_complete_continue": "जारी रखें",
-  "security_email_title": "email से साइन-इन",
-  "security_email_body": "हम {email} पर एक बार इस्तेमाल होने वाला साइन-इन email भेजते हैं।",
+  "security_email_body": "{email} पर भेजा जाता है",
   "security_email_badge": "हमेशा चालू",
   "security_passkeys_title": "पासकी",
   "security_passkeys_intro": "Email का इंतज़ार किए बिना फ़िंगरप्रिंट, चेहरे या स्क्रीन लॉक से साइन इन करें।",
@@ -443,8 +468,7 @@
   "assistants_disconnect": "डिस्कनेक्ट करें",
   "assistants_disconnect_label": "{name} को डिस्कनेक्ट करें",
   "assistants_disconnect_title": "{name} को डिस्कनेक्ट करें?",
-  "assistants_disconnect_body": "असिस्टेंट की आपके खाते तक पहुँच तुरंत समाप्त हो जाएगी और वह आपकी बुकिंग न देख सकेगा, न तैयार कर सकेगा। अगर आप इसे फिर से इस्तेमाल करना चाहें, तो असिस्टेंट से इसे दोबारा कनेक्ट करें।",
-  "assistants_disconnect_confirm": "असिस्टेंट डिस्कनेक्ट करें",
+  "assistants_disconnect_body": "इसकी आपके खाते तक पहुँच तुरंत समाप्त हो जाएगी। इसे फिर से इस्तेमाल करने के लिए असिस्टेंट से कनेक्ट करें।",
   "assistants_disconnecting": "असिस्टेंट डिस्कनेक्ट हो रहा है…",
   "assistants_disconnect_failed": "असिस्टेंट डिस्कनेक्ट नहीं हो सका। फिर से कोशिश करें।",
   "assistants_disconnected": "असिस्टेंट डिस्कनेक्ट हो गया।",
@@ -455,8 +479,8 @@
   "danger_confirm_label": "मुझे पता है कि मेरा खाता और सभी सेशन हमेशा के लिए हटा दिए जाएँगे।",
   "danger_button": "मेरा खाता हटाएँ",
   "danger_retry_button": "हटाने की फिर से कोशिश करें",
-  "danger_confirm_title": "यह खाता हमेशा के लिए हटाएँ?",
-  "danger_confirm_body": "इससे साइन आउट हो जाएगा, आपके साइन-इन के तरीके और सभी सेशन हटा दिए जाएँगे और आपकी ग्राहक प्रोफ़ाइल निष्क्रिय कर दी जाएगी। इसे वापस नहीं किया जा सकता।",
+  "danger_confirm_title": "अपना खाता हमेशा के लिए हटाएँ?",
+  "danger_confirm_body": "आपका साइन-इन हटा दिया जाएगा और आपकी ग्राहक प्रोफ़ाइल समाप्त हो जाएगी। इसे पूर्ववत नहीं किया जा सकता।",
   "danger_keep": "खाता रखें",
   "danger_confirm": "हमेशा के लिए हटाएँ",
   "danger_failed": "ग्राहक प्रोफ़ाइल निष्क्रिय नहीं की जा सकी, इसलिए आपका खाता नहीं हटाया गया। हमारा बुकिंग सिस्टम फिर से चालू होने पर फिर से कोशिश करें।",
@@ -516,8 +540,6 @@
   "booking_gate_deletion_title": "आपका खाता हटाया जा रहा है",
   "booking_gate_deletion_body": "जब तक यह चल रहा है, आप नई बुकिंग नहीं कर सकते। अगर यह गलती है, तो हमें लिखें।",
   "booking_cowork_tier_heading": "डेस्क का प्रकार",
-  "booking_cowork_stay_label": "ठहरने की अवधि",
-  "booking_cowork_stay_day": "दिन",
   "booking_cowork_stay_overnight": "रात भर",
   "booking_date_heading": "तारीख़",
   "booking_calendar_previous_month": "पिछला महीना",
@@ -738,7 +760,36 @@
   "referrals_saved_so_far": "अब तक की बचत",
   "referrals_discount_info": "छूट कैसे गिनी जाती है",
   "referrals_joined_nobody": "आपके कोड से अभी तक कोई नहीं जुड़ा है।",
-  "referrals_joined_some": "आपके कोड से जुड़े: {invitees}. आपकी छूट में गिने जा रहे: {eligible}.",
+  "referrals_joined_some": "{invitees}; {eligible}।",
+  "referrals_joined_invitees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "आपके कोड से {formattedCount} व्यक्ति जुड़ा",
+        "countPlural=other": "आपके कोड से {formattedCount} लोग जुड़े"
+      }
+    }
+  ],
+  "referrals_joined_eligible": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural",
+        "local formattedCount = count: number"
+      ],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{formattedCount} आपकी छूट में गिना जा रहा है",
+        "countPlural=other": "{formattedCount} आपकी छूट में गिने जा रहे हैं"
+      }
+    }
+  ],
+  "referrals_joined_eligible_none": "आपकी छूट में अभी कोई नहीं गिना जा रहा",
   "referrals_how_it_works": "यह कैसे काम करता है",
   "referrals_step_share": "अपना कोड या लिंक शेयर करें।",
   "referrals_step_friend_rate": "आपके दोस्त को पहली बुकिंग पर {rate} की छूट मिलती है।",
@@ -768,5 +819,10 @@
   "booking_checkout_retry_title": "भुगतान पूरा नहीं हुआ",
   "booking_checkout_retry_lead": "हमने बुकिंग का विवरण सुरक्षित रखा है। भुगतान फिर से करने से पहले कृपया शर्तों की दोबारा पुष्टि करें।",
   "booking_checkout_retry_pay": "फिर से भुगतान करें",
-  "reservations_payment_retry_settling": "पिछला भुगतान अब भी पूरा हो सकता है। दोबारा भुगतान करने से पहले कुछ मिनट बाद स्थिति फिर से देखें।"
+  "reservations_payment_retry_settling": "पिछला भुगतान अब भी पूरा हो सकता है। दोबारा भुगतान करने से पहले कुछ मिनट बाद स्थिति फिर से देखें।",
+  "booking_gate_support_title": "हमें आपका खाता जाँचना होगा",
+  "booking_gate_support_body": "जब तक हम इसे जाँच नहीं लेते, आप बुकिंग नहीं कर सकते।",
+  "booking_gate_unavailable_title": "आपका खाता लोड नहीं हुआ",
+  "booking_gate_unavailable_body": "आपके खाते में कुछ नहीं बदला है। थोड़ी देर में फिर कोशिश करें।",
+  "reservations_load_failed_title": "बुकिंग लोड नहीं हो सकीं"
 }

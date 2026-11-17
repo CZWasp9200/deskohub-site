@@ -232,7 +232,7 @@ export function SecurityScreen() {
           <ListGroup>
             <ListRow
               icon={Mail}
-              label={m.security_email_title({}, { locale })}
+              label={m.account_row_security_email_code({}, { locale })}
               description={m.security_email_body(
                 { email: emailWithBreak(current.email) },
                 { locale }

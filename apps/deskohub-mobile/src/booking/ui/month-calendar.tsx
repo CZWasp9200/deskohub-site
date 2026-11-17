@@ -10,6 +10,7 @@ import { m } from "../../i18n/messages";
 import { upperFirst } from "../../i18n/sentence-case";
 import { Icon, type IconComponent } from "../../ui/icon";
 import { useLiveRegionAnnouncement } from "../../ui/live-announcement";
+import { shrinkToFitLine } from "../../ui/shrink-to-fit";
 import { Text } from "../../ui/text";
 import {
   color,
@@ -182,6 +183,8 @@ export function MonthCalendar({
             variant="badge"
             tone="muted"
             style={styles.weekday}
+            // At 200% a weekday shrinks to its column, never splits.
+            {...shrinkToFitLine}
           >
             {weekdays[columnIndex]}
           </Text>

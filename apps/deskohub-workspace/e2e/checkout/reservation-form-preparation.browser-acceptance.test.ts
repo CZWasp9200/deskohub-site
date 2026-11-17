@@ -723,6 +723,49 @@ describe("cowork reservation preparation in Chromium", () => {
   );
 
   test.skipIf(!chromiumAvailable)(
+    "opens the date field's calendar, not another dialog opener earlier in the page",
+    async () => {
+      const html = `
+        <button aria-haspopup="dialog" type="button" id="other-dialog"></button>
+        <div>
+          <input name="date" value="2099-10-01" />
+          <button aria-haspopup="dialog" type="button" id="date-calendar"></button>
+        </div>
+        <div id="calendar"></div>
+        <button data-reservation-type-price="open-space" data-reservation-type-price-ready="true"></button>
+        <input id="reservation-entry-tier-open-space" type="radio" checked />
+        <script>
+          const date = document.querySelector('input[name="date"]');
+          const price = document.querySelector('[data-reservation-type-price="open-space"]');
+          document.querySelector("#date-calendar").addEventListener("click", () => {
+            const calendar = document.querySelector("#calendar");
+            calendar.innerHTML = '<div data-day="2099-10-02"><button type="button"></button></div>';
+            calendar.querySelector("button").addEventListener("click", () => {
+              date.value = "2099-10-02";
+              price.dataset.reservationTypePriceReady = "false";
+              setTimeout(() => {
+                price.dataset.reservationTypePriceReady = "true";
+              }, 50);
+            });
+          });
+        </script>
+      `;
+
+      await prepareOn(
+        html,
+        withWaits(toReservationSelectionPreparation(editedDateData), 2_000)
+      );
+      await expect(
+        getPage().evaluate(
+          () =>
+            document.querySelector<HTMLInputElement>('input[name="date"]')
+              ?.value
+        )
+      ).resolves.toBe("2099-10-02");
+    }
+  );
+
+  test.skipIf(!chromiumAvailable)(
     "pages the calendar back to an edited cowork date before the restored month",
     async () => {
       // The calendar opens on the restored date's month, after the edited date.

@@ -2,6 +2,23 @@ import type { ReactNode } from "react";
 import { Button, LiveMessage } from "./controls";
 import { Dialog } from "./dialog";
 
+/** The two buttons' looks and order for each kind of confirmation. */
+const actionLook = (destructive: boolean, irreversible: boolean) => {
+  if (irreversible)
+    return {
+      confirm: "danger",
+      cancel: "secondary",
+      cancelFirst: false,
+    } as const;
+  if (destructive)
+    return {
+      confirm: "dangerText",
+      cancel: "primary",
+      cancelFirst: true,
+    } as const;
+  return { confirm: "primary", cancel: "quiet", cancelFirst: false } as const;
+};
+
 /**
  * Asks the customer to confirm an action before it runs. A destructive
  * confirmation leads with the safe way out (the primary cancel) and puts the
@@ -19,6 +36,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   destructive = false,
+  irreversible = false,
   busy = false,
   busyMessage,
   children,
@@ -31,6 +49,12 @@ export function ConfirmDialog({
   readonly cancelLabel: string;
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
+  /**
+   * The confirmation is the dialog's point and can't be undone (boards 15
+   * and 18): a filled danger button first, Cancel outlined under it. A
+   * `destructive` one alone keeps the safe choice primary (board 00e).
+   */
+  readonly irreversible?: boolean;
   readonly destructive?: boolean;
   readonly busy?: boolean;
   readonly busyMessage?: string;
@@ -40,10 +64,11 @@ export function ConfirmDialog({
   const dismiss = () => {
     if (!busy) onCancel();
   };
+  const look = actionLook(destructive, irreversible);
   const confirm = (
     <Button
       key="confirm"
-      variant={destructive ? "dangerText" : "primary"}
+      variant={look.confirm}
       label={confirmLabel}
       onPress={onConfirm}
       busy={busy}
@@ -52,7 +77,7 @@ export function ConfirmDialog({
   const cancel = (
     <Button
       key="cancel"
-      variant={destructive ? "primary" : "quiet"}
+      variant={look.cancel}
       label={cancelLabel}
       onPress={onCancel}
       disabled={busy}
@@ -67,7 +92,9 @@ export function ConfirmDialog({
       busy={busy}
       onDismiss={dismiss}
       actions={[
-        ...(destructive ? [cancel, confirm] : [confirm, cancel]),
+        ...(destructive && !irreversible
+          ? [cancel, confirm]
+          : [confirm, cancel]),
         <LiveMessage
           key="progress"
           role="status"

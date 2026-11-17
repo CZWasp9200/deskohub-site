@@ -548,7 +548,7 @@ export const getAdminDiscountCodeUsage = (input: {
 export const toAdminDotyposCustomer = (
   customer: DotyposCustomer
 ): AdminDotyposCustomer => ({
-  ...describeAdministrationCustomer(customer, "company-person-email-phone"),
+  ...describeAdministrationCustomer(customer),
   discountGroupId: customer._discountGroupId ?? null,
 });
 
