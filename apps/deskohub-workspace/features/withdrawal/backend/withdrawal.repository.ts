@@ -9,7 +9,10 @@ import type { Locale } from "@/features/i18n";
 import type { Money } from "@/shared/money/money";
 import type { WithdrawableContractRef } from "../withdrawable-contract";
 import type { WithdrawalRefundBasis } from "../withdrawal-assessment";
-import type { WithdrawalId } from "../withdrawal-identifiers";
+import type {
+  WithdrawableContractKind,
+  WithdrawalId,
+} from "../withdrawal-identifiers";
 
 /** A recorded withdrawal and how far its settlement got. */
 export type ContractWithdrawal = {
@@ -62,6 +65,11 @@ interface IWithdrawalRepository {
   readonly findByContract: (
     contract: WithdrawableContractRef
   ) => Effect.Effect<Option.Option<ContractWithdrawal>, EffectDrizzleQueryError>;
+  /** Which of the family's contracts have a recorded withdrawal. */
+  readonly listWithdrawnContractIds: (input: {
+    readonly kind: WithdrawableContractKind;
+    readonly contractIds: readonly string[];
+  }) => Effect.Effect<ReadonlySet<string>, EffectDrizzleQueryError>;
   /**
    * Records the withdrawal claimed for settlement by the submitting request,
    * or answers the contract's existing withdrawal with `recorded: false`.
@@ -131,6 +139,21 @@ export class WithdrawalRepository extends Context.Service<
 
       return {
         findByContract,
+        listWithdrawnContractIds: Effect.fn(
+          "WithdrawalRepository.listWithdrawnContractIds"
+        )(function* (input) {
+          if (input.contractIds.length === 0) return new Set<string>();
+          const rows = yield* db
+            .select({ contractId: contractWithdrawals.contractId })
+            .from(contractWithdrawals)
+            .where(
+              and(
+                eq(contractWithdrawals.contractKind, input.kind),
+                inArray(contractWithdrawals.contractId, [...input.contractIds])
+              )
+            );
+          return new Set(rows.map(({ contractId }) => contractId));
+        }),
         record: Effect.fn("WithdrawalRepository.record")(
           function* (withdrawal) {
             const [inserted] = yield* db
@@ -256,6 +279,8 @@ export class WithdrawalRepository extends Context.Service<
       } satisfies IWithdrawalRepository;
     })
   );
+
+  static Live = this.Default.pipe(Layer.provide(WorkspaceDatabase.Default));
 }
 
 const settlementStepColumns = {

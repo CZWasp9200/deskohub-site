@@ -163,8 +163,15 @@ export {
   CustomerReservationStatus,
   CustomerReservationSummary,
   CustomerReservationsApi,
+  CustomerReservationWithdrawalAvailability,
+  CustomerWithdrawalQuote,
+  CustomerWithdrawalReceipt,
+  CustomerWithdrawalRefundBasis,
+  CustomerWithdrawalRefused,
+  CustomerWithdrawalRefusedReason,
   ReopenCustomerPaymentPage,
   RetryCustomerPayment,
+  WithdrawFromCustomerReservation,
 } from "./customer-reservations-api";
 export {
   CurrentCustomerSession,

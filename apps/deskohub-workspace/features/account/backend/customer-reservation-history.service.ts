@@ -1,4 +1,9 @@
 import {
+  type ListedReservation,
+  ReservationWithdrawalAvailability,
+} from "@/features/reservation/backend/reservation-withdrawals";
+import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
+import {
   type DotyposCustomerId,
   type DotyposReservationId,
   DotyposService,
@@ -75,6 +80,9 @@ type ReservationRow = {
   readonly reservationDetails: StoredWorkspaceReservationDetails | undefined;
   readonly reservationState: (typeof workspaceReservations.$inferSelect)["reservationState"];
   readonly fulfillmentState: (typeof workspaceReservations.$inferSelect)["fulfillmentState"];
+  readonly paymentState: (typeof workspaceReservations.$inferSelect)["paymentState"];
+  readonly reservationPurpose: (typeof workspaceReservations.$inferSelect)["reservationPurpose"];
+  readonly paidAt: (typeof workspaceReservations.$inferSelect)["paidAt"];
 };
 
 const getReservationProduct = (
@@ -222,7 +230,8 @@ const getBookedStartFields = (
 const toReservationSummary = (
   { reservation, row, booked }: HistoryEntry,
   party: CustomerReservationParty | undefined,
-  todayAccess: CustomerReservationSummary["todayAccess"]
+  todayAccess: CustomerReservationSummary["todayAccess"],
+  withdrawal: CustomerReservationSummary["withdrawal"]
 ): CustomerReservationSummary => {
   const bookedSelection = row && getRebookingSelectionOf(row, booked);
   return {
@@ -238,6 +247,7 @@ const toReservationSummary = (
     ...(row && getAccessWindowFields(booked)),
     ...(bookedSelection && { bookedSelection }),
     ...(todayAccess && { todayAccess }),
+    ...(withdrawal && { withdrawal }),
   };
 };
 
@@ -326,10 +336,15 @@ const toReservationHistory = ({
   entries,
   names,
   access,
+  withdrawals,
 }: {
   readonly entries: readonly HistoryEntry[];
   readonly names: ReadonlyMap<DotyposCustomerId, string>;
   readonly access: ReservationHistoryAccess;
+  readonly withdrawals: ReadonlyMap<
+    WorkspaceReservationId,
+    WithdrawalAvailability
+  >;
 }): CustomerReservationHistory => ({
   kind: "available",
   groups: groupCustomerReservations(
@@ -337,11 +352,36 @@ const toReservationHistory = ({
       toReservationSummary(
         entry,
         entry.relation && toReservationParty(entry.relation, names),
-        entry.row && access.get(entry.row.id)
+        entry.row && access.get(entry.row.id),
+        entry.row && withdrawals.get(entry.row.id)
       )
     )
   ),
 });
+
+/** A history entry the withdrawal entry point can assess: a booked website order. */
+const toListedReservation = ({
+  row,
+  booked,
+}: HistoryEntry): readonly ListedReservation[] => {
+  if (!row?.reservationDetails) return [];
+  return Option.match(Option.all([booked.start, booked.end]), {
+    onNone: () => [],
+    onSome: ([reservedFrom, reservedUntil]) => [
+      {
+        id: row.id,
+        authorAccountId: row.authorAccountId,
+        reservationState: row.reservationState,
+        paymentState: row.paymentState,
+        reservationPurpose: row.reservationPurpose,
+        paidAt: row.paidAt,
+        reservationDetails: row.reservationDetails,
+        reservedFrom,
+        reservedUntil,
+      },
+    ],
+  });
+};
 
 /** Names every reservation of a history in `locale`. */
 const withProductNames = (
@@ -428,6 +468,10 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
   const authorDirectory = yield* ReservationAuthorDirectory;
   const reviewAccounts = yield* ReviewAccounts;
   const sandbox = yield* ReviewSandbox;
+  // Only a history whose caller provides it shows withdrawal entry points.
+  const withdrawalAvailability = yield* Effect.serviceOption(
+    ReservationWithdrawalAvailability
+  );
 
   const logUnavailableParty = (code: string) =>
     Effect.logWarning("Reservation history party unavailable").pipe(
@@ -452,6 +496,9 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
         reservationDetails: workspaceReservations.reservationDetails,
         reservationState: workspaceReservations.reservationState,
         fulfillmentState: workspaceReservations.fulfillmentState,
+        paymentState: workspaceReservations.paymentState,
+        reservationPurpose: workspaceReservations.reservationPurpose,
+        paidAt: workspaceReservations.paidAt,
       })
       .from(workspaceReservations)
       .where(
@@ -584,6 +631,25 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
       ? lookupAccess(entries.flatMap(toLiveOrder), locale)
       : Effect.succeed(new Map());
 
+  const readWithdrawals = ({
+    account,
+    entries,
+  }: {
+    readonly account: ReservationHistoryAccount;
+    readonly entries: readonly HistoryEntry[];
+  }) =>
+    Option.match(withdrawalAvailability, {
+      onNone: () =>
+        Effect.succeed(
+          new Map<WorkspaceReservationId, WithdrawalAvailability>()
+        ),
+      onSome: (availability) =>
+        availability.forReservations({
+          accountId: account.accountId,
+          reservations: entries.flatMap(toListedReservation),
+        }),
+    });
+
   const loadRecorded = (
     account: ReservationHistoryAccount,
     options: ReservationHistoryOptions & { readonly locale: Locale }
@@ -598,7 +664,11 @@ export const makeCustomerReservationHistory = Effect.fn(function* (
       Effect.let("entries", relateReservations),
       Effect.bind("lookups", (input) =>
         Effect.all(
-          { names: readPartyNames(input), access: readAccess(input) },
+          {
+            names: readPartyNames(input),
+            access: readAccess(input),
+            withdrawals: readWithdrawals(input),
+          },
           { concurrency: "inherit" }
         )
       ),

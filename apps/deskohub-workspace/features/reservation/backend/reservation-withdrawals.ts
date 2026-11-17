@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, Match, Option, Schema } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
 import { LegalEvidenceEventRepository } from "@/features/checkout/backend/repositories/legal-evidence-event.repository";
 import { PaymentAttemptRepository } from "@/features/checkout/backend/repositories/payment-attempt.repository";
 import { getReservationProductTitle } from "@/features/checkout/product-catalog.i18n";
@@ -7,12 +8,24 @@ import {
   type ReservationCancellationFailureReason,
   ReservationCancellation,
 } from "@/features/reservation/backend/reservation-cancellation.service";
+import { SeatingMapReleaseGate } from "@/features/reservation/backend/seating-map-release-gate";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
   type WorkspaceReservationDetails,
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
-import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import type { PaymentState, ReservationState } from "@/db/schema";
+import type { CustomerAccountId } from "@/features/account/customer-account";
+import { getConsumerWithdrawalPeriodCutoff } from "@/features/legal/early-performance";
+import {
+  type StoredWorkspaceReservationDetails,
+  type WorkspaceReservationId,
+  workspaceReservationIdSchema,
+} from "@/features/reservation/persistence-contracts";
+import type { ReservationPurpose } from "@/features/reservation/reservation-purpose";
+import { WithdrawalRepository } from "@/features/withdrawal/backend/withdrawal.repository";
+import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
+import type { WithdrawalAvailability } from "@/features/withdrawal/withdrawal-read-model";
 import {
   formatReservationDisplayDate,
   formatReservationDisplayDateRange,
@@ -28,6 +41,7 @@ import {
   type WithdrawableContractFamily,
   WithdrawableContractUnavailableError,
 } from "@/features/withdrawal/withdrawable-contract";
+import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 
 const kind = "reservation" as const;
 
@@ -148,6 +162,24 @@ export class ReservationWithdrawals extends Context.Service<
       } satisfies WithdrawableContractFamily;
     })
   );
+
+  static Live = this.Default.pipe(
+    Layer.provide(ReservationCancellation.Default),
+    Layer.provide(
+      Layer.mergeAll(
+        WorkspaceReservationService.Default,
+        LegalEvidenceEventRepository.Default,
+        PaymentAttemptRepository.Default
+      ).pipe(Layer.provideMerge(WorkspaceReservationRepository.Default))
+    ),
+    Layer.provide(
+      Layer.mergeAll(
+        WorkspaceDatabase.Default,
+        WorkspaceDotyposLayer,
+        SeatingMapReleaseGate.Live
+      )
+    )
+  );
 }
 
 /** Legal evidence a reservation's checkout records: well under this many events. */
@@ -211,3 +243,136 @@ const getReservationContractLabel = (
   );
   return `${getReservationProductTitle(details.reservationDetails, locale)} · ${when}`;
 };
+
+/** A reservation as the account history lists it, for its withdrawal entry point. */
+export type ListedReservation = {
+  readonly id: WorkspaceReservationId;
+  readonly authorAccountId: CustomerAccountId;
+  readonly reservationState: ReservationState;
+  readonly paymentState: PaymentState;
+  readonly reservationPurpose: ReservationPurpose | null;
+  readonly paidAt: Temporal.Instant | null;
+  readonly reservationDetails: StoredWorkspaceReservationDetails;
+  readonly reservedFrom: Temporal.Instant;
+  readonly reservedUntil: Temporal.Instant;
+};
+
+interface IReservationWithdrawalAvailability {
+  /**
+   * Whether the account can withdraw from each listed reservation it
+   * authored now, and when each period ends, while the online withdrawal
+   * function is released; nothing while it isn't, or when the facts it
+   * needs can't be read, since only the entry point depends on it.
+   */
+  readonly forReservations: (input: {
+    readonly accountId: CustomerAccountId;
+    readonly reservations: readonly ListedReservation[];
+  }) => Effect.Effect<ReadonlyMap<WorkspaceReservationId, WithdrawalAvailability>>;
+}
+
+/** The withdrawal entry points of listed reservations. */
+export class ReservationWithdrawalAvailability extends Context.Service<
+  ReservationWithdrawalAvailability,
+  IReservationWithdrawalAvailability
+>()("@deskohub-workspace/reservation/ReservationWithdrawalAvailability") {
+  static Default = Layer.effect(
+    this,
+    Effect.gen(function* () {
+      const legalEvidence = yield* LegalEvidenceEventRepository;
+      const withdrawals = yield* WithdrawalRepository;
+      const gate = yield* WithdrawalReleaseGate;
+
+      return {
+        forReservations: Effect.fn(
+          "ReservationWithdrawalAvailability.forReservations"
+        )(
+          function* ({ accountId, reservations }) {
+            const empty = new Map<
+              WorkspaceReservationId,
+              WithdrawalAvailability
+            >();
+            const authored = reservations.filter(
+              (reservation) =>
+                reservation.authorAccountId === accountId &&
+                reservation.reservationState === "confirmed" &&
+                reservation.paymentState === "paid"
+            );
+            if (authored.length === 0 || !(yield* gate.isOpen)) return empty;
+            const ids = authored.map(({ id }) => id);
+            const [evidence, withdrawn] = yield* Effect.all(
+              [
+                legalEvidence.listForReservations({
+                  workspaceReservationIds: ids,
+                  limit: ids.length * maxLegalEvidencePerReservation,
+                }),
+                withdrawals.listWithdrawnContractIds({
+                  kind,
+                  contractIds: ids,
+                }),
+              ],
+              { concurrency: "inherit" }
+            );
+            const now = Temporal.Now.instant();
+            return new Map(
+              authored.flatMap((reservation) => {
+                const contractAt =
+                  getContractAt(
+                    evidence.filter(
+                      (event) => event.workspaceReservationId === reservation.id
+                    )
+                  ) ?? reservation.paidAt;
+                if (!contractAt) return [];
+                const assessment = assessReservationWithdrawal(
+                  {
+                    reservationState: reservation.reservationState,
+                    paymentState: reservation.paymentState,
+                    purpose: reservation.reservationPurpose,
+                    contractAt,
+                    // Whether the customer may withdraw doesn't depend on
+                    // the amount, only the refund does.
+                    paidAmount: { value: 0, exponent: 0, currency: "CZK" },
+                    schedule: getReservationServiceSchedule(
+                      reservation.reservationDetails,
+                      reservation.reservedFrom,
+                      reservation.reservedUntil
+                    ),
+                  },
+                  now
+                );
+                return [
+                  [
+                    reservation.id,
+                    {
+                      eligible:
+                        assessment.withdrawable && !withdrawn.has(reservation.id),
+                      periodEndsAt:
+                        getConsumerWithdrawalPeriodCutoff(contractAt).toString(),
+                    },
+                  ] as const,
+                ];
+              })
+            );
+          },
+          (effect) =>
+            effect.pipe(
+              Effect.tapError((error) =>
+                Effect.logWarning(
+                  "Reservation withdrawal availability unavailable"
+                ).pipe(Effect.annotateLogs("cause", error))
+              ),
+              Effect.orElseSucceed(
+                () =>
+                  new Map<WorkspaceReservationId, WithdrawalAvailability>()
+              )
+            )
+        ),
+      } satisfies IReservationWithdrawalAvailability;
+    })
+  );
+
+  static ForProvidedGate = this.Default.pipe(
+    Layer.provide(
+      Layer.mergeAll(LegalEvidenceEventRepository.Live, WithdrawalRepository.Live)
+    )
+  );
+}

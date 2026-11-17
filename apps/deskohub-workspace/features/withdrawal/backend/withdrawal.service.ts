@@ -1,12 +1,15 @@
 import { Context, Data, Duration, Effect, Layer, Option, Schedule } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CustomerAccountAccessError,
   CustomerAccountContactService,
   CustomerAccountSections,
   HeldCustomerAccount,
 } from "@/features/account";
+import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import type { Locale } from "@/features/i18n";
+import { ReservationWithdrawals } from "@/features/reservation/backend/reservation-withdrawals";
 import type { Money } from "@/shared/money/money";
 import type {
   ContractCancellationError,
@@ -14,10 +17,10 @@ import type {
   WithdrawableContractRef,
 } from "../withdrawable-contract";
 import type {
-  WithdrawalRefundBasis,
-  WithdrawalRefusalReason,
-} from "../withdrawal-assessment";
-import type { WithdrawalId } from "../withdrawal-identifiers";
+  WithdrawalQuote,
+  WithdrawalReceipt,
+  WithdrawalRefusal,
+} from "../withdrawal-read-model";
 import { WithdrawableContractFamilies } from "./withdrawable-contract-families";
 import { WithdrawalEmails } from "./withdrawal-emails.service";
 import {
@@ -25,36 +28,6 @@ import {
   WithdrawalRepository,
   type WithdrawalSettlementStep,
 } from "./withdrawal.repository";
-
-/** What a customer confirms before withdrawing, and what they'd get back. */
-export type WithdrawalQuote = {
-  readonly contractId: string;
-  readonly contractLabel: string;
-  /** The customer's profile name, when it has one. */
-  readonly customerName: string | null;
-  /** The account's login email, where the receipt goes. */
-  readonly receiptEmail: string;
-  readonly paidAmount: Money;
-  readonly refundAmount: Money;
-  readonly refundBasis: WithdrawalRefundBasis;
-  readonly periodEndsAt: Temporal.Instant;
-};
-
-/** The confirmation of a submitted withdrawal. */
-export type WithdrawalReceipt = {
-  readonly withdrawalId: WithdrawalId;
-  readonly submittedAt: Temporal.Instant;
-  readonly refundAmount: Money;
-  readonly receiptEmail: string;
-};
-
-/** Why a withdrawal can't be quoted or submitted for the customer. */
-export type WithdrawalRefusal =
-  | WithdrawalRefusalReason
-  /** No such contract, or not the customer's to withdraw from. */
-  | "not_found"
-  /** The customer already withdrew from this contract. */
-  | "already_withdrawn";
 
 export class WithdrawalRefusedError extends Data.TaggedError(
   "WithdrawalRefusedError"
@@ -472,6 +445,27 @@ export class WithdrawalService extends Context.Service<
         }),
       } satisfies IWithdrawalService;
     })
+  );
+
+  /** The service over the authentication the channel provides. */
+  static ForProvidedAuthentication = this.Default.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        WithdrawalRepository.Default,
+        WithdrawalEmails.Live,
+        WithdrawableContractFamilies.Default.pipe(
+          Layer.provide(ReservationWithdrawals.Live)
+        ),
+        CustomerAccountSections.ForProvidedAuthentication,
+        CustomerAccountContactService.ForProvidedAuthentication
+      )
+    ),
+    Layer.provide(WorkspaceDatabase.Default)
+  );
+
+  /** The service reading the browser session. */
+  static Live = this.ForProvidedAuthentication.pipe(
+    Layer.provide(CustomerAuthentication.Default)
   );
 }
 

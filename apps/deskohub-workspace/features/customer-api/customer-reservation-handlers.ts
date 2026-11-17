@@ -16,6 +16,9 @@ import {
   CustomerReservationNotFound,
   type CustomerReservationSummary,
   CustomerSessionRequired,
+  type CustomerWithdrawalQuote,
+  type CustomerWithdrawalReceipt,
+  CustomerWithdrawalRefused,
   WorkspaceCustomerApi,
 } from "@deskohub/workspace-customer-api";
 import { Effect, Layer, Match } from "effect";
@@ -25,6 +28,7 @@ import {
   type CustomerReservationHistory as ReservationHistoryRecord,
   type CustomerReservationSummary as ReservationSummaryRecord,
 } from "@/features/account";
+import { requireAccountFeature } from "@/features/account/backend/account-feature-withheld";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerReservationHistoryWithAccessService } from "@/features/account/backend/customer-reservation-history-with-access.service";
 import { getReservationSummaryStay } from "@/features/account/reservation-summary-stay";
@@ -45,6 +49,16 @@ import {
   ReservationAccessService,
   type ReservationAccessViewModel,
 } from "@/features/reservation/backend/reservation-access.service";
+import {
+  type WithdrawalRefusedError,
+  WithdrawalService,
+} from "@/features/withdrawal/backend/withdrawal.service";
+import { WithdrawalReleaseGate } from "@/features/withdrawal/backend/withdrawal-release-gate";
+import { WithdrawalReleaseGateForRun } from "@/features/withdrawal/backend/withdrawal-release-gate-run";
+import {
+  toWithdrawalQuoteData,
+  toWithdrawalReceiptData,
+} from "@/features/withdrawal/withdrawal-read-model";
 import { providePerRequest } from "@/shared/backend/provide-per-request";
 import { runToCompletion } from "@/shared/backend/run-to-completion";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
@@ -85,6 +99,14 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
     );
     const currentAccount = reservations.currentAccount.pipe(
       Layer.provide(authentication)
+    );
+    // The gate and the reservation reads behind a withdrawal decide per
+    // request, so each request builds them.
+    const withdrawalLayer = Layer.mergeAll(
+      WithdrawalService.ForProvidedAuthentication.pipe(
+        Layer.provide(authentication)
+      ),
+      WithdrawalReleaseGateForRun
     );
 
     return (
@@ -168,6 +190,45 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
             Effect.flatMap(answerReservationAccess)
           )
         )
+        .handle(
+          "getWithdrawalQuote",
+          ({ params: { orderId }, query: { locale = defaultLocale } }) =>
+            withSignedInWithdrawals((withdrawals, accountId) =>
+              withdrawals.quote({
+                accountId,
+                locale,
+                contract: { kind: "reservation", id: orderId },
+              })
+            ).pipe(
+              providePerRequest(withdrawalLayer),
+              answerWithdrawalFailure("customerApi.getWithdrawalQuote"),
+              Effect.map(
+                (quote): CustomerWithdrawalQuote => ({
+                  ...toWithdrawalQuoteData(quote),
+                  contractId: orderId,
+                })
+              )
+            )
+        )
+        // The withdrawal is recorded before the response, and ending the
+        // booking follows it, so it ends even when the client disconnects.
+        .handle("withdrawFromReservation", ({ params: { orderId }, payload }) =>
+          withSignedInWithdrawals((withdrawals, accountId) =>
+            withdrawals.withdraw({
+              accountId,
+              locale: payload.locale,
+              contract: { kind: "reservation", id: orderId },
+            })
+          ).pipe(
+            providePerRequest(withdrawalLayer),
+            runToCompletion,
+            answerWithdrawalFailure("customerApi.withdrawFromReservation"),
+            Effect.map(
+              (receipt): CustomerWithdrawalReceipt =>
+                toWithdrawalReceiptData(receipt)
+            )
+          )
+        )
         .handle("getReservationInvoice", ({ params: { orderId } }) =>
           Effect.flatMap(ReservationInvoicePdfService, (invoices) =>
             invoices.getPdf({ orderId, locale: defaultLocale })
@@ -191,6 +252,46 @@ export const CustomerReservationsApiHandlers = HttpApiBuilder.group(
     );
   })
 );
+
+/**
+ * Runs a withdrawal operation for the session's account while the online
+ * withdrawal function is released.
+ */
+const withSignedInWithdrawals = <A, E>(
+  operation: (
+    withdrawals: WithdrawalService["Service"],
+    accountId: CustomerReservationAccountId
+  ) => Effect.Effect<A, E>
+) =>
+  Effect.gen(function* () {
+    yield* requireAccountFeature("withdrawal", WithdrawalReleaseGate.isOpen);
+    const session = yield* CurrentCustomerSession;
+    const withdrawals = yield* WithdrawalService;
+    return yield* operation(withdrawals, session.accountId);
+  });
+
+type CustomerReservationAccountId = Parameters<
+  WithdrawalService["Service"]["quote"]
+>[0]["accountId"];
+
+/**
+ * Answers a refused withdrawal with its public reason, an order the account
+ * didn't book as not found, and every other failure as the API's failures.
+ */
+const answerWithdrawalFailure =
+  (operation: string) =>
+  <A, E, R>(effect: Effect.Effect<A, E | WithdrawalRefusedError, R>) =>
+    effect.pipe(
+      Effect.catchTags(
+        {
+          WithdrawalRefusedError: ({ reason }: WithdrawalRefusedError) =>
+            reason === "not_found"
+              ? Effect.fail(new CustomerReservationNotFound())
+              : Effect.fail(new CustomerWithdrawalRefused({ reason })),
+        },
+        (failure) => answerCustomerApiFailure(operation)(Effect.fail(failure))
+      )
+    );
 
 /**
  * The history the contract carries. Only the account page's account state
@@ -250,6 +351,7 @@ const answerReservationSummary = ({
   accessEndsAt,
   bookedSelection,
   todayAccess,
+  withdrawal,
 }: ReservationSummaryRecord): CustomerReservationSummary => ({
   id,
   ...(workspaceReservationId && { orderId: workspaceReservationId }),
@@ -271,6 +373,12 @@ const answerReservationSummary = ({
       code: todayAccess.code,
       accessStartsAt: todayAccess.accessStartsAt,
       accessEndsAt: todayAccess.accessEndsAt,
+    },
+  }),
+  ...(withdrawal && {
+    withdrawal: {
+      eligible: withdrawal.eligible,
+      periodEndsAt: withdrawal.periodEndsAt,
     },
   }),
 });

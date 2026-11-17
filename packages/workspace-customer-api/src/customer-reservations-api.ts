@@ -4,7 +4,11 @@ import {
   HttpApiGroup,
   HttpApiSchema,
 } from "effect/unstable/httpapi";
-import { CustomerAccountLinkRequired, Money } from "./customer-account-api";
+import {
+  CustomerAccountLinkRequired,
+  CustomerFeatureUnavailable,
+  Money,
+} from "./customer-account-api";
 import {
   CustomerCheckout,
   CustomerCheckoutReturnTarget,
@@ -215,6 +219,12 @@ export const CustomerBookedSelection = Schema.Struct({
 export type CustomerBookedSelection = typeof CustomerBookedSelection.Type;
 
 /** A reservation as the account page's history lists it. */
+/** Whether the customer can withdraw from an order now, and until when. */
+export const CustomerReservationWithdrawalAvailability = Schema.Struct({
+  eligible: Schema.Boolean,
+  periodEndsAt: isoInstant,
+}).annotate({ identifier: "CustomerReservationWithdrawalAvailability" });
+
 export const CustomerReservationSummary = Schema.Struct({
   /** Unique within the history; only for telling entries apart. */
   id: Schema.String,
@@ -263,6 +273,12 @@ export const CustomerReservationSummary = Schema.Struct({
    * answers why.
    */
   todayAccess: Schema.optional(CustomerReservationAccess),
+  /**
+   * The online withdrawal entry point of a paid, confirmed order the account
+   * booked, while the withdrawal function is released: whether the customer
+   * can withdraw now, and when the withdrawal period ends (exclusive).
+   */
+  withdrawal: Schema.optional(CustomerReservationWithdrawalAvailability),
 }).annotate({ identifier: "CustomerReservationSummary" });
 export type CustomerReservationSummary = typeof CustomerReservationSummary.Type;
 
@@ -399,6 +415,84 @@ export type CustomerEstablishment = typeof CustomerEstablishment.Type;
 const OrderParams = { orderId: CustomerReservationOrderId } as const;
 
 /**
+ * Why the customer can't withdraw from the order now: it isn't paid and
+ * confirmed (`not_withdrawable`), it was booked for a business
+ * (`business_purpose`), the withdrawal period ended (`period_ended`), all of
+ * its service has started (`performance_started`), or the customer already
+ * withdrew (`already_withdrawn`). The customer may still contact the business.
+ */
+export const CustomerWithdrawalRefusedReason = Schema.Literals([
+  "not_withdrawable",
+  "business_purpose",
+  "period_ended",
+  "performance_started",
+  "already_withdrawn",
+]).annotate({ identifier: "CustomerWithdrawalRefusedReason" });
+export type CustomerWithdrawalRefusedReason =
+  typeof CustomerWithdrawalRefusedReason.Type;
+
+/** The customer can't withdraw from the order, for `reason`. */
+export class CustomerWithdrawalRefused extends Schema.TaggedErrorClass<CustomerWithdrawalRefused>()(
+  "CustomerWithdrawalRefused",
+  { reason: CustomerWithdrawalRefusedReason }
+) {
+  static schema = this.pipe(HttpApiSchema.status("Conflict"));
+}
+
+const withdrawalUnitCount = Schema.Int.check(Schema.isGreaterThan(0));
+
+/**
+ * How the refund relates to the amount paid: all of it before the service
+ * starts, otherwise the share of `total` days or hours not yet started.
+ */
+export const CustomerWithdrawalRefundBasis = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("full") }),
+  Schema.Struct({
+    kind: Schema.Literal("partial"),
+    unit: Schema.Literals(["day", "hour"]),
+    unstarted: withdrawalUnitCount,
+    total: withdrawalUnitCount,
+  }),
+]).annotate({ identifier: "CustomerWithdrawalRefundBasis" });
+
+/** What the customer confirms before withdrawing from an order. */
+export const CustomerWithdrawalQuote = Schema.Struct({
+  contractId: CustomerReservationOrderId,
+  /** Names the order in the statement, in the requested language. */
+  contractLabel: Schema.String,
+  /** The customer's profile name, absent from a profile without one. */
+  customerName: Schema.NullOr(Schema.String),
+  /** Where the receipt of the withdrawal is sent: the login email. */
+  receiptEmail: Schema.String,
+  paidAmount: Money,
+  refundAmount: Money,
+  refundBasis: CustomerWithdrawalRefundBasis,
+  /** The end of the withdrawal period, exclusive. */
+  periodEndsAt: isoInstant,
+}).annotate({ identifier: "CustomerWithdrawalQuote" });
+
+/** The confirmation of a submitted withdrawal; the receipt email follows. */
+export const CustomerWithdrawalReceipt = Schema.Struct({
+  withdrawalId: Schema.String,
+  submittedAt: isoInstant,
+  refundAmount: Money,
+  receiptEmail: Schema.String,
+}).annotate({ identifier: "CustomerWithdrawalReceipt" });
+
+/**
+ * Withdraws from the order: `locale` is the language of the statement and
+ * its receipt. Submitting again answers the recorded withdrawal's receipt.
+ */
+export const WithdrawFromCustomerReservation = Schema.Struct({
+  locale: CustomerLocale,
+}).annotate({
+  identifier: "WithdrawFromCustomerReservation",
+  parseOptions: customerInputParseOptions,
+});
+
+
+
+/**
  * Where the reopened page's payment returns the customer. Like a checkout
  * submission, the last request that hands out the order's payment page
  * decides.
@@ -494,6 +588,44 @@ export const CustomerReservationsApi = HttpApiGroup.make("reservations")
       error: [
         CustomerReservationNotFound.schema,
         CustomerPaymentRetryRefused.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    })
+  )
+  .add(
+    /**
+     * The order's withdrawal quote: the statement's details and the refund,
+     * while the customer can withdraw from it now.
+     */
+    HttpApiEndpoint.get("getWithdrawalQuote", "/:orderId/withdrawal", {
+      params: OrderParams,
+      /** The language of `contractLabel`; the default locale when absent. */
+      query: Schema.Struct({ locale: Schema.optionalKey(CustomerLocale) }),
+      success: CustomerWithdrawalQuote,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerWithdrawalRefused.schema,
+        CustomerFeatureUnavailable.schema,
+        CustomerAccountLinkRequired.schema,
+        CustomerServiceUnavailable.schema,
+      ],
+    })
+  )
+  .add(
+    /**
+     * Withdraws from the order: the online withdrawal function's "Confirm
+     * withdrawal". The receipt email follows; ending the booking and marking
+     * the refund happen after it and never fail the request.
+     */
+    HttpApiEndpoint.post("withdrawFromReservation", "/:orderId/withdrawal", {
+      params: OrderParams,
+      payload: WithdrawFromCustomerReservation,
+      success: CustomerWithdrawalReceipt,
+      error: [
+        CustomerReservationNotFound.schema,
+        CustomerWithdrawalRefused.schema,
+        CustomerFeatureUnavailable.schema,
+        CustomerAccountLinkRequired.schema,
         CustomerServiceUnavailable.schema,
       ],
     })

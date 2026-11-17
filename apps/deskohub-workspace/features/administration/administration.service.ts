@@ -37,6 +37,8 @@ import { unstable_rethrow } from "next/navigation";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { equalsAny } from "@/db/equals-any";
 import {
+  type ContractWithdrawalRow,
+  contractWithdrawals,
   customerMarketingConsents,
   discountApplications,
   type LatePaymentRecoveryState,
@@ -50,6 +52,8 @@ import {
   webhookEvents,
   workspaceReservations,
 } from "@/db/schema";
+import { toContractWithdrawal } from "@/features/withdrawal/backend/withdrawal.repository";
+import type { WithdrawalRefundBasis } from "@/features/withdrawal/withdrawal-assessment";
 import {
   isCustomerOwnAuthor,
   ReservationAuthorDirectory,
@@ -322,6 +326,11 @@ export type AdministrationPaymentAttempt = {
   readonly stateLabel: string;
   readonly failureCode: string | null;
   readonly amount: Money;
+  /**
+   * What the refund owes while one is required or done: the whole payment,
+   * or less after a customer's partial withdrawal. Null when none is owed.
+   */
+  readonly refundTarget: Money | null;
   /** Total Nexi reports as refunded; set only when `refundState` is `refunded`. */
   readonly refundedAmount: Money | null;
   readonly refundedAt: string | null;
@@ -449,6 +458,8 @@ export type AdministrationReservationDetail = {
   /** Absent when the reservation is authorless or the customer booked it. */
   readonly author: AdministrationReservationAuthor | null;
   readonly canCancel: boolean;
+  /** The customer's online withdrawal from the reservation, once submitted. */
+  readonly withdrawal: AdministrationReservationWithdrawal | null;
   readonly reservation: AdministrationReservationSummary;
   readonly booking: AdministrationBookingSummary | null;
   readonly lifecycle: ReturnType<typeof getAdministrationReservationLifecycle>;
@@ -613,6 +624,7 @@ type SafePaymentAttemptRow = {
   readonly state: PaymentAttemptState;
   readonly failureCode: string | null;
   readonly refundState: PaymentRefundState;
+  readonly refundTargetValue: number | null;
   readonly refundedAmountValue: number | null;
   readonly refundedAt: Temporal.Instant | null;
   readonly amountValue: number;
@@ -631,6 +643,7 @@ const safePaymentAttemptSelection = {
   state: paymentAttempts.state,
   failureCode: paymentAttempts.failureCode,
   refundState: paymentAttempts.refundState,
+  refundTargetValue: paymentAttempts.refundTargetValue,
   refundedAmountValue: paymentAttempts.refundedAmountValue,
   refundedAt: paymentAttempts.refundedAt,
   amountValue: paymentAttempts.amountValue,
@@ -661,6 +674,14 @@ const toAdministrationPaymentAttempt = (
     exponent: attempt.amountExponent,
     currency: attempt.currency,
   },
+  refundTarget:
+    attempt.refundState === "not_required"
+      ? null
+      : {
+          value: attempt.refundTargetValue ?? attempt.amountValue,
+          exponent: attempt.amountExponent,
+          currency: attempt.currency,
+        },
   refundedAmount:
     attempt.refundedAmountValue === null
       ? null
@@ -792,6 +813,40 @@ type LiveReservationDetails = {
  * A reservation is refunded once Nexi reports a refund for every payment that
  * required one. Any successful refund counts, including a partial one.
  */
+/**
+ * A customer's online withdrawal as operators see it: when it was submitted,
+ * what it owes back, and whether its receipt, notice and cancellation are
+ * done (`settled`), still running (`in_progress`), or failed and are being
+ * retried (`needs_attention`).
+ */
+export type AdministrationReservationWithdrawal = {
+  readonly submittedAt: string;
+  readonly refundAmount: Money;
+  readonly refundBasis: WithdrawalRefundBasis;
+  readonly settlement: "settled" | "in_progress" | "needs_attention";
+  readonly settlementFailureCode: string | null;
+};
+
+const toReservationWithdrawal = (
+  row: ContractWithdrawalRow | undefined
+): AdministrationReservationWithdrawal | null => {
+  if (!row) return null;
+  const withdrawal = toContractWithdrawal(row);
+  return {
+    submittedAt: toIsoString(withdrawal.submittedAt),
+    refundAmount: withdrawal.refundAmount,
+    refundBasis: withdrawal.refundBasis,
+    settlement: withdrawal.settledAt
+      ? "settled"
+      : withdrawal.settlementAttempts > 0
+        ? "needs_attention"
+        : "in_progress",
+    settlementFailureCode: withdrawal.settledAt
+      ? null
+      : withdrawal.settlementFailureCode,
+  };
+};
+
 const isReservationRefunded = (
   attempts: readonly Pick<SafePaymentAttemptRow, "refundState">[]
 ) =>
@@ -1235,7 +1290,11 @@ export class AdministrationService extends Context.Service<
     readonly loadOverview: (
       source: AdministrationOverviewSource
     ) => Effect.Effect<AdministrationOverview, EffectDrizzleQueryError>;
-    /** Reservations with at least one paid Nexi attempt awaiting refund work. */
+    /**
+     * Reservations with a paid Nexi attempt awaiting refund work, or a
+     * customer's withdrawal owing a refund that its cancellation hasn't
+     * marked yet.
+     */
     readonly countReservationsNeedingRefund: () => Effect.Effect<
       number,
       EffectDrizzleQueryError
@@ -1784,11 +1843,9 @@ export class AdministrationService extends Context.Service<
         "AdministrationService.countReservationsNeedingRefund"
       )(function* () {
         const [row] = yield* db
-          .select({
-            value: countDistinct(paymentAttempts.workspaceReservationId),
-          })
-          .from(paymentAttempts)
-          .where(eq(paymentAttempts.refundState, "required"));
+          .select({ value: count() })
+          .from(workspaceReservations)
+          .where(reservationStatusCondition("needs_refund"));
         return Number(row?.value ?? 0);
       });
 
@@ -2027,8 +2084,19 @@ export class AdministrationService extends Context.Service<
           orders,
           otherRows,
           tables,
+          withdrawalRows,
         } = yield* Effect.all(
           {
+            withdrawalRows: db
+              .select()
+              .from(contractWithdrawals)
+              .where(
+                and(
+                  eq(contractWithdrawals.contractKind, "reservation"),
+                  eq(contractWithdrawals.contractId, row.id)
+                )
+              )
+              .limit(1),
             accessRows: db
               .select({
                 id: reservationAccessGrants.id,
@@ -2192,6 +2260,7 @@ export class AdministrationService extends Context.Service<
             customerId: row.dotyposCustomerId,
           },
           canCancel: canCancelReservation(row),
+          withdrawal: toReservationWithdrawal(withdrawalRows[0]),
         } satisfies AdministrationReservationDetail;
       });
 
