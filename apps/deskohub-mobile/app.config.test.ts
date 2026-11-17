@@ -374,7 +374,7 @@ describe("App Links", () => {
     const opened = [production, preview].flatMap((origin) => [
       contactPageUrl(origin),
       sitePageUrl("/ai-assistants", origin),
-      workspaceUpdateUrls(origin).androidDownloadUrl,
+      workspaceUpdateUrls(origin).androidApkUrl("1.2.3"),
       ...legalDocuments.flatMap((document) => [
         legalDocumentUrl(document, origin),
         ...supportedLocales.map((locale) =>
