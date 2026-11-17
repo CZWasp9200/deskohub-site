@@ -7709,6 +7709,21 @@
         "required": ["amount", "currency"],
         "additionalProperties": false
       },
+      "CustomerInvoiceCancellation": {
+        "type": "object",
+        "properties": {
+          "correctiveDocumentNumber": {
+            "type": "string",
+            "allOf": [
+              {
+                "minLength": 1
+              }
+            ]
+          }
+        },
+        "required": ["correctiveDocumentNumber"],
+        "additionalProperties": false
+      },
       "CustomerInvoicedReservation": {
         "type": "object",
         "properties": {
@@ -7757,6 +7772,9 @@
           },
           "orderId": {
             "$ref": "#/components/schemas/CustomerReservationOrderId"
+          },
+          "cancellation": {
+            "$ref": "#/components/schemas/CustomerInvoiceCancellation"
           },
           "reservation": {
             "$ref": "#/components/schemas/CustomerInvoicedReservation"
