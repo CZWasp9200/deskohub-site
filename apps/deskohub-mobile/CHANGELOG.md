@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+* **mobile:** signing in from the app works again; the website's browser check no longer rejects the sign-in page
 * **mobile:** when an app store or updater such as Obtainium installed the app, it no longer offers its own download; the updater handles new versions
 * **mobile:** the Download button opens the new version's file on the Deskohub website instead of the Android page
 
