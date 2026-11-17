@@ -20,6 +20,7 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import type { ReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { PaymentRetryHoldService } from "../holds/payment-retry-hold.service";
 import { AttemptPromotionCodesRepository } from "../repositories/attempt-promotion-codes.repository";
@@ -57,6 +58,7 @@ const quote = buildCoworkReservationQuote(order);
 const snapshotFor = (input: {
   readonly date?: string;
   readonly deliveryEmail?: string;
+  readonly billing?: ReservationBillingSelection;
 }) =>
   makeAccountingDocumentSnapshot({
     workspaceReservationId: orderId,
@@ -72,7 +74,7 @@ const snapshotFor = (input: {
         name: "Ada Lovelace",
         email: input.deliveryEmail ?? customerEmail,
         phone: "+420700000000",
-        billing: { purpose: "personal", invoice: "none" },
+        billing: input.billing ?? { purpose: "personal", invoice: "none" },
       },
       quote,
     } as never,
@@ -341,9 +343,42 @@ describe("CheckoutPaymentRetryService.prepare", () => {
       customer: { email: testEmailAddress("dotypos-record") },
       snapshot: snapshotFor({ deliveryEmail: accountEmail }),
     });
-    const { state } = await openReady(await result);
+    const { preparation, state } = await openReady(await result);
 
     expect(state.reservation.email).toBe(accountEmail);
+    expect(preparation.details).toEqual({
+      bookingFor: "self",
+      contact: { name: "Ada Lovelace", email: accountEmail },
+      billing: { purpose: "personal", invoice: "none" },
+    });
+  });
+
+  test("keeps the details of an order booked for someone else, invoiced to a company", async () => {
+    const billing = {
+      purpose: "business",
+      invoice: "required",
+      buyer: {
+        kind: "business",
+        legalName: "Analytical Engines s.r.o.",
+        companyId: "27074358",
+        vatId: "CZ27074358",
+        address: {
+          line1: "Na Pankráci 1",
+          city: "Praha",
+          postalCode: "140 00",
+          country: "CZ",
+        },
+      },
+    } as const satisfies ReservationBillingSelection;
+    const { result } = runPrepare({ snapshot: snapshotFor({ billing }) });
+    const { preparation, state } = await openReady(await result);
+
+    expect(preparation.details).toEqual({
+      bookingFor: "someone-else",
+      contact: { name: "Ada Lovelace", email: customerEmail },
+      billing,
+    });
+    expect(state.reservation.billing).toEqual(billing);
   });
 
   test.each<[string, Harness, PaymentRetryPreparation]>([

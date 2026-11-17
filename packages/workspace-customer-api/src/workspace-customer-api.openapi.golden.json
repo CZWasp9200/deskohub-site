@@ -1793,11 +1793,11 @@
         "security": [],
         "responses": {
           "200": {
-            "description": "CustomerCheckout",
+            "description": "CustomerPaymentRetry",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CustomerCheckout"
+                  "$ref": "#/components/schemas/CustomerPaymentRetry"
                 }
               }
             }
@@ -6343,7 +6343,171 @@
         "required": ["sectionKeys", "itemKeys"],
         "additionalProperties": false
       },
-      "CustomerCheckout": {
+      "CustomerInvoiceAddress": {
+        "type": "object",
+        "properties": {
+          "line1": {
+            "type": "string",
+            "allOf": [
+              {
+                "maxLength": 180
+              }
+            ]
+          },
+          "line2": {
+            "type": "string",
+            "allOf": [
+              {
+                "maxLength": 180
+              }
+            ]
+          },
+          "city": {
+            "type": "string",
+            "allOf": [
+              {
+                "maxLength": 255
+              }
+            ]
+          },
+          "postalCode": {
+            "type": "string",
+            "allOf": [
+              {
+                "maxLength": 20
+              }
+            ]
+          },
+          "country": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^[A-Z]{2}$"
+              }
+            ]
+          }
+        },
+        "required": ["line1", "city", "postalCode", "country"],
+        "additionalProperties": false
+      },
+      "CustomerCheckoutBilling": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "purpose": {
+                "type": "string",
+                "enum": ["personal"]
+              },
+              "invoice": {
+                "type": "string",
+                "enum": ["none"]
+              }
+            },
+            "required": ["purpose", "invoice"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "purpose": {
+                "type": "string",
+                "enum": ["personal"]
+              },
+              "invoice": {
+                "type": "string",
+                "enum": ["requested"]
+              },
+              "address": {
+                "$ref": "#/components/schemas/CustomerInvoiceAddress"
+              }
+            },
+            "required": ["purpose", "invoice", "address"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "purpose": {
+                "type": "string",
+                "enum": ["business"]
+              },
+              "invoice": {
+                "type": "string",
+                "enum": ["required"]
+              },
+              "buyer": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["business"]
+                  },
+                  "legalName": {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "maxLength": 180
+                      }
+                    ]
+                  },
+                  "companyId": {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "maxLength": 64
+                      }
+                    ]
+                  },
+                  "vatId": {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "maxLength": 64
+                      }
+                    ]
+                  },
+                  "address": {
+                    "$ref": "#/components/schemas/CustomerInvoiceAddress"
+                  }
+                },
+                "required": ["kind", "legalName", "companyId", "address"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["purpose", "invoice", "buyer"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "CustomerPaymentRetryDetails": {
+        "type": "object",
+        "properties": {
+          "bookingFor": {
+            "type": "string",
+            "enum": ["self", "someone-else"]
+          },
+          "contact": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
+            },
+            "required": ["name", "email"],
+            "additionalProperties": false
+          },
+          "billing": {
+            "$ref": "#/components/schemas/CustomerCheckoutBilling"
+          }
+        },
+        "required": ["bookingFor", "contact", "billing"],
+        "additionalProperties": false
+      },
+      "CustomerPaymentRetry": {
         "type": "object",
         "properties": {
           "status": {
@@ -6414,6 +6578,9 @@
           },
           "rememberReferralCode": {
             "$ref": "#/components/schemas/ReferralCode"
+          },
+          "details": {
+            "$ref": "#/components/schemas/CustomerPaymentRetryDetails"
           }
         },
         "required": [
@@ -6423,7 +6590,8 @@
           "expiresAt",
           "holdExpiresAt",
           "summary",
-          "earlyPerformanceConsent"
+          "earlyPerformanceConsent",
+          "details"
         ],
         "additionalProperties": false
       },
@@ -7018,143 +7186,6 @@
         "required": ["documents"],
         "additionalProperties": false
       },
-      "CustomerInvoiceAddress": {
-        "type": "object",
-        "properties": {
-          "line1": {
-            "type": "string",
-            "allOf": [
-              {
-                "maxLength": 180
-              }
-            ]
-          },
-          "line2": {
-            "type": "string",
-            "allOf": [
-              {
-                "maxLength": 180
-              }
-            ]
-          },
-          "city": {
-            "type": "string",
-            "allOf": [
-              {
-                "maxLength": 255
-              }
-            ]
-          },
-          "postalCode": {
-            "type": "string",
-            "allOf": [
-              {
-                "maxLength": 20
-              }
-            ]
-          },
-          "country": {
-            "type": "string",
-            "allOf": [
-              {
-                "pattern": "^[A-Z]{2}$"
-              }
-            ]
-          }
-        },
-        "required": ["line1", "city", "postalCode", "country"],
-        "additionalProperties": false
-      },
-      "CustomerCheckoutBilling": {
-        "anyOf": [
-          {
-            "type": "object",
-            "properties": {
-              "purpose": {
-                "type": "string",
-                "enum": ["personal"]
-              },
-              "invoice": {
-                "type": "string",
-                "enum": ["none"]
-              }
-            },
-            "required": ["purpose", "invoice"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "purpose": {
-                "type": "string",
-                "enum": ["personal"]
-              },
-              "invoice": {
-                "type": "string",
-                "enum": ["requested"]
-              },
-              "address": {
-                "$ref": "#/components/schemas/CustomerInvoiceAddress"
-              }
-            },
-            "required": ["purpose", "invoice", "address"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "purpose": {
-                "type": "string",
-                "enum": ["business"]
-              },
-              "invoice": {
-                "type": "string",
-                "enum": ["required"]
-              },
-              "buyer": {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": ["business"]
-                  },
-                  "legalName": {
-                    "type": "string",
-                    "allOf": [
-                      {
-                        "maxLength": 180
-                      }
-                    ]
-                  },
-                  "companyId": {
-                    "type": "string",
-                    "allOf": [
-                      {
-                        "maxLength": 64
-                      }
-                    ]
-                  },
-                  "vatId": {
-                    "type": "string",
-                    "allOf": [
-                      {
-                        "maxLength": 64
-                      }
-                    ]
-                  },
-                  "address": {
-                    "$ref": "#/components/schemas/CustomerInvoiceAddress"
-                  }
-                },
-                "required": ["kind", "legalName", "companyId", "address"],
-                "additionalProperties": false
-              }
-            },
-            "required": ["purpose", "invoice", "buyer"],
-            "additionalProperties": false
-          }
-        ]
-      },
       "CreateCustomerCheckout": {
         "type": "object",
         "properties": {
@@ -7242,6 +7273,90 @@
           "bookingFor",
           "contact",
           "billing"
+        ],
+        "additionalProperties": false
+      },
+      "CustomerCheckout": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ready", "price_review"]
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "payStateToken": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "holdExpiresAt": {
+            "type": "string",
+            "description": "ISO 8601 instant."
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CustomerCheckoutSummary"
+          },
+          "appliedDiscountCode": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "discountId": {
+                "type": "string"
+              }
+            },
+            "required": ["code", "discountId"],
+            "additionalProperties": false
+          },
+          "priceReview": {
+            "type": "object",
+            "properties": {
+              "changedKeys": {
+                "$ref": "#/components/schemas/CustomerCheckoutChangedKeys"
+              }
+            },
+            "required": ["changedKeys"],
+            "additionalProperties": false
+          },
+          "earlyPerformanceConsent": {
+            "type": "object",
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "requiredFrom": {
+                "type": "string",
+                "description": "ISO 8601 instant."
+              }
+            },
+            "required": ["required", "requiredFrom"],
+            "additionalProperties": false
+          },
+          "referralApplied": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "rememberedReferralCodeUsed": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "rememberReferralCode": {
+            "$ref": "#/components/schemas/ReferralCode"
+          }
+        },
+        "required": [
+          "status",
+          "orderId",
+          "payStateToken",
+          "expiresAt",
+          "holdExpiresAt",
+          "summary",
+          "earlyPerformanceConsent"
         ],
         "additionalProperties": false
       },

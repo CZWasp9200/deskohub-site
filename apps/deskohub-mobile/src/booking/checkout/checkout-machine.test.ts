@@ -206,10 +206,14 @@ describe("payment retry", () => {
   test.each(["ready", "price_review"] as const)(
     "an order paid again (%s) opens at its review, the terms loading and unticked",
     (status) => {
-      const started = startPaymentRetry(startInput, checkout({ status }));
+      const started = startPaymentRetry(
+        startInput,
+        checkout({ status }),
+        details
+      );
       expect(started.state).toMatchObject({
         _tag: "Review",
-        kind: ReviewKind.PaymentRetry(),
+        kind: ReviewKind.PaymentRetry({ details }),
         consent: Option.none(),
       });
       expect(tags(started)).toEqual(["LoadLegalDocuments"]);
@@ -217,7 +221,7 @@ describe("payment retry", () => {
   );
 
   test("a retry pays through the same submit, to the order's status", () => {
-    const started = startPaymentRetry(startInput, checkout());
+    const started = startPaymentRetry(startInput, checkout(), details);
     const agreed = run(
       started.state,
       CheckoutEvent.LegalDocumentsLoaded({

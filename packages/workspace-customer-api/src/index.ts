@@ -151,6 +151,8 @@ export {
   CustomerPaymentPage,
   CustomerPaymentPageClosed,
   CustomerPaymentPageClosedReason,
+  CustomerPaymentRetry,
+  CustomerPaymentRetryDetails,
   CustomerPaymentRetryRefused,
   CustomerPaymentRetryRefusedReason,
   CustomerReservationAccess,

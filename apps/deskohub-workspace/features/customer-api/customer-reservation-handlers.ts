@@ -375,17 +375,18 @@ const answerPaymentPage = (reopening: PaymentPageReopening) =>
   );
 
 /**
- * The same order's checkout to pay again, or why it can't be paid again in
- * place; the app then books the selection again or, while the earlier
- * payment may still settle, checks the status later.
+ * The same order's checkout to pay again with the details it keeps, or why
+ * it can't be paid again in place; the app then books the selection again
+ * or, while the earlier payment may still settle, checks the status later.
  */
 const answerPaymentRetry = (preparation: PaymentRetryPreparation) =>
   Match.value(preparation).pipe(
     Match.discriminatorsExhaustive("state")({
-      ready: ({ checkout, payState }) =>
-        Effect.succeed(
-          toCustomerCheckout(checkout, payState.freshPayStateToken)
-        ),
+      ready: ({ checkout, payState, details }) =>
+        Effect.succeed({
+          ...toCustomerCheckout(checkout, payState.freshPayStateToken),
+          details,
+        }),
       not_found: () => Effect.fail(new CustomerReservationNotFound()),
       not_retryable: ({ reason }) =>
         Effect.fail(new CustomerPaymentRetryRefused({ reason })),

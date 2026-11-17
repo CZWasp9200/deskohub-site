@@ -271,9 +271,9 @@ function BookingCard({
   readonly earlySetup: boolean;
   /** An overnight Reserved Desk's times from the catalog. */
   readonly overnightStay: CoworkOvernightStay | undefined;
-  /** For whom and who is invoiced; a retried order doesn't tell the app. */
-  readonly party: Option.Option<ReviewParty>;
-  readonly invoice: Option.Option<ReviewInvoice>;
+  /** For whom and who is invoiced. */
+  readonly party: ReviewParty;
+  readonly invoice: ReviewInvoice;
 }) {
   const summary = bookingSummaryParts(selection, locale, overnightStay);
   return (
@@ -302,16 +302,12 @@ function BookingCard({
             )}
           </View>
         </View>
-        {Option.isSome(party) && (
-          <PartyRows party={party.value} locale={locale} />
-        )}
-        {Option.isSome(invoice) && (
-          <Row label={m.booking_details_invoice_heading({}, { locale })}>
-            <Text variant="bodySmall" style={styles.end}>
-              {invoiceText(invoice.value, locale)}
-            </Text>
-          </Row>
-        )}
+        <PartyRows party={party} locale={locale} />
+        <Row label={m.booking_details_invoice_heading({}, { locale })}>
+          <Text variant="bodySmall" style={styles.end}>
+            {invoiceText(invoice, locale)}
+          </Text>
+        </Row>
       </View>
     </Card>
   );

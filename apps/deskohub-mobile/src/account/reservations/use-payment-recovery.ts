@@ -87,7 +87,7 @@ export const usePaymentRecovery = (
       onFailure: failed,
       onSuccess: (outcome) =>
         PaymentRetryOutcome.$match(outcome, {
-          Checkout: ({ checkout }) => {
+          Checkout: ({ checkout, details }) => {
             setCheckoutRequest(
               Option.some({
                 _tag: "PaymentRetry",
@@ -97,6 +97,7 @@ export const usePaymentRecovery = (
                   ? {}
                   : { earlySetup: booked.earlySetup }),
                 checkout,
+                details,
                 previousTotal: order.total ?? checkout.summary.total,
               })
             );

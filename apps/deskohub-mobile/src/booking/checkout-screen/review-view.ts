@@ -15,8 +15,9 @@ import { bookingOverviewOf } from "./booking-overview";
 
 /**
  * Who the booking is for and who is invoiced, as the details step sent
- * them. `bookerName` is the account's own name, for "Booked by" when the
- * booking is for someone else; none while the account isn't read.
+ * them or the server kept them for an order paid again. `bookerName` is the
+ * account's own name, for "Booked by" when the booking is for someone else;
+ * none while the account isn't read.
  */
 export type ReviewParty =
   | { readonly _tag: "Self"; readonly name: string }
@@ -33,8 +34,14 @@ export type ReviewInvoice =
   | { readonly _tag: "Personal"; readonly city: string }
   | { readonly _tag: "Company"; readonly legalName: string };
 
+/** Who books, as a new booking's details or a retried order's carry it. */
+interface BookedParty {
+  readonly bookingFor: CheckoutDetails["bookingFor"];
+  readonly contact: Pick<CheckoutDetails["contact"], "name" | "email">;
+}
+
 export const reviewParty = (
-  details: CheckoutDetails,
+  details: BookedParty,
   bookerName: Option.Option<string>
 ): ReviewParty =>
   details.bookingFor === "self"
@@ -46,7 +53,9 @@ export const reviewParty = (
         bookerName,
       };
 
-export const reviewInvoice = ({ billing }: CheckoutDetails): ReviewInvoice => {
+export const reviewInvoice = ({
+  billing,
+}: Pick<CheckoutDetails, "billing">): ReviewInvoice => {
   if (billing.purpose === "business") {
     return { _tag: "Company", legalName: billing.buyer.legalName };
   }
@@ -210,12 +219,12 @@ export interface ReviewView {
    * terms are confirmed again.
    */
   readonly retry: boolean;
-  /** For whom; unknown to the app for a retried order. */
-  readonly party: Option.Option<ReviewParty>;
+  /** For whom. */
+  readonly party: ReviewParty;
   /** A meeting room booked with early setup: the room opens before the start. */
   readonly earlySetup: boolean;
-  /** Who is invoiced; unknown to the app for a retried order. */
-  readonly invoice: Option.Option<ReviewInvoice>;
+  /** Who is invoiced. */
+  readonly invoice: ReviewInvoice;
   readonly price: ReviewPriceView;
   readonly priceChange: Option.Option<PriceChangeView>;
   readonly code: CodeFieldView;
@@ -263,16 +272,13 @@ export const reviewView = (
     })
   );
   const consented = Option.isSome(review.consent);
-  const details =
-    review.kind._tag === "NewBooking"
-      ? Option.some(review.kind.details)
-      : Option.none();
+  const { details } = review.kind;
   const retry = review.kind._tag === "PaymentRetry";
   return {
     retry,
-    party: Option.map(details, (booked) => reviewParty(booked, bookerName)),
+    party: reviewParty(details, bookerName),
     earlySetup: withEarlySetup(review),
-    invoice: Option.map(details, reviewInvoice),
+    invoice: reviewInvoice(details),
     price: {
       breakdown: priceBreakdown(checkout.summary),
       was: sameMoney(quotedTotal, total)

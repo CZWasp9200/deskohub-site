@@ -194,11 +194,9 @@ const reviewOf = (
 ): ReviewState =>
   CheckoutState.Review({
     flow,
-    kind: frame.retry
-      ? ReviewKind.PaymentRetry()
-      : ReviewKind.NewBooking({
-          details: (frame.details ?? selfDetails)(sample),
-        }),
+    kind: (frame.retry ? ReviewKind.PaymentRetry : ReviewKind.NewBooking)({
+      details: (frame.details ?? selfDetails)(sample),
+    }),
     checkout: {
       orderId: "gallery-order",
       payStateToken: "gallery-token",

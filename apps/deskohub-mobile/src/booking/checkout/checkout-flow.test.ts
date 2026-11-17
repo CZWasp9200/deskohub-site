@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   CustomerCheckoutDetailsInvalid,
   type CustomerOffering,
@@ -700,6 +701,14 @@ describe("checkoutOvernightStay", () => {
         required: false,
         requiredFrom: "2026-11-26T00:00:00.000Z",
       },
+    },
+    details: {
+      bookingFor: "self",
+      contact: {
+        name: "Synthetic Booker",
+        email: testEmailAddress("booker"),
+      },
+      billing: { purpose: "personal", invoice: "none" },
     },
     previousTotal: summary.total,
   };

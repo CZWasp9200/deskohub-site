@@ -35,6 +35,7 @@ import {
 } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
 import {
   CheckoutPaymentRetryService,
+  type PaymentRetryDetails,
   type PaymentRetryPreparation,
   PaymentRetryUnavailableError,
 } from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
@@ -949,6 +950,28 @@ describe("retryPayment", () => {
   const answering = (preparation: PaymentRetryPreparation) =>
     paymentRetryServices(() => Effect.succeed(preparation));
 
+  /** An order booked for someone else, invoiced to a company. */
+  const retryDetails = {
+    bookingFor: "someone-else",
+    contact: { name: retryReservation.name, email: retryReservation.email },
+    billing: {
+      purpose: "business",
+      invoice: "required",
+      buyer: {
+        kind: "business",
+        legalName: "Analytical Engines s.r.o.",
+        companyId: "27074358",
+        vatId: "CZ27074358",
+        address: {
+          line1: "Na Pankráci 1",
+          city: "Praha",
+          postalCode: "140 00",
+          country: "CZ",
+        },
+      },
+    },
+  } as const satisfies PaymentRetryDetails;
+
   const ready = async (
     changedKeys?: PayStateCheckoutView["changedKeys"]
   ): Promise<PaymentRetryPreparation> => {
@@ -961,12 +984,13 @@ describe("retryPayment", () => {
         expiresAt: checkout.expiresAt,
       },
       checkout,
+      details: retryDetails,
     };
   };
 
   testCustomerEndpointGuards(retryPayment);
 
-  test("answers the same order's checkout to pay again, in the app's locale", async () => {
+  test("answers the same order's checkout to pay again with its kept details, in the app's locale", async () => {
     const preparation = await ready();
     const prepare = mock(() => Effect.succeed(preparation));
     const api = makeCustomerApiTestServer({
@@ -980,6 +1004,7 @@ describe("retryPayment", () => {
       status: "ready",
       orderId,
       payStateToken: "retry-pay-state-token",
+      details: retryDetails,
     });
     // The session alone authorizes it: no access cookie or link token.
     expect(prepare).toHaveBeenCalledWith({ orderId, locale: "cs-CZ" });
