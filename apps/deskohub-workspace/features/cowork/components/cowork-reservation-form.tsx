@@ -776,9 +776,9 @@ function CoworkReservationDateField({
               overnight && field.value ? (
                 <span
                   data-cowork-overnight-stay-times
-                  className="flex items-center gap-1.5"
+                  className="flex items-start gap-1.5"
                 >
-                  <Clock3 className="h-4 w-4 shrink-0 text-burned-orange" />
+                  <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-burned-orange" />
                   {formatCoworkOvernightStay(field.value, locale)}
                 </span>
               ) : (
