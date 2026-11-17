@@ -2711,7 +2711,9 @@ const formatReservationEarlySetup = (
 const formatReservationAuthor = (author: AdministrationReservationAuthorType) =>
   `Booked by: ${
     author.kind === "account"
-      ? `${author.displayName} <${author.email}>`
+      ? [author.displayName, author.email && `<${author.email}>`]
+          .filter(Boolean)
+          .join(" ")
       : { deleted: "deleted account", unavailable: "unavailable" }[author.kind]
   }`;
 

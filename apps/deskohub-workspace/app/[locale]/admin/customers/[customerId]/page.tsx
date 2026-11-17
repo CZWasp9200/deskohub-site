@@ -52,9 +52,9 @@ export async function AdministrationCustomerDetailContent({
   // The full layout needs both the customer and the discount sections.
   const profile = Match.value(lookup).pipe(
     Match.discriminatorsExhaustive("kind")({
-      found: ({ customer }) =>
+      found: ({ customer, readAt }) =>
         discounts.sections && {
-          customer: toAdminDotyposCustomer(customer),
+          customer: toAdminDotyposCustomer(customer, readAt),
           ...discounts.sections,
         },
       absent: () => null,

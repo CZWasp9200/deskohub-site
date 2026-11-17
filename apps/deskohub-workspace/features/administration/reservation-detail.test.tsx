@@ -11,6 +11,7 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import type { AdministrationReservationDetail as ReservationDetailData } from "./administration.service";
+import { inactiveCustomerDisplayNames } from "./customer-name";
 import { loadFixtureReservation } from "./fixtures";
 import { formatAdministrationDateTime } from "./formatters";
 
@@ -215,4 +216,41 @@ describe("AdministrationReservationDetail", () => {
       ).toBeDefined();
     });
   }
+
+  test.each(["deleted", "expired"] as const)(
+    "shows no contact row for an author whose customer is %s",
+    async (lifecycle) => {
+      locale = "en-US";
+      const fixture = loadFixtureReservation("0198-admin-fixture-attention");
+      if (!fixture) throw new Error("Missing reservation fixture");
+      const renderAuthorValue = async (email: string) => {
+        detail = {
+          ...fixture,
+          author: {
+            kind: "account",
+            customerId: DotyposCustomerIdSchema.make("customer-ada"),
+            displayName: inactiveCustomerDisplayNames[lifecycle],
+            hasName: false,
+            lifecycle,
+            email,
+          },
+        };
+        const view = await prerenderReservationDetail();
+        const value = view.getByText(authorCases[0].label).nextElementSibling;
+        if (!(value instanceof HTMLElement)) {
+          throw new Error("Missing Booked by value");
+        }
+        return value;
+      };
+
+      const withEmail = await renderAuthorValue(authorEmail);
+      const withoutEmail = await renderAuthorValue("");
+
+      expect(within(withEmail).getByText(authorEmail)).toBeDefined();
+      expect(withoutEmail.childElementCount).toBe(
+        withEmail.childElementCount - 1
+      );
+      expect(within(withoutEmail).queryByRole("link")).toBeNull();
+    }
+  );
 });
