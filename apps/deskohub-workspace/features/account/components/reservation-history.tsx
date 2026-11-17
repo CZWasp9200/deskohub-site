@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { CalendarDays, UserRound, Users } from "lucide-react";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import type {
@@ -347,27 +348,18 @@ function FeaturedReservationItem({
             )}
           </div>
 
-          <div className="min-w-0 rounded-xl bg-[#f6f8fa] p-4 text-sm text-[#475569]">
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <span className="min-w-0 break-words">
-                {m.accountReservationAssignedDesk({}, { locale })}
-              </span>
-              <span className="shrink-0 font-medium text-[#475569]">
-                {m.accountFeatureUnavailable({}, { locale })}
-              </span>
-            </div>
-            <div className="mt-3 flex min-w-0 items-start justify-between gap-3">
-              <span className="min-w-0 break-words">
-                {m.accountReservationWifi({}, { locale })}
-              </span>
-              <span className="shrink-0 font-medium text-[#475569]">
-                {m.accountFeatureUnavailable({}, { locale })}
-              </span>
-            </div>
-          </div>
+          <ReservationOnSiteBox locale={locale} onSite={reservation.onSite} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-3 border-t border-[#dfe4ec] p-6 @3xl:flex-row @3xl:items-center @3xl:justify-between @3xl:gap-4 @4xl:py-4">
+          {reservation.workspaceReservationId && (
+            <div className="min-w-0 *:w-full @3xl:*:w-auto">
+              <ReservationDetailLink
+                locale={locale}
+                reservation={reservation}
+              />
+            </div>
+          )}
           <ReservationAccessButton
             className="@3xl:w-auto"
             href={
@@ -382,17 +374,84 @@ function FeaturedReservationItem({
                 : m.accountReservationPinUnavailable({}, { locale })
             }
           />
-          {reservation.workspaceReservationId && (
-            <div className="min-w-0 *:w-full @3xl:*:w-auto">
-              <ReservationDetailLink
-                locale={locale}
-                reservation={reservation}
-              />
-            </div>
-          )}
         </div>
       </Card>
     </li>
+  );
+}
+
+function OnSiteRow({
+  label,
+  children,
+}: {
+  readonly label: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-start justify-between gap-3">
+      <dt className="min-w-0">{label}</dt>
+      <dd className="min-w-0 break-words text-right font-semibold text-[#00024f]">
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * The table and Wi-Fi of a confirmed booking, as its confirmation email
+ * sends them. Rows without data are left out; nothing renders without both.
+ */
+function ReservationOnSiteBox({
+  locale,
+  onSite,
+}: {
+  readonly locale: Locale;
+  readonly onSite: CustomerReservationSummary["onSite"];
+}) {
+  const table = onSite?.table;
+  const network = onSite?.network;
+  if (!table && !network) return null;
+
+  return (
+    <dl className="m-0 min-w-0 self-start rounded-xl bg-[#f6f8fa] p-4 text-sm leading-5 text-[#475569]">
+      {table && (
+        <OnSiteRow
+          label={
+            {
+              assigned: m.accountReservationAssignedDesk({}, { locale }),
+              shared: m.checkoutEmailTablesLabel({}, { locale }),
+            }[table.mode]
+          }
+        >
+          {table.name}
+        </OnSiteRow>
+      )}
+      {network && (
+        <div
+          className={table ? "mt-3 border-t border-[#dfe4ec] pt-3" : undefined}
+        >
+          <dt className="font-semibold text-[#344258]">
+            {m.accountReservationWifi({}, { locale })}
+          </dt>
+          <dd className="m-0 mt-2">
+            <dl className="m-0 space-y-2">
+              <div className="min-w-0">
+                <dt>{m.checkoutEmailNetworkSsidLabel({}, { locale })}</dt>
+                <dd className="m-0 break-words font-semibold text-[#00024f]">
+                  {network.ssid}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt>{m.checkoutEmailNetworkPasswordLabel({}, { locale })}</dt>
+                <dd className="m-0 select-all break-all font-mono font-semibold text-[#00024f]">
+                  {network.password}
+                </dd>
+              </div>
+            </dl>
+          </dd>
+        </div>
+      )}
+    </dl>
   );
 }
 

@@ -10,6 +10,69 @@ import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checko
 import { CheckoutStatusPage } from "@/features/checkout/components/checkout-status-page";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
 import { ReservationDetailsModal } from "@/features/reservation/components/reservation-details-modal";
+import { type DotyposTable, DotyposTableIdSchema } from "@deskohub/dotypos";
+import { Effect, Layer } from "effect";
+import { WorkspaceCheckoutNetworkDetailsService } from "@/features/checkout/backend/fulfillment/network-details.service";
+import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { ReservationOnSite } from "@/features/reservation/backend/reservation-on-site-details";
+
+// Stub Dotypos tables: reserved desk 12, and Open Space tables 1–8 and 10.
+const stubTable = (name: string, tag: string, seats: string): DotyposTable =>
+  ({
+    _cloudId: "cloud",
+    id: `table-${name}`,
+    name,
+    display: true,
+    enabled: true,
+    locationName: "Main room",
+    seats,
+    tags: [tag],
+  }) as DotyposTable;
+const stubTables = [
+  stubTable("12", "cowork:reserved-desk", "1"),
+  ...["1", "2", "3", "4", "5", "6", "7", "8", "10"].map((name) =>
+    stubTable(name, "cowork:open-space", "4")
+  ),
+];
+
+/** The featured booking's table and Wi-Fi through the real on-site service. */
+const loadOnSite = (placement: string | undefined) =>
+  Effect.runPromise(
+    Effect.flatMap(ReservationOnSite, (onSite) =>
+      onSite.forReservations([
+        {
+          id: "workspace_01JY4J8R6Z9Q2N8K7M5P3A1B0C" as never,
+          reservationDetails:
+            placement === "shared"
+              ? { kind: "cowork", entryTier: "open-space", coffee: false }
+              : {
+                  kind: "cowork",
+                  entryTier: "profi",
+                  coffee: true,
+                  monitorOption: "2x27-qhd",
+                } as never,
+          dotyposReservation:
+            placement === "none"
+              ? {}
+              : { _tableId: DotyposTableIdSchema.make("table-12") },
+        },
+      ])
+    ).pipe(
+      Effect.map((details) => [...details.values()][0]),
+      Effect.provide(
+        ReservationOnSite.Live.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(AdvisoryAvailabilityInventory, {
+                tables: Effect.succeed(stubTables),
+              } as never),
+              WorkspaceCheckoutNetworkDetailsService.Default
+            )
+          )
+        )
+      )
+    )
+  );
 
 const designPreviewReservation = {
   id: "R-20261117-0042",
@@ -46,7 +109,11 @@ const designPreviewPast = {
   status: "confirmed",
 } as const;
 
-const designPreviewState = (eligible: boolean) => ({
+const designPreviewState = (
+  eligible: boolean,
+  onSite: unknown,
+  shared: boolean
+) => ({
   kind: "linked",
   deletion: "offered",
   email: "jana.novakova@deskohub.test",
@@ -60,9 +127,15 @@ const designPreviewState = (eligible: boolean) => ({
     kind: "available",
     groups: {
       current: [designPreviewReservation, designPreviewMeetingRoom].map(
-        (reservation) => ({
+        (reservation, index) => ({
           ...reservation,
           withdrawal: { ...reservation.withdrawal, eligible },
+          ...(index === 0 && {
+            onSite,
+            ...(shared && {
+              product: { kind: "cowork", tier: "open-space" },
+            }),
+          }),
         })
       ),
       past: [designPreviewPast],
@@ -103,7 +176,8 @@ export default async function WithdrawalDesignPreviewPage({
 }) {
   if (process.env.NODE_ENV !== "development") notFound();
   await connection();
-  const { state, view } = await searchParams;
+  const { placement, state, view } = await searchParams;
+  const onSite = await loadOnSite(placement);
 
   return runWithRequestLocale((locale) => (
     <>
@@ -116,7 +190,13 @@ export default async function WithdrawalDesignPreviewPage({
         <AccountPage
           loadInvoiceHistory={loadInvoiceHistory}
           locale={locale}
-          state={designPreviewState(state !== "ineligible") as never}
+          state={
+            designPreviewState(
+              state !== "ineligible",
+              onSite,
+              placement === "shared"
+            ) as never
+          }
         />
       </AccountLayoutShell>
       {view === "modal" && (
