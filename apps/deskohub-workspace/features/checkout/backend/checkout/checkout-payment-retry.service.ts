@@ -11,6 +11,7 @@ import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accou
 import { AccountingStorage } from "@/features/accounting/backend/accounting-storage";
 import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
 import type { Locale } from "@/features/i18n";
+import { isEndedUnpaidPaymentState } from "@/features/order";
 import {
   ReservationAuthorizationService,
   type ReservationAuthorizationUnavailableError,
@@ -21,6 +22,7 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { ReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { hasReservationIntervalEnded } from "@/features/reservation/reservation-interval";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
@@ -84,6 +86,16 @@ type PaymentRetryRefusalReason =
   | "details_unavailable"
   | "needs_review";
 
+/**
+ * Who the retried order is for and the invoice it needs, kept as booked:
+ * `self` when its customer is the author account's own linked profile.
+ */
+export interface PaymentRetryDetails {
+  readonly bookingFor: "self" | "someone-else";
+  readonly contact: { readonly name: string; readonly email: string };
+  readonly billing: ReservationBillingSelection;
+}
+
 export type PaymentRetryPreparation =
   /**
    * A Pay state for the same order, bound to it rather than to a checkout
@@ -95,6 +107,7 @@ export type PaymentRetryPreparation =
       readonly state: "ready";
       readonly payState: FreshPayState;
       readonly checkout: PayStateCheckoutView;
+      readonly details: PaymentRetryDetails;
     }
   /** The order doesn't exist or the visitor may not see it. */
   | { readonly state: "not_found" }
@@ -143,13 +156,6 @@ const refused = (
   reason,
 });
 
-/** Payment states an order's payment can end unpaid in. */
-const endedPaymentStates: ReadonlySet<string> = new Set([
-  "failed",
-  "cancelled",
-  "expired",
-]);
-
 const unavailable = (message: string) => (cause: unknown) =>
   new PaymentRetryUnavailableError({ message, cause });
 
@@ -175,10 +181,10 @@ const implementation = Effect.gen(function* () {
 
   /**
    * The order's contact as the records that own it hold it now: for an order
-   * booked as the author's own account, the account's login email with its
-   * linked Dotypos profile; for anyone else, the order's Dotypos customer.
-   * It must name the email the order's documents go to, or nothing is
-   * rebuilt.
+   * booked as the author's own account (`self`), the account's login email
+   * with its linked Dotypos profile; for anyone else, the order's Dotypos
+   * customer. It must name the email the order's documents go to, or
+   * nothing is rebuilt.
    */
   const rebuildContact = Effect.fnUntraced(function* (input: {
     readonly order: WorkspaceReservation;
@@ -198,7 +204,8 @@ const implementation = Effect.gen(function* () {
       .find(order.authorAccountId)
       .pipe(Effect.mapError(unavailable("The account could not be read.")));
     let email = customer.value.email ?? undefined;
-    if (linkedCustomer === order.dotyposCustomerId) {
+    const self = linkedCustomer === order.dotyposCustomerId;
+    if (self) {
       const account = yield* accountLinks
         .findActivityState(order.authorAccountId)
         .pipe(Effect.mapError(unavailable("The account could not be read.")));
@@ -208,7 +215,10 @@ const implementation = Effect.gen(function* () {
       email = account.email;
     }
     if (!email || !sameEmail(email, deliveryEmail)) return undefined;
-    return { name: stored.name, email: deliveryEmail, phone: stored.phone };
+    return {
+      bookingFor: self ? "self" : "someone-else",
+      contact: { name: stored.name, email: deliveryEmail, phone: stored.phone },
+    } as const;
   });
 
   /**
@@ -328,11 +338,11 @@ const implementation = Effect.gen(function* () {
       // The retry pays the order again after its newest attempt, the active
       // one or, once a retry was prepared, the one that retry cleared.
       const attempt = yield* paymentAttempts.findNewestForReservation(order.id);
-      if (!attempt || !endedPaymentStates.has(order.paymentState)) {
+      if (!attempt || !isEndedUnpaidPaymentState(order.paymentState)) {
         return refused("payment_in_progress");
       }
       if (
-        !endedPaymentStates.has(attempt.state) ||
+        !isEndedUnpaidPaymentState(attempt.state) ||
         (order.activePaymentAttemptId !== null &&
           order.activePaymentAttemptId !== attempt.id)
       ) {
@@ -351,12 +361,13 @@ const implementation = Effect.gen(function* () {
       }
       if (provider === "no_provider_order") return refused("needs_review");
 
-      const contact = yield* rebuildContact({
+      const booked = yield* rebuildContact({
         order,
         snapshot: retry.snapshot,
       });
       const billing = retry.snapshot.billing;
-      if (!contact || !billing) return refused("details_unavailable");
+      if (!booked || !billing) return refused("details_unavailable");
+      const { contact } = booked;
       const codes = yield* promotionCodes.find(attempt.id);
 
       const hold = yield* holds
@@ -446,6 +457,11 @@ const implementation = Effect.gen(function* () {
           }),
           yield* currentInstant
         ),
+        details: {
+          bookingFor: booked.bookingFor,
+          contact: { name: contact.name, email: contact.email },
+          billing,
+        },
       } satisfies PaymentRetryPreparation;
     },
     (effect, input) =>

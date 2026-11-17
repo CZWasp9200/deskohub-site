@@ -35,6 +35,7 @@ import {
 } from "@/features/checkout/backend/checkout/checkout-payment-page.service";
 import {
   CheckoutPaymentRetryService,
+  type PaymentRetryDetails,
   type PaymentRetryPreparation,
   PaymentRetryUnavailableError,
 } from "@/features/checkout/backend/checkout/checkout-payment-retry.service";
@@ -949,8 +950,31 @@ describe("retryPayment", () => {
   const answering = (preparation: PaymentRetryPreparation) =>
     paymentRetryServices(() => Effect.succeed(preparation));
 
+  /** An order booked for someone else, invoiced to a company. */
+  const retryDetails = {
+    bookingFor: "someone-else",
+    contact: { name: retryReservation.name, email: retryReservation.email },
+    billing: {
+      purpose: "business",
+      invoice: "required",
+      buyer: {
+        kind: "business",
+        legalName: "Analytical Engines s.r.o.",
+        companyId: "27074358",
+        vatId: "CZ27074358",
+        address: {
+          line1: "Na Pankráci 1",
+          city: "Praha",
+          postalCode: "140 00",
+          country: "CZ",
+        },
+      },
+    },
+  } as const satisfies PaymentRetryDetails;
+
   const ready = async (
-    changedKeys?: PayStateCheckoutView["changedKeys"]
+    changedKeys?: PayStateCheckoutView["changedKeys"],
+    details: PaymentRetryDetails = retryDetails
   ): Promise<PaymentRetryPreparation> => {
     const checkout = await retryCheckout(changedKeys);
     return {
@@ -961,12 +985,13 @@ describe("retryPayment", () => {
         expiresAt: checkout.expiresAt,
       },
       checkout,
+      details,
     };
   };
 
   testCustomerEndpointGuards(retryPayment);
 
-  test("answers the same order's checkout to pay again, in the app's locale", async () => {
+  test("answers the same order's checkout to pay again with its kept details, in the app's locale", async () => {
     const preparation = await ready();
     const prepare = mock(() => Effect.succeed(preparation));
     const api = makeCustomerApiTestServer({
@@ -976,14 +1001,73 @@ describe("retryPayment", () => {
     const response = await api.handle(customerApiRequest(retryPayment));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    const answer = await response.json();
+    expect(answer).toMatchObject({
       status: "ready",
       orderId,
       payStateToken: "retry-pay-state-token",
     });
+    expect(answer.details).toEqual({
+      bookingFor: retryDetails.bookingFor,
+      contact: retryDetails.contact,
+      billing: {
+        purpose: "business",
+        invoice: "required",
+        legalName: retryDetails.billing.buyer.legalName,
+      },
+    });
     // The session alone authorizes it: no access cookie or link token.
     expect(prepare).toHaveBeenCalledWith({ orderId, locale: "cs-CZ" });
   });
+
+  test.each([
+    {
+      case: "no invoice",
+      billing: { purpose: "personal", invoice: "none" },
+      answered: { purpose: "personal", invoice: "none" },
+    },
+    {
+      case: "a personal invoice, by its city",
+      billing: {
+        purpose: "personal",
+        invoice: "requested",
+        address: {
+          line1: "Vinohradská 12",
+          city: "Brno",
+          postalCode: "602 00",
+          country: "CZ",
+        },
+      },
+      answered: { purpose: "personal", invoice: "requested", city: "Brno" },
+    },
+    {
+      case: "a business invoice, by the company's name",
+      billing: retryDetails.billing,
+      answered: {
+        purpose: "business",
+        invoice: "required",
+        legalName: retryDetails.billing.buyer.legalName,
+      },
+    },
+  ] satisfies ReadonlyArray<{
+    case: string;
+    billing: PaymentRetryDetails["billing"];
+    answered: unknown;
+  }>)(
+    "answers only the billing the review shows: $case",
+    async ({ billing, answered }) => {
+      const api = makeCustomerApiTestServer({
+        reservations: answering(
+          await ready(undefined, { ...retryDetails, billing })
+        ),
+      });
+
+      const response = await api.handle(customerApiRequest(retryPayment));
+
+      expect(response.status).toBe(200);
+      expect((await response.json()).details.billing).toEqual(answered);
+    }
+  );
 
   test("answers a changed price as a price review to accept first", async () => {
     const api = makeCustomerApiTestServer({

@@ -105,6 +105,7 @@ export {
   CustomerCheckoutSummary,
   CustomerCheckoutSummaryDiscount,
   CustomerCheckoutSummaryItem,
+  CustomerDiscountAdjustment,
   CustomerVatStatus,
 } from "./customer-checkout-summary";
 export {
@@ -153,6 +154,9 @@ export {
   CustomerPaymentPage,
   CustomerPaymentPageClosed,
   CustomerPaymentPageClosedReason,
+  CustomerPaymentRetry,
+  CustomerPaymentRetryBilling,
+  CustomerPaymentRetryDetails,
   CustomerPaymentRetryRefused,
   CustomerPaymentRetryRefusedReason,
   CustomerReservationAccess,

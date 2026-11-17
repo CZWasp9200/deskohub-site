@@ -9,6 +9,10 @@ import {
   officeCheckoutSummaryDiscountedProductItemSchema,
   officeCheckoutSummaryProductItemSchema,
 } from "@/features/checkout/checkout-summary-office-item";
+import {
+  getWorkspaceOfficeAccessPrice,
+  getWorkspaceOfficeSeatPrice,
+} from "@/features/checkout/product-catalog";
 import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
 import {
   getOfficeSeatsAmount,
@@ -36,6 +40,8 @@ export const getOfficeCheckoutSummary = (
     accessAmount: item.accessAmount,
     seatAmount: item.seatAmount,
     seatsAmount: getOfficeSeatsAmount(item),
+    dailyAccessRate: getWorkspaceOfficeAccessPrice(1),
+    dailySeatRate: getWorkspaceOfficeSeatPrice(1),
   };
   const productItem =
     summaryDiscounts.length > 0

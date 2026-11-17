@@ -55,7 +55,14 @@ export interface SentSignInEmail {
   readonly sentAt: number;
   /** When the server next accepts a sign-in email for this address; none when the server sent none or an invalid one (older server, codes off). */
   readonly nextSignInEmailAt: Option.Option<DateTime.Utc>;
+  /** The secret the page asks the sign-in status with; none from an older server. */
+  readonly signInAttempt: Option.Option<string>;
 }
+
+const decodeSignInAttempt = (value: unknown): Option.Option<string> =>
+  typeof value === "string" && value !== ""
+    ? Option.some(value)
+    : Option.none();
 
 /**
  * Sends the sign-in email. The relative `/app/auth/callback` (and no other
@@ -63,7 +70,8 @@ export interface SentSignInEmail {
  * server answers whether the email also carries a sign-in code; anything but
  * a clear yes means the link alone. It also names when it next accepts an
  * email for the address; an answer without a valid instant leaves only the
- * page's own cooldown.
+ * page's own cooldown. An email for the app callback comes with its sign-in
+ * attempt.
  */
 export const sendSignInEmail = (email: string, locale: AppLocale) =>
   Effect.zipWith(
@@ -71,6 +79,7 @@ export const sendSignInEmail = (email: string, locale: AppLocale) =>
       readonly status: boolean;
       readonly signInCode?: unknown;
       readonly nextSignInEmailAt?: unknown;
+      readonly signInAttempt?: unknown;
     }>("send-email", (signal) =>
       authClient.signIn.magicLink({
         email,
@@ -85,8 +94,25 @@ export const sendSignInEmail = (email: string, locale: AppLocale) =>
       signInCode: data?.signInCode === true,
       sentAt,
       nextSignInEmailAt: decodeNextSignInEmailAt(data?.nextSignInEmailAt),
+      signInAttempt: decodeSignInAttempt(data?.signInAttempt),
     })
   ).pipe(Effect.withSpan("WebSignIn.sendSignInEmail"));
+
+/**
+ * Whether any of these sign-in attempts signed in elsewhere, such as in the
+ * app through the email's link. Anything but a clear yes means not yet.
+ */
+export const isSignInAttemptCompleted = (attempts: readonly string[]) =>
+  call<{ readonly completed?: unknown }>("sign-in-status", (signal) =>
+    authClient.$fetch("/sign-in-attempt/status", {
+      method: "POST",
+      body: { attempts },
+      signal,
+    })
+  ).pipe(
+    Effect.map((data) => data?.completed === true),
+    Effect.withSpan("WebSignIn.isSignInAttemptCompleted")
+  );
 
 /**
  * Signs in with the email's code. The request names the app's locale, which

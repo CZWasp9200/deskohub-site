@@ -1,4 +1,6 @@
 export {
+  endedUnpaidPaymentStates,
+  isEndedUnpaidPaymentState,
   type OrderFulfillmentState,
   type OrderId,
   type OrderKind,

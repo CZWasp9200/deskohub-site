@@ -74,8 +74,22 @@ export interface OrderTicketView {
   readonly event: BookingEvent | undefined;
 }
 
-const instantOf = (iso: string | undefined) =>
-  Option.flatMap(Option.fromUndefinedOr(iso), parseInstant);
+const instantOf = (iso: string | null | undefined) =>
+  Option.flatMap(Option.fromNullishOr(iso), parseInstant);
+
+const timesOf = (booking: {
+  readonly startsAt?: string | null;
+  readonly endsAt?: string | null;
+}) => Option.all([instantOf(booking.startsAt), instantOf(booking.endsAt)]);
+
+/**
+ * The booked start and end: the order's, else its list entry's. An order
+ * whose payment ended unpaid carries no times, while the list keeps them.
+ */
+const bookedTimesOf = (
+  order: CustomerOrderState,
+  reservation: Option.Option<ReservationListRow>
+) => Option.orElse(timesOf(order), () => Option.flatMap(reservation, timesOf));
 
 /**
  * The product's catalog name: the list's product when the list holds the
@@ -150,12 +164,9 @@ export const orderTicketView = ({
   readonly now: DateTime.DateTime;
   readonly locale: AppLocale;
 }): OrderTicketView => {
-  const times = Option.all([
-    instantOf(order.startsAt),
-    instantOf(order.endsAt),
-  ]);
+  const times = bookedTimesOf(order, reservation);
   const accessStartsAt = Option.flatMap(reservation, (row) =>
-    Option.flatMap(Option.fromNullishOr(row.accessStartsAt), parseInstant)
+    instantOf(row.accessStartsAt)
   );
   const title = orderTitle(order, reservation, locale);
   return {

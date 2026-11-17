@@ -10,6 +10,7 @@ import {
   type CustomerOrderState,
   type CustomerPaymentPage,
   CustomerPaymentPageClosed,
+  type CustomerPaymentRetryBilling,
   CustomerPaymentRetryRefused,
   type CustomerReservationAccess,
   type CustomerReservationHistory,
@@ -45,6 +46,7 @@ import {
   ReservationAccessService,
   type ReservationAccessViewModel,
 } from "@/features/reservation/backend/reservation-access.service";
+import type { ReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { providePerRequest } from "@/shared/backend/provide-per-request";
 import { runToCompletion } from "@/shared/backend/run-to-completion";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
@@ -375,17 +377,22 @@ const answerPaymentPage = (reopening: PaymentPageReopening) =>
   );
 
 /**
- * The same order's checkout to pay again, or why it can't be paid again in
- * place; the app then books the selection again or, while the earlier
- * payment may still settle, checks the status later.
+ * The same order's checkout to pay again with the details it keeps, or why
+ * it can't be paid again in place; the app then books the selection again
+ * or, while the earlier payment may still settle, checks the status later.
  */
 const answerPaymentRetry = (preparation: PaymentRetryPreparation) =>
   Match.value(preparation).pipe(
     Match.discriminatorsExhaustive("state")({
-      ready: ({ checkout, payState }) =>
-        Effect.succeed(
-          toCustomerCheckout(checkout, payState.freshPayStateToken)
-        ),
+      ready: ({ checkout, payState, details }) =>
+        Effect.succeed({
+          ...toCustomerCheckout(checkout, payState.freshPayStateToken),
+          details: {
+            bookingFor: details.bookingFor,
+            contact: details.contact,
+            billing: toPaymentRetryBilling(details.billing),
+          },
+        }),
       not_found: () => Effect.fail(new CustomerReservationNotFound()),
       not_retryable: ({ reason }) =>
         Effect.fail(new CustomerPaymentRetryRefused({ reason })),
@@ -397,6 +404,31 @@ const answerPaymentRetry = (preparation: PaymentRetryPreparation) =>
         Effect.fail(
           new CustomerPaymentRetryRefused({ reason: "payment_settling" })
         ),
+    })
+  );
+
+/**
+ * The kept billing as the app's review shows it: a personal invoice's city or
+ * the invoiced company's name, without the rest of the invoice's details.
+ */
+const toPaymentRetryBilling = (
+  billing: ReservationBillingSelection
+): CustomerPaymentRetryBilling =>
+  Match.value(billing).pipe(
+    Match.discriminatorsExhaustive("invoice")({
+      none: () => ({ purpose: "personal", invoice: "none" }) as const,
+      requested: ({ address }) =>
+        ({
+          purpose: "personal",
+          invoice: "requested",
+          city: address.city,
+        }) as const,
+      required: ({ buyer }) =>
+        ({
+          purpose: "business",
+          invoice: "required",
+          legalName: buyer.legalName,
+        }) as const,
     })
   );
 

@@ -9,7 +9,7 @@ import {
   type SubmitCustomerCheckout,
 } from "@deskohub/workspace-customer-api";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Cause, Effect, Layer } from "effect";
+import { Cause, Effect, Layer, Schema } from "effect";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import {
   peeking,
@@ -26,13 +26,17 @@ import {
   PayStateTokenError,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutUnavailableError } from "@/features/checkout/backend/checkout/checkout-unavailable";
-import { sealPayState } from "@/features/checkout/backend/checkout/pay-state";
+import {
+  buildSignedPayState,
+  sealPayState,
+} from "@/features/checkout/backend/checkout/pay-state";
 import {
   sealSyntheticPayStateToken,
   syntheticChangedKeys,
   syntheticHoldExpiresAt,
   syntheticPayStateOrderId,
 } from "@/features/checkout/backend/checkout/signed-pay-state.test-utils";
+import { buildReservationQuote } from "@/features/checkout/reservation-quote";
 import {
   canonicalPromotionCodeSchema,
   discountIdSchema,
@@ -54,8 +58,10 @@ import {
   WorkspaceReservationRepository,
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
+import { reservationOrderSchema } from "@/features/reservation/reservation-order";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+import { instantStringSchema } from "@/shared/utils/temporal";
 import {
   type CustomerApiCall,
   customerApiRequest,
@@ -592,6 +598,96 @@ describe("createCheckout", () => {
       rememberReferralCode: "RFLTYPED1",
     });
     expect(evaluations).toEqual({ referral: 1, office: 1 });
+  });
+
+  describe("meeting-room early setup", () => {
+    /**
+     * Holds each prepared reservation as a ready checkout that signs it, so
+     * the answered summary lists what the request selected.
+     */
+    const signingPreparation = () => {
+      const inputs: PreparationInput[] = [];
+      return {
+        inputs,
+        preparePayState: (input: PreparationInput) =>
+          Effect.gen(function* () {
+            inputs.push(input);
+            const reservation = yield* Schema.decodeUnknownEffect(
+              reservationOrderSchema("CZ")
+            )(input.reservation);
+            const state = yield* buildSignedPayState({
+              locale: input.locale,
+              reservation,
+              quote: yield* buildReservationQuote(reservation),
+              orderId: syntheticPayStateOrderId,
+              bookedAt: instantStringSchema.make("2099-07-01T09:58:00.000Z"),
+              holdExpiresAt: syntheticHoldExpiresAt,
+              checkoutSessionId: input.checkoutSessionId,
+            });
+            return { ...readyHold, payStateToken: yield* sealPayState(state) };
+          }).pipe(Effect.provide(TestSealedStateKeys), Effect.orDie),
+      };
+    };
+
+    const holdMeetingRoom = async (earlySetup?: boolean) => {
+      const preparation = signingPreparation();
+      const api = makeCustomerApiTestServer({
+        bookingCheckout: checkoutWith({
+          operations: operationsWith(preparation),
+        }),
+      });
+      const response = await api.handle(
+        customerApiRequest(
+          createCheckout(
+            createBody({
+              selection: {
+                family: "meeting-room",
+                date: workspaceDateFromToday(2),
+                startTime: "10:00",
+                duration: "hour:1",
+              },
+              ...(earlySetup !== undefined && { earlySetup }),
+            })
+          )
+        )
+      );
+      expect(response.status).toBe(200);
+      const body: CustomerCheckout = await response.json();
+      const [prepared] = preparation.inputs;
+      if (prepared?.reservation.kind !== "meeting-room") {
+        throw new Error("expected a prepared meeting-room reservation");
+      }
+      const [orderSection] = body.summary.sections;
+      return {
+        bookedStart: Temporal.Instant.from(prepared.reservation.startsAt),
+        roomLine: orderSection?.items.find(({ key }) =>
+          key.startsWith("product:meeting-room:")
+        ),
+        total: body.summary.sections.at(-1)?.items.at(-1)?.amount,
+      };
+    };
+
+    test("lists the setup on the room line of a hold that asks for it, at no cost", async () => {
+      const { bookedStart, roomLine, total } = await holdMeetingRoom(true);
+
+      expect(roomLine).toHaveProperty("earlySetup");
+      const earlySetup =
+        roomLine && "earlySetup" in roomLine && roomLine.earlySetup;
+      if (!earlySetup) throw new Error("expected the room line's early setup");
+      expect(
+        Temporal.Instant.from(earlySetup.startsAt).equals(
+          bookedStart.subtract({ minutes: 15 })
+        )
+      ).toBe(true);
+      expect(earlySetup.amount).toEqual({ ...total, value: 0 });
+    });
+
+    test("leaves the setup off the room line of a hold without it", async () => {
+      const { roomLine } = await holdMeetingRoom();
+
+      expect(roomLine).toBeDefined();
+      expect(roomLine).not.toHaveProperty("earlySetup");
+    });
   });
 });
 

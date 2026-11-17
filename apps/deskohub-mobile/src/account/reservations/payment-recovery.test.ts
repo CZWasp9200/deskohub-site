@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   type CustomerCheckout,
   CustomerPaymentPageClosedReason,
+  type CustomerPaymentRetryDetails,
   CustomerPaymentRetryRefusedReason,
   CustomerReservationOrderId,
 } from "@deskohub/workspace-customer-api";
@@ -30,6 +32,12 @@ import {
 } from "./payment-recovery";
 
 const orderId = sampleDeskOrderId("payment_failed");
+
+const retriedDetails: CustomerPaymentRetryDetails = {
+  bookingFor: "someone-else",
+  contact: { name: "Synthetic Guest", email: testEmailAddress("guest") },
+  billing: { purpose: "personal", invoice: "none" },
+};
 
 const retried: CustomerCheckout = {
   status: "ready",
@@ -122,7 +130,7 @@ describe("reopenPaymentPage", () => {
 
 describe("retryPayment", () => {
   test.each(["ready", "price_review"] as const)(
-    "hands back the order's checkout to confirm and pay (%s)",
+    "hands back the order's checkout and kept details to confirm and pay (%s)",
     async (status) => {
       const { workspace, run } = harness();
       const checkout: CustomerCheckout =
@@ -135,10 +143,12 @@ describe("retryPayment", () => {
                 changedKeys: { sectionKeys: ["total"], itemKeys: [] },
               },
             };
-      workspace.paymentRetry = checkout;
+      workspace.paymentRetry = { ...checkout, details: retriedDetails };
       const exit = await run(retryPayment(orderId, "en-US"));
       expect(exit).toEqual(
-        Exit.succeed(PaymentRetryOutcome.Checkout({ checkout }))
+        Exit.succeed(
+          PaymentRetryOutcome.Checkout({ checkout, details: retriedDetails })
+        )
       );
     }
   );
@@ -155,7 +165,7 @@ describe("retryPayment", () => {
 
   test("an unavailable service is a retryable failure", async () => {
     const { workspace, run } = harness();
-    workspace.paymentRetry = retried;
+    workspace.paymentRetry = { ...retried, details: retriedDetails };
     workspace.fail("retryPayment", "service-unavailable");
     const exit = await run(retryPayment(orderId, "en-US"));
     expect(exit).toEqual(
