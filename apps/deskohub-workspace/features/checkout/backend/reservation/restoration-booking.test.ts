@@ -12,10 +12,8 @@ import {
   type AccountingDocumentSnapshot,
   makeAccountingDocumentSnapshot,
 } from "@/features/accounting/accounting-document-snapshot";
-import {
-  AccountingDocumentSnapshots,
-  AccountingRecordUnavailable,
-} from "@/features/accounting/backend/accounting-document-snapshots";
+import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
+import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
