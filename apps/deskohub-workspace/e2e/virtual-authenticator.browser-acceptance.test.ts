@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { type Browser, chromium, type Page } from "@playwright/test";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
+import { outcomeOf } from "@/shared/testing/promise-outcome.test-utils";
 import {
   addVirtualAuthenticator,
   holdsVirtualAuthenticator,
@@ -125,9 +126,9 @@ test.skipIf(!chromiumAvailable)(
   "waits until the document has armed its conditional request",
   async () => {
     await withPasskeyPage(async (page, authenticator) => {
-      await expect(
-        authenticator.waitForConditionalRequest(250)
-      ).rejects.toThrow();
+      expect(
+        await outcomeOf(authenticator.waitForConditionalRequest(250))
+      ).toThrow();
 
       await armAutofill(page);
 
@@ -185,9 +186,9 @@ test.skipIf(!chromiumAvailable)(
         { timeout: 5_000 }
       );
 
-      await expect(
-        authenticator.waitForConditionalRequest(250)
-      ).rejects.toThrow();
+      expect(
+        await outcomeOf(authenticator.waitForConditionalRequest(250))
+      ).toThrow();
 
       await armAutofill(page);
       await authenticator.waitForConditionalRequest(5_000);
@@ -224,9 +225,11 @@ test.skipIf(!chromiumAvailable)(
       await authenticator.waitForConditionalRequest(5_000);
 
       // The account opens all the same, through the re-armed autofill.
-      await expect(
-        authenticator.answerModalCeremony(() => pressButtonUntilAccount(page))
-      ).rejects.toThrow(ModalCeremonyNotAlone);
+      expect(
+        await outcomeOf(
+          authenticator.answerModalCeremony(() => pressButtonUntilAccount(page))
+        )
+      ).toThrow(ModalCeremonyNotAlone);
       expect(new URL(page.url()).pathname).toBe("/account");
     });
   }
@@ -243,7 +246,7 @@ test.skipIf(!chromiumAvailable)(
       // resets the page's virtual authenticator environment.
       const other = await page.context().newCDPSession(page);
       await other.detach();
-      await expect(authenticator.readCredentials()).rejects.toThrow(
+      expect(await outcomeOf(authenticator.readCredentials())).toThrow(
         "Virtual Authenticator Environment has not been enabled"
       );
 

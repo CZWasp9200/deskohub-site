@@ -6,6 +6,10 @@ import type * as Playwright from "@playwright/test";
 import { encodeAuthCallbackReturn } from "@/features/account/routes";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { reservationStatusPath } from "@/features/reservation/routes";
+import {
+  outcomeOf,
+  rejectionOf,
+} from "@/shared/testing/promise-outcome.test-utils";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
   type AccountReviewTarget,
@@ -628,9 +632,11 @@ describe("account review screenshot capture", () => {
     test(`rejects ${invalidPage.name} before the screenshot`, async () => {
       const fakePage = makeFakePage(invalidPage.url);
 
-      await expect(
-        captureAccountReview(fakePage.page, review, invalidPage.target)
-      ).rejects.toThrow(captureFailureMessage);
+      expect(
+        await outcomeOf(
+          captureAccountReview(fakePage.page, review, invalidPage.target)
+        )
+      ).toThrow(captureFailureMessage);
 
       expect(fakePage.screenshotCalls).toHaveLength(0);
       expect(fakePage.viewportChanges).toHaveLength(0);
@@ -815,14 +821,16 @@ describe("account review screenshot capture", () => {
       `${baseUrl}/en-US${reservationStatusPath}/${encodeURIComponent(otherReservationId)}`
     );
 
-    await expect(
-      captureReservationStatusReview(
-        fakePage.page,
-        review,
-        "reservation-status-details-desktop",
-        fixtureReservationId
+    expect(
+      await outcomeOf(
+        captureReservationStatusReview(
+          fakePage.page,
+          review,
+          "reservation-status-details-desktop",
+          fixtureReservationId
+        )
       )
-    ).rejects.toThrow(captureFailureMessage);
+    ).toThrow(captureFailureMessage);
 
     expect(fakePage.screenshotCalls).toHaveLength(0);
     expect(fakePage.viewportChanges).toHaveLength(0);
@@ -887,13 +895,15 @@ describe("account review screenshot capture", () => {
     test(`does not write the English callback capture showing ${name}`, async () => {
       const fakePage = makeFakePage(`${baseUrl}/en-US/auth/callback`, options);
 
-      await expect(
-        captureAccountReview(
-          fakePage.page,
-          review,
-          "callback-signed-in-desktop"
+      expect(
+        await outcomeOf(
+          captureAccountReview(
+            fakePage.page,
+            review,
+            "callback-signed-in-desktop"
+          )
         )
-      ).rejects.toThrow(captureFailureMessage);
+      ).toThrow(captureFailureMessage);
 
       expect(writeFileSpy?.mock.calls).toHaveLength(0);
     });
@@ -947,14 +957,16 @@ describe("account review screenshot capture", () => {
     test(`does not write the Czech returning callback with ${name}`, async () => {
       const fakePage = makeFakePage(url, options);
 
-      await expect(
-        captureCallbackHandoffReview(
-          fakePage.page,
-          review,
-          "callback-signed-in-cs-desktop",
-          czechLanding
+      expect(
+        await outcomeOf(
+          captureCallbackHandoffReview(
+            fakePage.page,
+            review,
+            "callback-signed-in-cs-desktop",
+            czechLanding
+          )
         )
-      ).rejects.toThrow(captureFailureMessage);
+      ).toThrow(captureFailureMessage);
 
       expect(writeFileSpy?.mock.calls).toHaveLength(0);
     });
@@ -963,14 +975,16 @@ describe("account review screenshot capture", () => {
   test("does not capture a held callback target under another landing's locale", async () => {
     const fakePage = makeFakePage(czechCallbackUrl, { card: czechCard });
 
-    await expect(
-      captureCallbackHandoffReview(
-        fakePage.page,
-        review,
-        "callback-signed-in-desktop",
-        czechLanding
+    expect(
+      await outcomeOf(
+        captureCallbackHandoffReview(
+          fakePage.page,
+          review,
+          "callback-signed-in-desktop",
+          czechLanding
+        )
       )
-    ).rejects.toThrow(captureFailureMessage);
+    ).toThrow(captureFailureMessage);
 
     expect(fakePage.screenshotCalls).toHaveLength(0);
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
@@ -981,9 +995,11 @@ describe("account review screenshot capture", () => {
       failScreenshot: true,
     });
 
-    await expect(
-      captureAccountReview(fakePage.page, review, "linked-profile-desktop")
-    ).rejects.toThrow(captureFailureMessage);
+    expect(
+      await outcomeOf(
+        captureAccountReview(fakePage.page, review, "linked-profile-desktop")
+      )
+    ).toThrow(captureFailureMessage);
 
     expect(fakePage.viewportChanges).toEqual([
       { height: 1000, width: 1440 },
@@ -1037,7 +1053,7 @@ describe("account review screenshot capture", () => {
 
         await preparationStarted;
         controller.abort();
-        await expect(capture).rejects.toThrow(captureFailureMessage);
+        expect(await outcomeOf(capture)).toThrow(captureFailureMessage);
 
         resolvePreparation();
         await flushMicrotasks();
@@ -1075,7 +1091,7 @@ describe("account review screenshot capture", () => {
       await fakePage.screenshotStarted;
       fakePage.setUrl(`${baseUrl}/en-US/auth/sign-in`);
       controller.abort();
-      await expect(capture).rejects.toThrow(captureFailureMessage);
+      expect(await outcomeOf(capture)).toThrow(captureFailureMessage);
 
       resolveScreenshot();
       await flushMicrotasks();
@@ -1109,7 +1125,7 @@ describe("account review screenshot capture", () => {
 
         await fakePage.screenshotStarted;
         await advanceTo(workspaceE2ETimeouts.browserAction);
-        await expect(capture).rejects.toThrow(captureFailureMessage);
+        expect(await outcomeOf(capture)).toThrow(captureFailureMessage);
 
         resolveScreenshot();
         await flushMicrotasks();
@@ -1190,16 +1206,18 @@ describe("account review screenshot capture", () => {
     test(`does not persist the Czech returning callback with ${name}`, async () => {
       const fakePage = makeFakePage(url);
 
-      await expect(
-        persistCallbackDocumentReview(
-          fakePage.page,
-          review,
-          "callback-signed-in-cs-desktop",
-          czechLanding,
-          screenshotBuffer,
-          () => undefined
+      expect(
+        await outcomeOf(
+          persistCallbackDocumentReview(
+            fakePage.page,
+            review,
+            "callback-signed-in-cs-desktop",
+            czechLanding,
+            screenshotBuffer,
+            () => undefined
+          )
         )
-      ).rejects.toThrow(captureFailureMessage);
+      ).toThrow(captureFailureMessage);
 
       expect(writeFileSpy?.mock.calls).toHaveLength(0);
     });
@@ -1210,18 +1228,20 @@ describe("account review screenshot capture", () => {
       `${baseUrl}/en-US/auth/callback?attempt=${attemptUuid}`
     );
 
-    await expect(
-      persistCallbackDocumentReview(
-        fakePage.page,
-        review,
-        "callback-signed-in-desktop",
-        { locale: "en-US" },
-        screenshotBuffer,
-        () => {
-          throw new Error("receipt is not valid");
-        }
+    expect(
+      await outcomeOf(
+        persistCallbackDocumentReview(
+          fakePage.page,
+          review,
+          "callback-signed-in-desktop",
+          { locale: "en-US" },
+          screenshotBuffer,
+          () => {
+            throw new Error("receipt is not valid");
+          }
+        )
       )
-    ).rejects.toThrow(captureFailureMessage);
+    ).toThrow(captureFailureMessage);
 
     expect(fakePage.screenshotCalls).toHaveLength(0);
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
@@ -1232,16 +1252,18 @@ describe("account review screenshot capture", () => {
       `${baseUrl}/en-US/auth/callback?attempt=not-a-uuid`
     );
 
-    await expect(
-      persistCallbackDocumentReview(
-        fakePage.page,
-        review,
-        "callback-signed-in-desktop",
-        { locale: "en-US" },
-        screenshotBuffer,
-        () => undefined
+    expect(
+      await outcomeOf(
+        persistCallbackDocumentReview(
+          fakePage.page,
+          review,
+          "callback-signed-in-desktop",
+          { locale: "en-US" },
+          screenshotBuffer,
+          () => undefined
+        )
       )
-    ).rejects.toThrow(captureFailureMessage);
+    ).toThrow(captureFailureMessage);
 
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
   });
@@ -1253,17 +1275,19 @@ describe("account review screenshot capture", () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(
-      persistCallbackDocumentReview(
-        fakePage.page,
-        review,
-        "callback-signed-in-desktop",
-        { locale: "en-US" },
-        screenshotBuffer,
-        () => undefined,
-        { signal: controller.signal }
+    expect(
+      await outcomeOf(
+        persistCallbackDocumentReview(
+          fakePage.page,
+          review,
+          "callback-signed-in-desktop",
+          { locale: "en-US" },
+          screenshotBuffer,
+          () => undefined,
+          { signal: controller.signal }
+        )
       )
-    ).rejects.toThrow(captureFailureMessage);
+    ).toThrow(captureFailureMessage);
 
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
   });
@@ -1274,19 +1298,21 @@ describe("account review screenshot capture", () => {
     );
     let validatorCalls = 0;
 
-    await expect(
-      persistCallbackDocumentReview(
-        fakePage.page,
-        review,
-        "callback-signed-in-desktop",
-        { locale: "en-US" },
-        screenshotBuffer,
-        () => {
-          validatorCalls += 1;
-          if (validatorCalls >= 2) throw new Error("context was invalidated");
-        }
+    expect(
+      await outcomeOf(
+        persistCallbackDocumentReview(
+          fakePage.page,
+          review,
+          "callback-signed-in-desktop",
+          { locale: "en-US" },
+          screenshotBuffer,
+          () => {
+            validatorCalls += 1;
+            if (validatorCalls >= 2) throw new Error("context was invalidated");
+          }
+        )
       )
-    ).rejects.toThrow(captureFailureMessage);
+    ).toThrow(captureFailureMessage);
 
     // The generic persistence preparation invokes the validator twice: once
     // before the mkdir and once between the mkdir and the write. The second
@@ -1304,9 +1330,15 @@ describe("account review screenshot capture", () => {
       },
     });
 
-    await expect(
-      captureAccountReview(fakePage.page, review, "callback-signed-in-desktop")
-    ).rejects.toThrow(captureFailureMessage);
+    expect(
+      await outcomeOf(
+        captureAccountReview(
+          fakePage.page,
+          review,
+          "callback-signed-in-desktop"
+        )
+      )
+    ).toThrow(captureFailureMessage);
 
     expect(fakePage.screenshotCalls).toHaveLength(1);
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
@@ -1347,7 +1379,7 @@ describe("account review screenshot capture", () => {
 
         await fakePage.routeStarted;
         await advanceTo(workspaceE2ETimeouts.browserAction);
-        await expect(wrapped).rejects.toThrow(captureFailureMessage);
+        expect(await outcomeOf(wrapped)).toThrow(captureFailureMessage);
 
         expect(runCaseCalls).toBe(0);
         expect(fakePage.unrouteCallCount()).toBe(1);
@@ -1374,11 +1406,13 @@ describe("account review screenshot capture", () => {
     });
     let runCaseCalls = 0;
 
-    await expect(
-      withSignInPendingReview(fakePage.page, review, async () => {
-        runCaseCalls += 1;
-      })
-    ).rejects.toThrow(captureFailureMessage);
+    expect(
+      await outcomeOf(
+        withSignInPendingReview(fakePage.page, review, async () => {
+          runCaseCalls += 1;
+        })
+      )
+    ).toThrow(captureFailureMessage);
 
     expect(runCaseCalls).toBe(0);
     expect(fakePage.unrouteCallCount()).toBe(1);
@@ -1443,7 +1477,7 @@ describe("account review screenshot capture", () => {
 
       fakePage.releaseRestore();
       await fakePage.restoreComplete;
-      await expect(wrapped).rejects.toThrow(captureFailureMessage);
+      expect(await outcomeOf(wrapped)).toThrow(captureFailureMessage);
       expect(fakePage.events().indexOf("continue-complete")).toBeLessThan(
         fakePage.events().indexOf("restore-complete")
       );
@@ -1460,11 +1494,13 @@ describe("account review screenshot capture", () => {
       ]) {
         const fakePage = makePendingReviewFakePage(clock, options);
 
-        await expect(
-          withSignInPendingReview(fakePage.page, review, async () => {
-            await fakePage.startPost();
-          })
-        ).rejects.toThrow(captureFailureMessage);
+        expect(
+          await outcomeOf(
+            withSignInPendingReview(fakePage.page, review, async () => {
+              await fakePage.startPost();
+            })
+          )
+        ).toThrow(captureFailureMessage);
         expect(fakePage.continueCallCount()).toBe(1);
       }
     });
@@ -1480,12 +1516,14 @@ describe("account review screenshot capture", () => {
         unrouteError: new Error("raw unroute failure"),
       });
 
-      await expect(
-        withSignInPendingReview(fakePage.page, review, async () => {
-          await fakePage.startPost();
-          throw runCaseFailure;
-        })
-      ).rejects.toBe(runCaseFailure);
+      expect(
+        await rejectionOf(
+          withSignInPendingReview(fakePage.page, review, async () => {
+            await fakePage.startPost();
+            throw runCaseFailure;
+          })
+        )
+      ).toBe(runCaseFailure);
     });
   });
 
@@ -1519,11 +1557,13 @@ describe("account review screenshot capture", () => {
         advancePendingTo: workspaceE2ETimeouts.browserAction,
       });
 
-      await expect(
-        withSignInPendingReview(fakePage.page, review, async () => {
-          await fakePage.startPost();
-        })
-      ).rejects.toThrow(captureFailureMessage);
+      expect(
+        await outcomeOf(
+          withSignInPendingReview(fakePage.page, review, async () => {
+            await fakePage.startPost();
+          })
+        )
+      ).toThrow(captureFailureMessage);
 
       expect(fakePage.screenshotCalls).toHaveLength(0);
       expect(fakePage.continueArguments).toEqual([[]]);
@@ -1597,11 +1637,13 @@ describe("language preference review wrapper", () => {
   test("fails the review when the case skips a language moment", async () => {
     const fakePage = makeFakePage(`${baseUrl}/en-US/account/profile`);
 
-    await expect(
-      withLanguagePreferenceReview(fakePage.page, review, (capture) =>
-        runLanguageCaseMoments(fakePage, capture, { skip: "switcher-saved" })
+    expect(
+      await outcomeOf(
+        withLanguagePreferenceReview(fakePage.page, review, (capture) =>
+          runLanguageCaseMoments(fakePage, capture, { skip: "switcher-saved" })
+        )
       )
-    ).rejects.toThrow(captureFailureMessage);
+    ).toThrow(captureFailureMessage);
 
     // Every genuine capture still lands; only the skipped one is missing.
     expect(writeFileNames()).toEqual(
@@ -1614,14 +1656,16 @@ describe("language preference review wrapper", () => {
   test("fails the review when a moment is captured off its page", async () => {
     const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
 
-    await expect(
-      withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
-        // The Czech profile capture while the page is still the English
-        // account must never be written.
-        await capture("czech-profile");
-        await runLanguageCaseMoments(fakePage, capture);
-      })
-    ).rejects.toThrow(captureFailureMessage);
+    expect(
+      await outcomeOf(
+        withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
+          // The Czech profile capture while the page is still the English
+          // account must never be written.
+          await capture("czech-profile");
+          await runLanguageCaseMoments(fakePage, capture);
+        })
+      )
+    ).toThrow(captureFailureMessage);
 
     expect(writeFileNames()).toEqual(
       languageReviewFileNames.filter(
@@ -1633,13 +1677,15 @@ describe("language preference review wrapper", () => {
   test("fails the review when a moment is captured twice", async () => {
     const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
 
-    await expect(
-      withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
-        await runLanguageCaseMoments(fakePage, capture);
-        fakePage.setUrl(`${baseUrl}/en-US/account`);
-        await capture("switcher-saved");
-      })
-    ).rejects.toThrow(captureFailureMessage);
+    expect(
+      await outcomeOf(
+        withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
+          await runLanguageCaseMoments(fakePage, capture);
+          fakePage.setUrl(`${baseUrl}/en-US/account`);
+          await capture("switcher-saved");
+        })
+      )
+    ).toThrow(captureFailureMessage);
 
     expect(
       writeFileNames().filter(
@@ -1652,13 +1698,15 @@ describe("language preference review wrapper", () => {
     const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
     const caseFailure = new Error("synthetic language case failure");
 
-    await expect(
-      withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
-        fakePage.setUrl(`${baseUrl}/cs-CZ/account/profile`);
-        await capture("czech-profile");
-        throw caseFailure;
-      })
-    ).rejects.toBe(caseFailure);
+    expect(
+      await rejectionOf(
+        withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
+          fakePage.setUrl(`${baseUrl}/cs-CZ/account/profile`);
+          await capture("czech-profile");
+          throw caseFailure;
+        })
+      )
+    ).toBe(caseFailure);
 
     expect(writeFileNames()).toEqual([
       "linked-profile-language-desktop-cs.png",

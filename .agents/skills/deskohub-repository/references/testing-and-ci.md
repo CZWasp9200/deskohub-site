@@ -55,6 +55,8 @@ Run subprocesses in Workspace code only through `runCommand` or `commandOutput` 
 
 Settle a subprocess promise before you assert on it. `expect(pending).rejects` and `.resolves` run a nested event-loop tick that can drop the child's pipe events.
 
+The same nested tick sleeps through Playwright replies that have already arrived, so a Playwright-driven promise wrapped in `.resolves` or `.rejects` settles up to seconds late under `bun test` (measured on Bun 1.4.2 and 1.4.4). Timers, `fetch`, subprocesses, and in-memory promises weren't delayed in the same probe. The `no-promise-matchers-in-browser-tests` Grit rule rejects both matchers in Workspace `*.test.ts(x)` and `*.test-utils.ts` files that import Playwright. Assert on `expect(await promise)`, and for rejections use `outcomeOf` (for `toThrow`) or `rejectionOf` (for value matchers) from `apps/deskohub-workspace/shared/testing/promise-outcome.test-utils.ts`. Playwright runner specs (`*.pw.ts`) run on Node and keep Playwright's own `expect`.
+
 ## CI
 
 - Workspace CI runs on every pull request. Keep `test-functional` as the fail-closed required check over the shard selection, the test shards, Workspace validation, migration-count validation, and the administration-messages build check.

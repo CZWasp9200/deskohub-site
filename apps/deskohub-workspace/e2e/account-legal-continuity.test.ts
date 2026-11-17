@@ -6,6 +6,7 @@ import {
   accountSectionLabel,
 } from "@/features/account/sections";
 import { type Locale, m } from "@/features/i18n";
+import { outcomeOf } from "@/shared/testing/promise-outcome.test-utils";
 import {
   type AccountLegalFixture,
   accountFixtureAuthHeader,
@@ -942,9 +943,11 @@ const assertSectionPathNotFound = async (
     );
     // A signed-out account page starts its redirect once it hydrates, which
     // the dev server can take seconds to reach.
-    await expect(
-      page.waitForURL(isSignInPathname, { timeout: signInRedirectWindow })
-    ).rejects.toThrow();
+    expect(
+      await outcomeOf(
+        page.waitForURL(isSignInPathname, { timeout: signInRedirectWindow })
+      )
+    ).toThrow();
     expect(page.url()).toBe(url);
     expect(signInRequests).toEqual([]);
     expect(
