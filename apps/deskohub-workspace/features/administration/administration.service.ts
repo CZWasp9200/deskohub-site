@@ -603,7 +603,7 @@ const toIsoString = (instant: Temporal.Instant) => instant.toString();
 const decodeInstantString = Schema.decodeUnknownOption(instantStringSchema);
 
 const toCustomer = (customer: DotyposCustomer): AdministrationCustomer =>
-  describeAdministrationCustomer(customer, "person-company");
+  describeAdministrationCustomer(customer);
 
 type SafePaymentAttemptRow = {
   readonly id: PaymentAttemptId;

@@ -75,6 +75,19 @@ const dayButton = (tree: ReactNode, day: number) =>
   ) as DayButton | undefined;
 
 describe("MonthCalendar", () => {
+  test("weekday names shrink to their column on one line, never split", () => {
+    const { tree } = calendar();
+    const week = findAll(tree, "View").find(
+      (view) => view.props["aria-hidden"] === true
+    );
+    const names = findAll(week, Text);
+    expect(names).toHaveLength(7);
+    for (const name of names) {
+      expect(name.props.numberOfLines).toBe(1);
+      expect(name.props.adjustsFontSizeToFit).toBe(true);
+    }
+  });
+
   test("an unavailable day can't be pressed without an explanation to show", () => {
     const { tree } = calendar();
     expect(dayButton(tree, 20)?.props.disabled).toBe(true);

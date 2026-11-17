@@ -678,7 +678,7 @@ const toCustomer = (
   customer: DotyposCustomer
 ): InvoiceAdministrationCustomer => ({
   id: customer.id,
-  ...nameAdministrationCustomer(customer, "company-person-email"),
+  ...nameAdministrationCustomer(customer),
   email: customerText(customer.email) || null,
   details: toCustomerDetails(customer),
 });

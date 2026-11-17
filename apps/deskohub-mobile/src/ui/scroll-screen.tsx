@@ -143,7 +143,16 @@ export function ScrollScreen({
         </View>
       )}
       {refreshing && (
-        <View style={styles.refresh}>
+        <View
+          style={[
+            styles.refresh,
+            // On the masthead's lower edge, clear of its title (board 10b).
+            withMasthead &&
+              mastheadHeight !== undefined && {
+                top: mastheadHeight - refreshDiscSize / 2,
+              },
+          ]}
+        >
           <View style={styles.refreshDisc}>
             <LoadingIndicator size="inline" tone="brand" />
           </View>
@@ -152,6 +161,9 @@ export function ScrollScreen({
     </SafeAreaView>
   );
 }
+
+/** The refresh indicator's white disc. */
+const refreshDiscSize = 40;
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
@@ -197,9 +209,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: color.surface,
     borderRadius: radius.pill,
-    height: 40,
+    height: refreshDiscSize,
     justifyContent: "center",
-    width: 40,
+    width: refreshDiscSize,
     ...shadow.refresh,
   },
 });

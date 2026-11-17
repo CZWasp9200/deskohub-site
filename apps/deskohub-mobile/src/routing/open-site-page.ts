@@ -12,8 +12,9 @@ export const appBrowserTabColors = {
 } as const;
 
 /**
- * Opens a site page in the in-app browser tab, coloured like the app. It
- * fails where no browser is available.
+ * Opens a site page in the in-app browser tab, coloured like the app, with
+ * the page's title above its host in the toolbar (board 16b). It fails where
+ * no browser is available.
  */
 export const openSitePage = (url: string) =>
-  openBrowserAsync(url, appBrowserTabColors);
+  openBrowserAsync(url, { ...appBrowserTabColors, showTitle: true });
