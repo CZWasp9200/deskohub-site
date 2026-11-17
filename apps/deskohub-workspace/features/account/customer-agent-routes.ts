@@ -1,4 +1,5 @@
 import { isLoopbackHostname } from "@/shared/utils/hostname";
+import { workspaceSiteOrigin } from "@/shared/utils/site-constants";
 import {
   administrationAgentScope,
   customerAgentScopes,
@@ -15,6 +16,9 @@ export const customerAgentConsentPath = "/auth/consent";
 
 /** The customer MCP server's path on every Workspace host. */
 export const customerMcpServerPath = "/api/mcp";
+
+/** The public MCP server customers add as a custom connector. */
+export const customerMcpServerUrl = `${workspaceSiteOrigin}${customerMcpServerPath}`;
 
 /**
  * The OAuth discovery documents agents read before they connect: the MCP

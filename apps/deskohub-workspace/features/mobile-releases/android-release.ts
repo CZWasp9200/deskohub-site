@@ -41,16 +41,31 @@ export const GitHubRelease = Schema.Struct({
 });
 export type GitHubRelease = typeof GitHubRelease.Type;
 
-// Mobile releases are tagged `mobile-vX.Y.Z` with plain numeric parts.
-const mobileReleaseTagPattern =
-  /^mobile-v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/;
+// Mobile releases are tagged `mobile-vX.Y.Z` with plain numeric parts and
+// publish their APK as `deskohub-X.Y.Z.apk`.
+const versionPattern = String.raw`((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))`;
+const mobileReleaseTagPattern = new RegExp(`^mobile-v${versionPattern}$`);
+const androidApkFileNamePattern = new RegExp(
+  `^deskohub-${versionPattern}\\.apk$`
+);
 
-/** The version a mobile release tag names, if the tag is one. */
-export const mobileReleaseVersion = (tag: string): Option.Option<string> =>
-  Option.fromNullishOr(mobileReleaseTagPattern.exec(tag)?.[1]).pipe(
+const readVersion = (pattern: RegExp, text: string) =>
+  Option.fromNullishOr(pattern.exec(text)?.[1]).pipe(
     // semver can't compare a part above Number.MAX_SAFE_INTEGER.
     Option.filter((version) => valid(version) !== null)
   );
+
+/** The version a mobile release tag names, if the tag is one. */
+export const mobileReleaseVersion = (tag: string): Option.Option<string> =>
+  readVersion(mobileReleaseTagPattern, tag);
+
+/** The file name a mobile release publishes its APK under. */
+export const androidApkFileName = (versionName: string): string =>
+  `deskohub-${versionName}.apk`;
+
+/** The version an APK file name names, if a release could publish it. */
+export const androidApkVersion = (fileName: string): Option.Option<string> =>
+  readVersion(androidApkFileNamePattern, fileName);
 
 /** Orders version names by semantic version, so 1.10.0 follows 1.9.0. */
 export const mobileReleaseVersionOrder: Order.Order<string> = compare;
@@ -86,7 +101,7 @@ const toAndroidRelease = (
     if (release.name !== `mobile: v${versionName}`) {
       return yield* Option.none();
     }
-    const apkFileName = `deskohub-${versionName}.apk`;
+    const apkFileName = androidApkFileName(versionName);
     const apk = yield* Arr.findFirst(
       release.assets,
       (asset) => asset.name === apkFileName
