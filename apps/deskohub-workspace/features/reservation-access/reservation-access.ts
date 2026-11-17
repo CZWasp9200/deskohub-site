@@ -91,9 +91,10 @@ export interface IssuedReservationAccess {
  *
  * - `not_needed`: the reservation has ended, so its grant stays as it is.
  * - `issue`: fresh access is issued once the reservation is confirmed again.
- *   Cancellation expires a live grant only after its credential was confirmed
- *   removed or its access ended, and a reservation without a grant never had
- *   a credential.
+ *   Cancellation expires a provisioning, issued or uncertain grant and forgets
+ *   its code, and a reservation without a grant never had a credential. A
+ *   credential still at the lock opens it only within the same reservation's
+ *   hours.
  * - `uncertain`: the provider may hold a credential Workspace can't account
  *   for, so the restore must stop. `issued`, `provisioning` and `uncertain`
  *   grants may hold one, and so may `pending` and `failed` ones: replacing an
