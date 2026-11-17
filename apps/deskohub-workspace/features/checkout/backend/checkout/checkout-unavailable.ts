@@ -7,6 +7,7 @@ const checkoutUnavailableReasonSchema = Schema.Literals([
   "missing_reservation",
   "not_current",
   "retried_attempt_replaced",
+  "payment_ended",
   "not_held",
   "expired",
   "missing_dotypos_reservation",

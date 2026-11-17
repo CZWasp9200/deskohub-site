@@ -507,13 +507,17 @@ describe.skipIf(!testDatabase)(
       });
 
       test("records the cause when a claim starts the cancellation, and keeps it when a later claim retries it", async () => {
-        const fresh = await expiredHold();
+        const fresh = await expiredHold({
+          reservation: "held",
+          payment: "failed",
+        });
         const operatorFailed = await expiredHold(
-          { reservation: "cancellation_failed" },
+          { reservation: "cancellation_failed", payment: "failed" },
           { cancellationCause: "operator" }
         );
         const unknownFailed = await expiredHold({
           reservation: "cancellation_failed",
+          payment: "failed",
         });
 
         const claims = await Promise.all(
@@ -529,6 +533,31 @@ describe.skipIf(!testDatabase)(
           "operator",
           null,
         ]);
+      });
+
+      test("a payment retry claims only the hold of a payment that ended", async () => {
+        const pending = await expiredHold({
+          reservation: "held",
+          payment: "pending",
+        });
+        const ended = await expiredHold({
+          reservation: "held",
+          payment: "cancelled",
+        });
+
+        const claims = await Promise.all(
+          [pending, ended].map((id) =>
+            run((repository) =>
+              repository.claimCancellation({ id, cause: "payment_retry" })
+            )
+          )
+        );
+
+        expect(claims.map((claim) => claim?.reservationState ?? null)).toEqual([
+          null,
+          "cancelling",
+        ]);
+        expect((await readReservation(pending))?.reservationState).toBe("held");
       });
 
       test("records an outcome only under the current claim's stamp", async () => {

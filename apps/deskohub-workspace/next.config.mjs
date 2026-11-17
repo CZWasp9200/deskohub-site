@@ -69,6 +69,11 @@ const nextConfig = {
     turbopackFileSystemCacheForBuild: false,
     // Garbage collection drops unreachable work from `next dev`'s cache.
     turbopackGc: true,
+    // The React Compiler runs natively inside Turbopack instead of through
+    // Babel in Turbopack's Node.js loader processes. Those processes held
+    // about 1.6 GB at the compile's peak, which pushed it past Vercel's 7 GB
+    // build machines.
+    turbopackRustReactCompiler: true,
     // Customer avatar uploads carry up to 2 MiB of raw image bytes plus the
     // Server Action / multipart envelope, so the 1 MiB default body limit is
     // too small; oversized images are rejected by the avatar policy itself.

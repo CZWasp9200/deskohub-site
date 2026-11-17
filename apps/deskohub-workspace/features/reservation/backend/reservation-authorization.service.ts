@@ -27,6 +27,7 @@ import {
 type ReservationPermission =
   | "view-status"
   | "open-payment-page"
+  | "retry-payment"
   | "view-access-code"
   | "view-invoice";
 
@@ -41,16 +42,18 @@ const reservationAccessPolicy = {
   capability: [
     "view-status",
     "open-payment-page",
+    "retry-payment",
     "view-access-code",
     "view-invoice",
   ],
   customer: [
     "view-status",
     "open-payment-page",
+    "retry-payment",
     "view-access-code",
     "view-invoice",
   ],
-  author: ["view-status", "open-payment-page"],
+  author: ["view-status", "open-payment-page", "retry-payment"],
 } as const satisfies Record<string, readonly ReservationPermission[]>;
 
 const grants = (

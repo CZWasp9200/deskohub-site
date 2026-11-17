@@ -190,6 +190,11 @@ test("fails a production compile without the mobile web export", async () => {
   }
 });
 
+test("compiles React components natively inside Turbopack", () => {
+  expect(nextConfig.reactCompiler).toBe(true);
+  expect(nextConfig.experimental?.turbopackRustReactCompiler).toBe(true);
+});
+
 test("keeps Turbopack's build cache out of Vercel's build cache", () => {
   expect(nextConfig.experimental?.turbopackFileSystemCacheForBuild).toBe(false);
   // Next keeps a copy restored from an older Vercel build cache, which would

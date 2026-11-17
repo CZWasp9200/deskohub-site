@@ -2,6 +2,7 @@ import "@/shared/polyfills/temporal";
 
 import { DotyposService } from "@deskohub/dotypos";
 import { Context, Effect, Layer, Predicate } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { WorkspaceLockSections } from "@/db/workspace-locks";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
@@ -17,8 +18,10 @@ import {
 } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { hasReservationIntervalEnded } from "@/features/reservation/reservation-interval";
+import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { currentInstant } from "@/shared/utils/temporal";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
+import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
 import {
   findOrderDotyposReservations,
   type RecreatedReservation,
@@ -87,11 +90,19 @@ const retryablePaymentStates: ReadonlySet<string> = new Set([
   "expired",
 ]);
 
+/**
+ * Whether the order still awaits the retry of `retriedAttemptId`: its
+ * payment ended unpaid on that attempt, which is its newest, and nothing
+ * else is active (a retry prepared before clears it).
+ */
 const isRetriedOrder = (
   order: WorkspaceReservation,
-  retriedAttemptId: PaymentAttemptId
+  retriedAttemptId: PaymentAttemptId,
+  newestAttemptId: PaymentAttemptId | undefined
 ) =>
-  order.activePaymentAttemptId === retriedAttemptId &&
+  newestAttemptId === retriedAttemptId &&
+  (order.activePaymentAttemptId === retriedAttemptId ||
+    order.activePaymentAttemptId === null) &&
   retryablePaymentStates.has(order.paymentState);
 
 /** Local states whose own unpaid hold a retry releases before booking again. */
@@ -228,9 +239,16 @@ const secure = Effect.fn("PaymentRetryHoldService.secure")(
   function* (request: PaymentRetryHoldRequest) {
     const reservations = yield* WorkspaceReservationRepository;
     const recoveries = yield* LatePaymentRecoveryRepository;
+    const attempts = yield* PaymentAttemptRepository;
     const now = yield* currentInstant;
     const order = yield* reservations.findById(request.orderId);
-    if (!order || !isRetriedOrder(order, request.retriedAttemptId)) {
+    const newestAttemptId = (yield* attempts.findNewestForReservation(
+      request.orderId
+    ))?.id;
+    if (
+      !order ||
+      !isRetriedOrder(order, request.retriedAttemptId, newestAttemptId)
+    ) {
       return refused("not_retryable");
     }
     const recovery = yield* recoveries.findLatestByWorkspaceReservationId(
@@ -251,7 +269,7 @@ const secure = Effect.fn("PaymentRetryHoldService.secure")(
     const released = yield* reservations.findById(order.id);
     if (
       !released ||
-      !isRetriedOrder(released, request.retriedAttemptId) ||
+      !isRetriedOrder(released, request.retriedAttemptId, newestAttemptId) ||
       !isReacquirable(released)
     ) {
       return refused("not_retryable");
@@ -279,6 +297,7 @@ const secure = Effect.fn("PaymentRetryHoldService.secure")(
 const retryHoldCapabilities = [
   WorkspaceReservationRepository,
   LatePaymentRecoveryRepository,
+  PaymentAttemptRepository,
   UnpaidHoldRelease,
   DotyposService,
   WorkspaceAvailabilityService,
@@ -290,6 +309,7 @@ const retryHoldCapabilities = [
 type RetryHoldCapabilities =
   | WorkspaceReservationRepository
   | LatePaymentRecoveryRepository
+  | PaymentAttemptRepository
   | UnpaidHoldRelease
   | DotyposService
   | WorkspaceAvailabilityService
@@ -328,5 +348,26 @@ export class PaymentRetryHoldService extends Context.Service<
           secure(request).pipe(Effect.provideContext(context)),
       });
     })
+  );
+
+  static Live = this.Default.pipe(
+    Layer.provide(UnpaidHoldRelease.Default),
+    Layer.provide(
+      Layer.mergeAll(
+        WorkspaceReservationRepository.Default,
+        LatePaymentRecoveryRepository.Default,
+        PaymentAttemptRepository.Default
+      ).pipe(Layer.provide(WorkspaceDatabase.Default))
+    ),
+    Layer.provide(WorkspaceAvailabilityService.Live),
+    Layer.provide(
+      WorkspaceTableAssignmentService.Default.pipe(
+        Layer.provide(WorkspaceReservationRepository.Live),
+        Layer.provide(WorkspaceDotyposLayer)
+      )
+    ),
+    Layer.provide(ReservationHoldCleanupScheduleService.Live),
+    Layer.provide(WorkspaceDatabaseAdvisoryLock.Default),
+    Layer.provide(WorkspaceDotyposLayer)
   );
 }

@@ -47,6 +47,7 @@ import {
   submitPaymentAndWaitForHostedPage,
   submitReservationForPayPage,
 } from "../checkout/payment";
+import { retryPaymentInPlace } from "../checkout/payment-retry";
 import {
   findRepeatReservationProblem,
   toRepeatReservation,
@@ -463,7 +464,7 @@ export const assertFreshPaymentAttempt = (
 };
 
 // Decides whether the rejected payment may restart. If so, retires the rejected attempt, leaves the hosted page, and
-// reopens the checkout pay page, which starts a fresh attempt and Nexi order.
+// retries the payment from the order's status page, whose Pay page starts a fresh attempt and Nexi order.
 const restartSandboxRejectedPayment = (
   { config, orderId, openSession, state }: HostedCheckoutPaymentOptions,
   rejected: Extract<HostedPaymentAttempt, { kind: "sandbox-rejected" }>
@@ -492,12 +493,42 @@ const restartSandboxRejectedPayment = (
     );
     state.checkoutRow = yield* retireRejectedAttempt(orderId, paymentAttemptId);
 
+    // Paying an ended payment again is a payment retry: its status page's
+    // "Try payment again" opens the same order's Pay page.
+    const statusPageUrl = yield* getOrderStatusPageUrl(
+      rejected.hostedPaymentPage.checkoutPageUrl,
+      orderId
+    );
     yield* leaveRejectedHostedPayment({
       config,
-      hostedPaymentPage: rejected.hostedPaymentPage,
+      hostedPaymentPage: {
+        ...rejected.hostedPaymentPage,
+        checkoutPageUrl: statusPageUrl,
+      },
       session: browser,
     });
+    yield* retryPaymentInPlace({
+      label: "sandbox-rejected payment",
+      orderId,
+      session: browser,
+      timeouts: config.timeouts,
+    });
     return true;
+  });
+
+/** The order's status page, in the locale and origin of its Pay page. */
+const getOrderStatusPageUrl = (
+  checkoutPageUrl: string,
+  orderId: CheckoutRow["reservation_id"]
+) =>
+  tryWorkspaceE2ESync("build the order's status page URL", () => {
+    const payUrl = parseUrl(checkoutPageUrl);
+    const locale = payUrl?.pathname.split("/")[1];
+    assert(payUrl && locale, "the checkout pay page URL has no locale");
+    return new URL(
+      `/${locale}/reservation/status/${orderId}`,
+      payUrl.origin
+    ).toString();
   });
 
 /**
