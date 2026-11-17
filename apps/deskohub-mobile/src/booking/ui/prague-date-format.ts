@@ -1,5 +1,6 @@
 import type { CustomerLocale } from "@deskohub/workspace-customer-api";
 import type { PragueDate } from "../selection/prague-date";
+import { deviceHour12 } from "../../i18n/device-clock";
 
 /**
  * A Prague calendar date as the customer reads it, such as "Friday 13
@@ -31,18 +32,25 @@ export const formatShortPragueDate = (
   });
 
 /**
- * A Prague time of day, HH:mm, as the customer reads it, on the 24-hour
- * clock in every language as the booking boards write it ("14:00", never
- * "2:00 PM"). The time is formatted on a fixed day in UTC, so no time zone
- * moves it.
+ * A Prague time of day, HH:mm, as the customer reads it: on the device's
+ * clock, 12- or 24-hour, as the tickets and the PIN screen write times
+ * (one time format across the app). A 24-hour clock runs 00–23, so midnight
+ * never reads "24:00". The time is formatted on a fixed day in UTC, so no
+ * time zone moves it.
  */
 export const formatPragueTime = (
   time: string,
   locale: CustomerLocale
-): string =>
-  new Intl.DateTimeFormat(locale, {
+): string => {
+  const hour12 = deviceHour12();
+  return new Intl.DateTimeFormat(locale, {
     hour: "numeric",
     minute: "2-digit",
-    hourCycle: "h23",
+    ...(hour12 === undefined
+      ? {}
+      : hour12
+        ? { hour12: true }
+        : { hourCycle: "h23" as const }),
     timeZone: "UTC",
   }).format(new Date(`1970-01-01T${time}:00Z`));
+};
