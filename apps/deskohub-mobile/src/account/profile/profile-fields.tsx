@@ -9,6 +9,9 @@ import type {
   ProfileFieldProblem,
 } from "./profile-draft";
 
+/** A VAT ID's format, as the billing boards (07, 13) show it in the field. */
+export const vatIdFormatExample = "CZ12345678";
+
 type InputProps = Pick<
   ComponentProps<typeof TextField>,
   | "autoComplete"
@@ -81,8 +84,7 @@ const fieldInput: Record<
   vatId: {
     label: (locale) => m.profile_vat_id_label({}, { locale }),
     optional: true,
-    // The format, as boards 07 and 13 show it.
-    placeholder: "CZ12345678",
+    placeholder: vatIdFormatExample,
     autoComplete: "off",
     autoCapitalize: "characters",
     maxLength: 32,

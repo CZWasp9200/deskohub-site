@@ -19,6 +19,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { vatIdFormatExample } from "../../account/profile/profile-fields";
 import { CompanyLookup } from "../../company-lookup/company-lookup";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
@@ -659,6 +660,7 @@ function InvoiceSection({
               optional={m.booking_details_optional_field({}, { locale })}
               value={company.vatId}
               onChangeText={(vatId) => setCompany({ vatId }, "buyer.vatId")}
+              placeholder={vatIdFormatExample}
               autoCapitalize="characters"
             />
             <AddressFields
