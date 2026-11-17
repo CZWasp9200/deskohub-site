@@ -19,6 +19,21 @@ export interface TabBarItem {
 export const tabBarHeight = 56;
 
 /**
+ * How much of the screen's bottom the bar covers, for toasts: nothing while
+ * hidden, else the bar with its safe area plus the raised circle's overhang
+ * when a tab is raised.
+ */
+export function tabBarObstruction(
+  height: number,
+  items: Readonly<Record<string, TabBarItem>>,
+  hidden: boolean
+): number {
+  if (hidden) return 0;
+  const raised = Object.values(items).some((item) => item.raised === true);
+  return height + (raised ? tabBarRaisedOverhang : 0);
+}
+
+/**
  * The app's bottom tab bar: icons only, no titles and no top border, in the
  * order the navigator lists its tabs. A `raised` tab is a large orange
  * circle that rises out of the bar; the others show the open tab as a
@@ -46,7 +61,7 @@ export function TabBar({
 }) {
   const height = tabBarHeight + insets.bottom;
   const onHeightChange = use(BottomTabBarHeightCallbackContext);
-  useToastObstruction(hidden ? 0 : height);
+  useToastObstruction(tabBarObstruction(height, items, hidden));
   if (hidden) return null;
   return (
     <View
