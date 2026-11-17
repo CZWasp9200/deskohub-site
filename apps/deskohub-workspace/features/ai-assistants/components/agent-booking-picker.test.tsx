@@ -151,3 +151,30 @@ test("returns focus to the banner's other opener when a resize hid the one used"
 
   expect(document.activeElement).toBe(phoneOpener);
 });
+
+test("the copied state resets after a moment, so a later copy is announced again", async () => {
+  const { view } = await openPicker();
+  const copiedLabel = m.agentBookingInstructionCopied({}, { locale });
+  const copyInstruction = () =>
+    act(async () => {
+      fireEvent.click(
+        view.getByRole("button", {
+          name: m.agentBookingCopyInstruction({}, { locale }),
+        })
+      );
+    });
+
+  await copyInstruction();
+  expect(statusTexts(view)).toContain(copiedLabel);
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+  });
+  expect(statusTexts(view)).not.toContain(copiedLabel);
+  view.getByRole("button", {
+    name: m.agentBookingCopyInstruction({}, { locale }),
+  });
+
+  await copyInstruction();
+  expect(statusTexts(view)).toContain(copiedLabel);
+});
