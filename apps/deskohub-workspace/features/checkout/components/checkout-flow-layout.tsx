@@ -143,7 +143,7 @@ function CheckoutStepTarget({
 }) {
   if (!link) {
     return (
-      <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/12 bg-white/7 px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white/68 lg:gap-2 lg:px-3 lg:text-xs lg:tracking-[0.08em]">
+      <div className="flex h-full min-w-0 items-center gap-3 rounded-2xl border border-white/12 bg-white/7 px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white/68 lg:gap-2 lg:px-3 lg:text-xs lg:tracking-[0.08em]">
         {children}
       </div>
     );
