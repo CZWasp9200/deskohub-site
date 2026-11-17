@@ -19,10 +19,11 @@ import {
 
 /**
  * The booking ticket's ways to still pay an unpaid order: open its payment
- * page again, or pay a failed, cancelled or expired order again in place.
- * What the server answers decides what the ticket offers next: a page it
- * won't reopen and a retry it refuses are not offered again on this visit;
- * the order's status is read again after each.
+ * page again, or pay a failed or cancelled order again in place. What the
+ * server answers decides what the ticket offers next, and the order's status
+ * is read again after each: a page it won't reopen isn't offered until a
+ * fresh read says it can be (the provider's answer can change), and a retry
+ * it refuses isn't offered again on this visit.
  */
 export const usePaymentRecovery = (
   order: CustomerOrderState,
@@ -43,7 +44,10 @@ export const usePaymentRecovery = (
   const [retried, runRetry] = useAtom(retryPaymentAtom, {
     mode: "promiseExit",
   });
-  const [pageClosed, setPageClosed] = useState(false);
+  // The read the page was refused on; a fresh read decides again.
+  const [pageClosedOn, setPageClosedOn] = useState<
+    CustomerOrderState | undefined
+  >(undefined);
   const [retryRefused, setRetryRefused] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
 
@@ -62,7 +66,7 @@ export const usePaymentRecovery = (
         PaymentPageOutcome.$match(outcome, {
           Opened: onPaymentPageLeft,
           Closed: () => {
-            setPageClosed(true);
+            setPageClosedOn(order);
             onCheckAgain();
           },
           NotFound: onCheckAgain,
@@ -109,7 +113,8 @@ export const usePaymentRecovery = (
   };
 
   const offer: PaymentRecovery = {
-    pageReopenable: order.paymentPageReopenable === true && !pageClosed,
+    pageReopenable:
+      order.paymentPageReopenable === true && pageClosedOn !== order,
     // Without its booked selection the order can't be shown for paying
     // again; booking again is the way on.
     retryRefused: retryRefused || order.bookedSelection === undefined,

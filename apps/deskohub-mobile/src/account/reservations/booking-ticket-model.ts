@@ -92,9 +92,9 @@ export type OrderChecking = "checking" | "stopped";
 
 /**
  * How the customer can still pay an unpaid order: its payment page can be
- * opened again (the server's `paymentPageReopenable`, unless reopening was
- * just refused), and a failed, cancelled or expired payment can be retried
- * in place until the server refuses the retry.
+ * opened again (the server's `paymentPageReopenable` on its latest read,
+ * unless reopening was refused since), and a failed or cancelled payment can
+ * be retried in place until the server refuses the retry.
  */
 export interface PaymentRecovery {
   readonly pageReopenable: boolean;
@@ -203,9 +203,9 @@ const awaitingPayment: ReadonlyArray<TicketStep> = [
  * The booking ticket of an order in `status`, while the screen is checking
  * it on its own or has stopped (`checking`), with what `recovery` still
  * allows. An order whose payment the checks never saw confirmed reads as
- * needing attention, as the server's delayed status does, unless its
- * payment page can still be opened: the provider then shows no payment, and
- * reopening the page is the way on.
+ * needing attention, as the server's delayed status does, even when its page
+ * could be reopened: the server's answer may be provisional, and paying
+ * twice is the risk the warning names.
  */
 export const bookingTicketOf = (
   status: CustomerOrderStatus,
@@ -219,14 +219,9 @@ export const bookingTicketOf = (
     // check it on its own; the way back is the payment page.
     created: () => underWay(awaitingPayment, "none", "checking", reopen),
     pending: () =>
-      reopen === undefined && checking === "stopped"
+      checking === "stopped"
         ? paymentUnconfirmed
-        : underWay(
-            awaitingPayment,
-            "none",
-            reopen === undefined ? checking : "checking",
-            reopen
-          ),
+        : underWay(awaitingPayment, "none", checking, reopen),
     payment_pending_delayed: () => paymentUnconfirmed,
     paid_waiting_fulfillment: () =>
       underWay(
@@ -253,7 +248,9 @@ export const bookingTicketOf = (
     paid_delivery_delayed: () => confirmed("email-late"),
     fulfilled: () => confirmed(),
     payment_failed: () => notBooked("payment-failed", "not-charged", retry),
-    expired: () => notBooked("time-ran-out", "not-charged", retry),
+    // The website also retries an expired payment; the owner's decision
+    // offers the retry for a failed or cancelled one.
+    expired: () => notBooked("time-ran-out", "not-charged"),
     cancelled: () => notBooked("cancelled", "not-charged", retry),
     late_payment_checking: () =>
       underWay(

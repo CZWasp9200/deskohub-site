@@ -99,11 +99,11 @@ describe("bookingTicketOf", () => {
 
   test("an unpaid order offers its payment page only while the server can reopen it", () => {
     for (const status of ["created", "pending"] as const) {
+      const open = bookingTicketOf(status, "checking", reopenable);
+      expect(open.badge).toBe("pending");
+      expect(actionOf(open.stub)).toBe("payment-page");
+      expect(stepsOf(open.stub)).toEqual(stepsOf(awaiting.stub));
       for (const checking of checkings) {
-        const open = bookingTicketOf(status, checking, reopenable);
-        expect(open.badge).toBe("pending");
-        expect(actionOf(open.stub)).toBe("payment-page");
-        expect(stepsOf(open.stub)).toEqual(stepsOf(awaiting.stub));
         expect(
           actionOf(bookingTicketOf(status, checking, noRecovery).stub)
         ).not.toBe("payment-page");
@@ -111,8 +111,17 @@ describe("bookingTicketOf", () => {
     }
   });
 
-  test("a failed, cancelled or expired payment offers the retry until it is refused", () => {
-    for (const status of ["payment_failed", "cancelled", "expired"] as const) {
+  test("once checking stops, the warning and Check again stand even if the page could be reopened", () => {
+    expect(bookingTicketOf("pending", "stopped", reopenable)).toEqual(
+      bookingTicketOf("pending", "stopped", noRecovery)
+    );
+    expect(
+      actionOf(bookingTicketOf("pending", "stopped", reopenable).stub)
+    ).toBe("check-again");
+  });
+
+  test("a failed or cancelled payment offers the retry until it is refused", () => {
+    for (const status of ["payment_failed", "cancelled"] as const) {
       const offered = bookingTicketOf(status, "checking", noRecovery);
       expect(offered.badge).toBe("not-booked");
       expect(offered.stub).toEqual({ _tag: "RetryPayment" });
@@ -121,10 +130,12 @@ describe("bookingTicketOf", () => {
         refundNote: false,
       });
     }
-    // A refund is never retried.
-    expect(
-      bookingTicketOf("late_payment_refund", "checking", noRecovery).stub._tag
-    ).toBe("BookAgain");
+    // An expired payment or a refund books again.
+    for (const status of ["expired", "late_payment_refund"] as const) {
+      expect(bookingTicketOf(status, "checking", noRecovery).stub._tag).toBe(
+        "BookAgain"
+      );
+    }
   });
 
   test("confirmation under way moves through the steps", () => {

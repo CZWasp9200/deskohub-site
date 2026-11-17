@@ -101,8 +101,20 @@ function CheckoutFlowScreen({
   if (state?._tag === "Review" && Option.getOrUndefined(lastReview) !== state) {
     setLastReview(Option.some(state));
   }
-  const ended = holdEndedReview(flow.view, lastReview);
-  useCheckoutNavigation(flow.view, family, Option.isSome(ended));
+  // A payment retry shows no hold timer (the server still ends its hold):
+  // one that runs out goes back to the order's ticket, without the dialog.
+  const retriedOrderId =
+    request._tag === "PaymentRetry" ? request.checkout.orderId : undefined;
+  const ended =
+    retriedOrderId === undefined
+      ? holdEndedReview(flow.view, lastReview)
+      : Option.none();
+  useCheckoutNavigation(
+    flow.view,
+    family,
+    Option.isSome(ended),
+    retriedOrderId
+  );
   // The details outlive this screen (back, a restarted hold) until the
   // booking is submitted.
   const setDraft = useAtomSet(detailsDraftAtom);
@@ -129,15 +141,18 @@ function CheckoutFlowScreen({
     <Stack.Screen
       options={{
         title: checkoutTitle(onDetails, Option.isSome(review), locale),
-        headerRight: Option.match(review, {
-          onNone: () => undefined,
-          onSome: (shown) => () => (
-            <HoldChip
-              expiresAt={shown.checkout.holdExpiresAt}
-              locale={locale}
-            />
-          ),
-        }),
+        headerRight: Option.match(
+          Option.filter(review, () => retriedOrderId === undefined),
+          {
+            onNone: () => undefined,
+            onSome: (shown) => () => (
+              <HoldChip
+                expiresAt={shown.checkout.holdExpiresAt}
+                locale={locale}
+              />
+            ),
+          }
+        ),
       }}
     />
   );

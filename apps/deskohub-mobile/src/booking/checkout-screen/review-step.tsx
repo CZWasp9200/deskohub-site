@@ -636,19 +636,30 @@ function AgreementRow({
         </Text>
       );
   };
+  const toggle = () =>
+    send(CheckoutEvent.ToggleConsent({ accepted: !consent.checked }));
   return (
-    <Pressable
-      role="checkbox"
-      aria-checked={consent.checked}
-      aria-disabled={consent.disabled}
-      disabled={consent.disabled}
-      onPress={() =>
-        send(CheckoutEvent.ToggleConsent({ accepted: !consent.checked }))
-      }
-      style={styles.agreement}
-    >
-      <Checkbox checked={consent.checked} disabled={consent.disabled} />
-      <Text variant="hint" style={styles.agreementText}>
+    <View style={styles.agreement}>
+      {/* The box is the checkbox, named by the sentence beside it. */}
+      <Pressable
+        role="checkbox"
+        aria-checked={consent.checked}
+        aria-disabled={consent.disabled}
+        aria-labelledby={agreementSentenceId}
+        disabled={consent.disabled}
+        onPress={toggle}
+        style={styles.agreementBox}
+      >
+        <Checkbox checked={consent.checked} disabled={consent.disabled} />
+      </Pressable>
+      {/* Tapping the sentence ticks the box too, as the website's label
+          does; a document link inside it opens the document only. */}
+      <Text
+        nativeID={agreementSentenceId}
+        variant="hint"
+        style={styles.agreementText}
+        onPress={consent.disabled ? undefined : toggle}
+      >
         <Interpolate
           string={consentSentence(consent, locale)}
           mapping={{
@@ -657,9 +668,11 @@ function AgreementRow({
           }}
         />
       </Text>
-    </Pressable>
+    </View>
   );
 }
+
+const agreementSentenceId = "checkout-agreement-sentence";
 
 /** The consent sentence for the checkout, or confirmed again for a retry. */
 const consentSentence = (consent: ConsentView, locale: AppLocale) => {
@@ -790,10 +803,21 @@ const styles = StyleSheet.create({
   agreement: {
     alignItems: "flex-start",
     flexDirection: "row",
-    gap: space.sm + space.xxs,
     marginTop: space.lg,
-    minHeight: touchTarget,
     paddingHorizontal: space.xxs,
+  },
+  // A full touch target around the 22 dp box, its top edge on the
+  // sentence's first line.
+  agreementBox: {
+    alignItems: "flex-start",
+    height: touchTarget,
+    marginLeft: -space.md,
+    // Leaves the board's 10 dp between the box and the sentence.
+    marginRight: -space.xs,
+    marginTop: -space.md,
+    paddingLeft: space.md,
+    paddingTop: space.md,
+    width: touchTarget,
   },
   agreementText: { flex: 1, minWidth: 0, paddingTop: space.xxs },
   agreementLink: {
