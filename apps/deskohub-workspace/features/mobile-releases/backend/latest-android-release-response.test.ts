@@ -12,7 +12,12 @@ const release = Option.getOrThrow(
 
 const respondWith = (latest: AndroidReleases["Service"]["latest"]) =>
   respondWithLatestAndroidRelease.pipe(
-    Effect.provide(Layer.succeed(AndroidReleases, { latest })),
+    Effect.provide(
+      Layer.succeed(AndroidReleases, {
+        latest,
+        release: () => Effect.die("Only the latest release is read"),
+      })
+    ),
     Effect.runPromise
   );
 

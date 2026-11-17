@@ -1,4 +1,5 @@
 import type { Locale } from "@/features/i18n";
+import { androidApkFileName } from "@/features/mobile-releases/android-release";
 import type { AndroidRelease } from "@/features/mobile-releases/backend/latest-android-release.server";
 import { formatInstantDate } from "@/shared/utils/date-time-format";
 import { formatFileSize } from "@/shared/utils/number";
@@ -15,6 +16,20 @@ export type AndroidDownload =
 /** Every published release, for when the latest one can't be looked up. */
 export const androidReleasesListUrl =
   "https://github.com/totalolage/deskohub-site/releases";
+
+/**
+ * Where the site serves the latest APK. It redirects to the release's file
+ * on GitHub, so download links stay on the site's own domain.
+ */
+export const latestAndroidApkPath = "/android/download";
+
+/**
+ * Where the site serves one release's APK. Obtainium picks this link on
+ * `/android` by its file name and reads the version from it, and warns when
+ * the link's domain differs from the page's.
+ */
+export const androidApkPath = (versionName: string): string =>
+  `${latestAndroidApkPath}/${androidApkFileName(versionName)}`;
 
 /**
  * The release facts the page and its Markdown variant show, formatted for
