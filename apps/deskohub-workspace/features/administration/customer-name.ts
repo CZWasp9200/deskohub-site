@@ -36,3 +36,12 @@ export const isInactiveAdministrationCustomer = (customer: {
   readonly lifecycle: DotyposCustomerLifecycle | null;
 }): customer is { readonly lifecycle: "deleted" | "expired" } =>
   customer.lifecycle === "deleted" || customer.lifecycle === "expired";
+
+/** The placeholder name of a deleted or expired customer, which the Admin UI localizes from `lifecycle`. */
+export const inactiveAdministrationCustomerName = (
+  lifecycle: "deleted" | "expired"
+): AdministrationCustomerName => ({
+  displayName: inactiveCustomerDisplayNames[lifecycle],
+  hasName: false,
+  lifecycle,
+});

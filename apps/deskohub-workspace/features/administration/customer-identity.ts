@@ -6,7 +6,7 @@ import {
 } from "@deskohub/dotypos";
 import {
   type AdministrationCustomerName,
-  inactiveCustomerDisplayNames,
+  inactiveAdministrationCustomerName,
   unnamedCustomerDisplayName,
 } from "./customer-name";
 
@@ -23,11 +23,7 @@ export const nameAdministrationCustomer = (
 ): AdministrationCustomerName => {
   const lifecycle = customerLifecycle(customer, now);
   if (lifecycle !== "active")
-    return {
-      displayName: inactiveCustomerDisplayNames[lifecycle],
-      hasName: false,
-      lifecycle,
-    };
+    return inactiveAdministrationCustomerName(lifecycle);
   const name =
     getCustomerDisplayName(customer) ||
     customer.email?.trim() ||

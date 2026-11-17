@@ -5,6 +5,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationCampaignId,
   AutomationDetail,
+  AutomationDryRun,
   AutomationEngineHealth,
   AutomationPreviewId,
   AutomationRunDetail,
@@ -24,6 +25,7 @@ import { NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Schema } from "effect";
 import { HttpApiMiddleware, HttpApiTest } from "effect/unstable/httpapi";
 import { inactiveCustomerDisplayNames } from "@/features/administration/customer-name";
+import { automationDryRunFixture } from "@/features/email-campaigns/admin/automation/activation/automation-dry-run.test-utils";
 import {
   AutomationDraftChanged,
   AutomationRunNotFound,
@@ -427,6 +429,29 @@ describe("automation admin API", () => {
 
       expect(Object.keys(listed!)).toEqual(wireKeys);
       expect(detail).not.toHaveProperty("customerLifecycle");
+    }
+  );
+
+  test.each(["deleted", "expired"] as const)(
+    "encodes a dry run's %s customer by the contract, without the lifecycle the Admin UI reads",
+    (lifecycle) => {
+      const dryRun = automationDryRunFixture(
+        {
+          customers: [
+            {
+              customerId: "customer-1",
+              name: inactiveCustomerDisplayNames[lifecycle],
+              email: null,
+            },
+          ],
+        },
+        { "customer-1": lifecycle }
+      );
+
+      const [customer] = Schema.encodeSync(AutomationDryRun)(dryRun).customers;
+
+      expect(dryRun.customers[0]).toHaveProperty("lifecycle", lifecycle);
+      expect(customer).not.toHaveProperty("lifecycle");
     }
   );
 

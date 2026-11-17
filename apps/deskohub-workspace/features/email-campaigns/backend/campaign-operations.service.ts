@@ -19,7 +19,10 @@ import { AccountRoleGrants } from "@/features/administrators/backend/account-rol
 import { CurrentAdministrator } from "@/features/administrators/backend/current-administrator";
 import { type AudienceFilter, audienceFilterSchema } from "../audience-filter";
 import { previewCalendarExpression } from "../automation/automation-calendar-preview";
-import { AutomationDryRun } from "../automation/backend/automation-dry-run.service";
+import {
+  AutomationDryRun,
+  type AutomationDryRunWithLifecycle,
+} from "../automation/backend/automation-dry-run.service";
 import { AutomationEngineHealth } from "../automation/backend/automation-engine-health.service";
 import { AutomationLifecycle } from "../automation/backend/automation-lifecycle.service";
 import {
@@ -57,10 +60,11 @@ import { OperationRequestLedger } from "./operation-request-ledger.service";
 
 type Registry = CampaignOperationRegistry;
 
-/** The run log's reads add each customer's lifecycle for the Admin UI. */
+/** The dry run's and run log's reads add each customer's lifecycle for the Admin UI. */
 type CampaignOperationResults = OperationResults<
   Registry,
   {
+    readonly getAutomationDryRun: AutomationDryRunWithLifecycle;
     readonly listAutomationRuns: AutomationRunPageWithLifecycle;
     readonly getAutomationRun: AutomationRunDetailWithLifecycle;
   }

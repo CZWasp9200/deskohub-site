@@ -2,7 +2,7 @@ import type { AutomationRunSummary } from "@deskohub/workspace-admin-api";
 import { AdministrationLink } from "@/features/administration/admin-link";
 import { administrationHref } from "@/features/administration/administration-href";
 import {
-  inactiveCustomerDisplayNames,
+  inactiveAdministrationCustomerName,
   isInactiveAdministrationCustomer,
 } from "@/features/administration/customer-name";
 import { AdministrationCustomerNameLabel } from "@/features/administration/customer-name-label";
@@ -64,11 +64,7 @@ export function AutomationRunCustomer({
     return (
       <div className="grid min-w-0 gap-0.5">
         <AdministrationCustomerNameLabel
-          customer={{
-            displayName: inactiveCustomerDisplayNames[customer.lifecycle],
-            hasName: false,
-            lifecycle: customer.lifecycle,
-          }}
+          customer={inactiveAdministrationCustomerName(customer.lifecycle)}
           locale={locale}
         />
         {showId && <CustomerId run={run} />}
