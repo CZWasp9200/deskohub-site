@@ -80,17 +80,17 @@ const totalKey = "total:final";
 
 /**
  * An office product line's two parts, both before discounts: access, and
- * `seatAmount` (one seat for the days booked) for each seat.
+ * `seatsAmount` (every seat for the days booked), as the answer totals them.
  */
 const officeCharges = (
   item: CustomerCheckoutSummaryItem
 ): ReadonlyArray<PriceLine> | undefined => {
-  const { key, dayCount, seats, accessAmount, seatAmount } = item;
+  const { key, dayCount, seats, accessAmount, seatsAmount } = item;
   if (
     dayCount === undefined ||
     seats === undefined ||
     accessAmount === undefined ||
-    seatAmount === undefined
+    seatsAmount === undefined
   ) {
     return undefined;
   }
@@ -105,7 +105,7 @@ const officeCharges = (
       _tag: "Charge",
       key: `${key}:seats`,
       subject: { _tag: "OfficeSeats", seats, dayCount },
-      amount: { ...seatAmount, value: seatAmount.value * seats },
+      amount: seatsAmount,
     },
   ];
 };

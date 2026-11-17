@@ -55,6 +55,16 @@ export const CustomerOfferingFact = Schema.Struct({
 }).annotate({ identifier: "CustomerOfferingFact" });
 export type CustomerOfferingFact = typeof CustomerOfferingFact.Type;
 
+/**
+ * The first and last Prague dates a booking of the offering can use; for an
+ * office, both the first and the last day of the stay.
+ */
+export const CustomerBookableDates = Schema.Struct({
+  earliest: CustomerPlainDate,
+  latest: CustomerPlainDate,
+}).annotate({ identifier: "CustomerBookableDates" });
+export type CustomerBookableDates = typeof CustomerBookableDates.Type;
+
 /** An optional or included extra of a cowork offering. */
 export const CustomerOfferingAddOn = Schema.Struct({
   id: Schema.Literals(["coffee", "workstation"]),
@@ -84,6 +94,7 @@ export const CustomerOffering = Schema.Union([
     /** Per Prague calendar day, or per overnight stay. */
     price: Money,
     advertisedPrice: CustomerAdvertisedPrice,
+    bookableDates: CustomerBookableDates,
     addOns: Schema.Array(CustomerOfferingAddOn),
     /**
      * Present only while the offering can be booked as an overnight stay
@@ -107,6 +118,7 @@ export const CustomerOffering = Schema.Union([
     /** Per booking of the duration. */
     price: Money,
     advertisedPrice: CustomerAdvertisedPrice,
+    bookableDates: CustomerBookableDates,
   }),
   Schema.Struct({
     family: Schema.Literal("office"),
@@ -121,6 +133,7 @@ export const CustomerOffering = Schema.Union([
     maximumDurationHours: Schema.Int,
     /** One office day with one seat. */
     advertisedPrice: CustomerAdvertisedPrice,
+    bookableDates: CustomerBookableDates,
   }),
 ]).annotate({ identifier: "CustomerOffering" });
 export type CustomerOffering = typeof CustomerOffering.Type;

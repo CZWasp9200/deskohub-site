@@ -26,6 +26,10 @@ import {
 
 const money = { value: 0, exponent: 2, currency: "CZK" };
 
+const today = "2026-11-07";
+/** The server's meeting-room window for `today`: six months. */
+const bookableDates = { earliest: today, latest: "2027-05-07" };
+
 const meetingRoomOffering = (
   duration: CustomerMeetingRoomDuration
 ): CustomerOffering => ({
@@ -38,12 +42,12 @@ const meetingRoomOffering = (
   facts: [],
   price: money,
   advertisedPrice: { price: money, discount: money },
+  bookableDates,
 });
 
 const durations = ["hour:1", "hour:4", "day:1"] as const;
 const offerings = durations.map(meetingRoomOffering);
 
-const today = "2026-11-07";
 // 10:00 in Prague (CET).
 const now = new Date("2026-11-07T09:00:00Z");
 
@@ -126,6 +130,7 @@ const enablementOf = (
     availability: Option.some(availability()),
     calendar: Option.none(),
     offered: durations,
+    bookableDates,
     ...context,
   });
 
@@ -158,7 +163,7 @@ describe("opening the screen", () => {
           earlySetup: true,
         },
         offerings,
-        today
+        bookableDates
       )
     ).toEqual(
       Option.some({
@@ -182,7 +187,7 @@ describe("opening the screen", () => {
           },
         },
         [meetingRoomOffering("hour:1")],
-        today
+        bookableDates
       )
     ).toEqual(
       Option.some({
@@ -204,7 +209,7 @@ describe("opening the screen", () => {
           earlySetup: true,
         },
         offerings,
-        today
+        bookableDates
       ).pipe(Option.map(({ startTime, earlySetup }) => [startTime, earlySetup]))
     ).toEqual(Option.some([Option.none(), false]));
   });
@@ -216,7 +221,7 @@ describe("opening the screen", () => {
           selection: { family: "cowork", tier: "open-space", date: today },
         },
         offerings,
-        today
+        bookableDates
       )
     ).toEqual(Option.none());
   });
@@ -544,5 +549,18 @@ describe("meetingRoomEnablement", () => {
     expect(blockerTags({ ...at11, date: Option.some("2027-05-08") })).toEqual([
       "DateOutOfRange",
     ]);
+  });
+
+  test("follows a shorter window the offerings give", () => {
+    const shortWindow = { earliest: today, latest: "2026-11-20" };
+    const enablement = enablementOf(
+      { ...at11, date: Option.some("2026-11-21") },
+      { bookableDates: shortWindow }
+    );
+
+    expect(enablement.dates).toMatchObject(shortWindow);
+    expect(enablement.blockers.map(({ _tag }) => _tag)).toContain(
+      "DateOutOfRange"
+    );
   });
 });

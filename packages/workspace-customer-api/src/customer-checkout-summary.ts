@@ -45,6 +45,11 @@ export const CustomerCheckoutSummaryItem = Schema.Struct({
    * seats' part of `amount` is this times `seats`.
    */
   seatAmount: Schema.optionalKey(Money),
+  /**
+   * Office product line only: every seat's price for the days booked; with
+   * `accessAmount` it makes the line's price before discounts.
+   */
+  seatsAmount: Schema.optionalKey(Money),
 }).annotate({ identifier: "CustomerCheckoutSummaryItem" });
 export type CustomerCheckoutSummaryItem =
   typeof CustomerCheckoutSummaryItem.Type;

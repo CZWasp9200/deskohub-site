@@ -8,7 +8,7 @@ import {
   useAtomSet,
   useAtomValue,
 } from "@effect/atom-react";
-import { Option } from "effect";
+import { type Array as Arr, Option } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import { useRouter } from "expo-router";
 import Coffee from "lucide-react-native/icons/coffee";
@@ -36,8 +36,10 @@ import {
   type CoworkDraft,
   type CoworkOffering,
   coworkAvailabilityQueries,
+  coworkBookableDates,
   coworkDayQuery,
   freeCoworkTierOn,
+  offeredCoworkTiers,
   selectCoworkDate,
   selectCoworkStay,
   selectCoworkTier,
@@ -107,11 +109,6 @@ const blockerMessage = (blocker: CoworkBlocker, locale: AppLocale) =>
       m.booking_cowork_workstation_required({}, { locale }),
   })[blocker._tag]();
 
-const coworkTiers = (offerings: ReadonlyArray<CustomerOffering>) =>
-  offerings.filter(
-    (offering): offering is CoworkOffering => offering.family === "cowork"
-  );
-
 /**
  * Cowork: an Open Space or Reserved Desk day with its extras, opened empty
  * or on a booked selection ("Book again").
@@ -138,10 +135,14 @@ function CoworkCatalog({
   const read = bookingReadOf(useAtomValue(catalogAtom));
   const refresh = useAtomRefresh(catalogAtom);
   const catalog = readValue(read);
-  if (Option.isSome(catalog)) {
+  const tiers = Option.flatMap(catalog, ({ offerings }) =>
+    offeredCoworkTiers(offerings)
+  );
+  if (Option.isSome(catalog) && Option.isSome(tiers)) {
     return (
       <CoworkSelection
         offerings={catalog.value.offerings}
+        tiers={tiers.value}
         catalog={read}
         onRetryCatalog={refresh}
         preselection={preselection}
@@ -180,11 +181,14 @@ function CoworkCatalog({
 
 function CoworkSelection({
   offerings,
+  tiers,
   catalog,
   onRetryCatalog,
   preselection,
 }: {
   readonly offerings: ReadonlyArray<CustomerOffering>;
+  /** The cowork offerings, one per tier; never empty. */
+  readonly tiers: Arr.NonEmptyReadonlyArray<CoworkOffering>;
   readonly catalog: BookingRead<unknown>;
   readonly onRetryCatalog: () => void;
   readonly preselection: Option.Option<CustomerBookedSelection>;
@@ -197,11 +201,12 @@ function CoworkSelection({
 
   const seed = bookingPreselectionKey(preselection);
   const [kept, setStored] = useAtom(coworkDraftAtom);
-  const draft = openingCoworkDraft({ kept, preselection, offerings, today });
+  const draft = openingCoworkDraft({ kept, preselection, offerings });
   const setDraft = (next: CoworkDraft) =>
     setStored(Option.some({ seed, draft: next }));
 
-  const queries = coworkAvailabilityQueries(draft, today);
+  const bookableDates = coworkBookableDates(tiers, draft.tier);
+  const queries = coworkAvailabilityQueries(draft, bookableDates);
   const rangeAtom = bookingAvailabilityAtom({ query: queries.range });
   const selectionAtom = Option.match(queries.selection, {
     onNone: () => unneededReadAtom,
@@ -222,6 +227,7 @@ function CoworkSelection({
     draft,
     now,
     offerings,
+    bookableDates,
     availability: {
       range: readValue(range),
       selection: Option.flatMap(queries.selection, () => loadedValue(selected)),
@@ -276,7 +282,6 @@ function CoworkSelection({
     if (quoteRepeats) refreshQuote();
   };
 
-  const tiers = coworkTiers(offerings);
   const chosen = tiers.find(({ tier }) => tier === model.draft.tier);
   const chosenDate = Option.getOrUndefined(model.draft.date);
   const shortDate = (date: PragueDate) => formatShortPragueDate(date, locale);
