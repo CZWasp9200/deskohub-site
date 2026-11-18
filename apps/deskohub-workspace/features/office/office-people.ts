@@ -1,4 +1,4 @@
-import { Data, Result, Schema } from "effect";
+import { Data, Option, Result, Schema } from "effect";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 
 /**
@@ -125,6 +125,35 @@ export const validateOfficePeople = (
     );
   }
   return Result.succeed(valid);
+};
+
+/**
+ * Who is coming to a booked office, as its booker sees them: the stored
+ * `contactAttends` and the invitees in order. None for an office booked
+ * without a people list (`contactAttends` null), and none once the retention
+ * purge reduced or deleted any invitee, which shows as a missing address or
+ * as fewer people than the booked `seats`.
+ */
+export const getBookedOfficePeople = <
+  Invitee extends { readonly email: InviteeEmail | null },
+>(booking: {
+  readonly contactAttends: boolean | null;
+  readonly seats: number;
+  readonly invitees: ReadonlyArray<Invitee>;
+}): Option.Option<{
+  readonly contactAttends: boolean;
+  readonly invitees: ReadonlyArray<Invitee & { readonly email: InviteeEmail }>;
+}> => {
+  const { contactAttends, seats } = booking;
+  if (contactAttends === null) return Option.none();
+  const invitees = booking.invitees.filter(
+    (invitee): invitee is Invitee & { readonly email: InviteeEmail } =>
+      invitee.email !== null
+  );
+  return invitees.length === booking.invitees.length &&
+    getOfficePeopleSeats({ contactAttends, invitees }) === seats
+    ? Option.some({ contactAttends, invitees })
+    : Option.none();
 };
 
 const decodeEmail = Schema.decodeUnknownResult(reservationCustomerEmailSchema);

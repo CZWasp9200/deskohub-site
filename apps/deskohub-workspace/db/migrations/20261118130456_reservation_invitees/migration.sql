@@ -29,6 +29,7 @@ CREATE TABLE "reservation_invitees" (
       ))
 );
 --> statement-breakpoint
+ALTER TABLE "workspace_reservations" ADD COLUMN "office_contact_attends" boolean;--> statement-breakpoint
 CREATE UNIQUE INDEX "reservation_invitees_reservation_position_idx" ON "reservation_invitees" ("workspace_reservation_id","position");--> statement-breakpoint
 CREATE UNIQUE INDEX "reservation_invitees_reservation_lookup_idx" ON "reservation_invitees" ("workspace_reservation_id","email_lookup_key");--> statement-breakpoint
 CREATE INDEX "reservation_invitees_email_lookup_idx" ON "reservation_invitees" ("email_lookup_key");--> statement-breakpoint

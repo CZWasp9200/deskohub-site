@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Result } from "effect";
+import { Option, Result } from "effect";
 import {
   canAddOfficePerson,
   checkInviteeEmail,
+  getBookedOfficePeople,
   getOfficePeopleSeats,
   InviteeEmail,
   OfficePeopleIssue,
@@ -173,5 +174,56 @@ describe("validateOfficePeople", () => {
         OfficePeopleIssue.InviteeRejected({ index: 1, reason: "contact" })
       )
     );
+  });
+});
+
+describe("getBookedOfficePeople", () => {
+  const invitee = (id: string, email: string | null) => ({
+    id,
+    email: email === null ? null : InviteeEmail.make(email),
+  });
+
+  test("lists the booked people while every address is kept", () => {
+    expect(
+      getBookedOfficePeople({
+        contactAttends: false,
+        seats: 2,
+        invitees: [invitee("a", jana), invitee("b", petr)],
+      })
+    ).toEqual(
+      Option.some({
+        contactAttends: false,
+        invitees: [
+          { id: "a", email: InviteeEmail.make(jana) },
+          { id: "b", email: InviteeEmail.make(petr) },
+        ],
+      })
+    );
+  });
+
+  test("lists nothing once retention reduced or deleted an invitee", () => {
+    // The contact didn't attend; one invitee is now only a registered
+    // customer link and the other was deleted. Counting the rest must never
+    // turn the contact into an attendee.
+    expect(
+      getBookedOfficePeople({
+        contactAttends: false,
+        seats: 2,
+        invitees: [invitee("a", null)],
+      })
+    ).toEqual(Option.none());
+    expect(
+      getBookedOfficePeople({
+        contactAttends: false,
+        seats: 2,
+        invitees: [invitee("b", petr)],
+      })
+    ).toEqual(Option.none());
+  });
+
+  test("lists nothing for an office booked without a people list", () => {
+    expect(
+      getBookedOfficePeople({ contactAttends: null, seats: 3, invitees: [] })
+    ).toEqual(Option.none());
   });
 });

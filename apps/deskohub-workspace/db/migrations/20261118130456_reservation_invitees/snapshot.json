@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a2819adb-7589-4f11-9ced-68a0bc0c1352",
+  "id": "40c21fe0-d287-45a8-ab68-1e61ae479e87",
   "prevIds": [
     "7f011174-3d73-4ac1-88e5-e2d0106be39d"
   ],
@@ -9138,6 +9138,19 @@
       "generated": null,
       "identity": null,
       "name": "reservation_details",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_reservations"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "office_contact_attends",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_reservations"

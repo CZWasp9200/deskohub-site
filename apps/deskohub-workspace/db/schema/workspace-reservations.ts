@@ -6,6 +6,7 @@ import type { EmailDeliveryId } from "@deskohub/email";
 import type { NexiCorrelationId } from "@deskohub/nexi";
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   jsonb,
@@ -153,6 +154,12 @@ export const workspaceReservations = pgTable(
       "active_customer_email_delivery_locale"
     ).$type<Locale>(),
     reservationDetails: jsonb("reservation_details").notNull(),
+    /**
+     * For an office booked with a people list, whether its contact takes a
+     * seat; null for every other reservation. Kept apart from the invitee
+     * rows, which the retention purge deletes or reduces.
+     */
+    officeContactAttends: boolean("office_contact_attends"),
     locale: text("locale").notNull(),
     /**
      * The app the last submission that returned a payment page asked the
