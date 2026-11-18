@@ -16,16 +16,31 @@ const stackedFontScale = 1.3;
 export function FieldPair({
   wide,
   narrow,
+  equalWidths = false,
 }: {
   readonly wide: ReactNode;
   readonly narrow: ReactNode;
+  /** Keep both fields the same width when the form can fit the pair. */
+  readonly equalWidths?: boolean;
 }) {
   const { fontScale } = useWindowDimensions();
   const stacked = fontScale >= stackedFontScale;
   return (
-    <View style={[styles.pair, stacked && styles.stacked]}>
-      <View style={!stacked && styles.wide}>{wide}</View>
-      <View style={!stacked && styles.narrow}>{narrow}</View>
+    <View
+      style={[
+        styles.pair,
+        equalWidths && styles.equalPair,
+        stacked && styles.stacked,
+      ]}
+    >
+      <View style={!stacked && (equalWidths ? styles.equalField : styles.wide)}>
+        {wide}
+      </View>
+      <View
+        style={!stacked && (equalWidths ? styles.equalField : styles.narrow)}
+      >
+        {narrow}
+      </View>
     </View>
   );
 }
@@ -39,6 +54,8 @@ const styles = StyleSheet.create({
   },
   // Wrapping would size each field to its content; stacked, they fill the width.
   stacked: { flexDirection: "column", flexWrap: "nowrap" },
+  equalPair: { flexWrap: "nowrap" },
+  equalField: { flex: 1, minWidth: 0 },
   wide: { flexBasis: 160, flexGrow: 1.4 },
   narrow: { flexBasis: 110, flexGrow: 1 },
 });

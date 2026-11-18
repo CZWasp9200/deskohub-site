@@ -158,21 +158,11 @@ export function BillingAddressSection(fields: BillingFieldProps) {
           <ProfileTextFields {...fields} fields={["addressLine2"]} />
         </View>
       </View>
-      {paired ? (
-        <View style={styles.pair}>
-          <View style={styles.column}>
-            <ProfileTextFields {...fields} fields={["city"]} />
-          </View>
-          <View style={styles.column}>
-            <ProfileTextFields {...fields} fields={["zip"]} />
-          </View>
-        </View>
-      ) : (
-        <FieldPair
-          wide={<ProfileTextFields {...fields} fields={["city"]} />}
-          narrow={<ProfileTextFields {...fields} fields={["zip"]} />}
-        />
-      )}
+      <FieldPair
+        equalWidths={paired}
+        wide={<ProfileTextFields {...fields} fields={["city"]} />}
+        narrow={<ProfileTextFields {...fields} fields={["zip"]} />}
+      />
       <View style={layout === "account" && styles.halfWidth}>
         <CountryField
           label={m.booking_details_country({}, { locale })}
