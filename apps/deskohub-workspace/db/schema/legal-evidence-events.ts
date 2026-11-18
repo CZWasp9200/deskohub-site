@@ -11,9 +11,11 @@ import type {
   LegalEvidenceAcknowledgements,
   LegalEvidenceEventId,
 } from "@/features/checkout/legal-evidence";
+import type { OrderId } from "@/features/order";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { instant } from "../instant";
 import { postgresUuidV7 } from "../uuid-v7";
+import { orders } from "./orders";
 import { workspaceReservations } from "./workspace-reservations";
 
 export const legalEvidenceEvents = pgTable(
@@ -26,6 +28,16 @@ export const legalEvidenceEvents = pgTable(
     workspaceReservationId: text("workspace_reservation_id")
       .$type<WorkspaceReservationId>()
       .references(() => workspaceReservations.id, { onDelete: "set null" }),
+    /**
+     * The order whose checkout accepted the document. For a reservation order
+     * it equals `workspace_reservation_id`. A trigger fills it from the
+     * reservation on insert when the writer leaves it out (writers from
+     * before the order key, during a rolling deployment). Evidence outlives
+     * its order, so deleting the order clears it.
+     */
+    orderId: text("order_id")
+      .$type<OrderId>()
+      .references(() => orders.id, { onDelete: "set null" }),
     documentKey: text("document_key").notNull(),
     documentPath: text("document_path").notNull(),
     documentHash: text("document_hash").notNull(),
@@ -54,6 +66,11 @@ export const legalEvidenceEvents = pgTable(
     ),
     index("legal_evidence_events_workspace_reservation_idx").on(
       t.workspaceReservationId
+    ),
+    index("legal_evidence_events_order_idx").on(t.orderId),
+    check(
+      "legal_evidence_events_reservation_order_match_check",
+      sql`${t.workspaceReservationId} is null or ${t.orderId} is null or ${t.orderId} = ${t.workspaceReservationId}`
     ),
   ]
 );
