@@ -173,7 +173,7 @@
   "accountingInvoiceIdReused": "Toto ID faktury už bylo použito s jinými údaji.",
   "accountingInvoiceCustomerIdMissing": "Dotypos vrátil zákazníka bez ID.",
   "accountingInvoiceCustomerIdInvalid": "ID vybraného zákazníka je neplatné.",
-  "accountingInvoiceCustomerDeleted": "Vybraný zákazník byl smazán.",
+  "accountingInvoiceCustomerInactive": "Zákazník už v Dotyposu není aktivní (byl smazán nebo mu vypršela platnost) a nelze mu vystavit fakturu.",
   "accountingInvoiceCustomerEmailAmbiguous": "Tento e-mail používá více zákazníků v Dotyposu. Vyberte správného stávajícího zákazníka.",
   "accountingInvoiceBillingDetailsInvalid": "Vyplňte úplné a platné fakturační údaje.",
   "accountingInvoiceCustomerSearchUnavailable": "Hledání zákazníků je dočasně nedostupné.",

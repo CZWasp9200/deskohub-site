@@ -176,7 +176,7 @@
   "accountingInvoiceIdReused": "Toto ID faktúry už bolo použité s inými údajmi.",
   "accountingInvoiceCustomerIdMissing": "Dotypos vrátil zákazníka bez ID.",
   "accountingInvoiceCustomerIdInvalid": "ID vybraného zákazníka je neplatné.",
-  "accountingInvoiceCustomerDeleted": "Vybraný zákazník bol odstránený.",
+  "accountingInvoiceCustomerInactive": "Zákazník už v Dotypose nie je aktívny (bol odstránený alebo mu vypršala platnosť) a nemožno mu vystaviť faktúru.",
   "accountingInvoiceCustomerEmailAmbiguous": "Tento e-mail používa viacero zákazníkov v Dotypose. Vyberte správneho existujúceho zákazníka.",
   "accountingInvoiceBillingDetailsInvalid": "Vyplňte úplné a platné fakturačné údaje.",
   "accountingInvoiceCustomerSearchUnavailable": "Vyhľadávanie zákazníkov je dočasne nedostupné.",
