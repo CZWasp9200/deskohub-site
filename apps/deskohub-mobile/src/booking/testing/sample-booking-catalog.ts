@@ -166,22 +166,14 @@ export const sampleOfferings = (
         name: copy(locale, "Meeting room", "Zasedací místnost"),
         description: copy(
           locale,
-          "A room for up to eight people.",
-          "Místnost až pro osm lidí."
+          "A room for up to ten people.",
+          "Místnost až pro deset lidí."
         ),
         usage: copy(locale, "Book by the hour.", "Rezervace po hodinách."),
         facts: [
           {
             kind: "capacity",
-            text: copy(locale, "Up to 8 seats", "Až 8 míst"),
-          },
-          {
-            kind: "equipment",
-            text: copy(
-              locale,
-              "TV for presentations",
-              "Televize pro prezentace"
-            ),
+            text: copy(locale, "Up to 10 seats", "Až 10 míst"),
           },
         ],
         price: czk(samplePrices.meetingRoom[duration]),
