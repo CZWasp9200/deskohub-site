@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   integer,
@@ -37,6 +38,8 @@ export const reservationInviteeNotices = pgTable(
       .references(() => reservationInvitees.id, { onDelete: "cascade" }),
     kind: text("kind").notNull().$type<ReservationInviteeNoticeKind>(),
     occurredAt: instant("occurred_at").notNull(),
+    /** Set when a booker requests this invitation, even if confirmation created it. */
+    explicitResend: boolean("explicit_resend").notNull().default(false),
     nextAttemptAt: instant("next_attempt_at").notNull().default(sql`now()`),
     attemptCount: integer("attempt_count").notNull().default(0),
     /** Freezes the restoration copy before its first provider attempt. */
@@ -56,6 +59,10 @@ export const reservationInviteeNotices = pgTable(
     index("reservation_invitee_notices_due_idx")
       .on(t.nextAttemptAt, t.id)
       .where(sql`${t.settledAt} is null`),
+    check(
+      "reservation_invitee_notices_explicit_resend_check",
+      sql`not ${t.explicitResend} or ${t.kind} = 'invitation'`
+    ),
     check(
       "reservation_invitee_notices_access_check",
       sql`${t.restoredAccess} is null or (

@@ -15,6 +15,7 @@ import type {
 } from "@/db/schema/reservation-invitee-notices";
 import { WorkspaceLockSections } from "@/db/workspace-locks";
 import type { InviteeEmail } from "@/features/office/office-people";
+import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
   type WorkspaceReservationDetails,
   WorkspaceReservationService,
@@ -58,6 +59,7 @@ const makeNoticeWorker = Effect.gen(function* () {
   const locks = yield* WorkspaceDatabaseAdvisoryLock;
   const invites = yield* ReservationInvitees;
   const reservations = yield* WorkspaceReservationService;
+  const orders = yield* WorkspaceReservationRepository;
   const renderer = yield* ReservationInvitations;
   const transport = yield* ReservationInviteeNoticeTransport;
   const { ring } = yield* SealedStateKeys;
@@ -139,6 +141,7 @@ const makeNoticeWorker = Effect.gen(function* () {
       Option.isNone(candidate) ||
       candidate.value.email === null ||
       (notice.kind === "invitation" &&
+        !notice.explicitResend &&
         Temporal.Instant.compare(reservation.reservedUntil, now) <= 0)
     ) {
       return requestStartedAt === null
@@ -234,7 +237,7 @@ const makeNoticeWorker = Effect.gen(function* () {
       {
         readonly reservation: WorkspaceReservationDetails;
         readonly candidate: Option.Option<ReservationInvitee>;
-      },
+      } | null,
       unknown
     >
   ) {
@@ -248,8 +251,10 @@ const makeNoticeWorker = Effect.gen(function* () {
     const outcome: DispatchOutcome = expired
       ? { status: "uncertain", reason: "replay-expired" }
       : yield* load.pipe(
-          Effect.flatMap(({ reservation, candidate }) =>
-            deliver(notice, reservation, candidate, now)
+          Effect.flatMap((booking) =>
+            booking
+              ? deliver(notice, booking.reservation, booking.candidate, now)
+              : Effect.succeed({ status: "retry" } as const)
           ),
           Effect.timeout(Math.min(remaining, 8_000)),
           Effect.catch(() => Effect.succeed({ status: "retry" } as const))
@@ -312,18 +317,24 @@ const makeNoticeWorker = Effect.gen(function* () {
       if (latest?.kind === "invitation" && latest.uncertainty !== null) {
         return yield* resendUnavailable();
       }
-      const [notice] =
-        latest?.kind === "invitation" && latest.settledAt === null
-          ? [latest]
-          : yield* db
-              .insert(reservationInviteeNotices)
-              .values({
-                inviteeId,
-                kind: "invitation",
-                occurredAt: now,
-                nextAttemptAt: now,
-              })
-              .returning();
+      let notice: Notice | undefined = latest;
+      if (latest?.kind !== "invitation" || latest.settledAt !== null) {
+        [notice] = yield* db
+          .insert(reservationInviteeNotices)
+          .values({
+            inviteeId,
+            kind: "invitation",
+            occurredAt: now,
+            nextAttemptAt: now,
+            explicitResend: true,
+          })
+          .returning();
+      } else if (!latest.explicitResend) {
+        // Keep the same notice and provider request identity when adopting it.
+        [notice] = yield* updateNotice(latest.id, {
+          explicitResend: true,
+        }).returning();
+      }
       if (!notice || Temporal.Instant.compare(notice.nextAttemptAt, now) > 0) {
         return yield* resendUnavailable();
       }
@@ -370,6 +381,15 @@ const makeNoticeWorker = Effect.gen(function* () {
           now,
           deadline - Date.now(),
           Effect.gen(function* () {
+            if (notice.explicitResend) {
+              const order = yield* orders.findById(reservationId);
+              if (
+                order?.paymentState !== "paid" ||
+                order.reservationState !== "confirmed" ||
+                order.reservationDetails.kind !== "office"
+              )
+                return null;
+            }
             const reservation =
               yield* reservations.getReservation(reservationId);
             const candidate = yield* invites.find(
@@ -444,6 +464,9 @@ export class ReservationInviteeNoticeWorker extends Context.Service<
       Layer.mergeAll(
         WorkspaceDatabase.Default,
         WorkspaceDatabaseAdvisoryLock.Default,
+        WorkspaceReservationRepository.Default.pipe(
+          Layer.provide(WorkspaceDatabase.Default)
+        ),
         ReservationInvitees.Default,
         ReservationInvitations.Live.pipe(Layer.provide(WorkspaceEmailLayer)),
         ReservationInviteeNoticeTransport.Live,

@@ -406,7 +406,10 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     ]);
   });
 
-  test("retries all guest notice kinds across worker runs and skips superseded cancellation", async () => {
+  const prepareGuestNotices = async ({ ended = false } = {}) => {
+    const start = toStoredInstant(Temporal.Now.instant());
+    const tick = (minutes: number) => start.add({ minutes });
+    const reservedUntil = ended ? tick(-5) : start.add({ hours: 72 });
     const id = await insertReservation({
       reservation: "held",
       payment: "paid",
@@ -420,7 +423,11 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
         .where(eq(workspaceReservations.id, id))
     );
     const address = invitee("worker-recovery");
-    await record(id, { contactAttends: false, invitees: [address] });
+    await record(
+      id,
+      { contactAttends: false, invitees: [address] },
+      { accessEndsAt: reservedUntil }
+    );
     const repository = <A, E>(
       action: (
         reservations: WorkspaceReservationRepository["Service"]
@@ -431,8 +438,6 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
           Effect.provide(WorkspaceReservationRepository.Default)
         )
       );
-    const start = toStoredInstant(Temporal.Now.instant());
-    const tick = (minutes: number) => start.add({ minutes });
     await repository((reservations) =>
       reservations.markReservationConfirmed({ id, confirmedAt: tick(0) })
     );
@@ -458,13 +463,16 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
         ReservationInvitees.use((invites) => invites.find(id, guest.id))
       ).then((found) => Option.getOrThrow(found).invitationSendCount);
 
-    let outage = false;
-    let loseProcessBeforeDispatch = true;
-    let loseProcessAfterAcceptance = false;
-    let bookerName = "Alex";
-    let simulateExpiredProviderKey = false;
+    const delivery = {
+      outage: false,
+      loseProcessBeforeDispatch: false,
+      loseProcessAfterAcceptance: false,
+      bookerName: "Alex",
+      simulateExpiredProviderKey: false,
+      providerStatus:
+        "CONFIRMED" as WorkspaceReservationDetails["providerStatus"],
+    };
     const providerDelivery = new Map<string, string>();
-    let providerStatus: "CONFIRMED" | "CANCELLED" = "CONFIRMED";
     const attempts: Array<{ noticeId: string; kind: string; access?: string }> =
       [];
     const sent: string[] = [];
@@ -482,7 +490,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
               customer: {
                 id: row.dotyposCustomerId,
                 _cloudId: "synthetic-cloud",
-                firstName: bookerName,
+                firstName: delivery.bookerName,
                 lastName: "Sample",
                 companyName: null,
                 email: null,
@@ -492,9 +500,9 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
                 display: true,
                 deleted: false,
               },
-              reservedFrom: Temporal.Instant.from("2030-03-04T23:00:00Z"),
-              reservedUntil: Temporal.Instant.from("2030-03-05T23:00:00Z"),
-              providerStatus,
+              reservedFrom: reservedUntil.subtract({ hours: 24 }),
+              reservedUntil,
+              providerStatus: delivery.providerStatus,
               seats: 1,
               placement: {},
             }) satisfies WorkspaceReservationDetails
@@ -508,6 +516,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
         Layer.mergeAll(
           locks,
           workspace,
+          WorkspaceReservationRepository.Default,
           SealedStateKeys.fromConfiguration(ringOld),
           Layer.mock(ReservationInvitations, {
             renderNotice: ({
@@ -518,7 +527,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
               reservation,
             }) =>
               Effect.suspend(() =>
-                loseProcessBeforeDispatch
+                delivery.loseProcessBeforeDispatch
                   ? Effect.die("Synthetic process loss before dispatch")
                   : Effect.succeed({
                       idempotencyKey: noticeId,
@@ -555,18 +564,21 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
                     /^[a-zA-Z0-9_-]{43}$/
                   );
                   attempts.push({ kind, noticeId, access });
-                  if (outage)
+                  if (delivery.outage)
                     return yield* new EmailServiceError(
                       "Synthetic definite provider refusal"
                     );
                   const prior = providerDelivery.get(noticeId);
-                  if (prior !== undefined && !simulateExpiredProviderKey) {
+                  if (
+                    prior !== undefined &&
+                    !delivery.simulateExpiredProviderKey
+                  ) {
                     expect(identity).toBe(prior);
                     return;
                   }
                   providerDelivery.set(noticeId, identity);
                   sent.push(kind);
-                  if (loseProcessAfterAcceptance) {
+                  if (delivery.loseProcessAfterAcceptance) {
                     return yield* Effect.die(
                       "Synthetic process loss after provider acceptance"
                     );
@@ -598,13 +610,207 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
               workspace,
               WorkspaceReservationRepository.Default,
               Layer.mock(ReservationAuthorizationService, {
-                authorize: () => Effect.succeed(true),
+                authorize: ({ orderId, permission }) =>
+                  Effect.succeed(
+                    orderId === id && permission === "resend-invitation"
+                  ),
               })
             )
           )
         )
       );
 
+    return {
+      id,
+      guest,
+      start,
+      tick,
+      repository,
+      delivery,
+      notices,
+      acceptedCount,
+      attempts,
+      sent,
+      drain,
+      resend,
+    };
+  };
+
+  test("an authorized resend delivers an ended office's pending invitation once", async () => {
+    const { acceptedCount, attempts, notices, resend, sent } =
+      await prepareGuestNotices({ ended: true });
+    const [initial] = await notices();
+
+    const receipt = await resend();
+    expect(sent).toEqual(["invitation"]);
+    expect(attempts.map(({ noticeId }) => noticeId)).toEqual([initial?.id]);
+    expect(await notices()).toEqual([
+      expect.objectContaining({
+        id: initial?.id,
+        settledAt: receipt.invitationSentAt,
+      }),
+    ]);
+    expect(await acceptedCount()).toBe(1);
+    await expect(resend()).rejects.toMatchObject({
+      _tag: "InvitationResendRefused",
+      refusal: { reason: "cooldown", retryAt: receipt.resendAvailableAt },
+    });
+    expect(sent).toEqual(["invitation"]);
+    expect(await notices()).toHaveLength(1);
+  });
+
+  test("a worker recovers an interrupted resend that adopted an ended office's automatic notice", async () => {
+    const {
+      acceptedCount,
+      attempts,
+      delivery,
+      drain,
+      notices,
+      resend,
+      sent,
+      tick,
+    } = await prepareGuestNotices({ ended: true });
+    const [initial] = await notices();
+    delivery.loseProcessAfterAcceptance = true;
+
+    await expect(resend()).rejects.toThrow(
+      "Synthetic process loss after provider acceptance"
+    );
+    expect(await acceptedCount()).toBe(0);
+    expect(sent).toEqual(["invitation"]);
+    delivery.loseProcessAfterAcceptance = false;
+    expect(await drain(tick(1))).toMatchObject({ delivered: 1, uncertain: 0 });
+    expect(attempts.map(({ noticeId }) => noticeId)).toEqual([
+      initial?.id,
+      initial?.id,
+    ]);
+    expect(sent).toEqual(["invitation"]);
+    expect(await notices()).toEqual([
+      expect.objectContaining({
+        id: initial?.id,
+        settledAt: expect.any(Temporal.Instant),
+      }),
+    ]);
+    expect(await acceptedCount()).toBe(1);
+  });
+
+  test("skips a stale automatic invitation and recovers a fresh explicit resend before dispatch", async () => {
+    const {
+      acceptedCount,
+      attempts,
+      delivery,
+      drain,
+      notices,
+      resend,
+      sent,
+      tick,
+    } = await prepareGuestNotices({ ended: true });
+    const [initial] = await notices();
+
+    expect(await drain(tick(1))).toMatchObject({ skipped: 1, delivered: 0 });
+    expect(
+      (await notices()).find(({ id }) => id === initial?.id)
+    ).toMatchObject({
+      settledAt: tick(1),
+      requestStartedAt: null,
+    });
+    expect(sent).toEqual([]);
+    expect(await acceptedCount()).toBe(0);
+
+    delivery.loseProcessBeforeDispatch = true;
+    await expect(resend()).rejects.toThrow(
+      "Synthetic process loss before dispatch"
+    );
+    const [manual] = (await notices()).filter(
+      ({ settledAt }) => settledAt === null
+    );
+    expect(manual).toBeDefined();
+    expect(attempts).toEqual([]);
+    delivery.loseProcessBeforeDispatch = false;
+    expect(await drain(tick(2))).toMatchObject({ delivered: 1 });
+    expect(attempts.map(({ noticeId }) => noticeId)).toEqual([manual?.id]);
+    expect(sent).toEqual(["invitation"]);
+    expect((await notices()).find(({ id }) => id === manual?.id)).toMatchObject(
+      {
+        settledAt: expect.any(Temporal.Instant),
+      }
+    );
+    expect(await acceptedCount()).toBe(1);
+  });
+
+  test("staff cancellation supersedes a pending resend of an ended office", async () => {
+    const {
+      acceptedCount,
+      delivery,
+      drain,
+      id,
+      notices,
+      repository,
+      resend,
+      sent,
+      tick,
+    } = await prepareGuestNotices({ ended: true });
+    const [initial] = await notices();
+    await Effect.runPromise(
+      testDatabase.db
+        .update(workspaceReservations)
+        .set({ fulfillmentState: "fulfilled", fulfilledAt: tick(0) })
+        .where(eq(workspaceReservations.id, id))
+    );
+
+    delivery.loseProcessBeforeDispatch = true;
+    await expect(resend()).rejects.toThrow(
+      "Synthetic process loss before dispatch"
+    );
+    delivery.loseProcessBeforeDispatch = false;
+    const claim = await repository((orders) =>
+      orders.claimAdministrationCancellation({
+        id,
+        staleCancellingBefore: tick(-60),
+      })
+    );
+    if (!claim) throw new Error("expected a staff cancellation claim");
+
+    // Dotypos still reports confirmed while staff cancellation is in flight.
+    expect(await drain(tick(1))).toMatchObject({ deferred: 1, delivered: 0 });
+    expect(sent).toEqual([]);
+    await repository((orders) =>
+      orders.markAdministrationCancelled({
+        id,
+        cancelledAt: tick(2),
+        claimedAt: claim.updatedAt,
+        failureCode: null,
+      })
+    );
+    delivery.providerStatus = "CANCELLED";
+
+    expect(await drain(tick(3))).toMatchObject({ delivered: 1 });
+    expect(sent).toEqual(["cancellation"]);
+    expect(await acceptedCount()).toBe(0);
+    expect(
+      (await notices()).find(({ id }) => id === initial?.id)
+    ).toMatchObject({
+      settledAt: tick(2),
+      requestStartedAt: null,
+    });
+  });
+
+  test("retries all guest notice kinds across worker runs and skips superseded cancellation", async () => {
+    const {
+      id,
+      guest,
+      start,
+      tick,
+      repository,
+      delivery,
+      notices,
+      acceptedCount,
+      attempts,
+      sent,
+      drain,
+      resend,
+    } = await prepareGuestNotices();
+    delivery.loseProcessBeforeDispatch = true;
     const [initial] = await notices();
     expect(initial?.kind).toBe("invitation");
     await expect(resend()).rejects.toThrow(
@@ -612,8 +818,8 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     );
     expect(await acceptedCount()).toBe(0);
     expect(attempts).toEqual([]);
-    expect(await notices()).toEqual([initial]);
-    loseProcessBeforeDispatch = false;
+    expect(await notices()).toEqual([{ ...initial, explicitResend: true }]);
+    delivery.loseProcessBeforeDispatch = false;
     await Promise.all([drain(tick(1)), drain(tick(1))]);
     expect(sent).toEqual(["invitation"]);
     expect(attempts.map(({ noticeId }) => noticeId)).toEqual([initial?.id]);
@@ -630,7 +836,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
         .set({ lastInvitationSentAt: start.subtract({ minutes: 2 }) })
         .where(eq(reservationInvitees.id, guest.id))
     );
-    loseProcessAfterAcceptance = true;
+    delivery.loseProcessAfterAcceptance = true;
     await expect(resend()).rejects.toThrow(
       "Synthetic process loss after provider acceptance"
     );
@@ -638,7 +844,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     const manualAttempt = attempts.at(-1);
     expect(manualAttempt?.noticeId).not.toBe(initial?.id);
     expect(sent).toEqual(["invitation", "invitation"]);
-    loseProcessAfterAcceptance = false;
+    delivery.loseProcessAfterAcceptance = false;
     await drain(tick(2));
     expect(attempts.at(-1)?.noticeId).toBe(manualAttempt?.noticeId);
     expect(sent).toEqual(["invitation", "invitation"]);
@@ -667,7 +873,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
             claimedAt: claimed.updatedAt,
             failureCode: null,
           });
-          providerStatus = "CANCELLED";
+          delivery.providerStatus = "CANCELLED";
         })
       );
     const restore = (
@@ -685,14 +891,14 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
             })
           );
           expect(restored?.reservation.cancellationEmailSentAt).toBeNull();
-          providerStatus = "CONFIRMED";
+          delivery.providerStatus = "CONFIRMED";
         })
       );
 
     await cancel(tick(4));
-    outage = true;
+    delivery.outage = true;
     expect(await drain(tick(4))).toMatchObject({ deferred: 1, delivered: 0 });
-    outage = false;
+    delivery.outage = false;
     await drain(tick(6));
     expect(lifecycleSends()).toEqual(["cancellation"]);
     expect(lifecycleAttempts()[0]?.noticeId).toBe(
@@ -700,13 +906,13 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     );
 
     await restore(tick(4), tick(8));
-    outage = true;
+    delivery.outage = true;
     expect(await drain(tick(8))).toMatchObject({ deferred: 1, delivered: 0 });
     expect(lifecycleAttempts()[2]).toMatchObject({
       kind: "restoration",
       access: "link",
     });
-    outage = false;
+    delivery.outage = false;
     await drain(tick(10));
     expect(lifecycleSends()).toEqual(["cancellation", "restoration"]);
     expect(lifecycleAttempts()[2]?.noticeId).toBe(
@@ -714,10 +920,10 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     );
 
     await cancel(tick(12));
-    outage = true;
+    delivery.outage = true;
     await drain(tick(12));
     await restore(tick(12), tick(13));
-    outage = false;
+    delivery.outage = false;
     await drain(tick(15));
     expect(lifecycleSends()).toEqual([
       "cancellation",
@@ -726,28 +932,28 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     ]);
 
     await cancel(tick(20));
-    loseProcessAfterAcceptance = true;
+    delivery.loseProcessAfterAcceptance = true;
     await expect(drain(tick(20))).rejects.toThrow(
       "Synthetic process loss after provider acceptance"
     );
-    loseProcessAfterAcceptance = false;
+    delivery.loseProcessAfterAcceptance = false;
     const beforeMatchingReplay = sent.length;
     const interruptedId = attempts.at(-1)?.noticeId;
-    outage = true;
+    delivery.outage = true;
     expect(await drain(tick(21))).toMatchObject({ delivered: 0, deferred: 1 });
     expect(
       (await notices()).find(({ id }) => id === interruptedId)
     ).toMatchObject({ uncertainty: null, requestStartedAt: tick(20) });
-    outage = false;
+    delivery.outage = false;
     expect(await drain(tick(23))).toMatchObject({ delivered: 1, uncertain: 0 });
     expect(sent).toHaveLength(beforeMatchingReplay);
     expect(attempts.at(-1)?.noticeId).toBe(attempts.at(-2)?.noticeId);
 
     await restore(tick(20), tick(25));
-    loseProcessAfterAcceptance = true;
+    delivery.loseProcessAfterAcceptance = true;
     await expect(drain(tick(25))).rejects.toThrow();
-    loseProcessAfterAcceptance = false;
-    bookerName = "Sam";
+    delivery.loseProcessAfterAcceptance = false;
+    delivery.bookerName = "Sam";
     const beforeChangedReplay = attempts.length;
     expect(await drain(tick(26))).toMatchObject({ delivered: 0, uncertain: 1 });
     expect(attempts).toHaveLength(beforeChangedReplay);
@@ -759,10 +965,10 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     });
 
     await cancel(tick(28));
-    loseProcessAfterAcceptance = true;
+    delivery.loseProcessAfterAcceptance = true;
     await expect(drain(tick(28))).rejects.toThrow();
-    loseProcessAfterAcceptance = false;
-    simulateExpiredProviderKey = true;
+    delivery.loseProcessAfterAcceptance = false;
+    delivery.simulateExpiredProviderKey = true;
     const beforeExpiryReplay = attempts.length;
     const expired = tick(28).add({ hours: 25 });
     expect(await drain(expired)).toMatchObject({ delivered: 0, uncertain: 1 });
@@ -775,7 +981,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     });
 
     await restore(tick(28), expired.add({ minutes: 1 }));
-    outage = true;
+    delivery.outage = true;
     expect(await drain(expired.add({ minutes: 1 }))).toMatchObject({
       delivered: 0,
       deferred: 1,
@@ -787,20 +993,20 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
       requestStartedAt: null,
       requestFingerprint: null,
     });
-    outage = false;
-    bookerName = "Robin";
+    delivery.outage = false;
+    delivery.bookerName = "Robin";
     expect(await drain(expired.add({ hours: 25 }))).toMatchObject({
       delivered: 1,
       uncertain: 0,
     });
-    simulateExpiredProviderKey = false;
+    delivery.simulateExpiredProviderKey = false;
     const nextCancellation = expired.add({ hours: 26 });
     await cancel(nextCancellation);
-    loseProcessAfterAcceptance = true;
+    delivery.loseProcessAfterAcceptance = true;
     await expect(drain(nextCancellation)).rejects.toThrow(
       "Synthetic process loss after provider acceptance"
     );
-    loseProcessAfterAcceptance = false;
+    delivery.loseProcessAfterAcceptance = false;
     const superseded = attempts.at(-1)?.noticeId;
     await restore(nextCancellation, nextCancellation.add({ minutes: 1 }));
     await drain(nextCancellation.add({ minutes: 2 }));
