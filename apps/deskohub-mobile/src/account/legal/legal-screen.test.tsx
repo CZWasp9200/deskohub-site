@@ -26,8 +26,13 @@ mock.module("expo-router", () => expoRouterStandIn());
 // and children may be; they render unpressed.
 // A copy: the module's own namespace turns into the mock once it is mocked.
 const reactNative = { ...(await import("react-native")) };
+let viewportWidth = 360;
 mock.module("react-native", () => ({
   ...reactNative,
+  useWindowDimensions: () => ({
+    ...reactNative.useWindowDimensions(),
+    width: viewportWidth,
+  }),
   Pressable: ({
     style,
     children,
@@ -138,6 +143,20 @@ describe("the Legal screen's analytics preference", () => {
       expect(analyticsSwitches(markup)).toBe(1);
       expect(markup).not.toContain(unavailable);
     });
+  }
+});
+
+test("keeps one Privacy Policy link on wide screens and both compact links", async () => {
+  const privacyPolicy = m.legal_document_privacy({}, { locale: "en-US" });
+  const privacyLinks = (markup: string) =>
+    markup.split(`>${privacyPolicy}</Text>`).length - 1;
+
+  expect(privacyLinks(await legalScreen("linked"))).toBe(2);
+  viewportWidth = 768;
+  try {
+    expect(privacyLinks(await legalScreen("linked"))).toBe(1);
+  } finally {
+    viewportWidth = 360;
   }
 });
 
