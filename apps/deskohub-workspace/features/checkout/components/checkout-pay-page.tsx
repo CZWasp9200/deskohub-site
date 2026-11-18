@@ -10,6 +10,10 @@ import { CheckoutBanner } from "@/features/checkout/components/checkout-banner";
 import { CheckoutDiscountCountdownBanner } from "@/features/checkout/components/checkout-discount-countdown-banner";
 import { CheckoutSummary } from "@/features/checkout/components/checkout-summary";
 import { type Locale, m } from "@/features/i18n";
+import {
+  type OfficeCheckoutPeople,
+  OfficeCheckoutPeopleReview,
+} from "@/features/office/components/office-checkout-people";
 import { getCoworkReservationPath } from "@/features/reservation/routes";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -26,7 +30,11 @@ type CheckoutPayPageProps = {
   readonly earlyPerformanceRequestRequired?: boolean;
   readonly freshPayUrl?: string;
   readonly locale: Locale;
+  /** An office order's first day, which its order line names. */
+  readonly officeStartsOn?: Temporal.PlainDate;
   readonly payStateToken?: string;
+  /** Who is coming to an office order with a people list. */
+  readonly people?: OfficeCheckoutPeople;
   readonly summary: CheckoutSummaryData;
   readonly variant: "pay" | "retry" | "pricingChanged";
   readonly retryOutcome?: "cancelled" | "failed";
@@ -38,7 +46,9 @@ export function CheckoutPayPage({
   earlyPerformanceRequestRequired = true,
   freshPayUrl,
   locale,
+  officeStartsOn,
   payStateToken,
+  people,
   retryOutcome,
   summary,
   variant,
@@ -85,11 +95,26 @@ export function CheckoutPayPage({
 
       <CheckoutDiscountCountdownBanner locale={locale} summary={summary} />
 
-      <CheckoutSummary
-        changedKeys={changedKeys}
-        locale={locale}
-        summary={summary}
-      />
+      {people ? (
+        <div className="@container">
+          <div className="grid items-start gap-3 @3xl:grid-cols-2">
+            <CheckoutSummary
+              changedKeys={changedKeys}
+              locale={locale}
+              officeStartsOn={officeStartsOn}
+              summary={summary}
+            />
+            <OfficeCheckoutPeopleReview locale={locale} people={people} />
+          </div>
+        </div>
+      ) : (
+        <CheckoutSummary
+          changedKeys={changedKeys}
+          locale={locale}
+          officeStartsOn={officeStartsOn}
+          summary={summary}
+        />
+      )}
 
       {variant === "pay" && discountCodeForm}
 
@@ -100,8 +125,6 @@ export function CheckoutPayPage({
         />
       ) : (
         <>
-          {!!providerTotal && <CheckoutPayProviderHandoff locale={locale} />}
-
           <CheckoutPayConsent
             checked={legalConsent}
             id="checkout-pay-legal-consent"
@@ -119,6 +142,8 @@ export function CheckoutPayPage({
             total={providerTotal}
             variant={actionVariant}
           />
+
+          {!!providerTotal && <CheckoutPayProviderHandoff locale={locale} />}
         </>
       )}
 

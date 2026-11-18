@@ -21,6 +21,8 @@ import { getWorkspaceProductMonitorTitle } from "@/features/checkout/product-cat
 import { getMeetingRoomReservationQuote } from "@/features/checkout/reservation-quote-meeting-room";
 import { getOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
 import { discountIdSchema } from "@/features/discounts/contracts";
+import { m } from "@/features/i18n";
+import { formatMoney } from "@/shared/money/money";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -139,7 +141,7 @@ describe("CheckoutSummary", () => {
     expect(view.queryByText("Meeting room - 24 hours")).toBeNull();
   });
 
-  test("aggregates every reserved seat into one singular-day row", () => {
+  test("prices every person coming in one row at the per-person rate", () => {
     const quote = Effect.runSync(
       getOfficeReservationQuote({
         kind: "office",
@@ -155,12 +157,15 @@ describe("CheckoutSummary", () => {
       />
     );
 
-    expect(view.getByText("Private office access · 1 day")).toBeDefined();
-    expect(view.getByText("3 office seats · 1 day")).toBeDefined();
+    const [item] = quote.items;
+    expect(view.container.textContent).toContain(
+      m.officePeoplePriceSeatLine(
+        { count: 3, seatPrice: formatMoney(item.seatAmount, "en-US") },
+        { locale: "en-US" }
+      )
+    );
     expect(view.getByText("CZK 530")).toBeDefined();
     expect(view.getByText("CZK 945")).toBeDefined();
-    expect(view.queryByText("Office seat · 1 day")).toBeNull();
-    expect(view.queryByText("CZK 315")).toBeNull();
   });
 
   test("keeps office component rows and discounts reconciled to the total", () => {

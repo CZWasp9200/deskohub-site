@@ -14,7 +14,10 @@ type CheckoutFlowLayoutProps = {
   readonly children: ReactNode;
   readonly locale: Locale;
   readonly stepLinks?: Partial<Record<CheckoutStepKey, CheckoutStepLink>>;
-  /** Replaces the steps, for a page whose current step changes in place. */
+  /**
+   * Replaces the steps, for a page whose current step changes in place, or
+   * `false` for a page outside checkout, such as an invited person's code.
+   */
   readonly steps?: ReactNode;
 };
 

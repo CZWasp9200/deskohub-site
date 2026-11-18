@@ -251,6 +251,11 @@ function renderCheckoutPay(input: CheckoutPayRenderInput) {
         freshPayUrl={payableCheckout.freshPayUrl}
         earlyPerformanceRequestRequired={earlyPerformanceRequestRequired}
         locale={locale}
+        officeStartsOn={
+          state.reservation.kind === "office"
+            ? Temporal.PlainDate.from(state.reservation.startsOn)
+            : undefined
+        }
         key={earlyPerformanceRequestRequired ? "early-performance" : "standard"}
         payStateToken={state.changedKeys ? undefined : payStateToken}
         summary={PayState.summary(state)}
