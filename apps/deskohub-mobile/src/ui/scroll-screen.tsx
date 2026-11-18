@@ -147,7 +147,7 @@ export function ScrollScreen({
                 style={[
                   styles.content,
                   column,
-                  isWide && styles.wideContent,
+                  isWide && { paddingBottom: insets.bottom + space.xxl },
                   overlapping && styles.overlapping,
                   withMasthead && !overlap && styles.belowBand,
                 ]}
@@ -203,7 +203,6 @@ const styles = StyleSheet.create({
     paddingBottom: space.xxl + tabBarRaisedOverhang,
     paddingTop: space.sm,
   },
-  wideContent: { paddingBottom: space.xxl },
   overlapping: { paddingTop: 0 },
   belowBand: { paddingTop: space.lg },
   collapsedHeader: {

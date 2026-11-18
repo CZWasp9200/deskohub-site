@@ -79,6 +79,7 @@ export function StackHeader({
           raised={options.headerShadowVisible === true}
           back={closes ? "close" : "back"}
           tone={tone}
+          alignToContent={isWide}
         />
       </View>
     </View>

@@ -644,6 +644,7 @@
   "reservations_not_found_body": "It may belong to another account. You're signed in as {email}.",
   "reservations_go_to_list": "Go to reservations",
   "navigation_close": "Close",
+  "navigation_reserve": "Reserve",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "We couldn't open the calendar event on this device. Try again.",
   "booking_choose_date_reason": "Choose a date to continue",

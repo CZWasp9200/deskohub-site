@@ -646,6 +646,7 @@
   "reservations_not_found_body": "Může patřit jinému účtu. Jsi přihlášený jako {email}.",
   "reservations_go_to_list": "Přejít na rezervace",
   "navigation_close": "Zavřít",
+  "navigation_reserve": "Rezervovat",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "Událost do kalendáře se v tomto zařízení nepodařilo otevřít. Zkus to znovu.",
   "booking_choose_date_reason": "Pro pokračování vyber datum",

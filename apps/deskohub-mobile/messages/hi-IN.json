@@ -644,6 +644,7 @@
   "reservations_not_found_body": "हो सकता है यह किसी दूसरे खाते की हो। आपने {email} से साइन इन किया है।",
   "reservations_go_to_list": "बुकिंग पर जाएँ",
   "navigation_close": "बंद करें",
+  "navigation_reserve": "बुक करें",
   "reservations_date_time": "{date}, {time}",
   "reservations_calendar_share_failed": "इस डिवाइस पर कैलेंडर इवेंट नहीं खुल सका। फिर से कोशिश करें।",
   "booking_choose_date_reason": "आगे बढ़ने के लिए तारीख़ चुनें",
