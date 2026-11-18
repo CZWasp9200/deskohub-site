@@ -27,6 +27,7 @@ import { currentInstant } from "@/shared/utils/temporal";
 import {
   type AgentTool,
   type AgentToolAttachment,
+  type AgentToolDownload,
   AgentToolReply,
   CallableAgentTools,
   getRequestedAgentToolLocale,
@@ -481,7 +482,8 @@ const recordAgentToolCall = (
 
 /**
  * A successful call's MCP result: the structured result, its JSON text,
- * and any attachments as embedded resources.
+ * and any attachments as embedded resources, each followed by a resource
+ * link when it can also be downloaded.
  */
 const toToolResult = (
   reply: AgentToolReply | AgentToolReply["result"]
@@ -494,7 +496,12 @@ const toToolResult = (
   return {
     content: [
       { type: "text", text: JSON.stringify(result) },
-      ...attachments.map(toEmbeddedResource),
+      ...attachments.flatMap((attachment) => [
+        toEmbeddedResource(attachment),
+        ...(attachment.download === undefined
+          ? []
+          : [toResourceLink(attachment, attachment.download)]),
+      ]),
     ],
     structuredContent: result,
   };
@@ -503,6 +510,17 @@ const toToolResult = (
 const toEmbeddedResource = ({ uri, mimeType, blob }: AgentToolAttachment) => ({
   type: "resource" as const,
   resource: { uri, mimeType, blob },
+});
+
+const toResourceLink = (
+  { uri, mimeType }: AgentToolAttachment,
+  { url, expiresAt }: AgentToolDownload
+) => ({
+  type: "resource_link" as const,
+  uri: url,
+  name: uri.split(":").at(-1) ?? uri,
+  mimeType,
+  description: `Expires at ${expiresAt}.`,
 });
 
 const reportAgentToolError = (error: AgentToolError) =>

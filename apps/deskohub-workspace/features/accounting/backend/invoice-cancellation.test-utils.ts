@@ -23,6 +23,7 @@ import type { AdministrationActor } from "@/features/administrators/administrati
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
+import { reservationOrderId } from "@/features/reservation/persistence-contracts";
 import type { ReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { holdPostgresTransaction } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
@@ -231,6 +232,7 @@ export const makeInvoiceCancellationTestKit = (
             yield* db.insert(paymentAttempts).values({
               id: paymentAttemptId,
               workspaceReservationId: created.id,
+              orderId: reservationOrderId(created.id),
               provider: "nexi",
               providerOrderId: NexiOrderIdSchema.make(
                 `synthetic-order-${randomUUID()}`
