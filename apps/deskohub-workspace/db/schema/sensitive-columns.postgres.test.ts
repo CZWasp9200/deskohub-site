@@ -65,6 +65,8 @@ import {
   emails,
   emailValueSnapshots,
   emailVersions,
+  invoiceArchives,
+  invoiceCancellations,
   invoices,
   manualInvoiceActors,
   paymentAttempts,
@@ -167,6 +169,22 @@ const heldReservation = (db: WorkspaceDatabaseClient) =>
   workspaceFixtures(db)
     .reservation({ stage: { reservation: "held" } })
     .pipe(Effect.map(({ id }) => id));
+
+const syntheticInvoice = (db: WorkspaceDatabaseClient) =>
+  db
+    .insert(invoices)
+    .values({
+      dotyposCustomerId: "synthetic-customer",
+      invoiceNumber: syntheticId("invoice"),
+      numberingYear: 2026,
+      // Far beyond any sequence another suite issues.
+      numberingSequence: 1_000_000_000 + Math.floor(Math.random() * 1e9),
+      keyId: "SYNTHETIC_KEY",
+      encryptedDocument: Buffer.from("synthetic"),
+      issuedAt: Temporal.Instant.from("2026-06-01T12:00:00Z"),
+    } as never)
+    .returning({ id: invoices.id })
+    .pipe(Effect.map(([invoice]) => invoice!.id));
 
 const emailValueRow = (db: WorkspaceDatabaseClient) =>
   Effect.gen(function* () {
@@ -324,23 +342,39 @@ const rowFixtures = new Map([
         }))
       ),
   }),
+  rowFixture(invoiceCancellations, {
+    row: (db) =>
+      Effect.gen(function* () {
+        return {
+          invoiceId: yield* syntheticInvoice(db),
+          cancelledAt: Temporal.Instant.from("2026-06-02T12:00:00Z"),
+          cause: "invoice_cancellation" as const,
+          source: "admin-ui" as const,
+        };
+      }),
+  }),
+  rowFixture(invoiceArchives, {
+    row: (db) =>
+      Effect.gen(function* () {
+        const invoiceId = yield* syntheticInvoice(db);
+        yield* db.insert(invoiceCancellations).values({
+          invoiceId,
+          cancelledAt: Temporal.Instant.from("2026-06-02T12:00:00Z"),
+          cause: "invoice_cancellation",
+          actorAccountEmail: "synthetic administrator",
+          source: "admin-ui",
+        });
+        return {
+          invoiceId,
+          archivedAt: Temporal.Instant.from("2026-06-03T12:00:00Z"),
+          source: "admin-ui" as const,
+        };
+      }),
+  }),
   rowFixture(manualInvoiceActors, {
     row: (db) =>
       Effect.gen(function* () {
-        const [invoice] = yield* db
-          .insert(invoices)
-          .values({
-            dotyposCustomerId: "synthetic-customer",
-            invoiceNumber: syntheticId("invoice"),
-            numberingYear: 2026,
-            // Far beyond any sequence another suite issues.
-            numberingSequence: 1_000_000_000 + Math.floor(Math.random() * 1e9),
-            keyId: "SYNTHETIC_KEY",
-            encryptedDocument: Buffer.from("synthetic"),
-            issuedAt: Temporal.Instant.from("2026-06-01T12:00:00Z"),
-          } as never)
-          .returning({ id: invoices.id });
-        return { invoiceId: invoice!.id };
+        return { invoiceId: yield* syntheticInvoice(db) };
       }),
   }),
   rowFixture(paymentAttempts, {

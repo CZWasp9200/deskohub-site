@@ -1,4 +1,5 @@
 import { makeInMemoryDotypos } from "@deskohub/dotypos/testing";
+import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { DotyposUnavailable } from "@deskohub/dotypos";
@@ -110,6 +111,8 @@ const runAdministration = <A, E>(
   }).pipe(
     Effect.provide(
       AdministrationService.Default.pipe(
+        // Reached only when a restore would reissue an invoice.
+        Layer.provide(Layer.mock(ReservationInvoiceService, {})),
         Layer.provide(Layer.mock(WorkspaceReservationRepository, {})),
         Layer.provide(
           Layer.mergeAll(

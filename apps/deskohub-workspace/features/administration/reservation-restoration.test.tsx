@@ -115,6 +115,7 @@ const refundedAmountText = (locale: "cs-CZ" | "en-US") =>
 const restorableReservation = {
   cancellationEmailRecorded: true,
   issuesNewAccess: false,
+  issuesNewInvoice: false,
   clearsRefundRequirement: false,
   refundedPayment: null,
 } satisfies ReservationRestorationPreview;
@@ -340,6 +341,95 @@ describe("ReservationRestoration", () => {
     for (const note of notes) expect(flagged.getByText(note)).toBeDefined();
   });
 
+  test("names the new invoice only when the reservation's invoice was cancelled with it", async () => {
+    const note = m.administrationReservationRestorationNewInvoice(
+      {},
+      { locale: "en-US" }
+    );
+
+    const plain = await openDialog(await renderRestoration());
+    expect(plain.queryByText(note)).toBeNull();
+    cleanup();
+
+    const reissuing = await openDialog(
+      await renderRestoration({
+        ...restorableReservation,
+        issuesNewInvoice: true,
+      })
+    );
+    expect(reissuing.getByText(note)).toBeDefined();
+  });
+
+  test.each([
+    [
+      { outcome: "issued", invoiceId: "invoice-2", invoiceNumber: "WS-2" },
+      m.administrationReservationRestorationInvoiceIssued(
+        { invoiceNumber: "WS-2" },
+        { locale: "en-US" }
+      ),
+    ],
+    [
+      { outcome: "retrying", invoiceId: "invoice-2", invoiceNumber: "WS-2" },
+      m.administrationReservationRestorationInvoiceSendRetrying(
+        { invoiceNumber: "WS-2" },
+        { locale: "en-US" }
+      ),
+    ],
+    [
+      { outcome: "retrying", invoiceId: null, invoiceNumber: null },
+      m.administrationReservationRestorationInvoiceRetrying(
+        {},
+        { locale: "en-US" }
+      ),
+    ],
+    [
+      { outcome: "failed", invoiceId: "invoice-2", invoiceNumber: "WS-2" },
+      m.administrationReservationRestorationInvoiceSendFailed(
+        { invoiceNumber: "WS-2" },
+        { locale: "en-US" }
+      ),
+    ],
+    [
+      { outcome: "failed", invoiceId: null, invoiceNumber: null },
+      m.administrationReservationRestorationInvoiceFailed(
+        {},
+        { locale: "en-US" }
+      ),
+    ],
+    [
+      { outcome: "not_issued", invoiceId: null, invoiceNumber: null },
+      m.administrationReservationRestorationInvoiceNotIssued(
+        {},
+        { locale: "en-US" }
+      ),
+    ],
+  ] as const)(
+    "reports the new invoice's %o outcome after the restore",
+    async (invoice, expected) => {
+      const view = await renderRestoration();
+      await submitDialog(await openDialog(view));
+
+      act(() => {
+        actionOptions?.onSuccess({
+          data: {
+            outcome: "restored",
+            email: "not_requested",
+            access: "not_needed",
+            invoice,
+          },
+        });
+      });
+
+      expect(statusMessages(view)).toEqual([
+        m.administrationReservationRestorationEmailNotRequested(
+          {},
+          { locale: "en-US" }
+        ),
+        expected,
+      ]);
+    }
+  );
+
   test.each([
     ["sent", m.administrationReservationRestorationEmailSent],
     ["not_requested", m.administrationReservationRestorationEmailNotRequested],
@@ -353,7 +443,12 @@ describe("ReservationRestoration", () => {
 
       act(() => {
         actionOptions?.onSuccess({
-          data: { outcome: "restored", email, access: "not_needed" },
+          data: {
+            outcome: "restored",
+            email,
+            access: "not_needed",
+            invoice: null,
+          },
         });
       });
 
@@ -372,6 +467,7 @@ describe("ReservationRestoration", () => {
           outcome: "already_confirmed",
           email: "not_requested",
           access: "issued",
+          invoice: null,
         },
       });
     });
@@ -422,7 +518,12 @@ describe("ReservationRestoration", () => {
     await submitDialog(dialog);
     act(() => {
       actionOptions?.onSuccess({
-        data: { outcome: "restored", email: "sent", access: "not_needed" },
+        data: {
+          outcome: "restored",
+          email: "sent",
+          access: "not_needed",
+          invoice: null,
+        },
       });
     });
 
@@ -443,7 +544,12 @@ describe("ReservationRestoration", () => {
 
     act(() => {
       actionOptions?.onSuccess({
-        data: { outcome: "restored", email: "sent", access: "failed" },
+        data: {
+          outcome: "restored",
+          email: "sent",
+          access: "failed",
+          invoice: null,
+        },
       });
     });
 
@@ -595,7 +701,12 @@ describe("ReservationRestoration", () => {
 
     act(() => {
       actionOptions?.onSuccess({
-        data: { outcome: "restored", email: "sent", access: "not_needed" },
+        data: {
+          outcome: "restored",
+          email: "sent",
+          access: "not_needed",
+          invoice: null,
+        },
       });
     });
     expect(

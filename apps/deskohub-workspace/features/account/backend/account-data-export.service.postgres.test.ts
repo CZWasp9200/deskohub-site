@@ -26,8 +26,11 @@ import { unzipSync } from "fflate";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import {
+  correctiveDocuments,
   customerMarketingConsents,
   discountApplications,
+  invoiceArchives,
+  invoiceCancellations,
   invoiceEmailDeliveries,
   invoices,
   latePaymentRecoveries,
@@ -44,6 +47,7 @@ import { recordAccountingDocumentSnapshot } from "@/features/accounting/backend/
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
 import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { InvoiceEmailDeliveryRepository } from "@/features/accounting/backend/invoice-email-delivery.repository";
+import { correctiveDocumentNumberSchema } from "@/features/accounting/corrective-document";
 import { invoiceNumberSchema } from "@/features/accounting/invoice";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { DiscountApplicationRepository } from "@/features/checkout/backend/repositories/discount-application.repository";
@@ -453,6 +457,65 @@ const seedInvoice = async (
   return invoiceNumber;
 };
 
+let correctiveSequence = 0;
+
+/**
+ * Cancels the seeded invoice with its corrective document, as an
+ * administrator would, and hides it from the administration's list. The
+ * administrator's email must never reach the archive.
+ */
+const cancelAndHideSeededInvoice = async (invoiceNumber: string) => {
+  const [invoice] = await run(
+    database()
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(eq(invoices.invoiceNumber, invoiceNumber))
+  );
+  correctiveSequence += 1;
+  const correctiveDocumentNumber = correctiveDocumentNumberSchema.make(
+    `WS-OD-2026-${String(correctiveSequence).padStart(6, "0")}`
+  );
+  const cancelledAt = issuedAt.add({ hours: 2 });
+  const actor = {
+    actorAccountId: null,
+    actorAccountEmail: sensitive("administrator"),
+    source: "admin-ui" as const,
+  };
+  await run(
+    database()
+      .insert(invoiceCancellations)
+      .values({
+        invoiceId: invoice!.id,
+        cancelledAt,
+        cause: "invoice_cancellation",
+        ...actor,
+      })
+  );
+  await run(
+    database()
+      .insert(correctiveDocuments)
+      .values({
+        cancelledInvoiceId: invoice!.id,
+        documentNumber: correctiveDocumentNumber,
+        numberingYear: 2026,
+        numberingSequence: correctiveSequence,
+        keyId: sensitiveKeyId(),
+        encryptedDocument: Buffer.from(sensitive("corrective-document")),
+        issuedAt: cancelledAt,
+      })
+  );
+  await run(
+    database()
+      .insert(invoiceArchives)
+      .values({
+        invoiceId: invoice!.id,
+        archivedAt: cancelledAt.add({ minutes: 5 }),
+        ...actor,
+      })
+  );
+  return { correctiveDocumentNumber, cancelledAt };
+};
+
 const seedMarketingConsent = async (customerId: DotyposCustomerId) => {
   const documentHash = sha256Hex();
   await run(
@@ -700,6 +763,11 @@ describe.skipIf(!postgres)("account data export over Postgres", () => {
     let authoredForB: SeededReservationRecords;
     let aDeskReservation: DotyposReservationId;
     let aInvoiceNumbers: string[];
+    let aCancelledInvoice: {
+      readonly invoiceNumber: string;
+      readonly correctiveDocumentNumber: string;
+      readonly cancelledAt: Temporal.Instant;
+    };
     let bIdentifiers: string[];
     let unattributedDocumentHash: string;
     let aArchive: Archive;
@@ -719,6 +787,10 @@ describe.skipIf(!postgres)("account data export over Postgres", () => {
       const bDeskReservation = addDotyposReservation(b.customerId);
       const aStandaloneInvoice = await seedInvoice(a.customerId);
       const bStandaloneInvoice = await seedInvoice(b.customerId);
+      aCancelledInvoice = {
+        invoiceNumber: aStandaloneInvoice,
+        ...(await cancelAndHideSeededInvoice(aStandaloneInvoice)),
+      };
       await seedMarketingConsent(a.customerId);
       const bConsentHash = await seedMarketingConsent(b.customerId);
       unattributedDocumentHash = await seedLegalEvidenceEvent(null);
@@ -925,6 +997,8 @@ describe.skipIf(!postgres)("account data export over Postgres", () => {
       }
       expect(sectionKeys(aArchive.invoices)).toEqual([
         [
+          "archivedAt",
+          "cancellation",
           "documentSnapshotRecordedAt",
           "invoiceNumber",
           "issuedAt",
@@ -940,6 +1014,32 @@ describe.skipIf(!postgres)("account data export over Postgres", () => {
             documentSnapshotRecordedAt !== null
         )
       ).toHaveLength(aReservations.length);
+      expect(
+        aArchive.invoices
+          .map(({ invoiceNumber, cancellation, archivedAt }) => [
+            invoiceNumber,
+            cancellation,
+            archivedAt === null,
+          ])
+          .toSorted(([left], [right]) =>
+            String(left).localeCompare(String(right))
+          )
+      ).toEqual(
+        aInvoiceNumbers.toSorted().map((invoiceNumber) =>
+          invoiceNumber === aCancelledInvoice.invoiceNumber
+            ? [
+                invoiceNumber,
+                {
+                  cancelledAt: aCancelledInvoice.cancelledAt.toString(),
+                  cause: "invoice_cancellation",
+                  correctiveDocumentNumber:
+                    aCancelledInvoice.correctiveDocumentNumber,
+                },
+                false,
+              ]
+            : [invoiceNumber, null, true]
+        )
+      );
       expect(sectionKeys(aArchive.invoiceDeliveries)).toEqual([
         ["acceptedAt", "createdAt", "invoiceNumber", "state"].join(","),
       ]);

@@ -158,6 +158,40 @@ export const createWorkspacePostgresSuiteDatabase = async (
 };
 
 /**
+ * The same database over a native pool of its own whose statements the
+ * server cancels after `statementTimeoutMillis` (SQLSTATE 57014), as a
+ * server-side statement timeout does. The client keeps its default bound,
+ * which is longer, so the server's cancellation is the one that ends a
+ * waiting statement. `pool` stays the original one, so setup and checks
+ * never time out. Close it before the database; `close` ends only the new
+ * pool.
+ */
+export const withStatementTimeout = async <
+  Database extends WorkspacePostgresTestDatabase,
+>(
+  database: Database,
+  statementTimeoutMillis: number
+): Promise<Database> => {
+  const { connectionString } = database.pool.options;
+  if (!connectionString) {
+    throw new Error("The test database pool has no connection string.");
+  }
+  const databasePool = await openDatabasePool({
+    connectionString,
+    maxConnections: 4,
+    startupParameters: { statement_timeout: String(statementTimeoutMillis) },
+  });
+  const db = await Effect.runPromise(makeDatabaseClient(databasePool));
+  return {
+    ...database,
+    db,
+    layer: Layer.succeed(WorkspaceDatabase, WorkspaceDatabase.make(db)),
+    databasePool,
+    close: () => databasePool.close(),
+  };
+};
+
+/**
  * A transaction on one connection of the database's native pool, held open
  * by the test, which ends it through `query`. Effect SQL opens it, so the
  * client's own transactions inside become savepoints of it; the test's

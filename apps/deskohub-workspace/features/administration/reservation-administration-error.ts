@@ -13,7 +13,9 @@ export type ReservationCancellationFailureReason =
   | "details_unavailable"
   | "claim_failed"
   | "dotypos_failed"
-  | "record_failed";
+  | "record_failed"
+  | "invoice_unavailable"
+  | "confirmation_stale";
 
 export type ReservationRestorationFailureReason =
   | "not_found"

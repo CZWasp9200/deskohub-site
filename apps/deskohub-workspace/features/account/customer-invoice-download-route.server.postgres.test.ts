@@ -8,8 +8,14 @@ import { env } from "@/env";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
 import { testAccountingStorage } from "@/features/accounting/backend/accounting-storage.test-utils";
 import { InvoiceRepository } from "@/features/accounting/backend/invoice.repository";
+import { InvoiceArchiveRepository } from "@/features/accounting/backend/invoice-archive.repository";
+import { InvoiceCancellationRepository } from "@/features/accounting/backend/invoice-cancellation.repository";
+import { makeInvoiceCancellationTestKit } from "@/features/accounting/backend/invoice-cancellation.test-utils";
 import { getCustomerInvoiceStatusLabel } from "@/features/accounting/customer-invoice";
-import { manualInvoiceInputSchema } from "@/features/accounting/manual-invoice";
+import {
+  type InvoiceId,
+  manualInvoiceInputSchema,
+} from "@/features/accounting/manual-invoice";
 import { ReviewAccounts } from "@/features/review-accounts";
 import { currentRequestHeaders } from "@/shared/backend/workspace-request-context";
 import { parseCsv } from "@/shared/testing/csv.test-utils";
@@ -43,6 +49,7 @@ import {
 import { CustomerDotyposAdapter } from "./backend/customer-dotypos-adapter.service";
 import { CustomerInvoiceService } from "./backend/customer-invoice.service";
 import {
+  makeCustomerCorrectiveDocumentPdfGet,
   makeCustomerInvoiceExportGet,
   makeCustomerInvoicePdfGet,
 } from "./customer-invoice-download-route.server";
@@ -172,6 +179,35 @@ const issueInvoice = async (
   return invoice;
 };
 
+/**
+ * Cancels the invoice through the real repository, as an administrator
+ * would, and then hides it from the administration's invoice list.
+ */
+const cancelAndHideInvoice = async (invoiceId: InvoiceId) => {
+  const kit = makeInvoiceCancellationTestKit(postgres!);
+  const actor = await kit.makeActor("invoice-downloads-canceller");
+  const storage = Layer.mergeAll(
+    postgres!.layer,
+    AccountingSnapshotKeyService.Default
+  );
+  const { record } = await Effect.runPromise(
+    kit.cancel({ invoiceId, actor }).pipe(
+      Effect.tap(() =>
+        Effect.flatMap(InvoiceArchiveRepository, (archives) =>
+          archives.archive({ invoiceId, actor })
+        )
+      ),
+      Effect.provide(
+        Layer.mergeAll(
+          InvoiceCancellationRepository.Default,
+          InvoiceArchiveRepository.Default
+        ).pipe(Layer.provideMerge(storage))
+      )
+    )
+  );
+  return record;
+};
+
 const locale = "en-US";
 
 /** The day in Prague an invoice was issued, as the export writes it. */
@@ -190,6 +226,19 @@ const requestPdf = (
     new Request(`https://${HOST}/${locale}/account/invoices/${invoiceId}/pdf`, {
       headers: cookie ? { host: HOST, cookie } : { host: HOST },
     }),
+    { params: Promise.resolve({ locale, invoiceId }) }
+  );
+
+const requestCorrectiveDocument = (
+  service: ReturnType<typeof makeInvoiceService>,
+  invoiceId: string,
+  cookie?: string
+) =>
+  makeCustomerCorrectiveDocumentPdfGet(service)(
+    new Request(
+      `https://${HOST}/${locale}/account/invoices/${invoiceId}/corrective-document`,
+      { headers: cookie ? { host: HOST, cookie } : { host: HOST } }
+    ),
     { params: Promise.resolve({ locale, invoiceId }) }
   );
 
@@ -285,7 +334,7 @@ describe.skipIf(!postgres)(
       );
       expect(response.headers.get("Cache-Control")).toBe("private, no-store");
       const [header, ...rows] = parseCsv(await response.text());
-      expect(header).toHaveLength(6);
+      expect(header).toHaveLength(7);
       const byNumber = (left: string[], right: string[]) =>
         left[0]!.localeCompare(right[0]!);
       expect(rows.map(withExactTotal).toSorted(byNumber)).toEqual(
@@ -297,6 +346,7 @@ describe.skipIf(!postgres)(
             exactAmount("1234.50"),
             "CZK",
             getCustomerInvoiceStatusLabel("paid", locale),
+            "",
           ],
           [
             due.document.invoiceNumber,
@@ -305,9 +355,85 @@ describe.skipIf(!postgres)(
             exactAmount("99.90"),
             "CZK",
             getCustomerInvoiceStatusLabel("issued", locale),
+            "",
           ],
         ].toSorted(byNumber)
       );
+    });
+
+    test("serves a cancelled invoice's credit note, also once hidden, beside its unchanged PDF and marks it cancelled in the export", async () => {
+      const { service, owner, paid } = await setUp();
+      const before = await requestPdf(service, paid.id, owner.cookie);
+      const invoiceTextBefore = (
+        await extractPdfText(new Uint8Array(await before.arrayBuffer()))
+      ).text;
+      const { correctiveDocumentNumber } = await cancelAndHideInvoice(paid.id);
+
+      const response = await requestCorrectiveDocument(
+        service,
+        paid.id,
+        owner.cookie
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("application/pdf");
+      expect(response.headers.get("Content-Disposition")).toBe(
+        `attachment; filename="${correctiveDocumentNumber}.pdf"`
+      );
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+      const { text } = await extractPdfText(
+        new Uint8Array(await response.arrayBuffer())
+      );
+      expect(text).toContain(correctiveDocumentNumber);
+      expect(text).toContain(paid.document.invoiceNumber);
+
+      const after = await requestPdf(service, paid.id, owner.cookie);
+      expect(after.status).toBe(200);
+      expect(
+        (await extractPdfText(new Uint8Array(await after.arrayBuffer()))).text
+      ).toBe(invoiceTextBefore);
+
+      const exported = parseCsv(
+        await (await requestExport(service, owner.cookie)).text()
+      );
+      expect(
+        exported.find((row) => row[0] === paid.document.invoiceNumber)
+      ).toEqual([
+        paid.document.invoiceNumber,
+        issuedOn(paid),
+        "",
+        expect.any(String),
+        "CZK",
+        getCustomerInvoiceStatusLabel("cancelled", locale),
+        correctiveDocumentNumber,
+      ]);
+    });
+
+    test("answers the credit note of an uncancelled invoice, another customer's, an unknown id, and a signed-out request with the same private 404", async () => {
+      const { auth, service, owner, paid, due } = await setUp();
+      await cancelAndHideInvoice(paid.id);
+      const other = await signInLinked(auth, sentLinks, "invoice-other");
+
+      const reference = await describeResponse(
+        await requestCorrectiveDocument(service, due.id, owner.cookie)
+      );
+      expect(reference.status).toBe(404);
+      expect(reference.body).toBe("");
+      expect(reference.headers).toContainEqual([
+        "cache-control",
+        "private, no-store",
+      ]);
+      for (const refusal of [
+        await requestCorrectiveDocument(service, paid.id, other.cookie),
+        await requestCorrectiveDocument(
+          service,
+          crypto.randomUUID(),
+          owner.cookie
+        ),
+        await requestCorrectiveDocument(service, paid.id),
+      ]) {
+        expect(await describeResponse(refusal)).toEqual(reference);
+      }
     });
 
     test("answers another customer's account, an unknown id, and a signed-out request with the same private 404", async () => {

@@ -115,6 +115,21 @@ export const confirmChange = (
   return Prompt.Confirm({ message, initial: false }).pipe(Prompt.run);
 };
 
+/**
+ * Confirms a change whose consequences the request confirms back to the
+ * server. With `--yes` nothing asks, so the consequences are still written to
+ * stderr, and the request confirms only what the operator was shown.
+ */
+export const confirmChangeShowingConsequences = (
+  operation: WorkspaceAdminOperationReference,
+  yes: boolean,
+  json: boolean,
+  message: string
+) =>
+  yes
+    ? Console.error(message).pipe(Effect.as(true))
+    : confirmChange(operation, yes, json, message);
+
 export const reportCancellation = (json: boolean) =>
   Console.log(json ? JSON.stringify({ status: "cancelled" }) : "Cancelled.");
 

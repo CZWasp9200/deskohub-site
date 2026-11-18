@@ -436,6 +436,24 @@ describe("administration route boundary", () => {
     expect(administrationRequestHeaders[0]?.get("cookie")).toBe(sessionCookie);
   });
 
+  test("keeps an invoice's administration page and credit note private whatever they answer", async () => {
+    // A hidden invoice's pages answer the admin 404 from the app; the private
+    // headers come from here.
+    for (const pathname of [
+      "/en-US/admin/invoices/invoice-id",
+      "/en-US/admin/invoices/invoice-id/corrective-document",
+    ]) {
+      const response = await proxy(
+        new NextRequest(`https://workspace.example${pathname}`, {
+          headers: { cookie: sessionCookie },
+        })
+      );
+
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expectPrivateAdministrationResponse(response);
+    }
+  });
+
   test("rewrites non-administrators for GET, HEAD, RSC, and unprefixed page requests", async () => {
     administrationAccessResult = "not-administrator";
     const responses: Response[] = [];

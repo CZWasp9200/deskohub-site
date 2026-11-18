@@ -85,6 +85,7 @@ import {
   AuthenticationRequiredError,
   confirmationFlag,
   confirmChange,
+  confirmChangeShowingConsequences,
   InvalidMutationInputError,
   makeMutationRequestId,
   reportCancellation,
@@ -107,6 +108,18 @@ import {
   formatPromotionDetailLines,
   formatServiceDatesLine,
 } from "./discount-output";
+import {
+  formatInvoiceArchiveOutput,
+  formatInvoiceCancellation,
+  formatInvoiceCancellationOutput,
+  formatInvoiceResendOutput,
+  formatReservationInvoiceOutput,
+  formatRestorationInvoiceOutput,
+  getInvoiceStateLabel,
+  planInvoiceCancellation,
+  planReservationInvoiceConsequences,
+  planRestorationInvoiceConsequence,
+} from "./invoice-output";
 import {
   formatProviderListSummary,
   formatProviderOperationRow,
@@ -337,13 +350,25 @@ const reservationsCancelCommand = Command.make(
           AdministrationWorkspaceReservationId,
           { reportInput: true }
         )(reservationId);
-        const confirmed = yield* confirmChange(
+        // The invoice consequence is read before asking, and the request
+        // confirms what was shown; the server refuses it if that changed.
+        const detail = yield* api.getReservation(
+          accessToken,
+          decodedReservationId
+        );
+        const invoiceConsequences = planReservationInvoiceConsequences(
+          detail.invoice
+        );
+        const confirmed = yield* confirmChangeShowingConsequences(
           "administration.cancelReservation",
           yes,
           json,
-          force
-            ? "Force-cancel this reservation? A pending payment will be cancelled locally; a later provider settlement will require recovery or a refund."
-            : "Cancel this reservation? Paid online payments will be marked as needing a refund; no refund is issued automatically."
+          [
+            force
+              ? "Force-cancel this reservation? A pending payment will be cancelled locally; a later provider settlement will require recovery or a refund."
+              : "Cancel this reservation? Paid online payments will be marked as needing a refund; no refund is issued automatically.",
+            ...invoiceConsequences.lines,
+          ].join("\n")
         );
         if (!confirmed) {
           yield* reportCancellation(json);
@@ -352,18 +377,25 @@ const reservationsCancelCommand = Command.make(
         const result = yield* api.cancelReservation(
           accessToken,
           decodedReservationId,
-          { force, sendCancellationEmail }
+          {
+            confirmedConsequences: invoiceConsequences.confirmedConsequences,
+            force,
+            sendCancellationEmail,
+          }
         );
         yield* Console.log(
           json
             ? JSON.stringify(result)
-            : {
-                failed:
-                  "Reservation cancelled, but the cancellation email could not be sent.",
-                not_requested:
-                  "Reservation cancelled without emailing the customer.",
-                sent: "Reservation cancelled and the customer was emailed.",
-              }[result.email]
+            : [
+                {
+                  failed:
+                    "Reservation cancelled, but the cancellation email could not be sent.",
+                  not_requested:
+                    "Reservation cancelled without emailing the customer.",
+                  sent: "Reservation cancelled and the customer was emailed.",
+                }[result.email],
+                ...formatReservationInvoiceOutput(result.invoice),
+              ].join("\n")
         );
       })
     )
@@ -423,11 +455,21 @@ const reservationsRestoreCommand = Command.make(
   ({ acknowledgeRefundedPayment, reservationId, sendRestorationEmail, yes }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
-        const confirmed = yield* confirmChange(
+        const decodedReservationId = yield* Schema.decodeUnknownEffect(
+          AdministrationWorkspaceReservationId
+        )(reservationId);
+        const detail = yield* api.getReservation(
+          accessToken,
+          decodedReservationId
+        );
+        const confirmed = yield* confirmChangeShowingConsequences(
           "administration.restoreReservation",
           yes,
           json,
-          "Restore this cancelled reservation? It is confirmed again in Dotypos and a payment marked as needing a refund no longer is; a refunded payment stays refunded. A reservation that has not ended gets a new door PIN."
+          [
+            "Restore this cancelled reservation? It is confirmed again in Dotypos and a payment marked as needing a refund no longer is; a refunded payment stays refunded. A reservation that has not ended gets a new door PIN.",
+            ...planRestorationInvoiceConsequence(detail.restoration),
+          ].join("\n")
         );
         if (!confirmed) {
           yield* reportCancellation(json);
@@ -447,6 +489,7 @@ const reservationsRestoreCommand = Command.make(
             restorationOutcomeMessages[result.outcome],
             restorationEmailMessages[result.email],
             restorationAccessMessages(reservationId)[result.access],
+            ...formatRestorationInvoiceOutput(result.invoice),
           ]
             .filter((line) => line !== null)
             .join(" ")
@@ -775,14 +818,23 @@ const invoicesListCommand = Command.make(
       Flag.optional,
       Flag.withDescription("Results page")
     ),
+    includeArchived: Flag.Boolean("include-archived").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Also list archived invoices, which the Admin UI hides"
+      )
+    ),
   },
-  ({ direction, page, sort }) =>
+  ({ direction, includeArchived, page, sort }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const query = yield* Schema.decodeUnknownEffect(
           AdministrationInvoiceQuery,
           { reportInput: true }
-        )(presentFlagValues({ sort, direction, page }));
+        )({
+          ...presentFlagValues({ sort, direction, page }),
+          ...(includeArchived && { includeArchived }),
+        });
         const result = yield* api.listInvoices(accessToken, query);
         if (json) {
           yield* Console.log(JSON.stringify(result));
@@ -801,6 +853,7 @@ const invoicesListCommand = Command.make(
               `${invoice.total} ${invoice.currency}`,
               invoice.paymentStatus,
               getInvoiceDeliveryLabel(invoice),
+              getInvoiceStateLabel(invoice),
             ].join("\t")
           );
         }
@@ -832,10 +885,25 @@ const invoicesGetCommand = Command.make(
             invoice.paymentStatus,
             invoice.source,
             getInvoiceDeliveryLabel(invoice),
+            getInvoiceStateLabel(invoice),
           ].join("\t")
         );
         for (const line of invoice.lines) {
           yield* Console.log(`${line.description}\t${line.price}`);
+        }
+        if (invoice.cancellation !== null) {
+          yield* Console.log(formatInvoiceCancellation(invoice.cancellation));
+        }
+        if (invoice.archivedAt !== null) {
+          yield* Console.log(`Archived ${invoice.archivedAt}`);
+        }
+        if (invoice.replacesInvoiceId !== null) {
+          yield* Console.log(`Replaces invoice ${invoice.replacesInvoiceId}`);
+        }
+        if (invoice.replacedByInvoiceId !== null) {
+          yield* Console.log(
+            `Replaced by invoice ${invoice.replacedByInvoiceId}`
+          );
         }
       })
     )
@@ -968,22 +1036,37 @@ const invoicesDownloadCommand = Command.make(
       Flag.optional,
       Flag.withDescription("PDF output path")
     ),
+    corrective: Flag.Boolean("corrective").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Download the credit note of a cancelled invoice instead"
+      )
+    ),
   },
-  ({ invoiceId, output }) =>
+  ({ corrective, invoiceId, output }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
-        const pdf = yield* api.getInvoicePdf(accessToken, invoiceId);
-        const path = Option.getOrElse(output, () => `${invoiceId}.pdf`);
+        const pdf = corrective
+          ? yield* api.getInvoiceCorrectiveDocumentPdf(accessToken, invoiceId)
+          : yield* api.getInvoicePdf(accessToken, invoiceId);
+        const path = Option.getOrElse(output, () =>
+          corrective ? `${invoiceId}-credit-note.pdf` : `${invoiceId}.pdf`
+        );
         const fileSystem = yield* FileSystem.FileSystem;
         yield* fileSystem.writeFile(path, pdf);
+        const downloaded = corrective
+          ? `Downloaded the credit note of invoice ${invoiceId} to ${path}.`
+          : `Downloaded invoice ${invoiceId} to ${path}.`;
         yield* Console.log(
-          json
-            ? JSON.stringify({ invoiceId, path })
-            : `Downloaded invoice ${invoiceId} to ${path}.`
+          json ? JSON.stringify({ invoiceId, path }) : downloaded
         );
       })
     )
-).pipe(Command.withDescription("Download an invoice PDF"));
+).pipe(
+  Command.withDescription(
+    "Download an invoice PDF, or a cancelled invoice's credit note"
+  )
+);
 
 const invoicesResendCommand = Command.make(
   "resend",
@@ -1000,25 +1083,150 @@ const invoicesResendCommand = Command.make(
           "administration.resendInvoice",
           yes,
           json,
-          `Retry missing or failed email delivery for invoice ${invoiceId}?`
+          `Retry missing or failed email delivery for invoice ${invoiceId}? For a cancelled invoice this retries its cancellation notices; the invoice email isn't sent again.`
         );
         if (!confirmed) {
           yield* reportCancellation(json);
           return;
         }
         const result = yield* api.resendInvoice(accessToken, invoiceId);
-        if (json) {
-          yield* Console.log(JSON.stringify(result));
-          return;
-        }
         yield* Console.log(
-          result.changed
-            ? `Retried delivery for invoice ${invoiceId}.`
-            : `Invoice ${invoiceId} had no retryable delivery.`
+          json ? JSON.stringify(result) : formatInvoiceResendOutput(result)
         );
       })
     )
-).pipe(Command.withDescription("Retry missing or failed invoice email"));
+).pipe(
+  Command.withDescription(
+    "Retry missing or failed invoice email, or a cancelled invoice's notices"
+  )
+);
+
+const invoicesCancelCommand = Command.make(
+  "cancel",
+  {
+    invoiceId: Argument.String("invoice-id").pipe(
+      Argument.withSchema(AdministrationInvoiceId)
+    ),
+    sendCancellationEmail: Flag.Boolean("send-cancellation-email").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Email the customer that the invoice's reservation was cancelled"
+      )
+    ),
+    yes: confirmationFlag,
+  },
+  ({ invoiceId, sendCancellationEmail, yes }) =>
+    runAuthenticatedCommand((api, accessToken, json) =>
+      Effect.gen(function* () {
+        const invoice = yield* api.getInvoice(accessToken, invoiceId);
+        if (invoice.cancellation !== null) {
+          const replay = {
+            invoiceId,
+            outcome: "already_cancelled",
+            cancellation: invoice.cancellation,
+            reservation: null,
+          } as const;
+          yield* Console.log(
+            json
+              ? JSON.stringify(replay)
+              : formatInvoiceCancellationOutput(invoice.invoiceNumber, replay)
+          );
+          return;
+        }
+        const plan = invoice.cancellationPlan;
+        if (plan === null) {
+          return yield* new InvalidMutationInputError({
+            message:
+              "This Workspace can't cancel invoices yet. Update the server or use the Admin UI.",
+          });
+        }
+        if (plan.reservation === "cancellation_in_progress") {
+          return yield* new InvalidMutationInputError({
+            message: `The reservation of invoice ${invoice.invoiceNumber} is being cancelled. Try again once that finishes.`,
+          });
+        }
+        if (
+          plan.reservation === "cancels_reservation" &&
+          invoice.reservationId === null
+        ) {
+          return yield* new InvalidMutationInputError({
+            message: `Invoice ${invoice.invoiceNumber} reports a reservation to cancel but names none. Try again, or cancel it in the Admin UI.`,
+          });
+        }
+        const reservation =
+          plan.reservation === "cancels_reservation" &&
+          invoice.reservationId !== null
+            ? yield* api.getReservation(accessToken, invoice.reservationId)
+            : null;
+        const cancellation = planInvoiceCancellation({
+          invoiceNumber: invoice.invoiceNumber,
+          plan,
+          reservation,
+          flags: { sendCancellationEmail },
+        });
+        const confirmed = yield* confirmChangeShowingConsequences(
+          "administration.cancelInvoice",
+          yes,
+          json,
+          cancellation.prompt
+        );
+        if (!confirmed) {
+          yield* reportCancellation(json);
+          return;
+        }
+        const result = yield* api.cancelInvoice(
+          accessToken,
+          invoiceId,
+          cancellation.input
+        );
+        yield* Console.log(
+          json
+            ? JSON.stringify(result)
+            : formatInvoiceCancellationOutput(invoice.invoiceNumber, result)
+        );
+      })
+    )
+).pipe(
+  Command.withDescription(
+    "Cancel an invoice with a credit note, and its reservation with it"
+  )
+);
+
+const invoicesArchiveCommand = Command.make(
+  "archive",
+  {
+    invoiceId: Argument.String("invoice-id").pipe(
+      Argument.withSchema(AdministrationInvoiceId)
+    ),
+    yes: confirmationFlag,
+  },
+  ({ invoiceId, yes }) =>
+    runAuthenticatedCommand((api, accessToken, json) =>
+      Effect.gen(function* () {
+        const invoice = yield* api.getInvoice(accessToken, invoiceId);
+        const confirmed = yield* confirmChange(
+          "administration.archiveInvoice",
+          yes,
+          json,
+          `Hide cancelled invoice ${invoice.invoiceNumber} from the Admin UI? It stays readable through dhw, the API and the customer's account, and can't be unhidden.`
+        );
+        if (!confirmed) {
+          yield* reportCancellation(json);
+          return;
+        }
+        const result = yield* api.archiveInvoice(accessToken, invoiceId);
+        yield* Console.log(
+          json
+            ? JSON.stringify(result)
+            : formatInvoiceArchiveOutput(invoice.invoiceNumber, result)
+        );
+      })
+    )
+).pipe(
+  Command.withDescription(
+    "Hide a cancelled invoice from the Admin UI; dhw still reads it"
+  )
+);
 
 const invoicesCommand = Command.make("invoices").pipe(
   Command.withDescription("Create and manage invoices"),
@@ -1030,6 +1238,8 @@ const invoicesCommand = Command.make("invoices").pipe(
     invoicesCreateCommand,
     invoicesDownloadCommand,
     invoicesResendCommand,
+    invoicesCancelCommand,
+    invoicesArchiveCommand,
   ])
 );
 

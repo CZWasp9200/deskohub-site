@@ -2,7 +2,7 @@
 
 Invoice policy (when an invoice is required, numbering, required billing fields, delivery, post-order requests) is in the [accounting specification](../../../../apps/deskohub-workspace/docs/accounting-document-snapshots.md). Invoice administration and manual invoices belong to the administration skill. This file covers the implementation rules.
 
-Code: `features/accounting/`; tables `accounting_document_snapshots`, `invoices`, `invoice_number_counters`, and `invoice_email_deliveries` in `db/schema/`.
+Code: `features/accounting/`; tables `accounting_document_snapshots`, `invoices`, `invoice_number_counters`, `invoice_email_deliveries`, `invoice_cancellations`, `corrective_documents`, `corrective_document_number_counters`, `invoice_cancellation_notice_deliveries`, and `invoice_archives` in `db/schema/`.
 
 ## Source snapshot
 
@@ -33,7 +33,7 @@ The `invoices` row, not the snapshot, proves an invoice exists. It owns the numb
 3. Build the document JSON once from the snapshot's transaction facts plus the explicit billing identity. Never fall back to the snapshot's name-only buyer. Enforce required billing fields in the issued-document schema and repository, not only in the form or renderer.
 4. Lock and increment the annual Prague-year counter and insert the invoice in one transaction (`formatInvoiceNumber`, `WS-FV-YYYY-NNNNNN`). A rolled-back issuance consumes no number; a non-transactional `nextval` sequence can't give that guarantee.
 
-One invoice per reservation payment is enforced by unique indexes; repeated or concurrent issuance returns the existing invoice. Issue a business invoice always and a personal one only when the frozen request exists. Zero-total internal attempts qualify like provider-paid ones.
+One live invoice per reservation is enforced by the database: the reservation and payment-attempt unique indexes cover only a chain's root, each replacement names its cancelled predecessor (`replaces_invoice_id`) on the same reservation, and a predecessor has at most one replacement. Repeated or concurrent issuance returns the live invoice; when the latest is cancelled it issues a replacement; it refuses while the reservation is cancelling or cancelled. Read a reservation's invoice with `findLiveByReservationId` (the one to serve or cancel) or `findLatestByReservationId` (the chain tail, cancelled or not), never by insertion time. Issue a business invoice always and a personal one only when the frozen request exists. Zero-total internal attempts qualify like provider-paid ones.
 
 Render the PDF on demand from the issued JSON. Never persist the PDF or read current catalog, supplier, customer, or reservation data while rendering.
 
@@ -56,6 +56,17 @@ Render the PDF on demand from the issued JSON. Never persist the PDF or read cur
 - Send a dedicated invoice follow-up after fulfilment, never as part of the access-code email, plus an internal copy.
 - Resolve the recipient from the snapshot's frozen delivery target. Never accept a client-provided recipient.
 - Track customer and internal deliveries separately in `invoice_email_deliveries`; each logical send has its own stable provider idempotency key. A delivery failure retries the same document, never reissues.
+
+## Cancellation
+
+An issued invoice is cancelled, never changed: `InvoiceCancellationRepository.record` (`backend/invoice-cancellation.repository.ts`) locks the invoice row, issues the encrypted corrective document under the next `WS-OD` number, and claims the owed notices, all inside the caller's transaction (`WorkspaceTransaction`). Repeating it returns the existing cancellation with no claims.
+
+- Every operator path enters through `InvoiceCancellationService` (`backend/invoice-cancellation.service.ts`). `plan` and `planForReservation` read the facts a confirmation shows; reading decrypts the invoice, so an unreadable document fails `document_unavailable` before any claim or provider call. `cancelStandalone` cancels an invoice without a live reservation (manual, or a reservation cancelled before invoice cancellation existed): it locks the reservation row before the invoice row, the same order as reservation cancellation and issuance. `recordForReservation` cancels the live invoice inside the reservation's completion transaction. `deliverNotices` runs after the commit; a failed notice is logged and shown, never a failure of the cancellation. `retryNotices` reclaims failed or stale notices.
+- `InvoiceAdministrationService.cancel` routes on the plan: an invoice whose reservation is live goes through `ReservationAdministrationService.cancel` with `confirmedConsequences`, so both are cancelled in one completion; an invoice whose reservation's cancellation is under way is refused. Never cancel a live reservation's invoice on its own.
+- `ReservationAdministrationService.cancel` checks the invoice plan in the claim's transaction, after the claim and before the provider call: the claim's row lock makes issuance wait and issuance refuses a cancelling reservation, so the checked invoice is the one the completion cancels. An unreadable invoice stops with `invoice_unavailable`, and `confirmedConsequences` that miss the live invoice or an owed customer notice fail `confirmation_stale`; either rolls the claim back. Callers that omit `confirmedConsequences` (released `dhw`) skip that check. The completion transaction marks the reservation cancelled and records the invoice cancellation, and its customer-notice check is confirmed by the claim-time check: refusing after the provider cancelled would strand the reservation.
+- The customer notice is owed when the original customer invoice email was ever accepted (`wasInvoiceSentTo`) or is processing (`isCustomerCancellationNoticeOwed`). Original invoice email claims share-lock the invoice row, so they serialize with `record`.
+- Hiding is `invoice_archives`; its foreign key to `invoice_cancellations` refuses a live invoice. Admin UI reads pass `{ includeArchived: false }` to `InvoiceAdministrationService.get`/`getPdf`, which then answer not found, and the list leaves archived invoices out unless `includeArchived`; the administration API reads with `true`. Customer reads ignore hiding (`customerInvoiceVisibility`, `isVisibleToCustomer`).
+- A cancellation record keeps the actor's login email in a `sensitiveText` column; the account id is set null when the account is deleted.
 
 ## Post-order request
 

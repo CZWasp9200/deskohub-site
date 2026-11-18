@@ -3,11 +3,44 @@ import "@/shared/testing/workspace-test-env";
 
 import { expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservation } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationDetails } from "@/features/reservation/backend/workspace-reservation.service";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
+
+const testActor = {
+  source: "admin-ui",
+  administrator: {
+    accountId: "account-test" as never,
+    email: testEmailAddress("reservation-admin"),
+  },
+} as const;
+
+/** The invoice side of a cancellation for reservations without an invoice. */
+const invoiceCancellationFakes = async () => {
+  const { InvoiceCancellationService } = await import(
+    "@/features/accounting/backend/invoice-cancellation.service"
+  );
+  const { ReservationInvoiceService } = await import(
+    "@/features/accounting/backend/reservation-invoice.service"
+  );
+  const { PaidFulfillmentQueueService } = await import(
+    "@/features/checkout/backend/fulfillment/paid-fulfillment-queue.service"
+  );
+  return Layer.mergeAll(
+    (await makeRecordingWorkspaceDatabase()).layer,
+    Layer.mock(InvoiceCancellationService, {
+      planForReservation: () => Effect.succeed(null),
+      recordForReservation: () => Effect.succeed(null),
+    }),
+    // What only a restore's replacement invoice uses.
+    Layer.mock(ReservationInvoiceService, {}),
+    Layer.mock(PaidFulfillmentQueueService, {})
+  );
+};
 
 test("operator cancellation cancels Dotypos, records the result, and optionally emails", async () => {
   const { WorkspaceReservationEmailService } = await import(
@@ -51,6 +84,7 @@ test("operator cancellation cancels Dotypos, records the result, and optionally 
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
+      actor: testActor,
       reservationId: id,
       sendCancellationEmail: true,
     });
@@ -59,6 +93,7 @@ test("operator cancellation cancels Dotypos, records the result, and optionally 
       ReservationAdministrationService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
+            await invoiceCancellationFakes(),
             Layer.mock(ReservationRestorationService, {}),
             Layer.mock(DotyposService, { cancelReservation }),
             Layer.mock(WorkspaceReservationEmailService, {
@@ -81,7 +116,11 @@ test("operator cancellation cancels Dotypos, records the result, and optionally 
     Effect.runPromise
   );
 
-  expect(result).toEqual({ outcome: "cancelled", email: "sent" });
+  expect(result).toEqual({
+    outcome: "cancelled",
+    email: "sent",
+    invoice: null,
+  });
   expect(cancelReservation).toHaveBeenCalledWith("dotypos-test");
   expect(markAdministrationCancelled).toHaveBeenCalledWith({
     id,
@@ -158,6 +197,7 @@ const cancelAndEmail = async ({
       ReservationAdministrationService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
+            await invoiceCancellationFakes(),
             Layer.mock(ReservationRestorationService, {}),
             Layer.mock(DotyposService, {
               cancelReservation: () => Effect.void,
@@ -251,6 +291,7 @@ test("forced operator cancellation terminalizes a pending payment before cancell
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
+      actor: testActor,
       force: true,
       reservationId: id,
       sendCancellationEmail: false,
@@ -260,6 +301,7 @@ test("forced operator cancellation terminalizes a pending payment before cancell
       ReservationAdministrationService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
+            await invoiceCancellationFakes(),
             Layer.mock(ReservationRestorationService, {}),
             Layer.mock(DotyposService, { cancelReservation }),
             Layer.mock(WorkspaceReservationEmailService, {}),
@@ -279,7 +321,11 @@ test("forced operator cancellation terminalizes a pending payment before cancell
     Effect.runPromise
   );
 
-  expect(result).toEqual({ outcome: "cancelled", email: "not_requested" });
+  expect(result).toEqual({
+    outcome: "cancelled",
+    email: "not_requested",
+    invoice: null,
+  });
   expect(claimAdministrationCancellation).toHaveBeenCalledWith({
     id,
     pendingPaymentCancellation: {
@@ -321,6 +367,7 @@ test("retrying an already-cancelled reservation does not email again", async () 
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
+      actor: testActor,
       reservationId: id,
       sendCancellationEmail: true,
     });
@@ -329,6 +376,7 @@ test("retrying an already-cancelled reservation does not email again", async () 
       ReservationAdministrationService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
+            await invoiceCancellationFakes(),
             Layer.mock(ReservationRestorationService, {}),
             Layer.mock(DotyposService, {}),
             Layer.mock(WorkspaceReservationEmailService, {
@@ -351,6 +399,7 @@ test("retrying an already-cancelled reservation does not email again", async () 
   expect(result).toEqual({
     outcome: "already_cancelled",
     email: "not_requested",
+    invoice: null,
   });
   expect(sendCancellationEmail).not.toHaveBeenCalled();
 });
@@ -383,6 +432,7 @@ test("refuses cancellation while the confirmation email is still delivering", as
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
+      actor: testActor,
       reservationId: id,
       sendCancellationEmail: true,
     });
@@ -391,6 +441,7 @@ test("refuses cancellation while the confirmation email is still delivering", as
       ReservationAdministrationService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
+            await invoiceCancellationFakes(),
             Layer.mock(ReservationRestorationService, {}),
             Layer.mock(DotyposService, { cancelReservation }),
             Layer.mock(WorkspaceReservationEmailService, {}),
@@ -453,6 +504,7 @@ test("does not adopt a pre-existing provider cancellation", async () => {
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
+      actor: testActor,
       reservationId: id,
       sendCancellationEmail: true,
     });
@@ -461,6 +513,7 @@ test("does not adopt a pre-existing provider cancellation", async () => {
       ReservationAdministrationService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
+            await invoiceCancellationFakes(),
             Layer.mock(ReservationRestorationService, {}),
             Layer.mock(DotyposService, {}),
             Layer.mock(WorkspaceReservationEmailService, {}),
@@ -537,6 +590,7 @@ test("resumes a stale cancellation after an interrupted request", async () => {
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
+      actor: testActor,
       reservationId: id,
       sendCancellationEmail: false,
     });
@@ -545,6 +599,7 @@ test("resumes a stale cancellation after an interrupted request", async () => {
       ReservationAdministrationService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
+            await invoiceCancellationFakes(),
             Layer.mock(ReservationRestorationService, {}),
             Layer.mock(DotyposService, {
               cancelReservation: () => Effect.die("already cancelled"),
@@ -566,7 +621,11 @@ test("resumes a stale cancellation after an interrupted request", async () => {
     Effect.runPromise
   );
 
-  expect(result).toEqual({ outcome: "cancelled", email: "not_requested" });
+  expect(result).toEqual({
+    outcome: "cancelled",
+    email: "not_requested",
+    invoice: null,
+  });
   expect(claimAdministrationCancellation).toHaveBeenCalledWith({
     id,
     staleCancellingBefore: expect.any(Temporal.Instant),
@@ -623,6 +682,7 @@ test("reconciles a duplicate provider failure after another worker cancelled", a
   const result = await Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
+      actor: testActor,
       reservationId: id,
       sendCancellationEmail: false,
     });
@@ -631,6 +691,7 @@ test("reconciles a duplicate provider failure after another worker cancelled", a
       ReservationAdministrationService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
+            await invoiceCancellationFakes(),
             Layer.mock(ReservationRestorationService, {}),
             Layer.mock(DotyposService, {
               cancelReservation: () =>
@@ -651,7 +712,11 @@ test("reconciles a duplicate provider failure after another worker cancelled", a
     Effect.runPromise
   );
 
-  expect(result).toEqual({ outcome: "cancelled", email: "not_requested" });
+  expect(result).toEqual({
+    outcome: "cancelled",
+    email: "not_requested",
+    invoice: null,
+  });
   expect(getReservation).toHaveBeenCalledTimes(2);
   expect(markAdministrationCancellationFailed).not.toHaveBeenCalled();
   expect(markAdministrationCancelled).toHaveBeenCalledTimes(1);
@@ -707,6 +772,7 @@ const cancelWith = async ({
   return Effect.gen(function* () {
     const service = yield* ReservationAdministrationService;
     return yield* service.cancel({
+      actor: testActor,
       ...(force !== undefined && { force }),
       reservationId: workspaceReservationIdSchema.make("reservation-refusal"),
       sendCancellationEmail: false,
@@ -716,6 +782,7 @@ const cancelWith = async ({
       ReservationAdministrationService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
+            await invoiceCancellationFakes(),
             Layer.mock(ReservationRestorationService, {}),
             Layer.mock(DotyposService, { cancelReservation } as never),
             Layer.mock(WorkspaceReservationEmailService, {}),

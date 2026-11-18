@@ -552,6 +552,10 @@ describe("dhw invoices", () => {
     paymentStatus: "due",
     delivery,
     needsAttention,
+    cancellation: null,
+    archivedAt: null,
+    replacesInvoiceId: null,
+    replacedByInvoiceId: null,
   });
   const accepted = { customer: "accepted", internal: "accepted" };
 
@@ -603,10 +607,10 @@ describe("dhw invoices", () => {
     expect(text.calls).toEqual([["listInvoices", {}]]);
     expect(text.output).toEqual([
       "Invoices: 2 total · page 1/3",
-      "01980000-0000-7000-8000-000000000001\t2026-0001\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSent",
-      "01980000-0000-7000-8000-000000000002\t2026-0002\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tNeeds resend",
-      "01980000-0000-7000-8000-000000000003\t2026-0003\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSending",
-      "01980000-0000-7000-8000-000000000004\t2026-0004\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSending",
+      "01980000-0000-7000-8000-000000000001\t2026-0001\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSent\tLive",
+      "01980000-0000-7000-8000-000000000002\t2026-0002\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tNeeds resend\tLive",
+      "01980000-0000-7000-8000-000000000003\t2026-0003\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSending\tLive",
+      "01980000-0000-7000-8000-000000000004\t2026-0004\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tSending\tLive",
     ]);
   });
 
@@ -630,7 +634,7 @@ describe("dhw invoices", () => {
     expect(json.calls).toEqual([["getInvoice", invoiceId]]);
     expect(json.output).toEqual([JSON.stringify(detail)]);
     expect(text.output).toEqual([
-      "2026-0019\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tadministration\tSent",
+      "2026-0019\t2026-08-10\tSynthetic Customer\t1000 CZK\tdue\tadministration\tSent\tLive",
       "Synthetic service\t800",
       "Synthetic extra\t200",
     ]);
@@ -639,19 +643,21 @@ describe("dhw invoices", () => {
   test("retries invoice delivery once confirmed", async () => {
     const json = await runInspection(
       ["--json", "invoices", "resend", invoiceId, "--yes"],
-      { resendInvoice: { changed: true } }
+      { resendInvoice: { invoiceId, changed: true, notices: null } }
     );
     const retried = await runInspection(
       ["invoices", "resend", invoiceId, "--yes"],
-      { resendInvoice: { changed: true } }
+      { resendInvoice: { invoiceId, changed: true, notices: null } }
     );
     const unchanged = await runInspection(
       ["invoices", "resend", invoiceId, "--yes"],
-      { resendInvoice: { changed: false } }
+      { resendInvoice: { invoiceId, changed: false, notices: null } }
     );
 
     expect(json.calls).toEqual([["resendInvoice", invoiceId]]);
-    expect(json.output).toEqual([JSON.stringify({ changed: true })]);
+    expect(json.output).toEqual([
+      JSON.stringify({ invoiceId, changed: true, notices: null }),
+    ]);
     expect(retried.output).toEqual([
       `Retried delivery for invoice ${invoiceId}.`,
     ]);

@@ -57,19 +57,21 @@ const subjectDates = (
  * One row of the invoice list, in one of two shapes. A described invoice
  * leads with what it was for and the reservation's dates (board 38); a
  * plain one with its number and the day it was issued. Both end with the
- * total as issued.
+ * total as issued, and a cancelled one stays listed, marked cancelled.
  */
 export type InvoiceRow = Data.TaggedEnum<{
   Described: {
     readonly id: CustomerInvoiceId;
     readonly invoiceNumber: string;
     readonly total: CustomerInvoiceTotal;
+    readonly cancelled: boolean;
     readonly subject: InvoiceSubject;
   };
   Plain: {
     readonly id: CustomerInvoiceId;
     readonly invoiceNumber: string;
     readonly total: CustomerInvoiceTotal;
+    readonly cancelled: boolean;
     /** The Prague calendar date it was issued on. */
     readonly issuedOn: string;
   };
@@ -83,10 +85,19 @@ export const invoiceRowOf = ({
   total,
   issuedOn,
   reservation,
-}: CustomerInvoice): InvoiceRow =>
-  reservation === undefined
-    ? InvoiceRow.Plain({ id, invoiceNumber, total, issuedOn })
-    : InvoiceRow.Described({ id, invoiceNumber, total, subject: reservation });
+  cancellation,
+}: CustomerInvoice): InvoiceRow => {
+  const cancelled = cancellation !== undefined;
+  return reservation === undefined
+    ? InvoiceRow.Plain({ id, invoiceNumber, total, cancelled, issuedOn })
+    : InvoiceRow.Described({
+        id,
+        invoiceNumber,
+        total,
+        cancelled,
+        subject: reservation,
+      });
+};
 
 /** What the invoice list shows once it has loaded. */
 export type InvoiceList =

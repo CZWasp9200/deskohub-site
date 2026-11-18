@@ -19,6 +19,7 @@ Operators may read:
 - customers, their Workspace reservation history, and their reservations per day over the last year;
 - discount definitions, codes, scheduled sales, and the Dotypos discount groups;
 - invoice creation defaults, and a rendered preview of an invoice before it's created;
+- issued invoices and their PDFs, including cancelled invoices with their credit notes and notice states, and cancelled invoices hidden from the dashboard, which a list shows only on request;
 - email campaigns, their per-locale texts in Czech, English, German, Ukrainian, Slovak, Vietnamese, and Hindi, current recipients, and delivery status;
 - saved campaign audiences and email templates, including rendered template previews, and the inbox that receives test emails;
 - automated campaigns: their flow, activation readiness, dry runs, published versions, runs with their timelines and counts, and the automation engine's health;
@@ -40,6 +41,9 @@ Operators may:
 - create, update, archive, unarchive, or delete saved campaign audiences;
 - send a campaign's test emails, then send the campaign with the confirmation code from the latest test email, and retry the recipients it didn't reach, optionally including those whose delivery is unconfirmed and who may already have the email;
 - fill the booked product of older meeting-room and office reservations from their Dotypos booking, first as a dry run;
+- cancel an invoice with a credit note. The confirmation says when the customer, who already received the invoice, will be emailed a cancellation notice, and when the invoice's reservation is cancelled with it; the cancellation is refused if either changed since. Cancelling a reservation cancels its invoice the same way, and its confirmation says so;
+- hide a cancelled invoice from the dashboard, which can't be undone; it stays readable here;
+- retry a cancelled invoice's failed cancellation notices, which never sends the invoice email again;
 - grant an account the administrator role, or revoke another account's role;
 - grant an account the administrator role and link the records a pre-account administrator username wrote to it, first as a dry run; and
 - rename or revoke administration sessions.

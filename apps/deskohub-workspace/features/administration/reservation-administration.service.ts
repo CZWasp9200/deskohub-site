@@ -1,10 +1,24 @@
 import { DotyposService } from "@deskohub/dotypos";
-import { Context, Effect, Layer, Option } from "effect";
+import { Context, Effect, Layer, Option, Result } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { isDatabaseQueryError } from "@/db/sql-constraint";
 import { CustomerEmailLocaleService } from "@/features/account";
 import { AccountingDocumentSnapshots } from "@/features/accounting/backend/accounting-document-snapshots";
 import { AccountingSnapshotKeyService } from "@/features/accounting/backend/accounting-snapshot-key.service";
+import {
+  InvoiceCancellationService,
+  type ReservationInvoiceRecording,
+} from "@/features/accounting/backend/invoice-cancellation.service";
+import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
+import {
+  isInvoiceReplacedOnRestoration,
+  readReservationInvoiceStanding,
+} from "@/features/accounting/backend/reservation-invoice-standing";
+import type { InvoiceNoticeSummary } from "@/features/accounting/invoice-cancellation";
+import type { InvoiceId } from "@/features/accounting/manual-invoice";
+import type { AdministrationActor } from "@/features/administrators/administration-source";
 import { WorkspaceCheckoutNetworkDetailsService } from "@/features/checkout/backend/fulfillment/network-details.service";
+import { PaidFulfillmentQueueService } from "@/features/checkout/backend/fulfillment/paid-fulfillment-queue.service";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
 import { PaymentRefundService } from "@/features/checkout/backend/payment/payment-refund.service";
 import { administrationForcedPaymentCancellationFailureCode } from "@/features/checkout/backend/repositories/payment-lifecycle.repository";
@@ -38,15 +52,62 @@ import {
   canCancelReservation,
 } from "./reservation-status";
 
+/** The reservation's invoice, cancelled with it. */
+type ReservationInvoiceCancellation = {
+  readonly outcome: "cancelled" | "already_cancelled";
+  readonly invoiceId: InvoiceId;
+  readonly invoiceNumber: string;
+  readonly correctiveDocumentNumber: string;
+  readonly notices: InvoiceNoticeSummary;
+};
+
 type ReservationCancellationResult = {
   readonly outcome: "cancelled" | "already_cancelled";
   readonly email: "not_requested" | "sent" | "failed";
+  /** `null` when the reservation had no live invoice to cancel. */
+  readonly invoice: ReservationInvoiceCancellation | null;
 };
+
+/**
+ * The new invoice a restore issues for the one cancelled with the
+ * reservation. Issuing or sending it can fail after the restore committed;
+ * the restore stands. `retrying`: the paid-fulfillment queue retries it.
+ * `failed`: nothing retries it on its own; the customer's post-order page
+ * offers the invoice (or resends an issued one), and a rerun of the restore
+ * issues one still owed. `not_issued`: the cancelled invoice could not be
+ * opened, so none issues.
+ */
+type ReservationRestorationInvoice = {
+  readonly outcome: "issued" | "retrying" | "failed" | "not_issued";
+  /** Set once the new invoice exists, even when sending it failed. */
+  readonly invoiceId: InvoiceId | null;
+  readonly invoiceNumber: string | null;
+};
+
+export type ReservationAdministrationRestorationResult =
+  ReservationRestorationResult & {
+    /** `null` when the reservation's invoice wasn't cancelled with it, or it had none. */
+    readonly invoice: ReservationRestorationInvoice | null;
+  };
 
 // Existing callers import the error from here.
 export { ReservationAdministrationError } from "./reservation-administration-error";
 
-type ReservationCancellationInput = {
+/**
+ * The invoice consequences the operator saw before confirming. Callers that
+ * predate invoice cancellation (released `dhw` binaries) omit them, and the
+ * check is skipped.
+ */
+type ReservationCancellationConfirmedConsequences = {
+  /** The reservation's live invoice is cancelled with it. */
+  readonly invoice: boolean;
+  /** The customer is emailed a cancellation notice for that invoice. */
+  readonly customerNotice: boolean;
+};
+
+export type ReservationCancellationInput = {
+  readonly actor: AdministrationActor;
+  readonly confirmedConsequences?: ReservationCancellationConfirmedConsequences;
   readonly force?: boolean;
   readonly reservationId: WorkspaceReservationId;
   readonly sendCancellationEmail: boolean;
@@ -62,7 +123,7 @@ interface IReservationAdministrationService {
   readonly restore: (
     input: ReservationRestorationInput
   ) => Effect.Effect<
-    ReservationRestorationResult,
+    ReservationAdministrationRestorationResult,
     ReservationAdministrationError
   >;
 }
@@ -74,11 +135,15 @@ export class ReservationAdministrationService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
+      const { db, transaction } = yield* WorkspaceDatabase;
       const dotypos = yield* DotyposService;
       const emails = yield* WorkspaceReservationEmailService;
+      const invoiceCancellation = yield* InvoiceCancellationService;
       const reservations = yield* WorkspaceReservationRepository;
       const reservationDetails = yield* WorkspaceReservationService;
       const restoration = yield* ReservationRestorationService;
+      const reservationInvoices = yield* ReservationInvoiceService;
+      const paidFulfillment = yield* PaidFulfillmentQueueService;
 
       const claimCancellation = Effect.fnUntraced(function* (
         current: WorkspaceReservation,
@@ -164,47 +229,152 @@ export class ReservationAdministrationService extends Context.Service<
       });
 
       /**
-       * Records the completed cancellation, or marks the claim failed when
-       * that write fails. Returns when the reservation was cancelled.
+       * Records the completed cancellation and cancels the reservation's live
+       * invoice in one transaction, so both happen or neither does. When that
+       * fails, the claim is marked failed. Returns when the reservation was
+       * cancelled and the invoice recording.
        */
       const recordCancellation = Effect.fnUntraced(function* (
         claimed: WorkspaceReservation,
-        administrationForceCancellation: boolean
+        administrationForceCancellation: boolean,
+        actor: AdministrationActor
       ) {
         const cancelledAt = Temporal.Now.instant();
-        yield* reservations
-          .markAdministrationCancelled({
-            id: claimed.id,
-            cancelledAt,
-            claimedAt: claimed.updatedAt,
-            failureCode: getCancellationFailureCode(
-              administrationForceCancellation,
-              null
-            ),
+        const invoiceRecording = yield* transaction(
+          Effect.gen(function* () {
+            yield* reservations.markAdministrationCancelled({
+              id: claimed.id,
+              cancelledAt,
+              claimedAt: claimed.updatedAt,
+              failureCode: getCancellationFailureCode(
+                administrationForceCancellation,
+                null
+              ),
+            });
+            return yield* invoiceCancellation.recordForReservation({
+              reservationId: claimed.id,
+              actor,
+            });
           })
+        ).pipe(
+          Effect.tapError(() =>
+            reservations
+              .markAdministrationCancellationFailed({
+                id: claimed.id,
+                claimedAt: claimed.updatedAt,
+                failureCode: getCancellationFailureCode(
+                  administrationForceCancellation,
+                  "admin_local_cancel_failed"
+                ),
+              })
+              .pipe(Effect.ignore)
+          ),
+          Effect.mapError((cause) =>
+            cancellationFailed(
+              "record_failed",
+              "The completed cancellation could not be recorded.",
+              cause
+            )
+          )
+        );
+        return { cancelledAt, invoiceRecording };
+      });
+
+      /**
+       * Reads what the cancellation will do to the reservation's invoice. An
+       * unreadable invoice stops it; consequences the operator did not see
+       * refuse it. Runs in the claim's transaction, after the claim.
+       */
+      const checkInvoiceConsequences = Effect.fnUntraced(function* (
+        input: ReservationCancellationInput
+      ) {
+        const plan = yield* invoiceCancellation
+          .planForReservation(input.reservationId)
           .pipe(
-            Effect.tapError(() =>
-              reservations
-                .markAdministrationCancellationFailed({
-                  id: claimed.id,
-                  claimedAt: claimed.updatedAt,
-                  failureCode: getCancellationFailureCode(
-                    administrationForceCancellation,
-                    "admin_local_cancel_failed"
-                  ),
-                })
-                .pipe(Effect.ignore)
-            ),
             Effect.mapError((cause) =>
-              cancellationFailed(
-                "record_failed",
-                "The completed cancellation could not be recorded.",
-                cause
-              )
+              cause.code === "document_unavailable"
+                ? cancellationFailed(
+                    "invoice_unavailable",
+                    "The reservation's invoice could not be read, so it cannot be cancelled with the reservation.",
+                    cause
+                  )
+                : cancellationFailed(
+                    "reservation_unavailable",
+                    "The reservation's invoice could not be loaded.",
+                    cause
+                  )
             )
           );
-        return cancelledAt;
+        const confirmed = input.confirmedConsequences;
+        if (
+          plan &&
+          confirmed &&
+          (!confirmed.invoice ||
+            (plan.customerNotice === "owed" && !confirmed.customerNotice))
+        ) {
+          return yield* new ReservationAdministrationError({
+            code: "not_cancellable",
+            reason: "confirmation_stale",
+            message:
+              "The reservation's invoice changed since the cancellation was confirmed. Refresh and review the consequences again.",
+          });
+        }
       });
+
+      /**
+       * Claims the reservation and checks its invoice consequences in one
+       * transaction, before the provider call. The claim's row lock makes
+       * invoice issuance wait, and issuance refuses a cancelling reservation,
+       * so the invoice the check reads is the one the completion cancels: an
+       * invoice issued before the claim is seen by the check, one issued after
+       * it is refused. A failed check rolls the claim back.
+       */
+      const claimWithInvoiceConsequences = Effect.fnUntraced(function* (
+        input: ReservationCancellationInput,
+        current: WorkspaceReservation,
+        forcedPendingPayment: boolean
+      ) {
+        return yield* transaction(
+          Effect.gen(function* () {
+            const claimed = yield* claimCancellation(
+              current,
+              forcedPendingPayment
+            );
+            yield* checkInvoiceConsequences(input);
+            return claimed;
+          })
+        ).pipe(
+          Effect.mapError((cause) =>
+            isDatabaseQueryError(cause)
+              ? cancellationFailed(
+                  "claim_failed",
+                  "The reservation could not be claimed for cancellation.",
+                  cause
+                )
+              : cause
+          )
+        );
+      });
+
+      const deliverInvoiceNotices = (
+        recording: ReservationInvoiceRecording | null
+      ) =>
+        recording
+          ? invoiceCancellation.deliverNotices(recording).pipe(
+              Effect.map(
+                ({ notices }): ReservationInvoiceCancellation => ({
+                  outcome: recording.changed
+                    ? "cancelled"
+                    : "already_cancelled",
+                  invoiceId: recording.record.invoiceId,
+                  invoiceNumber: recording.invoiceNumber,
+                  correctiveDocumentNumber:
+                    recording.record.correctiveDocumentNumber,
+                  notices,
+                })
+              )
+            )
+          : Effect.succeed(null);
 
       /**
        * Records that the customer was told about the cancellation, so a
@@ -236,6 +406,136 @@ export class ReservationAdministrationService extends Context.Service<
             )
           );
 
+      /** The restored reservation's latest invoice when it is the replacement of `cancelled`. */
+      const findReplacement = (
+        reservationId: WorkspaceReservationId,
+        cancelled: InvoiceId
+      ) =>
+        readReservationInvoiceStanding(db, reservationId).pipe(
+          Effect.map((latest) =>
+            latest && latest.state === "live" && latest.id !== cancelled
+              ? latest
+              : null
+          ),
+          Effect.orElseSucceed(() => null)
+        );
+
+      /**
+       * After a failed replacement, the retry its origin has: the
+       * paid-fulfillment queue, whose run for a fulfilled order issues and
+       * sends its invoice alone, retries a `payment` one (`retrying`). A
+       * `post_order` one isn't queued (`failed`): the customer's post-order
+       * page offers the invoice again, and a rerun of the restore issues it.
+       */
+      const settleFailedReplacement = Effect.fnUntraced(function* (input: {
+        readonly reservationId: WorkspaceReservationId;
+        readonly cancelled: InvoiceId;
+        readonly origin: "payment" | "post_order";
+        readonly cause: unknown;
+      }) {
+        yield* Effect.logError(
+          "The restored reservation's replacement invoice failed after the restore committed.",
+          { origin: input.origin, cause: input.cause }
+        );
+        const queued =
+          input.origin === "payment" &&
+          (yield* paidFulfillment
+            .enqueue({
+              orderId: input.reservationId,
+              replacesInvoiceId: input.cancelled,
+            })
+            .pipe(
+              Effect.as(true),
+              Effect.catch((cause) =>
+                Effect.logFatal(
+                  "The restored reservation's replacement invoice could not be queued for retry.",
+                  cause
+                ).pipe(Effect.as(false))
+              )
+            ));
+        const replacement = yield* findReplacement(
+          input.reservationId,
+          input.cancelled
+        );
+        return {
+          outcome: queued ? "retrying" : "failed",
+          invoiceId: replacement?.id ?? null,
+          invoiceNumber: replacement?.invoiceNumber ?? null,
+        } satisfies ReservationRestorationInvoice;
+      });
+
+      const notIssued: ReservationRestorationInvoice = {
+        outcome: "not_issued",
+        invoiceId: null,
+        invoiceNumber: null,
+      };
+
+      /**
+       * Issues the replacement of the invoice cancelled with the reservation,
+       * once the restore committed, through the issuance the cancelled one
+       * came from: a credit note is never undone, so the restored reservation
+       * gets a new invoice. A failure keeps the restore. A rerun of the
+       * restore issues a replacement still owed. Like the restore email and
+       * the cancellation notices, it absorbs typed failures only.
+       */
+      const issueReplacementInvoice = Effect.fnUntraced(function* (
+        reservationId: WorkspaceReservationId
+      ) {
+        const standing = yield* readReservationInvoiceStanding(
+          db,
+          reservationId
+        ).pipe(
+          Effect.catch((cause) =>
+            Effect.logFatal(
+              "The restored reservation's invoice could not be read, so no replacement was issued; a rerun of the restore issues it.",
+              cause
+            ).pipe(Effect.as(null))
+          )
+        );
+        if (!(standing && isInvoiceReplacedOnRestoration(standing))) {
+          return null;
+        }
+        const plan = yield* reservationInvoices
+          .planRestoredInvoice({ reservationId })
+          .pipe(Effect.result);
+        if (Result.isFailure(plan)) {
+          yield* Effect.logFatal(
+            "The restored reservation's replacement invoice could not be planned; a rerun of the restore issues it.",
+            plan.failure
+          );
+          return {
+            outcome: "failed",
+            invoiceId: null,
+            invoiceNumber: null,
+          } satisfies ReservationRestorationInvoice;
+        }
+        if (plan.success.kind === "not_owed") return null;
+        if (plan.success.kind === "unreadable") return notIssued;
+        const reissue = plan.success;
+        return yield* reservationInvoices.issueRestoredInvoice(reissue).pipe(
+          Effect.map(
+            (issued): ReservationRestorationInvoice =>
+              issued === null
+                ? notIssued
+                : {
+                    // A post-order replacement whose email failed waits for
+                    // the customer's resend, as after creating one.
+                    outcome: issued.delivered ? "issued" : "failed",
+                    invoiceId: issued.invoiceId,
+                    invoiceNumber: issued.invoiceNumber,
+                  }
+          ),
+          Effect.catch((cause) =>
+            settleFailedReplacement({
+              reservationId,
+              cancelled: reissue.cancelled.id,
+              origin: reissue.origin,
+              cause,
+            })
+          )
+        );
+      });
+
       return {
         cancel: Effect.fn("ReservationAdministrationService.cancel")(
           function* (input) {
@@ -261,6 +561,7 @@ export class ReservationAdministrationService extends Context.Service<
               return {
                 outcome: "already_cancelled",
                 email: "not_requested",
+                invoice: null,
               };
             }
             const forcedPendingPayment =
@@ -296,7 +597,8 @@ export class ReservationAdministrationService extends Context.Service<
               forcedPendingPayment
             );
             if (refusal) return yield* refusal;
-            const claimed = yield* claimCancellation(
+            const claimed = yield* claimWithInvoiceConsequences(
+              input,
               current,
               forcedPendingPayment
             );
@@ -310,9 +612,10 @@ export class ReservationAdministrationService extends Context.Service<
               );
             }
 
-            const cancelledAt = yield* recordCancellation(
+            const { cancelledAt, invoiceRecording } = yield* recordCancellation(
               claimed,
-              administrationForceCancellation
+              administrationForceCancellation,
+              input.actor
             );
 
             const email = yield* sendLoadedCancellationEmail({
@@ -323,10 +626,22 @@ export class ReservationAdministrationService extends Context.Service<
             if (email === "sent") {
               yield* recordCancellationEmail({ id: claimed.id, cancelledAt });
             }
-            return { outcome: "cancelled", email };
+            return {
+              outcome: "cancelled",
+              email,
+              invoice: yield* deliverInvoiceNotices(invoiceRecording),
+            };
           }
         ),
-        restore: restoration.restore,
+        restore: Effect.fn("ReservationAdministrationService.restore")(
+          function* (input) {
+            const restored = yield* restoration.restore(input);
+            return {
+              ...restored,
+              invoice: yield* issueReplacementInvoice(input.reservationId),
+            };
+          }
+        ),
       } satisfies IReservationAdministrationService;
     })
   );
@@ -343,7 +658,10 @@ export class ReservationAdministrationService extends Context.Service<
     shared: Layer.Layer<
       | AccountingDocumentSnapshots
       | DotyposService
+      | InvoiceCancellationService
+      | PaidFulfillmentQueueService
       | PaymentRefundService
+      | ReservationInvoiceService
       | ReservationAccessService
       | WorkspaceDatabase
       | WorkspaceFeatureFlagService
@@ -380,6 +698,9 @@ export class ReservationAdministrationService extends Context.Service<
       WorkspaceReservationRepository.Default,
       WorkspaceDotyposLayer,
       WorkspaceFeatureFlagService.Default,
+      InvoiceCancellationService.Live,
+      PaidFulfillmentQueueService.Live,
+      ReservationInvoiceService.Live,
       PaymentRefundService.Live,
       AccountingDocumentSnapshots.Default.pipe(
         Layer.provide(AccountingSnapshotKeyService.Default)

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Effect, Option } from "effect";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { findViolatedConstraint } from "./sql-constraint";
+import { findSqlState, findViolatedConstraint } from "./sql-constraint";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
@@ -69,5 +69,19 @@ describe.skipIf(!testDatabase)("findViolatedConstraint on Postgres", () => {
         db.execute(sql`select * from sql_constraint_missing`)
       )
     ).toEqual(Option.none());
+  });
+
+  test("reads the SQLSTATE of a failed statement", async () => {
+    const sqlState = <A, E extends Parameters<typeof findSqlState>[0]>(
+      statement: Effect.Effect<A, E>
+    ) =>
+      Effect.runPromise(statement.pipe(Effect.flip, Effect.map(findSqlState)));
+
+    expect(await sqlState(db.execute(duplicateParent))).toEqual(
+      Option.some("23505")
+    );
+    expect(
+      await sqlState(db.execute(sql`select * from sql_constraint_missing`))
+    ).toEqual(Option.some("42P01"));
   });
 });

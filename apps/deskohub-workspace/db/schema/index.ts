@@ -42,6 +42,11 @@ export {
   vouchers,
 } from "./discounts";
 export {
+  type AnnualNumberCounter,
+  correctiveDocumentNumberCounters,
+  invoiceNumberCounters,
+} from "./document-number-counters";
+export {
   emailCampaignAutomationEngine,
   emailCampaignAutomationPreviewRows,
   emailCampaignAutomationPreviews,
@@ -77,12 +82,17 @@ export {
   emailValueSnapshots,
   emailVersions,
 } from "./emails";
+export { invoiceArchives } from "./invoice-archives";
+export {
+  correctiveDocuments,
+  invoiceCancellationNoticeDeliveries,
+  invoiceCancellations,
+} from "./invoice-cancellations";
 export {
   invoiceEmailDeliveries,
   invoiceEmailDeliveryAudiences,
   invoiceEmailDeliveryStates,
 } from "./invoice-email-deliveries";
-export { invoiceNumberCounters } from "./invoice-number-counters";
 export { invoices } from "./invoices";
 export {
   type LatePaymentRecovery,

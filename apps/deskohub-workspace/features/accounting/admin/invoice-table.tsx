@@ -18,19 +18,87 @@ import { Button } from "@/shared/components/ui/button";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import { retryAdministrationInvoice } from "./actions";
-import type { InvoiceAdministrationListItem } from "./invoice-administration.service";
-import { InvoicePaymentStatusBadge } from "./invoice-detail";
+import type {
+  InvoiceAdministrationListItem,
+  InvoiceAdministrationUnreadableListItem,
+} from "./invoice-administration.service";
+import { InvoiceArchive } from "./invoice-archive";
+import { InvoiceCancellation } from "./invoice-cancellation-dialog";
+import { InvoiceStatusBadges } from "./invoice-detail";
 import { getInvoiceSourceLabel } from "./invoice-display";
+import { isUnreadableInvoiceListEntry } from "./invoice-list-entry";
 import { type InvoiceListQuery, invoiceListQuery } from "./invoice-list-query";
 
 /**
  * A list item with its issue time and total already formatted on the server:
  * the client's ICU spaces date-times and amounts differently from Node's.
  */
-export type InvoiceAdministrationTableRow = InvoiceAdministrationListItem & {
-  readonly issuedAtLabel: string;
-  readonly totalLabel: string;
-};
+export type InvoiceAdministrationTableRow =
+  | (InvoiceAdministrationListItem & {
+      readonly issuedAtLabel: string;
+      readonly totalLabel: string;
+    })
+  | (InvoiceAdministrationUnreadableListItem & {
+      readonly issuedAtLabel: string;
+    });
+
+/** The invoice's number, linking its detail page when its document can be read. */
+function InvoiceNumber({
+  className,
+  invoice,
+}: {
+  readonly className: string;
+  readonly invoice: InvoiceAdministrationTableRow;
+}) {
+  if (isUnreadableInvoiceListEntry(invoice)) {
+    return <span className="font-semibold">{invoice.invoiceNumber}</span>;
+  }
+  return (
+    <Link
+      className={className}
+      href={administrationHref("/[locale]/admin/invoices/[invoiceId]", {
+        invoiceId: invoice.id,
+      })}
+    >
+      {invoice.invoiceNumber}
+    </Link>
+  );
+}
+
+/**
+ * Stands in for the customer, total, payment status, source and delivery of
+ * an invoice whose document could not be read.
+ */
+function InvoiceDocumentUnavailable() {
+  const locale = useRouteLocale();
+  return (
+    <span data-slot="invoice-document-unavailable">
+      <StatusBadge tone="attention">
+        <CircleAlert aria-hidden className="size-3.5" />{" "}
+        {m.accountingInvoiceDocumentUnavailable({}, { locale })}
+      </StatusBadge>
+    </span>
+  );
+}
+
+/** The status badges; an unreadable invoice shows only whether it is cancelled. */
+function InvoiceRowStatus({
+  invoice,
+}: {
+  readonly invoice: InvoiceAdministrationTableRow;
+}) {
+  const locale = useRouteLocale();
+  if (!isUnreadableInvoiceListEntry(invoice)) {
+    return <InvoiceStatusBadges invoice={invoice} />;
+  }
+  return (
+    invoice.cancelledAt && (
+      <StatusBadge tone="neutral">
+        {m.accountingInvoiceCancelledBadge({}, { locale })}
+      </StatusBadge>
+    )
+  );
+}
 
 const getInvoiceColumns = (
   locale: Locale
@@ -39,20 +107,23 @@ const getInvoiceColumns = (
     accessorKey: "invoiceNumber",
     header: m.accountingInvoiceColumnInvoice({}, { locale }),
     cell: ({ row }) => (
-      <Link
+      <InvoiceNumber
         className="font-semibold underline underline-offset-4"
-        href={administrationHref("/[locale]/admin/invoices/[invoiceId]", {
-          invoiceId: row.original.id,
-        })}
-      >
-        {row.original.invoiceNumber}
-      </Link>
+        invoice={row.original}
+      />
     ),
   },
   {
     id: "customer",
-    accessorFn: (invoice) => invoice.customerName,
+    accessorFn: (invoice) =>
+      isUnreadableInvoiceListEntry(invoice) ? null : invoice.customerName,
     header: m.accountingInvoiceColumnCustomer({}, { locale }),
+    cell: ({ row }) =>
+      isUnreadableInvoiceListEntry(row.original) ? (
+        <InvoiceDocumentUnavailable />
+      ) : (
+        row.original.customerName
+      ),
   },
   {
     accessorKey: "issuedAt",
@@ -60,44 +131,64 @@ const getInvoiceColumns = (
     cell: ({ row }) => row.original.issuedAtLabel,
   },
   {
-    accessorKey: "total",
+    id: "total",
+    accessorFn: (invoice) =>
+      isUnreadableInvoiceListEntry(invoice) ? null : invoice.total,
     header: m.accountingInvoiceColumnTotal({}, { locale }),
-    cell: ({ row }) => row.original.totalLabel,
+    cell: ({ row }) =>
+      isUnreadableInvoiceListEntry(row.original)
+        ? null
+        : row.original.totalLabel,
     meta: { cellClassName: "font-mono tabular-nums" },
   },
   {
-    accessorKey: "paymentStatus",
+    id: "paymentStatus",
+    accessorFn: (invoice) =>
+      isUnreadableInvoiceListEntry(invoice) ? null : invoice.paymentStatus,
     header: m.accountingInvoiceColumnPayment({}, { locale }),
-    cell: ({ row }) => (
-      <InvoicePaymentStatusBadge status={row.original.paymentStatus} />
-    ),
+    cell: ({ row }) => <InvoiceRowStatus invoice={row.original} />,
   },
   {
-    accessorKey: "source",
+    id: "source",
+    accessorFn: (invoice) =>
+      isUnreadableInvoiceListEntry(invoice) ? null : invoice.source,
     header: m.accountingInvoiceColumnProvenance({}, { locale }),
-    cell: ({ row }) => (
-      <div>
-        <p>{getInvoiceSourceLabel(row.original.source, locale)}</p>
-        {row.original.actor && (
-          <p className="text-xs text-navy-blue/55">{row.original.actor}</p>
-        )}
-      </div>
-    ),
+    cell: ({ row }) =>
+      isUnreadableInvoiceListEntry(row.original) ? null : (
+        <div>
+          <p>{getInvoiceSourceLabel(row.original.source, locale)}</p>
+          {row.original.actor && (
+            <p className="text-xs text-navy-blue/55">{row.original.actor}</p>
+          )}
+        </div>
+      ),
   },
   {
     id: "delivery",
     header: m.accountingInvoiceColumnDelivery({}, { locale }),
-    accessorFn: (invoice) => invoice.needsAttention,
-    cell: ({ row }) => <InvoiceDeliveryBadge invoice={row.original} />,
+    accessorFn: (invoice) =>
+      !isUnreadableInvoiceListEntry(invoice) && invoice.needsAttention,
+    cell: ({ row }) =>
+      isUnreadableInvoiceListEntry(row.original) ? null : (
+        <InvoiceDeliveryBadge invoice={row.original} />
+      ),
   },
 ];
 
+/**
+ * The invoice email's delivery, or a cancelled invoice's notices: its own
+ * email no longer matters, and a notice not owed counts as delivered.
+ */
 function InvoiceDeliveryBadge({
   invoice,
 }: {
   readonly invoice: InvoiceAdministrationListItem;
 }) {
   const locale = useRouteLocale();
+  const { customer, internal } =
+    invoice.cancellation?.notices ?? invoice.delivery;
+  const delivered = (status: typeof customer) =>
+    status === "accepted" || status === "not_owed";
   if (invoice.needsAttention) {
     return (
       <StatusBadge tone="attention">
@@ -106,10 +197,7 @@ function InvoiceDeliveryBadge({
       </StatusBadge>
     );
   }
-  if (
-    invoice.delivery.customer === "accepted" &&
-    invoice.delivery.internal === "accepted"
-  ) {
+  if (delivered(customer) && delivered(internal)) {
     return (
       <StatusBadge tone="positive">
         {m.accountingInvoiceDeliverySent({}, { locale })}
@@ -145,24 +233,25 @@ export function InvoiceAdministrationTable({
             <li className="p-4" key={invoice.id}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <Link
+                  <InvoiceNumber
                     className="font-semibold underline decoration-navy-blue/20 underline-offset-4 hover:decoration-navy-blue"
-                    href={administrationHref(
-                      "/[locale]/admin/invoices/[invoiceId]",
-                      { invoiceId: invoice.id }
-                    )}
-                  >
-                    {invoice.invoiceNumber}
-                  </Link>
+                    invoice={invoice}
+                  />
                   <p className="mt-1 truncate text-sm text-navy-blue/65">
-                    {invoice.customerName}
+                    {isUnreadableInvoiceListEntry(invoice) ? (
+                      <InvoiceDocumentUnavailable />
+                    ) : (
+                      invoice.customerName
+                    )}
                   </p>
                 </div>
-                <InvoicePaymentStatusBadge status={invoice.paymentStatus} />
+                <InvoiceRowStatus invoice={invoice} />
               </div>
-              <p className="mt-3 font-mono text-sm font-semibold tabular-nums">
-                {invoice.totalLabel}
-              </p>
+              {!isUnreadableInvoiceListEntry(invoice) && (
+                <p className="mt-3 font-mono text-sm font-semibold tabular-nums">
+                  {invoice.totalLabel}
+                </p>
+              )}
               <p className="mt-1 text-xs text-navy-blue/60">
                 {m.accountingInvoiceIssuedOn(
                   { issuedAt: invoice.issuedAtLabel },
@@ -170,7 +259,11 @@ export function InvoiceAdministrationTable({
                 )}
               </p>
               <div className="mt-3 flex items-start justify-between gap-3">
-                <InvoiceDeliveryBadge invoice={invoice} />
+                {isUnreadableInvoiceListEntry(invoice) ? (
+                  <span />
+                ) : (
+                  <InvoiceDeliveryBadge invoice={invoice} />
+                )}
                 <InvoiceRowActions invoice={invoice} />
               </div>
             </li>
@@ -185,11 +278,34 @@ export function InvoiceAdministrationTable({
 function InvoiceRowActions({
   invoice,
 }: {
+  readonly invoice: InvoiceAdministrationTableRow;
+}) {
+  if (!isUnreadableInvoiceListEntry(invoice)) {
+    return <ReadableInvoiceRowActions invoice={invoice} />;
+  }
+  // Hiding needs no document; downloading, cancelling and retrying do.
+  return (
+    invoice.cancelledAt && (
+      <div className="flex justify-end gap-1">
+        <InvoiceArchive
+          invoiceId={invoice.id}
+          invoiceNumber={invoice.invoiceNumber}
+          placement="row"
+        />
+      </div>
+    )
+  );
+}
+
+function ReadableInvoiceRowActions({
+  invoice,
+}: {
   readonly invoice: InvoiceAdministrationListItem;
 }) {
   const router = useRouter();
   const locale = useRouteLocale();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const { execute, isExecuting } = useWorkspaceAction(
     retryAdministrationInvoice,
     {
@@ -231,7 +347,9 @@ function InvoiceRowActions({
         </Button>
         {invoice.needsAttention && (
           <Button
-            aria-label={m.accountingInvoiceRetryDeliveryLabel(
+            aria-label={(invoice.cancellation
+              ? m.accountingInvoiceCancellationNoticesRetryLabel
+              : m.accountingInvoiceRetryDeliveryLabel)(
               { invoiceNumber: invoice.invoiceNumber },
               { locale }
             )}
@@ -246,6 +364,30 @@ function InvoiceRowActions({
           >
             <RotateCw aria-hidden className="size-4" />
           </Button>
+        )}
+        {invoice.cancellation ? (
+          <InvoiceArchive
+            invoiceId={invoice.id}
+            invoiceNumber={invoice.invoiceNumber}
+            placement="row"
+          />
+        ) : (
+          <InvoiceCancellation
+            invoiceId={invoice.id}
+            invoiceNumber={invoice.invoiceNumber}
+            onCancelled={setNotice}
+            placement="row"
+          />
+        )}
+      </div>
+      <div role="status">
+        {notice && (
+          <AdministrationAlert
+            className="max-w-56 text-left text-xs"
+            status="success"
+          >
+            {notice}
+          </AdministrationAlert>
         )}
       </div>
       {error && (

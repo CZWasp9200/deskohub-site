@@ -8,6 +8,7 @@ import {
   contactBusinessPreviewProps,
   contactConfirmationPreviewProps,
   customerReservationPreviewProps,
+  invoiceCancellationNoticePreviewProps,
   invoiceDeliveryPreviewProps,
   reservationAuthorPreviewProps,
   reservationCancellationPreviewProps,
@@ -18,6 +19,10 @@ import {
 import { ContactBusinessEmail } from "./contact-business";
 import { ContactConfirmationEmail } from "./contact-confirmation";
 import { CustomerReservationEmail } from "./customer-reservation";
+import {
+  InvoiceCancellationNoticeEmail,
+  type InvoiceCancellationNoticeEmailProps,
+} from "./invoice-cancellation-notice";
 import {
   InvoiceDeliveryEmail,
   type InvoiceDeliveryEmailProps,
@@ -40,6 +45,7 @@ describe("Workspace React Email templates", () => {
       staffNotification,
       cancellation,
       invoiceDelivery,
+      invoiceCancellationNotice,
       campaign,
     ] = await Promise.all([
       render(<ContactBusinessEmail {...contactBusinessPreviewProps} />),
@@ -56,6 +62,11 @@ describe("Workspace React Email templates", () => {
         />
       ),
       render(<InvoiceDeliveryEmail {...invoiceDeliveryPreviewProps} />),
+      render(
+        <InvoiceCancellationNoticeEmail
+          {...invoiceCancellationNoticePreviewProps}
+        />
+      ),
       render(<WorkspaceCampaignEmail {...workspaceCampaignPreviewProps} />),
     ]);
 
@@ -72,6 +83,9 @@ describe("Workspace React Email templates", () => {
     );
     expect(invoiceDelivery).toContain(
       invoiceDeliveryPreviewProps.invoiceNumber
+    );
+    expect(invoiceCancellationNotice).toContain(
+      invoiceCancellationNoticePreviewProps.documentNumber
     );
     expect(campaign).toContain("Podzim ve Workspace");
     expect(campaign).toContain(
@@ -190,6 +204,101 @@ describe("invoice delivery email", () => {
     );
 
     expect(html).toContain(invoiceDeliveryPreviewProps.invoice.orderId);
+  });
+});
+
+describe("invoice cancellation notice email", () => {
+  const notice = (
+    overrides: Partial<InvoiceCancellationNoticeEmailProps> = {}
+  ): InvoiceCancellationNoticeEmailProps => ({
+    ...invoiceCancellationNoticePreviewProps,
+    ...overrides,
+  });
+  const nothingDue = {
+    settlement: "nothing_due",
+    total: "-450.00",
+    currency: "CZK",
+  } as const;
+
+  test("writes the customer copy in the document's locale", async () => {
+    const [czech, english] = await Promise.all(
+      czechThenEnglish.map((locale) =>
+        render(
+          <InvoiceCancellationNoticeEmail
+            {...notice({ recipient: { audience: "customer", locale } })}
+          />
+        )
+      )
+    );
+
+    expect(czech).toContain('lang="cs-CZ"');
+    expect(english).toContain('lang="en-US"');
+    expect(czech).not.toBe(english);
+  });
+
+  test("writes the staff copy in the staff locale", async () => {
+    const html = await render(
+      <InvoiceCancellationNoticeEmail
+        {...notice({ recipient: { audience: "internal" } })}
+      />
+    );
+
+    expect(html).toContain(`lang="${staffLocale}"`);
+  });
+
+  test("names the cancelled invoice and its corrective document for every audience and source", async () => {
+    const variants = [
+      notice(),
+      notice({ invoice: { source: "manual" } }),
+      notice({ recipient: { audience: "internal" } }),
+      notice({
+        invoice: { source: "manual" },
+        recipient: { audience: "internal" },
+      }),
+    ];
+    const rendered = await Promise.all(
+      variants.map((props) =>
+        render(<InvoiceCancellationNoticeEmail {...props} />, {
+          plainText: true,
+        })
+      )
+    );
+
+    for (const text of rendered) {
+      expect(text).toContain(
+        invoiceCancellationNoticePreviewProps.invoiceNumber
+      );
+      expect(text).toContain(
+        invoiceCancellationNoticePreviewProps.documentNumber
+      );
+    }
+    expect(new Set(rendered).size).toBe(variants.length);
+  });
+
+  test("names the order of a reservation invoice", async () => {
+    const html = await render(<InvoiceCancellationNoticeEmail {...notice()} />);
+
+    expect(html).toContain(
+      invoiceCancellationNoticePreviewProps.invoice.orderId
+    );
+  });
+
+  test("tells the customer whether money comes back, and never staff", async () => {
+    const [refund, settled, staffRefund, staffSettled] = await Promise.all(
+      [
+        notice(),
+        notice({ settlement: nothingDue }),
+        notice({ recipient: { audience: "internal" } }),
+        notice({ settlement: nothingDue, recipient: { audience: "internal" } }),
+      ].map((props) =>
+        render(<InvoiceCancellationNoticeEmail {...props} />, {
+          plainText: true,
+        })
+      )
+    );
+
+    expect(refund).not.toBe(settled);
+    expect(staffRefund).toBe(staffSettled);
   });
 });
 

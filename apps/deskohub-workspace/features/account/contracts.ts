@@ -3,6 +3,7 @@ import {
   customerProfileSchemas,
 } from "@deskohub/workspace-customer-api";
 import { Option, Schema } from "effect";
+import type { CorrectiveDocumentNumber } from "@/features/accounting/corrective-document";
 import type { CustomerInvoiceSummary } from "@/features/accounting/customer-invoice";
 import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
 import { defaultPhoneRegion, type Locale } from "@/features/i18n";
@@ -150,6 +151,11 @@ export interface CustomerInvoiceHistoryItem {
     readonly dueDate: string | null;
   };
   readonly pdfPath: string;
+  /** The corrective document that cancelled the invoice, else `null`. */
+  readonly correctiveDocument: {
+    readonly documentNumber: CorrectiveDocumentNumber;
+    readonly pdfPath: string;
+  } | null;
 }
 
 /**

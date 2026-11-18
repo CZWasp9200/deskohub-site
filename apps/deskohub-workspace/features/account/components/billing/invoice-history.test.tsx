@@ -3,6 +3,7 @@ import type {
   CustomerInvoiceHistory,
   CustomerInvoiceHistoryItem,
 } from "@/features/account/contracts";
+import { correctiveDocumentNumberSchema } from "@/features/accounting/corrective-document";
 import { invoiceNumberSchema } from "@/features/accounting/invoice";
 import type { InvoicePaymentStatus } from "@/features/accounting/invoice-settlement";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
@@ -34,6 +35,7 @@ const historyItem = (
     total: { amount: "1210.00", currency: "CZK" },
     paymentStatus,
     dueDate: dueDate === null ? null : plainDateStringSchema.make(dueDate),
+    cancellation: null,
   },
   display: {
     issuedOn: "synthetic-issued-on",
@@ -42,7 +44,23 @@ const historyItem = (
     dueDate: dueDate === null ? null : "synthetic-due-date",
   },
   pdfPath: `/en-US/account/invoices/${invoiceNumber}/pdf`,
+  correctiveDocument: null,
 });
+
+const correctiveDocumentNumber =
+  correctiveDocumentNumberSchema.make("WS-OD-2026-000004");
+const cancelledItem = (): CustomerInvoiceHistoryItem => {
+  const item = historyItem("WS-FV-2026-000003", "paid", null);
+  return {
+    ...item,
+    invoice: { ...item.invoice, cancellation: { correctiveDocumentNumber } },
+    display: { ...item.display, status: "synthetic-cancelled-status" },
+    correctiveDocument: {
+      documentNumber: correctiveDocumentNumber,
+      pdfPath: "/en-US/account/invoices/WS-FV-2026-000003/corrective-document",
+    },
+  };
+};
 
 const populated: CustomerInvoiceHistory = {
   kind: "populated",
@@ -120,6 +138,38 @@ describe("InvoiceHistoryPanel", () => {
     expect(exportLink?.hasAttribute("download")).toBe(true);
     expect(rows[0]?.textContent).toContain("synthetic-due-date");
     expect(rows[1]?.textContent).not.toContain("synthetic-due-date");
+  });
+
+  test("marks a cancelled invoice and offers its corrective document beside its own PDF", async () => {
+    const view = await renderPanel(
+      Promise.resolve({
+        ...populated,
+        invoices: [cancelledItem(), ...populated.invoices],
+      })
+    );
+    const [cancelled, ...live] = view.container.querySelectorAll(
+      '[data-slot="invoice-row"]'
+    );
+    const correctiveLink = cancelled?.querySelector(
+      '[data-slot="invoice-corrective-document"]'
+    );
+
+    expect(cancelled?.textContent).toContain("synthetic-cancelled-status");
+    expect(
+      cancelled
+        ?.querySelector('[data-slot="invoice-pdf"]')
+        ?.getAttribute("href")
+    ).toBe("/en-US/account/invoices/WS-FV-2026-000003/pdf");
+    expect(correctiveLink?.getAttribute("href")).toBe(
+      "/en-US/account/invoices/WS-FV-2026-000003/corrective-document"
+    );
+    expect(correctiveLink?.hasAttribute("download")).toBe(true);
+    expect(correctiveLink?.textContent).toContain(correctiveDocumentNumber);
+    expect(
+      live.map((row) =>
+        row.querySelector('[data-slot="invoice-corrective-document"]')
+      )
+    ).toEqual([null, null]);
   });
 
   test.each(["empty", "unavailable", "failed"] as const)(

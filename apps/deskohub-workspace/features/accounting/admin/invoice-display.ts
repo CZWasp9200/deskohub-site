@@ -1,3 +1,5 @@
+import type { InvoiceArchiveError } from "@/features/accounting/invoice-archive";
+import type { InvoiceCancellationError } from "@/features/accounting/invoice-cancellation";
 import {
   type AdministrationCustomerName,
   isInactiveAdministrationCustomer,
@@ -37,6 +39,32 @@ export const getInvoiceCustomerErrorMessage = (
     "customer-id-missing": m.accountingInvoiceCustomerIdMissing,
     "invoice-id-reused": m.accountingInvoiceIdReused,
   })[reason]({}, { locale });
+
+/** The operator message for a refused or failed invoice cancellation. */
+export const getInvoiceCancellationErrorMessage = (
+  code: InvoiceCancellationError["code"],
+  locale: Locale
+) =>
+  ({
+    not_found: m.accountingInvoiceNotFound,
+    reservation_confirmation_required:
+      m.accountingInvoiceCancelErrorReservationConfirmationRequired,
+    reservation_cancellation_in_progress:
+      m.accountingInvoiceCancelErrorReservationCancellationInProgress,
+    confirmation_stale: m.accountingInvoiceCancelErrorConfirmationStale,
+    document_unavailable: m.accountingInvoiceCancelErrorDocumentUnavailable,
+    persistence_failed: m.accountingInvoiceCancelErrorPersistenceFailed,
+  })[code]({}, { locale });
+
+/** The operator message for a refused hide. */
+export const getInvoiceArchiveErrorMessage = (
+  code: InvoiceArchiveError["code"],
+  locale: Locale
+) =>
+  ({
+    not_found: m.accountingInvoiceNotFound,
+    not_cancelled: m.accountingInvoiceHideErrorNotCancelled,
+  })[code]({}, { locale });
 
 /** Names a customer in the operator's language: the deleted or expired placeholder, the name, or "Unnamed customer". */
 export const getInvoiceCustomerName = (

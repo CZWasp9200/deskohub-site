@@ -260,7 +260,7 @@ const readIssuedBuyer = (paymentAttemptId: string) =>
   Effect.runPromise(
     InvoiceRepository.pipe(
       Effect.flatMap((repository) =>
-        repository.findByPaymentAttemptId(paymentAttemptId)
+        repository.findLiveByPaymentAttemptId(paymentAttemptId)
       ),
       Effect.map((invoice) => invoice?.document.buyer),
       Effect.provide(testAccountingStorage(testDatabase!.layer, keysLayer))

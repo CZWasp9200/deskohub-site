@@ -55,6 +55,12 @@ import {
   ReservationAuthorDirectory,
 } from "@/features/account";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
+import {
+  isInvoiceReplacedOnRestoration,
+  type ReservationInvoiceStanding,
+  readReservationInvoiceStanding,
+} from "@/features/accounting/backend/reservation-invoice-standing";
 import type {
   CheckoutSessionKey,
   PaymentAttemptId,
@@ -463,6 +469,11 @@ type AdministrationReservationRestoration = {
   readonly cancellationEmailRecorded: boolean;
   /** The reservation hasn't ended, so restoring issues a new access code. */
   readonly issuesNewAccess: boolean;
+  /**
+   * The reservation's invoice was cancelled with it, so restoring issues and
+   * sends a new one; the cancelled invoice and its credit note stay.
+   */
+  readonly issuesNewInvoice: boolean;
   /** Restoring clears a refund still awaiting Nexi; it is no longer owed. */
   readonly clearsRefundRequirement: boolean;
   /** What Nexi already refunded. The refund stays; the operator acknowledges it. */
@@ -476,6 +487,8 @@ export type AdministrationReservationDetail = {
   readonly canRestore: boolean;
   /** Null unless `canRestore`. */
   readonly restoration: AdministrationReservationRestoration | null;
+  /** The reservation's latest invoice; `null` without one. */
+  readonly invoice: ReservationInvoiceStanding | null;
   readonly reservation: AdministrationReservationSummary;
   readonly booking: AdministrationBookingSummary | null;
   readonly lifecycle: ReturnType<typeof getAdministrationReservationLifecycle>;
@@ -1311,7 +1324,7 @@ const getReservationRestoration = (
     readonly access: { readonly reservedUntil: Temporal.Instant };
     readonly now: Temporal.Instant;
   }
-): AdministrationReservationRestoration => ({
+): Omit<AdministrationReservationRestoration, "issuesNewInvoice"> => ({
   cancellationEmailRecorded: input.cancellationEmailSentAt !== null,
   // An ended reservation needs no access; the grant state can't change that.
   issuesNewAccess:
@@ -1465,6 +1478,27 @@ export class AdministrationService extends Context.Service<
       const reservationAuthors = yield* ReservationAuthorDirectory;
       const reservations = yield* WorkspaceReservationRepository;
       const customerDirectory = yield* AdministrationCustomerDirectory;
+      const reservationInvoices = yield* ReservationInvoiceService;
+
+      /**
+       * Whether restoring the reservation reissues its cancelled invoice, as
+       * the restore plans it. An unreadable invoice or a failed read issues
+       * none, so the preview promises none.
+       */
+      const isInvoiceReissuedOnRestore = (reservationId: string) =>
+        reservationInvoices
+          .planRestoredInvoice({
+            reservationId: reservationId as WorkspaceReservationId,
+          })
+          .pipe(
+            Effect.map((plan) => plan.kind === "reissue"),
+            Effect.catch((cause) =>
+              Effect.logWarning(
+                "The restore preview could not read the reservation's cancelled invoice.",
+                cause
+              ).pipe(Effect.as(false))
+            )
+          );
 
       const loadLiveReservation = Effect.fn(
         "AdministrationService.loadLiveReservation"
@@ -2115,9 +2149,10 @@ export class AdministrationService extends Context.Service<
           Effect.flatMap(
             Option.match({
               onNone: () =>
-                Effect.succeed<AdministrationReservationRestoration | null>(
-                  null
-                ),
+                Effect.succeed<Omit<
+                  AdministrationReservationRestoration,
+                  "issuesNewInvoice"
+                > | null>(null),
               onSome: (access) =>
                 reservations
                   .findCurrentByCheckoutSessionKey(input.checkoutSessionKey)
@@ -2277,6 +2312,7 @@ export class AdministrationService extends Context.Service<
           latePaymentRows
         );
         const accessGrant = accessRows[0] ?? null;
+        const invoice = yield* readReservationInvoiceStanding(db, row.id);
         const restoration = yield* loadRestoration({
           accessGrant,
           attemptRows,
@@ -2351,7 +2387,13 @@ export class AdministrationService extends Context.Service<
           },
           canCancel: canCancelReservation(row),
           canRestore: restoration !== null,
-          restoration,
+          restoration: restoration && {
+            ...restoration,
+            issuesNewInvoice:
+              isInvoiceReplacedOnRestoration(invoice) &&
+              (yield* isInvoiceReissuedOnRestore(row.id)),
+          },
+          invoice,
         } satisfies AdministrationReservationDetail;
       });
 
@@ -3387,7 +3429,8 @@ export class AdministrationService extends Context.Service<
         WorkspaceReservationRepository.Live,
         PaymentAdministrationService.Live,
         PostHogReservationHistory.Live,
-        ReservationAuthorDirectory.Live
+        ReservationAuthorDirectory.Live,
+        ReservationInvoiceService.Live
       )
     )
   );

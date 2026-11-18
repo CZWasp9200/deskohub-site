@@ -96,10 +96,17 @@ const confirmedCommands: ReadonlyArray<ConfirmedCommand> = [
   {
     args: ["reservations", "cancel", reservationId],
     operation: "administration.cancelReservation",
+    reads: {
+      getReservation: () =>
+        Effect.succeed({ accessGrant: null, invoice: null } as never),
+    },
   },
   {
     args: ["reservations", "restore", reservationId],
     operation: "administration.restoreReservation",
+    reads: {
+      getReservation: () => Effect.succeed({ restoration: null } as never),
+    },
   },
   {
     args: ["reservations", "backfill-product-details"],
@@ -127,6 +134,27 @@ const confirmedCommands: ReadonlyArray<ConfirmedCommand> = [
   {
     args: ["invoices", "resend", "01980000-0000-7000-8000-000000000003"],
     operation: "administration.resendInvoice",
+  },
+  {
+    args: ["invoices", "cancel", "01980000-0000-7000-8000-000000000003"],
+    operation: "administration.cancelInvoice",
+    reads: {
+      getInvoice: () =>
+        Effect.succeed({
+          invoiceNumber: "WS-FV-2026-000003",
+          reservationId: null,
+          cancellation: null,
+          cancellationPlan: { customerNotice: "owed", reservation: "none" },
+        } as never),
+    },
+  },
+  {
+    args: ["invoices", "archive", "01980000-0000-7000-8000-000000000003"],
+    operation: "administration.archiveInvoice",
+    reads: {
+      getInvoice: () =>
+        Effect.succeed({ invoiceNumber: "WS-FV-2026-000003" } as never),
+    },
   },
   {
     args: [

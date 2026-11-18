@@ -191,6 +191,7 @@ function ReservationSummarySection({
           )}
           <ReservationCancellation
             canCancel={detail.canCancel}
+            invoice={detail.invoice}
             reservationId={reservation.id}
           />
           <ReservationRestoration

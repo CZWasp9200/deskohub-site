@@ -287,6 +287,7 @@ const restorableReservation = (() => {
     restoration: {
       cancellationEmailRecorded: true,
       issuesNewAccess: true,
+      issuesNewInvoice: false,
       clearsRefundRequirement: false,
       refundedPayment: {
         amount: { value: 25000, exponent: 2, currency: "CZK" },
@@ -300,7 +301,11 @@ const restorableReservation = (() => {
  * The domain services behind every instance. The CLI authentication accepts
  * only `cliBearer`, so an instance that consults it would admit the CLI.
  */
-const makeInstanceServices = () => {
+const makeInstanceServices = ({
+  invoices = Layer.succeed(InvoiceAdministrationService, {} as never),
+}: {
+  readonly invoices?: Layer.Layer<InvoiceAdministrationService>;
+} = {}) => {
   const callers: Array<CurrentAdministrationCaller["Service"]> = [];
   const backfills: Array<
     Parameters<ReservationProductDetailsBackfill["Service"]["runBatch"]>[0]
@@ -375,6 +380,7 @@ const makeInstanceServices = () => {
             outcome: "restored",
             email: "not_requested",
             access: "issued",
+            invoice: null,
           } as const;
         }),
     }),
@@ -394,7 +400,7 @@ const makeInstanceServices = () => {
     Layer.succeed(DiscountAdministration, {} as never),
     GrantedAdministrator,
     UnusedAdministrationCustomerDirectory,
-    Layer.succeed(InvoiceAdministrationService, {} as never),
+    invoices,
     Layer.succeed(StandaloneAccessCodeAdministration, {} as never),
     NodeHttpServer.layerHttpServices
   );
@@ -420,10 +426,13 @@ const serveAssistant = (
   options: {
     readonly connectFailure?: "fails" | "dies";
     readonly logs?: string[];
+    readonly invoices?: Layer.Layer<InvoiceAdministrationService>;
   } = {}
 ) => {
   const assistant = makeAssistantServices(options);
-  const instance = makeInstanceServices();
+  const instance = makeInstanceServices({
+    ...(options.invoices && { invoices: options.invoices }),
+  });
   const logs = options.logs;
   const web = HttpRouter.toWebHandler(
     makeAdministrationAssistantApiLayer().pipe(
@@ -828,6 +837,7 @@ describe("administration tools through the assistant API", () => {
             outcome: "restored",
             email: "not_requested",
             access: "issued",
+            invoice: null,
           },
         },
       },
@@ -851,5 +861,195 @@ describe("administration tools through the assistant API", () => {
     });
     expect(restorations).toEqual([]);
     expect(callers).toEqual([]);
+  });
+});
+
+describe("invoice cancellation tools through the assistant API", () => {
+  const caller: CustomerAgentCaller = {
+    accessToken: assistantToken,
+    grant: grantOf({}),
+  };
+  const tools = makeAdministrationAgentTools(administrationOperationTools);
+  const invoiceId = "01980000-0000-7000-8000-0000000000f1";
+  const cancellation = {
+    cancelledAt: "2026-11-15T10:00:00Z",
+    cause: "invoice_cancellation",
+    source: "assistant",
+    actor: administrator.email,
+    correctiveDocumentNumber: "WS-OD-2026-000001",
+    correctiveDocumentIssuedAt: "2026-11-15T10:00:00Z",
+    correctiveDocumentPdfUrl: `/admin/invoices/${invoiceId}/corrective-document`,
+    notices: {
+      customer: "not_owed",
+      internal: "accepted",
+      needsAttention: false,
+    },
+  } as const;
+  const detail = {
+    id: invoiceId,
+    invoiceNumber: "WS-FV-2026-000009",
+    issuedAt: "2026-11-01T10:00:00Z",
+    customerId: null,
+    customerName: "Synthetic Customer",
+    reservationId: null,
+    total: "1000",
+    currency: "CZK",
+    paymentStatus: "paid",
+    source: "admin-ui",
+    actor: null,
+    delivery: { customer: "accepted", internal: "accepted" },
+    needsAttention: false,
+    cancellation: null,
+    archivedAt: null,
+    replacesInvoiceId: null,
+    replacedByInvoiceId: null,
+    locale: "cs-CZ",
+    serviceDate: "2026-11-01",
+    dueDate: null,
+    paidOn: "2026-11-01",
+    variableSymbol: null,
+    lines: [{ description: "Space rental", price: "1000" }],
+    buyer: {
+      kind: "person",
+      legalName: "Synthetic Customer",
+      address: {
+        line1: "Test street 1",
+        city: "Prague",
+        postalCode: "100 00",
+        country: "CZ",
+      },
+    },
+    pdfUrl: `/admin/invoices/${invoiceId}/pdf`,
+    cancellationPlan: { customerNotice: "owed", reservation: "none" },
+  } as const;
+  const serveInvoices = () => {
+    const changes: Array<{
+      readonly operation: string;
+      readonly input: unknown;
+    }> = [];
+    const invoices = Layer.succeed(InvoiceAdministrationService, {
+      ...({} as InvoiceAdministrationService["Service"]),
+      get: () => Effect.succeed(detail as never),
+      cancel: (input) =>
+        Effect.sync(() => {
+          changes.push({ operation: "cancel", input });
+          return {
+            invoiceId,
+            outcome: "cancelled",
+            cancellation,
+            reservation: null,
+          } as never;
+        }),
+      archive: (input) =>
+        Effect.sync(() => {
+          changes.push({ operation: "archive", input });
+          return {
+            invoiceId,
+            archivedAt: "2026-11-15T11:00:00Z",
+            changed: true,
+          } as never;
+        }),
+      getCorrectiveDocumentPdf: (_id, scope) =>
+        Effect.sync(() => {
+          changes.push({ operation: "read corrective document", input: scope });
+          return {
+            bytes: new Uint8Array([37, 80, 68, 70]),
+            fileName: "WS-OD-2026-000001.pdf",
+          };
+        }),
+    });
+    return { changes, ...serveAssistant({ invoices }) };
+  };
+  const call = (handler: Handler, name: string, args: Schema.Json) =>
+    tools
+      .find((tool) => tool.name === name)!
+      .call(args, Option.some(caller))
+      .pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            makeAssistantServices().layer,
+            AdministrationApiClient.Default.pipe(
+              Layer.provide(Layer.succeed(AdministrationApiTransport, handler))
+            )
+          )
+        ),
+        Effect.runPromise
+      );
+
+  test("previews a cancellation and an archive with the invoice's plan, changing nothing", async () => {
+    const { callers, changes, handler } = serveInvoices();
+
+    const cancelPreview = await call(handler, "admin_cancel_invoice", {
+      invoiceId,
+      confirmedCustomerNotice: true,
+    });
+    const archivePreview = await call(handler, "admin_archive_invoice", {
+      invoiceId,
+    });
+
+    for (const preview of [cancelPreview, archivePreview]) {
+      expect(preview).toMatchObject({
+        result: {
+          outcome: "confirmation-required",
+          current: {
+            "administration.getInvoice": {
+              id: invoiceId,
+              cancellationPlan: detail.cancellationPlan,
+            },
+          },
+        },
+      });
+    }
+    expect(changes).toEqual([]);
+    expect(callers).toEqual([]);
+  });
+
+  test("cancels and archives on confirm as the assistant's administrator", async () => {
+    const { callers, changes, handler } = serveInvoices();
+    const actor = { source: "assistant", administrator };
+
+    const cancelled = await call(handler, "admin_cancel_invoice", {
+      invoiceId,
+      confirmedCustomerNotice: true,
+      confirm: true,
+    });
+    const archived = await call(handler, "admin_archive_invoice", {
+      invoiceId,
+      confirm: true,
+    });
+
+    expect(cancelled).toMatchObject({ result: { outcome: "applied" } });
+    expect(archived).toMatchObject({ result: { outcome: "applied" } });
+    expect(changes).toEqual([
+      {
+        operation: "cancel",
+        input: { invoiceId, actor, confirmedCustomerNotice: true },
+      },
+      { operation: "archive", input: { invoiceId, actor } },
+    ]);
+    expect(callers.map(({ channel }) => channel)).toEqual([
+      assistantChannel,
+      assistantChannel,
+    ]);
+  });
+
+  test("reads an archived invoice's credit note as an attached document", async () => {
+    const { changes, handler } = serveInvoices();
+
+    const read = await call(
+      handler,
+      "admin_get_invoice_corrective_document_pdf",
+      { invoiceId }
+    );
+
+    expect(read).toMatchObject({
+      result: { mimeType: "application/pdf", byteLength: 4 },
+    });
+    expect(changes).toEqual([
+      {
+        operation: "read corrective document",
+        input: { includeArchived: true },
+      },
+    ]);
   });
 });

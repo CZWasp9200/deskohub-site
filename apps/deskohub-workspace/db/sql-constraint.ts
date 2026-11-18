@@ -41,6 +41,19 @@ export const isLockWaitTimeout = (error: DatabaseQueryError): boolean =>
     Option.exists(({ reason }) => reason._tag === "LockTimeoutError")
   );
 
+/** The SQLSTATE Postgres answered a failed statement with, such as `23505`. */
+export const findSqlState = (
+  error: DatabaseQueryError
+): Option.Option<string> =>
+  findSqlError(error).pipe(
+    Option.flatMap(({ reason }) =>
+      Predicate.hasProperty(reason.cause, "code") &&
+      Predicate.isString(reason.cause.code)
+        ? Option.some(reason.cause.code)
+        : Option.none()
+    )
+  );
+
 /** Drizzle reports the Effect SQL failure inside the `Cause` it wraps. */
 const findSqlError = (
   error: DatabaseQueryError

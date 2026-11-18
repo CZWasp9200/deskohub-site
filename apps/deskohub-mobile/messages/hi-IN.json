@@ -705,6 +705,7 @@
   "invoices_download_label": "इनवॉइस {number} डाउनलोड करें",
   "invoices_downloading": "इनवॉइस {number} डाउनलोड हो रहा है…",
   "invoices_download_not_found": "यह इनवॉइस नहीं मिला। सूची रीफ़्रेश करें और फिर से कोशिश करें।",
+  "invoices_status_cancelled": "रद्द",
   "booking_review_title": "समीक्षा और भुगतान",
   "booking_review_booking_heading": "आपकी बुकिंग",
   "booking_review_change": "बदलें",

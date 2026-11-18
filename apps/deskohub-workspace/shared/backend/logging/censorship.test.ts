@@ -26,6 +26,7 @@ const exampleHost = "example.com";
 
 import { CENSORED_LOG_VALUE } from "@/shared/utils/log-classification";
 import {
+  censorDatabaseQueryError,
   censorDatabaseQueryParams,
   censorLoggerOptions,
   censorLogValue,
@@ -410,6 +411,18 @@ describe("censorLogValue", () => {
     expect(serialized).not.toContain("visible");
     expect(serialized).not.toContain(privateEmail);
     expect(serialized).not.toContain("Failed query");
+  });
+
+  test("leaves an already censored Drizzle query error as it is", () => {
+    const censored = censorLogValue({
+      cause: new EffectDrizzleQueryError({
+        query: "select /* deskohub:sensitive */ $1",
+        params: ["synthetic-query-secret"],
+        cause: new Error("driver failure"),
+      }),
+    });
+
+    expect(censorLogValue(censored)).toEqual(censored);
   });
 
   test("retains recursively censored Effect SQL causes", () => {
@@ -835,6 +848,33 @@ describe("censorLogValue", () => {
       message: CENSORED_LOG_VALUE,
       stack: `${CENSORED_LOG_VALUE}\n    at //${exampleHost}/app.js:1:2`,
     });
+  });
+
+  test("censors a failed query's sensitive parameters and keeps its cause", () => {
+    const query =
+      "select pgp_sym_decrypt(data, /* deskohub:sensitive */ $1) where id = $2";
+    const cause = Cause.fail(
+      new SqlError.SqlError({
+        reason: new SqlError.StatementTimeoutError({
+          cause: { code: "57014" },
+          message: "canceling statement due to statement timeout",
+        }),
+      })
+    );
+
+    const censored = censorDatabaseQueryError(
+      new EffectDrizzleQueryError({
+        query,
+        params: ["synthetic-query-secret", "visible-id"],
+        cause,
+      })
+    );
+
+    expect(censored).toBeInstanceOf(EffectDrizzleQueryError);
+    expect(censored.query).toBe(query);
+    expect(censored.params).toEqual([CENSORED_LOG_VALUE, "visible-id"]);
+    expect(censored.cause).toBe(cause);
+    expect(censored.message).not.toContain("synthetic-query-secret");
   });
 
   test("censors JSON and URL strings inside database query parameters", () => {

@@ -82,6 +82,7 @@ describe("administration input parse options", () => {
         "administration.backfillReservationProductDetails payload",
         "administration.mutateReservationAccess payload",
         "administration.previewInvoice payload",
+        "administration.cancelInvoice payload",
         "administration.createInvoice payload",
         "administration.createStandaloneAccessCode payload",
         "administration.createStandaloneAccessCode success",

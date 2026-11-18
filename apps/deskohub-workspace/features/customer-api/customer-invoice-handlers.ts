@@ -87,6 +87,7 @@ const answerInvoice = ({
   workspaceReservationId,
   issuedOn,
   total: { amount, currency },
+  cancellation,
   reservation,
 }: CustomerInvoiceListing): CustomerInvoice => ({
   id,
@@ -94,6 +95,11 @@ const answerInvoice = ({
   issuedOn,
   total: { amount, currency },
   ...(workspaceReservationId && { orderId: workspaceReservationId }),
+  ...(cancellation && {
+    cancellation: {
+      correctiveDocumentNumber: cancellation.correctiveDocumentNumber,
+    },
+  }),
   ...(reservation && {
     reservation: {
       productName: reservation.productName,

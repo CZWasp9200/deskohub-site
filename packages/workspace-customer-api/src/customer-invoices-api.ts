@@ -47,6 +47,13 @@ export const CustomerInvoiceTotal = Schema.Struct({
 }).annotate({ identifier: "CustomerInvoiceTotal" });
 export type CustomerInvoiceTotal = typeof CustomerInvoiceTotal.Type;
 
+/** A cancelled invoice's cancellation: the credit note that negates it. */
+export const CustomerInvoiceCancellation = Schema.Struct({
+  correctiveDocumentNumber: Schema.NonEmptyString,
+}).annotate({ identifier: "CustomerInvoiceCancellation" });
+export type CustomerInvoiceCancellation =
+  typeof CustomerInvoiceCancellation.Type;
+
 const isoInstant = Schema.String.annotate({
   description: "ISO 8601 instant.",
 });
@@ -74,7 +81,8 @@ export type CustomerInvoicedReservation =
  * One issued invoice. `orderId` names the order it invoices, the ID the
  * reservation history and order status go by, and `reservation` what that
  * order booked and when; an invoice the office issued by hand invoices no
- * order and has neither.
+ * order and has neither. `cancellation` is present once the invoice is
+ * cancelled; a cancelled invoice is still listed and downloadable.
  */
 export const CustomerInvoice = Schema.Struct({
   id: CustomerInvoiceId,
@@ -83,6 +91,7 @@ export const CustomerInvoice = Schema.Struct({
   issuedOn: CustomerPlainDate,
   total: CustomerInvoiceTotal,
   orderId: Schema.optionalKey(CustomerReservationOrderId),
+  cancellation: Schema.optionalKey(CustomerInvoiceCancellation),
   reservation: Schema.optionalKey(CustomerInvoicedReservation),
 }).annotate({ identifier: "CustomerInvoice" });
 export type CustomerInvoice = typeof CustomerInvoice.Type;
