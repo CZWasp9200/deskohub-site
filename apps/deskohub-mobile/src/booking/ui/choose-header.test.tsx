@@ -9,7 +9,6 @@ import Users from "lucide-react-native/icons/users";
 import { isValidElement, type ReactElement } from "react";
 import * as Native from "react-native";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
-import { TestWindowDimensions } from "../../testing/window-dimensions";
 
 const Screen = (_props: {
   readonly name: string;
@@ -23,13 +22,6 @@ const navigation = { getState: () => ({ routes: [] }), setOptions };
 mock.module("expo-router", () => ({
   ...expoRouterStandIn({ useNavigation: () => navigation }),
   Stack,
-}));
-mock.module("expo-router/react-navigation", () => ({
-  useHeaderHeight: () => 0,
-  getHeaderTitle: (options: NativeStackNavigationOptions, fallback: string) =>
-    typeof options.headerTitle === "string"
-      ? options.headerTitle
-      : (options.title ?? fallback),
 }));
 
 const { default: BookLayout } = await import(
@@ -113,11 +105,15 @@ test.each([
 ] as const)(
   "checkout Profile aligns its header and content at font scale $fontScale",
   ({ fontScale, contentWidth, maxWidth }) => {
-    const withinProfile = (child: ReactElement) =>
-      withinLandscape(
-        <TestWindowDimensions
-          value={{ width: 1280, height: 800, scale: 2, fontScale }}
-        >
+    const dimensions = spyOn(Native, "useWindowDimensions").mockReturnValue({
+      width: 1280,
+      height: 800,
+      scale: 2,
+      fontScale,
+    });
+    try {
+      const withinProfile = (child: ReactElement) =>
+        withinLandscape(
           <RegistryProvider
             initialValues={[
               Atom.initialValue(accountAtom, AsyncResult.initial()),
@@ -125,34 +121,37 @@ test.each([
           >
             {child}
           </RegistryProvider>
-        </TestWindowDimensions>
+        );
+      const routes = findAll(
+        elementTree(BookLayout, undefined, withinProfile),
+        Screen
       );
-    const routes = findAll(
-      elementTree(BookLayout, undefined, withinProfile),
-      Screen
-    );
-    const options = routes.find((route) => route.props.name === "profile")
-      ?.props.options;
-    const header = options?.header?.({
-      route: { key: "profile", name: "profile" },
-      options,
-      navigation: navigation as unknown as NativeStackHeaderProps["navigation"],
-    });
-    if (!isValidElement<Parameters<typeof StackHeader>[0]>(header)) {
-      throw new Error("Missing checkout Profile header");
+      const options = routes.find((route) => route.props.name === "profile")
+        ?.props.options;
+      const header = options?.header?.({
+        route: { key: "profile", name: "profile" },
+        options,
+        navigation:
+          navigation as unknown as NativeStackHeaderProps["navigation"],
+      });
+      if (!isValidElement<Parameters<typeof StackHeader>[0]>(header)) {
+        throw new Error("Missing checkout Profile header");
+      }
+      const headerTree = elementTree(StackHeader, header.props, withinProfile);
+      expect(
+        findAll(headerTree, "View").map((view) => flatStyle(view.props.style))
+      ).toContainEqual(
+        expect.objectContaining({ maxWidth, paddingHorizontal: 24 })
+      );
+      const body = elementTree(
+        ProfileScreen,
+        { presentation: "checkout" },
+        withinProfile
+      );
+      expect(find(body, ScrollScreen)?.props.contentWidth).toBe(contentWidth);
+    } finally {
+      dimensions.mockRestore();
     }
-    const headerTree = elementTree(StackHeader, header.props, withinProfile);
-    expect(
-      findAll(headerTree, "View").map((view) => flatStyle(view.props.style))
-    ).toContainEqual(
-      expect.objectContaining({ maxWidth, paddingHorizontal: 24 })
-    );
-    const body = elementTree(
-      ProfileScreen,
-      { presentation: "checkout" },
-      withinProfile
-    );
-    expect(find(body, ScrollScreen)?.props.contentWidth).toBe(contentWidth);
   }
 );
 

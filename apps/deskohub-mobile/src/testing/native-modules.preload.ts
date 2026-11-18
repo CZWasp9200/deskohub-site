@@ -172,6 +172,17 @@ class LottieView extends Component<Readonly<Record<string, unknown>>> {
 
 mock.module("lottie-react-native", () => ({ default: LottieView }));
 
+mock.module("expo-router/react-navigation", () => ({
+  getHeaderTitle: (
+    options: { readonly title?: string; readonly headerTitle?: unknown },
+    fallback: string
+  ) =>
+    typeof options.headerTitle === "string"
+      ? options.headerTitle
+      : (options.title ?? fallback),
+  useHeaderHeight: () => 0,
+}));
+
 mock.module("expo-status-bar", () => ({
   StatusBar: () => null,
   setStatusBarStyle: () => undefined,
