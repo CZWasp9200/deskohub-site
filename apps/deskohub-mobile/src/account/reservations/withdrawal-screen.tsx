@@ -4,7 +4,7 @@ import type {
   CustomerWithdrawalRefusedReason,
 } from "@deskohub/workspace-customer-api";
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { Effect } from "effect";
+import { Cause, Effect, Option, Predicate } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useRouter } from "expo-router";
 import CircleAlert from "lucide-react-native/icons/circle-alert";
@@ -72,14 +72,14 @@ const refusalOf = (
   result: AsyncResult.AsyncResult<unknown, unknown>
 ): CustomerWithdrawalRefusedReason | undefined => {
   if (!AsyncResult.isFailure(result)) return undefined;
-  const failure = AsyncResult.error(result) as unknown;
-  return typeof failure === "object" &&
-    failure !== null &&
-    "_tag" in failure &&
-    failure._tag === "CustomerWithdrawalRefused" &&
-    "reason" in failure
-    ? (failure.reason as CustomerWithdrawalRefusedReason)
-    : undefined;
+  return Option.match(Cause.findErrorOption(result.cause), {
+    onNone: () => undefined,
+    onSome: (failure) =>
+      Predicate.isTagged(failure, "CustomerWithdrawalRefused") &&
+      Predicate.hasProperty(failure, "reason")
+        ? (failure.reason as CustomerWithdrawalRefusedReason)
+        : undefined,
+  });
 };
 
 /**
