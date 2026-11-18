@@ -75,6 +75,8 @@ export function CoworkTierCards({
   selected,
   onSelect,
   locale,
+  paired = false,
+  stretch = false,
 }: {
   /** Names the group for assistive technology. */
   readonly label: string;
@@ -82,9 +84,15 @@ export function CoworkTierCards({
   readonly selected: CustomerBookableCoworkTier;
   readonly onSelect: (tier: CustomerBookableCoworkTier) => void;
   readonly locale: AppLocale;
+  readonly paired?: boolean;
+  readonly stretch?: boolean;
 }) {
   return (
-    <View role="radiogroup" aria-label={label} style={styles.group}>
+    <View
+      role="radiogroup"
+      aria-label={label}
+      style={[styles.group, paired && styles.pair, stretch && styles.stretch]}
+    >
       {cards.map((card) => {
         const checked = card.tier === selected;
         const disabled = card.unavailable !== undefined;
@@ -98,6 +106,8 @@ export function CoworkTierCards({
             onPress={() => onSelect(card.tier)}
             style={({ pressed }) => [
               styles.card,
+              paired && styles.pairedCard,
+              stretch && styles.stretch,
               checked ? styles.checked : styles.unchecked,
               disabled && styles.disabled,
               pressed && !checked && !disabled && styles.pressed,
@@ -111,6 +121,7 @@ export function CoworkTierCards({
               resizeMode="contain"
               style={[
                 styles.art,
+                stretch && styles.expandedArt,
                 { aspectRatio: card.artwork.aspectRatio },
                 disabled && styles.artDisabled,
               ]}
@@ -183,6 +194,9 @@ const outlined = (borderColor: string, borderWidth: 1 | 2) => ({
 
 const styles = StyleSheet.create({
   group: { gap: space.sm },
+  pair: { flexDirection: "row" },
+  pairedCard: { flex: 1, minWidth: 0 },
+  stretch: { flexGrow: 1 },
   card: {
     backgroundColor: color.surface,
     borderRadius: radius.group,
@@ -202,6 +216,7 @@ const styles = StyleSheet.create({
     width: "64%",
   },
   artDisabled: { opacity: 0.5 },
+  expandedArt: { bottom: 0, top: undefined },
   head: {
     alignItems: "flex-start",
     flexDirection: "row",

@@ -90,6 +90,7 @@ export function MonthCalendar({
   onUnavailablePress,
   dayInfo,
   legend = true,
+  stretch = false,
 }: {
   /** Names the calendar for assistive technology. */
   readonly label: string;
@@ -114,6 +115,7 @@ export function MonthCalendar({
   readonly dayInfo?: string;
   /** The key to the today ring and the struck-through days. */
   readonly legend?: boolean;
+  readonly stretch?: boolean;
 }) {
   const [shownMonth, setShownMonth] = useState(() =>
     initialCalendarMonth(dates, selected)
@@ -158,7 +160,11 @@ export function MonthCalendar({
     setShownMonth(addMonthsToMonth(calendar.month, months));
 
   return (
-    <View role="group" aria-label={label} style={styles.calendar}>
+    <View
+      role="group"
+      aria-label={label}
+      style={[styles.calendar, stretch && styles.stretch]}
+    >
       <View style={styles.header}>
         <PageButton
           label={previousMonthLabel}
@@ -190,9 +196,12 @@ export function MonthCalendar({
           </Text>
         ))}
       </View>
-      <View style={disabled && styles.inert}>
+      <View style={[disabled && styles.inert, stretch && styles.stretch]}>
         {calendar.weeks.map((week) => (
-          <View key={weekKey(week)} style={styles.week}>
+          <View
+            key={weekKey(week)}
+            style={[styles.week, stretch && styles.stretch]}
+          >
             {weekdayColumns.map((column, columnIndex) => {
               const cell = week[columnIndex] ?? Option.none();
               if (Option.isNone(cell)) {
@@ -356,6 +365,7 @@ const styles = StyleSheet.create({
     paddingTop: space.xs,
     ...shadow.group,
   },
+  stretch: { flexGrow: 1 },
   header: {
     alignItems: "center",
     flexDirection: "row",

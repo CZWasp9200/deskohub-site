@@ -1,21 +1,22 @@
 import type { CustomerReservationFamily } from "@deskohub/workspace-customer-api";
 import { Option } from "effect";
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { formatMoney } from "../../i18n/money-format";
 import { Skeleton, SkeletonGroup } from "../../ui/skeleton";
 import { Text } from "../../ui/text";
 import { brandText, color, radius, shadow, space } from "../../ui/tokens";
+import { contentColumnWidth, useViewport, wideGutter } from "../../ui/viewport";
 import { SpaceIllustration } from "../ui/space-illustration";
 import { familyTitle } from "./booking-family-copy";
 import {
-  pairFits,
   type SpaceCard,
   type SpaceFacts,
   type SpaceRow,
   type SpaceUnit,
+  spaceColumnsFit,
   spaceRows,
 } from "./space-chooser";
 
@@ -23,18 +24,25 @@ import {
 const pictureHeight = { half: 104, full: 148 } as const;
 /** A half card's text inset on each side. */
 const halfPadding = 10;
-/** The widest the screen's content column grows (`ScrollScreen`). */
-const contentMaxWidth = 640;
-
-/** Whether the office and the meeting room fit side by side here. */
-const usePairFits = () => {
-  const { width, fontScale } = useWindowDimensions();
-  return pairFits({
-    contentWidth: Math.min(width - 2 * space.gutter, contentMaxWidth),
+/** The loaded cards and the skeleton use the same width and text budget. */
+const useSpaceGrid = () => {
+  const { width, availableWidth, fontScale, isWide, isExpanded } =
+    useViewport();
+  const contentWidth = isWide
+    ? Math.min(availableWidth - 2 * wideGutter, contentColumnWidth.wide)
+    : Math.min(width - 2 * space.gutter, contentColumnWidth.form);
+  const padding = isWide ? space.lg : halfPadding;
+  const gap = isWide ? space.lg : space.md;
+  const geometry = {
+    contentWidth,
     fontScale,
-    gap: space.md,
-    padding: halfPadding,
-  });
+    gap,
+    padding,
+    minimumTextWidth: isWide ? 176 : undefined,
+  };
+  const pair = spaceColumnsFit({ columns: 2, ...geometry });
+  const expanded = isExpanded && spaceColumnsFit({ columns: 3, ...geometry });
+  return { isWide, pair, expanded };
 };
 
 const spaceName = (card: SpaceCard, locale: AppLocale) =>
@@ -99,13 +107,15 @@ export function SpaceCards({
   readonly locale: AppLocale;
   readonly onOpen: (family: CustomerReservationFamily) => void;
 }) {
-  const rows = spaceRows(cards, usePairFits());
+  const { isWide, pair, expanded } = useSpaceGrid();
+  const rows = spaceRows(cards, pair, expanded);
   return (
-    <View style={styles.cards}>
+    <View style={[styles.cards, isWide && styles.wideGap]}>
       {rows.map((row) => (
         <SpaceCardRow
           key={row.map(({ family }) => family).join(":")}
           row={row}
+          wide={isWide}
           locale={locale}
           onOpen={onOpen}
         />
@@ -116,10 +126,12 @@ export function SpaceCards({
 
 function SpaceCardRow({
   row,
+  wide,
   locale,
   onOpen,
 }: {
   readonly row: SpaceRow;
+  readonly wide: boolean;
   readonly locale: AppLocale;
   readonly onOpen: (family: CustomerReservationFamily) => void;
 }) {
@@ -127,11 +139,12 @@ function SpaceCardRow({
     return <FullCard card={row[0]} locale={locale} onOpen={onOpen} />;
   }
   return (
-    <View style={styles.pair}>
+    <View style={[styles.pair, wide && styles.wideGap]}>
       {row.map((card) => (
         <HalfCard
           key={card.family}
           card={card}
+          wide={wide}
           locale={locale}
           onOpen={onOpen}
         />
@@ -145,12 +158,14 @@ function CardShell({
   locale,
   onOpen,
   half,
+  wide = false,
   children,
 }: {
   readonly card: SpaceCard;
   readonly locale: AppLocale;
   readonly onOpen: (family: CustomerReservationFamily) => void;
   readonly half: boolean;
+  readonly wide?: boolean;
   readonly children: ReactNode;
 }) {
   return (
@@ -167,7 +182,7 @@ function CardShell({
     >
       <SpaceIllustration
         family={card.family}
-        height={half ? pictureHeight.half : pictureHeight.full}
+        height={half && !wide ? pictureHeight.half : pictureHeight.full}
         span={half ? "half" : "full"}
       />
       {children}
@@ -177,18 +192,22 @@ function CardShell({
 
 function HalfCard({
   card,
+  wide,
   locale,
   onOpen,
 }: {
   readonly card: SpaceCard;
+  readonly wide: boolean;
   readonly locale: AppLocale;
   readonly onOpen: (family: CustomerReservationFamily) => void;
 }) {
   return (
-    <CardShell card={card} locale={locale} onOpen={onOpen} half>
-      <View style={styles.halfText}>
-        <Text variant="bodyStrong">{spaceName(card, locale)}</Text>
-        <FromPrice card={card} locale={locale} size="half" />
+    <CardShell card={card} locale={locale} onOpen={onOpen} half wide={wide}>
+      <View style={[styles.halfText, wide && styles.wideText]}>
+        <Text variant={wide ? "title" : "bodyStrong"}>
+          {spaceName(card, locale)}
+        </Text>
+        <FromPrice card={card} locale={locale} size={wide ? "full" : "half"} />
         <Text variant="hint">{factsText(card.facts, locale)}</Text>
       </View>
     </CardShell>
@@ -258,14 +277,15 @@ function FromPrice({
  * room side by side, the cowork desk full width under them.
  */
 export function SpaceCardsSkeleton({ label }: { readonly label: string }) {
-  const fits = usePairFits();
+  const { isWide, pair, expanded } = useSpaceGrid();
   return (
     <SkeletonGroup label={label}>
-      <View style={styles.cards}>
-        {fits ? (
-          <View style={styles.pair}>
-            <HalfSkeleton />
-            <HalfSkeleton />
+      <View style={[styles.cards, isWide && styles.wideGap]}>
+        {pair ? (
+          <View style={[styles.pair, isWide && styles.wideGap]}>
+            <HalfSkeleton wide={isWide} />
+            <HalfSkeleton wide={isWide} />
+            {expanded && <HalfSkeleton wide={isWide} />}
           </View>
         ) : (
           <>
@@ -273,17 +293,21 @@ export function SpaceCardsSkeleton({ label }: { readonly label: string }) {
             <FullSkeleton />
           </>
         )}
-        <FullSkeleton />
+        {!expanded && <FullSkeleton />}
       </View>
     </SkeletonGroup>
   );
 }
 
-function HalfSkeleton() {
+function HalfSkeleton({ wide }: { readonly wide: boolean }) {
   return (
     <View style={[styles.card, styles.half]}>
-      <Skeleton width="100%" height={pictureHeight.half} radius={0} />
-      <View style={styles.halfSkeletonText}>
+      <Skeleton
+        width="100%"
+        height={wide ? pictureHeight.full : pictureHeight.half}
+        radius={0}
+      />
+      <View style={[styles.halfSkeletonText, wide && styles.wideText]}>
         <Skeleton width="70%" height={16} />
         <Skeleton width="55%" height={12} />
         <Skeleton width="80%" height={12} />
@@ -308,6 +332,7 @@ const styles = StyleSheet.create({
   // The board keeps the first card's top edge clear of the masthead's edge.
   cards: { gap: space.md, paddingTop: space.xs },
   pair: { alignItems: "stretch", flexDirection: "row", gap: space.md },
+  wideGap: { gap: space.lg },
   card: {
     backgroundColor: color.surface,
     borderColor: color.line,
@@ -324,6 +349,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: halfPadding,
     paddingTop: space.md,
   },
+  wideText: { paddingHorizontal: space.lg },
   fullText: {
     alignItems: "center",
     columnGap: space.md,

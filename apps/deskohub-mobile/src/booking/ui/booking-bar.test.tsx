@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import {
   act,
   Children,
@@ -6,6 +6,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import * as Native from "react-native";
 import { expoRouterStandIn } from "../../testing/expo-router-stand-in";
 
 // The bar registers its height with the toasts while its screen has focus;
@@ -22,6 +23,7 @@ const { idleLiveRegionLayout } = await import("../../ui/notice-presentation");
 const { elementTree, find, findAll, flatStyle, hostTree, textOf } =
   await import("../../ui/testing/element-tree");
 const { ToastProvider } = await import("../../ui/toast");
+const { AvailableWidthContext } = await import("../../ui/viewport");
 const { color, touchTarget } = await import("../../ui/tokens");
 const { Icon } = await import("../../ui/icon");
 const { default: Info } = await import("lucide-react-native/icons/info");
@@ -67,6 +69,26 @@ const withToasts = (node: ReactNode) => <ToastProvider>{node}</ToastProvider>;
 const bar = (overrides: Partial<BarProps> = {}) =>
   hostTree(elementTree(BookingBar, props(overrides), withToasts));
 
+const wideBar = (overrides: Partial<BarProps>, fontScale = 1) => {
+  const dimensions = spyOn(Native, "useWindowDimensions").mockReturnValue({
+    width: 840,
+    height: 900,
+    scale: 2,
+    fontScale,
+  });
+  try {
+    return hostTree(
+      elementTree(BookingBar, props(overrides), (node) => (
+        <AvailableWidthContext value={728}>
+          {withToasts(node)}
+        </AvailableWidthContext>
+      ))
+    );
+  } finally {
+    dimensions.mockRestore();
+  }
+};
+
 const chevronOf = (tree: ReactNode) =>
   findAll(tree, "Pressable").find(
     (press) => press.props["aria-expanded"] !== undefined
@@ -94,6 +116,35 @@ describe("swipes", () => {
 });
 
 describe("BookingBar", () => {
+  test("discloses the price beside the action when the available width fits", () => {
+    const collapsed = wideBar({});
+    expect(flatStyle(find(collapsed, "View")?.props.style).width).toBe(680);
+    expect(
+      flatStyle(find(wideBar({ contentWidth: "form" }), "View")?.props.style)
+        .width
+    ).toBe(640);
+    const toggle = chevronOf(collapsed);
+    expect(toggle?.props["aria-expanded"]).toBe(false);
+    expect(flatStyle(toggle?.props.style).minHeight).toBe(touchTarget);
+    expect(findAll(toggle, "Text").map(textOf)).toContain(
+      m.booking_review_total({}, { locale })
+    );
+    expect(
+      chevronOf(wideBar({ initiallyOpen: true }))?.props["aria-expanded"]
+    ).toBe(true);
+    expect(flatStyle(chevronOf(wideBar({}, 2))?.props.style).height).toBe(
+      touchTarget
+    );
+  });
+
+  test("keeps the checkout reason at the start when the review has no summary", () => {
+    const reason = reasonOf(
+      wideBar({ summary: undefined, reason: "Agreement required" })
+    );
+    expect(flatStyle(reason?.props.style).justifyContent).toBe("flex-start");
+    expect(findAll(reason, "Text").map(textOf)).toContain("Agreement required");
+  });
+
   test("shows the quoted total with the earlier price struck above it", () => {
     const texts = findAll(bar(), "Text").map(textOf);
     const total = formatMoney(czk(282), locale);

@@ -6,9 +6,9 @@ import type {
 import { Option } from "effect";
 import { czk, sampleOfferings } from "../testing/sample-booking-catalog";
 import {
-  pairFits,
   type SpaceRow,
   spaceCards,
+  spaceColumnsFit,
   spaceRows,
 } from "./space-chooser";
 
@@ -30,6 +30,15 @@ const cardOf = (
 };
 
 describe("spaceRows", () => {
+  test("uses one expanded row for the offered spaces in product order", () => {
+    expect(layout(spaceRows(spaceCards(catalog), true, true))).toEqual([
+      ["office", "meeting-room", "cowork"],
+    ]);
+    expect(
+      layout(spaceRows(spaceCards(without("meeting-room")), true, true))
+    ).toEqual([["office", "cowork"]]);
+  });
+
   test("puts the office and meeting room side by side, the cowork desk under them", () => {
     expect(layout(spaceRows(spaceCards(catalog), true))).toEqual([
       ["office", "meeting-room"],
@@ -172,9 +181,27 @@ describe("spaceCards", () => {
   });
 });
 
-describe("pairFits", () => {
+describe("spaceColumnsFit", () => {
+  test("moves an expanded row to two cards when titles grow to 200%", () => {
+    const geometry = {
+      contentWidth: 1040,
+      fontScale: 2,
+      gap: 16,
+      padding: 16,
+      minimumTextWidth: 176,
+    };
+    expect(spaceColumnsFit({ columns: 3, ...geometry })).toBe(false);
+    expect(spaceColumnsFit({ columns: 2, ...geometry })).toBe(true);
+  });
+
   const phone = (contentWidth: number, fontScale: number) =>
-    pairFits({ contentWidth, fontScale, gap: 12, padding: 10 });
+    spaceColumnsFit({
+      columns: 2,
+      contentWidth,
+      fontScale,
+      gap: 12,
+      padding: 10,
+    });
 
   test("keeps two cards side by side on a 360 dp phone at normal text size", () => {
     expect(phone(360 - 32, 1)).toBe(true);

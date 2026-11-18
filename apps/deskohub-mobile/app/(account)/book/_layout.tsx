@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import { renderChooseHeader } from "../../../src/booking/ui/choose-header";
 import { useAppLocale } from "../../../src/i18n/locale-context";
 import { m } from "../../../src/i18n/messages";
 import { stackScreenOptions } from "../../../src/ui/navigation";
@@ -17,15 +18,24 @@ export default function BookLayout() {
     <Stack screenOptions={stackScreenOptions(locale)}>
       <Stack.Screen
         name="cowork"
-        options={{ title: m.booking_family_cowork_title({}, { locale }) }}
+        options={{
+          header: renderChooseHeader,
+          title: m.booking_family_cowork_title({}, { locale }),
+        }}
       />
       <Stack.Screen
         name="meeting-room"
-        options={{ title: m.booking_family_meeting_room_title({}, { locale }) }}
+        options={{
+          header: renderChooseHeader,
+          title: m.booking_family_meeting_room_title({}, { locale }),
+        }}
       />
       <Stack.Screen
         name="office"
-        options={{ title: m.booking_family_office_title({}, { locale }) }}
+        options={{
+          header: renderChooseHeader,
+          title: m.booking_family_office_title({}, { locale }),
+        }}
       />
       <Stack.Screen
         name="checkout"
