@@ -202,6 +202,34 @@ export const shortDate = (instant: DateTime.DateTime, locale: AppLocale) =>
     timeZone: workspaceTimeZone,
   }).format(DateTime.toEpochMillis(instant));
 
+/** A Prague day without its weekday, which the row's tile already shows. */
+const dayMonth = (instant: DateTime.DateTime, locale: AppLocale) =>
+  new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "short",
+    timeZone: workspaceTimeZone,
+  }).format(DateTime.toEpochMillis(instant));
+
+/**
+ * A list row's line for a booking over several days: its first and last
+ * dates ("23 Nov – 30 Nov"); `undefined` for a one-day booking.
+ */
+export const bookingDateRange = (
+  start: DateTime.DateTime,
+  end: DateTime.DateTime,
+  locale: AppLocale
+): string | undefined => {
+  const last = DateTime.isGreaterThan(end, start)
+    ? DateTime.subtract(end, { milliseconds: 1 })
+    : start;
+  return dayOf(start) === dayOf(last)
+    ? undefined
+    : m.reservations_time_range(
+        { start: dayMonth(start, locale), end: dayMonth(last, locale) },
+        { locale }
+      );
+};
+
 /**
  * A booking's time under its title. A booking within one day reads "Until
  * 17:00" when it starts at midnight (a day desk), else "14:00 – 15:00"; one

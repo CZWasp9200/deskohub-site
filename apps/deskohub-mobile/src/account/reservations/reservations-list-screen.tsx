@@ -450,16 +450,11 @@ function ReservationRow({
           </Text>
           {Option.match(badge, {
             onSome: (badge) => (
-              <>
-                <Text aria-hidden variant="bodySmall">
-                  ·
-                </Text>
-                <Badge
-                  label={badge.label}
-                  tone={badge.tone}
-                  icon={badge.icon}
-                />
-              </>
+              <Badge
+                label={badge.label}
+                tone={badge.tone}
+                icon={badge.icon}
+              />
             ),
             onNone: () => null,
           })}
@@ -680,7 +675,7 @@ const styles = StyleSheet.create({
   // the badge's height so rows with and without one match.
   rowMeta: {
     alignItems: "center",
-    columnGap: 6,
+    columnGap: space.sm,
     flexDirection: "row",
     flexWrap: "wrap",
     marginTop: 2,

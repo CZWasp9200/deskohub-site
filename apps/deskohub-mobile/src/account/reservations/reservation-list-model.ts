@@ -10,6 +10,7 @@ import { m } from "../../i18n/messages";
 import { opensReservationStatus } from "../account-gating";
 import type { TicketBadgeKind } from "./booking-ticket-model";
 import {
+  bookingDateRange,
   bookingTimeLine,
   historyBadgeKind,
   shortDate,
@@ -116,6 +117,14 @@ const seatsOf = (row: ReservationListRow, locale: AppLocale) =>
     ? Option.some(m.reservations_seats({ count: row.seats }, { locale }))
     : Option.none();
 
+/** A compact row's time: the date range for a booking over several days. */
+const rowTimeLineOf = (row: ReservationListRow, locale: AppLocale): string =>
+  Option.match(Option.all([instantOf(row.startsAt), instantOf(row.endsAt)]), {
+    onNone: () => timeLineOf(row, locale),
+    onSome: ([start, end]) =>
+      bookingDateRange(start, end, locale) ?? timeLineOf(row, locale),
+  });
+
 export const reservationRowView = (
   row: ReservationListRow,
   place: "later" | "past",
@@ -133,10 +142,7 @@ export const reservationRowView = (
     detail:
       place === "past" && cancelled
         ? m.reservations_status_cancelled({}, { locale })
-        : [
-            timeLineOf(row, locale),
-            ...Option.toArray(seatsOf(row, locale)),
-          ].join(" · "),
+        : rowTimeLineOf(row, locale),
     badge:
       place === "later" && (badge === "pending" || badge === "attention")
         ? Option.some(badge)
