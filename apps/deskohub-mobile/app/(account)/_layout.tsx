@@ -5,6 +5,10 @@ import { useAuthSession } from "../../src/auth/use-auth-session";
 import { AccountConsentSyncRoot } from "../../src/consent/account-consent-sync-root";
 import { CustomerDataProvider } from "../../src/customer-api/customer-data-provider";
 import {
+  StatusBarObserverContext,
+  useStatusBarForeground,
+} from "../../src/ui/focused-status-bar";
+import {
   NavigationRail,
   navigationRailWidth,
 } from "../../src/ui/navigation-rail";
@@ -24,8 +28,13 @@ export default function AccountLayout() {
   const session = useAuthSession();
   const segments: readonly string[] = useSegments();
   const { availableWidth, isWide } = useViewport();
-  const showRail = isWide && segments[1] !== "onboarding";
-  const navyStatusBar = segments[1] === "(tabs)" && segments[2] === "book";
+  const { foreground, observe } = useStatusBarForeground();
+  const group = segments[1];
+  const showRail =
+    isWide &&
+    group !== undefined &&
+    group !== "index" &&
+    group !== "onboarding";
   // The root guard mounts this group only while signed in.
   const accountId = session.status === "signed-in" ? session.user.id : "";
   const sessionStartedAt =
@@ -39,15 +48,20 @@ export default function AccountLayout() {
       <ReservationsRefreshRoot />
       <View style={styles.shell}>
         {showRail && (
-          <NavigationRail segments={segments} navyStatusBar={navyStatusBar} />
+          <NavigationRail
+            segments={segments}
+            navyStatusBar={foreground === "light"}
+          />
         )}
         <View style={styles.scenes}>
           <AvailableWidthContext
             value={availableWidth - (showRail ? navigationRailWidth : 0)}
           >
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-            </Stack>
+            <StatusBarObserverContext value={showRail ? observe : undefined}>
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="(tabs)" />
+              </Stack>
+            </StatusBarObserverContext>
           </AvailableWidthContext>
         </View>
       </View>

@@ -65,6 +65,7 @@ export function StackHeader({
         styles.header,
         tone === "navy" && styles.navyHeader,
         { paddingTop: insets.top },
+        isWide && { paddingLeft: insets.left, paddingRight: insets.right },
       ]}
     >
       <FocusedStatusBar style={tone === "navy" ? "light" : "dark"} />

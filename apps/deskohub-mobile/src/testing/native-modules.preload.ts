@@ -178,7 +178,7 @@ class LottieView extends Component<Readonly<Record<string, unknown>>> {
 mock.module("lottie-react-native", () => ({ default: LottieView }));
 
 mock.module("expo-status-bar", () => ({
-  StatusBar: "StatusBar",
+  StatusBar: () => null,
   setStatusBarStyle: () => undefined,
 }));
 
