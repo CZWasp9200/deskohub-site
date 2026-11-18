@@ -6,6 +6,7 @@ import { formatReservationDisplayDateTimeRange } from "@/features/reservation/re
 import { workspaceSiteConstants } from "@/shared/utils";
 import { temporalInstantToDate } from "@/shared/utils/temporal";
 import {
+  type ReservationEmailPeople,
   type ReservationEmailReservation,
   reservationEmailDetails,
 } from "./_components/reservation-email-details";
@@ -33,6 +34,8 @@ export type CustomerReservationEmailProps = {
   readonly accessUrl: string;
   /** The invoice download, issued in the reservation's own locale. */
   readonly invoiceUrl: string;
+  /** Who is coming, for an office booked with a people list. */
+  readonly people?: ReservationEmailPeople;
   readonly network?: {
     readonly ssid: string;
     readonly password: string;
@@ -71,7 +74,7 @@ const headingDate = ({
 
 /** Confirms a paid reservation to its customer, with access and directions. */
 export function CustomerReservationEmail(props: CustomerReservationEmailProps) {
-  const { locale, reservation, accessUrl, invoiceUrl, network } = props;
+  const { locale, reservation, accessUrl, invoiceUrl, network, people } = props;
   const { table } = reservation.placement;
 
   return (
@@ -134,7 +137,7 @@ export function CustomerReservationEmail(props: CustomerReservationEmailProps) {
 
       <WorkspaceEmailDetails
         details={[
-          ...reservationEmailDetails(reservation, locale),
+          ...reservationEmailDetails(reservation, locale, people),
           {
             href: invoiceUrl,
             label: m.checkoutEmailCustomerInvoiceLabel({}, { locale }),

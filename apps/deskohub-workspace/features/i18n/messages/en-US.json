@@ -34,8 +34,13 @@
   "accountReferralsHowCompound": "For each invitee who visited us in the past {duration}, you get a compounding {discount} discount!",
   "accountReferralsHowBenchmark": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "That means with just {count} referral, you get over {benchmark} off!",
         "countPlural=other": "That means with just {count} referrals, you get over {benchmark} off!"
@@ -525,8 +530,13 @@
   "reservationTierMeetingRoomDescription": "Private room for calls, workshops, or focused group sessions.",
   "reservationMeetingRoomDurationHours": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} hour",
         "countPlural=other": "{count} hours"
@@ -577,7 +587,9 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": ["dayCountPlural"],
+      "selectors": [
+        "dayCountPlural"
+      ],
       "match": {
         "dayCountPlural=one": "Private office - {dayCount} day",
         "dayCountPlural=other": "Private office - {dayCount} days"
@@ -594,8 +606,13 @@
   "reservationOfficeSeatCountLabel": "How many office seats do you need?",
   "reservationOfficeSeatCountOption": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} seat",
         "countPlural=other": "{count} seats"
@@ -757,7 +774,9 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": ["dayCountPlural"],
+      "selectors": [
+        "dayCountPlural"
+      ],
       "match": {
         "dayCountPlural=one": "{dayCount} day",
         "dayCountPlural=other": "{dayCount} days"
@@ -1009,8 +1028,13 @@
   "reservationValidationOfficeMaximumEnd": "The last reservation day must be no later than one month from today.",
   "reservationValidationOfficeMaximumDuration": [
     {
-      "declarations": ["input hours", "local hoursPlural = hours: plural"],
-      "selectors": ["hoursPlural"],
+      "declarations": [
+        "input hours",
+        "local hoursPlural = hours: plural"
+      ],
+      "selectors": [
+        "hoursPlural"
+      ],
       "match": {
         "hoursPlural=one": "An office reservation cannot exceed {hours} hour.",
         "hoursPlural=other": "An office reservation cannot exceed {hours} hours."
@@ -1024,8 +1048,13 @@
   "reservationSecurityInvalidOrigin": "The reservation request could not be verified. Please reload the page and try again.",
   "contactValidationNameMinimum": [
     {
-      "declarations": ["input min", "local minPlural = min: plural"],
-      "selectors": ["minPlural"],
+      "declarations": [
+        "input min",
+        "local minPlural = min: plural"
+      ],
+      "selectors": [
+        "minPlural"
+      ],
       "match": {
         "minPlural=one": "Name must be at least {min} character.",
         "minPlural=other": "Name must be at least {min} characters."
@@ -1034,8 +1063,13 @@
   ],
   "contactValidationNameMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Name can be at most {max} character.",
         "maxPlural=other": "Name can be at most {max} characters."
@@ -1046,8 +1080,13 @@
   "contactValidationEmailInvalid": "Enter a valid email address.",
   "contactValidationEmailMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Email can be at most {max} character.",
         "maxPlural=other": "Email can be at most {max} characters."
@@ -1060,8 +1099,13 @@
   "contactValidationPhoneInvalid": "Enter a valid phone number. A number in international format starting with + always works.",
   "contactValidationPhoneMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Phone can be at most {max} character.",
         "maxPlural=other": "Phone can be at most {max} characters."
@@ -1071,8 +1115,13 @@
   "contactValidationPhoneRequired": "Phone is required.",
   "contactValidationMessageMinimum": [
     {
-      "declarations": ["input min", "local minPlural = min: plural"],
-      "selectors": ["minPlural"],
+      "declarations": [
+        "input min",
+        "local minPlural = min: plural"
+      ],
+      "selectors": [
+        "minPlural"
+      ],
       "match": {
         "minPlural=one": "Message must be at least {min} character.",
         "minPlural=other": "Message must be at least {min} characters."
@@ -1081,8 +1130,13 @@
   ],
   "contactValidationMessageMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Message can be at most {max} character.",
         "maxPlural=other": "Message can be at most {max} characters."
@@ -1274,8 +1328,13 @@
   "accountReservationOtherProduct": "Workspace reservation",
   "accountReservationSeats": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} seat",
         "countPlural=other": "{count} seats"
@@ -1505,8 +1564,13 @@
   "bookingWidgetStartTimeRequired": "Choose a start time.",
   "bookingWidgetDayCountRange": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Choose 1 day.",
         "maxPlural=other": "Choose from 1 to {max} days."
@@ -1515,8 +1579,13 @@
   ],
   "bookingWidgetSeatCountRange": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Choose 1 seat.",
         "maxPlural=other": "Choose from 1 to {max} seats."
@@ -1681,7 +1750,9 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": ["maximumPlural"],
+      "selectors": [
+        "maximumPlural"
+      ],
       "match": {
         "maximumPlural=one": "The only seat is taken. Remove someone to add another person.",
         "maximumPlural=other": "All {maximum} seats are taken. Remove someone to add another person."
@@ -1696,7 +1767,9 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": ["maximumPlural"],
+      "selectors": [
+        "maximumPlural"
+      ],
       "match": {
         "maximumPlural=one": "This office has {maximum} seat. Remove someone to continue.",
         "maximumPlural=other": "This office has {maximum} seats. Remove someone to continue."
@@ -1706,8 +1779,13 @@
   "officePeoplePriceLabel": "Price",
   "officePeoplePriceSeatLine": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} person × {seatPrice}",
         "countPlural=other": "{count} people × {seatPrice}"
@@ -1733,5 +1811,21 @@
   "checkoutStatusPeopleSentAnnouncement": "Invitation sent to {email}.",
   "checkoutStatusPeopleResendFailed": "We couldn't resend the invitation. Try again in a moment.",
   "checkoutStatusPeopleChangeNote": "To change who is coming, <link>contact us</link>.",
-  "checkoutStatusPeopleChangeMessage": "Hi Deskohub Workspace,\n\nI'd like to change who is coming to my private office reservation.\n\n{reservationDetails}\n\nAdd:\nRemove:"
+  "checkoutStatusPeopleChangeMessage": "Hi Deskohub Workspace,\n\nI'd like to change who is coming to my private office reservation.\n\n{reservationDetails}\n\nAdd:\nRemove:",
+  "officeInvitationSubject": "{booker} booked a private office for you",
+  "officeInvitationHeading": "{booker} booked a private office for you on {date}",
+  "officeInvitationSpaceLabel": "Space",
+  "officeInvitationDateLabel": "Date",
+  "officeInvitationBookedByLabel": "Booked by",
+  "officeInvitationReason": "You got this email because {booker} added your address to their reservation. Questions? Reply or write to {email}.",
+  "officeInvitationPeopleLabel": "People",
+  "officeInvitationPeopleYou": "{name} (you)",
+  "officeInvitationPeopleNote": "Everyone gets their own access email.",
+  "officeInviteeCancellationSubject": "The private office {booker} booked for you was cancelled",
+  "officeInviteeCancellationBody": "The reservation below has been cancelled, and your access PIN no longer works.",
+  "officeInviteeRestorationSubject": "The private office {booker} booked for you is valid again",
+  "officeInviteeRestorationHeading": "The private office {booker} booked for you has been restored",
+  "officeInviteeRestorationBody": "We have restored the reservation below, and it is valid again. The earlier cancellation notice no longer applies.",
+  "officeInviteeRestorationNewAccessCode": "We have issued a new access code; open it below.",
+  "officeInviteeListRejected": "Check the people you added and try again."
 }

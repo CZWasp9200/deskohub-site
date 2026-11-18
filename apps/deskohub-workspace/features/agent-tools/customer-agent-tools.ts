@@ -11,6 +11,7 @@ import { ReservationBooking } from "@/features/reservation/backend/reservation-b
 import { SharedReservationRecordsLive } from "@/features/reservation/backend/reservation-records-cache.server";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import { ReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { ReviewSandbox } from "@/features/review-accounts";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 
@@ -39,5 +40,6 @@ export const CustomerAgentToolsLive = Layer.mergeAll(
   CheckoutStatusService.withRecords(SharedReservationRecordsLive),
   CustomerReservationHistoryService.withRecords(SharedReservationRecordsLive),
   ReviewSandbox.Live,
+  ReservationInvitees.Default,
   SealedStateKeys.Default
 );

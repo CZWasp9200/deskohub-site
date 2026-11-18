@@ -178,7 +178,15 @@ const runAccess = async (options: HarnessOptions = {}) => {
         Layer.mock(WorkspaceReservationRepository, { findById }),
         Layer.mock(DotyposService, { getReservation }),
         Layer.succeed(WorkspaceCheckoutAccessCodeService, accessCodes),
-        Layer.succeed(ReservationAuthorizationService, { isAuthorized })
+        Layer.succeed(ReservationAuthorizationService, {
+          isAuthorized,
+          authorizeViewer: (input) =>
+            isAuthorized(input).pipe(
+              Effect.map((authorized) =>
+                authorized ? Option.some("customer" as const) : Option.none()
+              )
+            ),
+        })
       )
     ),
     Effect.runPromise
@@ -290,6 +298,7 @@ describe("ReservationAccessService", () => {
     expect(result.access).toEqual({
       state: "available",
       ...resolvedAccess,
+      viewer: "customer",
     });
     expect(result.resolveCustomerAccessCode).toHaveBeenCalledTimes(1);
     expect(result.resolveCustomerAccessCode).toHaveBeenCalledWith({
@@ -310,7 +319,11 @@ describe("ReservationAccessService", () => {
       }),
     });
 
-    expect(result.access).toEqual({ state: "available", ...resolvedAccess });
+    expect(result.access).toEqual({
+      state: "available",
+      ...resolvedAccess,
+      viewer: "customer",
+    });
     expect(result.resolveCustomerAccessCode).toHaveBeenCalledWith({
       reservationId: orderId,
       dotyposReservationId: "provider-reservation-id",
@@ -398,7 +411,11 @@ describe("ReservationAccessService", () => {
       const accessToken = await createAccessToken();
       const result = await runAccess({ accessToken, liveRecord: liveRecord() });
 
-      expect(result.access).toEqual({ state: "available", ...resolvedAccess });
+      expect(result.access).toEqual({
+        state: "available",
+        ...resolvedAccess,
+        viewer: "customer",
+      });
       expect(result.getReservation).not.toHaveBeenCalled();
       expect(result.resolveCustomerAccessCode).toHaveBeenCalledWith({
         reservationId: orderId,

@@ -299,7 +299,7 @@ const operatingRulesSections: LegalSection[] = [
 
 const legalDocuments = {
   "privacy-policy": {
-    updatedAt: "15 November 2026",
+    updatedAt: "18 November 2026",
     sections: [
       {
         heading: "1. Controller",
@@ -333,6 +333,17 @@ const legalDocuments = {
             number, selected reservation family and product, date or date range,
             start time, duration, seat count, and any coworking refreshment,
             monitor, or workstation preferences.
+          </>,
+          <>
+            We receive an invited person's email address from the customer who
+            booked the private office. We use it to send the invitation and
+            updates about that booking, and to give the invited person access to
+            the office. Our legal basis is our legitimate interest in letting
+            invited people use the booking and keeping them informed about its
+            status. We keep the address until 30 days after access ends. If the
+            address belongs to a customer account or a registered customer, we
+            then keep only the link from the invitation to that account or
+            customer record for as long as that account or record exists.
           </>,
           <>
             When you continue to checkout, we also process the quoted and paid

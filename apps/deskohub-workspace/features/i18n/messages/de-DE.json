@@ -34,8 +34,13 @@
   "accountReferralsHowCompound": "Für jede eingeladene Person, die uns innerhalb der letzten {duration} besucht hat, bekommst du weitere {discount} Rabatt. Die Rabatte werden kombiniert!",
   "accountReferralsHowBenchmark": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "Das heißt: Schon {count} Empfehlung reicht für über {benchmark} Rabatt!",
         "countPlural=other": "Das heißt: Schon {count} Empfehlungen reichen für über {benchmark} Rabatt!"
@@ -525,8 +530,13 @@
   "reservationTierMeetingRoomDescription": "Privater Raum für Gespräche, Workshops oder konzentrierte Treffen in der Gruppe.",
   "reservationMeetingRoomDurationHours": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} Stunde",
         "countPlural=other": "{count} Stunden"
@@ -577,7 +587,9 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": ["dayCountPlural"],
+      "selectors": [
+        "dayCountPlural"
+      ],
       "match": {
         "dayCountPlural=one": "Privatbüro – {dayCount} Tag",
         "dayCountPlural=other": "Privatbüro – {dayCount} Tage"
@@ -594,8 +606,13 @@
   "reservationOfficeSeatCountLabel": "Wie viele Plätze brauchst du im Büro?",
   "reservationOfficeSeatCountOption": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} Platz",
         "countPlural=other": "{count} Plätze"
@@ -757,7 +774,9 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": ["dayCountPlural"],
+      "selectors": [
+        "dayCountPlural"
+      ],
       "match": {
         "dayCountPlural=one": "{dayCount} Tag",
         "dayCountPlural=other": "{dayCount} Tage"
@@ -1009,8 +1028,13 @@
   "reservationValidationOfficeMaximumEnd": "Der letzte Tag der Reservierung darf höchstens einen Monat nach heute liegen.",
   "reservationValidationOfficeMaximumDuration": [
     {
-      "declarations": ["input hours", "local hoursPlural = hours: plural"],
-      "selectors": ["hoursPlural"],
+      "declarations": [
+        "input hours",
+        "local hoursPlural = hours: plural"
+      ],
+      "selectors": [
+        "hoursPlural"
+      ],
       "match": {
         "hoursPlural=one": "Eine Büroreservierung darf {hours} Stunde nicht überschreiten.",
         "hoursPlural=other": "Eine Büroreservierung darf {hours} Stunden nicht überschreiten."
@@ -1024,8 +1048,13 @@
   "reservationSecurityInvalidOrigin": "Die Reservierungsanfrage konnte nicht geprüft werden. Lade die Seite neu und versuch es bitte noch einmal.",
   "contactValidationNameMinimum": [
     {
-      "declarations": ["input min", "local minPlural = min: plural"],
-      "selectors": ["minPlural"],
+      "declarations": [
+        "input min",
+        "local minPlural = min: plural"
+      ],
+      "selectors": [
+        "minPlural"
+      ],
       "match": {
         "minPlural=one": "Der Name muss mindestens {min} Zeichen haben.",
         "minPlural=other": "Der Name muss mindestens {min} Zeichen haben."
@@ -1034,8 +1063,13 @@
   ],
   "contactValidationNameMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Der Name darf höchstens {max} Zeichen haben.",
         "maxPlural=other": "Der Name darf höchstens {max} Zeichen haben."
@@ -1046,8 +1080,13 @@
   "contactValidationEmailInvalid": "Gib eine gültige E-Mail-Adresse ein.",
   "contactValidationEmailMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Die E-Mail-Adresse darf höchstens {max} Zeichen haben.",
         "maxPlural=other": "Die E-Mail-Adresse darf höchstens {max} Zeichen haben."
@@ -1060,8 +1099,13 @@
   "contactValidationPhoneInvalid": "Gib eine gültige Telefonnummer ein. Eine Nummer im internationalen Format mit + am Anfang wird immer akzeptiert.",
   "contactValidationPhoneMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Die Telefonnummer darf höchstens {max} Zeichen haben.",
         "maxPlural=other": "Die Telefonnummer darf höchstens {max} Zeichen haben."
@@ -1071,8 +1115,13 @@
   "contactValidationPhoneRequired": "Die Telefonnummer ist erforderlich.",
   "contactValidationMessageMinimum": [
     {
-      "declarations": ["input min", "local minPlural = min: plural"],
-      "selectors": ["minPlural"],
+      "declarations": [
+        "input min",
+        "local minPlural = min: plural"
+      ],
+      "selectors": [
+        "minPlural"
+      ],
       "match": {
         "minPlural=one": "Die Nachricht muss mindestens {min} Zeichen haben.",
         "minPlural=other": "Die Nachricht muss mindestens {min} Zeichen haben."
@@ -1081,8 +1130,13 @@
   ],
   "contactValidationMessageMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Die Nachricht darf höchstens {max} Zeichen haben.",
         "maxPlural=other": "Die Nachricht darf höchstens {max} Zeichen haben."
@@ -1274,8 +1328,13 @@
   "accountReservationOtherProduct": "Reservierung im Workspace",
   "accountReservationSeats": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} Platz",
         "countPlural=other": "{count} Plätze"
@@ -1505,8 +1564,13 @@
   "bookingWidgetStartTimeRequired": "Wähle eine Anfangszeit.",
   "bookingWidgetDayCountRange": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Wähle 1 Tag.",
         "maxPlural=other": "Wähle 1 bis {max} Tage."
@@ -1515,8 +1579,13 @@
   ],
   "bookingWidgetSeatCountRange": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Wähle 1 Platz.",
         "maxPlural=other": "Wähle 1 bis {max} Plätze."
@@ -1681,7 +1750,9 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": ["maximumPlural"],
+      "selectors": [
+        "maximumPlural"
+      ],
       "match": {
         "maximumPlural=one": "Der einzige Platz ist belegt. Entferne jemanden, um eine weitere Person hinzuzufügen.",
         "maximumPlural=other": "Alle {maximum} Plätze sind belegt. Entferne jemanden, um eine weitere Person hinzuzufügen."
@@ -1696,7 +1767,9 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": ["maximumPlural"],
+      "selectors": [
+        "maximumPlural"
+      ],
       "match": {
         "maximumPlural=one": "Dieses Büro hat {maximum} Platz. Entferne jemanden, um fortzufahren.",
         "maximumPlural=other": "Dieses Büro hat {maximum} Plätze. Entferne jemanden, um fortzufahren."
@@ -1706,8 +1779,13 @@
   "officePeoplePriceLabel": "Preis",
   "officePeoplePriceSeatLine": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} Person × {seatPrice}",
         "countPlural=other": "{count} Personen × {seatPrice}"
@@ -1733,5 +1811,21 @@
   "checkoutStatusPeopleSentAnnouncement": "Einladung an {email} gesendet.",
   "checkoutStatusPeopleResendFailed": "Die Einladung konnte nicht erneut gesendet werden. Versuch es gleich noch einmal.",
   "checkoutStatusPeopleChangeNote": "Wenn du ändern möchtest, wer kommt, <link>kontaktiere uns</link>.",
-  "checkoutStatusPeopleChangeMessage": "Guten Tag,\n\nich möchte ändern, wer zu meiner Reservierung des Privatbüros kommt.\n\n{reservationDetails}\n\nHinzufügen:\nEntfernen:"
+  "checkoutStatusPeopleChangeMessage": "Guten Tag,\n\nich möchte ändern, wer zu meiner Reservierung des Privatbüros kommt.\n\n{reservationDetails}\n\nHinzufügen:\nEntfernen:",
+  "officeInvitationSubject": "{booker} hat ein Privatbüro für dich gebucht",
+  "officeInvitationHeading": "{booker} hat ein Privatbüro für dich gebucht: {date}",
+  "officeInvitationSpaceLabel": "Raum",
+  "officeInvitationDateLabel": "Datum",
+  "officeInvitationBookedByLabel": "Gebucht von",
+  "officeInvitationReason": "Du bekommst diese E-Mail, weil {booker} deine Adresse zur Reservierung hinzugefügt hat. Fragen? Antworte einfach oder schreib an {email}.",
+  "officeInvitationPeopleLabel": "Wer kommt",
+  "officeInvitationPeopleYou": "{name} (du)",
+  "officeInvitationPeopleNote": "Alle bekommen eine eigene E-Mail mit dem Zugang.",
+  "officeInviteeCancellationSubject": "Das Privatbüro, das {booker} für dich gebucht hat, wurde storniert",
+  "officeInviteeCancellationBody": "Die unten aufgeführte Reservierung wurde storniert, und dein Zugangscode funktioniert nicht mehr.",
+  "officeInviteeRestorationSubject": "Das Privatbüro, das {booker} für dich gebucht hat, gilt wieder",
+  "officeInviteeRestorationHeading": "Das Privatbüro, das {booker} für dich gebucht hat, wurde wiederhergestellt",
+  "officeInviteeRestorationBody": "Wir haben die unten aufgeführte Reservierung wiederhergestellt, sie gilt wieder. Die frühere Nachricht über ihre Stornierung ist damit hinfällig.",
+  "officeInviteeRestorationNewAccessCode": "Wir haben einen neuen Zugangscode ausgestellt; du öffnest ihn unten.",
+  "officeInviteeListRejected": "Prüf bitte die Personen, die du hinzugefügt hast, und versuch es noch einmal."
 }

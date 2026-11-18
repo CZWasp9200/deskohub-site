@@ -83,6 +83,8 @@ import type { WorkspaceReservationId } from "@/features/reservation/persistence-
 import type { ReservationPrePaymentOutcome } from "@/features/reservation/reservation-analytics";
 import { defaultReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { getReservationCustomerProfile } from "@/features/reservation/reservation-customer-profile";
+import { ReservationInviteeEmailKeys } from "@/features/reservation-invitees/backend/reservation-invitee-email-keys.service";
+import { sealOfficePeople } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { ReviewAccounts, ReviewSandbox } from "@/features/review-accounts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
@@ -93,6 +95,10 @@ import {
   instantStringSchema,
   temporalInstantToIsoString,
 } from "@/shared/utils/temporal";
+import {
+  getOfficeAccessEndsAt,
+  validateSubmittedOfficePeople,
+} from "./office-people-submission";
 
 /**
  * One submission a server caller prepares Pay for. Beside the site's tools,
@@ -536,6 +542,9 @@ const bookSubmission = Effect.fn("prepareWorkspacePayState")(function* (
         Match.tag("UndeliverableContactEmailError", () =>
           captureOutcome("validation")
         ),
+        Match.tag("OfficePeopleRejectedError", () =>
+          captureOutcome("validation")
+        ),
         Match.tag("CheckoutAttemptUnavailableError", () =>
           captureOutcome("reservation_conflict")
         ),
@@ -740,6 +749,12 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
         const reservation = accountCustomer
           ? { ...input.reservation, ...accountCustomer.contact }
           : input.reservation;
+        // The contact is final here, so the list is checked against the
+        // address the reservation books under.
+        const officePeople = yield* validateSubmittedOfficePeople(
+          input.people,
+          reservation
+        );
         const advertiseAt = (at: Temporal.Instant) =>
           prepareAdvertisement({ ...input, reservation, bookedAt: at });
         // Submission locks the price: calendar sales are evaluated at this
@@ -754,6 +769,7 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
           checkoutSessionId: input.checkoutSessionId,
           checkoutAttemptId: input.checkoutAttemptId,
           reservation,
+          people: officePeople,
         });
         yield* Effect.annotateLogsScoped({
           locale: input.locale,
@@ -926,7 +942,18 @@ const prepareSubmission = Effect.fn("prepareWorkspacePayState.submission")(
             )
           );
 
+        const sealedOfficePeople =
+          officePeople && reservation.kind === "office"
+            ? {
+                valid: officePeople,
+                sealed: yield* sealOfficePeople(
+                  officePeople,
+                  getOfficeAccessEndsAt(reservation)
+                ).pipe(Effect.provide(ReservationInviteeEmailKeys.Live)),
+              }
+            : undefined;
         const hold = yield* holds.holdForAttempt({
+          ...(sealedOfficePeople && { officePeople: sealedOfficePeople }),
           checkout: {
             sessionId: input.checkoutSessionId,
             attemptId: input.checkoutAttemptId,

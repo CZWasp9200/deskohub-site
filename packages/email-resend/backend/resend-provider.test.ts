@@ -1,8 +1,24 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { createHash } from "node:crypto";
 import { continuesEmailChain } from "@deskohub/email";
 import { testEmailAddress } from "@deskohub/test-email";
-import { ConfigProvider, Duration, Effect, Fiber, Tracer } from "effect";
+import {
+  ConfigProvider,
+  Duration,
+  Effect,
+  Fiber,
+  Logger,
+  Redacted,
+  Tracer,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 const adaAddress = testEmailAddress("ada");
@@ -47,6 +63,7 @@ let batchSend = mock<BatchSendImplementation>(async () => ({
 
 mock.module("resend", () => ({
   Resend: class {
+    baseUrl = "https://resend.synthetic.invalid";
     emails = { send: send };
     batch = { send: batchSend };
   },
@@ -54,7 +71,9 @@ mock.module("resend", () => ({
 
 const {
   deploymentResendRequestTimeouts,
+  makeResendEmailAttempt,
   makeResendEmailProvider,
+  resendIdempotencyMismatchCode,
   resendRequestTimeouts,
 } = await import("./resend-provider");
 const { resendRetryPolicy } = await import("./request-policy");
@@ -143,6 +162,136 @@ const batchMessages = [
     subject: "Second email",
   },
 ];
+
+describe("single durable Resend attempt", () => {
+  const prepare = (apiKey = "synthetic-api-key") =>
+    makeResendEmailAttempt({
+      apiKey,
+      timeouts: resendRequestTimeouts.production,
+    });
+  const invitation = {
+    ...message,
+    idempotencyKey: "invitee-notice-id",
+    replyTo: { email: deskohubAddress },
+    metadata: { source: "synthetic-invitation" },
+  };
+
+  let providerFetch: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
+  beforeEach(() => {
+    providerFetch = spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ id: "resend-id" })
+    );
+  });
+  afterEach(() => providerFetch.mockRestore());
+
+  test("identifies the exact POST body, provider credential and idempotency key", async () => {
+    const request = prepare()(invitation);
+    await Effect.runPromise(request.send);
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+    const [url, options] = providerFetch.mock.calls[0] ?? [];
+    const identity = Redacted.value(request.identity);
+    const headers = new Headers(options?.headers);
+    expect(url).toBe("https://resend.synthetic.invalid/emails");
+    expect(options).toMatchObject({ method: "POST", redirect: "error" });
+    expect(headers.get("Idempotency-Key")).toBe(invitation.idempotencyKey);
+    expect(JSON.parse(identity)).toEqual([url, [...headers], options?.body]);
+    expect(JSON.parse(String(options?.body))).toMatchObject({
+      reply_to: deskohubAddress,
+    });
+    expect(Redacted.value(prepare()(invitation).identity)).toBe(identity);
+    expect(
+      Redacted.value(
+        prepare()({ ...invitation, html: "<p>Changed</p>" }).identity
+      )
+    ).not.toBe(identity);
+    expect(
+      Redacted.value(prepare("rotated-synthetic-key")(invitation).identity)
+    ).not.toBe(identity);
+  });
+
+  test.each([
+    [429, undefined, "EmailServiceError", "provider", "http-429"],
+    [408, undefined, "NetworkError", "unknown-outcome", "http-408"],
+    [
+      409,
+      "concurrent_idempotent_requests",
+      "NetworkError",
+      "unknown-outcome",
+      "http-409",
+    ],
+    [
+      409,
+      "invalid_idempotent_request",
+      "NetworkError",
+      "unknown-outcome",
+      resendIdempotencyMismatchCode,
+    ],
+    [503, undefined, "NetworkError", "unknown-outcome", "http-503"],
+  ])(
+    "classifies HTTP %s (%s) and makes a single call",
+    async (status, name, tag, failureKind, code) => {
+      providerFetch.mockResolvedValue(
+        Response.json(
+          { name, message: "Synthetic provider response" },
+          { status }
+        )
+      );
+      const outcome = await Effect.runPromise(
+        Effect.result(prepare()(invitation).send)
+      );
+      expect(outcome).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: tag, failureKind, code },
+      });
+      expect(providerFetch).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  test("treats an unconfirmed transport failure as uncertain without logging its details", async () => {
+    providerFetch.mockRejectedValue(
+      new Error("Synthetic private request details")
+    );
+    const messages: unknown[] = [];
+    const logger = Logger.make(({ message }) => {
+      messages.push(message);
+    });
+    const outcome = await Effect.runPromise(
+      prepare()(invitation).send.pipe(
+        Effect.result,
+        Effect.provide(Logger.layer([logger]))
+      )
+    );
+    expect(outcome).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "NetworkError",
+        failureKind: "unknown-outcome",
+        code: "transport",
+      },
+    });
+    if (outcome._tag === "Failure")
+      expect(outcome.failure.cause).toBeUndefined();
+    expect(messages).toHaveLength(1);
+    expect(JSON.stringify(messages)).not.toContain(
+      "Synthetic private request details"
+    );
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("refuses to dispatch without an idempotency key", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.result(prepare()({ ...invitation, idempotencyKey: "" }).send)
+    );
+    expect(outcome).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "EmailServiceError",
+        code: "resend-missing-idempotency-key",
+      },
+    });
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+});
 
 describe("ResendEmailProvider", () => {
   const refusal =

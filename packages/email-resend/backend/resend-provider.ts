@@ -9,7 +9,7 @@ import {
   NetworkError,
 } from "@deskohub/email";
 import type { ProviderRequestPolicy } from "@deskohub/provider-request";
-import { Config, Duration, Effect, Option, Schema } from "effect";
+import { Config, Duration, Effect, Option, Redacted, Schema } from "effect";
 import { Resend } from "resend";
 import { resendRetryPolicy } from "./request-policy";
 
@@ -167,7 +167,8 @@ const classifyResendError = (error: unknown): EmailSendError => {
  */
 const requestResend = <A>(
   request: (signal: AbortSignal) => Promise<ResendResponse<A>>,
-  policy: ProviderRequestPolicy
+  policy: ProviderRequestPolicy,
+  classify = classifyResendError
 ) =>
   Effect.tryPromise({
     try: (signal) => request(signal),
@@ -182,7 +183,7 @@ const requestResend = <A>(
     Effect.flatMap(
       (response): Effect.Effect<A | null, EmailSendError> =>
         response.error
-          ? Effect.fail(classifyResendError(response.error))
+          ? Effect.fail(classify(response.error))
           : Effect.succeed(response.data)
     ),
     Effect.tapError((error) =>
@@ -232,6 +233,127 @@ export interface ResendEmailProviderConfig {
   readonly apiKey: string;
   readonly timeouts: ResendRequestTimeouts;
 }
+
+export const resendIdempotencyMismatchCode =
+  "resend-idempotency-payload-mismatch";
+
+/**
+ * Prepares one POST /emails request, without provider-side retry orchestration.
+ * The caller must durably register its identity before sending. A failure
+ * that lacks a definite HTTP refusal may have happened after acceptance.
+ */
+export const makeResendEmailAttempt = ({
+  apiKey,
+  timeouts,
+}: ResendEmailProviderConfig) => {
+  const url = `${new Resend(apiKey).baseUrl}/emails`;
+  const policy = resendRetryPolicy.withAttemptTimeout(timeouts.send);
+  return (
+    message: EmailMessage & {
+      readonly idempotencyKey: string;
+      readonly attachments?: never;
+    }
+  ) => {
+    const { replyTo, ...email } = toResendEmail(message);
+    const body = JSON.stringify({ ...email, reply_to: replyTo });
+    const headers = new Headers({
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    });
+    const key = getResendIdempotencyKey(message.idempotencyKey);
+    if (!key?.trim()) {
+      return {
+        identity: Redacted.make("resend-missing-idempotency-key"),
+        send: Effect.fail(
+          resendMessageRefusal("resend-missing-idempotency-key")
+        ),
+      };
+    }
+    headers.set("Idempotency-Key", key);
+    const identity = Redacted.make(JSON.stringify([url, [...headers], body]));
+
+    return {
+      identity,
+      send: requestResend(
+        async (signal) => {
+          // The SDK logs raw provider error bodies outside production.
+          const response = await fetch(url, {
+            method: "POST",
+            headers,
+            body,
+            signal,
+            redirect: "error",
+          });
+          const answer: unknown = await response.json().catch(() => null);
+          if (response.ok) return { data: answer, error: null };
+
+          return {
+            data: null,
+            error: {
+              statusCode: response.status,
+              name:
+                typeof answer === "object" &&
+                answer !== null &&
+                "name" in answer
+                  ? answer.name
+                  : undefined,
+            },
+          };
+        },
+        policy,
+        (error) => {
+          const status = getResendErrorStatusCode(error);
+          if (
+            status === 409 &&
+            typeof error === "object" &&
+            error !== null &&
+            "name" in error &&
+            error.name === "invalid_idempotent_request"
+          ) {
+            return new NetworkError({
+              message:
+                "Resend reports a different request for the idempotency key",
+              code: resendIdempotencyMismatchCode,
+              failureKind: "unknown-outcome",
+            });
+          }
+          return status !== undefined &&
+            [400, 401, 403, 404, 405, 422, 429].includes(status)
+            ? classifyResendError(error)
+            : new NetworkError({
+                message: "Resend acceptance is unknown",
+                code:
+                  status === undefined
+                    ? "resend-unclassified"
+                    : `http-${status}`,
+                failureKind: "unknown-outcome",
+              });
+        }
+      ).pipe(
+        Effect.flatMap((response) =>
+          decodeDeliveryId(
+            typeof response === "object" &&
+              response !== null &&
+              "id" in response
+              ? response.id
+              : undefined
+          )
+        ),
+        Effect.mapError((error) =>
+          error._tag === "NetworkError" &&
+          error.failureKind !== "unknown-outcome"
+            ? new NetworkError({
+                message: "Resend acceptance is unknown",
+                code: error.code,
+                failureKind: "unknown-outcome",
+              })
+            : error
+        ),
+        Effect.asVoid
+      ),
+    };
+  };
+};
 
 /**
  * Sends through Resend. A single send retries a transport failure, a server

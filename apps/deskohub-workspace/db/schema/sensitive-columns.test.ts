@@ -51,6 +51,8 @@ const sensitiveColumnsWithoutTelltaleNames = [
   "public.email_discount_issuances.parameters",
   "public.email_discount_issuances.code",
   "public.email_discount_issuances.expires_at",
+  // The fingerprint covers the provider credential and the guest email contents.
+  "public.reservation_invitee_notices.request_fingerprint",
   // Magic-link and verification tokens, keyed by the login email.
   "auth.verification.identifier",
   "auth.verification.value",

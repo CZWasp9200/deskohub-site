@@ -14,6 +14,7 @@ import {
   requirePayStateAuthor,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import { findCheckoutOfficePeople } from "@/features/checkout/backend/checkout/pay-state-checkout-view";
 import {
   applyDiscountCodeToPayState,
   clearDiscountCodeFromPayState,
@@ -28,6 +29,7 @@ import {
   ReservationBooking,
 } from "@/features/reservation/backend/reservation-booking.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import { ReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import {
   failuresAsDefects,
@@ -87,6 +89,8 @@ interface ICustomerCheckoutOperations {
   readonly requireAuthor: Provided<typeof requirePayStateAuthor>;
   /** Opens a checkout state token the server issued, with its hold deadline. */
   readonly readPayState: Provided<typeof openPayStateWithHoldExpiry>;
+  /** `findCheckoutOfficePeople`: who is coming to an office checkout. */
+  readonly findOfficePeople: Provided<typeof findCheckoutOfficePeople>;
   /**
    * `RememberedReferral.forgetIfSettled`: records that the client's code is
    * used once the booker's referral settles.
@@ -230,6 +234,17 @@ export class CustomerCheckoutOperations extends Context.Service<
         readPayState: (token) =>
           openPayStateWithHoldExpiry(token).pipe(
             Effect.provide(CheckoutServicesUnavailable.whenUnbuilt(payStates))
+          ),
+        findOfficePeople: (orderId) =>
+          findCheckoutOfficePeople(orderId).pipe(
+            Effect.provide(
+              CheckoutServicesUnavailable.whenUnbuilt(
+                Layer.mergeAll(
+                  WorkspaceReservationRepository.Live,
+                  ReservationInvitees.Default
+                ).pipe(Layer.provide(WorkspaceDatabase.Default))
+              )
+            )
           ),
         forgetReferralIfSettled: (booker) =>
           RememberedReferral.pipe(

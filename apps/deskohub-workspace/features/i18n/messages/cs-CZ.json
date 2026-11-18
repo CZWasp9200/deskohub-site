@@ -34,8 +34,13 @@
   "accountReferralsHowCompound": "Za každého pozvaného, který nás navštívil během posledních {duration}, získáš další slevu {discount}. Slevy se skládají!",
   "accountReferralsHowBenchmark": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "To znamená, že stačí jen {count} doporučení a máš slevu přes {benchmark}!",
         "countPlural=few": "To znamená, že stačí jen {count} doporučení a máš slevu přes {benchmark}!",
@@ -526,8 +531,13 @@
   "reservationTierMeetingRoomDescription": "Soukromá místnost pro hovory, workshopy nebo soustředěné skupinové setkání.",
   "reservationMeetingRoomDurationHours": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} hodina",
         "countPlural=few": "{count} hodiny",
@@ -579,7 +589,9 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": ["dayCountPlural"],
+      "selectors": [
+        "dayCountPlural"
+      ],
       "match": {
         "dayCountPlural=one": "Soukromá kancelář - {dayCount} den",
         "dayCountPlural=few": "Soukromá kancelář - {dayCount} dny",
@@ -597,8 +609,13 @@
   "reservationOfficeSeatCountLabel": "Kolik míst v kanceláři potřebuješ?",
   "reservationOfficeSeatCountOption": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} místo",
         "countPlural=few": "{count} místa",
@@ -761,7 +778,9 @@
         "input dayCount",
         "local dayCountPlural = dayCount: plural"
       ],
-      "selectors": ["dayCountPlural"],
+      "selectors": [
+        "dayCountPlural"
+      ],
       "match": {
         "dayCountPlural=one": "{dayCount} den",
         "dayCountPlural=few": "{dayCount} dny",
@@ -1014,8 +1033,13 @@
   "reservationValidationOfficeMaximumEnd": "Poslední den rezervace nesmí být později než za měsíc od dneška.",
   "reservationValidationOfficeMaximumDuration": [
     {
-      "declarations": ["input hours", "local hoursPlural = hours: plural"],
-      "selectors": ["hoursPlural"],
+      "declarations": [
+        "input hours",
+        "local hoursPlural = hours: plural"
+      ],
+      "selectors": [
+        "hoursPlural"
+      ],
       "match": {
         "hoursPlural=one": "Rezervace kanceláře nesmí přesáhnout {hours} hodinu.",
         "hoursPlural=few": "Rezervace kanceláře nesmí přesáhnout {hours} hodiny.",
@@ -1030,8 +1054,13 @@
   "reservationSecurityInvalidOrigin": "Rezervační požadavek se nepodařilo ověřit. Načti stránku znovu a zkus to prosím znovu.",
   "contactValidationNameMinimum": [
     {
-      "declarations": ["input min", "local minPlural = min: plural"],
-      "selectors": ["minPlural"],
+      "declarations": [
+        "input min",
+        "local minPlural = min: plural"
+      ],
+      "selectors": [
+        "minPlural"
+      ],
       "match": {
         "minPlural=one": "Jméno musí mít alespoň {min} znak.",
         "minPlural=few": "Jméno musí mít alespoň {min} znaky.",
@@ -1041,8 +1070,13 @@
   ],
   "contactValidationNameMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Jméno může mít maximálně {max} znak.",
         "maxPlural=few": "Jméno může mít maximálně {max} znaky.",
@@ -1054,8 +1088,13 @@
   "contactValidationEmailInvalid": "Zadej platnou emailovou adresu.",
   "contactValidationEmailMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Email může mít maximálně {max} znak.",
         "maxPlural=few": "Email může mít maximálně {max} znaky.",
@@ -1069,8 +1108,13 @@
   "contactValidationPhoneInvalid": "Zadej platné telefonní číslo. Číslo v mezinárodním formátu s + na začátku projde vždy.",
   "contactValidationPhoneMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Telefon může mít maximálně {max} znak.",
         "maxPlural=few": "Telefon může mít maximálně {max} znaky.",
@@ -1081,8 +1125,13 @@
   "contactValidationPhoneRequired": "Telefon je povinný.",
   "contactValidationMessageMinimum": [
     {
-      "declarations": ["input min", "local minPlural = min: plural"],
-      "selectors": ["minPlural"],
+      "declarations": [
+        "input min",
+        "local minPlural = min: plural"
+      ],
+      "selectors": [
+        "minPlural"
+      ],
       "match": {
         "minPlural=one": "Zpráva musí mít alespoň {min} znak.",
         "minPlural=few": "Zpráva musí mít alespoň {min} znaky.",
@@ -1092,8 +1141,13 @@
   ],
   "contactValidationMessageMaximum": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Zpráva může mít maximálně {max} znak.",
         "maxPlural=few": "Zpráva může mít maximálně {max} znaky.",
@@ -1286,8 +1340,13 @@
   "accountReservationOtherProduct": "Rezervace ve Workspace",
   "accountReservationSeats": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} místo",
         "countPlural=few": "{count} místa",
@@ -1518,8 +1577,13 @@
   "bookingWidgetStartTimeRequired": "Vyber čas začátku.",
   "bookingWidgetDayCountRange": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Zvol 1 den.",
         "maxPlural=few": "Zvol 1 až {max} dny.",
@@ -1529,8 +1593,13 @@
   ],
   "bookingWidgetSeatCountRange": [
     {
-      "declarations": ["input max", "local maxPlural = max: plural"],
-      "selectors": ["maxPlural"],
+      "declarations": [
+        "input max",
+        "local maxPlural = max: plural"
+      ],
+      "selectors": [
+        "maxPlural"
+      ],
       "match": {
         "maxPlural=one": "Zvol 1 místo.",
         "maxPlural=few": "Zvol 1 až {max} místa.",
@@ -1696,7 +1765,9 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": ["maximumPlural"],
+      "selectors": [
+        "maximumPlural"
+      ],
       "match": {
         "maximumPlural=one": "Jediné místo je obsazené. Chceš-li přidat dalšího člověka, někoho odeber.",
         "maximumPlural=few": "Všechna {maximum} místa jsou obsazená. Chceš-li přidat dalšího člověka, někoho odeber.",
@@ -1712,7 +1783,9 @@
         "input maximum",
         "local maximumPlural = maximum: plural"
       ],
-      "selectors": ["maximumPlural"],
+      "selectors": [
+        "maximumPlural"
+      ],
       "match": {
         "maximumPlural=one": "Tato kancelář má {maximum} místo. Chceš-li pokračovat, někoho odeber.",
         "maximumPlural=few": "Tato kancelář má {maximum} místa. Chceš-li pokračovat, někoho odeber.",
@@ -1723,8 +1796,13 @@
   "officePeoplePriceLabel": "Cena",
   "officePeoplePriceSeatLine": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
       "match": {
         "countPlural=one": "{count} osoba × {seatPrice}",
         "countPlural=few": "{count} osoby × {seatPrice}",
@@ -1751,5 +1829,21 @@
   "checkoutStatusPeopleSentAnnouncement": "Pozvánka odeslána na {email}.",
   "checkoutStatusPeopleResendFailed": "Pozvánku se nepodařilo poslat znovu. Zkus to za chvíli.",
   "checkoutStatusPeopleChangeNote": "Chceš-li změnit, kdo přijde, <link>kontaktuj nás</link>.",
-  "checkoutStatusPeopleChangeMessage": "Dobrý den,\n\nchci změnit, kdo přijde na moji rezervaci soukromé kanceláře.\n\n{reservationDetails}\n\nPřidat:\nOdebrat:"
+  "checkoutStatusPeopleChangeMessage": "Dobrý den,\n\nchci změnit, kdo přijde na moji rezervaci soukromé kanceláře.\n\n{reservationDetails}\n\nPřidat:\nOdebrat:",
+  "officeInvitationSubject": "{booker} tě zve do soukromé kanceláře",
+  "officeInvitationHeading": "{booker} tě zve do soukromé kanceláře – {date}",
+  "officeInvitationSpaceLabel": "Prostor",
+  "officeInvitationDateLabel": "Datum",
+  "officeInvitationBookedByLabel": "Rezervace od",
+  "officeInvitationReason": "Tento e-mail ti přišel, protože je tvoje adresa uvedená v rezervaci od {booker}. Máš dotaz? Odpověz na tento e-mail nebo napiš na {email}.",
+  "officeInvitationPeopleLabel": "Kdo přijde",
+  "officeInvitationPeopleYou": "{name} (ty)",
+  "officeInvitationPeopleNote": "Každý dostane vlastní e-mail s přístupem.",
+  "officeInviteeCancellationSubject": "Rezervace soukromé kanceláře od {booker} byla zrušena",
+  "officeInviteeCancellationBody": "Níže uvedená rezervace byla zrušena a tvůj přístupový kód už nefunguje.",
+  "officeInviteeRestorationSubject": "Rezervace soukromé kanceláře od {booker} znovu platí",
+  "officeInviteeRestorationHeading": "Rezervace soukromé kanceláře od {booker} byla obnovena",
+  "officeInviteeRestorationBody": "Níže uvedenou rezervaci jsme obnovili a znovu platí. Předchozí oznámení o jejím zrušení už neplatí.",
+  "officeInviteeRestorationNewAccessCode": "Vydali jsme nový přístupový kód, otevřeš ho níže.",
+  "officeInviteeListRejected": "Zkontroluj prosím seznam lidí a zkus to znovu."
 }

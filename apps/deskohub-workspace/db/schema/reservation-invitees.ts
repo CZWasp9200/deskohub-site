@@ -55,6 +55,7 @@ export const reservationInvitees = pgTable(
     /** The Dotypos customer the purge found for the address. */
     dotyposCustomerId: text("dotypos_customer_id").$type<DotyposCustomerId>(),
     retainUntil: instant("retain_until").notNull(),
+    retentionRetryAt: instant("retention_retry_at"),
     lastInvitationSentAt: instant("last_invitation_sent_at"),
     /** Invitation emails sent so far; keys each send's idempotency. */
     invitationSendCount: integer("invitation_send_count").notNull().default(0),
@@ -78,10 +79,7 @@ export const reservationInvitees = pgTable(
       "reservation_invitees_invitation_send_count_check",
       sql`${t.invitationSendCount} >= 0`
     ),
-    check(
-      "reservation_invitees_key_id_check",
-      sql`${t.keyId} ~ '^[A-Za-z0-9_-]{1,32}$'`
-    ),
+    check("reservation_invitees_key_id_check", sql`${t.keyId} <> ''`),
     check(
       "reservation_invitees_address_check",
       sql`(

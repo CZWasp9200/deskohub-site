@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { NoReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.test-utils";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -169,6 +170,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
           Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
@@ -225,6 +227,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
           Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
@@ -297,6 +300,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
           Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
@@ -425,6 +429,7 @@ describe("CheckoutStatusService", () => {
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
+            Layer.provide(NoReservationInvitees),
             Layer.provide(observePaymentPagesAs("unknown").layer),
             Layer.provide(
               Layer.mergeAll(
@@ -638,6 +643,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
           Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
@@ -748,6 +754,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
           Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
@@ -885,6 +892,7 @@ describe("CheckoutStatusService", () => {
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
+            Layer.provide(NoReservationInvitees),
             Layer.provide(observePaymentPagesAs("unknown").layer),
             Layer.provide(
               Layer.mergeAll(
@@ -989,6 +997,7 @@ describe("CheckoutStatusService", () => {
       }).pipe(
         Effect.provide(
           CheckoutStatusService.Default.pipe(
+            Layer.provide(NoReservationInvitees),
             Layer.provide(provider.layer),
             Layer.provide(
               Layer.mergeAll(
@@ -1325,6 +1334,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
           Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
@@ -1396,6 +1406,7 @@ describe("CheckoutStatusService", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
           Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
@@ -1450,6 +1461,7 @@ describe("CheckoutStatusService summary reconstruction", () => {
     }).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
           Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(
@@ -1608,6 +1620,7 @@ describe("CheckoutStatusService retry selection", () => {
     ).pipe(
       Effect.provide(
         CheckoutStatusService.Default.pipe(
+          Layer.provide(NoReservationInvitees),
           Layer.provide(observePaymentPagesAs("unknown").layer),
           Layer.provide(
             Layer.mergeAll(

@@ -26,6 +26,7 @@ const getPreviewAccess = Match.type<"available" | "unavailable">().pipe(
       code: "24681357",
       accessStartsAt: Temporal.Instant.from("2026-08-13T08:00:00Z"),
       accessEndsAt: Temporal.Instant.from("2026-08-13T16:00:00Z"),
+      viewer: "customer",
     })
   ),
   Match.when(

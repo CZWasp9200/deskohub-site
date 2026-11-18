@@ -110,9 +110,14 @@ const statusByReservationState: Partial<
   confirmed: "confirmed",
 };
 
+type LocalReservationStatusFacts = Pick<
+  ReservationRow,
+  "reservationState" | "fulfillmentState" | "paymentState"
+>;
+
 /** The status Workspace's own row settles; a cancellation always wins. */
-const getLocalReservationStatus = (
-  row: ReservationRow | undefined
+export const getLocalReservationStatus = (
+  row: LocalReservationStatusFacts | undefined
 ): CustomerReservationStatus | undefined => {
   if (row === undefined) return undefined;
   const stateStatus = statusByReservationState[row.reservationState];
@@ -125,9 +130,9 @@ const getLocalReservationStatus = (
  * A hold whose payment ended unpaid isn't booked, even while Dotypos still
  * holds it for a retry; Dotypos's own confirmation keeps it booked.
  */
-const getReservationStatus = (
+export const getReservationStatus = (
   reservation: ReservationRecord,
-  row: ReservationRow | undefined
+  row: LocalReservationStatusFacts | undefined
 ): CustomerReservationStatus => {
   if (reservation.status === "CANCELLED") return "cancelled";
   const localStatus = getLocalReservationStatus(row);
