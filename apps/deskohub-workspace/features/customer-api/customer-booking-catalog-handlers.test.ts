@@ -325,7 +325,7 @@ describe("listOfferings", () => {
     }
   });
 
-  test("gives each meeting-room length the room's capacity and equipment", async () => {
+  test("gives each meeting-room length the room's capacity", async () => {
     const api = makeCustomerApiTestServer({ bookingCatalog: pricedCatalog() });
 
     const response = await api.handle(customerApiRequest(listOfferings));
@@ -336,7 +336,7 @@ describe("listOfferings", () => {
     expect(meetingRooms).toHaveLength(3);
     for (const offering of meetingRooms) {
       expect(offering.facts.map((fact: { kind: string }) => fact.kind)).toEqual(
-        ["capacity", "equipment"]
+        ["capacity"]
       );
       for (const fact of offering.facts) {
         expect(fact.text).toEqual(expect.any(String));

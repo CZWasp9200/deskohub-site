@@ -67,7 +67,7 @@ export const publicPageDefinitions: Readonly<
   "/": {
     title: m.landingMetadataTitle,
     description: m.landingMetadataDescription,
-    contentDate: "2026-10-25",
+    contentDate: "2026-11-18",
   },
   "/coworking": {
     title: m.coworkingMetadataTitle,
@@ -82,7 +82,7 @@ export const publicPageDefinitions: Readonly<
   "/faq": {
     title: m.faqMetadataTitle,
     description: m.faqMetadataDescription,
-    contentDate: "2026-10-26",
+    contentDate: "2026-11-18",
   },
   "/ai-assistants": {
     title: m.aiAssistantsMetadataTitle,
@@ -102,7 +102,7 @@ export const publicPageDefinitions: Readonly<
   "/meeting-room": {
     title: m.meetingRoomMetadataTitle,
     description: m.meetingRoomMetadataDescription,
-    contentDate: "2026-10-26",
+    contentDate: "2026-11-18",
     releaseGate: "meeting-room-page",
   },
   "/team": {
