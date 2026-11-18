@@ -10,17 +10,17 @@ export const getMeetingRoomSpecifications = (locale: Locale) =>
     },
     {
       number: "02",
-      text: m.meetingRoomSpecTvText({}, { locale }),
-      title: m.meetingRoomSpecTvTitle({}, { locale }),
+      text: m.meetingRoomSpecPrivacyText({}, { locale }),
+      title: m.meetingRoomSpecPrivacyTitle({}, { locale }),
     },
     {
       number: "03",
-      text: m.meetingRoomSpecProjectorText({}, { locale }),
-      title: m.meetingRoomSpecProjectorTitle({}, { locale }),
+      text: m.meetingRoomSpecWifiText({}, { locale }),
+      title: m.meetingRoomSpecWifiTitle({}, { locale }),
     },
     {
       number: "04",
-      text: m.meetingRoomSpecConferenceText({}, { locale }),
-      title: m.meetingRoomSpecConferenceTitle({}, { locale }),
+      text: m.meetingRoomSpecAccessText({}, { locale }),
+      title: m.meetingRoomSpecAccessTitle({}, { locale }),
     },
   ] as const;

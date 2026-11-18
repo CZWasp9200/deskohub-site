@@ -716,10 +716,7 @@ function MeetingRoomStart({ onBack }: { readonly onBack: () => void }) {
       }
     >
       <MeetingRoomHero
-        facts={[
-          { kind: "capacity", text: sample("Up to 10 people") },
-          { kind: "equipment", text: sample("TV and projector") },
-        ]}
+        facts={[{ kind: "capacity", text: sample("Up to 10 people") }]}
       />
       <BookingSectionHeading title={sample("Date")} />
       <Calendar locale={locale} dates={meetingRoomDates} today={today} />

@@ -346,7 +346,6 @@ const getMeetingRoomOffering = (
   usage: m.publicOfferingMeetingRoomUsage({}, { locale }),
   facts: [
     { kind: "capacity", text: m.meetingRoomFactCapacity({}, { locale }) },
-    { kind: "equipment", text: m.meetingRoomFactTv({}, { locale }) },
   ],
   price: getWorkspaceMeetingRoomPriceForDuration(duration),
 });
