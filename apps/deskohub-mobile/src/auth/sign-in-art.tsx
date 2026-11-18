@@ -6,6 +6,12 @@ import { color } from "../ui/tokens";
 export const signInHeroPhoto = require("../../assets/images/sign-in-hero.jpg");
 const colorLogo = require("../../assets/images/logo-color-on-navy.png");
 
+export const signInTitleStyle = {
+  fontSize: 34,
+  letterSpacing: -0.6,
+  lineHeight: 40,
+};
+
 export function SignInBrand() {
   return (
     <View style={styles.brand}>

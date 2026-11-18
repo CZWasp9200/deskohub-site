@@ -9,7 +9,7 @@ import { LogoMark } from "../ui/logo-mark";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
 import { QuietUpdateOffer } from "../updates/update-offer-card";
-import { SignInBrand, signInHeroPhoto } from "./sign-in-art";
+import { SignInBrand, signInHeroPhoto, signInTitleStyle } from "./sign-in-art";
 
 const heroAspect = 1080 / 1012;
 
@@ -105,7 +105,7 @@ export function SignInMasthead() {
           tone="inverse"
           role="heading"
           locale={locale}
-          style={styles.title}
+          style={signInTitleStyle}
         >
           {m.signin_create_title({}, { locale })}
         </Text>
@@ -149,6 +149,5 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     paddingHorizontal: space.xxl,
   },
-  title: { fontSize: 34, letterSpacing: -0.6, lineHeight: 40 },
   subtitle: { color: color.onNavyMuted, marginTop: space.md },
 });

@@ -2,19 +2,21 @@ import CircleAlert from "lucide-react-native/icons/circle-alert";
 import type { ReactNode } from "react";
 import { Image, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { FocusedStatusBar } from "../ui/focused-status-bar";
 import { Icon } from "../ui/icon";
 import { useLiveRegionAnnouncement } from "../ui/live-announcement";
 import { LogoMark } from "../ui/logo-mark";
 import { Text } from "../ui/text";
-import { color, radius, space } from "../ui/tokens";
+import { color, radius, space, typeScale } from "../ui/tokens";
 import { useViewport } from "../ui/viewport";
-import { SignInBrand, signInHeroPhoto } from "./sign-in-art";
+import { SignInBrand, signInHeroPhoto, signInTitleStyle } from "./sign-in-art";
 
 const columnWidth = 520;
 const panelPadding = 48;
 const panelGutter = 64;
 const alertTileSize = 56;
+const bodyMeasure = 26 * typeScale.body.fontSize;
 
 export function AuthPhotoSheet({
   title,
@@ -31,7 +33,7 @@ export function AuthPhotoSheet({
   readonly updateOffer?: ReactNode;
   readonly children: ReactNode;
 }) {
-  const { isWide, isExpanded } = useViewport();
+  const { fontScale, isWide, isExpanded } = useViewport();
   const insets = useSafeAreaInsets();
   const gutter = Math.max(insets.left, insets.right);
   const announcement = alert ? `${title}. ${body}` : undefined;
@@ -48,7 +50,21 @@ export function AuthPhotoSheet({
             resizeMode="cover"
             style={styles.photo}
           />
-          <View style={styles.mark}>
+          <Svg
+            width="100%"
+            height="100%"
+            preserveAspectRatio="none"
+            style={StyleSheet.absoluteFill}
+          >
+            <Defs>
+              <LinearGradient id="auth-photo-shade" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={color.navy} stopOpacity={0.45} />
+                <Stop offset="0.28" stopColor={color.navy} stopOpacity={0} />
+              </LinearGradient>
+            </Defs>
+            <Rect width="100%" height="100%" fill="url(#auth-photo-shade)" />
+          </Svg>
+          <View style={[styles.mark, isExpanded && styles.expandedMark]}>
             <LogoMark width={isExpanded ? 520 : 460} color={color.white} />
           </View>
         </View>
@@ -123,11 +139,16 @@ export function AuthPhotoSheet({
                       accessibilityLabel={announcement}
                       variant="display"
                       tone={alert ? "danger" : undefined}
+                      style={signInTitleStyle}
                     >
                       {title}
                     </Text>
                   </View>
-                  <Text variant="body" tone="muted">
+                  <Text
+                    variant="body"
+                    tone="muted"
+                    style={{ maxWidth: bodyMeasure * fontScale }}
+                  >
                     {body}
                   </Text>
                 </View>
@@ -148,11 +169,12 @@ const styles = StyleSheet.create({
   photo: { width: "100%", height: "100%", opacity: 0.6 },
   mark: {
     mixBlendMode: "overlay",
-    opacity: 0.6,
+    opacity: 0.5,
     position: "absolute",
-    right: -60,
-    top: 40,
+    right: -120,
+    top: 20,
   },
+  expandedMark: { right: -100, top: -20 },
   scroll: { flex: 1 },
   scrollContent: { flexGrow: 1 },
   hero: { flexGrow: 1, paddingBottom: space.xxxl },
@@ -166,7 +188,7 @@ const styles = StyleSheet.create({
     paddingTop: 44,
     width: "100%",
   },
-  sheetContent: { gap: space.xxxl },
+  sheetContent: { gap: 28 },
   heading: { flexDirection: "row", gap: space.lg },
   headingText: { flex: 1, gap: space.md },
   alertTitle: { minHeight: alertTileSize, justifyContent: "center" },
