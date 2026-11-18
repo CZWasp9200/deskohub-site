@@ -3,6 +3,7 @@ import Check from "lucide-react-native/icons/check";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
 import X from "lucide-react-native/icons/x";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Badge, type BadgeTone } from "../../ui/badge";
 import { Icon, type IconComponent } from "../../ui/icon";
@@ -152,6 +153,7 @@ export function BookingTicket({
   lines,
   meta = [],
   stub = "column",
+  badgePlacement = "header",
   onPress,
   children,
 }: {
@@ -164,28 +166,51 @@ export function BookingTicket({
   readonly lines: ReadonlyArray<string>;
   readonly meta?: ReadonlyArray<TicketMetaLine>;
   readonly stub?: "column" | "row";
+  /**
+   * `inline` drops the header row, for a ticket with no lead to show: the
+   * badge sits top right beside the date tile, and only the title keeps
+   * clear of it.
+   */
+  readonly badgePlacement?: "header" | "inline";
   /** Opens the booking: the part above the perforation is its link. */
   readonly onPress?: () => void;
   readonly children?: ReactNode;
 }) {
+  const [badgeWidth, setBadgeWidth] = useState(0);
+  const inline = badgePlacement === "inline";
   const top = (
     <>
-      <View style={styles.header}>
-        {lead !== undefined && <TicketLeadView lead={lead} />}
-        <View style={styles.badge}>
-          <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+      {!inline && (
+        <View style={styles.header}>
+          {lead !== undefined && <TicketLeadView lead={lead} />}
+          <View style={styles.badge}>
+            <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+          </View>
         </View>
-      </View>
+      )}
       <View style={styles.what}>
         {date !== undefined && <DateTile parts={date} tone={dateTone} />}
         <View style={styles.whatText}>
-          <Text variant="headline">{title}</Text>
+          <Text
+            variant="headline"
+            style={inline ? { marginRight: badgeWidth + space.sm } : undefined}
+          >
+            {title}
+          </Text>
           {lines.map((line) => (
             <Text key={line} variant="bodySmall">
               {line}
             </Text>
           ))}
         </View>
+        {inline && (
+          <View
+            onLayout={(event) => setBadgeWidth(event.nativeEvent.layout.width)}
+            style={styles.badgeInline}
+          >
+            <Badge label={badge.label} tone={badge.tone} icon={badge.icon} />
+          </View>
+        )}
       </View>
       {meta.length > 0 && (
         <View style={styles.meta}>
@@ -450,6 +475,8 @@ const styles = StyleSheet.create({
     paddingTop: 7,
   },
   // At large font sizes the tile grows with its text rather than cutting it.
+  // A badge beside the date tile, aligned to its top.
+  badgeInline: { position: "absolute", right: 0, top: 0 },
   tileCompact: { minWidth: 52, paddingBottom: 7, paddingTop: 6 },
   tileSmall: brandText(12, 14, 600),
   tileDay: brandText(24, 28, 700),

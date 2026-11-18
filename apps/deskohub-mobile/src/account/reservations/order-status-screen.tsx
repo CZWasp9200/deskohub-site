@@ -375,6 +375,7 @@ function OrderTicket({
         badge={badge}
         date={view.date}
         dateTone={model.dim ? "dim" : "strong"}
+        badgePlacement={order.withdrawal === undefined ? "header" : "inline"}
         title={view.title}
         lines={view.lines}
         meta={view.meta}
