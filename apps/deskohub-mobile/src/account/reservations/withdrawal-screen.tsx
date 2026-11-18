@@ -415,7 +415,7 @@ function WithdrawalReceived({
               {
                 email: emailWithBreak(receipt.receiptEmail).replaceAll(
                   ".",
-                  ".\u2060"
+                  "\u2060.\u2060"
                 ),
               },
               { locale }
