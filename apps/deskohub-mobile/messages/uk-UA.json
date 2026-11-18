@@ -590,6 +590,7 @@
   "reservations_book_again": "Забронювати знову",
   "reservations_contact": "Зв'язатися з нами",
   "reservations_show_pin": "Показати PIN-код",
+  "withdrawal_decline": "Не відмовлятися",
   "reservations_pin_works_from": "Діє з {time}",
   "reservations_price_paid": "{price} · сплачено карткою",
   "reservations_price_not_charged": "{price} · не списано",

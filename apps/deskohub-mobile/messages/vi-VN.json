@@ -590,6 +590,7 @@
   "reservations_book_again": "Đặt lại",
   "reservations_contact": "Liên hệ chúng tôi",
   "reservations_show_pin": "Hiện mã PIN",
+  "withdrawal_decline": "Không rút lại",
   "reservations_pin_works_from": "Dùng được từ {time}",
   "reservations_price_paid": "{price} · đã thanh toán bằng thẻ",
   "reservations_price_not_charged": "{price} · chưa bị trừ tiền",

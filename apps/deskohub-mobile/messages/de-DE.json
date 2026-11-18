@@ -590,6 +590,7 @@
   "reservations_book_again": "Erneut buchen",
   "reservations_contact": "Kontakt",
   "reservations_show_pin": "PIN anzeigen",
+  "withdrawal_decline": "Nicht widerrufen",
   "reservations_pin_works_from": "Gültig ab {time}",
   "reservations_price_paid": "{price} · mit Karte bezahlt",
   "reservations_price_not_charged": "{price} · nicht belastet",

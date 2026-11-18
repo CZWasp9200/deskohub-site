@@ -590,6 +590,7 @@
   "reservations_book_again": "फिर से बुक करें",
   "reservations_contact": "हमसे संपर्क करें",
   "reservations_show_pin": "PIN कोड दिखाएँ",
+  "withdrawal_decline": "वापस न लें",
   "reservations_pin_works_from": "{time} से काम करेगा",
   "reservations_price_paid": "{price} · कार्ड से भुगतान किया गया",
   "reservations_price_not_charged": "{price} · शुल्क नहीं लिया गया",

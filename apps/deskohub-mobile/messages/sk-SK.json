@@ -590,6 +590,7 @@
   "reservations_book_again": "Rezervovať znova",
   "reservations_contact": "Napíš nám",
   "reservations_show_pin": "Zobraziť PIN kód",
+  "withdrawal_decline": "Neodstupovať",
   "reservations_pin_works_from": "Funguje od {time}",
   "reservations_price_paid": "{price} · zaplatené kartou",
   "reservations_price_not_charged": "{price} · nestrhnuté",
