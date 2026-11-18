@@ -240,7 +240,7 @@ describe("fake booking reservations", () => {
 describe("fake booking checkout", () => {
   test("holds a quoted selection for ten minutes", async () => {
     const { run, booking } = harness();
-    const now = new Date("2026-11-09T09:00:00Z");
+    const now = booking.now();
     booking.now = () => now;
     const result = await run((api) => held(api, coworkSelection(booking)));
     if (result._tag !== "Success") throw new Error("expected a checkout");
@@ -428,7 +428,7 @@ describe("fake booking pay state", () => {
 
   test("answers an identical create retry with the order it made", async () => {
     const { run, booking } = harness();
-    const start = Date.parse("2026-11-09T09:00:00Z");
+    const start = booking.now().getTime();
     let now = start;
     booking.now = () => new Date(now);
     booking.fail("createCheckout", "transport-failure");
@@ -683,7 +683,7 @@ describe("fake booking scripting", () => {
 
   test("ends a hold after ten minutes", async () => {
     const { run, booking } = harness();
-    const start = Date.parse("2026-11-09T09:00:00Z");
+    const start = booking.now().getTime();
     let now = start;
     booking.now = () => new Date(now);
     const result = await run((api) =>
@@ -734,7 +734,7 @@ describe("fake booking scripting", () => {
 describe("fake booking hold and code removal", () => {
   /** A held checkout, minutes passing on `booking.now` between steps. */
   const clock = (booking: FakeBookingApi) => {
-    const start = Date.parse("2026-11-09T09:00:00Z");
+    const start = booking.now().getTime();
     let now = start;
     booking.now = () => new Date(now);
     return {
