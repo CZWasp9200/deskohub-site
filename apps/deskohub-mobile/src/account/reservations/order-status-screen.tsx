@@ -65,8 +65,8 @@ import { bookedSelectionOf } from "./payment-recovery";
 import { canRefreshManually, type StatusRefreshState } from "./status-refresh";
 import { AutomaticRefresh, type StatusVisit } from "./status-refresh-rules";
 import { usePaymentRecovery } from "./use-payment-recovery";
+import Undo2 from "lucide-react-native/icons/undo-2";
 import { AccessPinButton } from "./access-pin-button";
-import { WithdrawalLink } from "./withdrawal-link";
 import { WhenWithdrawable } from "./withdrawal-offer";
 
 /** Opens the site's contact form. */
@@ -106,6 +106,7 @@ function MoreActions({
   readonly event: BookingEvent | undefined;
 }) {
   const locale = useAppLocale();
+  const router = useRouter();
   const invoice = useAtomValue(invoiceShareAtom(order.orderId));
   const shareInvoice = useAtomSet(invoiceShareAtom(order.orderId));
   const calendar = useAtomValue(calendarShareAtom(order.orderId));
@@ -143,6 +144,23 @@ function MoreActions({
           trailing={<Icon icon={ChevronRight} size={20} color={color.ink3} />}
           onPress={openContactPage}
         />
+        <WhenWithdrawable orderId={order.orderId}>
+          <ListRow
+            kind="action"
+            destructive
+            icon={Undo2}
+            label={m.reservations_withdraw({}, { locale })}
+            trailing={
+              <Icon icon={ChevronRight} size={20} color={color.ink3} />
+            }
+            onPress={() =>
+              router.push({
+                pathname: "/reservations/[orderId]/withdraw",
+                params: { orderId: order.orderId },
+              })
+            }
+          />
+        </WhenWithdrawable>
       </ListGroup>
       <LiveMessage
         role="status"
@@ -216,13 +234,6 @@ function TicketStub({
     case "AccessPin":
       return offersAccessLink(order) ? (
         <>
-          <WhenWithdrawable orderId={order.orderId}>
-            <WithdrawalLink
-              orderId={order.orderId}
-              style={styles.withdrawal}
-              underlined
-            />
-          </WhenWithdrawable>
           <AccessPinButton orderId={order.orderId} />
           {accessHint !== undefined && (
             <Text variant="hint" style={styles.centred}>
@@ -497,5 +508,4 @@ export function OrderStatusScreen({
 const styles = StyleSheet.create({
   stack: { gap: space.lg },
   centred: { textAlign: "center" },
-  withdrawal: { alignSelf: "center", textAlign: "center" },
 });

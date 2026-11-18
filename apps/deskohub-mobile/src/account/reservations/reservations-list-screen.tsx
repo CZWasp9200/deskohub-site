@@ -564,20 +564,6 @@ function NextAccessLine({
     case "Ready":
       return (
         <>
-          <AccessTile />
-          <View style={[styles.stubText, stubTextWidth]}>
-            <Text variant="subhead">
-              {m.reservations_pin_ready({}, { locale })}
-            </Text>
-            {Option.isSome(access.from) && (
-              <Text variant="hint">
-                {m.reservations_pin_works_from(
-                  { time: access.from.value },
-                  { locale }
-                )}
-              </Text>
-            )}
-          </View>
           {orderId !== undefined && (
             <View style={styles.stubActions}>
               {withdrawable && (
