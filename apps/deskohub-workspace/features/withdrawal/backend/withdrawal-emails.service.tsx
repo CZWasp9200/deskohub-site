@@ -5,6 +5,7 @@ import {
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
 import type { EmailMessage } from "@deskohub/email/types/email.types";
+import { getWorkspaceCanonicalUrl } from "@/shared/utils";
 import { Context, Effect, Layer } from "effect";
 import {
   ContractWithdrawalNoticeEmail,
@@ -37,6 +38,7 @@ interface IWithdrawalEmails {
   readonly sendOperatorNotice: (input: {
     readonly withdrawal: ContractWithdrawal;
     readonly customerEmail: string;
+    readonly customerName: string | null;
   }) => Effect.Effect<void, WithdrawalEmailError>;
 }
 
@@ -92,14 +94,21 @@ export class WithdrawalEmails extends Context.Service<
           yield* emailService.send(message).pipe(Effect.asVoid);
         }),
         sendOperatorNotice: Effect.fn("WithdrawalEmails.sendOperatorNotice")(
-          function* ({ withdrawal, customerEmail }) {
+          function* ({ withdrawal, customerEmail, customerName }) {
             const props = {
               contractLabel: withdrawal.contractLabel,
               contractId: withdrawal.contract.id,
               accountId: withdrawal.accountId,
+              customerName,
+              customerEmail,
               submittedAt: withdrawal.submittedAt,
               paidAmount: withdrawal.paidAmount,
               refundAmount: withdrawal.refundAmount,
+              refundBasis: withdrawal.refundBasis,
+              adminUrl: getWorkspaceCanonicalUrl(
+                `/admin/reservations/${encodeURIComponent(withdrawal.contract.id)}`
+              ),
+              cancelledAt: withdrawal.contractCancelledAt,
             };
             const rendered = yield* renderWorkspaceEmail(
               <ContractWithdrawalNoticeEmail {...props} />

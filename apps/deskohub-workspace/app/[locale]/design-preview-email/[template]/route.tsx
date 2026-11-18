@@ -4,11 +4,13 @@ import "@/shared/polyfills/temporal";
 import { render } from "react-email";
 import { notFound } from "next/navigation";
 import type { Locale } from "@/features/i18n";
+import ContractWithdrawalNoticeEmail from "@/emails/contract-withdrawal-notice";
 import ContractWithdrawalReceiptEmail from "@/emails/contract-withdrawal-receipt";
 import CustomerReservationEmail from "@/emails/customer-reservation";
 import ReservationCancellationEmail from "@/emails/reservation-cancellation";
 
 const templates = {
+  "contract-withdrawal-notice": ContractWithdrawalNoticeEmail,
   "contract-withdrawal-receipt": ContractWithdrawalReceiptEmail,
   "customer-reservation": CustomerReservationEmail,
   "reservation-cancellation": ReservationCancellationEmail,
@@ -43,6 +45,20 @@ const withdrawalReceiptProps = (state: string | null, locale: string) => {
   };
 };
 
+/** The staff notice for the same withdrawals (staff read Czech). */
+const withdrawalNoticeProps = (state: string | null) => {
+  const receipt = withdrawalReceiptProps(state, "cs-CZ");
+  return {
+    ...receipt,
+    contractId: "workspace_01JY4J8R6Z9Q2N8K7M5P3A1B0C",
+    accountId: "account_01JX2B3C4D5E6F7G8H9J0K1L2M",
+    customerEmail: receipt.receiptEmail,
+    adminUrl:
+      "https://workspace.deskohub.cz/admin/reservations/workspace_01JY4J8R6Z9Q2N8K7M5P3A1B0C",
+    cancelledAt: null,
+  };
+};
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ locale: string; template: string }> }
@@ -51,10 +67,13 @@ export async function GET(
   const { locale, template } = await params;
   const Email = templates[template as keyof typeof templates];
   if (!Email) notFound();
+  const state = new URL(request.url).searchParams.get("state");
   const props =
     template === "contract-withdrawal-receipt"
-      ? withdrawalReceiptProps(new URL(request.url).searchParams.get("state"), locale)
-      : (Email.PreviewProps as object);
+      ? withdrawalReceiptProps(state, locale)
+      : template === "contract-withdrawal-notice"
+        ? withdrawalNoticeProps(state)
+        : (Email.PreviewProps as object);
   const html = await render(
     <Email {...(props as object as never)} {...({ locale: locale as Locale } as object)} />
   );

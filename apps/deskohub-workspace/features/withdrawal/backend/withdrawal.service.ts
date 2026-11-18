@@ -326,6 +326,7 @@ export class WithdrawalService extends Context.Service<
               emails.sendOperatorNotice({
                 withdrawal,
                 customerEmail: customerEmail.value,
+                customerName: known?.customerName ?? null,
               }),
               () => true,
               () => "operator_notice_failed"

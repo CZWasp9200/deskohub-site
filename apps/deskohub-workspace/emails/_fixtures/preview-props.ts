@@ -107,9 +107,14 @@ export const contractWithdrawalNoticePreviewProps = {
   contractLabel: "Office · 14–16 Jan 2027",
   contractId: "reservation-3",
   accountId: "account-preview",
+  customerName: "Alex Example",
+  customerEmail: "alex@example.com",
   submittedAt: Temporal.Instant.from("2027-01-14T09:41:00Z"),
   paidAmount: { value: 300_000, exponent: 2, currency: "CZK" },
   refundAmount: { value: 200_000, exponent: 2, currency: "CZK" },
+  refundBasis: { kind: "partial", unit: "day", unstarted: 2, total: 3 },
+  adminUrl: "https://workspace.deskohub.cz/admin/reservations/reservation-3",
+  cancelledAt: null,
 } satisfies ContractWithdrawalNoticeEmailProps;
 
 export const invoiceDeliveryPreviewProps = {

@@ -1,4 +1,3 @@
-import { Column, Row, Section, Text } from "react-email";
 import { type Locale, m } from "@/features/i18n";
 import { formatReservationDisplayDateTime } from "@/features/reservation/reservation-date";
 import type { WithdrawalRefundBasis } from "@/features/withdrawal/withdrawal-assessment";
@@ -7,8 +6,8 @@ import { emailWithBreak } from "@/shared/utils/email-with-break";
 import {
   WorkspaceEmailBody,
   WorkspaceEmailHeading,
-  WorkspaceEmailNote,
 } from "./_components/workspace-email-content";
+import { WithdrawalRefundBreakdown } from "./_components/withdrawal-refund-breakdown";
 import { WorkspaceEmailDetails } from "./_components/workspace-email-details";
 import { WorkspaceEmailLayout } from "./_components/workspace-email-layout";
 import { contractWithdrawalReceiptPreviewProps } from "./_fixtures/preview-props";
@@ -60,11 +59,14 @@ export function ContractWithdrawalReceiptEmail(
         wrapWords
       />
       {refundBasis.kind === "partial" && (
-        <WithdrawalRefundBreakdown {...props} />
+        <WithdrawalRefundBreakdown
+          locale={locale}
+          paidAmount={props.paidAmount}
+          refundAmount={props.refundAmount}
+          refundBasis={refundBasis}
+          refundLabel={m.withdrawalReceiptRefundLabel({}, { locale })}
+        />
       )}
-      <WorkspaceEmailNote>
-        {m.withdrawalReceiptEmailRefundNote({}, { locale })}
-      </WorkspaceEmailNote>
     </WorkspaceEmailLayout>
   );
 }
@@ -119,69 +121,6 @@ export const contractWithdrawalReceiptDetails = ({
       ]
     : []),
 ];
-
-/** What a partial refund keeps back: paid, the started days or hours, refund. */
-function WithdrawalRefundBreakdown({
-  locale,
-  paidAmount,
-  refundAmount,
-  refundBasis,
-}: ContractWithdrawalReceiptEmailProps) {
-  if (refundBasis.kind !== "partial") return null;
-  const kept = { ...paidAmount, value: paidAmount.value - refundAmount.value };
-  const started = (
-    refundBasis.unit === "hour"
-      ? m.withdrawalEmailStartedHours
-      : m.withdrawalEmailStartedDays
-  )(
-    { started: refundBasis.total - refundBasis.unstarted, total: refundBasis.total },
-    { locale }
-  );
-  const line = (label: string, amount: string, tone: "default" | "muted") => (
-    <Row>
-      <Column className="py-1 align-top">
-        <Text
-          className={`m-0 text-[14px] leading-[22px] ${tone === "muted" ? "text-[#565975]" : "text-navy"}`}
-        >
-          {label}
-        </Text>
-      </Column>
-      <Column className="py-1 text-right align-top">
-        <Text
-          className={`m-0 whitespace-nowrap text-[14px] leading-[22px] ${tone === "muted" ? "text-[#565975]" : "text-navy"}`}
-          style={{ fontVariantNumeric: "tabular-nums" }}
-        >
-          {amount}
-        </Text>
-      </Column>
-    </Row>
-  );
-  return (
-    <Section className="mt-4 rounded-2xl border border-[#e6e9f3] px-4 py-3">
-      {line(
-        m.withdrawalEmailPaidLabel({}, { locale }),
-        formatMoney(paidAmount, locale),
-        "default"
-      )}
-      {line(started, `−${formatMoney(kept, locale)}`, "muted")}
-      <Row style={{ borderTop: "1px solid #e6e9f3" }}>
-        <Column className="pt-3 align-top">
-          <Text className="m-0 text-[15px] font-bold leading-[22px] text-navy">
-            {m.withdrawalReceiptRefundLabel({}, { locale })}
-          </Text>
-        </Column>
-        <Column className="pt-3 text-right align-top">
-          <Text
-            className="m-0 whitespace-nowrap text-[15px] font-bold leading-[22px] text-navy"
-            style={{ fontVariantNumeric: "tabular-nums" }}
-          >
-            {formatMoney(refundAmount, locale)}
-          </Text>
-        </Column>
-      </Row>
-    </Section>
-  );
-}
 
 ContractWithdrawalReceiptEmail.PreviewProps =
   contractWithdrawalReceiptPreviewProps;
