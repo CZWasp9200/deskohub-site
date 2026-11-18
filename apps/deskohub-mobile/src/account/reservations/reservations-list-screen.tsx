@@ -107,7 +107,11 @@ function ReservationsMasthead() {
   return <Masthead title={m.account_section_reservations({}, { locale })} />;
 }
 
-/** The tab's screen: the masthead over its content, pull to refresh. */
+/**
+ * The tab's screen: the masthead over its content, pull to refresh, and the
+ * orders the account is invited to under whatever the content shows, read
+ * on their own: a gate, a failed history or a loading one never hides them.
+ */
 function ReservationsScreen({
   refreshing,
   onRefresh,
@@ -117,13 +121,18 @@ function ReservationsScreen({
   readonly onRefresh: () => void;
   readonly children: ReactNode;
 }) {
+  const refreshInvited = useAtomRefresh(invitedReservationsAtom);
   return (
     <ScrollScreen
       masthead={<ReservationsMasthead />}
       refreshing={refreshing}
-      onRefresh={onRefresh}
+      onRefresh={() => {
+        onRefresh();
+        refreshInvited();
+      }}
     >
       {children}
+      <InvitedReservations />
     </ScrollScreen>
   );
 }
@@ -193,15 +202,10 @@ function ReservationsBeforeAccount() {
 
 /** The account may see reservations: the list, saved then fresh. */
 function ReservationsHistory() {
-  const refreshHistory = useAtomRefresh(reservationHistoryAtom);
-  const refreshInvited = useAtomRefresh(invitedReservationsAtom);
   return (
     <ReservationsListView
       result={useAtomValue(reservationsListAtom)}
-      onRefresh={() => {
-        refreshHistory();
-        refreshInvited();
-      }}
+      onRefresh={useAtomRefresh(reservationHistoryAtom)}
     />
   );
 }
@@ -324,7 +328,6 @@ function ReservationGroupsView({
           </EmptyState>
         </Card>
         {savedNotice}
-        <InvitedReservations />
       </View>
     );
   }
@@ -342,7 +345,6 @@ function ReservationGroupsView({
           <ReservationRows rows={later} place="later" />
         </View>
       )}
-      <InvitedReservations />
       {groups.past.length > 0 && <PastReservations rows={groups.past} />}
     </View>
   );
@@ -359,12 +361,14 @@ function InvitedReservations() {
   const invited = Option.getOrUndefined(
     AsyncResult.value(useAtomValue(invitedReservationsAtom))
   );
-  if (invited === undefined || invited.current.length === 0) return null;
+  if (invited === undefined) return null;
+  const reservations = [...invited.current, ...invited.past];
+  if (reservations.length === 0) return null;
   return (
-    <View>
+    <View style={styles.invited}>
       <SectionHeader title={m.reservations_section_invited({}, { locale })} />
       <View style={styles.group}>
-        {invited.current.map((reservation, index) => {
+        {reservations.map((reservation, index) => {
           const view = invitedReservationView(reservation, locale);
           return (
             <Pressable
@@ -722,6 +726,7 @@ function TodayPin({
 }
 
 const styles = StyleSheet.create({
+  invited: { marginTop: space.xl },
   stack: { gap: space.lg },
   pressed: { opacity: 0.7 },
   group: {

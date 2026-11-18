@@ -4,7 +4,7 @@ import type {
   CustomerReservationPeople,
 } from "@deskohub/workspace-customer-api";
 import Interpolate from "@doist/react-interpolate";
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { DateTime, Exit, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
 import CircleUserRound from "lucide-react-native/icons/circle-user-round";
@@ -43,6 +43,10 @@ import {
   resendInvitationAtom,
 } from "./order-people";
 import { reservationOfOrderAtom } from "./order-ticket-view";
+import {
+  reservationHistoryAtom,
+  reservationsListAtom,
+} from "./reservations-list-state";
 
 /** The booking's day or days, as the change request names them. */
 const bookedDaysText = (order: CustomerOrderState, locale: AppLocale) =>
@@ -78,15 +82,26 @@ export function OrderPeopleSection({
     AsyncResult.value(useAtomValue(accountAtom)),
     officeContactOf
   );
-  // The account is the attending contact, unless it booked for another customer.
-  const orderContact = orderContactOf(
-    Option.getOrUndefined(
-      Option.flatMap(
-        useAtomValue(reservationOfOrderAtom(order.orderId)),
-        (row) => Option.fromUndefinedOr(row.party)
-      )
-    )
+  const history = useAtomValue(reservationsListAtom);
+  const reservation = useAtomValue(reservationOfOrderAtom(order.orderId));
+  const rereadHistory = useAtomRefresh(reservationHistoryAtom);
+  // Saved history strips the relationship between this account and the contact.
+  const historyFresh = Option.exists(AsyncResult.value(history), (list) =>
+    Option.isNone(list.savedAt)
   );
+  const orderContact = orderContactOf(
+    historyFresh ? reservation : Option.none()
+  );
+  const needsContact =
+    people.contactAttends && OrderContact.$is("Unknown")(orderContact);
+  const [reread, setReread] = useState(false);
+  // A recent checkout can be missing from the history fetched before payment.
+  useEffect(() => {
+    if (historyFresh && needsContact && !reread) {
+      setReread(true);
+      rereadHistory();
+    }
+  }, [historyFresh, needsContact, reread, rereadHistory]);
   const resend = useAtomSet(resendInvitationAtom(order.orderId), {
     mode: "promiseExit",
   });
@@ -198,6 +213,8 @@ export function OrderPeopleSection({
                     <PersonRow key="contact" name={customer} />
                   ),
                 }),
+              // Never assumed to be the account: left out until known.
+              Unknown: () => null,
             })}
           {rows.map(({ invitee, resend: offered }) => (
             <PersonRow

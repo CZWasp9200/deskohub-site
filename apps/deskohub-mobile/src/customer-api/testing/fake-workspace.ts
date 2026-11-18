@@ -681,9 +681,7 @@ const serverLayer = (workspace: FakeWorkspace) => {
         )
         .handle("getEstablishment", () => Effect.succeed(sampleEstablishment))
         .handle("listInvitedReservations", () =>
-          Effect.sync(
-            () => workspace.data.invited ?? { current: [], past: [] }
-          )
+          Effect.sync(() => workspace.data.invited ?? { current: [], past: [] })
         )
         // Sends again to a listed invitee, then accepts no other resend for
         // five minutes, as the Workspace's cooldown does.

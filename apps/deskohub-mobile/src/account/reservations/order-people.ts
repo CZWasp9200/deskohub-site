@@ -11,24 +11,31 @@ import { customerDataRuntime } from "../../customer-api/customer-data-runtime";
 import { customerWrite } from "../../customer-api/customer-request";
 
 /**
- * Who the order's contact is to the signed-in account: the account itself
- * ("You"), unless the history says the account booked the order for another
- * customer, named there when their name could be read. Without the history's
- * party (a saved or not yet listed row) the account is the contact, as for
- * most orders.
+ * Who the order's contact is to the signed-in account, from the order's row
+ * in a fresh history read: the customer the account booked it for (named
+ * when their name could be read), else the account itself ("You"). Unknown
+ * without a fresh row: a saved row keeps no party, and a new order may not
+ * be listed yet.
  */
 export type OrderContact = Data.TaggedEnum<{
   You: Record<never, never>;
   Customer: { readonly name: Option.Option<string> };
+  Unknown: Record<never, never>;
 }>;
 export const OrderContact = Data.taggedEnum<OrderContact>();
 
 export const orderContactOf = (
-  party: CustomerReservationParty | undefined
+  freshRow: Option.Option<{ readonly party?: CustomerReservationParty }>
 ): OrderContact =>
-  party?.kind === "booked-for"
-    ? OrderContact.Customer({ name: Option.fromNullishOr(party.customerName) })
-    : OrderContact.You();
+  Option.match(freshRow, {
+    onNone: () => OrderContact.Unknown(),
+    onSome: ({ party }) =>
+      party?.kind === "booked-for"
+        ? OrderContact.Customer({
+            name: Option.fromNullishOr(party.customerName),
+          })
+        : OrderContact.You(),
+  });
 
 /** What asking for an invitation again came to. */
 export type InvitationResend = Data.TaggedEnum<{

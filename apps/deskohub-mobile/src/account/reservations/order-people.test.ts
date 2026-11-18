@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { CustomerReservationParty } from "@deskohub/workspace-customer-api";
 import { DateTime, Option } from "effect";
 import { inviteeResend, OrderContact, orderContactOf } from "./order-people";
 
@@ -43,22 +44,29 @@ describe("inviteeResend", () => {
 });
 
 describe("orderContactOf", () => {
+  const row = (party?: CustomerReservationParty) =>
+    Option.some(party === undefined ? {} : { party });
+
+  test("is unknown without the order's row in a fresh history read", () => {
+    expect(orderContactOf(Option.none())).toEqual(OrderContact.Unknown());
+  });
+
   test("is the account itself unless the account booked for another customer", () => {
-    expect(orderContactOf(undefined)).toEqual(OrderContact.You());
+    expect(orderContactOf(row())).toEqual(OrderContact.You());
     expect(
-      orderContactOf({ kind: "booked-by", authorName: "Sam Example" })
+      orderContactOf(row({ kind: "booked-by", authorName: "Sam Example" }))
     ).toEqual(OrderContact.You());
-    expect(orderContactOf({ kind: "booked-by-deleted-account" })).toEqual(
+    expect(orderContactOf(row({ kind: "booked-by-deleted-account" }))).toEqual(
       OrderContact.You()
     );
   });
 
   test("names the customer the account booked for, never as You", () => {
     expect(
-      orderContactOf({ kind: "booked-for", customerName: "Bob Example" })
+      orderContactOf(row({ kind: "booked-for", customerName: "Bob Example" }))
     ).toEqual(OrderContact.Customer({ name: Option.some("Bob Example") }));
-    expect(orderContactOf({ kind: "booked-for", customerName: null })).toEqual(
-      OrderContact.Customer({ name: Option.none() })
-    );
+    expect(
+      orderContactOf(row({ kind: "booked-for", customerName: null }))
+    ).toEqual(OrderContact.Customer({ name: Option.none() }));
   });
 });

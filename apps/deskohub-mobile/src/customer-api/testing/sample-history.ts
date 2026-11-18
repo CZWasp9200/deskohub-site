@@ -2,6 +2,7 @@ import { CustomerAccountId } from "@deskohub/workspace-customer-api";
 import type { FakeWorkspace } from "./fake-workspace";
 import {
   sampleDeskReservation,
+  sampleOfficePeopleReservation,
   samplePaymentFailedReservation,
   sampleWholeDayDesk,
 } from "./sample-fixtures";
@@ -24,6 +25,7 @@ import {
  *   with a nine-digit PIN.
  * - `payment-failed`: the fixtures, and a meeting room whose payment failed,
  *   listed as the history answers it: not booked, at its booked time.
+ * - `office-people`: an upcoming office with a contact and an invitee.
  */
 export const sampleHistories = [
   "today",
@@ -36,6 +38,7 @@ export const sampleHistories = [
   "loading",
   "whole-day",
   "payment-failed",
+  "office-people",
 ] as const;
 export type SampleHistory = (typeof sampleHistories)[number];
 
@@ -67,6 +70,7 @@ export const withSampleHistory = (
     loading: () => data.history.current,
     "whole-day": () => [wholeDay.reservation, ...data.history.current],
     "payment-failed": () => data.history.current,
+    "office-people": () => [sampleOfficePeopleReservation(now)],
   }[history]();
   workspace.data = {
     ...data,

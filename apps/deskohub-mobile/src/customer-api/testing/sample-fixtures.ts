@@ -172,9 +172,7 @@ export const sampleOrderIds = {
   // A booked private office with its people, and one the account is
   // invited to: reachable by deep link, not listed in the history.
   officePeople: CustomerReservationOrderId.make("sample-order-office-people"),
-  officeInvited: CustomerReservationOrderId.make(
-    "sample-order-office-invited"
-  ),
+  officeInvited: CustomerReservationOrderId.make("sample-order-office-invited"),
 } as const;
 
 const hour = 60 * 60 * 1000;
@@ -932,7 +930,19 @@ export const sampleInvoices = (): ReadonlyArray<SampleInvoice> => [
   },
 ];
 
-/** A complete synthetic Workspace for one account in the given state. */
+/** The sample order with an attending contact and one invitee. */
+export const sampleOfficePeopleReservation = (
+  now: Date
+): CustomerReservationSummary => ({
+  id: "sample-reservation-office-people",
+  orderId: sampleOrderIds.officePeople,
+  product: { kind: "office" },
+  startsAt: pragueDayStart(now, 1).toISOString(),
+  endsAt: pragueDayStart(now, 2).toISOString(),
+  seats: 2,
+  status: "confirmed",
+});
+
 /** The office the sample account is invited to, from tomorrow for three days. */
 export const sampleInvitedReservations = (
   now: Date
@@ -950,6 +960,7 @@ export const sampleInvitedReservations = (
   past: [],
 });
 
+/** A complete synthetic Workspace for one account in the given state. */
 export const sampleWorkspaceData = (
   kind: SampleAccountKind,
   now: Date = new Date()
