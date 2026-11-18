@@ -164,6 +164,7 @@ export {
   CustomerReservationSummary,
   CustomerReservationsApi,
   CustomerReservationWithdrawalAvailability,
+  CustomerWithdrawalNameRequired,
   CustomerWithdrawalQuote,
   CustomerWithdrawalReceipt,
   CustomerWithdrawalRefundBasis,

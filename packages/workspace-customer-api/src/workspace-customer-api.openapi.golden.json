@@ -2078,6 +2078,16 @@
               }
             }
           },
+          "422": {
+            "description": "CustomerWithdrawalNameRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerWithdrawalNameRequired"
+                }
+              }
+            }
+          },
           "429": {
             "description": "CustomerRateLimited",
             "content": {
@@ -6393,6 +6403,27 @@
                 "type": "null"
               }
             ]
+          },
+          "withdrawal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "submittedAt": {
+                    "type": "string",
+                    "description": "ISO 8601 instant."
+                  },
+                  "refundAmount": {
+                    "$ref": "#/components/schemas/Money"
+                  }
+                },
+                "required": ["submittedAt", "refundAmount"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -6839,6 +6870,9 @@
         "properties": {
           "locale": {
             "$ref": "#/components/schemas/CustomerLocale"
+          },
+          "customerName": {
+            "type": "string"
           }
         },
         "required": ["locale"],
@@ -6867,6 +6901,17 @@
           "refundAmount",
           "receiptEmail"
         ],
+        "additionalProperties": false
+      },
+      "CustomerWithdrawalNameRequired": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["CustomerWithdrawalNameRequired"]
+          }
+        },
+        "required": ["_tag"],
         "additionalProperties": false
       },
       "CustomerAccessCodeUnavailable": {
