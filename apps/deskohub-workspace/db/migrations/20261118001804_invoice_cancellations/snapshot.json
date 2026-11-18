@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "ed3265f8-2c40-4649-8017-4ac6a632b6a7",
+  "id": "7f011174-3d73-4ac1-88e5-e2d0106be39d",
   "prevIds": [
-    "2d01d689-7eec-4992-98c0-c6ce10cb0f34"
+    "0eab2cb7-dcf5-4c88-9cbe-9498177d229b"
   ],
   "ddl": [
     {
@@ -9092,6 +9092,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "cancellation_email_sent_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_reservations"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "paid_at",
       "entityType": "columns",
       "schema": "public",
@@ -11532,11 +11545,46 @@
         }
       ],
       "isUnique": true,
-      "where": "\"kind\" in ('reservation-booked', 'reservation-cancelled')",
+      "where": "\"kind\" = 'reservation-booked'",
       "with": "",
       "method": "btree",
       "concurrently": false,
       "name": "customer_events_workspace_write_unique_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "customer_events"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "kind",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "workspace_reservation_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "occurred_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"kind\" = 'reservation-cancelled'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "customer_events_cancellation_unique_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "customer_events"
