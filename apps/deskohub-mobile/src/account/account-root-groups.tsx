@@ -22,7 +22,7 @@ import { ListGroup, ListRow, SectionHeader } from "../ui/list";
 import { Text } from "../ui/text";
 import { color, space } from "../ui/tokens";
 import {
-  type AccountScreenSection,
+  type AccountDetailSection,
   accountSectionHref,
 } from "./account-gating";
 import type {
@@ -115,8 +115,7 @@ export const accountRowSubtitleText = (
 // Payment methods has no screen yet, so its row only shows.
 const opensScreen = (
   section: AccountRowSection
-): section is AccountRowSection & AccountScreenSection =>
-  section !== "payment-methods";
+): section is AccountDetailSection => section !== "payment-methods";
 
 /**
  * The Account tab's groups of section rows, each after its heading (the
@@ -124,8 +123,10 @@ const opensScreen = (
  */
 export function AccountRootGroups({
   groups,
+  activeSection,
 }: {
   readonly groups: ReadonlyArray<AccountGroup>;
+  readonly activeSection?: AccountDetailSection;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
@@ -146,8 +147,18 @@ export function AccountRootGroups({
                   description: accountRowSubtitleText(subtitle, locale),
                 })}
                 destructive={section === "danger"}
+                {...(activeSection !== undefined && {
+                  active: section === activeSection,
+                  trailing: "none" as const,
+                })}
                 {...(opensScreen(section) && {
-                  onPress: () => router.push(accountSectionHref[section]),
+                  onPress: () => {
+                    if (activeSection === undefined) {
+                      router.push(accountSectionHref[section]);
+                    } else if (section !== activeSection) {
+                      router.navigate(accountSectionHref[section]);
+                    }
+                  },
                 })}
               />
             ))}

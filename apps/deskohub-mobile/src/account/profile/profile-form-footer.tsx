@@ -4,6 +4,7 @@ import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
 import { ActionFooter } from "../../ui/action-footer";
 import { Button } from "../../ui/controls";
+import type { ContentWidth } from "../../ui/viewport";
 import type { CompletionTextField } from "./profile-draft";
 import {
   type ProfileFooterMessage,
@@ -66,7 +67,7 @@ export function ProfileFormFooter({
   readonly elsewhere: ProfileFormElsewhere;
   readonly locale: AppLocale;
   readonly layout?: "inline" | "stacked";
-  readonly contentWidth?: "form" | "wide";
+  readonly contentWidth?: ContentWidth;
 }) {
   const footer = profileFooterView(state, unsaved, shownFields);
   return (

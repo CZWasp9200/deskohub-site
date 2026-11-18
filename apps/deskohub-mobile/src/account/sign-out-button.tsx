@@ -9,7 +9,8 @@ import { Button, LiveMessage } from "../ui/controls";
 import { Dialog } from "../ui/dialog";
 import { Icon } from "../ui/icon";
 import { Notice } from "../ui/notice";
-import { color, touchTarget } from "../ui/tokens";
+import { Text } from "../ui/text";
+import { color, space, touchTarget } from "../ui/tokens";
 
 const runSignOut = () => signOut;
 const unexpectedSignOutFailure = () => new SignOutFailure();
@@ -20,7 +21,13 @@ const unexpectedSignOutFailure = () => new SignOutFailure();
  * dialog stays while the sign-out runs and says so if it fails; a
  * successful sign-out leaves the signed-in screens altogether.
  */
-export function SignOutButton() {
+export function SignOutButton({
+  onNavy = false,
+  showLabel = false,
+}: {
+  readonly onNavy?: boolean;
+  readonly showLabel?: boolean;
+}) {
   const locale = useAppLocale();
   const [asking, setAsking] = useState(false);
   const signingOut = useAuthTask(
@@ -40,9 +47,18 @@ export function SignOutButton() {
         role="button"
         aria-label={m.account_sign_out({}, { locale })}
         onPress={() => setAsking(true)}
-        style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.button,
+          showLabel && styles.labeled,
+          pressed && styles.pressed,
+        ]}
       >
-        <Icon icon={LogOut} color={color.danger} />
+        <Icon icon={LogOut} color={onNavy ? color.white : color.danger} />
+        {showLabel && (
+          <Text variant="hintStrong" tone={onNavy ? "inverse" : "danger"}>
+            {m.account_sign_out({}, { locale })}
+          </Text>
+        )}
       </Pressable>
       <Dialog
         visible={asking}
@@ -96,6 +112,16 @@ const styles = StyleSheet.create({
     height: touchTarget,
     justifyContent: "center",
     width: touchTarget,
+  },
+  labeled: {
+    borderColor: color.onNavyMuted,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: space.xs,
+    height: "auto",
+    minHeight: touchTarget,
+    paddingHorizontal: space.md,
+    width: "auto",
   },
   pressed: { opacity: 0.6 },
 });

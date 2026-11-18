@@ -128,6 +128,7 @@ export function ListRow({
   below,
   accessibilityLabel,
   selected,
+  active = false,
 }: {
   readonly label: string;
   readonly description?: string;
@@ -161,12 +162,15 @@ export function ListRow({
    * `trailing`, and every row says whether it is chosen.
    */
   readonly selected?: boolean;
+  /** The navigation row for the page currently shown beside the list. */
+  readonly active?: boolean;
 }) {
   const { role, chevron } = listRowPresentation({
     pressable: onPress !== undefined,
     kind,
   });
   const tile = iconTileColors[iconTone ?? (destructive ? "danger" : "neutral")];
+  const tileInk = active ? color.action : tile.ink;
   const end: RowEnd = selected
     ? "check"
     : (trailing ?? (chevron ? "chevron" : "none"));
@@ -188,7 +192,7 @@ export function ListRow({
           <Icon
             icon={icon}
             size={20}
-            color={disabled ? color.disabledInk : tile.ink}
+            color={disabled ? color.disabledInk : tileInk}
           />
         </View>
       )}
@@ -237,6 +241,7 @@ export function ListRow({
     listRowLayout.row,
     description !== undefined && listRowLayout.withDescription,
     below !== undefined && styles.withBelow,
+    active && styles.active,
   ];
 
   if (onPress === undefined && below !== undefined) {
@@ -255,6 +260,7 @@ export function ListRow({
       aria-label={accessibleLabel}
       aria-disabled={disabled}
       aria-selected={selected}
+      aria-current={active ? "page" : undefined}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -285,6 +291,7 @@ const trailingContent = (end: RowEnd) => {
 };
 
 const styles = StyleSheet.create({
+  active: { backgroundColor: color.actionTint },
   sectionHeader: {
     gap: space.xxs,
     paddingBottom: space.sm,
