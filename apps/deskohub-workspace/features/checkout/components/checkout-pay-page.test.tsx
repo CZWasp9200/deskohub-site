@@ -48,6 +48,23 @@ mock.module("@/features/reservation/actions/submit-reservation", () => ({
   submitWorkspaceReservation,
 }));
 
+// The early-performance request the pay consent adds when the service starts
+// inside the withdrawal period, read from the message so the tests follow its
+// wording.
+const earlyPerformanceRequest = (() => {
+  const request = m
+    .checkoutPayConsent({}, { locale: "en-US" })
+    .match(/<earlyPerformance>([\s\S]*?)<\/earlyPerformance>/)?.[1]
+    ?.trim();
+  if (!request) {
+    throw new Error("checkoutPayConsent has no early-performance request");
+  }
+  return request;
+})();
+
+const includesEarlyPerformanceRequest = (name: string) =>
+  name.includes(earlyPerformanceRequest);
+
 beforeEach(() => {
   workspaceUseAction.mockReturnValue({
     execute: mock(),
@@ -169,7 +186,7 @@ describe("CheckoutPayPage payment navigation", () => {
     expect(view.getByRole("button", { name: "Apply discount" })).toBeDefined();
     expect(view.getAllByRole("checkbox")).toHaveLength(1);
     expect(
-      view.getByRole("checkbox", { name: /statutory withdrawal period/ })
+      view.getByRole("checkbox", { name: includesEarlyPerformanceRequest })
     ).toBeDefined();
     fireEvent.click(view.getByRole("checkbox"));
     fireEvent.click(
@@ -277,7 +294,7 @@ describe("CheckoutPayPage payment navigation", () => {
 
     expect(view.getAllByRole("checkbox")).toHaveLength(1);
     expect(
-      view.queryByRole("checkbox", { name: /statutory withdrawal period/ })
+      view.queryByRole("checkbox", { name: includesEarlyPerformanceRequest })
     ).toBeNull();
     expect(
       view
@@ -416,7 +433,7 @@ describe("CheckoutPayPage provider handoff", () => {
 
     expect(
       earlyPerformanceView.getByRole("checkbox", {
-        name: /statutory withdrawal period/i,
+        name: includesEarlyPerformanceRequest,
       })
     ).toBe(earlyPerformanceCheckbox);
     expect(earlyPerformanceCheckbox.getAttribute("aria-checked")).toBe("false");
@@ -441,7 +458,7 @@ describe("CheckoutPayPage provider handoff", () => {
     expect(legalConsentCheckbox.getAttribute("aria-checked")).toBe("false");
     expect(
       legalOnlyView.queryByRole("checkbox", {
-        name: /statutory withdrawal period/i,
+        name: includesEarlyPerformanceRequest,
       })
     ).toBeNull();
     expect(
