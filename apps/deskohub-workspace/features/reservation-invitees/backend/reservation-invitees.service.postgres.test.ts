@@ -285,6 +285,16 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
       invitees: [invitee("abandoned")],
     });
 
+    const retryable = await insertReservation({
+      reservation: "hold_expired",
+      payment: "failed",
+    });
+    await record(
+      retryable,
+      { contactAttends: false, invitees: [invitee("retryable")] },
+      { accessEndsAt: Temporal.Instant.from("2030-04-20T22:00:00Z") }
+    );
+
     const listed = await run(
       ReservationInvitees.use((invitees) =>
         invitees.listDue({
@@ -300,6 +310,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
       expect.objectContaining({ paid: true, email: invitee("due") }),
     ]);
     expect(byReservation(rescheduled)).toEqual([]);
+    expect(byReservation(retryable)).toEqual([]);
     expect(byReservation(abandoned)).toEqual([
       expect.objectContaining({ paid: false, email: null }),
     ]);

@@ -147,7 +147,7 @@ Never prepend a new key in one step: an old worker could neither open new tokens
 
 Production stores the value as a Vercel sensitive variable that can't be read back, and every phase rewrites the whole list. Confirm the developer can supply the current entries before staging. If they can't, the only option is a one-step replace followed by a production redeploy. It breaks every open Pay page, so do it at a quiet time and only after the ring-keyed and retire checks pass. Orphaned holds still reach cleanup, which works from reservation IDs.
 
-Office checkout derives seats from the normalized list of people and binds that list, in order, into the checkout attempt key. The draft transaction records the contact's attendance flag and the sealed invitee rows together. Pay and eligible payment retries read the list by order ID. The Pay token and edit URL carry no invitee addresses. An office booking without a people list keeps its supplied seat count for legacy apps and assistant clients.
+Office checkout derives seats from the normalized list of people and binds that list, in order, into the checkout attempt key. The draft transaction records the contact's attendance flag and the sealed invitee rows together. Pay and eligible payment retries read the list by order ID. The Pay token and edit URL carry no invitee addresses. An office booking without a people list keeps its supplied seat count for legacy apps and assistant clients. Supersession removes the replaced order's invitee rows. A released hold with an ended payment keeps the list while the same order can still be retried, through the booked interval. If the list is incomplete, retry uses a fresh checkout.
 
 ## Supersession
 

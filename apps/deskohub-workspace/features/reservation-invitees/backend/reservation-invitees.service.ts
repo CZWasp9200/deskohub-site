@@ -275,8 +275,8 @@ export interface IReservationInvitees {
   /**
    * Rows due for the retention purge at `now`, at most `limit`: past the
    * later of `retain_until` and 30 Prague days after a rescheduled access
-   * end, or of a reservation that was never paid and whose hold ended over
-   * a week ago.
+   * end. Never-paid released holds are due once they can no longer be
+   * retried in place.
    */
   readonly listDue: (input: {
     readonly now: Temporal.Instant;
@@ -341,13 +341,6 @@ type InviteeMetadata = {
 /** Days an address outlives a rescheduled access end, as at the write. */
 const retentionDays = 30;
 const pragueTimeZone = workspaceSiteConstants.location.timeZone;
-/**
- * How long a never-paid order's people outlive its ended hold: a payment
- * retry books an expired or retried order again under the same id, so its
- * rows stay until retrying it is no longer plausible.
- */
-const unpaidRetryWindow = { hours: 7 * 24 };
-
 export class ReservationInvitees extends Context.Service<
   ReservationInvitees,
   IReservationInvitees
@@ -682,9 +675,13 @@ export class ReservationInvitees extends Context.Service<
                       "cancelled",
                       "hold_expired",
                     ]),
-                    // A payment retry may still book the same order again
-                    // for a while after its hold ended.
-                    sql`coalesce(${workspaceReservations.reservationCancelledAt}, ${workspaceReservations.reservationHoldExpiredAt}, ${workspaceReservations.reservationHoldExpiresAt}) < ${now.subtract(unpaidRetryWindow).toString()}::timestamptz`
+                    // A failed payment can be retried under the same order
+                    // until its booked time ends. The original access end is
+                    // retain_until minus the same Prague calendar days.
+                    or(
+                      eq(workspaceReservations.paymentState, "not_started"),
+                      sql`${now.toString()}::timestamptz >= ((${reservationInvitees.retainUntil} at time zone ${pragueTimeZone}) - make_interval(days => ${retentionDays})) at time zone ${pragueTimeZone}`
+                    )
                   )
                 )
               )

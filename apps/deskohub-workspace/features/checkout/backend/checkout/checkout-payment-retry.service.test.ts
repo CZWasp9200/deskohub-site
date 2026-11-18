@@ -89,6 +89,7 @@ const row = (overrides: Partial<WorkspaceReservation> = {}) =>
     authorAccountId: "author-account-id",
     dotyposCustomerId: "dotypos-customer-id",
     reservationDetails: { kind: "cowork", ...order },
+    officeContactAttends: null,
     reservationState: "held",
     paymentState: "failed",
     activePaymentAttemptId: retriedAttemptId,

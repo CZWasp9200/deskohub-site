@@ -357,6 +357,13 @@ const implementation = Effect.gen(function* () {
       const retry = yield* findRetry({ order, attempt });
       if ("state" in retry) return retry;
 
+      const people = yield* invitees
+        .findBookedPeople(getBookedPeopleQuery(order))
+        .pipe(Effect.mapError(unavailable("Who is coming could not be read.")));
+      if (order.officeContactAttends !== null && Option.isNone(people)) {
+        return refused("details_unavailable");
+      }
+
       const provider = yield* providerCheck.check({
         attempt,
         reservation: order,
@@ -453,9 +460,6 @@ const implementation = Effect.gen(function* () {
         provideSealedStateKeys,
         Effect.mapError(unavailable("The Pay state could not be opened."))
       );
-      const people = yield* invitees
-        .findBookedPeople(getBookedPeopleQuery(order))
-        .pipe(Effect.mapError(unavailable("Who is coming could not be read.")));
       return {
         state: "ready",
         payState: toFreshPayState(issued),
