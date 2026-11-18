@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     paddingRight: space.sm,
     paddingVertical: space.xs,
   },
-  alignedBar: { paddingHorizontal: 0 },
+  alignedBar: { paddingLeft: 0, paddingRight: 0 },
   navyBar: { backgroundColor: color.navy },
   raised: { borderBottomColor: color.line },
   back: {

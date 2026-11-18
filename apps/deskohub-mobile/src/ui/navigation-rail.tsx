@@ -1,7 +1,9 @@
+import type { CustomerReservationFamily } from "@deskohub/workspace-customer-api";
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
-import { type Href, useRouter } from "expo-router";
+import { type Href, useNavigationContainerRef, useRouter } from "expo-router";
+import { CommonActions } from "expo-router/react-navigation";
 import CalendarCheck from "lucide-react-native/icons/calendar-check";
 import CircleUser from "lucide-react-native/icons/circle-user";
 import DoorClosed from "lucide-react-native/icons/door-closed";
@@ -39,25 +41,26 @@ function RailLink({
   label,
   icon,
   active,
-  href,
+  onPress,
   product = false,
   dot = false,
 }: {
   readonly label: string;
   readonly icon: ComponentProps<typeof Icon>["icon"];
   readonly active: boolean;
-  readonly href: Href;
+  readonly onPress: () => void;
   readonly product?: boolean;
   readonly dot?: boolean;
 }) {
-  const router = useRouter();
   const foreground = product || active ? color.action : color.ink2;
+  const canNavigate = product || !active;
   return (
     <Pressable
       role="link"
       accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
       aria-current={active ? "page" : undefined}
-      onPress={() => router.navigate(href)}
+      onPress={canNavigate ? onPress : undefined}
       style={styles.link}
     >
       {({ pressed }) => (
@@ -88,7 +91,13 @@ function RailLink({
   );
 }
 
-function ProductLinks({ active }: { readonly active?: SignedInDestination }) {
+function ProductLinks({
+  active,
+  onOpen,
+}: {
+  readonly active?: SignedInDestination;
+  readonly onOpen: (family: CustomerReservationFamily) => void;
+}) {
   const locale = useAppLocale();
   const result = useAtomValue(bookingOfferingsAtom(locale));
   return Option.match(AsyncResult.value(result), {
@@ -98,7 +107,7 @@ function ProductLinks({ active }: { readonly active?: SignedInDestination }) {
         <RailLink
           key={family}
           product
-          href={bookFamilyHref(family)}
+          onPress={() => onOpen(family)}
           active={active === family}
           icon={productIcons[family]}
           label={Option.getOrElse(name, () =>
@@ -118,6 +127,7 @@ export function NavigationRail({
 }) {
   const locale = useAppLocale();
   const router = useRouter();
+  const navigation = useNavigationContainerRef();
   const insets = useSafeAreaInsets();
   const account = useAtomValue(accountAtom);
   const currentAccount = AsyncResult.value(account);
@@ -140,6 +150,35 @@ export function NavigationRail({
       Option.map(request, ({ selection }) => selection.family)
     )
   );
+  const group = segments[1];
+  const open = (href: Href) => {
+    if (group === "book" || group === "reservations") {
+      router.dismissTo(href);
+    } else {
+      router.navigate(href);
+    }
+  };
+  const openProduct = (family: CustomerReservationFamily) => {
+    if (group === "book") {
+      if (segments[2] === family) return;
+      const accountStack = navigation
+        .getRootState()
+        ?.routes.find(({ name }) => name === "(account)")?.state;
+      const bookStack = accountStack?.routes.find(
+        ({ name }) => name === "book"
+      )?.state;
+      if (bookStack?.key !== undefined) {
+        // A single removal action lets a dirty Profile keep or discard its
+        // edits. Back from the new choice leaves the previous checkout behind.
+        navigation.dispatch({
+          ...CommonActions.reset({ routes: [{ name: family }] }),
+          target: bookStack.key,
+        });
+        return;
+      }
+    }
+    open(bookFamilyHref(family));
+  };
   return (
     <View role="navigation" style={styles.rail}>
       <View
@@ -158,24 +197,24 @@ export function NavigationRail({
         <View style={styles.reserve}>
           <Pressable
             role="link"
-            onPress={() => router.navigate(bookHref)}
+            onPress={() => open(bookHref)}
             style={styles.reserveLink}
           >
             <Text variant="hintStrong" tone="muted" style={styles.linkLabel}>
               {m.navigation_reserve({}, { locale })}
             </Text>
           </Pressable>
-          {canBook && <ProductLinks active={active} />}
+          {canBook && <ProductLinks active={active} onOpen={openProduct} />}
         </View>
         <RailLink
-          href="/account"
+          onPress={() => open("/account")}
           icon={CircleUser}
           active={active === "account"}
           label={m.account_tab_account({}, { locale })}
           dot={profileMissing}
         />
         <RailLink
-          href="/reservations"
+          onPress={() => open("/reservations")}
           icon={CalendarCheck}
           active={active === "reservations"}
           label={m.account_tab_reservations({}, { locale })}

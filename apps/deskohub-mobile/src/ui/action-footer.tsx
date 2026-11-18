@@ -37,7 +37,7 @@ export function ActionFooter({
   readonly contentWidth?: ContentWidth;
   readonly children: ReactNode;
 }) {
-  const { bottom } = useSafeAreaInsets();
+  const { bottom, left, right } = useSafeAreaInsets();
   const { availableWidth, fontScale, isWide } = useViewport();
   const [height, setHeight] = useState(0);
   useToastObstruction(height);
@@ -68,7 +68,10 @@ export function ActionFooter({
       onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
       style={[
         styles.footer,
-        isWide && [styles.wideFooter, { width }],
+        isWide && [
+          styles.wideFooter,
+          { width, marginLeft: left, marginRight: right },
+        ],
         { paddingBottom: space.md + bottom },
       ]}
     >
