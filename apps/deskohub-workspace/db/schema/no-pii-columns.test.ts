@@ -171,6 +171,7 @@ describe("database schema no-PII persistence", () => {
     expect(binaryColumns).toEqual([
       "public.accounting_document_snapshots.encrypted_snapshot",
       "public.corrective_documents.encrypted_document",
+      "public.invoice_previews.encrypted_document",
       "public.invoices.encrypted_document",
     ]);
   });

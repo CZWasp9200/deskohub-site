@@ -30,12 +30,19 @@ const today = "2099-07-30" as PlainDate;
 const tomorrow = "2099-07-31" as PlainDate;
 const latest = "2100-01-30";
 
-const sixSeatOffice = Schema.decodeSync(DotyposTableSchema)({
+/**
+ * The office's Dotypos table is the only source of its seat maximum. The
+ * tests give it a capacity other than the live office's, so a maximum
+ * hard-coded anywhere on the way fails them.
+ */
+const officeSeatCapacity = 4;
+
+const officeTable = Schema.decodeSync(DotyposTableSchema)({
   _cloudId: "cloud",
   display: true,
   enabled: true,
   name: "office-1",
-  seats: "6",
+  seats: String(officeSeatCapacity),
   id: "office-1",
   tags: ["reservation:office"],
 });
@@ -43,7 +50,7 @@ const sixSeatOffice = Schema.decodeSync(DotyposTableSchema)({
 const makeServices = ({
   officeOpen = true,
   overnightStayOpen = false,
-  tables = [sixSeatOffice],
+  tables = [officeTable],
 }: {
   readonly officeOpen?: boolean;
   readonly overnightStayOpen?: boolean;
@@ -212,6 +219,21 @@ describe("resolveBookingQuoteSelection", () => {
     });
   });
 
+  test("resolves as many office seats as the office's Dotypos table has", async () => {
+    const selection = await quote({
+      family: "office",
+      date: tomorrow,
+      seats: officeSeatCapacity,
+    });
+
+    expect(selection.reservationSelection).toEqual({
+      kind: "office",
+      startsOn: tomorrow,
+      dayCount: 1,
+      seats: officeSeatCapacity,
+    });
+  });
+
   const invalidFields = [
     {
       name: "a cowork selection without a tier",
@@ -269,7 +291,11 @@ describe("resolveBookingQuoteSelection", () => {
     },
     {
       name: "more office seats than the office has",
-      selection: { family: "office", date: tomorrow, seats: 7 },
+      selection: {
+        family: "office",
+        date: tomorrow,
+        seats: officeSeatCapacity + 1,
+      },
       field: "seats",
     },
   ] satisfies ReadonlyArray<{
