@@ -60,6 +60,17 @@ describe("AdministrationAgentDocuments", () => {
     ).toContain("administration.previewInvoice");
   });
 
+  test("previews an unconfirmed invoice creation through the linked invoice preview", () => {
+    const createInvoice = administrationOperationTools.find(
+      ({ reference }) => reference === "administration.createInvoice"
+    );
+
+    expect(createInvoice?.behavior.preview).toEqual({
+      _tag: "Read",
+      operations: ["administration.previewInvoice"],
+    });
+  });
+
   test("keeps an invoice preview for the administrator and links its Admin UI download", async () => {
     const { result, kept } = await link(
       { reference: "administration.previewInvoice", args: { invoiceId } },
