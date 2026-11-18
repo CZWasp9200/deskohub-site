@@ -4,9 +4,11 @@ import { Effect, type Schema } from "effect";
 import { m } from "@/features/i18n";
 import type { ListOfferingsResult } from "./list-offerings.schema";
 
-const { makeAgentToolTestServices, workspaceDateFromToday } = await import(
-  "./agent-tools.test-utils"
-);
+const {
+  agentToolTestOfficeSeats,
+  makeAgentToolTestServices,
+  workspaceDateFromToday,
+} = await import("./agent-tools.test-utils");
 const { listOfferingsTool } = await import("./list-offerings.tool");
 
 const listOfferings = (
@@ -89,7 +91,7 @@ describe("list_offerings", () => {
         seat_price: czk(315),
         advertised_price: czk(845),
         discount: czk(0),
-        max_seats: 6,
+        max_seats: agentToolTestOfficeSeats,
         max_duration_hours: 672,
         reservation_url: "http://deskohub.test/reservation/office",
       }),

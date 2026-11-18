@@ -14,6 +14,7 @@ import { BookingRequestFailed, BookingToolFailed } from "./booking-host";
 import {
   availabilityResult,
   bookingOfferings,
+  bookingOfficeSeats,
   bookingStart,
   bookingToday,
   meetingRoomAvailabilityResult,
@@ -636,7 +637,7 @@ describe("BookingForm", () => {
       screen.queries.getByLabelText(
         m.reservationOfficeSeatCountLabel({}, { locale: "cs-CZ" })
       ),
-      { target: { value: "7" } }
+      { target: { value: String(bookingOfficeSeats + 1) } }
     );
     fireEvent.click(checkButton("cs-CZ"));
 
@@ -649,7 +650,10 @@ describe("BookingForm", () => {
     );
     expect(
       screen.queries.getByText(
-        m.bookingWidgetSeatCountRange({ max: 6 }, { locale: "cs-CZ" })
+        m.bookingWidgetSeatCountRange(
+          { max: bookingOfficeSeats },
+          { locale: "cs-CZ" }
+        )
       )
     ).toBeDefined();
   });

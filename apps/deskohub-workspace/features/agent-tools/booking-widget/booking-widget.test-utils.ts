@@ -12,6 +12,13 @@ const siteOrigin = "https://workspace.deskohub.test";
 
 export const bookingToday = "2099-07-28";
 
+/**
+ * The office's `max_seats`. The widget takes the office maximum only from the
+ * offering, so a capacity other than the live office's makes a hard-coded
+ * maximum fail.
+ */
+export const bookingOfficeSeats = 4;
+
 /** Synthetic offerings shaped like `list_offerings`, one per option. */
 export const bookingOfferings = (): ReadonlyArray<AgentOffering> => [
   {
@@ -84,7 +91,7 @@ export const bookingOfferings = (): ReadonlyArray<AgentOffering> => [
     advertised_price: czk(1200),
     discount: czk(0),
     seat_price: czk(150),
-    max_seats: 6,
+    max_seats: bookingOfficeSeats,
     max_duration_hours: 672,
     add_ons: [],
     reservation_url: `${siteOrigin}/reservation/office`,
