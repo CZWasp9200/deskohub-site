@@ -722,8 +722,9 @@ const serverLayer = (workspace: FakeWorkspace) => {
         )
   );
 
-  // The account's invoices; one without a stored PDF, or any other ID, is
-  // not found, as the Workspace answers another customer's invoice.
+  // The account's invoices; one without a stored PDF or credit note, or any
+  // other ID, is not found, as the Workspace answers another customer's
+  // invoice and an invoice that isn't cancelled.
   const invoices = HttpApiBuilder.group(
     WorkspaceCustomerApi,
     "invoices",
@@ -744,6 +745,19 @@ const serverLayer = (workspace: FakeWorkspace) => {
               const pdf = workspace.data.invoices.find(
                 ({ invoice }) => invoice.id === params.invoiceId
               )?.pdf;
+              return pdf === undefined
+                ? Effect.fail(new CustomerInvoiceNotFound())
+                : Effect.succeed(pdf);
+            })
+          )
+        )
+        .handle("getCorrectiveDocumentPdf", ({ params }) =>
+          Effect.andThen(
+            linkedAccount,
+            Effect.suspend(() => {
+              const pdf = workspace.data.invoices.find(
+                ({ invoice }) => invoice.id === params.invoiceId
+              )?.creditNotePdf;
               return pdf === undefined
                 ? Effect.fail(new CustomerInvoiceNotFound())
                 : Effect.succeed(pdf);

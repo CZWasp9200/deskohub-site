@@ -116,6 +116,7 @@ export {
   CustomerCompanyRegistryUnavailable,
 } from "./customer-companies-api";
 export {
+  CustomerCorrectiveDocumentPdf,
   CustomerInvoice,
   CustomerInvoiceCancellation,
   CustomerInvoicedReservation,

@@ -3325,6 +3325,105 @@
         }
       }
     },
+    "/api/customer/invoices/{invoiceId}/corrective-document/pdf": {
+      "get": {
+        "tags": ["invoices"],
+        "operationId": "invoices.getCorrectiveDocumentPdf",
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/CustomerInvoiceId"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "A cancelled invoice's credit note as a PDF document.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "description": "Serves the PDF as an attachment named by the credit note number, as `attachment; filename=\"<credit note number>.pdf\"`.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "CustomerSessionRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSessionRequiredEncoded"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CustomerRequestRejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRequestRejectedEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CustomerInvoiceNotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerInvoiceNotFoundEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CustomerAccountLinkRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerAccountLinkRequiredEncoded"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "CustomerRateLimited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerRateLimitedEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "CustomerServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerServiceUnavailableEncoded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/customer/companies/{companyId}": {
       "get": {
         "tags": ["companies"],
@@ -3644,6 +3743,10 @@
           "correctiveDocumentNumber": {
             "type": "string",
             "minLength": 1
+          },
+          "correctiveDocumentDownloadable": {
+            "type": "boolean",
+            "enum": [true]
           }
         },
         "required": ["correctiveDocumentNumber"],

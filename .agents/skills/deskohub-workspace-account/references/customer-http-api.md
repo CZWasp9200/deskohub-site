@@ -54,7 +54,7 @@ The app's client and data layer are in the `deskohub-mobile` skill
    history visit or status poll (the account, the reservation history, an
    order's status and its door code) is `account-read` (40 per 30 minutes);
    any other Dotypos-backed GET (consent, referrals, an order's invoice, the
-   invoice list and an invoice's PDF, the data archive) is
+   invoice list, an invoice's PDF and its credit note's, the data archive) is
    `dotypos-read` (20 per 30 minutes); any other method is `dotypos-mutation`
    (15 per 30 minutes, which account edits and checkout steps share; two
    bookings fit). Each has its own per-account budget so reads can't use up
@@ -172,7 +172,8 @@ The app's client and data layer are in the `deskohub-mobile` skill
 
 ## Invoices
 
-The `invoices` group (`GET /invoices`, `GET /invoices/:invoiceId/pdf`) adapts
+The `invoices` group (`GET /invoices`, `GET /invoices/:invoiceId/pdf`,
+`GET /invoices/:invoiceId/corrective-document/pdf`) adapts
 `CustomerInvoiceService`, the account page's invoice reader, built from
 `CustomerAccountLayers`' `invoices` over the request's `currentAccount`. The
 service owns authorization and ownership (checkout skill, accounting
@@ -185,7 +186,13 @@ the product's catalog name in the optional `?locale` (as `listReservations`
 names it), an office's seats, and the start and exclusive end, all from the
 service's summary; a manual invoice has none. A cancelled invoice stays listed
 and downloadable with its `cancellation` (the credit note's number), as on the
-account page; hiding it in the Admin UI changes nothing here. An order's own
+account page; hiding it in the Admin UI changes nothing here. The credit note
+downloads through `getCorrectiveDocumentPdf`, over the service's
+`correctiveDocumentPdf` that the account page's credit-note route reads, so an
+invoice that isn't cancelled is not found like another customer's. Each
+`cancellation` sets `correctiveDocumentDownloadable: true`; the app offers the
+credit note only when it is present, so a Workspace without the endpoint
+leaves the row with its invoice download alone. An order's own
 invoice stays `getReservationInvoice`, authorized by the order, which serves
 only the live invoice.
 

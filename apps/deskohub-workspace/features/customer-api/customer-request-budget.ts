@@ -102,10 +102,12 @@ export const customerRequestBudgetClasses = {
     getEstablishment: "workspace-only",
   },
   invoices: {
-    // Authorizing either read can resolve the account's Dotypos customer;
-    // the app reads them when the customer opens or downloads an invoice.
+    // Authorizing any of these reads can resolve the account's Dotypos
+    // customer; the app reads them when the customer opens the list or
+    // downloads an invoice or a cancelled invoice's credit note.
     listInvoices: "dotypos-read",
     getInvoicePdf: "dotypos-read",
+    getCorrectiveDocumentPdf: "dotypos-read",
   },
   companies: {
     // One request to the public business registry (ARES), which needs no

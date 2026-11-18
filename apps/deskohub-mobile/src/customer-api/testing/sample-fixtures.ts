@@ -40,10 +40,14 @@ export interface SampleOrder {
   readonly invoice?: Uint8Array;
 }
 
-/** An issued invoice and its PDF; a PDF the Workspace can't find is absent. */
+/**
+ * An issued invoice, its PDF and a cancelled one's credit note PDF; a PDF
+ * the Workspace can't find is absent.
+ */
 export interface SampleInvoice {
   readonly invoice: CustomerInvoice;
   readonly pdf?: Uint8Array;
+  readonly creditNotePdf?: Uint8Array;
 }
 
 export interface FakeWorkspaceData {
@@ -799,6 +803,8 @@ const asReviewSandbox = (
 export const sampleInvoiceIds = {
   desk: CustomerInvoiceId.make("sample-invoice-desk"),
   meetingRoom: CustomerInvoiceId.make("sample-invoice-meeting-room"),
+  /** Cancelled by a credit note; both PDFs download. */
+  cancelled: CustomerInvoiceId.make("sample-invoice-cancelled"),
   /** Listed, but its PDF can't be found: the download fails. */
   office: CustomerInvoiceId.make("sample-invoice-office"),
 } as const;
@@ -835,6 +841,26 @@ export const sampleInvoices = (): ReadonlyArray<SampleInvoice> => [
       },
     },
     pdf: sampleInvoicePdf(),
+  },
+  {
+    invoice: {
+      id: sampleInvoiceIds.cancelled,
+      invoiceNumber: "2026-0359",
+      issuedOn: "2026-10-27",
+      total: { amount: "258.80", currency: "CZK" },
+      cancellation: {
+        correctiveDocumentNumber: "WS-OD-2026-000004",
+        correctiveDocumentDownloadable: true,
+      },
+      // One whole Prague day.
+      reservation: {
+        productName: "Open Space desk",
+        startsAt: "2026-10-26T23:00:00.000Z",
+        endsAt: "2026-10-27T23:00:00.000Z",
+      },
+    },
+    pdf: sampleInvoicePdf(),
+    creditNotePdf: sampleInvoicePdf(),
   },
   {
     invoice: {
