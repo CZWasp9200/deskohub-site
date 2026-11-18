@@ -90,15 +90,11 @@ const Obstructing = () => {
   return null;
 };
 
-const app = (...screens: ReactElement[]) =>
-  createElement(AppLocaleProvider, {
-    locale: "en-US",
-    children: createElement(
-      Toasts,
-      null,
-      createElement(UpdateOfferProvider, null, ...screens)
-    ),
-  });
+const app = (...screens: ReactElement[]) => (
+  <AppLocaleProvider locale="en-US">
+    <Toasts>{createElement(UpdateOfferProvider, null, ...screens)}</Toasts>
+  </AppLocaleProvider>
+);
 
 describe("UpdateOfferProvider", () => {
   const { render } = clientRoot();
