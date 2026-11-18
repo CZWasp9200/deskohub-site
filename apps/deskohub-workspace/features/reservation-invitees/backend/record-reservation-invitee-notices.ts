@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { WorkspaceTransaction } from "@/db/database.service";
 import { reservationInviteeNotices, reservationInvitees } from "@/db/schema";
@@ -30,7 +30,10 @@ export const recordReservationInviteeNotices = Effect.fn(
   yield* WorkspaceLocks.reservationInviteeNotices(input.reservationId);
   yield* db
     .update(reservationInviteeNotices)
-    .set({ settledAt: input.occurredAt })
+    .set({
+      settledAt: input.occurredAt,
+      uncertainty: sql`case when ${reservationInviteeNotices.requestStartedAt} is not null then 'superseded' end`,
+    })
     .where(
       and(
         isNull(reservationInviteeNotices.settledAt),

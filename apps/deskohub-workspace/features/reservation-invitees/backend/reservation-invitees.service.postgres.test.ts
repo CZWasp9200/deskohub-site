@@ -11,10 +11,15 @@ import { IgloohomeDeviceIdSchema } from "@deskohub/igloohome";
 import { testEmailAddress } from "@deskohub/test-email";
 import { NodeCrypto } from "@effect/platform-node";
 import { eq } from "drizzle-orm";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Redacted } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { toStoredInstant } from "@/db/instant";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
-import { reservationInvitees, workspaceReservations } from "@/db/schema";
+import {
+  reservationInviteeNotices,
+  reservationInvitees,
+  workspaceReservations,
+} from "@/db/schema";
 import { testCustomerSession } from "@/features/account/backend/account-operations.test-utils";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAccountLinkRepository } from "@/features/account/backend/customer-account-link.repository";
@@ -26,9 +31,13 @@ import {
   type ValidOfficePeople,
 } from "@/features/office/office-people";
 import { ReservationAccessService } from "@/features/reservation/backend/reservation-access.service";
+import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { ReservationRecords } from "@/features/reservation/backend/reservation-records";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
-import { WorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";
+import {
+  type WorkspaceReservationDetails,
+  WorkspaceReservationService,
+} from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import { ReservationAccessRepository } from "@/features/reservation-access/backend/reservation-access.repository";
@@ -36,8 +45,13 @@ import { SealedStateKeys } from "@/shared/backend/sealed-state-keys.service";
 import { syntheticSealedStateKeyRing } from "@/shared/testing/sealed-state-keys.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { resendAuthorizedReservationInvitation } from "./resend-reservation-invitation";
 import { ReservationInvitations } from "./reservation-invitations.service";
 import { ReservationInviteeEmailKeys } from "./reservation-invitee-email-keys.service";
+import {
+  ReservationInviteeNoticeTransport,
+  resendNoticeReplayMinutes,
+} from "./reservation-invitee-notice-transport";
 import { ReservationInviteeNoticeWorker } from "./reservation-invitee-notice-worker";
 import { ReservationInviteeRetention } from "./reservation-invitee-retention.service";
 import {
@@ -199,72 +213,6 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
       syntheticSealedStateKeyRing(["invitee-new", 9])
     );
     expect(opened.operation).toBe("key");
-  });
-
-  test("claims a resend only after the cooldown", async () => {
-    const reservationId = await insertReservation();
-    await record(reservationId, {
-      contactAttends: true,
-      invitees: [invitee("resend")],
-    });
-    const [row] = await run(
-      ReservationInvitees.use((invitees) =>
-        invitees.listForReservation(reservationId)
-      )
-    );
-    if (!row) throw new Error("missing invitee row");
-    const sentAt = Temporal.Instant.from("2030-03-01T10:00:00Z");
-    const cooldown = Temporal.Duration.from({ seconds: 60 });
-
-    await run(
-      ReservationInvitees.use((invitees) =>
-        invitees.markInvitationSent({ inviteeId: row.id, sendCount: 1, sentAt })
-      )
-    );
-    const tooSoon = await run(
-      ReservationInvitees.use((invitees) =>
-        invitees.claimResend({
-          inviteeId: row.id,
-          sentAt: sentAt.add({ seconds: 59 }),
-          cooldown,
-          previousSendCount: 1,
-        })
-      )
-    );
-    const claimed = await run(
-      ReservationInvitees.use((invitees) =>
-        invitees.claimResend({
-          inviteeId: row.id,
-          sentAt: sentAt.add({ seconds: 60 }),
-          cooldown,
-          previousSendCount: 1,
-        })
-      )
-    );
-    expect(Option.isNone(tooSoon)).toBe(true);
-    expect(claimed).toEqual(Option.some(2));
-    const resentAt = sentAt.add({ seconds: 60 });
-    await run(
-      ReservationInvitees.use((invitees) =>
-        invitees.releaseFailedResend({
-          inviteeId: row.id,
-          sendCount: 2,
-          sentAt: resentAt,
-          previousSentAt: sentAt,
-        })
-      )
-    );
-    const reclaimed = await run(
-      ReservationInvitees.use((invitees) =>
-        invitees.claimResend({
-          inviteeId: row.id,
-          sentAt: resentAt,
-          cooldown,
-          previousSendCount: 1,
-        })
-      )
-    );
-    expect(reclaimed).toEqual(Option.some(2));
   });
 
   test("lists rows due after retention, honouring a later access end", async () => {
@@ -483,7 +431,7 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
           Effect.provide(WorkspaceReservationRepository.Default)
         )
       );
-    const start = Temporal.Now.instant().add({ hours: 1 });
+    const start = toStoredInstant(Temporal.Now.instant());
     const tick = (minutes: number) => start.add({ minutes });
     await repository((reservations) =>
       reservations.markReservationConfirmed({ id, confirmedAt: tick(0) })
@@ -494,90 +442,210 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
       row.dotyposReservationId
     );
 
-    let outage = true;
+    const [guest] = await run(
+      ReservationInvitees.use((invites) => invites.listForReservation(id))
+    );
+    if (!guest) throw new Error("expected an invitee");
+    const notices = () =>
+      Effect.runPromise(
+        testDatabase.db
+          .select()
+          .from(reservationInviteeNotices)
+          .where(eq(reservationInviteeNotices.inviteeId, guest.id))
+      );
+    const acceptedCount = () =>
+      run(
+        ReservationInvitees.use((invites) => invites.find(id, guest.id))
+      ).then((found) => Option.getOrThrow(found).invitationSendCount);
+
+    let outage = false;
+    let loseProcessBeforeDispatch = true;
+    let loseProcessAfterAcceptance = false;
+    let bookerName = "Alex";
+    let simulateExpiredProviderKey = false;
+    const providerDelivery = new Map<string, string>();
     let providerStatus: "CONFIRMED" | "CANCELLED" = "CONFIRMED";
     const attempts: Array<{ noticeId: string; kind: string; access?: string }> =
       [];
     const sent: string[] = [];
+    const workspace = Layer.mock(WorkspaceReservationService, {
+      getReservation: () =>
+        Effect.sync(
+          () =>
+            ({
+              id,
+              dotyposCustomerId: row.dotyposCustomerId,
+              authorAccountId: row.authorAccountId,
+              dotyposReservationId: providerId,
+              reservationDetails: office,
+              locale: "en-US",
+              customer: {
+                id: row.dotyposCustomerId,
+                _cloudId: "synthetic-cloud",
+                firstName: bookerName,
+                lastName: "Sample",
+                companyName: null,
+                email: null,
+                phone: null,
+                points: null,
+                flags: "0",
+                display: true,
+                deleted: false,
+              },
+              reservedFrom: Temporal.Instant.from("2030-03-04T23:00:00Z"),
+              reservedUntil: Temporal.Instant.from("2030-03-05T23:00:00Z"),
+              providerStatus,
+              seats: 1,
+              placement: {},
+            }) satisfies WorkspaceReservationDetails
+        ),
+    });
+    const locks = WorkspaceDatabaseAdvisoryLock.makeLayer(
+      testDatabase.databasePool
+    );
+    const worker = ReservationInviteeNoticeWorker.Default.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          locks,
+          workspace,
+          SealedStateKeys.fromConfiguration(ringOld),
+          Layer.mock(ReservationInvitations, {
+            renderNotice: ({
+              invitee: recipient,
+              kind,
+              noticeId,
+              restoredAccess,
+              reservation,
+            }) =>
+              Effect.suspend(() =>
+                loseProcessBeforeDispatch
+                  ? Effect.die("Synthetic process loss before dispatch")
+                  : Effect.succeed({
+                      idempotencyKey: noticeId,
+                      from: { email: testEmailAddress("worker-sender") },
+                      to: { email: recipient.email },
+                      subject: kind,
+                      text: JSON.stringify({
+                        booker: reservation.customer.firstName,
+                        access: restoredAccess,
+                      }),
+                      html: "<p>Synthetic invitation token</p>",
+                    })
+              ),
+          }),
+          Layer.mock(ReservationInviteeNoticeTransport, {
+            prepare: (message) => {
+              const identity = JSON.stringify(message);
+              const { access } = JSON.parse(message.text ?? "{}");
+              return {
+                identity: Redacted.make(identity),
+                replayWindowMinutes: resendNoticeReplayMinutes,
+                send: Effect.gen(function* () {
+                  const noticeId = message.idempotencyKey;
+                  const kind = message.subject;
+                  const [registered] = yield* testDatabase.db
+                    .select()
+                    .from(reservationInviteeNotices)
+                    .where(eq(reservationInviteeNotices.id, noticeId))
+                    .pipe(Effect.orDie);
+                  expect(registered?.requestStartedAt).toBeInstanceOf(
+                    Temporal.Instant
+                  );
+                  expect(registered?.requestFingerprint).toMatch(
+                    /^[a-zA-Z0-9_-]{43}$/
+                  );
+                  attempts.push({ kind, noticeId, access });
+                  if (outage)
+                    return yield* new EmailServiceError(
+                      "Synthetic definite provider refusal"
+                    );
+                  const prior = providerDelivery.get(noticeId);
+                  if (prior !== undefined && !simulateExpiredProviderKey) {
+                    expect(identity).toBe(prior);
+                    return;
+                  }
+                  providerDelivery.set(noticeId, identity);
+                  sent.push(kind);
+                  if (loseProcessAfterAcceptance) {
+                    return yield* Effect.die(
+                      "Synthetic process loss after provider acceptance"
+                    );
+                  }
+                }),
+              };
+            },
+          })
+        )
+      )
+    );
     const drain = (at: Temporal.Instant) =>
       run(
-        ReservationInviteeNoticeWorker.use((worker) =>
-          worker.drain({ now: at, limit: 20 })
-        ).pipe(
+        ReservationInviteeNoticeWorker.use((service) =>
+          service.drain({ now: at, limit: 20 })
+        ).pipe(Effect.provide(worker))
+      );
+    const resend = () =>
+      run(
+        resendAuthorizedReservationInvitation({
+          orderId: id,
+          inviteeId: guest.id,
+          locale: "en-US",
+        }).pipe(
           Effect.provide(
-            ReservationInviteeNoticeWorker.Default.pipe(
-              Layer.provide(
-                Layer.mergeAll(
-                  WorkspaceDatabaseAdvisoryLock.makeLayer(
-                    testDatabase.databasePool
-                  ),
-                  Layer.mock(WorkspaceReservationService, {
-                    getReservation: () =>
-                      Effect.succeed({
-                        id,
-                        dotyposCustomerId: row.dotyposCustomerId,
-                        authorAccountId: row.authorAccountId,
-                        dotyposReservationId: providerId,
-                        reservationDetails: office,
-                        locale: "en-US",
-                        customer: {
-                          id: row.dotyposCustomerId,
-                          _cloudId: "synthetic-cloud",
-                          firstName: "Alex",
-                          lastName: "Sample",
-                          companyName: null,
-                          email: null,
-                          phone: null,
-                          points: null,
-                          flags: "0",
-                          display: true,
-                          deleted: false,
-                        },
-                        reservedFrom: Temporal.Instant.from(
-                          "2030-03-04T23:00:00Z"
-                        ),
-                        reservedUntil: Temporal.Instant.from(
-                          "2030-03-05T23:00:00Z"
-                        ),
-                        providerStatus,
-                        seats: 1,
-                        placement: {},
-                      }),
-                  }),
-                  Layer.mock(ReservationInvitations, {
-                    deliverNotice: ({
-                      invitee: guest,
-                      kind,
-                      noticeId,
-                      restoredAccess,
-                    }) =>
-                      Effect.suspend(() => {
-                        if (guest.email !== address) return Effect.void;
-                        attempts.push({
-                          kind,
-                          noticeId,
-                          access: restoredAccess,
-                        });
-                        if (outage)
-                          return Effect.fail(
-                            new EmailServiceError("Synthetic provider outage")
-                          );
-                        sent.push(kind);
-                        return Effect.void;
-                      }),
-                  })
-                )
-              )
+            Layer.mergeAll(
+              worker,
+              locks,
+              workspace,
+              WorkspaceReservationRepository.Default,
+              Layer.mock(ReservationAuthorizationService, {
+                authorize: () => Effect.succeed(true),
+              })
             )
           )
         )
       );
 
-    expect(await drain(tick(0))).toMatchObject({ deferred: 1, delivered: 0 });
-    outage = false;
-    await Promise.all([drain(tick(2)), drain(tick(2))]);
+    const [initial] = await notices();
+    expect(initial?.kind).toBe("invitation");
+    await expect(resend()).rejects.toThrow(
+      "Synthetic process loss before dispatch"
+    );
+    expect(await acceptedCount()).toBe(0);
+    expect(attempts).toEqual([]);
+    expect(await notices()).toEqual([initial]);
+    loseProcessBeforeDispatch = false;
+    await Promise.all([drain(tick(1)), drain(tick(1))]);
     expect(sent).toEqual(["invitation"]);
-    expect(attempts[0]?.noticeId).toBe(attempts[1]?.noticeId);
+    expect(attempts.map(({ noticeId }) => noticeId)).toEqual([initial?.id]);
+    expect(await acceptedCount()).toBe(1);
+    await expect(resend()).rejects.toMatchObject({
+      _tag: "InvitationResendRefused",
+      refusal: { reason: "cooldown" },
+    });
+    expect(await acceptedCount()).toBe(1);
+
+    await Effect.runPromise(
+      testDatabase.db
+        .update(reservationInvitees)
+        .set({ lastInvitationSentAt: start.subtract({ minutes: 2 }) })
+        .where(eq(reservationInvitees.id, guest.id))
+    );
+    loseProcessAfterAcceptance = true;
+    await expect(resend()).rejects.toThrow(
+      "Synthetic process loss after provider acceptance"
+    );
+    expect(await acceptedCount()).toBe(1);
+    const manualAttempt = attempts.at(-1);
+    expect(manualAttempt?.noticeId).not.toBe(initial?.id);
+    expect(sent).toEqual(["invitation", "invitation"]);
+    loseProcessAfterAcceptance = false;
+    await drain(tick(2));
+    expect(attempts.at(-1)?.noticeId).toBe(manualAttempt?.noticeId);
+    expect(sent).toEqual(["invitation", "invitation"]);
+    expect(await acceptedCount()).toBe(2);
+    const lifecycleAttempts = () =>
+      attempts.filter(({ kind }) => kind !== "invitation");
+    const lifecycleSends = () => sent.filter((kind) => kind !== "invitation");
     await Effect.runPromise(
       testDatabase.db
         .update(workspaceReservations)
@@ -626,17 +694,24 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     expect(await drain(tick(4))).toMatchObject({ deferred: 1, delivered: 0 });
     outage = false;
     await drain(tick(6));
-    expect(sent).toEqual(["invitation", "cancellation"]);
-    expect(attempts[2]?.noticeId).toBe(attempts[3]?.noticeId);
+    expect(lifecycleSends()).toEqual(["cancellation"]);
+    expect(lifecycleAttempts()[0]?.noticeId).toBe(
+      lifecycleAttempts()[1]?.noticeId
+    );
 
     await restore(tick(4), tick(8));
     outage = true;
     expect(await drain(tick(8))).toMatchObject({ deferred: 1, delivered: 0 });
-    expect(attempts[4]).toMatchObject({ kind: "restoration", access: "link" });
+    expect(lifecycleAttempts()[2]).toMatchObject({
+      kind: "restoration",
+      access: "link",
+    });
     outage = false;
     await drain(tick(10));
-    expect(sent).toEqual(["invitation", "cancellation", "restoration"]);
-    expect(attempts[4]?.noticeId).toBe(attempts[5]?.noticeId);
+    expect(lifecycleSends()).toEqual(["cancellation", "restoration"]);
+    expect(lifecycleAttempts()[2]?.noticeId).toBe(
+      lifecycleAttempts()[3]?.noticeId
+    );
 
     await cancel(tick(12));
     outage = true;
@@ -644,12 +719,99 @@ describe.skipIf(!testDatabase)("ReservationInvitees on Postgres", () => {
     await restore(tick(12), tick(13));
     outage = false;
     await drain(tick(15));
-    expect(sent).toEqual([
-      "invitation",
+    expect(lifecycleSends()).toEqual([
       "cancellation",
       "restoration",
       "restoration",
     ]);
+
+    await cancel(tick(20));
+    loseProcessAfterAcceptance = true;
+    await expect(drain(tick(20))).rejects.toThrow(
+      "Synthetic process loss after provider acceptance"
+    );
+    loseProcessAfterAcceptance = false;
+    const beforeMatchingReplay = sent.length;
+    const interruptedId = attempts.at(-1)?.noticeId;
+    outage = true;
+    expect(await drain(tick(21))).toMatchObject({ delivered: 0, deferred: 1 });
+    expect(
+      (await notices()).find(({ id }) => id === interruptedId)
+    ).toMatchObject({ uncertainty: null, requestStartedAt: tick(20) });
+    outage = false;
+    expect(await drain(tick(23))).toMatchObject({ delivered: 1, uncertain: 0 });
+    expect(sent).toHaveLength(beforeMatchingReplay);
+    expect(attempts.at(-1)?.noticeId).toBe(attempts.at(-2)?.noticeId);
+
+    await restore(tick(20), tick(25));
+    loseProcessAfterAcceptance = true;
+    await expect(drain(tick(25))).rejects.toThrow();
+    loseProcessAfterAcceptance = false;
+    bookerName = "Sam";
+    const beforeChangedReplay = attempts.length;
+    expect(await drain(tick(26))).toMatchObject({ delivered: 0, uncertain: 1 });
+    expect(attempts).toHaveLength(beforeChangedReplay);
+    expect(
+      (await notices()).find(({ id }) => id === attempts.at(-1)?.noticeId)
+    ).toMatchObject({
+      uncertainty: "request-changed",
+      requestStartedAt: tick(25),
+    });
+
+    await cancel(tick(28));
+    loseProcessAfterAcceptance = true;
+    await expect(drain(tick(28))).rejects.toThrow();
+    loseProcessAfterAcceptance = false;
+    simulateExpiredProviderKey = true;
+    const beforeExpiryReplay = attempts.length;
+    const expired = tick(28).add({ hours: 25 });
+    expect(await drain(expired)).toMatchObject({ delivered: 0, uncertain: 1 });
+    expect(attempts).toHaveLength(beforeExpiryReplay);
+    expect(
+      (await notices()).find(({ id }) => id === attempts.at(-1)?.noticeId)
+    ).toMatchObject({
+      uncertainty: "replay-expired",
+      requestStartedAt: tick(28),
+    });
+
+    await restore(tick(28), expired.add({ minutes: 1 }));
+    outage = true;
+    expect(await drain(expired.add({ minutes: 1 }))).toMatchObject({
+      delivered: 0,
+      deferred: 1,
+    });
+    expect(
+      (await notices()).find(({ id }) => id === attempts.at(-1)?.noticeId)
+    ).toMatchObject({
+      uncertainty: null,
+      requestStartedAt: null,
+      requestFingerprint: null,
+    });
+    outage = false;
+    bookerName = "Robin";
+    expect(await drain(expired.add({ hours: 25 }))).toMatchObject({
+      delivered: 1,
+      uncertain: 0,
+    });
+    simulateExpiredProviderKey = false;
+    const nextCancellation = expired.add({ hours: 26 });
+    await cancel(nextCancellation);
+    loseProcessAfterAcceptance = true;
+    await expect(drain(nextCancellation)).rejects.toThrow(
+      "Synthetic process loss after provider acceptance"
+    );
+    loseProcessAfterAcceptance = false;
+    const superseded = attempts.at(-1)?.noticeId;
+    await restore(nextCancellation, nextCancellation.add({ minutes: 1 }));
+    await drain(nextCancellation.add({ minutes: 2 }));
+    expect(
+      attempts.filter(({ noticeId }) => noticeId === superseded)
+    ).toHaveLength(1);
+    expect((await notices()).find(({ id }) => id === superseded)).toMatchObject(
+      {
+        uncertainty: "superseded",
+      }
+    );
   });
 
   test("signed-in invitation history includes the matching address and excludes unrelated accounts", async () => {

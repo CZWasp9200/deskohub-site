@@ -242,34 +242,12 @@ export interface IReservationInvitees {
     ReadonlyArray<WorkspaceReservationId>,
     ReservationInviteeStorageError
   >;
-  /**
-   * Records an invitation sent as send number `sendCount`; a row already
-   * past it stays as it is.
-   */
-  readonly markInvitationSent: (input: {
-    readonly inviteeId: ReservationInviteeId;
-    readonly sendCount: number;
+  /** Settles a provider acceptance and records an invitation send together. */
+  readonly acceptNotice: (input: {
+    readonly noticeId: string;
+    readonly invitationRecipient?: ReservationInviteeId;
     readonly sentAt: Temporal.Instant;
-  }) => Effect.Effect<void, ReservationInviteeStorageError>;
-  /**
-   * Claims a resend: counts it and stamps `sentAt` only while the last send
-   * is at least `cooldown` old. Returns the claimed send number, or none
-   * while the cooldown runs.
-   */
-  readonly claimResend: (input: {
-    readonly inviteeId: ReservationInviteeId;
-    readonly sentAt: Temporal.Instant;
-    readonly cooldown: Temporal.DurationLike;
-    readonly previousSendCount: number;
-  }) => Effect.Effect<Option.Option<number>, ReservationInviteeStorageError>;
-  /** Releases precisely this failed resend, preserving a newer claim. */
-  readonly releaseFailedResend: (input: {
-    readonly inviteeId: ReservationInviteeId;
-    readonly sendCount: number;
-    readonly sentAt: Temporal.Instant;
-    readonly previousSentAt: Temporal.Instant | null;
-  }) => Effect.Effect<void, ReservationInviteeStorageError>;
-  /** Deletes the reservation's rows, for a released hold. */
+  }) => Effect.Effect<boolean, ReservationInviteeStorageError>;
   readonly deleteForReservation: (
     reservationId: WorkspaceReservationId
   ) => Effect.Effect<void, ReservationInviteeStorageError>;
@@ -542,79 +520,51 @@ export class ReservationInvitees extends Context.Service<
             );
           return rows.map((row) => row.reservationId);
         }),
-        markInvitationSent: ({ inviteeId, sendCount, sentAt }) =>
-          db
-            .update(reservationInvitees)
-            .set({
-              invitationSendCount: sendCount,
-              lastInvitationSentAt: sentAt,
-            })
-            .where(
-              and(
-                eq(reservationInvitees.id, inviteeId),
-                sql`${reservationInvitees.invitationSendCount} < ${sendCount}`
-              )
-            )
-            .pipe(
-              Effect.asVoid,
-              Effect.mapError(
-                storageError("write", "An invitation could not be recorded.")
-              )
-            ),
-        claimResend: ({ inviteeId, sentAt, cooldown, previousSendCount }) =>
-          db
-            .update(reservationInvitees)
-            .set({
-              invitationSendCount: sql`${reservationInvitees.invitationSendCount} + 1`,
-              lastInvitationSentAt: sentAt,
-            })
-            .where(
-              and(
-                eq(reservationInvitees.id, inviteeId),
-                eq(reservationInvitees.invitationSendCount, previousSendCount),
-                isNotNull(reservationInvitees.keyId),
-                or(
-                  sql`${reservationInvitees.lastInvitationSentAt} is null`,
-                  sql`${reservationInvitees.lastInvitationSentAt} <= ${sentAt.subtract(cooldown).toString()}::timestamptz`
+        acceptNotice: ({ noticeId, invitationRecipient, sentAt }) =>
+          transaction(
+            Effect.gen(function* () {
+              // Retention also writes the invitee before its notices.
+              if (invitationRecipient) {
+                yield* db
+                  .update(reservationInvitees)
+                  .set({
+                    invitationSendCount: sql`${reservationInvitees.invitationSendCount} + 1`,
+                    lastInvitationSentAt: sentAt,
+                  })
+                  .where(eq(reservationInvitees.id, invitationRecipient));
+              }
+              const [settled] = yield* db
+                .update(reservationInviteeNotices)
+                .set({ settledAt: sentAt })
+                .where(
+                  and(
+                    eq(reservationInviteeNotices.id, noticeId),
+                    isNull(reservationInviteeNotices.settledAt),
+                    invitationRecipient
+                      ? eq(
+                          reservationInviteeNotices.inviteeId,
+                          invitationRecipient
+                        )
+                      : undefined
+                  )
                 )
-              )
-            )
-            .returning({
-              sendCount: reservationInvitees.invitationSendCount,
+                .returning({ id: reservationInviteeNotices.id });
+              if (!settled) {
+                return yield* new ReservationInviteeStorageError({
+                  operation: "write",
+                  message: "The invitation notice is no longer pending.",
+                });
+              }
             })
-            .pipe(
-              Effect.map((rows) =>
-                Option.map(Arr.head(rows), (row) => row.sendCount)
-              ),
-              Effect.mapError(
-                storageError("write", "A resend could not be recorded.")
-              )
+          ).pipe(
+            Effect.as(true),
+            Effect.catchTag("ReservationInviteeStorageError", () =>
+              Effect.succeed(false)
             ),
-        releaseFailedResend: ({
-          inviteeId,
-          sendCount,
-          sentAt,
-          previousSentAt,
-        }) =>
-          db
-            .update(reservationInvitees)
-            .set({
-              invitationSendCount: sendCount - 1,
-              lastInvitationSentAt: previousSentAt,
-            })
-            .where(
-              and(
-                eq(reservationInvitees.id, inviteeId),
-                eq(reservationInvitees.invitationSendCount, sendCount),
-                eq(reservationInvitees.lastInvitationSentAt, sentAt)
-              )
+            Effect.mapError(
+              storageError("write", "A guest notice could not be recorded.")
             )
-            .pipe(
-              Effect.asVoid,
-              Effect.mapError(
-                storageError("write", "A failed resend could not be released.")
-              )
-            ),
+          ),
         deleteForReservation: (reservationId) =>
           db
             .delete(reservationInvitees)

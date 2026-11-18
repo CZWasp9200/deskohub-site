@@ -7,12 +7,9 @@ import { ReservationAuthorizationService } from "@/features/reservation/backend/
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { WorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
-import { WorkspaceEmailLayer } from "@/shared/backend/config/email.config";
 import type { ReservationInviteeId } from "../reservation-invitee";
-import {
-  InvitationResendRefused,
-  ReservationInvitations,
-} from "./reservation-invitations.service";
+import { InvitationResendRefused } from "./reservation-invitations.service";
+import { ReservationInviteeNoticeWorker } from "./reservation-invitee-notice-worker";
 import { ReservationInvitees } from "./reservation-invitees.service";
 
 export const resendReservationInvitationServices = Layer.mergeAll(
@@ -22,7 +19,7 @@ export const resendReservationInvitationServices = Layer.mergeAll(
   WorkspaceReservationService.Live,
   WorkspaceDatabaseAdvisoryLock.Default,
   ReservationInvitees.Default,
-  ReservationInvitations.Live.pipe(Layer.provide(WorkspaceEmailLayer))
+  ReservationInviteeNoticeWorker.Live
 );
 
 export const resendAuthorizedReservationInvitation = Effect.fn(
@@ -58,12 +55,13 @@ export const resendAuthorizedReservationInvitation = Effect.fn(
         });
       }
       const invitees = yield* ReservationInvitees;
-      const invitee = yield* invitees.find(orderId, inviteeId);
-      if (Option.isNone(invitee) || invitee.value.email === null) {
+      const found = yield* invitees.find(orderId, inviteeId);
+      if (Option.isNone(found) || found.value.email === null) {
         return yield* new InvitationResendRefused({
           refusal: { reason: "not-found" },
         });
       }
+      const invitee = { ...found.value, email: found.value.email };
       if (
         stored.paymentState !== "paid" ||
         stored.reservationState !== "confirmed"
@@ -80,8 +78,8 @@ export const resendAuthorizedReservationInvitation = Effect.fn(
           refusal: { reason: "not-confirmed" },
         });
       }
-      const invitations = yield* ReservationInvitations;
-      return yield* invitations.resend({ reservation, inviteeId });
+      const notices = yield* ReservationInviteeNoticeWorker;
+      return yield* notices.resendUnderNoticeLock({ reservation, invitee });
     }).pipe(Effect.timeout("8 seconds"))
   );
 });

@@ -67,7 +67,7 @@ import { ReservationAuthorizationService } from "@/features/reservation/backend/
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { WorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";
-import { ReservationInvitations } from "@/features/reservation-invitees/backend/reservation-invitations.service";
+import { ReservationInviteeNoticeWorker } from "@/features/reservation-invitees/backend/reservation-invitee-notice-worker";
 import { ReservationInvitees } from "@/features/reservation-invitees/backend/reservation-invitees.service";
 import { ReviewAccountsMock } from "@/features/review-accounts/backend/review-accounts.repository.mock";
 import {
@@ -256,7 +256,7 @@ const unusedReservationServices: CustomerReservationServiceLayers = {
     Layer.mock(WorkspaceReservationRepository, {}),
     Layer.mock(WorkspaceReservationService, {}),
     Layer.mock(ReservationInvitees, {}),
-    Layer.mock(ReservationInvitations, {})
+    Layer.mock(ReservationInviteeNoticeWorker, {})
   ),
   currentAccount: Layer.mock(CurrentCustomerAccount, {}),
   history: () => Layer.mock(CustomerReservationHistoryWithAccessService, {}),

@@ -9,8 +9,15 @@ import {
 } from "drizzle-orm/pg-core";
 import type { ReservationInviteeId } from "@/features/reservation-invitees/reservation-invitee";
 import { instant } from "../instant";
+import { sensitiveText } from "../sensitive-text";
 import { postgresUuidV7 } from "../uuid-v7";
 import { reservationInvitees } from "./reservation-invitees";
+
+export type InviteeNoticeUncertainty =
+  | "request-changed"
+  | "replay-expired"
+  | "not-replayable"
+  | "superseded";
 
 export type RestoredInviteeAccess = "past" | "link" | "issued";
 
@@ -34,6 +41,10 @@ export const reservationInviteeNotices = pgTable(
     attemptCount: integer("attempt_count").notNull().default(0),
     /** Freezes the restoration copy before its first provider attempt. */
     restoredAccess: text("restored_access").$type<RestoredInviteeAccess>(),
+    /** First time the current provider request could have reached the provider. */
+    requestStartedAt: instant("request_started_at"),
+    requestFingerprint: sensitiveText("request_fingerprint"),
+    uncertainty: text("uncertainty").$type<InviteeNoticeUncertainty>(),
     settledAt: instant("settled_at"),
   },
   (t) => [
@@ -50,6 +61,14 @@ export const reservationInviteeNotices = pgTable(
       sql`${t.restoredAccess} is null or (
       ${t.kind} = 'restoration' and ${t.restoredAccess} in ('past', 'link', 'issued')
     )`
+    ),
+    check(
+      "reservation_invitee_notices_attempt_check",
+      sql`(${t.requestStartedAt} is null) = (${t.requestFingerprint} is null)
+        and (${t.uncertainty} is null or (
+          ${t.settledAt} is not null and ${t.requestStartedAt} is not null
+          and ${t.uncertainty} in ('request-changed', 'replay-expired', 'not-replayable', 'superseded')
+        ))`
     ),
     check(
       "reservation_invitee_notices_kind_check",

@@ -72,6 +72,7 @@ import {
   paymentAttempts,
   promotionCodes,
   reservationAccessGrants,
+  reservationInviteeNotices,
   reservationInvitees,
   standaloneAccessCodeAttemptEvents,
 } from "./index";
@@ -415,6 +416,31 @@ const rowFixtures = new Map([
           scheduledAccessStartsAt: now(),
           accessStartsAt: now(),
           accessEndsAt: inAnHour(),
+        };
+      }),
+  }),
+  rowFixture(reservationInviteeNotices, {
+    row: (db) =>
+      Effect.gen(function* () {
+        const [invitee] = yield* db
+          .insert(reservationInvitees)
+          .values({
+            workspaceReservationId: yield* heldReservation(db),
+            position: 0,
+            keyId: "synthetic",
+            encryptedEmail: Buffer.from("synthetic-ciphertext"),
+            emailLookupKey: base64UrlDigest(crypto.randomUUID()),
+            retainUntil: inAnHour(),
+          })
+          .returning({ id: reservationInvitees.id });
+        if (!invitee)
+          return yield* Effect.die("Synthetic invitee could not be inserted");
+        return {
+          id: syntheticId("notice"),
+          inviteeId: invitee.id,
+          kind: "invitation",
+          occurredAt: now(),
+          requestStartedAt: now(),
         };
       }),
   }),
