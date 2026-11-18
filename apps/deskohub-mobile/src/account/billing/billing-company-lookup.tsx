@@ -1,4 +1,7 @@
-import { CompanyLookup } from "../../company-lookup/company-lookup";
+import {
+  CompanyLookup,
+  type CompanyLookupProps,
+} from "../../company-lookup/company-lookup";
 import type { CompanyDetailsField } from "../../company-lookup/company-lookup-model";
 import type { AppLocale } from "../../i18n/app-locale";
 import { m } from "../../i18n/messages";
@@ -28,12 +31,14 @@ export function BillingCompanyLookup({
   onApply,
   disabled,
   remindsToSave,
+  renderAction,
   locale,
 }: {
   readonly draft: ProfileDraft;
   readonly onApply: (change: Partial<ProfileDraft>) => void;
   readonly disabled: boolean;
   readonly remindsToSave: boolean;
+  readonly renderAction?: CompanyLookupProps["renderAction"];
   readonly locale: AppLocale;
 }) {
   return (
@@ -50,6 +55,7 @@ export function BillingCompanyLookup({
       onApply={onApply}
       disabled={disabled}
       remindsToSave={remindsToSave}
+      renderAction={renderAction}
       locale={locale}
     />
   );

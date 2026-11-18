@@ -707,6 +707,7 @@
   "account_section_invoices": "Рахунки-фактури",
   "invoices_empty": "Рахунків-фактур ще немає",
   "invoices_row_amount_number": "{amount} · № {number}",
+  "invoices_row_number": "№ {number}",
   "invoices_download_label": "Завантажити рахунок-фактуру {number}",
   "invoices_downloading": "Завантажуємо рахунок-фактуру {number}…",
   "invoices_download_not_found": "Не вдалося знайти цей рахунок-фактуру. Оновіть список і спробуйте ще раз.",

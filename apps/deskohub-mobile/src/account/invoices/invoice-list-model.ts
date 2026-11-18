@@ -158,13 +158,10 @@ export const invoiceRowText = (
   locale: AppLocale
 ): InvoiceRowText =>
   Match.valueTags(row, {
-    Described: ({ subject, total, invoiceNumber }) => ({
+    Described: ({ subject, total }) => ({
       title: subjectTitle(subject, locale),
       when: subjectDates(subject, locale),
-      amount: m.invoices_row_amount_number(
-        { amount: formatInvoiceTotal(total, locale), number: invoiceNumber },
-        { locale }
-      ),
+      amount: formatInvoiceTotal(total, locale),
     }),
     Plain: ({ invoiceNumber, issuedOn, total }) => ({
       title: invoiceNumber,

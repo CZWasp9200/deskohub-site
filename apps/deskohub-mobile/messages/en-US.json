@@ -703,6 +703,7 @@
   "account_section_invoices": "Invoices",
   "invoices_empty": "No invoices yet",
   "invoices_row_amount_number": "{amount} · No. {number}",
+  "invoices_row_number": "No. {number}",
   "invoices_download_label": "Download invoice {number}",
   "invoices_downloading": "Downloading invoice {number}…",
   "invoices_download_not_found": "We couldn't find this invoice. Refresh the list and try again.",

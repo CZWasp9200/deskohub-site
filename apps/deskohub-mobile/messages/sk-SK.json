@@ -707,6 +707,7 @@
   "account_section_invoices": "Faktúry",
   "invoices_empty": "Zatiaľ žiadne faktúry",
   "invoices_row_amount_number": "{amount} · č. {number}",
+  "invoices_row_number": "č. {number}",
   "invoices_download_label": "Stiahnuť faktúru {number}",
   "invoices_downloading": "Sťahujeme faktúru {number}…",
   "invoices_download_not_found": "Túto faktúru sme nenašli. Obnov zoznam a skús to znova.",

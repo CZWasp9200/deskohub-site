@@ -15,6 +15,7 @@ import { ListGroup } from "../../ui/list";
 import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { SkeletonGroup } from "../../ui/skeleton";
+import { useViewport, wideGutter } from "../../ui/viewport";
 import type { InvoiceDownload, InvoiceRow } from "./invoice-list-model";
 import { InvoiceListRow } from "./invoice-list-row";
 import {
@@ -69,6 +70,9 @@ export function InvoicesScreen() {
  */
 function InvoiceRows({ rows }: { readonly rows: ReadonlyArray<InvoiceRow> }) {
   const locale = useAppLocale();
+  const { availableWidth, fontScale, isWide } = useViewport();
+  const amountColumn =
+    isWide && availableWidth - 2 * wideGutter >= 480 && fontScale < 1.3;
   const download = useAtomSet(invoiceDownloadAtom);
   const state = invoiceDownloadState(useAtomValue(invoiceDownloadAtom));
   const [attempted, setAttempted] = useState<InvoiceDownload | undefined>();
@@ -96,6 +100,7 @@ function InvoiceRows({ rows }: { readonly rows: ReadonlyArray<InvoiceRow> }) {
                 : undefined
             }
             held={downloading}
+            amountColumn={amountColumn}
             onDownload={(document) => {
               setAttempted(document);
               download(document);

@@ -703,6 +703,7 @@
   "account_section_invoices": "इनवॉइस",
   "invoices_empty": "अभी कोई इनवॉइस नहीं",
   "invoices_row_amount_number": "{amount} · सं. {number}",
+  "invoices_row_number": "सं. {number}",
   "invoices_download_label": "इनवॉइस {number} डाउनलोड करें",
   "invoices_downloading": "इनवॉइस {number} डाउनलोड हो रहा है…",
   "invoices_download_not_found": "यह इनवॉइस नहीं मिला। सूची रीफ़्रेश करें और फिर से कोशिश करें।",
