@@ -9,7 +9,7 @@ import Mail from "lucide-react-native/icons/mail";
 import Receipt from "lucide-react-native/icons/receipt";
 import ShieldCheck from "lucide-react-native/icons/shield-check";
 import Trash2 from "lucide-react-native/icons/trash-2";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { type ReactNode, useEffect, useReducer, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { apiOrigin } from "../../auth/auth-client";
 import { useReauthentication } from "../../auth/reauthentication";
@@ -37,6 +37,8 @@ import { Notice } from "../../ui/notice";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { Text } from "../../ui/text";
 import { color, radius, space } from "../../ui/tokens";
+import { useViewport } from "../../ui/viewport";
+import { DataExportRow } from "../legal/data-export-row";
 import {
   type DeleteScreenView,
   type DeletionAttempt,
@@ -92,6 +94,7 @@ const requestFailureMessage = (
  */
 export function DangerZoneScreen() {
   const locale = useAppLocale();
+  const { availableWidth, fontScale, isWide } = useViewport();
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
   const requestDeletion = useAtomSet(requestAccountDeletionAtom, {
@@ -151,6 +154,21 @@ export function DangerZoneScreen() {
   };
 
   const notice = screenNotice(flow.attempt, locale);
+  const confirmation = (
+    <CheckboxRow
+      tone="danger"
+      label={m.danger_confirm_label({}, { locale })}
+      checked={flow.confirmed}
+      onChange={(confirmed) => dispatch({ type: "confirmation", confirmed })}
+    />
+  );
+  // The expanded Account menu and rail share the viewport with this pane.
+  // At larger text sizes keep the checkbox in the scrollable content.
+  const confirmationInFooter =
+    isWide &&
+    fontScale < 1.3 &&
+    availableWidth >= 464 * Math.max(1, fontScale) &&
+    AsyncResult.isSuccess(account);
   return (
     <View style={styles.screen}>
       <ScrollScreen refreshing={account.waiting} onRefresh={refresh}>
@@ -160,11 +178,9 @@ export function DangerZoneScreen() {
           {(current) => (
             <DeleteScreenContent
               view={deleteScreenView(current, flow)}
-              confirmed={flow.confirmed}
+              confirmation={confirmationInFooter ? undefined : confirmation}
               locale={locale}
-              onConfirmedChange={(confirmed) =>
-                dispatch({ type: "confirmation", confirmed })
-              }
+              isWide={isWide}
             />
           )}
         </AsyncView>
@@ -172,6 +188,7 @@ export function DangerZoneScreen() {
       {AsyncResult.isSuccess(account) && (
         <DeleteScreenFooter
           view={deleteScreenView(account.value, flow)}
+          confirmation={confirmationInFooter ? confirmation : undefined}
           locale={locale}
           onDelete={() => dispatch({ type: "open" })}
         />
@@ -217,10 +234,14 @@ function FactRow({
   );
 }
 
-function DangerDisc() {
+function DangerDisc({ inline = false }: { readonly inline?: boolean }) {
   return (
     <View
-      style={[styles.disc, { backgroundColor: discColors.danger.background }]}
+      style={[
+        styles.disc,
+        { backgroundColor: discColors.danger.background },
+        inline && styles.inlineDisc,
+      ]}
     >
       <Icon icon={Trash2} size={24} color={discColors.danger.ink} />
     </View>
@@ -229,23 +250,15 @@ function DangerDisc() {
 
 function DeleteScreenContent({
   view,
-  confirmed,
+  confirmation,
   locale,
-  onConfirmedChange,
+  isWide,
 }: {
   readonly view: DeleteScreenView;
-  readonly confirmed: boolean;
+  readonly confirmation?: ReactNode;
   readonly locale: AppLocale;
-  readonly onConfirmedChange: (confirmed: boolean) => void;
+  readonly isWide: boolean;
 }) {
-  const confirmation = (
-    <CheckboxRow
-      tone="danger"
-      label={m.danger_confirm_label({}, { locale })}
-      checked={confirmed}
-      onChange={onConfirmedChange}
-    />
-  );
   return Match.value(view).pipe(
     Match.discriminatorsExhaustive("kind")({
       withheld: () => (
@@ -279,14 +292,16 @@ function DeleteScreenContent({
       ),
       consequences: () => (
         <View style={styles.content}>
-          <View style={styles.head}>
-            <DangerDisc />
-            <Text variant="titleLarge" role="heading">
-              {m.danger_title({}, { locale })}
-            </Text>
-            <Text variant="body" tone="muted">
-              {m.danger_consequences_lead({}, { locale })}
-            </Text>
+          <View style={[styles.head, isWide && styles.inlineHead]}>
+            <DangerDisc inline={isWide} />
+            <View style={[styles.headCopy, isWide && styles.inlineHeadCopy]}>
+              <Text variant="titleLarge" role="heading">
+                {m.danger_title({}, { locale })}
+              </Text>
+              <Text variant="body" tone="muted">
+                {m.danger_consequences_lead({}, { locale })}
+              </Text>
+            </View>
           </View>
           <ListGroup>
             <FactRow
@@ -302,6 +317,12 @@ function DeleteScreenContent({
               text={m.danger_consequence_access({}, { locale })}
             />
           </ListGroup>
+          <DataExportRow
+            offer={{
+              title: m.danger_data_export_title({}, { locale }),
+              description: m.danger_data_export_description({}, { locale }),
+            }}
+          />
           {confirmation}
         </View>
       ),
@@ -333,16 +354,18 @@ function ContactCard({
 
 function DeleteScreenFooter({
   view,
+  confirmation,
   locale,
   onDelete,
 }: {
   readonly view: DeleteScreenView;
+  readonly confirmation?: ReactNode;
   readonly locale: AppLocale;
   readonly onDelete: () => void;
 }) {
   if (!("deleteAction" in view)) return null;
   return (
-    <ActionFooter>
+    <ActionFooter aside={confirmation}>
       <Button
         variant="danger"
         label={
@@ -526,6 +549,9 @@ const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
   content: { gap: space.lg },
   head: { gap: space.sm, paddingTop: space.sm },
+  headCopy: { gap: space.sm },
+  inlineHead: { alignItems: "flex-start", flexDirection: "row", gap: space.lg },
+  inlineHeadCopy: { flex: 1, gap: space.xxs },
   disc: {
     alignItems: "center",
     borderRadius: radius.disc,
@@ -534,6 +560,7 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
     width: 56,
   },
+  inlineDisc: { borderRadius: radius.tile, marginBottom: 0 },
   badge: { flexDirection: "row" },
   fact: {
     alignItems: "flex-start",
