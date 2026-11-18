@@ -1,6 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import type { Href, ImperativeRouter } from "expo-router";
-import { accountRootHref, returnToAccountRoot } from "./account-root";
+import { createElement, useEffect } from "react";
+import { clientRoot } from "../testing/client-root";
+import {
+  accountRootHref,
+  returnToAccountRoot,
+  useDefaultAccountProfile,
+} from "./account-root";
 
 describe("returnToAccountRoot", () => {
   const recordingRouter = () => {
@@ -31,5 +37,59 @@ describe("returnToAccountRoot", () => {
 
   test("the Account root is the Account tab's index", () => {
     expect(accountRootHref).toBe("/account");
+  });
+});
+
+describe("the expanded Account default detail", () => {
+  const { render } = clientRoot();
+
+  const mountedOverview = () => {
+    const navigate = mock((_href: Href) => undefined);
+    const router = { navigate };
+    type Overview = Parameters<typeof useDefaultAccountProfile>[1] & {
+      readonly linked: boolean;
+    };
+    function Overview({ linked, ...route }: Overview) {
+      const open = useDefaultAccountProfile(router, route);
+      useEffect(() => {
+        if (linked) open();
+      }, [linked, open]);
+      return null;
+    }
+    return {
+      navigate,
+      show: (route: Partial<Overview> = {}) =>
+        render(
+          createElement(Overview, {
+            linked: true,
+            focused: true,
+            isExpanded: true,
+            inAccount: true,
+            detail: undefined,
+            ...route,
+          })
+        ),
+    };
+  };
+
+  test("a direct Billing link and Back to Account do not open an extra Profile route", async () => {
+    const { navigate, show } = mountedOverview();
+    await show({ detail: "billing", focused: false });
+    await show();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  test("an overview opens Profile once it is linked and expanded", async () => {
+    const { navigate, show } = mountedOverview();
+    await show({ isExpanded: false });
+    await show({ linked: false });
+    expect(navigate).not.toHaveBeenCalled();
+    await show();
+    await show({ detail: "profile", focused: false });
+    await show();
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("/account/profile", {
+      dangerouslySingular: true,
+    });
   });
 });

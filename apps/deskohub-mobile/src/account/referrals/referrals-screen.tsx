@@ -6,13 +6,7 @@ import Copy from "lucide-react-native/icons/copy";
 import Info from "lucide-react-native/icons/info";
 import Share2 from "lucide-react-native/icons/share-2";
 import { useEffect, useState } from "react";
-import {
-  Platform,
-  Pressable,
-  StyleSheet,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { AsyncView } from "../../customer-api/async-view";
 import type { CustomerViewError } from "../../customer-api/customer-view-error";
 import type { AppLocale } from "../../i18n/app-locale";
@@ -29,6 +23,7 @@ import { Skeleton, SkeletonGroup } from "../../ui/skeleton";
 import { Text } from "../../ui/text";
 import { useToast } from "../../ui/toast";
 import { color, radius, space } from "../../ui/tokens";
+import { useViewport } from "../../ui/viewport";
 import {
   copiedFeedbackMs,
   copyReferralCodeAtom,
@@ -40,6 +35,14 @@ import {
   referralsView,
   shareReferralLinkAtom,
 } from "./referrals";
+
+const inlineInviteMinWidth = 520;
+const statTileMinWidth = 220;
+
+type ReferralsLayout = {
+  readonly inlineInvite: boolean;
+  readonly stackStats: boolean;
+};
 
 const failureMessage = (error: CustomerViewError, locale: AppLocale) => {
   const failure = referralsFailure(error);
@@ -60,28 +63,54 @@ export function ReferralsScreen() {
   const locale = useAppLocale();
   const referrals = useAtomValue(referralsAtom);
   const refresh = useAtomRefresh(referralsAtom);
+  const { isWide, fontScale } = useViewport();
+  const [contentWidth, setContentWidth] = useState(0);
+  const scale = Math.max(1, fontScale);
+  // The account menu and rail can leave a narrow detail pane on a wide screen.
+  const inlineInvite = isWide && contentWidth >= inlineInviteMinWidth * scale;
+  const stackStats = isWide
+    ? contentWidth < 2 * statTileMinWidth * scale + space.md
+    : fontScale >= 1.3;
 
   return (
     <ScrollScreen
       refreshing={referrals.waiting && !AsyncResult.isInitial(referrals)}
       onRefresh={refresh}
     >
-      <AsyncView
-        result={referrals}
-        onRetry={refresh}
-        errorMessage={(error) => failureMessage(error, locale)}
-        loading={<ReferralsSkeleton />}
+      <View
+        onLayout={
+          isWide
+            ? (event) => setContentWidth(event.nativeEvent.layout.width)
+            : undefined
+        }
+        style={styles.content}
       >
-        {(overview) => (
-          <ReferralsSummary view={referralsView(overview, locale)} />
-        )}
-      </AsyncView>
+        <AsyncView
+          result={referrals}
+          onRetry={refresh}
+          errorMessage={(error) => failureMessage(error, locale)}
+          loading={
+            <ReferralsSkeleton
+              inlineInvite={inlineInvite}
+              stackStats={isWide && stackStats}
+            />
+          }
+        >
+          {(overview) => (
+            <ReferralsSummary
+              view={referralsView(overview, locale)}
+              inlineInvite={inlineInvite}
+              stackStats={stackStats}
+            />
+          )}
+        </AsyncView>
+      </View>
     </ScrollScreen>
   );
 }
 
 /** The loading state: the code card and the two tiles, in their final size. */
-function ReferralsSkeleton() {
+function ReferralsSkeleton({ inlineInvite, stackStats }: ReferralsLayout) {
   const locale = useAppLocale();
   const tile = (
     <Card>
@@ -94,25 +123,45 @@ function ReferralsSkeleton() {
   return (
     <SkeletonGroup label={m.account_loading({}, { locale })}>
       <Card>
-        <View style={styles.cardSkeleton}>
-          <Skeleton width="34%" height={10} radius={5} />
-          <View style={styles.codeRow}>
-            <Skeleton width="58%" height={28} radius={8} />
-            <View style={styles.spacer} />
-            <Skeleton width={48} height={48} radius={24} />
+        <View
+          style={[styles.cardSkeleton, inlineInvite && styles.inlineInvite]}
+        >
+          <View
+            style={[styles.cardSkeleton, inlineInvite && styles.inlineDetails]}
+          >
+            <Skeleton width="34%" height={10} radius={5} />
+            <View
+              style={[styles.codeRow, !inlineInvite && styles.stackedCodeRow]}
+            >
+              <Skeleton width="58%" height={28} radius={8} />
+              {!inlineInvite && <View style={styles.spacer} />}
+              <Skeleton width={48} height={48} radius={24} />
+            </View>
           </View>
-          <Skeleton width="100%" height={48} radius={24} />
+          <Skeleton
+            width={inlineInvite ? "36%" : "100%"}
+            height={48}
+            radius={24}
+          />
         </View>
       </Card>
       <View style={styles.tiles}>
-        <View style={styles.tile}>{tile}</View>
-        <View style={styles.tile}>{tile}</View>
+        <View style={[styles.tile, stackStats && styles.tileStacked]}>
+          {tile}
+        </View>
+        <View style={[styles.tile, stackStats && styles.tileStacked]}>
+          {tile}
+        </View>
       </View>
     </SkeletonGroup>
   );
 }
 
-function ReferralsSummary({ view }: { readonly view: ReferralsView }) {
+function ReferralsSummary({
+  view,
+  inlineInvite,
+  stackStats,
+}: ReferralsLayout & { readonly view: ReferralsView }) {
   const locale = useAppLocale();
   const toast = useToast();
   const copy = useAtomSet(copyReferralCodeAtom, { mode: "promiseExit" });
@@ -161,40 +210,48 @@ function ReferralsSummary({ view }: { readonly view: ReferralsView }) {
   return (
     <>
       <Card>
-        <View style={styles.codeCard}>
-          <Text variant="caption" tone="muted">
-            {m.referrals_code_caption({}, { locale })}
-          </Text>
-          <View style={styles.codeRow}>
-            {/* A code stays on one line, smaller if it has to. */}
-            <Text
-              selectable
-              numeric
-              variant="headline"
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.5}
-              style={styles.code}
-            >
-              {view.code}
+        <View style={[styles.codeCard, inlineInvite && styles.inlineInvite]}>
+          <View style={[styles.codeCard, inlineInvite && styles.inlineDetails]}>
+            <Text variant="caption" tone="muted">
+              {m.referrals_code_caption({}, { locale })}
             </Text>
-            <IconButton
-              icon={copied ? Check : Copy}
-              tone={copied ? "positive" : "tint"}
-              label={m.referrals_copy_invite_code({}, { locale })}
-              onPress={() => void copyCode()}
+            <View
+              style={[styles.codeRow, !inlineInvite && styles.stackedCodeRow]}
+            >
+              {/* A code stays on one line, smaller if it has to. */}
+              <Text
+                selectable
+                numeric
+                variant="headline"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.5}
+                style={[styles.code, !inlineInvite && styles.stackedCode]}
+              >
+                {view.code}
+              </Text>
+              <IconButton
+                icon={copied ? Check : Copy}
+                tone={copied ? "positive" : "tint"}
+                label={m.referrals_copy_invite_code({}, { locale })}
+                onPress={() => void copyCode()}
+              />
+            </View>
+          </View>
+          <View style={inlineInvite && styles.inlineShare}>
+            <Button
+              icon={Share2}
+              label={m.referrals_share_invite_link({}, { locale })}
+              busy={sharing}
+              width={inlineInvite ? "content" : "full"}
+              onPress={() => void shareLink()}
             />
           </View>
-          <Button
-            icon={Share2}
-            label={m.referrals_share_invite_link({}, { locale })}
-            busy={sharing}
-            onPress={() => void shareLink()}
-          />
         </View>
       </Card>
       <View style={styles.tiles}>
         <StatTile
+          stacked={stackStats}
           label={m.referrals_your_discount({}, { locale })}
           value={view.discount}
           info={
@@ -208,6 +265,7 @@ function ReferralsSummary({ view }: { readonly view: ReferralsView }) {
           }
         />
         <StatTile
+          stacked={stackStats}
           label={m.referrals_saved_so_far({}, { locale })}
           value={savings}
         />
@@ -268,10 +326,12 @@ function ReferralsSummary({ view }: { readonly view: ReferralsView }) {
 
 /** One of the two numbers: a caption over a large figure. */
 function StatTile({
+  stacked,
   label,
   value,
   info,
 }: {
+  readonly stacked: boolean;
   readonly label: string;
   readonly value: string;
   /** An (i) in the corner that opens how the number is worked out. */
@@ -281,8 +341,6 @@ function StatTile({
     readonly onToggle: () => void;
   };
 }) {
-  // At large text each tile takes the full width, so no word breaks.
-  const stacked = useWindowDimensions().fontScale >= 1.3;
   return (
     <View style={[styles.tile, stacked && styles.tileStacked]}>
       <Card>
@@ -380,22 +438,31 @@ function Step({
 }
 
 const styles = StyleSheet.create({
+  content: { gap: space.md },
   codeCard: { gap: space.xs },
   cardSkeleton: { gap: space.sm },
+  inlineInvite: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.lg,
+  },
+  inlineDetails: { flex: 1, minWidth: 0 },
+  inlineShare: { flexShrink: 1, maxWidth: "50%" },
   codeRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: space.sm,
-    marginBottom: space.md,
   },
+  stackedCodeRow: { marginBottom: space.md },
   code: {
     color: color.navy,
-    flex: 1,
+    flexShrink: 1,
     fontSize: 22,
     letterSpacing: 0.3,
     lineHeight: 32,
     fontWeight: "700",
   },
+  stackedCode: { flex: 1 },
   spacer: { flex: 1 },
   // Two tiles side by side; at large text each takes the full width.
   tiles: {

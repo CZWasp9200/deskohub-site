@@ -55,7 +55,12 @@ const current = (registry: Registry, useDraft: () => Draft): Draft => {
 };
 
 /** The company lookup the billing section shows, as the screen wires it. */
-const lookupOf = (draft: Draft, remindsToSave: boolean, registry: Registry) => {
+const lookupOf = (
+  draft: Draft,
+  remindsToSave: boolean,
+  registry: Registry,
+  layout: "compact" | "account" = "compact"
+) => {
   const section = elementTree(BillingCompanySection, {
     draft: draft.draft,
     invalid: undefined,
@@ -63,6 +68,7 @@ const lookupOf = (draft: Draft, remindsToSave: boolean, registry: Registry) => {
     inputs: createRef() as never,
     editable: true,
     locale: "en-US",
+    layout,
     onApply: draft.change,
     remindsToSave,
   });
@@ -90,30 +96,38 @@ const applyThrough = (lookup: ReturnType<typeof lookupOf>) =>
   );
 
 describe("Account › Billing details: Apply reaches the profile draft", () => {
-  test("the found company fills the draft; the rest stays as typed", () => {
-    const { registry } = makeFakeCustomerData("linked");
-    const useDraft = () =>
-      useProfileForm({ profile: sampleProfile, locale: "cs-CZ" });
-    current(registry, useDraft).change({
-      billingKind: "business",
-      companyId: "12345679",
-      addressLine2: "Typed by hand",
-    });
+  test.each(["compact", "account"] as const)(
+    "%s layout applies the found company and keeps other fields as typed",
+    (layout) => {
+      const { registry } = makeFakeCustomerData("linked");
+      const useDraft = () =>
+        useProfileForm({ profile: sampleProfile, locale: "cs-CZ" });
+      current(registry, useDraft).change({
+        billingKind: "business",
+        companyId: "12345679",
+        addressLine2: "Typed by hand",
+      });
 
-    const lookup = lookupOf(current(registry, useDraft), true, registry);
-    expect(lookup.remindsToSave).toBe(true);
-    expect(lookup.companyId).toBe("12345679");
-    // The review names the country as the form's country picker does.
-    expect(lookup.fields.find(({ field }) => field === "country")?.label).toBe(
-      m.booking_details_country({}, { locale: "en-US" })
-    );
-    applyThrough(lookup);
+      const lookup = lookupOf(
+        current(registry, useDraft),
+        true,
+        registry,
+        layout
+      );
+      expect(lookup.remindsToSave).toBe(true);
+      expect(lookup.companyId).toBe("12345679");
+      // The review names the country as the form's country picker does.
+      expect(
+        lookup.fields.find(({ field }) => field === "country")?.label
+      ).toBe(m.booking_details_country({}, { locale: "en-US" }));
+      applyThrough(lookup);
 
-    const { draft } = current(registry, useDraft);
-    expect(draft).toMatchObject(company);
-    expect(draft.addressLine2).toBe("Typed by hand");
-    expect(draft.firstName).toBe(sampleProfile.firstName);
-  });
+      const { draft } = current(registry, useDraft);
+      expect(draft).toMatchObject(company);
+      expect(draft.addressLine2).toBe("Typed by hand");
+      expect(draft.firstName).toBe(sampleProfile.firstName);
+    }
+  );
 });
 
 describe("Onboarding › Billing details: Apply reaches the completion draft", () => {

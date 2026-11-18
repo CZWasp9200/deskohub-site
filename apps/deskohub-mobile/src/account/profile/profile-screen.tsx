@@ -14,6 +14,7 @@ import { SectionHeader } from "../../ui/list";
 import { ScrollScreen } from "../../ui/scroll-screen";
 import { useToast } from "../../ui/toast";
 import { color, space } from "../../ui/tokens";
+import { contentColumnWidth, useViewport, wideGutter } from "../../ui/viewport";
 import { QuietUpdateOffer } from "../../updates/update-offer-card";
 import { initialsOf } from "../account-root-model";
 import { ReturnToAccountRoot } from "../return-to-account-root";
@@ -41,8 +42,10 @@ type LinkedAccount = Extract<CustomerAccountState, { kind: "linked" }>;
  */
 export function ProfileScreen({
   hostsUpdateOffer = false,
+  presentation,
 }: {
   readonly hostsUpdateOffer?: boolean;
+  readonly presentation?: "checkout";
 } = {}) {
   const account = useAtomValue(accountAtom);
   const refresh = useAtomRefresh(accountAtom);
@@ -57,6 +60,7 @@ export function ProfileScreen({
         result={account}
         onRefresh={refresh}
         hostsUpdateOffer={hostsUpdateOffer}
+        checkout={presentation === "checkout"}
       />
     );
   return (
@@ -75,11 +79,13 @@ function ProfileForm({
   result,
   onRefresh,
   hostsUpdateOffer,
+  checkout,
 }: {
   readonly account: LinkedAccount;
   readonly result: Atom.Type<typeof accountAtom>;
   readonly onRefresh: () => void;
   readonly hostsUpdateOffer: boolean;
+  readonly checkout: boolean;
 }) {
   const locale = useAppLocale();
   const router = useRouter();
@@ -89,6 +95,24 @@ function ProfileForm({
   const { inputs } = useFocusFirstInvalid(form.state, identityFields);
   const saving = form.state._tag === "Submitting";
   const saved = form.state._tag === "Done";
+  const { availableWidth, fontScale, isExpanded, isWide } = useViewport();
+  const wideTracks = checkout && isExpanded && fontScale < 1.5;
+  const contentWidth = wideTracks ? "wide" : "form";
+  const formWidth = Math.min(
+    contentColumnWidth[contentWidth],
+    availableWidth - 2 * wideGutter
+  );
+  const pairNames =
+    isWide && !wideTracks && formWidth >= 440 && fontScale < 1.5;
+  const fieldProps = {
+    draft: form.draft,
+    invalid: invalidOf(form.state),
+    onChange: form.setField,
+    inputs,
+    editable: !saving,
+    locale,
+  };
+  const [firstName, lastName, phone] = identityFields;
 
   useEffect(() => {
     if (saved) toast.show({ message: m.profile_saved({}, { locale }) });
@@ -107,34 +131,58 @@ function ProfileForm({
         sharedWith={["billing"]}
         locale={locale}
       />
-      <ScrollScreen refreshing={result.waiting} onRefresh={onRefresh}>
+      <ScrollScreen
+        contentWidth={contentWidth}
+        refreshing={result.waiting}
+        onRefresh={onRefresh}
+      >
         {hostsUpdateOffer && <QuietUpdateOffer backdrop="paper" />}
         <AsyncView result={result} onRetry={onRefresh}>
           {() => (
-            <>
-              <AvatarSection
-                avatar={account.avatar}
-                initials={initialsOf(account.profile)}
-              />
-              <View>
-                <SectionHeader title={m.profile_email_label({}, { locale })} />
-                <LoginEmailCard email={account.email} />
+            <View
+              style={[
+                styles.profile,
+                isWide && styles.wideProfile,
+                wideTracks && styles.tracks,
+              ]}
+            >
+              <View
+                style={[
+                  styles.profile,
+                  isWide && styles.wideProfile,
+                  wideTracks && styles.track,
+                ]}
+              >
+                <AvatarSection
+                  avatar={account.avatar}
+                  initials={initialsOf(account.profile)}
+                  inlineActions={wideTracks}
+                />
+                <View>
+                  <SectionHeader
+                    title={m.profile_email_label({}, { locale })}
+                  />
+                  <LoginEmailCard email={account.email} />
+                </View>
               </View>
-              <View style={styles.fields}>
+              <View style={[styles.fields, wideTracks && styles.track]}>
                 <SectionHeader
                   title={m.profile_identity_section({}, { locale })}
+                  first={wideTracks}
                 />
-                <ProfileTextFields
-                  fields={identityFields}
-                  draft={form.draft}
-                  invalid={invalidOf(form.state)}
-                  onChange={form.setField}
-                  inputs={inputs}
-                  editable={!saving}
-                  locale={locale}
-                />
+                <View style={[styles.fields, pairNames && styles.pairedFields]}>
+                  <View style={pairNames && styles.track}>
+                    <ProfileTextFields {...fieldProps} fields={[firstName]} />
+                  </View>
+                  <View style={pairNames && styles.track}>
+                    <ProfileTextFields {...fieldProps} fields={[lastName]} />
+                  </View>
+                </View>
+                <View style={pairNames && styles.halfField}>
+                  <ProfileTextFields {...fieldProps} fields={[phone]} />
+                </View>
               </View>
-            </>
+            </View>
           )}
         </AsyncView>
       </ScrollScreen>
@@ -149,6 +197,8 @@ function ProfileForm({
           onPress: () => router.push("/account/billing"),
         }}
         locale={locale}
+        layout={isWide ? "inline" : "stacked"}
+        contentWidth={contentWidth}
       />
     </KeyboardAvoidingView>
   );
@@ -156,5 +206,11 @@ function ProfileForm({
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: color.paper, flex: 1 },
+  profile: { gap: space.md },
+  wideProfile: { gap: space.xl },
+  tracks: { alignItems: "flex-start", flexDirection: "row", gap: space.xxl },
+  track: { flex: 1, minWidth: 0 },
   fields: { gap: space.lg },
+  pairedFields: { flexDirection: "row", alignItems: "flex-start" },
+  halfField: { width: "50%", paddingRight: space.lg / 2 },
 });

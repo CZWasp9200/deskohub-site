@@ -28,6 +28,7 @@ import { usePasskeyCeremony } from "./use-passkey-ceremony";
 export function AddPasskeyAction({
   name,
   kind,
+  width,
   onAdded,
   onReauthenticationRequired,
   onStart,
@@ -36,6 +37,7 @@ export function AddPasskeyAction({
   /** The passkey's name; the server names it after its provider otherwise. */
   readonly name?: string;
   readonly kind: "first" | "another";
+  readonly width?: "full" | "content";
   readonly onAdded?: (passkey: AddedPasskey) => void;
   readonly onReauthenticationRequired: () => void;
   readonly onStart?: () => void;
@@ -80,6 +82,7 @@ export function AddPasskeyAction({
       />
       <Button
         variant={kind === "first" || failed ? "primary" : "secondary"}
+        width={width}
         icon={shown.icon}
         label={pending ? m.passkey_add_waiting({}, { locale }) : shown.label}
         busy={pending}
